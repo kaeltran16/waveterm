@@ -5,9 +5,9 @@ import { AIPanel } from "@/app/aipanel/aipanel";
 import { ErrorBoundary } from "@/app/element/errorboundary";
 import { CenteredDiv } from "@/app/element/quickelems";
 import { ModalsRenderer } from "@/app/modals/modalsrenderer";
+import { SessionSidebar } from "@/app/tab/sessionsidebar/sessionsidebar";
 import { TabBar } from "@/app/tab/tabbar";
 import { TabContent } from "@/app/tab/tabcontent";
-import { VTabBar } from "@/app/tab/vtabbar";
 import { Widgets } from "@/app/workspace/widgets";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { atoms, getApi, getSettingsKeyAtom } from "@/store/global";
@@ -132,7 +132,7 @@ const WorkspaceElem = memo(() => {
                                     className="overflow-hidden"
                                 >
                                     <div ref={vtabPanelWrapperRef} className="w-full h-full">
-                                        {showLeftTabBar && <VTabBar workspace={ws} />}
+                                        {showLeftTabBar && <SessionSidebar workspace={ws} />}
                                     </div>
                                 </Panel>
                                 <PanelResizeHandle className={innerHandleClass} />

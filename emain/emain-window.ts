@@ -23,7 +23,7 @@ import { delay, ensureBoundsAreVisible, waveKeyToElectronKey } from "./emain-uti
 import { ElectronWshClient } from "./emain-wsh";
 import { updater } from "./updater";
 
-const DevInitTimeoutMs = 5000;
+const DevInitTimeoutMs = 60000;
 
 export type WindowOpts = {
     unamePlatform: NodeJS.Platform;
