@@ -269,6 +269,34 @@ Use `--print` to preview the metadata for any background configuration without a
 
 ---
 
+## agentstatus
+
+The `agentstatus` command publishes a coding-agent session status event scoped to the current (or specified) block.
+
+```sh
+wsh agentstatus --state working
+wsh agentstatus --state idle --agent claude --detail "editing foo.go"
+```
+
+Flags:
+
+- `--state string` - agent state: `working`, `waiting`, or `idle` (required)
+- `--detail string` - activity detail line (e.g. `"editing foo.go"`)
+- `--agent string` - agent identity (e.g. `claude`, `codex`)
+- `-b, --block` - target a specific block or tab (same format as `getmeta`)
+
+Example:
+
+```sh
+# Report that the agent is actively working
+wsh agentstatus --state working --agent claude --detail "editing main.go"
+
+# Report that the agent is done
+wsh agentstatus --state idle --agent claude
+```
+
+---
+
 ## badge
 
 <VersionBadge version="v0.14.2" />

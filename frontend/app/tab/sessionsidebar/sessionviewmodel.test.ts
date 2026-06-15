@@ -65,12 +65,14 @@ describe("aggregateStatus", () => {
 });
 
 function input(overrides: Partial<SessionInput>): SessionInput {
+    const cwd = overrides.cwd ?? "/src/CorrelationEngine";
     return {
         tabId: "t1",
         name: "tab",
         agent: "claude",
         pinned: false,
-        cwd: "/src/CorrelationEngine",
+        cwd,
+        serviceLabel: cwdToServiceLabel(cwd),
         status: "idle",
         active: false,
         ...overrides,
@@ -130,5 +132,28 @@ describe("buildSessionViewModel", () => {
         const row = vm.groups[0].sessions[0];
         expect(row.blocked).toBe(true);
         expect(row.active).toBe(true);
+    });
+
+    it("groups by the provided serviceLabel, not the cwd basename", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/CorrelationEngine", serviceLabel: "ServiceA" }),
+            input({ tabId: "t2", cwd: "/other/path", serviceLabel: "ServiceA" }),
+        ]);
+        expect(vm.groups).toHaveLength(1);
+        expect(vm.groups[0].label).toBe("ServiceA");
+        expect(vm.groups[0].sessions).toHaveLength(2);
+    });
+});
+
+describe("buildSessionViewModel — detail", () => {
+    it("carries the detail string onto the row", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/X", detail: "editing X.java" }),
+        ]);
+        expect(vm.groups[0].sessions[0].detail).toBe("editing X.java");
+    });
+    it("leaves detail undefined when not provided", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].detail).toBeUndefined();
     });
 });

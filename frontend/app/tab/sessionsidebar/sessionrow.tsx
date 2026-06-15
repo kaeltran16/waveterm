@@ -18,15 +18,16 @@ interface SessionRowProps {
     active: boolean;
     blocked: boolean;
     pinned: boolean;
+    detail?: string;
     onSelect: () => void;
     onTogglePin: () => void;
 }
 
-export function SessionRow({ label, status, active, blocked, pinned, onSelect, onTogglePin }: SessionRowProps) {
+export function SessionRow({ label, status, active, blocked, pinned, detail, onSelect, onTogglePin }: SessionRowProps) {
     return (
         <div
             className={cn(
-                "session-row group flex h-8 w-full cursor-pointer items-center gap-2 border-l-2 border-transparent pl-2 pr-1.5",
+                "session-row group flex min-h-8 w-full cursor-pointer items-center gap-2 border-l-2 border-transparent py-1 pl-2 pr-1.5",
                 active && "session-row--active border-l-[#429dff] bg-[rgba(66,157,255,0.08)]",
                 blocked && "session-row--blocked border-l-[#d29922] bg-[rgba(210,153,34,0.08)]"
             )}
@@ -36,9 +37,16 @@ export function SessionRow({ label, status, active, blocked, pinned, onSelect, o
                 className={makeIconClass("circle-small", true) + " text-[10px]"}
                 style={{ color: STATUS_COLOR[status] }}
             />
-            <span className="flex-1 truncate text-[13px]" title={label}>
-                {label}
-            </span>
+            <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[13px]" title={label}>
+                    {label}
+                </span>
+                {detail && (
+                    <span className="session-row-detail truncate text-[11px] text-secondary" title={detail}>
+                        {detail}
+                    </span>
+                )}
+            </div>
             <i
                 className={cn(
                     makeIconClass("thumbtack", true) + " text-[10px]",

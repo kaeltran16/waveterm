@@ -466,6 +466,12 @@ func GetSecretsNamesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]string, 
 	return resp, err
 }
 
+// command "getsessiongroup", wshserver.GetSessionGroupCommand
+func GetSessionGroupCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSessionGroupData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetSessionGroupRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetSessionGroupRtnData](w, "getsessiongroup", data, opts)
+	return resp, err
+}
+
 // command "gettab", wshserver.GetTabCommand
 func GetTabCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*waveobj.Tab, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.Tab](w, "gettab", data, opts)

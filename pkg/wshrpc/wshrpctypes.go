@@ -88,6 +88,7 @@ type WshRpcInterface interface {
 	RecordTEventCommand(ctx context.Context, data telemetrydata.TEvent) error
 	GetVarCommand(ctx context.Context, data CommandVarData) (*CommandVarResponseData, error)
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
+	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
 	SendTelemetryCommand(ctx context.Context) error
@@ -548,6 +549,15 @@ type CommandVarResponseData struct {
 	Key    string `json:"key"`
 	Val    string `json:"val"`
 	Exists bool   `json:"exists"`
+}
+
+type CommandGetSessionGroupData struct {
+	Cwd string `json:"cwd"`
+}
+
+type CommandGetSessionGroupRtnData struct {
+	Root  string `json:"root"`
+	Label string `json:"label"`
 }
 
 type CommandDebugTermData struct {

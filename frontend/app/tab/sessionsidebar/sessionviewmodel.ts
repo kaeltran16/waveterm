@@ -39,7 +39,9 @@ export interface SessionInput {
     agent?: string;
     pinned: boolean;
     cwd?: string;
+    serviceLabel: string;
     status: SessionStatus;
+    detail?: string;
     active: boolean;
 }
 
@@ -50,6 +52,7 @@ export interface SessionRowVM {
     active: boolean;
     blocked: boolean;
     pinned: boolean;
+    detail?: string;
 }
 
 export interface SessionGroupVM {
@@ -66,7 +69,7 @@ export interface SidebarViewModel {
 function rowLabel(s: SessionInput, includeService: boolean): string {
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
     const base = agent && agent.length > 0 ? agent : "session";
-    return includeService ? `${base} · ${cwdToServiceLabel(s.cwd)}` : base;
+    return includeService ? `${base} · ${s.serviceLabel}` : base;
 }
 
 function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
@@ -77,6 +80,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         active: s.active,
         blocked: s.status === "waiting",
         pinned: s.pinned,
+        detail: s.detail,
     };
 }
 
@@ -91,7 +95,7 @@ export function buildSessionViewModel(sessions: SessionInput[]): SidebarViewMode
             pinned.push(toRow(s, true));
             continue;
         }
-        const label = cwdToServiceLabel(s.cwd);
+        const label = s.serviceLabel;
         if (!groupMap.has(label)) {
             groupMap.set(label, []);
             groupOrder.push(label);

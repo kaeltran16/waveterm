@@ -80,6 +80,15 @@ declare global {
         conn?: {[key: string]: number};
     };
 
+    // baseds.AgentStatusData
+    type AgentStatusData = {
+        oref: string;
+        state: string;
+        detail?: string;
+        agent?: string;
+        ts: number;
+    };
+
     // wshrpc.AiMessageData
     type AiMessageData = {
         message?: string;
@@ -406,6 +415,17 @@ declare global {
     // wshrpc.CommandGetRTInfoData
     type CommandGetRTInfoData = {
         oref: ORef;
+    };
+
+    // wshrpc.CommandGetSessionGroupData
+    type CommandGetSessionGroupData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandGetSessionGroupRtnData
+    type CommandGetSessionGroupRtnData = {
+        root: string;
+        label: string;
     };
 
     // wshrpc.CommandGetTempDirData
@@ -1589,6 +1609,7 @@ declare global {
         "debug:panictype"?: string;
         "block:view"?: string;
         "block:controller"?: string;
+        "block:subblock"?: boolean;
         "ai:backendtype"?: string;
         "ai:local"?: boolean;
         "wsh:cmd"?: string;

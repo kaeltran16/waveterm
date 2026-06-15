@@ -1,75 +1,31 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { getTabBadgeAtom } from "@/app/store/badge";
 import { createTab, setActiveTab } from "@/app/store/global";
-import { atoms } from "@/app/store/global-atoms";
-import * as WOS from "@/app/store/wos";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { fireAndForget, makeIconClass } from "@/util/util";
-import { atom, useAtomValue } from "jotai";
-import { useState } from "react";
+import { makeIconClass } from "@/util/util";
+import { useAtomValue } from "jotai";
+import { useEffect, useState } from "react";
+import { setupAgentStatusSubscription } from "./agentstatusstore";
+import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow } from "./sessionrow";
-import {
-    aggregateStatus,
-    badgeToStatus,
-    buildSessionViewModel,
-    type SessionInput,
-    type SidebarViewModel,
-} from "./sessionviewmodel";
+import { sessionCwdsAtom, sessionSidebarViewModelAtom, togglePin } from "./sessionsidebarmodel";
+import { aggregateStatus } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
-
-/** Derived: collect per-tab data reactively and build the grouped view model. */
-export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
-    const ws = get(atoms.workspace);
-    const tabIds = ws?.tabids ?? [];
-    const activeId = ws?.activetabid;
-
-    const sessions: SessionInput[] = tabIds.map((tabId) => {
-        const tab = get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
-        const badges = get(getTabBadgeAtom(tabId));
-        const status = badgeToStatus(badges?.[0]);
-
-        let cwd: string | undefined;
-        for (const blockId of tab?.blockids ?? []) {
-            const block = get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
-            if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
-                cwd = block.meta["cmd:cwd"];
-                break;
-            }
-        }
-
-        const meta = (tab?.meta ?? {}) as Record<string, any>;
-        return {
-            tabId,
-            name: tab?.name ?? "",
-            agent: meta["session:agent"],
-            pinned: meta["session:pinned"] === true,
-            cwd,
-            status,
-            active: tabId === activeId,
-        };
-    });
-
-    return buildSessionViewModel(sessions);
-});
-
-function togglePin(tabId: string, pinned: boolean) {
-    fireAndForget(() =>
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: WOS.makeORef("tab", tabId),
-            // session:pinned is not yet in MetaType (spec §6: meta-as-any for v1).
-            meta: { "session:pinned": !pinned } as any,
-        })
-    );
-}
 
 export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     void workspace; // tab list is read reactively from the atom; prop kept to match the mount seam
     const vm = useAtomValue(sessionSidebarViewModelAtom);
+    const cwds = useAtomValue(sessionCwdsAtom);
     const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+    useEffect(() => {
+        setupAgentStatusSubscription();
+    }, []);
+
+    useEffect(() => {
+        ensureSessionGroupLabels(cwds);
+    }, [cwds.join("|")]);
 
     const toggle = (label: string) =>
         setCollapsed((prev) => {
@@ -113,6 +69,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                             active={r.active}
                             blocked={r.blocked}
                             pinned={r.pinned}
+                            detail={r.detail}
                             onSelect={() => setActiveTab(r.tabId)}
                             onTogglePin={() => togglePin(r.tabId, r.pinned)}
                         />
@@ -137,6 +94,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                             active={r.active}
                             blocked={r.blocked}
                             pinned={r.pinned}
+                            detail={r.detail}
                             onSelect={() => setActiveTab(r.tabId)}
                             onTogglePin={() => togglePin(r.tabId, r.pinned)}
                         />

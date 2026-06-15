@@ -35,6 +35,12 @@ describe("SessionRow", () => {
     it("renders a pin affordance", () => {
         expect(render()).toContain("fa-thumbtack");
     });
+    it("renders the detail line when provided", () => {
+        expect(render({ detail: "editing CorrelationEngine.java" })).toContain("editing CorrelationEngine.java");
+    });
+    it("omits the detail line when not provided", () => {
+        expect(render({ detail: undefined })).not.toContain("session-row-detail");
+    });
 });
 
 function renderGroup(props: Partial<Parameters<typeof SessionGroup>[0]> = {}): string {

@@ -28,3 +28,19 @@ type BadgeEvent struct {
 	ClearById string `json:"clearbyid,omitempty"`
 	Badge     *Badge `json:"badge,omitempty"`
 }
+
+const (
+	AgentState_Working = "working"
+	AgentState_Waiting = "waiting"
+	AgentState_Idle    = "idle"
+)
+
+// AgentStatusData is the payload of Event_AgentStatus. ORef is the block (or tab)
+// the status applies to; State is one of the AgentState_* constants.
+type AgentStatusData struct {
+	ORef   string `json:"oref"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	Ts     int64  `json:"ts"`
+}

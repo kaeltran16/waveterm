@@ -1389,6 +1389,13 @@ func (ws *WshServer) GetAllVarsCommand(ctx context.Context, data wshrpc.CommandV
 	return result, nil
 }
 
+func (ws *WshServer) GetSessionGroupCommand(ctx context.Context, data wshrpc.CommandGetSessionGroupData) (*wshrpc.CommandGetSessionGroupRtnData, error) {
+	if data.Cwd == "" {
+		return nil, fmt.Errorf("cwd is required")
+	}
+	return resolveSessionGroup(data.Cwd), nil
+}
+
 func (ws *WshServer) SetVarCommand(ctx context.Context, data wshrpc.CommandVarData) error {
 	_, fileData, err := filestore.WFS.ReadFile(ctx, data.ZoneId, data.FileName)
 	if err == fs.ErrNotExist {
