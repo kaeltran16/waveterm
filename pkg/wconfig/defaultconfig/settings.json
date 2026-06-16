@@ -5,6 +5,7 @@
     "ai:timeoutms": 60000,
     "app:defaultnewblock": "term",
     "app:tabbar": "left",
+    "app:loombin": "C:\\Users\\kael02\\IdeaProjects\\loom\\loom.exe",
     "app:confirmquit": true,
     "app:hideaibutton": false,
     "term:showsplitbuttons": false,
