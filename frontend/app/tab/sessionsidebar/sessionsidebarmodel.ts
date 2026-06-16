@@ -19,6 +19,7 @@ import {
     buildSessionViewModel,
     cwdToServiceLabel,
     cycleTarget,
+    flattenVisualOrder,
     needsYouTarget,
     reorderWithinGroup,
     subagentExpanded,
@@ -161,6 +162,15 @@ export function cycleWaiting(offset: number) {
     const target = waitingTarget(vm, offset);
     if (target != null) {
         setActiveTab(target);
+    }
+}
+
+/** Switch to the 1-based Nth row in sidebar visual order (Ctrl:1-9). */
+export function switchToVisualIndex(index: number) {
+    const vm = globalStore.get(sessionSidebarViewModelAtom);
+    const target = flattenVisualOrder(vm)[index - 1];
+    if (target != null) {
+        setActiveTab(target.tabId);
     }
 }
 

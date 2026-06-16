@@ -21,7 +21,7 @@ import {
     WOS,
 } from "@/app/store/global";
 import { getActiveTabModel } from "@/app/store/tab-model";
-import { cycleSession, cycleWaiting, findActiveSessionTermBlock, jumpToNeedsYou } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
+import { cycleSession, cycleWaiting, findActiveSessionTermBlock, jumpToNeedsYou, switchToVisualIndex } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
 import { loomBinOrDefault } from "@/app/tab/sessionsidebar/sessionviewmodel";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { deleteLayoutModelForTab, getLayoutModelForStaticTab, NavigateDirection } from "@/layout/index";
@@ -280,18 +280,6 @@ function switchBlockInDirection(direction: NavigateDirection) {
 
 function getAllTabs(ws: Workspace): string[] {
     return ws.tabids ?? [];
-}
-
-function switchTabAbs(index: number) {
-    console.log("switchTabAbs", index);
-    const ws = globalStore.get(atoms.workspace);
-    const newTabIdx = index - 1;
-    const tabids = getAllTabs(ws);
-    if (newTabIdx < 0 || newTabIdx >= tabids.length) {
-        return;
-    }
-    const newActiveTabId = tabids[newTabIdx];
-    getApi().setActiveTab(newActiveTabId);
 }
 
 function switchTab(offset: number) {
@@ -561,7 +549,7 @@ function registerGlobalKeys() {
         handleSplitVertical("after");
         return true;
     });
-    globalKeyMap.set("Cmd:Shift:g", () => {
+    globalKeyMap.set("Ctrl:g", () => {
         handleGitSplit();
         return true;
     });
@@ -714,7 +702,7 @@ function registerGlobalKeys() {
     });
     for (let idx = 1; idx <= 9; idx++) {
         globalKeyMap.set(`Ctrl:${idx}`, () => {
-            switchTabAbs(idx);
+            switchToVisualIndex(idx);
             return true;
         });
         globalKeyMap.set(`Ctrl:Shift:c{Digit${idx}}`, () => {

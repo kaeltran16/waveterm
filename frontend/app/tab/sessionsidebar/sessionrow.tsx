@@ -179,10 +179,10 @@ export function SessionRow({
             )}
             {onDuplicate && (
                 <i
-                    className={cn(
-                        makeIconClass("clone", true) + " cursor-pointer text-[10px]",
-                        active ? "opacity-90" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
-                    )}
+                    className={
+                        makeIconClass("clone", true) +
+                        " cursor-pointer text-[10px] opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                    }
                     title="Duplicate session"
                     onClick={(e) => {
                         e.stopPropagation();

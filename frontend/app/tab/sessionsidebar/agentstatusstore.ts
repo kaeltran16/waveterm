@@ -6,6 +6,9 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { atom, type PrimitiveAtom } from "jotai";
 import { reduceSubagents, type SubagentDelta, type SubagentVM } from "./sessionviewmodel";
 
+// a completed subagent is noise after a minute; drop it this long after it stops
+const COMPLETED_SUBAGENT_TTL_MS = 60_000;
+
 // keyed by block ORef string ("block:<uuid>")
 const agentStatusAtoms = new Map<string, PrimitiveAtom<AgentStatusData>>();
 
@@ -59,6 +62,17 @@ function normalizeSubagentStatus(status: string): "success" | "failure" | undefi
     return undefined;
 }
 
+function scheduleSubagentExpiry(oref: string, id: string) {
+    setTimeout(() => {
+        const saAtom = getSubagentsAtom(oref);
+        const list = globalStore.get(saAtom);
+        const next = list.filter((s) => s.id !== id);
+        if (next.length !== list.length) {
+            globalStore.set(saAtom, next);
+        }
+    }, COMPLETED_SUBAGENT_TTL_MS);
+}
+
 let subscribed = false;
 export function setupAgentStatusSubscription() {
     if (subscribed) {
@@ -85,6 +99,9 @@ export function setupAgentStatusSubscription() {
                 };
                 const saAtom = getSubagentsAtom(data.oref);
                 globalStore.set(saAtom, reduceSubagents(globalStore.get(saAtom), delta));
+                if (action === "stop") {
+                    scheduleSubagentExpiry(data.oref, sa.id);
+                }
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
