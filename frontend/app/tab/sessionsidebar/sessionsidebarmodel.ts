@@ -21,6 +21,7 @@ import {
     cycleTarget,
     needsYouTarget,
     subagentExpanded,
+    waitingTarget,
     type SessionInput,
     type SessionStatus,
     type SidebarViewModel,
@@ -146,6 +147,14 @@ export function setCollapsedGroups(groups: string[]) {
 export function cycleSession(offset: number) {
     const vm = globalStore.get(sessionSidebarViewModelAtom);
     const target = cycleTarget(vm, offset);
+    if (target != null) {
+        setActiveTab(target);
+    }
+}
+
+export function cycleWaiting(offset: number) {
+    const vm = globalStore.get(sessionSidebarViewModelAtom);
+    const target = waitingTarget(vm, offset);
     if (target != null) {
         setActiveTab(target);
     }

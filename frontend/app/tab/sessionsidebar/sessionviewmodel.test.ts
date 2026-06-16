@@ -7,8 +7,10 @@ import {
     cwdToServiceLabel,
     cycleTarget,
     flattenVisualOrder,
+    loomBinOrDefault,
     needsYouTarget,
     NO_CWD_LABEL,
+    waitingTarget,
     reduceSubagents,
     rollUpStatus,
     subagentExpanded,
@@ -270,6 +272,61 @@ describe("needsYouTarget", () => {
     });
 });
 
+describe("waitingTarget", () => {
+    it("forward: returns the next waiting row after active, skipping non-waiting", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true }),
+            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
+            input({ tabId: "t3", cwd: "/src/C", status: "waiting" }),
+        ]);
+        expect(waitingTarget(vm, 1)).toBe("t3");
+    });
+    it("backward: returns the previous waiting row before active", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", status: "waiting" }),
+            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
+            input({ tabId: "t3", cwd: "/src/C", active: true }),
+        ]);
+        expect(waitingTarget(vm, -1)).toBe("t1");
+    });
+    it("backward: wraps past the start to the last waiting row", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true }),
+            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
+            input({ tabId: "t3", cwd: "/src/C", status: "waiting" }),
+        ]);
+        expect(waitingTarget(vm, -1)).toBe("t3");
+    });
+    it("returns undefined when nothing is waiting (both directions)", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true, status: "working" }),
+            input({ tabId: "t2", cwd: "/src/B", status: "idle" }),
+        ]);
+        expect(waitingTarget(vm, 1)).toBeUndefined();
+        expect(waitingTarget(vm, -1)).toBeUndefined();
+    });
+    it("with exactly one waiting row, both directions find it", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true }),
+            input({ tabId: "t2", cwd: "/src/B", status: "waiting" }),
+        ]);
+        expect(waitingTarget(vm, 1)).toBe("t2");
+        expect(waitingTarget(vm, -1)).toBe("t2");
+    });
+    it("returns undefined for an empty model", () => {
+        expect(waitingTarget(buildSessionViewModel([]), 1)).toBeUndefined();
+        expect(waitingTarget(buildSessionViewModel([]), -1)).toBeUndefined();
+    });
+    it("does not throw and is deterministic when no row is active", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", status: "waiting" }),
+            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
+        ]);
+        expect(waitingTarget(vm, 1)).toBe("t1");
+        expect(waitingTarget(vm, -1)).toBe("t1");
+    });
+});
+
 describe("reduceSubagents", () => {
     it("start appends a working subagent", () => {
         expect(reduceSubagents([], { action: "start", id: "a", type: "Explore" })).toEqual([
@@ -409,5 +466,21 @@ describe("buildDuplicateBlockMeta", () => {
     it("handles a null/empty source", () => {
         expect(buildDuplicateBlockMeta(undefined as any)).toEqual({ view: "term" });
         expect(buildDuplicateBlockMeta({})).toEqual({ view: "term" });
+    });
+});
+
+describe("loomBinOrDefault", () => {
+    it("returns the configured binary when set", () => {
+        expect(loomBinOrDefault("loom")).toBe("loom");
+        expect(loomBinOrDefault("/usr/local/bin/loom")).toBe("/usr/local/bin/loom");
+        expect(loomBinOrDefault("C:\\tools\\loom.exe")).toBe("C:\\tools\\loom.exe");
+    });
+    it("trims surrounding whitespace", () => {
+        expect(loomBinOrDefault("  loom.exe  ")).toBe("loom.exe");
+    });
+    it("falls back to 'loom' when unset or blank", () => {
+        expect(loomBinOrDefault(undefined)).toBe("loom");
+        expect(loomBinOrDefault("")).toBe("loom");
+        expect(loomBinOrDefault("   ")).toBe("loom");
     });
 });

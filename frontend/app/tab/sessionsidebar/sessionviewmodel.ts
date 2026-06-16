@@ -176,20 +176,27 @@ export function cycleTarget(vm: SidebarViewModel, offset: number): string | unde
     return order[nextIdx].tabId;
 }
 
-/** Pure: the next waiting (needs-you) session after the active one in visual order, wrapping. */
-export function needsYouTarget(vm: SidebarViewModel): string | undefined {
+/** Pure: the next/prev waiting session relative to the active one in visual order, wrapping.
+ *  offset +1 scans forward, -1 scans backward. */
+export function waitingTarget(vm: SidebarViewModel, offset: number): string | undefined {
     const order = flattenVisualOrder(vm);
     if (order.length === 0) {
         return undefined;
     }
     const activeIdx = order.findIndex((r) => r.active);
     for (let i = 1; i <= order.length; i++) {
-        const idx = (activeIdx + i + order.length) % order.length;
+        // double-mod normalizes a possibly-negative index (offset -1) back into [0, len)
+        const idx = (((activeIdx + offset * i) % order.length) + order.length) % order.length;
         if (order[idx].status === "waiting") {
             return order[idx].tabId;
         }
     }
     return undefined;
+}
+
+/** Pure: the next waiting (needs-you) session after the active one in visual order, wrapping. */
+export function needsYouTarget(vm: SidebarViewModel): string | undefined {
+    return waitingTarget(vm, 1);
 }
 
 /** Pure: reduce a subagent start/stop delta into the per-block list. Never mutates the input.
@@ -230,6 +237,15 @@ export function subagentExpanded(subagents: SubagentVM[], manualOverride?: boole
         return manualOverride;
     }
     return subagents.some((s) => s.state === "working");
+}
+
+export const DEFAULT_LOOM_BIN = "loom";
+
+// A blank app:loombin value ("" / whitespace) is not null, so it slips past ?? at the call site;
+// trim-and-check here so a blank config still falls back to the PATH lookup.
+export function loomBinOrDefault(configVal?: string): string {
+    const trimmed = configVal?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_LOOM_BIN;
 }
 
 /** Launch-relevant block meta keys copied from a source terminal block to reproduce its session in a clone. */

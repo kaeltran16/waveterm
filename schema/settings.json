@@ -50,6 +50,9 @@
             "left"
           ]
         },
+        "app:loombin": {
+          "type": "string"
+        },
         "feature:waveappbuilder": {
           "type": "boolean"
         },

@@ -21,7 +21,8 @@ import {
     WOS,
 } from "@/app/store/global";
 import { getActiveTabModel } from "@/app/store/tab-model";
-import { cycleSession, findActiveSessionTermBlock, jumpToNeedsYou } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
+import { cycleSession, cycleWaiting, findActiveSessionTermBlock, jumpToNeedsYou } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
+import { loomBinOrDefault } from "@/app/tab/sessionsidebar/sessionviewmodel";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { deleteLayoutModelForTab, getLayoutModelForStaticTab, NavigateDirection } from "@/layout/index";
 import * as keyutil from "@/util/keyutil";
@@ -401,17 +402,18 @@ async function handleSplitVertical(position: "before" | "after") {
     await createBlockSplitVertically(blockDef, focusedNode.data.blockId, position);
 }
 
-// git --no-pager diff (not "git diff": the pager would block on the block's TTY)
-async function handleDiffSplit() {
+async function handleGitSplit() {
     const termBlock = findActiveSessionTermBlock();
     if (termBlock == null) {
         return;
     }
+    const loomBin = loomBinOrDefault(globalStore.get(getSettingsKeyAtom("app:loombin")));
     const blockDef: BlockDef = {
         meta: {
             view: "term",
             controller: "cmd",
-            cmd: "git --no-pager diff",
+            cmd: loomBin,
+            "cmd:interactive": true,
             "cmd:cwd": termBlock.cwd,
         },
     };
@@ -560,7 +562,7 @@ function registerGlobalKeys() {
         return true;
     });
     globalKeyMap.set("Cmd:Shift:g", () => {
-        handleDiffSplit();
+        handleGitSplit();
         return true;
     });
     globalKeyMap.set("Cmd:i", () => {
@@ -702,8 +704,16 @@ function registerGlobalKeys() {
         globalStore.set(tabModel.isTermMultiInput, !curMI);
         return true;
     });
+    globalKeyMap.set("Ctrl:Tab", () => {
+        cycleWaiting(1);
+        return true;
+    });
+    globalKeyMap.set("Ctrl:Shift:Tab", () => {
+        cycleWaiting(-1);
+        return true;
+    });
     for (let idx = 1; idx <= 9; idx++) {
-        globalKeyMap.set(`Cmd:${idx}`, () => {
+        globalKeyMap.set(`Ctrl:${idx}`, () => {
             switchTabAbs(idx);
             return true;
         });
