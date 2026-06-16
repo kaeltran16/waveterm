@@ -8,8 +8,10 @@ import {
     cycleTarget,
     flattenVisualOrder,
     loomBinOrDefault,
+    modelLabel,
     needsYouTarget,
     NO_CWD_LABEL,
+    reorderWithinGroup,
     waitingTarget,
     reduceSubagents,
     rollUpStatus,
@@ -482,5 +484,75 @@ describe("loomBinOrDefault", () => {
         expect(loomBinOrDefault(undefined)).toBe("loom");
         expect(loomBinOrDefault("")).toBe("loom");
         expect(loomBinOrDefault("   ")).toBe("loom");
+    });
+});
+
+describe("reorderWithinGroup", () => {
+    it("moves a member up within a contiguous group", () => {
+        expect(reorderWithinGroup(["a", "b", "c"], ["a", "b", "c"], "c", "a", true)).toEqual(["c", "a", "b"]);
+    });
+    it("moves a member down (placeBefore=false)", () => {
+        expect(reorderWithinGroup(["a", "b", "c"], ["a", "b", "c"], "a", "b", false)).toEqual(["b", "a", "c"]);
+    });
+    it("leaves other groups' interleaved tabs byte-for-byte untouched", () => {
+        // group = a,b,c at slots 0,2,4; x,y at 1,3 belong to other groups
+        expect(reorderWithinGroup(["a", "x", "b", "y", "c"], ["a", "b", "c"], "c", "a", true)).toEqual([
+            "c", "x", "a", "y", "b",
+        ]);
+    });
+    it("works for the pinned group (members are the pinned ids)", () => {
+        expect(reorderWithinGroup(["p1", "p2", "g1"], ["p1", "p2"], "p2", "p1", true)).toEqual(["p2", "p1", "g1"]);
+    });
+    it("returns the input unchanged when dragged === target", () => {
+        const tabids = ["a", "b", "c"];
+        expect(reorderWithinGroup(tabids, ["a", "b", "c"], "a", "a", true)).toBe(tabids);
+    });
+    it("returns the input unchanged when either id is not a member", () => {
+        const tabids = ["a", "b", "c"];
+        expect(reorderWithinGroup(tabids, ["a", "b"], "a", "c", true)).toBe(tabids);
+        expect(reorderWithinGroup(tabids, ["a", "b"], "zzz", "a", true)).toBe(tabids);
+    });
+});
+
+describe("modelLabel", () => {
+    it("maps known families by substring", () => {
+        expect(modelLabel("claude-opus-4-8")).toBe("opus");
+        expect(modelLabel("claude-sonnet-4-6")).toBe("sonnet");
+        expect(modelLabel("claude-haiku-4-5-20251001")).toBe("haiku");
+        expect(modelLabel("claude-fable-5")).toBe("fable");
+    });
+    it("strips a leading claude- for unknown ids", () => {
+        expect(modelLabel("claude-foo-9")).toBe("foo-9");
+    });
+    it("returns empty for missing input", () => {
+        expect(modelLabel("")).toBe("");
+        expect(modelLabel(undefined)).toBe("");
+    });
+});
+
+describe("reduceSubagents — model", () => {
+    it("model action sets the model on an existing subagent without changing state", () => {
+        const started = reduceSubagents([], { action: "start", id: "a", type: "Explore" });
+        expect(reduceSubagents(started, { action: "model", id: "a", type: "Explore", model: "claude-sonnet-4-6" })).toEqual([
+            { id: "a", type: "Explore", state: "working", model: "claude-sonnet-4-6" },
+        ]);
+    });
+    it("model action before start appends a working entry carrying the model", () => {
+        expect(reduceSubagents([], { action: "model", id: "a", type: "Explore", model: "claude-opus-4-8" })).toEqual([
+            { id: "a", type: "Explore", state: "working", model: "claude-opus-4-8" },
+        ]);
+    });
+    it("stop after model preserves the model", () => {
+        let l = reduceSubagents([], { action: "start", id: "a", type: "E" });
+        l = reduceSubagents(l, { action: "model", id: "a", type: "E", model: "claude-haiku-4-5" });
+        l = reduceSubagents(l, { action: "stop", id: "a", type: "E", status: "success" });
+        expect(l).toEqual([{ id: "a", type: "E", state: "success", model: "claude-haiku-4-5" }]);
+    });
+});
+
+describe("buildSessionViewModel — model", () => {
+    it("carries the session model onto the row", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X", model: "claude-opus-4-8" })]);
+        expect(vm.groups[0].sessions[0].model).toBe("claude-opus-4-8");
     });
 });

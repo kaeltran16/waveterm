@@ -3,7 +3,7 @@
 
 import { cn, makeIconClass } from "@/util/util";
 import { useRef, useState, type ReactNode, type RefObject } from "react";
-import type { SessionStatus, SubagentState } from "./sessionviewmodel";
+import { modelLabel, type SessionStatus, type SubagentState } from "./sessionviewmodel";
 
 // Dot colors mirror the Phase 0 reporter (working/waiting) plus a neutral idle grey.
 export const STATUS_COLOR: Record<SessionStatus, string> = {
@@ -32,6 +32,7 @@ interface SessionRowProps {
     blocked: boolean;
     pinned: boolean;
     detail?: string;
+    model?: string;
     subagentCount?: number;
     expanded?: boolean;
     editValue?: string;
@@ -42,6 +43,11 @@ interface SessionRowProps {
     onContextMenu?: (e: React.MouseEvent) => void;
     renameRef?: RefObject<(() => void) | null>;
     onDuplicate?: () => void;
+    onDragStart?: (e: React.DragEvent) => void;
+    onDragOver?: (e: React.DragEvent) => void;
+    onDrop?: (e: React.DragEvent) => void;
+    onDragEnd?: () => void;
+    dropIndicator?: "top" | "bottom";
 }
 
 export function SessionRow({
@@ -51,6 +57,7 @@ export function SessionRow({
     blocked,
     pinned,
     detail,
+    model,
     subagentCount = 0,
     expanded = false,
     editValue,
@@ -61,6 +68,11 @@ export function SessionRow({
     onContextMenu,
     renameRef,
     onDuplicate,
+    onDragStart,
+    onDragOver,
+    onDrop,
+    onDragEnd,
+    dropIndicator,
 }: SessionRowProps) {
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState("");
@@ -78,10 +90,17 @@ export function SessionRow({
                 "session-row group flex min-h-8 w-full cursor-pointer items-center gap-2 border-l-2 border-transparent py-1 pl-2 pr-1.5 transition-colors",
                 !active && !blocked && "hover:bg-[rgba(255,255,255,0.08)]",
                 active && "session-row--active border-l-[#429dff] bg-[rgba(66,157,255,0.08)] hover:bg-[rgba(66,157,255,0.14)]",
-                blocked && "session-row--blocked border-l-[#d29922] bg-[rgba(210,153,34,0.08)] hover:bg-[rgba(210,153,34,0.14)]"
+                blocked && "session-row--blocked border-l-[#d29922] bg-[rgba(210,153,34,0.08)] hover:bg-[rgba(210,153,34,0.14)]",
+                dropIndicator === "top" && "shadow-[inset_0_2px_0_0_#429dff]",
+                dropIndicator === "bottom" && "shadow-[inset_0_-2px_0_0_#429dff]"
             )}
+            draggable={!editing}
             onClick={onSelect}
             onContextMenu={onContextMenu}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onDragEnd={onDragEnd}
         >
             {subagentCount > 0 ? (
                 <i
@@ -145,6 +164,14 @@ export function SessionRow({
                     </span>
                 )}
             </div>
+            {model && (
+                <span
+                    className="shrink-0 rounded bg-[rgba(255,255,255,0.06)] px-1 text-[10px] text-secondary opacity-80"
+                    title={model}
+                >
+                    {modelLabel(model)}
+                </span>
+            )}
             {subagentCount > 0 && (
                 <span className="rounded bg-[rgba(255,255,255,0.08)] px-1 text-[10px] tabular-nums text-secondary">
                     {subagentCount}
@@ -181,18 +208,28 @@ interface SubagentRowProps {
     type: string;
     state: SubagentState;
     last: boolean;
+    model?: string;
+    parentModel?: string;
 }
 
-export function SubagentRow({ type, state, last }: SubagentRowProps) {
+export function SubagentRow({ type, state, last, model, parentModel }: SubagentRowProps) {
     return (
         <div className="flex min-h-6 w-full items-center gap-1.5 py-0.5 pl-6 pr-1.5 text-[13px] text-secondary">
             <span className="select-none font-mono text-[11px] opacity-50">{last ? "└─" : "├─"}</span>
             <span className="font-mono text-[11px] leading-none" style={{ color: SUBAGENT_MARKER_COLOR[state] }}>
                 {SUBAGENT_MARKER[state]}
             </span>
-            <span className="truncate" title={type}>
+            <span className="min-w-0 flex-1 truncate" title={type}>
                 {type}
             </span>
+            {model && model !== parentModel && (
+                <span
+                    className="ml-auto shrink-0 rounded bg-[rgba(255,255,255,0.06)] px-1 text-[10px] opacity-80"
+                    title={model}
+                >
+                    {modelLabel(model)}
+                </span>
+            )}
         </div>
     );
 }

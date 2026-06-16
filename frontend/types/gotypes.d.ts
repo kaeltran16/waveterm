@@ -86,6 +86,7 @@ declare global {
         state: string;
         detail?: string;
         agent?: string;
+        model?: string;
         ts: number;
         subagent?: AgentSubagentDelta;
     };
@@ -96,6 +97,7 @@ declare global {
         id: string;
         type?: string;
         status?: string;
+        model?: string;
     };
 
     // wshrpc.AiMessageData

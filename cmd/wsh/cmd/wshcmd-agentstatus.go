@@ -28,9 +28,11 @@ var (
 	agentStatusState  string
 	agentStatusDetail string
 	agentStatusAgent  string
+	agentStatusModel  string
 
 	agentSubagentStart  bool
 	agentSubagentStop   bool
+	agentSubagentModel  bool
 	agentSubagentId     string
 	agentSubagentType   string
 	agentSubagentStatus string
@@ -46,6 +48,8 @@ func init() {
 	agentStatusCmd.Flags().StringVar(&agentSubagentId, "id", "", "subagent agent_id (with --subagent-start/--subagent-stop)")
 	agentStatusCmd.Flags().StringVar(&agentSubagentType, "type", "", "subagent agent_type (e.g. Explore, Plan)")
 	agentStatusCmd.Flags().StringVar(&agentSubagentStatus, "status", "", "subagent outcome: success | failure (with --subagent-stop)")
+	agentStatusCmd.Flags().StringVar(&agentStatusModel, "model", "", "resolved model id (e.g. claude-sonnet-4-6)")
+	agentStatusCmd.Flags().BoolVar(&agentSubagentModel, "subagent-model", false, "report a subagent's resolved model (requires --id, --model)")
 }
 
 func validAgentState(s string) bool {
@@ -65,7 +69,7 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("agentstatus oref must be a block or tab (got %q)", oref.OType)
 	}
 
-	if agentSubagentStart || agentSubagentStop {
+	if agentSubagentStart || agentSubagentStop || agentSubagentModel {
 		return publishSubagentDelta(oref)
 	}
 
@@ -78,6 +82,7 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		State:  agentStatusState,
 		Detail: agentStatusDetail,
 		Agent:  agentStatusAgent,
+		Model:  agentStatusModel,
 		Ts:     time.Now().UnixMilli(),
 	}
 
@@ -101,7 +106,7 @@ func publishSubagentDelta(oref *waveobj.ORef) error {
 		return fmt.Errorf("--subagent-start and --subagent-stop are mutually exclusive")
 	}
 	if agentSubagentId == "" {
-		return fmt.Errorf("--id is required with --subagent-start/--subagent-stop")
+		return fmt.Errorf("--id is required with --subagent-start/--subagent-stop/--subagent-model")
 	}
 
 	action := baseds.SubagentAction_Start
@@ -113,6 +118,12 @@ func publishSubagentDelta(oref *waveobj.ORef) error {
 		}
 		status = agentSubagentStatus
 	}
+	if agentSubagentModel {
+		action = baseds.SubagentAction_Model
+		if agentStatusModel == "" {
+			return fmt.Errorf("--model is required with --subagent-model")
+		}
+	}
 
 	eventData := baseds.AgentStatusData{
 		ORef:  oref.String(),
@@ -123,6 +134,7 @@ func publishSubagentDelta(oref *waveobj.ORef) error {
 			Id:     agentSubagentId,
 			Type:   agentSubagentType,
 			Status: status,
+			Model:  agentStatusModel,
 		},
 	}
 

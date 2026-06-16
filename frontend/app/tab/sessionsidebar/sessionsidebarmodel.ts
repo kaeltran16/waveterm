@@ -20,6 +20,7 @@ import {
     cwdToServiceLabel,
     cycleTarget,
     needsYouTarget,
+    reorderWithinGroup,
     subagentExpanded,
     waitingTarget,
     type SessionInput,
@@ -53,6 +54,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
         const badgeStatus = badgeToStatus(badges?.[0]);
         let status: SessionStatus = badgeStatus;
         let detail: string | undefined;
+        let model: string | undefined;
         let subagents: SubagentVM[] = [];
         let subagentsExpanded = false;
         let termBlockOref: string | undefined;
@@ -63,6 +65,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
                 status = agentStatus.state as SessionStatus;
                 detail = agentStatus.detail;
             }
+            model = agentStatus?.model;
             subagents = get(getSubagentsAtom(termBlockOref));
             subagentsExpanded = subagentExpanded(subagents, get(getSubagentExpandAtom(termBlockOref)));
         }
@@ -78,6 +81,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             serviceLabel: (cwd && labelMap.get(cwd)) || cwdToServiceLabel(cwd),
             status,
             detail,
+            model,
             subagents,
             subagentsExpanded,
             termBlockOref,
@@ -195,6 +199,21 @@ function findSessionTermBlock(tabId: string): { blockId: string; meta: Record<st
         }
     }
     return undefined;
+}
+
+/** Reorder a session within its group by rewriting the workspace tab order (shared with the tab bar).
+ *  No-op when the computed order is unchanged or the workspace is missing. */
+export function reorderSession(memberIds: string[], draggedId: string, targetId: string, placeBefore: boolean) {
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null) {
+        return;
+    }
+    const tabIds = ws.tabids ?? [];
+    const next = reorderWithinGroup(tabIds, memberIds, draggedId, targetId, placeBefore);
+    if (next.length === tabIds.length && next.every((id, i) => id === tabIds[i])) {
+        return;
+    }
+    fireAndForget(() => RpcApi.UpdateWorkspaceTabIdsCommand(TabRpcClient, ws.oid, next));
 }
 
 /** Duplicate a session: open a new tab running the same agent in the same cwd as the source.

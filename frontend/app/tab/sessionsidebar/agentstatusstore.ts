@@ -74,11 +74,14 @@ export function setupAgentStatusSubscription() {
             }
             if (data.subagent != null) {
                 const sa = data.subagent;
+                const action: SubagentDelta["action"] =
+                    sa.action === "stop" ? "stop" : sa.action === "model" ? "model" : "start";
                 const delta: SubagentDelta = {
-                    action: sa.action === "stop" ? "stop" : "start",
+                    action,
                     id: sa.id,
                     type: sa.type ?? "",
                     status: normalizeSubagentStatus(sa.status),
+                    model: sa.model,
                 };
                 const saAtom = getSubagentsAtom(data.oref);
                 globalStore.set(saAtom, reduceSubagents(globalStore.get(saAtom), delta));

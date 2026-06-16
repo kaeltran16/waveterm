@@ -10,14 +10,16 @@ export interface SubagentVM {
     id: string;
     type: string;
     state: SubagentState;
+    model?: string;
 }
 
 /** A single subagent lifecycle transition, mapped from the AgentStatusData.subagent delta. */
 export interface SubagentDelta {
-    action: "start" | "stop";
+    action: "start" | "stop" | "model";
     id: string;
     type: string;
     status?: "success" | "failure";
+    model?: string;
 }
 
 // Couples to the Phase 0 reporter's color constants. Phase 2 replaces this with an explicit
@@ -59,6 +61,7 @@ export interface SessionInput {
     serviceLabel: string;
     status: SessionStatus;
     detail?: string;
+    model?: string;
     subagents?: SubagentVM[];
     subagentsExpanded?: boolean;
     termBlockOref?: string;
@@ -74,6 +77,7 @@ export interface SessionRowVM {
     blocked: boolean;
     pinned: boolean;
     detail?: string;
+    model?: string;
     subagents: SubagentVM[];
     subagentsExpanded: boolean;
     termBlockOref?: string;
@@ -109,6 +113,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         blocked: status === "waiting",
         pinned: s.pinned,
         detail: s.detail,
+        model: s.model,
         subagents,
         subagentsExpanded: s.subagentsExpanded ?? false,
         termBlockOref: s.termBlockOref,
@@ -163,6 +168,35 @@ export function flattenVisualOrder(vm: SidebarViewModel): SessionRowVM[] {
     return [...vm.pinned, ...vm.groups.flatMap((g) => g.sessions)];
 }
 
+/** Pure: move draggedId before/after targetId within a single group, rewriting only the slots the
+ *  group occupies in tabids — so group order (first-appearance) and every other group are left
+ *  byte-for-byte identical. Returns the input array (same ref) on a no-op or when either id is not a
+ *  member of the group. Reorders the Pinned group too (members = the pinned tabIds). */
+export function reorderWithinGroup(
+    tabids: string[],
+    memberIds: string[],
+    draggedId: string,
+    targetId: string,
+    placeBefore: boolean
+): string[] {
+    if (draggedId === targetId) {
+        return tabids;
+    }
+    if (!memberIds.includes(draggedId) || !memberIds.includes(targetId)) {
+        return tabids;
+    }
+    const without = memberIds.filter((id) => id !== draggedId);
+    const targetIdx = without.indexOf(targetId);
+    const insertAt = placeBefore ? targetIdx : targetIdx + 1;
+    const newOrder = [...without.slice(0, insertAt), draggedId, ...without.slice(insertAt)];
+    const slots = memberIds.map((id) => tabids.indexOf(id)).sort((a, b) => a - b);
+    const result = [...tabids];
+    slots.forEach((slot, i) => {
+        result[slot] = newOrder[i];
+    });
+    return result;
+}
+
 /** Pure: the tabId to switch to when cycling by offset (+1 next, -1 prev) in visual order, wrapping. */
 export function cycleTarget(vm: SidebarViewModel, offset: number): string | undefined {
     const order = flattenVisualOrder(vm);
@@ -199,20 +233,27 @@ export function needsYouTarget(vm: SidebarViewModel): string | undefined {
     return waitingTarget(vm, 1);
 }
 
-/** Pure: reduce a subagent start/stop delta into the per-block list. Never mutates the input.
- *  start is idempotent by id; stop flips the matching entry (or appends if the start was missed). */
+/** Pure: reduce a subagent start/stop/model delta into the per-block list. Never mutates the input.
+ *  start is idempotent by id; stop flips the matching entry (or appends if the start was missed);
+ *  model updates the model field without changing state (or appends a working entry if start was missed). */
 export function reduceSubagents(list: SubagentVM[], delta: SubagentDelta): SubagentVM[] {
     if (delta.action === "start") {
         if (list.some((s) => s.id === delta.id)) {
             return list;
         }
-        return [...list, { id: delta.id, type: delta.type, state: "working" }];
+        return [...list, { id: delta.id, type: delta.type, state: "working", model: delta.model }];
+    }
+    if (delta.action === "model") {
+        if (!list.some((s) => s.id === delta.id)) {
+            return [...list, { id: delta.id, type: delta.type, state: "working", model: delta.model }];
+        }
+        return list.map((s) => (s.id === delta.id ? { ...s, model: delta.model } : s));
     }
     const state: SubagentState = delta.status === "failure" ? "failure" : "success";
     if (!list.some((s) => s.id === delta.id)) {
-        return [...list, { id: delta.id, type: delta.type, state }];
+        return [...list, { id: delta.id, type: delta.type, state, model: delta.model }];
     }
-    return list.map((s) => (s.id === delta.id ? { ...s, state } : s));
+    return list.map((s) => (s.id === delta.id ? { ...s, state, model: delta.model ?? s.model } : s));
 }
 
 /** Pure: the row's dot reflects children — the parent's own waiting (amber) dominates;
@@ -237,6 +278,23 @@ export function subagentExpanded(subagents: SubagentVM[], manualOverride?: boole
         return manualOverride;
     }
     return subagents.some((s) => s.state === "working");
+}
+
+const MODEL_FAMILIES = ["opus", "sonnet", "haiku", "fable"];
+
+/** Pure: a raw model id (e.g. "claude-opus-4-8") -> a short family label for the row tag.
+ *  Unknown ids fall back to the id with a leading "claude-" stripped. Empty input -> "". */
+export function modelLabel(modelId?: string): string {
+    if (!modelId) {
+        return "";
+    }
+    const lower = modelId.toLowerCase();
+    for (const fam of MODEL_FAMILIES) {
+        if (lower.includes(fam)) {
+            return fam;
+        }
+    }
+    return modelId.replace(/^claude-/i, "");
 }
 
 export const DEFAULT_LOOM_BIN = "loom";

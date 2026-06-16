@@ -7,11 +7,11 @@ import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow, SubagentRow } from "./sessionrow";
-import { collapsedGroupsAtom, duplicateSession, renameSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
+import { collapsedGroupsAtom, duplicateSession, renameSession, reorderSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
 import { aggregateStatus, toggleCollapsed, type SessionRowVM } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
@@ -38,11 +38,44 @@ function buildSessionRowMenu(row: SessionRowVM, renameRef: React.RefObject<(() =
     return menu;
 }
 
-function SessionRowTree({ row }: { row: SessionRowVM }) {
+function SessionRowTree({
+    row,
+    memberIds,
+    drag,
+    setDrag,
+}: {
+    row: SessionRowVM;
+    memberIds: string[];
+    drag: { draggedId: string; overId: string; placeBefore: boolean };
+    setDrag: (d: { draggedId: string; overId: string; placeBefore: boolean }) => void;
+}) {
     const renameRef = useRef<(() => void) | null>(null);
     const onContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
         ContextMenuModel.getInstance().showContextMenu(buildSessionRowMenu(row, renameRef), e);
+    };
+    const canDrop = drag != null && memberIds.includes(drag.draggedId);
+    const isSource = drag?.draggedId === row.tabId;
+    const dropIndicator = !isSource && drag?.overId === row.tabId ? (drag.placeBefore ? "top" : "bottom") : undefined;
+    const onDragStart = () => setDrag({ draggedId: row.tabId, overId: row.tabId, placeBefore: true });
+    const onDragOver = (e: React.DragEvent) => {
+        if (!canDrop) {
+            return;
+        }
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const placeBefore = e.clientY < rect.top + rect.height / 2;
+        if (drag.overId !== row.tabId || drag.placeBefore !== placeBefore) {
+            setDrag({ draggedId: drag.draggedId, overId: row.tabId, placeBefore });
+        }
+    };
+    const onDrop = (e: React.DragEvent) => {
+        if (!canDrop) {
+            return;
+        }
+        e.preventDefault();
+        reorderSession(memberIds, drag.draggedId, row.tabId, drag.placeBefore);
+        setDrag(null);
     };
     return (
         <>
@@ -63,10 +96,23 @@ function SessionRowTree({ row }: { row: SessionRowVM }) {
                 onRename={(name) => renameSession(row.tabId, name)}
                 onSelect={() => setActiveTab(row.tabId)}
                 onTogglePin={() => togglePin(row.tabId, row.pinned)}
+                onDragStart={onDragStart}
+                onDragOver={onDragOver}
+                onDrop={onDrop}
+                onDragEnd={() => setDrag(null)}
+                dropIndicator={dropIndicator}
+                model={row.model}
             />
             {row.subagentsExpanded &&
                 row.subagents.map((sa, i) => (
-                    <SubagentRow key={sa.id} type={sa.type} state={sa.state} last={i === row.subagents.length - 1} />
+                    <SubagentRow
+                        key={sa.id}
+                        type={sa.type}
+                        state={sa.state}
+                        last={i === row.subagents.length - 1}
+                        model={sa.model}
+                        parentModel={row.model}
+                    />
                 ))}
         </>
     );
@@ -78,6 +124,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     const cwds = useAtomValue(sessionCwdsAtom);
     const collapsedGroups = useAtomValue(collapsedGroupsAtom);
     const collapsed = new Set(collapsedGroups);
+    const [drag, setDrag] = useState<{ draggedId: string; overId: string; placeBefore: boolean }>(null);
 
     useEffect(() => {
         setupAgentStatusSubscription();
@@ -113,7 +160,13 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                     onToggle={() => toggle(PINNED_LABEL)}
                 >
                     {vm.pinned.map((r) => (
-                        <SessionRowTree key={r.tabId} row={r} />
+                        <SessionRowTree
+                            key={r.tabId}
+                            row={r}
+                            memberIds={vm.pinned.map((p) => p.tabId)}
+                            drag={drag}
+                            setDrag={setDrag}
+                        />
                     ))}
                 </SessionGroup>
             )}
@@ -128,7 +181,13 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                     onToggle={() => toggle(g.label)}
                 >
                     {g.sessions.map((r) => (
-                        <SessionRowTree key={r.tabId} row={r} />
+                        <SessionRowTree
+                            key={r.tabId}
+                            row={r}
+                            memberIds={g.sessions.map((s) => s.tabId)}
+                            drag={drag}
+                            setDrag={setDrag}
+                        />
                     ))}
                 </SessionGroup>
             ))}
