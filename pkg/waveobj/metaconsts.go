@@ -154,6 +154,10 @@ const (
 	MetaKey_OnboardingGithubStar             = "onboarding:githubstar"
 	MetaKey_OnboardingLastVersion            = "onboarding:lastversion"
 
+	MetaKey_SessionPinned                    = "session:pinned"
+	MetaKey_SessionAgent                     = "session:agent"
+	MetaKey_SessionCollapsedGroups           = "session:collapsedgroups"
+
 	MetaKey_Count                            = "count"
 )
 

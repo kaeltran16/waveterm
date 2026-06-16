@@ -158,6 +158,11 @@ type MetaTSType struct {
 	OnboardingGithubStar  bool   `json:"onboarding:githubstar,omitempty"`  // for client
 	OnboardingLastVersion string `json:"onboarding:lastversion,omitempty"` // for client (tracks semver of last 'onboarding' shown)
 
+	// for session sidebar (Wave Agent Sessions fork)
+	SessionPinned          bool     `json:"session:pinned,omitempty"`          // tab
+	SessionAgent           string   `json:"session:agent,omitempty"`           // tab
+	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
+
 	Count int `json:"count,omitempty"` // temp for cpu plot. will remove later
 }
 

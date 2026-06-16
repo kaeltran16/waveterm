@@ -4,12 +4,12 @@
 import { createTab, setActiveTab } from "@/app/store/global";
 import { makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { setupAgentStatusSubscription } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow } from "./sessionrow";
-import { sessionCwdsAtom, sessionSidebarViewModelAtom, togglePin } from "./sessionsidebarmodel";
-import { aggregateStatus } from "./sessionviewmodel";
+import { collapsedGroupsAtom, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
+import { aggregateStatus, toggleCollapsed } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
 
@@ -17,7 +17,8 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     void workspace; // tab list is read reactively from the atom; prop kept to match the mount seam
     const vm = useAtomValue(sessionSidebarViewModelAtom);
     const cwds = useAtomValue(sessionCwdsAtom);
-    const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+    const collapsedGroups = useAtomValue(collapsedGroupsAtom);
+    const collapsed = new Set(collapsedGroups);
 
     useEffect(() => {
         setupAgentStatusSubscription();
@@ -27,16 +28,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
         ensureSessionGroupLabels(cwds);
     }, [cwds.join("|")]);
 
-    const toggle = (label: string) =>
-        setCollapsed((prev) => {
-            const next = new Set(prev);
-            if (next.has(label)) {
-                next.delete(label);
-            } else {
-                next.add(label);
-            }
-            return next;
-        });
+    const toggle = (label: string) => setCollapsedGroups(toggleCollapsed(collapsedGroups, label));
 
     return (
         <div

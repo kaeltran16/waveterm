@@ -21,6 +21,7 @@ import {
     WOS,
 } from "@/app/store/global";
 import { getActiveTabModel } from "@/app/store/tab-model";
+import { cycleSession, findActiveSessionTermBlock, jumpToNeedsYou } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { deleteLayoutModelForTab, getLayoutModelForStaticTab, NavigateDirection } from "@/layout/index";
 import * as keyutil from "@/util/keyutil";
@@ -400,6 +401,23 @@ async function handleSplitVertical(position: "before" | "after") {
     await createBlockSplitVertically(blockDef, focusedNode.data.blockId, position);
 }
 
+// git --no-pager diff (not "git diff": the pager would block on the block's TTY)
+async function handleDiffSplit() {
+    const termBlock = findActiveSessionTermBlock();
+    if (termBlock == null) {
+        return;
+    }
+    const blockDef: BlockDef = {
+        meta: {
+            view: "term",
+            controller: "cmd",
+            cmd: "git --no-pager diff",
+            "cmd:cwd": termBlock.cwd,
+        },
+    };
+    await createBlockSplitHorizontally(blockDef, termBlock.blockId, "after");
+}
+
 let lastHandledEvent: KeyboardEvent | null = null;
 
 // returns [keymatch, T]
@@ -517,6 +535,18 @@ function registerGlobalKeys() {
         switchTab(-1);
         return true;
     });
+    globalKeyMap.set("Cmd:Shift:j", () => {
+        cycleSession(1);
+        return true;
+    });
+    globalKeyMap.set("Cmd:Shift:k", () => {
+        cycleSession(-1);
+        return true;
+    });
+    globalKeyMap.set("Cmd:Shift:n", () => {
+        jumpToNeedsYou();
+        return true;
+    });
     globalKeyMap.set("Cmd:n", () => {
         handleCmdN();
         return true;
@@ -527,6 +557,10 @@ function registerGlobalKeys() {
     });
     globalKeyMap.set("Shift:Cmd:d", () => {
         handleSplitVertical("after");
+        return true;
+    });
+    globalKeyMap.set("Cmd:Shift:g", () => {
+        handleDiffSplit();
         return true;
     });
     globalKeyMap.set("Cmd:i", () => {

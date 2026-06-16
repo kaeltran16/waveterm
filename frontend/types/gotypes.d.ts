@@ -1229,6 +1229,9 @@ declare global {
         "vdom:persist"?: boolean;
         "onboarding:githubstar"?: boolean;
         "onboarding:lastversion"?: string;
+        "session:pinned"?: boolean;
+        "session:agent"?: string;
+        "session:collapsedgroups"?: string[];
         count?: number;
     };
 

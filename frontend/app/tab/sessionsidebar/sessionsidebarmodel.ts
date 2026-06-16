@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getTabBadgeAtom } from "@/app/store/badge";
+import { setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
+import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -14,6 +16,8 @@ import {
     badgeToStatus,
     buildSessionViewModel,
     cwdToServiceLabel,
+    cycleTarget,
+    needsYouTarget,
     type SessionInput,
     type SessionStatus,
     type SidebarViewModel,
@@ -52,7 +56,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             }
         }
 
-        const meta = (tab?.meta ?? {}) as Record<string, any>;
+        const meta = tab?.meta ?? {};
         return {
             tabId,
             name: tab?.name ?? "",
@@ -90,8 +94,59 @@ export function togglePin(tabId: string, pinned: boolean) {
     fireAndForget(() =>
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: WOS.makeORef("tab", tabId),
-            // session:pinned is not yet in MetaType (spec §6: meta-as-any for v1).
-            meta: { "session:pinned": !pinned } as any,
+            meta: { "session:pinned": !pinned },
         })
     );
+}
+
+/** Reactive: the collapsed group labels persisted on the workspace. */
+export const collapsedGroupsAtom = atom<string[]>((get) => {
+    const ws = get(atoms.workspace);
+    return ws?.meta?.["session:collapsedgroups"] ?? [];
+});
+
+export function setCollapsedGroups(groups: string[]) {
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null) {
+        return;
+    }
+    fireAndForget(() =>
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("workspace", ws.oid),
+            meta: { "session:collapsedgroups": groups },
+        })
+    );
+}
+
+export function cycleSession(offset: number) {
+    const vm = globalStore.get(sessionSidebarViewModelAtom);
+    const target = cycleTarget(vm, offset);
+    if (target != null) {
+        setActiveTab(target);
+    }
+}
+
+export function jumpToNeedsYou() {
+    const vm = globalStore.get(sessionSidebarViewModelAtom);
+    const target = needsYouTarget(vm);
+    if (target != null) {
+        setActiveTab(target);
+    }
+}
+
+/** The active session's terminal block id + cwd (the block the diff-split targets). */
+export function findActiveSessionTermBlock(): { blockId: string; cwd: string } | undefined {
+    const ws = globalStore.get(atoms.workspace);
+    const activeId = ws?.activetabid;
+    if (activeId == null) {
+        return undefined;
+    }
+    const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", activeId)));
+    for (const blockId of tab?.blockids ?? []) {
+        const block = globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
+        if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
+            return { blockId, cwd: block.meta["cmd:cwd"] };
+        }
+    }
+    return undefined;
 }

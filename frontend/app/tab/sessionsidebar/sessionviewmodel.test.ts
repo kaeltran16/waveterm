@@ -4,7 +4,11 @@ import {
     badgeToStatus,
     buildSessionViewModel,
     cwdToServiceLabel,
+    cycleTarget,
+    flattenVisualOrder,
+    needsYouTarget,
     NO_CWD_LABEL,
+    toggleCollapsed,
     type SessionInput,
 } from "./sessionviewmodel";
 
@@ -155,5 +159,88 @@ describe("buildSessionViewModel — detail", () => {
     it("leaves detail undefined when not provided", () => {
         const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X" })]);
         expect(vm.groups[0].sessions[0].detail).toBeUndefined();
+    });
+});
+
+describe("toggleCollapsed", () => {
+    it("adds a label that is not present", () => {
+        expect(toggleCollapsed([], "ServiceA")).toEqual(["ServiceA"]);
+        expect(toggleCollapsed(["X"], "ServiceA")).toEqual(["X", "ServiceA"]);
+    });
+    it("removes a label that is present", () => {
+        expect(toggleCollapsed(["X", "ServiceA"], "ServiceA")).toEqual(["X"]);
+    });
+    it("does not mutate the input array", () => {
+        const input = ["X"];
+        toggleCollapsed(input, "ServiceA");
+        expect(input).toEqual(["X"]);
+    });
+});
+
+describe("flattenVisualOrder", () => {
+    it("lists pinned rows first, then group rows in order", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "p1", cwd: "/src/A", pinned: true }),
+            input({ tabId: "g1", cwd: "/src/B" }),
+            input({ tabId: "g2", cwd: "/src/C" }),
+        ]);
+        expect(flattenVisualOrder(vm).map((r) => r.tabId)).toEqual(["p1", "g1", "g2"]);
+    });
+});
+
+describe("cycleTarget", () => {
+    const vm = () =>
+        buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true }),
+            input({ tabId: "t2", cwd: "/src/B" }),
+            input({ tabId: "t3", cwd: "/src/C" }),
+        ]);
+    it("moves to the next row", () => {
+        expect(cycleTarget(vm(), 1)).toBe("t2");
+    });
+    it("wraps from last to first", () => {
+        const v = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A" }),
+            input({ tabId: "t2", cwd: "/src/B" }),
+            input({ tabId: "t3", cwd: "/src/C", active: true }),
+        ]);
+        expect(cycleTarget(v, 1)).toBe("t1");
+    });
+    it("moves to the previous row, wrapping", () => {
+        expect(cycleTarget(vm(), -1)).toBe("t3");
+    });
+    it("returns undefined when there are no rows", () => {
+        expect(cycleTarget(buildSessionViewModel([]), 1)).toBeUndefined();
+    });
+    it("starts at the first row for next when none is active", () => {
+        const v = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A" }),
+            input({ tabId: "t2", cwd: "/src/B" }),
+        ]);
+        expect(cycleTarget(v, 1)).toBe("t1");
+    });
+});
+
+describe("needsYouTarget", () => {
+    it("returns the next waiting row after the active one, wrapping", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true }),
+            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
+            input({ tabId: "t3", cwd: "/src/C", status: "waiting" }),
+        ]);
+        expect(needsYouTarget(vm)).toBe("t3");
+    });
+    it("wraps past the active row to find an earlier waiting row", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", status: "waiting" }),
+            input({ tabId: "t2", cwd: "/src/B", active: true }),
+        ]);
+        expect(needsYouTarget(vm)).toBe("t1");
+    });
+    it("returns undefined when nothing is waiting", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true, status: "working" }),
+        ]);
+        expect(needsYouTarget(vm)).toBeUndefined();
     });
 });

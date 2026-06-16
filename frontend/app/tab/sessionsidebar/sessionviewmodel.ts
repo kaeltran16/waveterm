@@ -121,3 +121,42 @@ export function cwdToServiceLabel(cwd?: string): string {
     const last = segments[segments.length - 1];
     return last && last.length > 0 ? last : NO_CWD_LABEL;
 }
+
+/** Pure: add the label if absent, remove it if present. Never mutates the input. */
+export function toggleCollapsed(groups: string[], label: string): string[] {
+    return groups.includes(label) ? groups.filter((g) => g !== label) : [...groups, label];
+}
+
+/** Sidebar visual order: pinned rows first, then each group's rows top-to-bottom. */
+export function flattenVisualOrder(vm: SidebarViewModel): SessionRowVM[] {
+    return [...vm.pinned, ...vm.groups.flatMap((g) => g.sessions)];
+}
+
+/** Pure: the tabId to switch to when cycling by offset (+1 next, -1 prev) in visual order, wrapping. */
+export function cycleTarget(vm: SidebarViewModel, offset: number): string | undefined {
+    const order = flattenVisualOrder(vm);
+    if (order.length === 0) {
+        return undefined;
+    }
+    const activeIdx = order.findIndex((r) => r.active);
+    // no active row: next starts at the top, prev at the bottom
+    const base = activeIdx === -1 ? (offset > 0 ? -1 : 0) : activeIdx;
+    const nextIdx = (base + offset + order.length) % order.length;
+    return order[nextIdx].tabId;
+}
+
+/** Pure: the next waiting (needs-you) session after the active one in visual order, wrapping. */
+export function needsYouTarget(vm: SidebarViewModel): string | undefined {
+    const order = flattenVisualOrder(vm);
+    if (order.length === 0) {
+        return undefined;
+    }
+    const activeIdx = order.findIndex((r) => r.active);
+    for (let i = 1; i <= order.length; i++) {
+        const idx = (activeIdx + i + order.length) % order.length;
+        if (order[idx].status === "waiting") {
+            return order[idx].tabId;
+        }
+    }
+    return undefined;
+}
