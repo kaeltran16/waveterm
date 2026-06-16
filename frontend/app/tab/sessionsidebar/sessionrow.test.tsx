@@ -35,6 +35,11 @@ describe("SessionRow", () => {
     it("renders a pin affordance", () => {
         expect(render()).toContain("fa-thumbtack");
     });
+    it("renders a duplicate affordance only when onDuplicate is provided", () => {
+        expect(render({ onDuplicate: () => null })).toContain("fa-clone");
+        expect(render({ onDuplicate: () => null })).toContain('title="Duplicate session"');
+        expect(render()).not.toContain("fa-clone");
+    });
     it("renders the detail line when provided", () => {
         expect(render({ detail: "editing CorrelationEngine.java" })).toContain("editing CorrelationEngine.java");
     });

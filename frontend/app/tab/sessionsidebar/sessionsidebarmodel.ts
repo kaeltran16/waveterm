@@ -5,6 +5,7 @@ import { getTabBadgeAtom } from "@/app/store/badge";
 import { setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import { WorkspaceService } from "@/app/store/services";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -14,6 +15,7 @@ import { getAgentStatusAtom, getSubagentExpandAtom, getSubagentsAtom } from "./a
 import { sessionGroupLabelAtom } from "./sessiongroupstore";
 import {
     badgeToStatus,
+    buildDuplicateBlockMeta,
     buildSessionViewModel,
     cwdToServiceLabel,
     cycleTarget,
@@ -172,4 +174,51 @@ export function findActiveSessionTermBlock(): { blockId: string; cwd: string } |
         }
     }
     return undefined;
+}
+
+/** Resolve a tab's terminal block (the session block) — same rule the sidebar groups on. */
+function findSessionTermBlock(tabId: string): { blockId: string; meta: Record<string, any> } | undefined {
+    const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
+    for (const blockId of tab?.blockids ?? []) {
+        const block = globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
+        if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
+            return { blockId, meta: block.meta };
+        }
+    }
+    return undefined;
+}
+
+/** Duplicate a session: open a new tab running the same agent in the same cwd as the source.
+ *  Reconfigures the new tab's default shell block *before* activating it, so the controller starts
+ *  with the cloned cmd:cwd/cmd (the backend doesn't start the controller until the tab renders). */
+export function duplicateSession(sourceTabId: string) {
+    const source = findSessionTermBlock(sourceTabId);
+    if (source == null) {
+        return;
+    }
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null) {
+        return;
+    }
+    const srcTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", sourceTabId)));
+    const agent = srcTab?.meta?.["session:agent"];
+    const blockMeta = buildDuplicateBlockMeta(source.meta);
+    fireAndForget(async () => {
+        const newTabId = await WorkspaceService.CreateTab(ws.oid, "", false);
+        const newTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", newTabId)));
+        const defaultBlockId = newTab?.blockids?.[0];
+        if (defaultBlockId != null) {
+            await RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("block", defaultBlockId),
+                meta: blockMeta,
+            });
+        }
+        if (agent != null) {
+            await RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("tab", newTabId),
+                meta: { "session:agent": agent },
+            });
+        }
+        setActiveTab(newTabId);
+    });
 }

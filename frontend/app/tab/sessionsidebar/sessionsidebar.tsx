@@ -1,19 +1,49 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { createTab, setActiveTab } from "@/app/store/global";
-import { makeIconClass } from "@/util/util";
+import { ContextMenuModel } from "@/app/store/contextmenu";
+import { createTab, getApi, setActiveTab } from "@/app/store/global";
+import { atoms } from "@/app/store/global-atoms";
+import { globalStore } from "@/app/store/jotaiStore";
+import { fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow, SubagentRow } from "./sessionrow";
-import { collapsedGroupsAtom, renameSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
+import { collapsedGroupsAtom, duplicateSession, renameSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
 import { aggregateStatus, toggleCollapsed, type SessionRowVM } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
 
+function buildSessionRowMenu(row: SessionRowVM, renameRef: React.RefObject<(() => void) | null>): ContextMenuItem[] {
+    const ws = globalStore.get(atoms.workspace);
+    const menu: ContextMenuItem[] = [
+        { label: "Rename", click: () => renameRef.current?.() },
+        { label: row.pinned ? "Unpin" : "Pin", click: () => togglePin(row.tabId, row.pinned) },
+    ];
+    if (row.termBlockOref) {
+        menu.push({ label: "Duplicate session", click: () => duplicateSession(row.tabId) });
+    }
+    menu.push({ type: "separator" });
+    menu.push({
+        label: "Close tab",
+        click: () => {
+            if (ws?.oid == null) {
+                return;
+            }
+            fireAndForget(() => getApi().closeTab(ws.oid, row.tabId, false));
+        },
+    });
+    return menu;
+}
+
 function SessionRowTree({ row }: { row: SessionRowVM }) {
+    const renameRef = useRef<(() => void) | null>(null);
+    const onContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        ContextMenuModel.getInstance().showContextMenu(buildSessionRowMenu(row, renameRef), e);
+    };
     return (
         <>
             <SessionRow
@@ -26,6 +56,9 @@ function SessionRowTree({ row }: { row: SessionRowVM }) {
                 subagentCount={row.subagents.length}
                 expanded={row.subagentsExpanded}
                 editValue={row.customLabel}
+                renameRef={renameRef}
+                onContextMenu={onContextMenu}
+                onDuplicate={row.termBlockOref ? () => duplicateSession(row.tabId) : undefined}
                 onToggleExpand={() => toggleSubagentExpand(row.termBlockOref, row.subagentsExpanded)}
                 onRename={(name) => renameSession(row.tabId, name)}
                 onSelect={() => setActiveTab(row.tabId)}
@@ -58,16 +91,16 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
 
     return (
         <div
-            className="flex h-full flex-col overflow-y-auto"
-            style={{ backdropFilter: "blur(20px)", background: "rgba(0, 0, 0, 0.35)" }}
+            className="flex h-full flex-col overflow-y-auto rounded-[10px] border border-[#20242b] shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+            style={{ backdropFilter: "blur(20px)", background: "rgba(0, 0, 0, 0.55)" }}
         >
             <button
                 type="button"
-                className="group flex h-9 w-full shrink-0 cursor-pointer items-center gap-1.5 px-3 text-xs text-secondary transition-colors hover:text-primary"
+                className="group flex w-full shrink-0 cursor-pointer items-center gap-1.5 px-2 py-[7px] text-xs text-[#8b949e] transition-colors hover:text-primary"
                 onClick={() => createTab()}
                 aria-label="New Tab"
             >
-                <i className={makeIconClass("plus", true) + " text-[10px]"} />
+                <i className={makeIconClass("regular@plus", true) + " text-[10px]"} />
                 <span>New Tab</span>
             </button>
 

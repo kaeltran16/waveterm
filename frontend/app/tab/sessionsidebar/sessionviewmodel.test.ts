@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     aggregateStatus,
     badgeToStatus,
+    buildDuplicateBlockMeta,
     buildSessionViewModel,
     cwdToServiceLabel,
     cycleTarget,
@@ -367,5 +368,46 @@ describe("buildSessionViewModel — subagents", () => {
         const row = vm.groups[0].sessions[0];
         expect(row.subagents).toEqual([]);
         expect(row.subagentsExpanded).toBe(false);
+    });
+});
+
+describe("buildDuplicateBlockMeta", () => {
+    it("copies an agent session's launch meta and forces view=term", () => {
+        const src = { view: "term", controller: "cmd", cmd: "claude", "cmd:interactive": true, "cmd:cwd": "/src/x" };
+        expect(buildDuplicateBlockMeta(src)).toEqual({
+            view: "term",
+            controller: "cmd",
+            cmd: "claude",
+            "cmd:interactive": true,
+            "cmd:cwd": "/src/x",
+        });
+    });
+    it("copies a plain shell session (no cmd)", () => {
+        const src = { view: "term", controller: "shell", "cmd:cwd": "/src/x" };
+        expect(buildDuplicateBlockMeta(src)).toEqual({ view: "term", controller: "shell", "cmd:cwd": "/src/x" });
+    });
+    it("preserves a remote connection", () => {
+        const src = { view: "term", controller: "shell", "cmd:cwd": "/src/x", connection: "user@host" };
+        expect(buildDuplicateBlockMeta(src)).toEqual({
+            view: "term",
+            controller: "shell",
+            "cmd:cwd": "/src/x",
+            connection: "user@host",
+        });
+    });
+    it("copies cmd:args when present", () => {
+        const src = { view: "term", controller: "cmd", cmd: "codex", "cmd:args": ["--flag"], "cmd:cwd": "/x" };
+        expect(buildDuplicateBlockMeta(src)["cmd:args"]).toEqual(["--flag"]);
+    });
+    it("drops non-launch keys (labels, fontsize, view override)", () => {
+        const src = { view: "preview", controller: "shell", "cmd:cwd": "/x", "session:label": "L", "term:fontsize": 14 };
+        const out = buildDuplicateBlockMeta(src);
+        expect(out.view).toBe("term");
+        expect(out["session:label"]).toBeUndefined();
+        expect(out["term:fontsize"]).toBeUndefined();
+    });
+    it("handles a null/empty source", () => {
+        expect(buildDuplicateBlockMeta(undefined as any)).toEqual({ view: "term" });
+        expect(buildDuplicateBlockMeta({})).toEqual({ view: "term" });
     });
 });

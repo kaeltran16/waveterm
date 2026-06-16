@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn, makeIconClass } from "@/util/util";
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import type { SessionStatus, SubagentState } from "./sessionviewmodel";
 
 // Dot colors mirror the Phase 0 reporter (working/waiting) plus a neutral idle grey.
@@ -39,6 +39,9 @@ interface SessionRowProps {
     onRename?: (newName: string) => void;
     onSelect: () => void;
     onTogglePin: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
+    renameRef?: RefObject<(() => void) | null>;
+    onDuplicate?: () => void;
 }
 
 export function SessionRow({
@@ -55,10 +58,20 @@ export function SessionRow({
     onRename,
     onSelect,
     onTogglePin,
+    onContextMenu,
+    renameRef,
+    onDuplicate,
 }: SessionRowProps) {
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState("");
     const cancelledRef = useRef(false);
+    const startEdit = () => {
+        setDraft(editValue ?? "");
+        setEditing(true);
+    };
+    if (renameRef) {
+        renameRef.current = startEdit;
+    }
     return (
         <div
             className={cn(
@@ -68,6 +81,7 @@ export function SessionRow({
                 blocked && "session-row--blocked border-l-[#d29922] bg-[rgba(210,153,34,0.08)] hover:bg-[rgba(210,153,34,0.14)]"
             )}
             onClick={onSelect}
+            onContextMenu={onContextMenu}
         >
             {subagentCount > 0 ? (
                 <i
@@ -80,9 +94,9 @@ export function SessionRow({
             ) : (
                 <span className="w-[9px]" />
             )}
-            <i
-                className={makeIconClass("circle-small", true) + " text-[10px]"}
-                style={{ color: STATUS_COLOR[status] }}
+            <span
+                className="size-[9px] shrink-0 rounded-full"
+                style={{ backgroundColor: STATUS_COLOR[status] }}
             />
             <div className="flex min-w-0 flex-1 flex-col">
                 {editing ? (
@@ -119,8 +133,7 @@ export function SessionRow({
                                 return;
                             }
                             e.stopPropagation();
-                            setDraft(editValue ?? "");
-                            setEditing(true);
+                            startEdit();
                         }}
                     >
                         {label}
@@ -136,6 +149,19 @@ export function SessionRow({
                 <span className="rounded bg-[rgba(255,255,255,0.08)] px-1 text-[10px] tabular-nums text-secondary">
                     {subagentCount}
                 </span>
+            )}
+            {onDuplicate && (
+                <i
+                    className={cn(
+                        makeIconClass("clone", true) + " cursor-pointer text-[10px]",
+                        active ? "opacity-90" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                    )}
+                    title="Duplicate session"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onDuplicate();
+                    }}
+                />
             )}
             <i
                 className={cn(
@@ -184,20 +210,18 @@ export function SessionGroup({ label, count, collapsed, aggregateStatus, onToggl
     return (
         <div className="flex flex-col">
             <div
-                className="flex h-7 w-full cursor-pointer items-center gap-1.5 px-2 text-[11px] uppercase tracking-wide text-secondary"
+                className="flex h-7 w-full cursor-pointer items-center gap-1.5 px-2 text-[11px] text-[#8b949e]"
                 onClick={onToggle}
             >
                 <i className={makeIconClass(collapsed ? "chevron-right" : "chevron-down", true) + " text-[9px]"} />
-                <span className="flex-1 truncate" title={label}>
+                <span className="min-w-0 truncate text-[12px] font-semibold text-[#adbac7]" title={label}>
                     {label}
                 </span>
-                {collapsed && (
-                    <i
-                        className={makeIconClass("circle-small", true) + " text-[10px]"}
-                        style={{ color: STATUS_COLOR[aggregateStatus] }}
-                    />
-                )}
-                <span className="ml-1 tabular-nums opacity-70">{count}</span>
+                <span
+                    className="size-[9px] shrink-0 rounded-full"
+                    style={{ backgroundColor: STATUS_COLOR[aggregateStatus] }}
+                />
+                <span className="ml-auto shrink-0 tabular-nums opacity-70">{count}</span>
             </div>
             {!collapsed && <div className="flex flex-col">{children}</div>}
         </div>

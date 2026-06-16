@@ -231,3 +231,19 @@ export function subagentExpanded(subagents: SubagentVM[], manualOverride?: boole
     }
     return subagents.some((s) => s.state === "working");
 }
+
+/** Launch-relevant block meta keys copied from a source terminal block to reproduce its session in a clone. */
+const DUPLICATE_META_KEYS = ["controller", "cmd", "cmd:args", "cmd:cwd", "cmd:interactive", "connection"];
+
+/** Pure: build the new block-def meta for a duplicated session from the source term block's meta.
+ *  Always a terminal; copies only the launch-relevant keys that are present on the source so the clone
+ *  reproduces exactly how the source was started (agent re-launches; a plain shell stays a shell in the cwd). */
+export function buildDuplicateBlockMeta(sourceMeta: Record<string, any>): Record<string, any> {
+    const meta: Record<string, any> = { view: "term" };
+    for (const key of DUPLICATE_META_KEYS) {
+        if (sourceMeta?.[key] != null) {
+            meta[key] = sourceMeta[key];
+        }
+    }
+    return meta;
+}
