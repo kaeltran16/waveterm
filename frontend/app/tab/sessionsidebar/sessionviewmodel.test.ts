@@ -8,6 +8,9 @@ import {
     flattenVisualOrder,
     needsYouTarget,
     NO_CWD_LABEL,
+    reduceSubagents,
+    rollUpStatus,
+    subagentExpanded,
     toggleCollapsed,
     type SessionInput,
 } from "./sessionviewmodel";
@@ -129,6 +132,27 @@ describe("buildSessionViewModel", () => {
         expect(vm.groups[0].sessions[1].label).toBe("my-tab");
     });
 
+    it("a custom label overrides the agent-derived base", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", customLabel: "auth refactor", cwd: "/src/X" }),
+        ]);
+        const row = vm.groups[0].sessions[0];
+        expect(row.label).toBe("auth refactor");
+        expect(row.customLabel).toBe("auth refactor");
+    });
+
+    it("keeps the service suffix on a renamed pinned row", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", customLabel: "auth refactor", cwd: "/src/CorrelationEngine", pinned: true }),
+        ]);
+        expect(vm.pinned[0].label).toBe("auth refactor · CorrelationEngine");
+    });
+
+    it("ignores an empty custom label and falls back to agent", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", customLabel: "", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("claude");
+    });
+
     it("marks waiting rows as blocked and carries active/pinned flags", () => {
         const vm = buildSessionViewModel([
             input({ tabId: "t1", cwd: "/src/X", status: "waiting", active: true }),
@@ -242,5 +266,106 @@ describe("needsYouTarget", () => {
             input({ tabId: "t1", cwd: "/src/A", active: true, status: "working" }),
         ]);
         expect(needsYouTarget(vm)).toBeUndefined();
+    });
+});
+
+describe("reduceSubagents", () => {
+    it("start appends a working subagent", () => {
+        expect(reduceSubagents([], { action: "start", id: "a", type: "Explore" })).toEqual([
+            { id: "a", type: "Explore", state: "working" },
+        ]);
+    });
+    it("start is idempotent for a known id", () => {
+        const list = [{ id: "a", type: "Explore", state: "working" as const }];
+        expect(reduceSubagents(list, { action: "start", id: "a", type: "Explore" })).toEqual(list);
+    });
+    it("stop flips the matching id to success", () => {
+        expect(
+            reduceSubagents([{ id: "a", type: "E", state: "working" }], { action: "stop", id: "a", type: "E", status: "success" })
+        ).toEqual([{ id: "a", type: "E", state: "success" }]);
+    });
+    it("stop with failure marks failure", () => {
+        expect(
+            reduceSubagents([{ id: "a", type: "E", state: "working" }], { action: "stop", id: "a", type: "E", status: "failure" })
+        ).toEqual([{ id: "a", type: "E", state: "failure" }]);
+    });
+    it("stop defaults to success when status is omitted", () => {
+        expect(reduceSubagents([{ id: "a", type: "E", state: "working" }], { action: "stop", id: "a", type: "E" })).toEqual([
+            { id: "a", type: "E", state: "success" },
+        ]);
+    });
+    it("stop for an unknown id appends a stopped entry", () => {
+        expect(reduceSubagents([], { action: "stop", id: "b", type: "Plan", status: "success" })).toEqual([
+            { id: "b", type: "Plan", state: "success" },
+        ]);
+    });
+    it("does not mutate the input list", () => {
+        const list = [{ id: "a", type: "E", state: "working" as const }];
+        reduceSubagents(list, { action: "stop", id: "a", type: "E", status: "success" });
+        expect(list).toEqual([{ id: "a", type: "E", state: "working" }]);
+    });
+    it("tracks parallel subagents independently", () => {
+        let l = reduceSubagents([], { action: "start", id: "a", type: "E" });
+        l = reduceSubagents(l, { action: "start", id: "b", type: "P" });
+        l = reduceSubagents(l, { action: "stop", id: "a", type: "E", status: "success" });
+        expect(l).toEqual([
+            { id: "a", type: "E", state: "success" },
+            { id: "b", type: "P", state: "working" },
+        ]);
+    });
+});
+
+describe("rollUpStatus", () => {
+    it("waiting parent dominates a working child", () => {
+        expect(rollUpStatus("waiting", [{ id: "a", type: "E", state: "working" }])).toBe("waiting");
+    });
+    it("idle parent with a working child becomes working", () => {
+        expect(rollUpStatus("idle", [{ id: "a", type: "E", state: "working" }])).toBe("working");
+    });
+    it("idle parent with only finished children stays idle", () => {
+        expect(rollUpStatus("idle", [{ id: "a", type: "E", state: "success" }])).toBe("idle");
+    });
+    it("no children returns the parent status", () => {
+        expect(rollUpStatus("working", [])).toBe("working");
+    });
+});
+
+describe("subagentExpanded", () => {
+    it("an empty list is never expanded", () => {
+        expect(subagentExpanded([], undefined)).toBe(false);
+        expect(subagentExpanded([], true)).toBe(false);
+    });
+    it("auto-expands while a child is working", () => {
+        expect(subagentExpanded([{ id: "a", type: "E", state: "working" }], undefined)).toBe(true);
+    });
+    it("auto-collapses when all children finished", () => {
+        expect(subagentExpanded([{ id: "a", type: "E", state: "success" }], undefined)).toBe(false);
+    });
+    it("manual override wins over auto", () => {
+        expect(subagentExpanded([{ id: "a", type: "E", state: "working" }], false)).toBe(false);
+        expect(subagentExpanded([{ id: "a", type: "E", state: "success" }], true)).toBe(true);
+    });
+});
+
+describe("buildSessionViewModel — subagents", () => {
+    it("attaches subagents and rolls an idle parent up to working", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/X", status: "idle", subagents: [{ id: "a", type: "Explore", state: "working" }] }),
+        ]);
+        const row = vm.groups[0].sessions[0];
+        expect(row.subagents).toHaveLength(1);
+        expect(row.status).toBe("working");
+    });
+    it("keeps a waiting parent amber even with a working subagent", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/X", status: "waiting", subagents: [{ id: "a", type: "E", state: "working" }] }),
+        ]);
+        expect(vm.groups[0].sessions[0].status).toBe("waiting");
+    });
+    it("defaults subagents to [] and expanded to false", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X" })]);
+        const row = vm.groups[0].sessions[0];
+        expect(row.subagents).toEqual([]);
+        expect(row.subagentsExpanded).toBe(false);
     });
 });

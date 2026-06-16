@@ -5,13 +5,39 @@ import { createTab, setActiveTab } from "@/app/store/global";
 import { makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
-import { setupAgentStatusSubscription } from "./agentstatusstore";
+import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
-import { SessionGroup, SessionRow } from "./sessionrow";
-import { collapsedGroupsAtom, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
-import { aggregateStatus, toggleCollapsed } from "./sessionviewmodel";
+import { SessionGroup, SessionRow, SubagentRow } from "./sessionrow";
+import { collapsedGroupsAtom, renameSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
+import { aggregateStatus, toggleCollapsed, type SessionRowVM } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
+
+function SessionRowTree({ row }: { row: SessionRowVM }) {
+    return (
+        <>
+            <SessionRow
+                label={row.label}
+                status={row.status}
+                active={row.active}
+                blocked={row.blocked}
+                pinned={row.pinned}
+                detail={row.detail}
+                subagentCount={row.subagents.length}
+                expanded={row.subagentsExpanded}
+                editValue={row.customLabel}
+                onToggleExpand={() => toggleSubagentExpand(row.termBlockOref, row.subagentsExpanded)}
+                onRename={(name) => renameSession(row.tabId, name)}
+                onSelect={() => setActiveTab(row.tabId)}
+                onTogglePin={() => togglePin(row.tabId, row.pinned)}
+            />
+            {row.subagentsExpanded &&
+                row.subagents.map((sa, i) => (
+                    <SubagentRow key={sa.id} type={sa.type} state={sa.state} last={i === row.subagents.length - 1} />
+                ))}
+        </>
+    );
+}
 
 export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     void workspace; // tab list is read reactively from the atom; prop kept to match the mount seam
@@ -54,17 +80,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                     onToggle={() => toggle(PINNED_LABEL)}
                 >
                     {vm.pinned.map((r) => (
-                        <SessionRow
-                            key={r.tabId}
-                            label={r.label}
-                            status={r.status}
-                            active={r.active}
-                            blocked={r.blocked}
-                            pinned={r.pinned}
-                            detail={r.detail}
-                            onSelect={() => setActiveTab(r.tabId)}
-                            onTogglePin={() => togglePin(r.tabId, r.pinned)}
-                        />
+                        <SessionRowTree key={r.tabId} row={r} />
                     ))}
                 </SessionGroup>
             )}
@@ -79,17 +95,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                     onToggle={() => toggle(g.label)}
                 >
                     {g.sessions.map((r) => (
-                        <SessionRow
-                            key={r.tabId}
-                            label={r.label}
-                            status={r.status}
-                            active={r.active}
-                            blocked={r.blocked}
-                            pinned={r.pinned}
-                            detail={r.detail}
-                            onSelect={() => setActiveTab(r.tabId)}
-                            onTogglePin={() => togglePin(r.tabId, r.pinned)}
-                        />
+                        <SessionRowTree key={r.tabId} row={r} />
                     ))}
                 </SessionGroup>
             ))}

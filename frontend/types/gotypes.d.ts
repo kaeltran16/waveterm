@@ -87,6 +87,15 @@ declare global {
         detail?: string;
         agent?: string;
         ts: number;
+        subagent?: AgentSubagentDelta;
+    };
+
+    // baseds.AgentSubagentDelta
+    type AgentSubagentDelta = {
+        action: string;
+        id: string;
+        type?: string;
+        status?: string;
     };
 
     // wshrpc.AiMessageData
@@ -1231,6 +1240,7 @@ declare global {
         "onboarding:lastversion"?: string;
         "session:pinned"?: boolean;
         "session:agent"?: string;
+        "session:label"?: string;
         "session:collapsedgroups"?: string[];
         count?: number;
     };

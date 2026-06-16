@@ -156,6 +156,7 @@ const (
 
 	MetaKey_SessionPinned                    = "session:pinned"
 	MetaKey_SessionAgent                     = "session:agent"
+	MetaKey_SessionLabel                     = "session:label"
 	MetaKey_SessionCollapsedGroups           = "session:collapsedgroups"
 
 	MetaKey_Count                            = "count"

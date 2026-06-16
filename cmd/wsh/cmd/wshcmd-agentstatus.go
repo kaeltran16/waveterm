@@ -28,6 +28,12 @@ var (
 	agentStatusState  string
 	agentStatusDetail string
 	agentStatusAgent  string
+
+	agentSubagentStart  bool
+	agentSubagentStop   bool
+	agentSubagentId     string
+	agentSubagentType   string
+	agentSubagentStatus string
 )
 
 func init() {
@@ -35,6 +41,11 @@ func init() {
 	agentStatusCmd.Flags().StringVar(&agentStatusState, "state", "", "agent state: working | waiting | idle")
 	agentStatusCmd.Flags().StringVar(&agentStatusDetail, "detail", "", "activity detail line (e.g. \"editing foo.go\")")
 	agentStatusCmd.Flags().StringVar(&agentStatusAgent, "agent", "", "agent identity (claude | codex)")
+	agentStatusCmd.Flags().BoolVar(&agentSubagentStart, "subagent-start", false, "report a subagent that started (requires --id, --type)")
+	agentStatusCmd.Flags().BoolVar(&agentSubagentStop, "subagent-stop", false, "report a subagent that stopped (requires --id; optionally --status success|failure)")
+	agentStatusCmd.Flags().StringVar(&agentSubagentId, "id", "", "subagent agent_id (with --subagent-start/--subagent-stop)")
+	agentStatusCmd.Flags().StringVar(&agentSubagentType, "type", "", "subagent agent_type (e.g. Explore, Plan)")
+	agentStatusCmd.Flags().StringVar(&agentSubagentStatus, "status", "", "subagent outcome: success | failure (with --subagent-stop)")
 }
 
 func validAgentState(s string) bool {
@@ -46,16 +57,20 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		sendActivity("agentstatus", rtnErr == nil)
 	}()
 
-	if !validAgentState(agentStatusState) {
-		return fmt.Errorf("--state must be one of working, waiting, idle (got %q)", agentStatusState)
-	}
-
 	oref, err := resolveBlockArg()
 	if err != nil {
 		return fmt.Errorf("resolving block: %v", err)
 	}
 	if oref.OType != waveobj.OType_Block && oref.OType != waveobj.OType_Tab {
 		return fmt.Errorf("agentstatus oref must be a block or tab (got %q)", oref.OType)
+	}
+
+	if agentSubagentStart || agentSubagentStop {
+		return publishSubagentDelta(oref)
+	}
+
+	if !validAgentState(agentStatusState) {
+		return fmt.Errorf("--state must be one of working, waiting, idle (got %q)", agentStatusState)
 	}
 
 	eventData := baseds.AgentStatusData{
@@ -78,5 +93,53 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("publishing agentstatus event: %v", err)
 	}
 	fmt.Printf("agentstatus %s set\n", agentStatusState)
+	return nil
+}
+
+func publishSubagentDelta(oref *waveobj.ORef) error {
+	if agentSubagentStart && agentSubagentStop {
+		return fmt.Errorf("--subagent-start and --subagent-stop are mutually exclusive")
+	}
+	if agentSubagentId == "" {
+		return fmt.Errorf("--id is required with --subagent-start/--subagent-stop")
+	}
+
+	action := baseds.SubagentAction_Start
+	status := ""
+	if agentSubagentStop {
+		action = baseds.SubagentAction_Stop
+		if agentSubagentStatus != "" && agentSubagentStatus != baseds.SubagentStatus_Success && agentSubagentStatus != baseds.SubagentStatus_Failure {
+			return fmt.Errorf("--status must be success or failure (got %q)", agentSubagentStatus)
+		}
+		status = agentSubagentStatus
+	}
+
+	eventData := baseds.AgentStatusData{
+		ORef:  oref.String(),
+		Agent: agentStatusAgent,
+		Ts:    time.Now().UnixMilli(),
+		Subagent: &baseds.AgentSubagentDelta{
+			Action: action,
+			Id:     agentSubagentId,
+			Type:   agentSubagentType,
+			Status: status,
+		},
+	}
+
+	// Persist:0 — subagent deltas are ephemeral; they must not be retained or replayed to
+	// late subscribers (a replayed delta would resurrect a phantom child). The retained
+	// Persist:1 parent-state event for the same scope is untouched (pkg/wps/wps.go:196,228).
+	event := wps.WaveEvent{
+		Event:   wps.Event_AgentStatus,
+		Scopes:  []string{oref.String()},
+		Persist: 0,
+		Data:    eventData,
+	}
+
+	err := wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+	if err != nil {
+		return fmt.Errorf("publishing agentstatus subagent event: %v", err)
+	}
+	fmt.Printf("agentstatus subagent %s %s set\n", action, agentSubagentId)
 	return nil
 }

@@ -35,12 +35,32 @@ const (
 	AgentState_Idle    = "idle"
 )
 
+const (
+	SubagentAction_Start = "start"
+	SubagentAction_Stop  = "stop"
+
+	SubagentStatus_Success = "success"
+	SubagentStatus_Failure = "failure"
+)
+
+// AgentSubagentDelta is an optional delta carried on AgentStatusData describing a single
+// subagent lifecycle transition in the parent session (SubagentStart / SubagentStop hooks).
+// It is a delta, not state: the frontend reduces a stream of these into a per-block list.
+type AgentSubagentDelta struct {
+	Action string `json:"action"`           // SubagentAction_Start | SubagentAction_Stop
+	Id     string `json:"id"`
+	Type   string `json:"type,omitempty"`   // agent_type (e.g. Explore, Plan)
+	Status string `json:"status,omitempty"` // SubagentStatus_* (stop only)
+}
+
 // AgentStatusData is the payload of Event_AgentStatus. ORef is the block (or tab)
-// the status applies to; State is one of the AgentState_* constants.
+// the status applies to; State is one of the AgentState_* constants. When Subagent is
+// non-nil the event carries a subagent delta (State may be empty in that case).
 type AgentStatusData struct {
-	ORef   string `json:"oref"`
-	State  string `json:"state"`
-	Detail string `json:"detail,omitempty"`
-	Agent  string `json:"agent,omitempty"`
-	Ts     int64  `json:"ts"`
+	ORef     string              `json:"oref"`
+	State    string              `json:"state"`
+	Detail   string              `json:"detail,omitempty"`
+	Agent    string              `json:"agent,omitempty"`
+	Ts       int64               `json:"ts"`
+	Subagent *AgentSubagentDelta `json:"subagent,omitempty"`
 }

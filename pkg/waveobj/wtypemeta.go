@@ -161,6 +161,7 @@ type MetaTSType struct {
 	// for session sidebar (Wave Agent Sessions fork)
 	SessionPinned          bool     `json:"session:pinned,omitempty"`          // tab
 	SessionAgent           string   `json:"session:agent,omitempty"`           // tab
+	SessionLabel           string   `json:"session:label,omitempty"`           // tab (user-set custom name; overrides the agent-derived row label)
 	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
 
 	Count int `json:"count,omitempty"` // temp for cpu plot. will remove later

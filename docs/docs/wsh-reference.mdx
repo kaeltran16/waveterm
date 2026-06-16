@@ -283,9 +283,14 @@ Flags:
 - `--state string` - agent state: `working`, `waiting`, or `idle` (required)
 - `--detail string` - activity detail line (e.g. `"editing foo.go"`)
 - `--agent string` - agent identity (e.g. `claude`, `codex`)
+- `--subagent-start` - report a subagent that started (requires `--id`, `--type`)
+- `--subagent-stop` - report a subagent that stopped (requires `--id`; optionally `--status`)
+- `--id string` - subagent agent_id (with `--subagent-start`/`--subagent-stop`)
+- `--type string` - subagent agent_type (e.g. `Explore`, `Plan`)
+- `--status string` - subagent outcome: `success` or `failure` (with `--subagent-stop`)
 - `-b, --block` - target a specific block or tab (same format as `getmeta`)
 
-Example:
+Examples:
 
 ```sh
 # Report that the agent is actively working
@@ -293,6 +298,12 @@ wsh agentstatus --state working --agent claude --detail "editing main.go"
 
 # Report that the agent is done
 wsh agentstatus --state idle --agent claude
+
+# Report that a subagent started
+wsh agentstatus --subagent-start --id <agent_id> --type Explore
+
+# Report that a subagent stopped successfully
+wsh agentstatus --subagent-stop --id <agent_id> --status success
 ```
 
 ---

@@ -4,6 +4,22 @@ export const NO_CWD_LABEL = "ungrouped";
 
 export type SessionStatus = "working" | "waiting" | "idle";
 
+export type SubagentState = "working" | "success" | "failure";
+
+export interface SubagentVM {
+    id: string;
+    type: string;
+    state: SubagentState;
+}
+
+/** A single subagent lifecycle transition, mapped from the AgentStatusData.subagent delta. */
+export interface SubagentDelta {
+    action: "start" | "stop";
+    id: string;
+    type: string;
+    status?: "success" | "failure";
+}
+
 // Couples to the Phase 0 reporter's color constants. Phase 2 replaces this with an explicit
 // `state` field carried by the `wsh agentstatus` event.
 export const COLOR_WORKING = "#3fb950";
@@ -37,22 +53,30 @@ export interface SessionInput {
     tabId: string;
     name: string;
     agent?: string;
+    customLabel?: string;
     pinned: boolean;
     cwd?: string;
     serviceLabel: string;
     status: SessionStatus;
     detail?: string;
+    subagents?: SubagentVM[];
+    subagentsExpanded?: boolean;
+    termBlockOref?: string;
     active: boolean;
 }
 
 export interface SessionRowVM {
     tabId: string;
     label: string;
+    customLabel?: string;
     status: SessionStatus;
     active: boolean;
     blocked: boolean;
     pinned: boolean;
     detail?: string;
+    subagents: SubagentVM[];
+    subagentsExpanded: boolean;
+    termBlockOref?: string;
 }
 
 export interface SessionGroupVM {
@@ -67,20 +91,27 @@ export interface SidebarViewModel {
 }
 
 function rowLabel(s: SessionInput, includeService: boolean): string {
+    const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
-    const base = agent && agent.length > 0 ? agent : "session";
+    const base = custom ?? (agent && agent.length > 0 ? agent : "session");
     return includeService ? `${base} · ${s.serviceLabel}` : base;
 }
 
 function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
+    const subagents = s.subagents ?? [];
+    const status = rollUpStatus(s.status, subagents);
     return {
         tabId: s.tabId,
         label: rowLabel(s, includeService),
-        status: s.status,
+        customLabel: s.customLabel,
+        status,
         active: s.active,
-        blocked: s.status === "waiting",
+        blocked: status === "waiting",
         pinned: s.pinned,
         detail: s.detail,
+        subagents,
+        subagentsExpanded: s.subagentsExpanded ?? false,
+        termBlockOref: s.termBlockOref,
     };
 }
 
@@ -159,4 +190,44 @@ export function needsYouTarget(vm: SidebarViewModel): string | undefined {
         }
     }
     return undefined;
+}
+
+/** Pure: reduce a subagent start/stop delta into the per-block list. Never mutates the input.
+ *  start is idempotent by id; stop flips the matching entry (or appends if the start was missed). */
+export function reduceSubagents(list: SubagentVM[], delta: SubagentDelta): SubagentVM[] {
+    if (delta.action === "start") {
+        if (list.some((s) => s.id === delta.id)) {
+            return list;
+        }
+        return [...list, { id: delta.id, type: delta.type, state: "working" }];
+    }
+    const state: SubagentState = delta.status === "failure" ? "failure" : "success";
+    if (!list.some((s) => s.id === delta.id)) {
+        return [...list, { id: delta.id, type: delta.type, state }];
+    }
+    return list.map((s) => (s.id === delta.id ? { ...s, state } : s));
+}
+
+/** Pure: the row's dot reflects children — the parent's own waiting (amber) dominates;
+ *  otherwise any working child lifts an idle/working parent to working. */
+export function rollUpStatus(parent: SessionStatus, subagents: SubagentVM[]): SessionStatus {
+    if (parent === "waiting") {
+        return "waiting";
+    }
+    if (subagents.some((s) => s.state === "working")) {
+        return "working";
+    }
+    return parent;
+}
+
+/** Pure: auto-expand while a child is working; a manual override (set this turn) wins.
+ *  An empty list is never expanded (nothing to show). */
+export function subagentExpanded(subagents: SubagentVM[], manualOverride?: boolean): boolean {
+    if (subagents.length === 0) {
+        return false;
+    }
+    if (manualOverride != null) {
+        return manualOverride;
+    }
+    return subagents.some((s) => s.state === "working");
 }

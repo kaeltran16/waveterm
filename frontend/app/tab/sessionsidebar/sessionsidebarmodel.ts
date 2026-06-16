@@ -10,7 +10,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom } from "jotai";
-import { getAgentStatusAtom } from "./agentstatusstore";
+import { getAgentStatusAtom, getSubagentExpandAtom, getSubagentsAtom } from "./agentstatusstore";
 import { sessionGroupLabelAtom } from "./sessiongroupstore";
 import {
     badgeToStatus,
@@ -18,9 +18,11 @@ import {
     cwdToServiceLabel,
     cycleTarget,
     needsYouTarget,
+    subagentExpanded,
     type SessionInput,
     type SessionStatus,
     type SidebarViewModel,
+    type SubagentVM,
 } from "./sessionviewmodel";
 
 /** Derived: collect per-tab data reactively and build the grouped view model. */
@@ -48,12 +50,18 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
         const badgeStatus = badgeToStatus(badges?.[0]);
         let status: SessionStatus = badgeStatus;
         let detail: string | undefined;
+        let subagents: SubagentVM[] = [];
+        let subagentsExpanded = false;
+        let termBlockOref: string | undefined;
         if (termBlockId) {
-            const agentStatus = get(getAgentStatusAtom(WOS.makeORef("block", termBlockId)));
+            termBlockOref = WOS.makeORef("block", termBlockId);
+            const agentStatus = get(getAgentStatusAtom(termBlockOref));
             if (agentStatus?.state) {
                 status = agentStatus.state as SessionStatus;
                 detail = agentStatus.detail;
             }
+            subagents = get(getSubagentsAtom(termBlockOref));
+            subagentsExpanded = subagentExpanded(subagents, get(getSubagentExpandAtom(termBlockOref)));
         }
 
         const meta = tab?.meta ?? {};
@@ -61,11 +69,15 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             tabId,
             name: tab?.name ?? "",
             agent: meta["session:agent"],
+            customLabel: meta["session:label"],
             pinned: meta["session:pinned"] === true,
             cwd,
             serviceLabel: (cwd && labelMap.get(cwd)) || cwdToServiceLabel(cwd),
             status,
             detail,
+            subagents,
+            subagentsExpanded,
+            termBlockOref,
             active: tabId === activeId,
         };
     });
@@ -95,6 +107,17 @@ export function togglePin(tabId: string, pinned: boolean) {
         RpcApi.SetMetaCommand(TabRpcClient, {
             oref: WOS.makeORef("tab", tabId),
             meta: { "session:pinned": !pinned },
+        })
+    );
+}
+
+/** Set (or clear, when empty) the session's custom label. Null reverts the row to its auto label. */
+export function renameSession(tabId: string, name: string) {
+    const trimmed = name.trim();
+    fireAndForget(() =>
+        RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("tab", tabId),
+            meta: { "session:label": trimmed.length > 0 ? trimmed : null },
         })
     );
 }
