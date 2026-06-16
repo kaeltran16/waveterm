@@ -136,3 +136,49 @@ You can use the regular Chrome DevTools to debug the frontend application. You c
 ### Backend logs
 
 Backend logs for the development version of Wave can be found at `~/.waveterm-dev/waveapp.log`. Both the NodeJS backend from Electron and the main Go backend will log here.
+
+## Troubleshooting (Windows packaging)
+
+Two non-obvious failures can break `task package` on Windows (electron-builder).
+
+### `task package` fails extracting `winCodeSign` ("Cannot create symbolic link ... A required privilege is not held by the client")
+
+electron-builder downloads the legacy `winCodeSign-2.6.0.7z` (it needs `rcedit`, and `signtool` if signing) and extracts it with `7za -snld`. That archive contains two macOS symlinks (`darwin/10.12/lib/libcrypto.dylib`, `libssl.dylib`) whose creation requires the `SeCreateSymbolicLinkPrivilege`, which a normal process lacks. 7za exits non-zero and the build aborts — even though every Windows tool in the bundle extracted fine.
+
+Pick one fix:
+
+- **Enable Developer Mode (durable, recommended).** One-time, then the stock build works with no other changes. In an elevated shell:
+
+    ```sh
+    reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+    ```
+
+  (or Settings → System → For developers → Developer Mode → On)
+
+- **Run `task package` from an elevated (Administrator) shell.** The admin token holds the privilege.
+
+- **Pre-seed the cache (no admin).** Extract the bundle once into the location electron-builder validates by directory existence; it then skips the failing extraction. `clean` does not touch this cache, so it persists across builds:
+
+    ```sh
+    SEVENZA="node_modules/7zip-bin/win/x64/7za.exe"
+    DEST="$LOCALAPPDATA/electron-builder/Cache/winCodeSign/winCodeSign-2.6.0"
+    # download winCodeSign-2.6.0.7z from electron-builder-binaries releases, then:
+    "$SEVENZA" x winCodeSign-2.6.0.7z "-o$DEST" -y     # the 2 darwin .dylib symlinks will error; ignore them
+    touch "$DEST/darwin/10.12/lib/libcrypto.dylib" "$DEST/darwin/10.12/lib/libssl.dylib"
+    ```
+
+Note: `toolsets: { winCodeSign: "1.1.0" }` in `electron-builder.config.cjs` would pull a symlink-free bundle, but it is silently ignored in electron-builder 26.x (the root `toolsets` option is not propagated to the Windows packager).
+
+### Packaged app launches with no backend (only `wavesrv.x64.exe~` is bundled)
+
+A stray long-lived `wavesrv` from a prior `task dev`/`task start` (running out of `dist/bin/`) locks the binary. Windows allows renaming a running exe, so the Go linker renames the busy file to `wavesrv.x64.exe~` and writes fresh; electron-builder's `bin/wavesrv.${arch}*` glob then packages the `~` leftover. The build exits 0 but the installer ships a broken/missing backend.
+
+Before packaging, kill stray repo `wavesrv` processes (leave the installed app's, under `AppData\Local\Programs\waveterm`) and remove the stale binaries:
+
+```sh
+# PowerShell: stop repo-dir wavesrv only
+Get-Process wavesrv* | Where-Object { $_.Path -like '*IdeaProjects*' } | Stop-Process -Force
+rm -f dist/bin/wavesrv.x64.exe dist/bin/wavesrv.x64.exe~
+```
+
+Verify after packaging: `make/win-unpacked/resources/app.asar.unpacked/dist/bin/` must contain `wavesrv.x64.exe` (not just `wavesrv.x64.exe~`).
