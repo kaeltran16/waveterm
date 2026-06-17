@@ -260,3 +260,39 @@ export function duplicateSession(sourceTabId: string) {
         setActiveTab(newTabId);
     });
 }
+
+const AGENTS_TAB_NAME = "Agents";
+
+/** Open the Agents view in its own dedicated full-tab block. Focuses the existing
+ *  "Agents" tab if one is open; otherwise creates it and repurposes the new tab's
+ *  default shell block into the agents view *before* activating, so no shell controller
+ *  starts (the backend defers the controller until the tab renders). */
+export function openAgentsTab() {
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null) {
+        return;
+    }
+    for (const tabId of ws.tabids ?? []) {
+        const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
+        if (tab?.name === AGENTS_TAB_NAME) {
+            setActiveTab(tabId);
+            return;
+        }
+    }
+    fireAndForget(async () => {
+        const newTabId = await WorkspaceService.CreateTab(ws.oid, AGENTS_TAB_NAME, false);
+        await RpcApi.SetMetaCommand(TabRpcClient, {
+            oref: WOS.makeORef("tab", newTabId),
+            meta: { "session:pinned": true },
+        });
+        const newTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", newTabId)));
+        const defaultBlockId = newTab?.blockids?.[0];
+        if (defaultBlockId != null) {
+            await RpcApi.SetMetaCommand(TabRpcClient, {
+                oref: WOS.makeORef("block", defaultBlockId),
+                meta: { view: "agents", controller: null, "cmd:cwd": null },
+            });
+        }
+        setActiveTab(newTabId);
+    });
+}

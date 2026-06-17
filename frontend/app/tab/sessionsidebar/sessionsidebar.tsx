@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
-import { createBlock, createTab, getApi, setActiveTab } from "@/app/store/global";
+import { createTab, getApi, setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { MOCK_AGENTS } from "@/app/view/agents/agentsmockdata";
@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow, SubagentRow } from "./sessionrow";
-import { collapsedGroupsAtom, duplicateSession, renameSession, reorderSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
+import { collapsedGroupsAtom, duplicateSession, openAgentsTab, renameSession, reorderSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
 import { aggregateStatus, toggleCollapsed, type SessionRowVM } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
@@ -147,7 +147,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
             <button
                 type="button"
                 className="group flex w-full shrink-0 cursor-pointer items-center gap-2 px-2 py-2 text-[13.5px] text-[#e6edf3] transition-colors hover:bg-[#d29922]/10"
-                onClick={() => fireAndForget(() => createBlock({ meta: { view: "agents" } }, true))}
+                onClick={() => openAgentsTab()}
                 aria-label="Open Agents"
             >
                 <span className="text-[#d29922]">⬤</span>

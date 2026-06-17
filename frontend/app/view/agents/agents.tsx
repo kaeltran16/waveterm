@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
+import { setActiveTab } from "@/app/store/global";
 import type { TabModel } from "@/app/store/tab-model";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { AskCard } from "./askcard";
@@ -19,8 +20,9 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const sections = groupAgents(agents);
     const asking = askingCount(agents);
     const answer = (id: string, ans: string) => model.dataSource.answer(id, ans);
+    const open = (id: string) => setActiveTab(id);
     return (
-        <div className="flex h-full flex-col bg-[#0b0e14] text-[#c9d1d9]">
+        <div className="flex h-full w-full flex-col bg-[#0b0e14] text-[#c9d1d9]">
             <div className="flex shrink-0 items-center justify-between border-b border-[#1c2230] px-[18px] py-3">
                 <b className="text-[15px] text-[#e6edf3]">Agents</b>
                 <span className="text-[12px] text-[#6b7585]">
@@ -28,18 +30,18 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 </span>
             </div>
             <div className="flex-1 overflow-auto p-[18px]">
-                <div className="max-w-[980px]">
+                <div className="w-full">
                     {sections.asking.length > 0 && <SectionLabel>needs you</SectionLabel>}
                     {sections.asking.map((a) => (
-                        <AskCard key={a.id} agent={a} onAnswer={answer} />
+                        <AskCard key={a.id} agent={a} onAnswer={answer} onOpen={open} />
                     ))}
                     {sections.working.length > 0 && <SectionLabel>working</SectionLabel>}
                     {sections.working.map((a) => (
-                        <WorkingRow key={a.id} agent={a} />
+                        <WorkingRow key={a.id} agent={a} onOpen={open} />
                     ))}
                     {sections.idle.length > 0 && <SectionLabel>idle</SectionLabel>}
                     {sections.idle.map((a) => (
-                        <IdleRow key={a.id} agent={a} />
+                        <IdleRow key={a.id} agent={a} onOpen={open} />
                     ))}
                 </div>
             </div>

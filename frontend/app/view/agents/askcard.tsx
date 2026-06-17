@@ -27,7 +27,15 @@ function PreviousInfo({ entries }: { entries: AgentEntry[] }) {
     );
 }
 
-export function AskCard({ agent, onAnswer }: { agent: AgentVM; onAnswer: (id: string, answer: string) => void }) {
+export function AskCard({
+    agent,
+    onAnswer,
+    onOpen,
+}: {
+    agent: AgentVM;
+    onAnswer: (id: string, answer: string) => void;
+    onOpen: (id: string) => void;
+}) {
     const [reply, setReply] = useState("");
     const options = agent.ask?.options ?? ["Yes", "No"];
     const submitReply = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -40,7 +48,10 @@ export function AskCard({ agent, onAnswer }: { agent: AgentVM; onAnswer: (id: st
     return (
         <div className="mb-3.5 rounded-[10px] border border-[#d29922] bg-[#d29922]/[0.05] px-[18px] py-4">
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
+                <div
+                    className="flex cursor-pointer items-center gap-2.5 hover:[&_b]:underline"
+                    onClick={() => onOpen(agent.id)}
+                >
                     <span className="h-2 w-2 shrink-0 rounded-full bg-[#d29922]" />
                     <b className="text-[14px] text-[#e6edf3]">{agent.name}</b>
                     <span className="text-[12.5px] text-[#6b7585]">· {agent.task}</span>
