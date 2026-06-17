@@ -89,6 +89,7 @@ type WshRpcInterface interface {
 	GetVarCommand(ctx context.Context, data CommandVarData) (*CommandVarResponseData, error)
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
 	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
+	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
 	SendTelemetryCommand(ctx context.Context) error
@@ -558,6 +559,15 @@ type CommandGetSessionGroupData struct {
 type CommandGetSessionGroupRtnData struct {
 	Root  string `json:"root"`
 	Label string `json:"label"`
+}
+
+type CommandGetAgentTranscriptData struct {
+	Path     string `json:"path"`
+	MaxLines int    `json:"maxlines,omitempty"`
+}
+
+type CommandGetAgentTranscriptRtnData struct {
+	Lines []string `json:"lines"`
 }
 
 type CommandDebugTermData struct {

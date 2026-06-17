@@ -394,6 +394,12 @@ func FocusWindowCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
+// command "getagenttranscript", wshserver.GetAgentTranscriptCommand
+func GetAgentTranscriptCommand(w *wshutil.WshRpc, data wshrpc.CommandGetAgentTranscriptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetAgentTranscriptRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetAgentTranscriptRtnData](w, "getagenttranscript", data, opts)
+	return resp, err
+}
+
 // command "getallbadges", wshserver.GetAllBadgesCommand
 func GetAllBadgesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]baseds.BadgeEvent, error) {
 	resp, err := sendRpcRequestCallHelper[[]baseds.BadgeEvent](w, "getallbadges", nil, opts)

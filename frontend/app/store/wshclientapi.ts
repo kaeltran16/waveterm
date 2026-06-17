@@ -396,6 +396,12 @@ export class RpcApiType {
         return client.wshRpcCall("focuswindow", data, opts);
     }
 
+    // command "getagenttranscript" [call]
+    GetAgentTranscriptCommand(client: WshClient, data: CommandGetAgentTranscriptData, opts?: RpcOpts): Promise<CommandGetAgentTranscriptRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getagenttranscript", data, opts);
+        return client.wshRpcCall("getagenttranscript", data, opts);
+    }
+
     // command "getallbadges" [call]
     GetAllBadgesCommand(client: WshClient, opts?: RpcOpts): Promise<BadgeEvent[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getallbadges", null, opts);

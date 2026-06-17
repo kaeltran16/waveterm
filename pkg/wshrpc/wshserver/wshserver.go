@@ -1396,6 +1396,14 @@ func (ws *WshServer) GetSessionGroupCommand(ctx context.Context, data wshrpc.Com
 	return resolveSessionGroup(data.Cwd), nil
 }
 
+func (ws *WshServer) GetAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandGetAgentTranscriptData) (*wshrpc.CommandGetAgentTranscriptRtnData, error) {
+	lines, err := readTranscriptTail(data.Path, data.MaxLines)
+	if err != nil {
+		return nil, fmt.Errorf("reading agent transcript: %w", err)
+	}
+	return &wshrpc.CommandGetAgentTranscriptRtnData{Lines: lines}, nil
+}
+
 func (ws *WshServer) SetVarCommand(ctx context.Context, data wshrpc.CommandVarData) error {
 	_, fileData, err := filestore.WFS.ReadFile(ctx, data.ZoneId, data.FileName)
 	if err == fs.ErrNotExist {

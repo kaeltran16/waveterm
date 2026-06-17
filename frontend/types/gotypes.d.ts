@@ -87,6 +87,7 @@ declare global {
         detail?: string;
         agent?: string;
         model?: string;
+        transcriptpath?: string;
         ts: number;
         subagent?: AgentSubagentDelta;
     };
@@ -416,6 +417,17 @@ declare global {
         info: FileInfo;
         byterange?: string;
         streammeta: StreamMeta;
+    };
+
+    // wshrpc.CommandGetAgentTranscriptData
+    type CommandGetAgentTranscriptData = {
+        path: string;
+        maxlines?: number;
+    };
+
+    // wshrpc.CommandGetAgentTranscriptRtnData
+    type CommandGetAgentTranscriptRtnData = {
+        lines: string[];
     };
 
     // wshrpc.CommandGetMetaData

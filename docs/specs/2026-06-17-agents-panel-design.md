@@ -117,7 +117,7 @@ Previous info is **not** in the payload (it is read from the transcript), keepin
 
 ## 10. Open items for the implementation plan
 
-1. **Transcript access from in-repo.** The status reporter is out-of-repo; the panel needs an in-repo path (Go/RPC) to read a session's transcript JSONL for the projection. This is the largest unknown and should be resolved first in planning.
+1. **Transcript access from in-repo. — RESOLVED (Plan 2).** Two links: (a) the out-of-repo reporter forwards `transcript_path` to Wave via a new `--transcript` flag on `wsh agentstatus`, carried as `AgentStatusData.TranscriptPath` and stored per-block by `agentstatusstore.ts` (no store change). (b) A new `GetAgentTranscriptCommand` RPC tail-reads the JSONL file by path (last N lines, byte-capped) and returns raw lines; a pure, vitest-tested TS module `projectTranscript(lines) → AgentEntry[]` does the projection (`assistant` text → message; `tool_use` → action via a tool→verb map; `tool_result.is_error` → outcome; other record types ignored). Plan 2 ships this machinery + an async `fetchPreviousInfo(path)` seam; the live asking-card display that consumes it lands in Plan 3.
 2. **`ask_human` MCP packaging & registration.** Where the MCP server lives, how it's registered with Claude Code, and how the Elicitation hook routes into the Wave queue (vs. a blocking MCP tool — hooks/elicitation preferred per the prior brainstorm's doc check).
 3. **Live vs on-demand previous info.** Recommend: working agents show a live activity line (from status events); full previous-info is projected when an agent is *asking* (or on open), not streamed continuously.
 4. **"Asking" as a first-class status.** How a pending elicitation maps to the sidebar status/badge and the view's `needs you` section.

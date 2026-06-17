@@ -59,11 +59,12 @@ type AgentSubagentDelta struct {
 // the status applies to; State is one of the AgentState_* constants. When Subagent is
 // non-nil the event carries a subagent delta (State may be empty in that case).
 type AgentStatusData struct {
-	ORef     string              `json:"oref"`
-	State    string              `json:"state"`
-	Detail   string              `json:"detail,omitempty"`
-	Agent    string              `json:"agent,omitempty"`
-	Model    string              `json:"model,omitempty"`
-	Ts       int64               `json:"ts"`
-	Subagent *AgentSubagentDelta `json:"subagent,omitempty"`
+	ORef           string              `json:"oref"`
+	State          string              `json:"state"`
+	Detail         string              `json:"detail,omitempty"`
+	Agent          string              `json:"agent,omitempty"`
+	Model          string              `json:"model,omitempty"`
+	TranscriptPath string              `json:"transcriptpath,omitempty"`
+	Ts             int64               `json:"ts"`
+	Subagent       *AgentSubagentDelta `json:"subagent,omitempty"`
 }
