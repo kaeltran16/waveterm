@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
-import { createTab, getApi, setActiveTab } from "@/app/store/global";
+import { createBlock, createTab, getApi, setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import { MOCK_AGENTS } from "@/app/view/agents/agentsmockdata";
+import { askingCount } from "@/app/view/agents/agentsviewmodel";
 import { fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
@@ -135,12 +137,26 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     }, [cwds.join("|")]);
 
     const toggle = (label: string) => setCollapsedGroups(toggleCollapsed(collapsedGroups, label));
+    const asking = askingCount(MOCK_AGENTS); // Plan 3 swaps MOCK_AGENTS for the live asking count
 
     return (
         <div
             className="flex h-full flex-col overflow-y-auto rounded-[10px] border border-[#20242b] shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
             style={{ backdropFilter: "blur(20px)", background: "rgba(0, 0, 0, 0.55)" }}
         >
+            <button
+                type="button"
+                className="group flex w-full shrink-0 cursor-pointer items-center gap-2 px-2 py-2 text-[13.5px] text-[#e6edf3] transition-colors hover:bg-[#d29922]/10"
+                onClick={() => fireAndForget(() => createBlock({ meta: { view: "agents" } }, true))}
+                aria-label="Open Agents"
+            >
+                <span className="text-[#d29922]">⬤</span>
+                <span className="font-semibold">Agents</span>
+                {asking > 0 && (
+                    <span className="ml-auto rounded-[9px] bg-[#d29922] px-2 text-[10px] font-bold text-black">{asking} asking</span>
+                )}
+            </button>
+            <div className="h-px shrink-0 bg-[#20242b]" />
             <button
                 type="button"
                 className="group flex w-full shrink-0 cursor-pointer items-center gap-1.5 px-2 py-[7px] text-xs text-[#8b949e] transition-colors hover:text-primary"

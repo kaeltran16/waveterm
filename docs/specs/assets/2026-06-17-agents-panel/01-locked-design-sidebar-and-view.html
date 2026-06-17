@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents pinned in the sidebar</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background:#07090e; color:#c9d1d9; font-family:-apple-system,"Segoe UI",Roboto,sans-serif; font-size:14px; display:flex; flex-direction:column; overflow:hidden; }
+  .mono { font-family:"SF Mono",ui-monospace,Consolas,monospace; }
+  .topnote { padding:12px 24px; color:#6b7585; font-size:12.5px; border-bottom:1px solid #1c2230; }
+  .topnote b { color:#e6edf3; }
+  .stage { flex:1; display:flex; min-height:0; padding:18px; gap:16px; }
+
+  /* sidebar — matches the real one (glassy, grouped) */
+  .sidebar { width:226px; flex:0 0 auto; border:1px solid #20242b; border-radius:10px; background:rgba(0,0,0,0.55); display:flex; flex-direction:column; overflow:hidden; }
+
+  .agents-pin { display:flex; align-items:center; gap:9px; padding:11px 12px; cursor:pointer; background:rgba(210,153,34,0.13); }
+  .agents-pin .ic { color:#d29922; font-size:13px; }
+  .agents-pin b { color:#e6edf3; font-size:13.5px; }
+  .agents-pin .badge { margin-left:auto; background:#d29922; color:#000; border-radius:9px; font-size:10px; font-weight:700; padding:1px 8px; }
+  .divider { height:1px; background:#20242b; }
+
+  .newtab { display:flex; align-items:center; gap:7px; padding:8px 12px; color:#8b949e; font-size:12.5px; cursor:pointer; }
+  .newtab:hover { color:#e6edf3; }
+
+  .grp { padding:5px 10px 2px; }
+  .grp-head { display:flex; align-items:center; gap:6px; color:#7d8896; font-size:11px; padding:5px 2px; }
+  .grp-head .chev { font-size:9px; }
+  .grp-head .count { color:#566173; }
+  .grp-head .gdot { width:6px; height:6px; border-radius:50%; margin-left:auto; }
+  .srow { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px; font-size:12.5px; color:#adb6c2; }
+  .srow.active { background:#1a2030; color:#e6edf3; }
+  .sdot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+  .srow .mdl { margin-left:auto; color:#566173; font-size:10px; }
+
+  /* main: agents view */
+  .main { flex:1; min-width:0; border:1px solid #1c2230; border-radius:10px; background:#0b0e14; display:flex; flex-direction:column; overflow:hidden; }
+  .vhead { padding:13px 18px; border-bottom:1px solid #1c2230; display:flex; align-items:center; justify-content:space-between; }
+  .vhead b { color:#e6edf3; font-size:15px; }
+  .vhead .c { color:#6b7585; font-size:12px; } .vhead .c .a { color:#d29922; }
+  .vbody { flex:1; overflow:auto; padding:18px; }
+  .wrap { max-width:980px; }
+  .seclabel { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#6b7585; margin:0 2px 11px; }
+  .seclabel.mt { margin-top:24px; }
+  .ask { border:1px solid #d29922; border-radius:10px; background:rgba(210,153,34,0.05); padding:16px 18px; margin-bottom:13px; }
+  .ask .h { display:flex; align-items:center; justify-content:space-between; }
+  .ask .who { display:flex; align-items:center; gap:9px; } .ask .who b { color:#e6edf3; font-size:14px; } .ask .who .t { color:#6b7585; font-size:12.5px; }
+  .ask .age { color:#d29922; font-size:11.5px; }
+  .ask .msg { color:#dde3ea; font-size:13px; margin-top:11px; line-height:1.55; max-width:80ch; }
+  .ask .acts { margin:10px 0; padding-left:13px; border-left:2px solid #2a2f3a; font-size:12px; color:#7d8896; line-height:1.7; }
+  .ask .acts .v { color:#9aa4b2; display:inline-block; width:52px; } .ok{color:#3fb950;} .bad{color:#f85149;}
+  .ask .qbar { margin-top:14px; padding-top:13px; border-top:1px solid #2a2f3a; }
+  .ask .q { color:#e6edf3; font-size:14px; font-weight:600; }
+  .ans { display:flex; align-items:center; gap:9px; margin-top:11px; }
+  .pill { border:1px solid #2c3340; border-radius:7px; padding:6px 18px; font-size:12.5px; color:#c9d1d9; cursor:pointer; }
+  .pill.y { background:#238636; color:#fff; font-weight:600; border:none; }
+  .reply { flex:1; background:#0b0e14; border:1px solid #1c2230; border-radius:7px; padding:7px 12px; color:#8b949e; font-size:12px; }
+  .wrow { display:flex; align-items:center; gap:10px; padding:11px 4px; border-bottom:1px solid #14181f; }
+  .wrow b { color:#e6edf3; font-size:13px; } .wrow .t { color:#6b7585; font-size:12.5px; } .wrow .act { margin-left:auto; color:#7d8896; font-size:12px; }
+</style>
+</head>
+<body>
+  <div class="topnote"><b>Agents</b> pinned at the top of the sidebar, separated from sessions. The <b>+ New Tab</b> button stays right where it is today, below the divider.</div>
+  <div class="stage">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <!-- pinned Agents launcher -->
+      <div class="agents-pin"><span class="ic">⬤</span><b>Agents</b><span class="badge">3 asking</span></div>
+      <div class="divider"></div>
+
+      <!-- existing new-tab button -->
+      <div class="newtab"><span class="mono">＋</span> New Tab</div>
+      <div class="divider"></div>
+
+      <!-- pinned group -->
+      <div class="grp">
+        <div class="grp-head"><span class="chev">▾</span> Pinned <span class="count">1</span><span class="gdot" style="background:#d29922"></span></div>
+        <div class="srow active"><span class="sdot" style="background:#d29922"></span>loom<span class="mdl">opus</span></div>
+      </div>
+      <!-- project groups -->
+      <div class="grp">
+        <div class="grp-head"><span class="chev">▾</span> waveterm <span class="count">2</span><span class="gdot" style="background:#d29922"></span></div>
+        <div class="srow"><span class="sdot" style="background:#d29922"></span>waveterm<span class="mdl">opus</span></div>
+        <div class="srow"><span class="sdot" style="background:#3fb950"></span>waveterm-2<span class="mdl">sonnet</span></div>
+      </div>
+      <div class="grp">
+        <div class="grp-head"><span class="chev">▾</span> obsidian <span class="count">2</span><span class="gdot" style="background:#3fb950"></span></div>
+        <div class="srow"><span class="sdot" style="background:#3fb950"></span>obsidian<span class="mdl">sonnet</span></div>
+        <div class="srow"><span class="sdot" style="background:#4a5260"></span>obsidian-2<span class="mdl">sonnet</span></div>
+      </div>
+      <div class="grp">
+        <div class="grp-head"><span class="chev">▾</span> api-svc <span class="count">1</span><span class="gdot" style="background:#d29922"></span></div>
+        <div class="srow"><span class="sdot" style="background:#d29922"></span>api-svc<span class="mdl">opus</span></div>
+      </div>
+    </div>
+
+    <!-- MAIN: agents view (opened from the pin) -->
+    <div class="main">
+      <div class="vhead"><b>Agents</b><span class="c"><span class="a">3 asking</span> · 4 working · 1 idle</span></div>
+      <div class="vbody">
+        <div class="wrap">
+          <div class="seclabel">needs you</div>
+
+          <div class="ask">
+            <div class="h"><div class="who"><span class="sdot" style="background:#d29922"></span><b>loom</b><span class="t">· Fix duplicate-session race</span></div><span class="age">asking · 4m</span></div>
+            <div class="msg">The clone re-reads the source block by id, so a stale id slips through. I added a nil-guard returning a clean <code>failResult</code>.</div>
+            <div class="acts mono"><div><span class="v">edited</span> sessionmodel.go</div><div><span class="v">wrote</span> duplicate-session_test.go (+2)</div><div><span class="v">ran</span> go test ./... <span class="ok">✓ 12 passing</span></div></div>
+            <div class="msg">While testing I noticed the source block can also be removed <i>between</i> lookup and clone — a second race the guard doesn't cover.</div>
+            <div class="qbar"><div class="q">Should I guard that second case too?</div><div class="ans"><span class="pill y">Yes</span><span class="pill">No</span><input class="reply" placeholder="or type a reply…"></div></div>
+          </div>
+
+          <div class="ask">
+            <div class="h"><div class="who"><span class="sdot" style="background:#d29922"></span><b>waveterm</b><span class="t">· Migrate badges to tailwind</span></div><span class="age">asking · 1m</span></div>
+            <div class="msg">Migrated <code>Badge.tsx</code>; tests green. Old <code>badge.css</code> still imported by Toast, Pill, StatusDot.</div>
+            <div class="qbar"><div class="q">Old badge.css — keep, delete, or deprecate?</div><div class="ans"><span class="pill">Keep</span><span class="pill">Delete</span><span class="pill">Deprecate</span></div></div>
+          </div>
+
+          <div class="seclabel mt">working</div>
+          <div class="wrow"><span class="sdot" style="background:#3fb950"></span><b>waveterm-2</b><span class="t">Add settings search</span><span class="act mono">⟳ go test ./pkg/wconfig/…</span></div>
+          <div class="wrow"><span class="sdot" style="background:#3fb950"></span><b>obsidian</b><span class="t">Daily note backlinks</span><span class="act mono">⟳ editing daily-note.ts</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
