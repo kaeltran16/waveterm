@@ -4,21 +4,27 @@
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentEntry } from "./agentsviewmodel";
-import { projectTranscript } from "./transcriptprojection";
+import { extractAiTitle, projectTranscript } from "./transcriptprojection";
 
 const DEFAULT_TAIL_LINES = 300;
 
-// Fetch + project an agent's recent transcript into previous-info entries. On any read failure
-// returns [] (spec §7: render the question alone). Plan 3 calls this when an asking card renders,
-// passing AgentStatusData.transcriptpath (carried since Task 1).
-export async function fetchPreviousInfo(transcriptPath: string, maxLines = DEFAULT_TAIL_LINES): Promise<AgentEntry[]> {
+export interface PreviousInfoResult {
+    entries: AgentEntry[];
+    title?: string; // the agent's ai-title (used as the task label)
+}
+
+// Fetch an agent's recent transcript once and project both previous-info entries and the ai-title.
+// On any read failure returns empty entries (spec §7: render the question alone). Called when a
+// needs-you card mounts, passing AgentStatusData.transcriptpath (carried since Plan 2).
+export async function fetchPreviousInfo(transcriptPath: string, maxLines = DEFAULT_TAIL_LINES): Promise<PreviousInfoResult> {
     if (!transcriptPath) {
-        return [];
+        return { entries: [] };
     }
     try {
         const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path: transcriptPath, maxlines: maxLines });
-        return projectTranscript(rtn?.lines ?? []);
+        const lines = rtn?.lines ?? [];
+        return { entries: projectTranscript(lines), title: extractAiTitle(lines) };
     } catch {
-        return [];
+        return { entries: [] };
     }
 }

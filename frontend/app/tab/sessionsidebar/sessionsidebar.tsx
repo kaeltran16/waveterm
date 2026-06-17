@@ -5,8 +5,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { createTab, getApi, setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
-import { MOCK_AGENTS } from "@/app/view/agents/agentsmockdata";
-import { askingCount } from "@/app/view/agents/agentsviewmodel";
+import { liveAskingCountAtom } from "@/app/view/agents/liveagents";
 import { fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
@@ -125,6 +124,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     const vm = useAtomValue(sessionSidebarViewModelAtom);
     const cwds = useAtomValue(sessionCwdsAtom);
     const collapsedGroups = useAtomValue(collapsedGroupsAtom);
+    const asking = useAtomValue(liveAskingCountAtom);
     const collapsed = new Set(collapsedGroups);
     const [drag, setDrag] = useState<{ draggedId: string; overId: string; placeBefore: boolean }>(null);
 
@@ -137,7 +137,6 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
     }, [cwds.join("|")]);
 
     const toggle = (label: string) => setCollapsedGroups(toggleCollapsed(collapsedGroups, label));
-    const asking = askingCount(MOCK_AGENTS); // Plan 3 swaps MOCK_AGENTS for the live asking count
 
     return (
         <div

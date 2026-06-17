@@ -102,3 +102,21 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
     }
     return entries;
 }
+
+/** Pure: the most recent ai-title in the transcript, or undefined. Claude Code emits multiple
+ *  `{type:"ai-title", aiTitle}` records as the title is refined; the last one is current. */
+export function extractAiTitle(lines: string[]): string | undefined {
+    let title: string | undefined;
+    for (const line of lines) {
+        let rec: any;
+        try {
+            rec = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (rec?.type === "ai-title" && typeof rec.aiTitle === "string" && rec.aiTitle.trim() !== "") {
+            title = rec.aiTitle;
+        }
+    }
+    return title;
+}

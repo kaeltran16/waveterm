@@ -1,5 +1,7 @@
 // Pure view-model logic for the Agents view. No React, no Wave runtime imports.
 
+import { modelLabel } from "@/app/tab/sessionsidebar/sessionviewmodel";
+
 export type AgentState = "asking" | "working" | "idle";
 
 // One item of "previous info": something the agent said, or something it did.
@@ -14,7 +16,7 @@ export interface AgentAsk {
 }
 
 export interface AgentVM {
-    id: string; // session/block oref — stable key + answer target
+    id: string; // tabId — stable key + open/answer target
     name: string; // e.g. "loom"
     task: string; // e.g. "Fix duplicate-session race"
     state: AgentState;
@@ -24,6 +26,7 @@ export interface AgentVM {
     activeMs?: number; // working: elapsed (sort)
     previousInfo?: AgentEntry[]; // asking: messages + actions leading to the question
     ask?: AgentAsk; // present iff state === "asking"
+    transcriptPath?: string; // source for on-demand previous-info (not rendered directly)
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -77,4 +80,38 @@ export function formatAge(ms?: number): string {
         return `${mins}m`;
     }
     return `${Math.floor(mins / 60)}h`;
+}
+
+/** Minimal per-agent inputs the live roster feeds the pure mapping. `status` is the sidebar's
+ *  SessionStatus string ("working" | "waiting" | "idle"); `ts` is the status event's UnixMilli. */
+export interface LiveAgentInput {
+    id: string; // tabId — open target + stable key
+    name: string;
+    status: string;
+    detail?: string;
+    model?: string; // raw model id
+    ts?: number; // last status change (UnixMilli)
+    transcriptPath?: string;
+}
+
+/** Pure: one live row -> an AgentVM. `waiting` becomes `asking`; age is derived from `now - ts`
+ *  (asking -> blockedMs, working -> activeMs). previousInfo/ask/task are filled later (async). */
+export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
+    const state: AgentState = input.status === "waiting" ? "asking" : input.status === "working" ? "working" : "idle";
+    const age = input.ts != null ? Math.max(0, now - input.ts) : undefined;
+    const vm: AgentVM = {
+        id: input.id,
+        name: input.name,
+        task: "",
+        state,
+        model: modelLabel(input.model),
+        activity: input.detail,
+        transcriptPath: input.transcriptPath,
+    };
+    if (state === "asking") {
+        vm.blockedMs = age;
+    } else if (state === "working") {
+        vm.activeMs = age;
+    }
+    return vm;
 }

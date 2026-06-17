@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectTranscript } from "./transcriptprojection";
+import { extractAiTitle, projectTranscript } from "./transcriptprojection";
 
 const LINES: string[] = [
     JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "fix the race" }] } }), // human prompt -> skipped
@@ -50,5 +50,22 @@ describe("projectTranscript", () => {
             JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "missing", is_error: true }] } }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "go test ./..." }]);
+    });
+});
+
+describe("extractAiTitle", () => {
+    it("returns the LAST ai-title's aiTitle", () => {
+        const lines = [
+            JSON.stringify({ type: "mode", mode: "normal" }),
+            JSON.stringify({ type: "ai-title", aiTitle: "First guess" }),
+            JSON.stringify({ type: "last-prompt", lastPrompt: "do the thing" }),
+            JSON.stringify({ type: "ai-title", aiTitle: "Fix duplicate-session race" }),
+        ];
+        expect(extractAiTitle(lines)).toBe("Fix duplicate-session race");
+    });
+
+    it("returns undefined when there is no ai-title, and skips unparseable lines", () => {
+        expect(extractAiTitle([JSON.stringify({ type: "assistant", message: { content: [] } }), "{bad"])).toBeUndefined();
+        expect(extractAiTitle([])).toBeUndefined();
     });
 });

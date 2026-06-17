@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, type AgentVM } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, type AgentVM, type LiveAgentInput } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -51,5 +51,49 @@ describe("formatAge", () => {
     it("minutes then hours", () => {
         expect(formatAge(240_000)).toBe("4m");
         expect(formatAge(7_200_000)).toBe("2h");
+    });
+});
+
+describe("agentVMFromInput", () => {
+    const NOW = 1_000_000;
+
+    it("maps a working row: status->working, model label, activeMs from ts", () => {
+        const input: LiveAgentInput = {
+            id: "tab-1",
+            name: "waveterm",
+            status: "working",
+            detail: "go test ./pkg/wconfig/…",
+            model: "claude-sonnet-4-6",
+            ts: NOW - 120_000,
+            transcriptPath: "/p/t.jsonl",
+        };
+        expect(agentVMFromInput(input, NOW)).toEqual({
+            id: "tab-1",
+            name: "waveterm",
+            task: "",
+            state: "working",
+            model: "sonnet",
+            activity: "go test ./pkg/wconfig/…",
+            activeMs: 120_000,
+            transcriptPath: "/p/t.jsonl",
+        });
+    });
+
+    it("maps a waiting row to the asking state with blockedMs", () => {
+        const input: LiveAgentInput = { id: "tab-2", name: "loom", status: "waiting", model: "claude-opus-4-8", ts: NOW - 240_000 };
+        const vm = agentVMFromInput(input, NOW);
+        expect(vm.state).toBe("asking");
+        expect(vm.blockedMs).toBe(240_000);
+        expect(vm.activeMs).toBeUndefined();
+        expect(vm.model).toBe("opus");
+    });
+
+    it("maps anything else to idle, with no age field, and tolerates a missing ts", () => {
+        const vm = agentVMFromInput({ id: "tab-3", name: "obsidian", status: "idle", detail: "stopped without asking" }, NOW);
+        expect(vm.state).toBe("idle");
+        expect(vm.activeMs).toBeUndefined();
+        expect(vm.blockedMs).toBeUndefined();
+        expect(vm.activity).toBe("stopped without asking");
+        expect(vm.model).toBe("");
     });
 });
