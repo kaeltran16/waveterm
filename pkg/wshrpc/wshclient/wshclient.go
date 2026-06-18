@@ -23,10 +23,28 @@ func ActivityCommand(w *wshutil.WshRpc, data wshrpc.ActivityUpdate, opts *wshrpc
 	return err
 }
 
+// command "agentaskclear", wshserver.AgentAskClearCommand
+func AgentAskClearCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "agentaskclear", data, opts)
+	return err
+}
+
 // command "aisendmessage", wshserver.AiSendMessageCommand
 func AiSendMessageCommand(w *wshutil.WshRpc, data wshrpc.AiMessageData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "aisendmessage", data, opts)
 	return err
+}
+
+// command "answeragent", wshserver.AnswerAgentCommand
+func AnswerAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "answeragent", data, opts)
+	return err
+}
+
+// command "ask", wshserver.AskCommand
+func AskCommand(w *wshutil.WshRpc, data wshrpc.CommandAskData, opts *wshrpc.RpcOpts) (wshrpc.AskRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.AskRtnData](w, "ask", data, opts)
+	return resp, err
 }
 
 // command "authenticate", wshserver.AuthenticateCommand

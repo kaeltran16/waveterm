@@ -213,6 +213,11 @@ type WshRpcInterface interface {
 	JobControllerDetachJobCommand(ctx context.Context, jobId string) error
 	JobControllerGetAllJobManagerStatusCommand(ctx context.Context) ([]*JobManagerStatusUpdate, error)
 	BlockJobStatusCommand(ctx context.Context, blockId string) (*BlockJobStatusData, error)
+
+	// agent ask
+	AskCommand(ctx context.Context, data CommandAskData) (AskRtnData, error)
+	AnswerAgentCommand(ctx context.Context, data CommandAnswerAgentData) error
+	AgentAskClearCommand(ctx context.Context, oref string) error
 }
 
 // for frontend
@@ -342,7 +347,6 @@ type CommandEventReadHistoryData struct {
 	Scope    string `json:"scope"`
 	MaxItems int    `json:"maxitems"`
 }
-
 
 type CpuDataRequest struct {
 	Id    string `json:"id"`
@@ -568,6 +572,20 @@ type CommandGetAgentTranscriptData struct {
 
 type CommandGetAgentTranscriptRtnData struct {
 	Lines []string `json:"lines"`
+}
+
+type CommandAskData struct {
+	ORef      string                    `json:"oref"`
+	Questions []baseds.AgentAskQuestion `json:"questions"`
+}
+
+type AskRtnData struct {
+	AskId string `json:"askid"`
+}
+
+type CommandAnswerAgentData struct {
+	ORef    string                   `json:"oref"`
+	Answers []baseds.AgentAnswerItem `json:"answers"`
 }
 
 type CommandDebugTermData struct {

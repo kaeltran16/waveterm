@@ -9,6 +9,7 @@ import { liveAskingCountAtom } from "@/app/view/agents/liveagents";
 import { fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
+import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
 import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow, SubagentRow } from "./sessionrow";
@@ -130,6 +131,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
 
     useEffect(() => {
         setupAgentStatusSubscription();
+        setupAgentAskSubscription();
     }, []);
 
     useEffect(() => {

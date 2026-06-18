@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, type AgentVM, type LiveAgentInput } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, type AgentVM, type LiveAgentInput } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -95,5 +95,57 @@ describe("agentVMFromInput", () => {
         expect(vm.blockedMs).toBeUndefined();
         expect(vm.activity).toBe("stopped without asking");
         expect(vm.model).toBe("");
+    });
+});
+
+describe("withAsk", () => {
+    const NOW = 1_000_000;
+    const baseWorking = (): AgentVM => ({
+        id: "tab-1",
+        name: "waveterm",
+        task: "",
+        state: "working",
+        activity: "go test ./…",
+        activeMs: 5_000,
+    });
+
+    it("flips a working agent to asking, clears activeMs, sets blockedMs from ts, maps questions", () => {
+        const ask: AgentAskData = {
+            oref: "block:abc",
+            askid: "ask-1",
+            questions: [
+                {
+                    question: "Guard the nil case?",
+                    header: "Safety",
+                    multiselect: false,
+                    options: [{ label: "Yes" }, { label: "No", description: "risky" }],
+                },
+            ],
+            ts: NOW - 60_000,
+        };
+        const vm = withAsk(baseWorking(), ask, NOW);
+        expect(vm.state).toBe("asking");
+        expect(vm.blockedMs).toBe(60_000);
+        expect(vm.activeMs).toBeUndefined();
+        expect(vm.ask?.askId).toBe("ask-1");
+        expect(vm.ask?.questions).toHaveLength(1);
+        expect(vm.ask?.questions[0].question).toBe("Guard the nil case?");
+        expect(vm.ask?.questions[0].header).toBe("Safety");
+        // multiselect (lowercase Go json tag) maps to multiSelect (camelCase)
+        expect(vm.ask?.questions[0].multiSelect).toBe(false);
+        expect(vm.ask?.questions[0].options).toEqual([{ label: "Yes", description: undefined }, { label: "No", description: "risky" }]);
+    });
+
+    it("carries an empty questions array when questions is absent", () => {
+        const ask: AgentAskData = { oref: "block:abc", askid: "ask-2", ts: NOW - 10_000 };
+        const vm = withAsk(baseWorking(), ask, NOW);
+        expect(vm.state).toBe("asking");
+        expect(vm.ask?.questions).toEqual([]);
+    });
+
+    it("returns the vm unchanged when ask is null or cleared", () => {
+        expect(withAsk(baseWorking(), null, NOW)).toEqual(baseWorking());
+        const cleared: AgentAskData = { oref: "block:abc", askid: "ask-1", cleared: true };
+        expect(withAsk(baseWorking(), cleared, NOW)).toEqual(baseWorking());
     });
 });

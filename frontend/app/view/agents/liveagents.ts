@@ -4,14 +4,15 @@
 //
 // The live Agents roster: derived from sessionSidebarViewModelAtom (single source of truth for
 // running sessions) + per-block agent status. previous-info + task are fetched on demand for
-// asking agents only (spec §10.3). No ask_human / answer routing here (Plan 3b).
+// asking agents only (spec §10.3). ask routing via getAgentAskAtom + withAsk (Plan 3c).
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { getAgentStatusAtom } from "@/app/tab/sessionsidebar/agentstatusstore";
 import { sessionSidebarViewModelAtom } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
 import { flattenVisualOrder } from "@/app/tab/sessionsidebar/sessionviewmodel";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
-import { agentVMFromInput, askingCount, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { agentVMFromInput, askingCount, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { getAgentAskAtom } from "./agentaskstore";
 import { fetchPreviousInfo } from "./previousinfo";
 
 interface PreviousInfoEntry {
@@ -40,20 +41,19 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
         if (!status?.state) {
             continue; // not an agent (no status emitted) — skip
         }
-        agents.push(
-            agentVMFromInput(
-                {
-                    id: row.tabId,
-                    name: row.label,
-                    status: row.status,
-                    detail: row.detail,
-                    model: row.model,
-                    ts: status.ts,
-                    transcriptPath: status.transcriptpath,
-                },
-                now
-            )
+        const vm = agentVMFromInput(
+            {
+                id: row.tabId,
+                name: row.label,
+                status: row.status,
+                detail: row.detail,
+                model: row.model,
+                ts: status.ts,
+                transcriptPath: status.transcriptpath,
+            },
+            now
         );
+        agents.push(withAsk(vm, get(getAgentAskAtom(row.termBlockOref)), now));
     }
     return agents;
 });

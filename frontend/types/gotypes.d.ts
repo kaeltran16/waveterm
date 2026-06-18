@@ -80,6 +80,34 @@ declare global {
         conn?: {[key: string]: number};
     };
 
+    // baseds.AgentAnswerItem
+    type AgentAnswerItem = {
+        selectedindexes?: number[];
+    };
+
+    // baseds.AgentAskData
+    type AgentAskData = {
+        oref: string;
+        askid: string;
+        questions?: AgentAskQuestion[];
+        ts?: number;
+        cleared?: boolean;
+    };
+
+    // baseds.AgentAskOption
+    type AgentAskOption = {
+        label: string;
+        description?: string;
+    };
+
+    // baseds.AgentAskQuestion
+    type AgentAskQuestion = {
+        question: string;
+        header?: string;
+        multiselect?: boolean;
+        options?: AgentAskOption[];
+    };
+
     // baseds.AgentStatusData
     type AgentStatusData = {
         oref: string;
@@ -127,6 +155,11 @@ declare global {
         shortdesc: string;
         icon: string;
         iconcolor: string;
+    };
+
+    // wshrpc.AskRtnData
+    type AskRtnData = {
+        askid: string;
     };
 
     // wconfig.BackgroundConfigType
@@ -245,6 +278,18 @@ declare global {
     type CloseTabRtnType = {
         closewindow?: boolean;
         newactivetabid?: string;
+    };
+
+    // wshrpc.CommandAnswerAgentData
+    type CommandAnswerAgentData = {
+        oref: string;
+        answers: AgentAnswerItem[];
+    };
+
+    // wshrpc.CommandAskData
+    type CommandAskData = {
+        oref: string;
+        questions: AgentAskQuestion[];
     };
 
     // wshrpc.CommandAuthenticateJobManagerData

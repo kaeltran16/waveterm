@@ -3,8 +3,11 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { setActiveTab } from "@/app/store/global";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
 import { atom, useAtomValue, type Atom } from "jotai";
+import { fireAndForget } from "@/util/util";
 import { useEffect } from "react";
 import { IdleRow, WorkingRow } from "./agentrows";
 import { AskCard } from "./askcard";
@@ -20,6 +23,12 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const sections = groupAgents(agents);
     const asking = askingCount(agents);
     const open = (id: string) => setActiveTab(id);
+    const answer = (oref: string, answers: AgentAnswerItem[]) => {
+        if (!oref) {
+            return;
+        }
+        fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers }));
+    };
 
     // fetch previous-info + task for needs-you agents on demand (spec §10.3)
     useEffect(() => {
@@ -45,7 +54,9 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     )}
                     {sections.asking.length > 0 && <SectionLabel>needs you</SectionLabel>}
                     {sections.asking.map((a) => (
-                        <AskCard key={a.id} agent={a} onOpen={open} />
+                        // keying by askId forces a fresh card (resetting per-question selection state) when the same
+                        // agent raises a new ask — otherwise a batched clear+new-ask render would reuse the stale instance.
+                        <AskCard key={a.ask?.askId ?? a.id} agent={a} onAnswer={answer} onOpen={open} />
                     ))}
                     {sections.working.length > 0 && <SectionLabel>working</SectionLabel>}
                     {sections.working.map((a) => (

@@ -24,10 +24,28 @@ export class RpcApiType {
         return client.wshRpcCall("activity", data, opts);
     }
 
+    // command "agentaskclear" [call]
+    AgentAskClearCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentaskclear", data, opts);
+        return client.wshRpcCall("agentaskclear", data, opts);
+    }
+
     // command "aisendmessage" [call]
     AiSendMessageCommand(client: WshClient, data: AiMessageData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "aisendmessage", data, opts);
         return client.wshRpcCall("aisendmessage", data, opts);
+    }
+
+    // command "answeragent" [call]
+    AnswerAgentCommand(client: WshClient, data: CommandAnswerAgentData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "answeragent", data, opts);
+        return client.wshRpcCall("answeragent", data, opts);
+    }
+
+    // command "ask" [call]
+    AskCommand(client: WshClient, data: CommandAskData, opts?: RpcOpts): Promise<AskRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "ask", data, opts);
+        return client.wshRpcCall("ask", data, opts);
     }
 
     // command "authenticate" [call]

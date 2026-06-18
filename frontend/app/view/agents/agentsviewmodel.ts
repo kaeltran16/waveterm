@@ -9,10 +9,22 @@ export type AgentEntry =
     | { kind: "message"; text: string }
     | { kind: "action"; verb: string; target: string; outcome?: "ok" | "fail"; note?: string };
 
-export interface AgentAsk {
+export interface AgentAskOption {
+    label: string;
+    description?: string;
+}
+
+export interface AgentAskQuestion {
     question: string;
-    options?: string[]; // answer pills; absent => default Yes/No
-    recommendation?: string; // shown under the question
+    header?: string;
+    multiSelect?: boolean;
+    options?: AgentAskOption[];
+}
+
+export interface AgentAsk {
+    questions: AgentAskQuestion[];
+    askId?: string;
+    oref?: string;
 }
 
 export interface AgentVM {
@@ -114,4 +126,29 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.activeMs = age;
     }
     return vm;
+}
+
+/** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
+ *  the reporter's status (a blocked AskCommand RPC may still report "working"); blockedMs is
+ *  derived from now - ask.ts. A null/cleared ask leaves the agent untouched. */
+export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): AgentVM {
+    if (ask == null || ask.cleared) {
+        return vm;
+    }
+    return {
+        ...vm,
+        state: "asking",
+        activeMs: undefined,
+        blockedMs: ask.ts != null ? Math.max(0, now - ask.ts) : vm.blockedMs,
+        ask: {
+            questions: (ask.questions ?? []).map((q) => ({
+                question: q.question,
+                header: q.header,
+                multiSelect: q.multiselect,
+                options: q.options?.map((o) => ({ label: o.label, description: o.description })),
+            })),
+            askId: ask.askid,
+            oref: ask.oref,
+        },
+    };
 }

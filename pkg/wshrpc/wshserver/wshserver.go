@@ -20,7 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/skratchdot/open-golang/open"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
@@ -1588,4 +1590,76 @@ func (ws *WshServer) JobControllerDetachJobCommand(ctx context.Context, jobId st
 
 func (ws *WshServer) BlockJobStatusCommand(ctx context.Context, blockId string) (*wshrpc.BlockJobStatusData, error) {
 	return jobcontroller.GetBlockJobStatus(ctx, blockId)
+}
+
+func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData) (wshrpc.AskRtnData, error) {
+	if data.ORef == "" || len(data.Questions) == 0 {
+		return wshrpc.AskRtnData{}, fmt.Errorf("oref and at least one question are required")
+	}
+	oref, err := waveobj.ParseORef(data.ORef)
+	if err != nil {
+		return wshrpc.AskRtnData{}, fmt.Errorf("invalid oref %q: %w", data.ORef, err)
+	}
+	askId := uuid.New().String()
+	agentask.GlobalRegistry.Set(data.ORef, agentask.PendingAsk{
+		AskId:     askId,
+		BlockId:   oref.OID,
+		Questions: data.Questions,
+	})
+	publishAgentAsk(baseds.AgentAskData{
+		ORef:      data.ORef,
+		AskId:     askId,
+		Questions: data.Questions,
+		Ts:        time.Now().UnixMilli(),
+	})
+	return wshrpc.AskRtnData{AskId: askId}, nil
+}
+
+func (ws *WshServer) AnswerAgentCommand(ctx context.Context, data wshrpc.CommandAnswerAgentData) error {
+	if data.ORef == "" {
+		return fmt.Errorf("oref is required")
+	}
+	pending, ok := agentask.GlobalRegistry.Get(data.ORef)
+	if !ok {
+		// already answered in the terminal (or cleared): no-op. This also prevents
+		// injecting stray bytes into the shell after the picker is gone.
+		return nil
+	}
+	keys, err := agentask.EncodeAnswer(pending.Questions, data.Answers)
+	if err != nil {
+		return err
+	}
+	// deliver one keystroke per PTY write with a gap between; a single combined write races
+	// the picker's React state update and confirms the wrong option (see KeystrokeDelay).
+	for i, k := range keys {
+		if i > 0 {
+			time.Sleep(agentask.KeystrokeDelay)
+		}
+		if err := blockcontroller.SendInput(pending.BlockId, &blockcontroller.BlockInputUnion{InputData: k}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) error {
+	if oref == "" {
+		return fmt.Errorf("oref is required")
+	}
+	askId := ""
+	if pending, ok := agentask.GlobalRegistry.Get(oref); ok {
+		askId = pending.AskId
+	}
+	agentask.GlobalRegistry.Drop(oref)
+	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: askId, Cleared: true})
+	return nil
+}
+
+func publishAgentAsk(data baseds.AgentAskData) {
+	wps.Broker.Publish(wps.WaveEvent{
+		Event:   wps.Event_AgentAsk,
+		Scopes:  []string{data.ORef},
+		Persist: 1,
+		Data:    data,
+	})
 }

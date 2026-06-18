@@ -68,3 +68,32 @@ type AgentStatusData struct {
 	Ts             int64               `json:"ts"`
 	Subagent       *AgentSubagentDelta `json:"subagent,omitempty"`
 }
+
+type AgentAskOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+type AgentAskQuestion struct {
+	Question    string           `json:"question"`
+	Header      string           `json:"header,omitempty"`
+	MultiSelect bool             `json:"multiselect,omitempty"`
+	Options     []AgentAskOption `json:"options,omitempty"`
+}
+
+// AgentAskData is the payload of Event_AgentAsk. ORef is the block the ask applies to;
+// AskId keys the pending request in the agentask registry (for routing the answer back).
+// A Cleared event (same ORef+AskId, Cleared=true, no questions) removes a resolved/cancelled ask.
+type AgentAskData struct {
+	ORef      string             `json:"oref"`
+	AskId     string             `json:"askid"`
+	Questions []AgentAskQuestion `json:"questions,omitempty"`
+	Ts        int64              `json:"ts,omitempty"` // UnixMilli the ask was raised (for the "asking · 4m" age)
+	Cleared   bool               `json:"cleared,omitempty"`
+}
+
+// AgentAnswerItem is one question's answer in a panel-submitted reply. SelectedIndexes
+// indexes into that question's Options (MVP: exactly one for single-select).
+type AgentAnswerItem struct {
+	SelectedIndexes []int `json:"selectedindexes,omitempty"`
+}

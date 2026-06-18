@@ -3,7 +3,7 @@
 
 import { cn } from "@/util/util";
 import { useState } from "react";
-import { formatAge, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 
 function PreviousInfo({ entries }: { entries: AgentEntry[] }) {
     return (
@@ -27,24 +27,98 @@ function PreviousInfo({ entries }: { entries: AgentEntry[] }) {
     );
 }
 
+function QuestionGroup({
+    question,
+    qi,
+    selections,
+    onToggle,
+}: {
+    question: AgentAskQuestion;
+    qi: number;
+    selections: Set<number>;
+    onToggle: (qi: number, oi: number) => void;
+}) {
+    const options = question.options ?? [];
+    return (
+        <div className="mt-3.5 border-t border-[#2a2f3a] pt-3.5">
+            {question.header ? (
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#6b7585]">{question.header}</div>
+            ) : null}
+            <div className="text-[14px] font-semibold text-[#e6edf3]">{question.question}</div>
+            {options.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2.5">
+                    {options.map((opt, oi) => {
+                        const isSelected = selections.has(oi);
+                        // Claude Code's AskUserQuestion payload has no separate "recommended" flag — by convention it
+                        // appends the literal "(Recommended)" marker to the option label, so this substring is the only signal.
+                        const isRecommended = opt.label.toLowerCase().includes("(recommended)");
+                        return (
+                            <button
+                                key={oi}
+                                type="button"
+                                onClick={() => onToggle(qi, oi)}
+                                className={cn(
+                                    "cursor-pointer rounded-[7px] px-[18px] py-1.5 text-[12.5px]",
+                                    isSelected
+                                        ? "bg-[#238636] font-semibold text-white"
+                                        : isRecommended
+                                          ? "border border-[#238636] font-semibold text-[#3fb950]"
+                                          : "border border-[#2c3340] text-[#c9d1d9]"
+                                )}
+                            >
+                                {opt.label}
+                                {opt.description ? (
+                                    <span className="ml-1.5 text-[11px] font-normal text-[#6b7585]">{opt.description}</span>
+                                ) : null}
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 export function AskCard({
     agent,
     onAnswer,
     onOpen,
 }: {
     agent: AgentVM;
-    onAnswer?: (id: string, answer: string) => void;
+    onAnswer?: (oref: string, answers: AgentAnswerItem[]) => void;
     onOpen: (id: string) => void;
 }) {
-    const [reply, setReply] = useState("");
-    const options = agent.ask?.options ?? ["Yes", "No"];
-    const submitReply = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key !== "Enter" || reply.trim().length === 0) {
-            return;
-        }
-        onAnswer?.(agent.id, reply.trim());
-        setReply("");
+    const [selections, setSelections] = useState<Record<number, Set<number>>>({});
+
+    const questions = agent.ask?.questions ?? [];
+
+    // MVP: the panel can drive the native picker only for a single single-select question.
+    // Everything else (multi-select, multi-question) is answered in the terminal.
+    const panelAnswerable = questions.length === 1 && !questions[0]?.multiSelect;
+    const canSubmit = panelAnswerable && (selections[0]?.size ?? 0) === 1;
+
+    const handleToggle = (qi: number, oi: number) => {
+        setSelections((prev) => {
+            const current = new Set(prev[qi] ?? []);
+            const q = questions[qi];
+            if (q?.multiSelect) {
+                if (current.has(oi)) current.delete(oi);
+                else current.add(oi);
+            } else {
+                // single-select: replace
+                current.clear();
+                current.add(oi);
+            }
+            return { ...prev, [qi]: current };
+        });
     };
+
+    const handleSubmit = () => {
+        if (!canSubmit) return;
+        const answers: AgentAnswerItem[] = [{ selectedindexes: Array.from(selections[0] ?? []) }];
+        onAnswer?.(agent.ask?.oref, answers);
+    };
+
     return (
         <div className="mb-3.5 rounded-[10px] border border-[#d29922] bg-[#d29922]/[0.05] px-[18px] py-4">
             <div className="flex items-center justify-between">
@@ -58,37 +132,33 @@ export function AskCard({
 
             {agent.previousInfo?.length ? <PreviousInfo entries={agent.previousInfo} /> : null}
 
-            {agent.ask ? (
-                <div className="mt-3.5 border-t border-[#2a2f3a] pt-3.5">
-                    <div className="text-[14px] font-semibold text-[#e6edf3]">{agent.ask.question}</div>
-                    {agent.ask.recommendation ? (
-                        <div className="mt-1 text-[11.5px] text-[#6b7585]">its take: {agent.ask.recommendation}</div>
-                    ) : null}
-                    <div className="mt-3 flex items-center gap-2.5">
-                        {options.map((opt, i) => (
-                            <button
-                                key={opt}
-                                type="button"
-                                onClick={() => onAnswer?.(agent.id, opt)}
-                                className={cn(
-                                    "cursor-pointer rounded-[7px] px-[18px] py-1.5 text-[12.5px]",
-                                    i === 0 && (options[0] === "Yes" || options.length > 2)
-                                        ? "bg-[#238636] font-semibold text-white"
-                                        : "border border-[#2c3340] text-[#c9d1d9]"
-                                )}
-                            >
-                                {opt}
-                            </button>
-                        ))}
-                        <input
-                            value={reply}
-                            onChange={(e) => setReply(e.target.value)}
-                            onKeyDown={submitReply}
-                            placeholder="or type a reply…"
-                            className="flex-1 rounded-[7px] border border-[#1c2230] bg-[#0b0e14] px-3 py-1.5 text-[12px] text-[#8b949e]"
+            {agent.ask && panelAnswerable ? (
+                <>
+                    {questions.map((q, qi) => (
+                        <QuestionGroup
+                            key={qi}
+                            question={q}
+                            qi={qi}
+                            selections={selections[qi] ?? new Set()}
+                            onToggle={handleToggle}
                         />
+                    ))}
+                    <div className="mt-3.5 flex justify-end">
+                        <button
+                            type="button"
+                            disabled={!canSubmit}
+                            onClick={handleSubmit}
+                            className={cn(
+                                "rounded-[7px] px-[18px] py-1.5 text-[12.5px] font-semibold",
+                                canSubmit
+                                    ? "cursor-pointer bg-[#238636] text-white"
+                                    : "bg-[#238636]/40 text-white/50"
+                            )}
+                        >
+                            Submit
+                        </button>
                     </div>
-                </div>
+                </>
             ) : (
                 <div className="mt-3.5 border-t border-[#2a2f3a] pt-3.5">
                     <button
