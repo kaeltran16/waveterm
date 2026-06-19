@@ -4,6 +4,7 @@
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
+import { motion } from "motion/react";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { buildAskAnswers, canSubmitAsk, formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -38,10 +39,13 @@ function QuestionGroup({
                         // appends the literal "(Recommended)" marker to the option label, so this substring is the only signal.
                         const isRecommended = opt.label.toLowerCase().includes("(recommended)");
                         return (
-                            <button
+                            <motion.button
                                 key={oi}
                                 type="button"
                                 onClick={() => onToggle(qi, oi)}
+                                whileTap={{ scale: 0.95 }}
+                                animate={{ scale: isSelected ? 1.04 : 1 }}
+                                transition={{ type: "spring", stiffness: 500, damping: 22 }}
                                 className={cn(
                                     "cursor-pointer rounded-[7px] px-[18px] py-1.5 text-[12.5px]",
                                     isSelected
@@ -53,9 +57,16 @@ function QuestionGroup({
                             >
                                 {opt.label}
                                 {opt.description ? (
-                                    <span className="ml-1.5 text-[11px] font-normal text-[#6b7585]">{opt.description}</span>
+                                    <span
+                                        className={cn(
+                                            "ml-1.5 text-[11px] font-normal",
+                                            isSelected ? "text-white/75" : "text-[#8b949e]"
+                                        )}
+                                    >
+                                        {opt.description}
+                                    </span>
                                 ) : null}
-                            </button>
+                            </motion.button>
                         );
                     })}
                 </div>
@@ -74,6 +85,7 @@ export function AskCard({
     onOpen: (id: string) => void;
 }) {
     const [selections, setSelections] = useState<Record<number, Set<number>>>({});
+    const [sent, setSent] = useState(false);
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
 
@@ -97,18 +109,26 @@ export function AskCard({
 
     const handleSubmit = () => {
         if (!canSubmit) return;
+        setSent(true);
         onAnswer?.(agent.ask?.oref, buildAskAnswers(questions, selections));
     };
 
     return (
         <div className="mb-3.5 rounded-[10px] border border-[#d29922] bg-[#d29922]/[0.05] px-[18px] py-4">
-            <div className="flex items-center justify-between">
-                <div className="flex cursor-pointer items-center gap-2.5 hover:[&_b]:underline" onClick={() => onOpen(agent.id)}>
+            <div className="flex items-center gap-2.5">
+                <div className="flex min-w-0 cursor-pointer items-center gap-2.5 hover:[&_b]:underline" onClick={() => onOpen(agent.id)}>
                     <span className="h-2 w-2 shrink-0 rounded-full bg-[#d29922]" />
-                    <b className="text-[14px] text-[#e6edf3]">{agent.name}</b>
-                    {agent.task ? <span className="text-[12.5px] text-[#6b7585]">· {agent.task}</span> : null}
+                    <b className="shrink-0 text-[14px] text-[#e6edf3]">{agent.name}</b>
+                    {agent.task ? <span className="truncate text-[12.5px] text-[#6b7585]">· {agent.task}</span> : null}
                 </div>
-                <span className="text-[11.5px] text-[#d29922]">asking · {formatAge(agent.blockedMs)}</span>
+                <span className="ml-auto shrink-0 text-[11px] text-[#d29922]">asking · {formatAge(agent.blockedMs)}</span>
+                <button
+                    type="button"
+                    onClick={() => onOpen(agent.id)}
+                    className="shrink-0 cursor-pointer rounded-[5px] border border-[#2c3340] px-2.5 py-0.5 text-[10.5px] text-[#c9d1d9] hover:bg-white/[0.04]"
+                >
+                    Open terminal
+                </button>
             </div>
 
             {entries.length ? <PreviousInfo entries={entries} /> : null}
@@ -124,24 +144,24 @@ export function AskCard({
             ))}
 
             <div className="mt-3.5 flex items-center justify-end gap-2.5">
-                <button
+                <motion.button
                     type="button"
-                    onClick={() => onOpen(agent.id)}
-                    className="cursor-pointer rounded-[7px] border border-[#2c3340] px-[14px] py-1.5 text-[12px] text-[#c9d1d9] hover:bg-white/[0.04]"
-                >
-                    Open terminal
-                </button>
-                <button
-                    type="button"
-                    disabled={!canSubmit}
+                    disabled={!canSubmit || sent}
                     onClick={handleSubmit}
+                    whileTap={{ scale: 0.96 }}
+                    animate={{ scale: sent ? 1.03 : 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 20 }}
                     className={cn(
                         "rounded-[7px] px-[18px] py-1.5 text-[12.5px] font-semibold",
-                        canSubmit ? "cursor-pointer bg-[#238636] text-white" : "bg-[#238636]/40 text-white/50"
+                        sent
+                            ? "bg-[#238636] text-white"
+                            : canSubmit
+                              ? "cursor-pointer bg-[#238636] text-white"
+                              : "bg-[#238636]/40 text-white/50"
                     )}
                 >
-                    Submit
-                </button>
+                    {sent ? "✓ Sent" : "Submit"}
+                </motion.button>
             </div>
         </div>
     );

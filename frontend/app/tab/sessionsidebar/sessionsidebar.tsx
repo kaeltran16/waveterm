@@ -9,6 +9,7 @@ import { liveAskingCountAtom } from "@/app/view/agents/liveagents";
 import { fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
 import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
@@ -105,17 +106,29 @@ function SessionRowTree({
                 dropIndicator={dropIndicator}
                 model={row.model}
             />
-            {row.subagentsExpanded &&
-                row.subagents.map((sa, i) => (
-                    <SubagentRow
-                        key={sa.id}
-                        type={sa.type}
-                        state={sa.state}
-                        last={i === row.subagents.length - 1}
-                        model={sa.model}
-                        parentModel={row.model}
-                    />
-                ))}
+            <AnimatePresence initial={false}>
+                {row.subagentsExpanded && (
+                    <motion.div
+                        key="subagents"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="overflow-hidden"
+                    >
+                        {row.subagents.map((sa, i) => (
+                            <SubagentRow
+                                key={sa.id}
+                                type={sa.type}
+                                state={sa.state}
+                                last={i === row.subagents.length - 1}
+                                model={sa.model}
+                                parentModel={row.model}
+                            />
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </>
     );
 }
@@ -153,9 +166,20 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
             >
                 <span className="text-[#d29922]">⬤</span>
                 <span className="font-semibold">Agents</span>
-                {asking > 0 && (
-                    <span className="ml-auto rounded-[9px] bg-[#d29922] px-2 text-[10px] font-bold text-black">{asking} asking</span>
-                )}
+                <AnimatePresence>
+                    {asking > 0 && (
+                        <motion.span
+                            key={asking}
+                            initial={{ scale: 0.6, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.6, opacity: 0 }}
+                            transition={{ type: "spring", stiffness: 600, damping: 20 }}
+                            className="ml-auto rounded-[9px] bg-[#d29922] px-2 text-[10px] font-bold text-black"
+                        >
+                            {asking} asking
+                        </motion.span>
+                    )}
+                </AnimatePresence>
             </button>
             <div className="h-px shrink-0 bg-[#20242b]" />
             <button

@@ -4,6 +4,7 @@
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { liveEntriesByIdAtom, lastActivityByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -66,22 +67,36 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
     return (
         <div className="relative flex h-full flex-col overflow-hidden rounded-[9px] border border-[#1c2230] bg-[#0b0e14]">
             <div className="flex shrink-0 items-center gap-2.5 border-b border-[#1c2230] px-[14px] py-2">
-                <span
+                <motion.span
                     className={cn(
                         "h-2 w-2 shrink-0 rounded-full",
                         quiet ? "border border-[#4a5260] bg-transparent" : "bg-[#3fb950]"
                     )}
+                    animate={quiet ? { scale: 1 } : { scale: [1, 1.25, 1], opacity: [1, 0.7, 1] }}
+                    transition={quiet ? { duration: 0 } : { duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
                 />
                 <b className="text-[13px] text-[#e6edf3]">{agent.name}</b>
                 <span className="truncate text-[11.5px] text-[#6b7585]">
                     {project ? `${project} · ` : ""}
                     {agent.task}
                 </span>
-                <span className={cn("ml-auto shrink-0 text-[11px]", quiet ? "text-[#d29922]" : "text-[#7d8896]")}>
+                <span className={cn("ml-auto flex shrink-0 items-center gap-1 text-[11px]", quiet ? "text-[#d29922]" : "text-[#7d8896]")}>
                     {agent.model ? `${agent.model} · ` : ""}
                     {formatAge(agent.activeMs)}
-                    {since ? ` · ⟳ ${since}` : ""}
-                    {quiet ? " · quiet" : ""}
+                    {since ? (
+                        <>
+                            <span>·</span>
+                            <motion.span
+                                className="inline-block"
+                                animate={quiet ? { rotate: 0 } : { rotate: 360 }}
+                                transition={quiet ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "linear" }}
+                            >
+                                ⟳
+                            </motion.span>
+                            <span>{since}</span>
+                        </>
+                    ) : null}
+                    {quiet ? <span>· quiet</span> : null}
                 </span>
                 <button
                     type="button"
@@ -94,15 +109,22 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
             <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-[14px] py-[11px]">
                 <NarrationTimeline entries={entries} accentLatest />
             </div>
-            {newCount > 0 ? (
-                <button
-                    type="button"
-                    onClick={jumpToLatest}
-                    className="absolute bottom-3 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-[#1f6feb] px-3 py-1 text-[11px] font-semibold text-white shadow-lg"
-                >
-                    ↓ {newCount} new
-                </button>
-            ) : null}
+            <AnimatePresence>
+                {newCount > 0 ? (
+                    <motion.button
+                        key="newpill"
+                        type="button"
+                        onClick={jumpToLatest}
+                        initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.9 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 26 }}
+                        className="absolute bottom-3 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-[#1f6feb] px-3 py-1 text-[11px] font-semibold text-white shadow-lg"
+                    >
+                        ↓ {newCount} new
+                    </motion.button>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

@@ -3,6 +3,7 @@
 
 import { cn, makeIconClass } from "@/util/util";
 import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { motion } from "motion/react";
 import { modelLabel, type SessionStatus, type SubagentState } from "./sessionviewmodel";
 
 // Dot colors mirror the Phase 0 reporter (working/waiting) plus a neutral idle grey.
@@ -113,9 +114,21 @@ export function SessionRow({
             ) : (
                 <span className="w-[9px]" />
             )}
-            <span
-                className="size-[9px] shrink-0 rounded-full"
+            <motion.span
+                className="size-[9px] shrink-0 rounded-full transition-[background-color] duration-300"
                 style={{ backgroundColor: STATUS_COLOR[status] }}
+                animate={
+                    status === "working"
+                        ? { scale: [1, 1.25, 1] }
+                        : status === "waiting"
+                          ? { opacity: [1, 0.45, 1] }
+                          : { scale: 1, opacity: 1 }
+                }
+                transition={
+                    status === "idle"
+                        ? { duration: 0 }
+                        : { duration: status === "working" ? 1.6 : 1.2, repeat: Infinity, ease: "easeInOut" }
+                }
             />
             <div className="flex min-w-0 flex-1 flex-col">
                 {editing ? (
@@ -255,7 +268,7 @@ export function SessionGroup({ label, count, collapsed, aggregateStatus, onToggl
                     {label}
                 </span>
                 <span
-                    className="size-[9px] shrink-0 rounded-full"
+                    className="size-[9px] shrink-0 rounded-full transition-[background-color] duration-300"
                     style={{ backgroundColor: STATUS_COLOR[aggregateStatus] }}
                 />
                 <span className="ml-auto shrink-0 tabular-nums opacity-70">{count}</span>
