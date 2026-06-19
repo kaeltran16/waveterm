@@ -1,0 +1,79 @@
+<h2>Panels scale with the tab height</h2>
+<p class="subtitle">Realistic tab height. Asking panel sizes to its content; working panels flex-share the rest. This is how it actually fills the window — the earlier frames were just small previews.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Agents tab at real height</div>
+  <div class="mockup-body" style="background:#05070b;padding:12px;border-radius:6px">
+    <div style="display:flex;gap:10px;height:600px">
+
+      <!-- SIDEBAR -->
+      <div style="width:200px;flex:none;border:1px solid #20242b;border-radius:9px;background:rgba(0,0,0,.55);padding:6px;font-family:-apple-system,Segoe UI,sans-serif;align-self:stretch">
+        <div style="display:flex;align-items:center;gap:7px;padding:6px"><span style="color:#d29922">⬤</span><b style="font-size:12.5px;color:#e6edf3">Agents</b><span style="margin-left:auto;background:#d29922;color:#000;font-size:9px;font-weight:700;border-radius:8px;padding:1px 6px">1 asking</span></div>
+        <div style="height:1px;background:#20242b;margin:2px 0"></div>
+        <div style="padding:5px 6px;font-size:11px;color:#8b949e">+ New Tab</div>
+        <div style="padding:6px 6px 3px;font-size:10.5px;color:#9aa4b2;display:flex"><span>waveterm</span><span style="margin-left:auto;color:#6b7585">3 ▾</span></div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#d29922"></span>loom</div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#3fb950"></span>graphify</div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#c9d1d9;opacity:.55;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#4a5260"></span>review-spec</div>
+        <div style="padding:6px 6px 3px;font-size:10.5px;color:#9aa4b2;display:flex"><span>cyber_anomaly_detector</span><span style="margin-left:auto;color:#6b7585">1 ▾</span></div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#3fb950"></span>cyber-detector</div>
+      </div>
+
+      <!-- OUTPUT COLUMN fills height -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;font-family:-apple-system,Segoe UI,sans-serif">
+
+        <!-- loom: ASKING — natural height -->
+        <div style="flex:none;border:1px solid #d29922;border-radius:9px;background:#0b0e14;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(210,153,34,.3);padding:8px 13px;background:rgba(210,153,34,.05)">
+            <span style="height:8px;width:8px;border-radius:50%;background:#d29922"></span><b style="font-size:13px;color:#e6edf3">loom</b><span style="font-size:10.5px;color:#6b7585">waveterm · duplicate-session race</span><span style="margin-left:auto;font-size:10.5px;color:#d29922">asking · 4m</span>
+          </div>
+          <div style="padding:11px 14px;line-height:1.55">
+            <div style="font-size:12.5px;color:#dde3ea">Both clone paths conflict; I need a decision before finishing the handler.</div>
+            <div style="margin-top:10px;border-top:1px solid #2a2f3a;padding-top:10px">
+              <div style="font-size:13px;font-weight:600;color:#e6edf3">Which cloning approach for duplicated sessions?</div>
+              <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap;align-items:center">
+                <span style="border:1px solid #238636;color:#3fb950;font-weight:600;border-radius:6px;padding:4px 14px;font-size:11.5px">Deep clone</span>
+                <span style="border:1px solid #2c3340;color:#c9d1d9;border-radius:6px;padding:4px 14px;font-size:11.5px">Shallow + lazy</span>
+                <span style="border:1px solid #2c3340;color:#c9d1d9;border-radius:6px;padding:4px 14px;font-size:11.5px">Reference shared</span>
+                <span style="margin-left:auto;background:#238636;color:#fff;font-weight:600;border-radius:6px;padding:4px 16px;font-size:11.5px">Submit</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- cyber-detector: WORKING — flex fill -->
+        <div style="flex:1 1 0;min-height:0;border:1px solid #1c2230;border-radius:9px;background:#0b0e14;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;display:flex;align-items:center;gap:9px;border-bottom:1px solid #1c2230;padding:8px 13px">
+            <span style="height:8px;width:8px;border-radius:50%;background:#3fb950"></span><b style="font-size:13px;color:#e6edf3">cyber-detector</b><span style="font-size:10.5px;color:#6b7585">Harden defense-evasion detector</span><span style="margin-left:auto;font-size:10.5px;color:#7d8896">opus · 8m · ⟳ 12s</span><span style="font-size:10.5px;color:#c9d1d9;border:1px solid #2c3340;border-radius:5px;padding:2px 9px">Open terminal</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:11px 14px;line-height:1.6">
+            <div style="font-size:12.5px;color:#dde3ea">Reproduced the gap — the tamper check passes when it shouldn't. Writing the failing tests first.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">wrote</span>test_defense_evasion_detector.py<br><span style="display:inline-block;width:50px;color:#7d8896">ran</span>pytest -k tamper<span style="color:#f85149"> ✗</span></div>
+            <div style="font-size:12.5px;color:#dde3ea;margin-top:9px">All 4 fail as expected. Creating the detector.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">wrote</span>defense_evasion_detector.py<br><span style="display:inline-block;width:50px;color:#7d8896">ran</span>pytest -k detector<span style="color:#3fb950"> ✓</span></div>
+            <div style="font-size:12.5px;color:#dde3ea;margin-top:9px">Task 4 ✅ — all 11 pass. Starting Task 5 (scheduler cron — verified by import).</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">edited</span>scheduler_settings.py</div>
+            <div style="font-size:12.5px;color:#f0f6fc;margin-top:9px;border-left:2px solid #3fb950;padding-left:8px">Task 5 ✅ (prints 35 * * * *). Starting Task 6 (the scheduler job).</div>
+          </div>
+        </div>
+
+        <!-- graphify: WORKING — flex fill -->
+        <div style="flex:1 1 0;min-height:0;border:1px solid #1c2230;border-radius:9px;background:#0b0e14;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;display:flex;align-items:center;gap:9px;border-bottom:1px solid #1c2230;padding:8px 13px">
+            <span style="height:8px;width:8px;border-radius:50%;background:#3fb950"></span><b style="font-size:13px;color:#e6edf3">graphify</b><span style="font-size:10.5px;color:#6b7585">Build knowledge graph</span><span style="margin-left:auto;font-size:10.5px;color:#7d8896">sonnet · 2m · ⟳ 4s</span><span style="font-size:10.5px;color:#c9d1d9;border:1px solid #2c3340;border-radius:5px;padding:2px 9px">Open terminal</span>
+          </div>
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:11px 14px;line-height:1.6">
+            <div style="font-size:12.5px;color:#5c6675">Parsed 12 spec files into a node set.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">ran</span>graphify build<span style="color:#3fb950"> ✓</span></div>
+            <div style="font-size:12.5px;color:#dde3ea;margin-top:8px">Clustered into 6 communities. Generating the HTML + audit report.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">wrote</span>graph.html<span style="color:#3fb950"> ✓</span></div>
+            <div style="font-size:12.5px;color:#f0f6fc;margin-top:8px;border-left:2px solid #3fb950;padding-left:8px">Clustering 38 nodes into communities now.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:20px">Working panels split the leftover height evenly; each scrolls internally, pinned to its latest line. The asking panel keeps its full question visible. With more agents, panels shrink to a min-height and the column scrolls.</p>

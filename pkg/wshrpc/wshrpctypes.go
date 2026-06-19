@@ -90,6 +90,7 @@ type WshRpcInterface interface {
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
 	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
 	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
+	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
 	SendTelemetryCommand(ctx context.Context) error
@@ -571,6 +572,15 @@ type CommandGetAgentTranscriptData struct {
 }
 
 type CommandGetAgentTranscriptRtnData struct {
+	Lines []string `json:"lines"`
+}
+
+type CommandStreamAgentTranscriptData struct {
+	Path      string `json:"path"`
+	TailLines int    `json:"taillines,omitempty"`
+}
+
+type AgentTranscriptUpdate struct {
 	Lines []string `json:"lines"`
 }
 

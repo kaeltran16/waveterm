@@ -4,27 +4,10 @@
 import { cn } from "@/util/util";
 import { useState } from "react";
 import { formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { NarrationTimeline } from "./narrationtimeline";
 
 function PreviousInfo({ entries }: { entries: AgentEntry[] }) {
-    return (
-        <div className="mt-2.5 max-w-[80ch] leading-relaxed">
-            {entries.map((e, i) =>
-                e.kind === "message" ? (
-                    <div key={i} className="mt-2.5 text-[13px] text-[#dde3ea]">
-                        {e.text}
-                    </div>
-                ) : (
-                    <div key={i} className="my-2.5 border-l-2 border-[#2a2f3a] pl-3.5 font-mono text-[12px] leading-7 text-[#7d8896]">
-                        <span className="inline-block w-14 text-[#9aa4b2]">{e.verb}</span>
-                        {e.target}
-                        {e.note ? <span className="text-[#6b7585]"> ({e.note})</span> : null}
-                        {e.outcome === "ok" ? <span className="text-[#3fb950]"> ✓</span> : null}
-                        {e.outcome === "fail" ? <span className="text-[#f85149]"> ✗</span> : null}
-                    </div>
-                )
-            )}
-        </div>
-    );
+    return <NarrationTimeline entries={entries} className="mt-2.5" />;
 }
 
 function QuestionGroup({

@@ -930,6 +930,12 @@ export class RpcApiType {
         return client.wshRpcCall("stopbuilder", data, opts);
     }
 
+    // command "streamagenttranscript" [responsestream]
+	StreamAgentTranscriptCommand(client: WshClient, data: CommandStreamAgentTranscriptData, opts?: RpcOpts): AsyncGenerator<AgentTranscriptUpdate, void, boolean> {
+        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "streamagenttranscript", data, opts);
+        return client.wshRpcStream("streamagenttranscript", data, opts);
+    }
+
     // command "streamcpudata" [responsestream]
 	StreamCpuDataCommand(client: WshClient, data: CpuDataRequest, opts?: RpcOpts): AsyncGenerator<TimeSeriesData, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "streamcpudata", data, opts);

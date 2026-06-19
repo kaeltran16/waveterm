@@ -1,0 +1,86 @@
+<h2>Agents tab = live output of every agent</h2>
+<p class="subtitle">No overview. Each agent is a full-width output panel (sidebar is still the nav). Asking agents = amber panel with the question + pills at the bottom. Each panel scrolls internally, pinned to its latest line.</p>
+
+<div class="mockup">
+  <div class="mockup-header">existing sidebar │ Agents tab — multi-agent output</div>
+  <div class="mockup-body" style="background:#05070b;padding:12px;border-radius:6px">
+    <div style="display:flex;gap:10px">
+
+      <!-- SIDEBAR -->
+      <div style="width:200px;flex:none;border:1px solid #20242b;border-radius:9px;background:rgba(0,0,0,.55);padding:6px;font-family:-apple-system,Segoe UI,sans-serif;align-self:flex-start">
+        <div style="display:flex;align-items:center;gap:7px;padding:6px"><span style="color:#d29922">⬤</span><b style="font-size:12.5px;color:#e6edf3">Agents</b><span style="margin-left:auto;background:#d29922;color:#000;font-size:9px;font-weight:700;border-radius:8px;padding:1px 6px">1 asking</span></div>
+        <div style="height:1px;background:#20242b;margin:2px 0"></div>
+        <div style="padding:5px 6px;font-size:11px;color:#8b949e">+ New Tab</div>
+        <div style="padding:6px 6px 3px;font-size:10.5px;color:#9aa4b2;display:flex"><span>waveterm</span><span style="margin-left:auto;color:#6b7585">3 ▾</span></div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#d29922"></span>loom</div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#3fb950"></span>graphify</div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#c9d1d9;opacity:.55;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#4a5260"></span>review-spec</div>
+        <div style="padding:6px 6px 3px;font-size:10.5px;color:#9aa4b2;display:flex"><span>cyber_anomaly_detector</span><span style="margin-left:auto;color:#6b7585">1 ▾</span></div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#3fb950"></span>cyber-detector</div>
+        <div style="padding:6px 6px 3px;font-size:10.5px;color:#9aa4b2;display:flex"><span>deep-research</span><span style="margin-left:auto;color:#6b7585">1 ▾</span></div>
+        <div style="padding:3px 6px 3px 16px;font-size:11.5px;color:#e6edf3;display:flex;align-items:center;gap:6px"><span style="height:6px;width:6px;border-radius:50%;background:#3fb950"></span>deep-research</div>
+      </div>
+
+      <!-- OUTPUT STACK -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;font-family:-apple-system,Segoe UI,sans-serif">
+
+        <!-- loom: ASKING -->
+        <div style="border:1px solid #d29922;border-radius:9px;background:#0b0e14;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(210,153,34,.3);padding:8px 13px;background:rgba(210,153,34,.05)">
+            <span style="height:8px;width:8px;border-radius:50%;background:#d29922"></span>
+            <b style="font-size:13px;color:#e6edf3">loom</b><span style="font-size:10.5px;color:#6b7585">waveterm · duplicate-session race</span>
+            <span style="margin-left:auto;font-size:10.5px;color:#d29922">asking · 4m</span><span style="font-size:10.5px;color:#c9d1d9;border:1px solid #2c3340;border-radius:5px;padding:2px 9px">Open terminal</span>
+          </div>
+          <div style="padding:11px 14px;line-height:1.55">
+            <div style="font-size:12.5px;color:#dde3ea">Both clone paths conflict; I need a decision before finishing the handler.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">read</span>sessionmodel.ts &nbsp; <span style="color:#7d8896">grep</span> duplicateSession</div>
+            <div style="margin-top:10px;border-top:1px solid #2a2f3a;padding-top:10px">
+              <div style="font-size:13px;font-weight:600;color:#e6edf3">Which cloning approach for duplicated sessions?</div>
+              <div style="display:flex;gap:8px;margin-top:9px;flex-wrap:wrap;align-items:center">
+                <span style="border:1px solid #238636;color:#3fb950;font-weight:600;border-radius:6px;padding:4px 14px;font-size:11.5px">Deep clone</span>
+                <span style="border:1px solid #2c3340;color:#c9d1d9;border-radius:6px;padding:4px 14px;font-size:11.5px">Shallow + lazy</span>
+                <span style="border:1px solid #2c3340;color:#c9d1d9;border-radius:6px;padding:4px 14px;font-size:11.5px">Reference shared</span>
+                <span style="margin-left:auto;background:#238636;color:#fff;font-weight:600;border-radius:6px;padding:4px 16px;font-size:11.5px">Submit</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- cyber-detector: WORKING -->
+        <div style="border:1px solid #1c2230;border-radius:9px;background:#0b0e14;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:9px;border-bottom:1px solid #1c2230;padding:8px 13px">
+            <span style="height:8px;width:8px;border-radius:50%;background:#3fb950"></span>
+            <b style="font-size:13px;color:#e6edf3">cyber-detector</b><span style="font-size:10.5px;color:#6b7585">cyber_anomaly_detector · Harden defense-evasion detector</span>
+            <span style="margin-left:auto;font-size:10.5px;color:#7d8896">opus · 8m · ⟳ 12s</span><span style="font-size:10.5px;color:#c9d1d9;border:1px solid #2c3340;border-radius:5px;padding:2px 9px">Open terminal</span>
+          </div>
+          <div style="position:relative;padding:11px 14px;line-height:1.55;max-height:128px;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;right:0;height:16px;background:linear-gradient(#0b0e14,rgba(11,14,20,0))"></div>
+            <div style="font-size:12.5px;color:#5c6675">All 4 fail as expected. Creating the detector.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">wrote</span>defense_evasion_detector.py<br><span style="display:inline-block;width:50px;color:#7d8896">ran</span>pytest -k detector<span style="color:#3fb950"> ✓</span></div>
+            <div style="font-size:12.5px;color:#dde3ea;margin-top:8px">Task 4 ✅ — all 11 pass. Starting Task 5 (scheduler cron — verified by import).</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">edited</span>scheduler_settings.py</div>
+            <div style="font-size:12.5px;color:#f0f6fc;margin-top:8px;border-left:2px solid #3fb950;padding-left:8px">Task 5 ✅ (prints 35 * * * *). Starting Task 6 (the scheduler job).</div>
+            <div style="position:absolute;right:6px;top:24px;bottom:6px;width:3px;border-radius:3px;background:#2a2f3a"></div>
+          </div>
+        </div>
+
+        <!-- graphify: WORKING -->
+        <div style="border:1px solid #1c2230;border-radius:9px;background:#0b0e14;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:9px;border-bottom:1px solid #1c2230;padding:8px 13px">
+            <span style="height:8px;width:8px;border-radius:50%;background:#3fb950"></span>
+            <b style="font-size:13px;color:#e6edf3">graphify</b><span style="font-size:10.5px;color:#6b7585">waveterm · Build knowledge graph</span>
+            <span style="margin-left:auto;font-size:10.5px;color:#7d8896">sonnet · 2m · ⟳ 4s</span><span style="font-size:10.5px;color:#c9d1d9;border:1px solid #2c3340;border-radius:5px;padding:2px 9px">Open terminal</span>
+          </div>
+          <div style="padding:11px 14px;line-height:1.55">
+            <div style="font-size:12.5px;color:#5c6675">Parsed 12 spec files into a node set.</div>
+            <div style="font-family:monospace;font-size:11px;color:#5c6675;margin:4px 0"><span style="display:inline-block;width:50px;color:#7d8896">ran</span>graphify build<span style="color:#3fb950"> ✓</span></div>
+            <div style="font-size:12.5px;color:#f0f6fc;margin-top:8px;border-left:2px solid #3fb950;padding-left:8px">Clustering 38 nodes into communities now.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:20px">Each panel: full width, generous height, internal scroll pinned to latest (cyber-detector overflows → fade + scrollbar). "Open terminal" jumps to the raw session. Order: asking first, then working by most-recent activity. Idle agents hidden (live in the sidebar).</p>

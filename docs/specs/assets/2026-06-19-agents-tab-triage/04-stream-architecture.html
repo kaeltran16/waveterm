@@ -1,0 +1,73 @@
+<h2>Streaming transcript RPC — data flow</h2>
+<p class="subtitle">Green boxes already exist and are reused unchanged. Only the transport (backend watcher → stream channel → accumulate) is new. The projection seam is the whole point.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Backend (wavesrv / wsh) → Frontend</div>
+  <div class="mockup-body" style="background:#0b0e14;padding:20px;font-family:-apple-system,Segoe UI,sans-serif;color:#c9d1d9">
+
+    <div style="display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;font-size:11.5px;line-height:1.45">
+
+      <div style="flex:1;min-width:120px;background:#11161f;border:1px solid #2a3340;border-radius:8px;padding:10px">
+        <div style="color:#9aa4b2;font-weight:600;margin-bottom:4px">transcript.jsonl</div>
+        <div style="color:#6b7585">append-only<br>session log on disk</div>
+      </div>
+
+      <div style="align-self:center;color:#4a5260">→</div>
+
+      <div style="flex:1.3;min-width:150px;background:#161b22;border:1px solid #3a4150;border-radius:8px;padding:10px">
+        <div style="color:#58a6ff;font-weight:600;margin-bottom:4px">watcher goroutine</div>
+        <div style="color:#8b95a3">1· emit backlog via <span style="color:#3fb950">readTranscriptTail</span> (reused)<br>2· seek from last offset → EOF<br>3· buffer partial line until \n</div>
+      </div>
+
+      <div style="align-self:center;color:#4a5260">→</div>
+
+      <div style="flex:1;min-width:130px;background:#161b22;border:1px solid #3a4150;border-radius:8px;padding:10px">
+        <div style="color:#58a6ff;font-weight:600;margin-bottom:4px">stream channel</div>
+        <div style="color:#8b95a3">chan RespOrErrorUnion[Update]<br>{ lines: string[] }<br><span style="color:#6b7585">defer close on ctx cancel</span></div>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#4a5260;margin:6px 0">↓ &nbsp; AsyncGenerator · <code style="color:#7d8896">for await (chunk of stream)</code></div>
+
+    <div style="display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;font-size:11.5px;line-height:1.45">
+
+      <div style="flex:1;min-width:120px;background:#161b22;border:1px solid #3a4150;border-radius:8px;padding:10px">
+        <div style="color:#58a6ff;font-weight:600;margin-bottom:4px">accumulate lines</div>
+        <div style="color:#8b95a3">append chunk to the<br>per-agent line buffer</div>
+      </div>
+
+      <div style="align-self:center;color:#4a5260">→</div>
+
+      <div style="flex:1;min-width:120px;background:#0f1a12;border:1px solid #2a5a36;border-radius:8px;padding:10px">
+        <div style="color:#3fb950;font-weight:600;margin-bottom:4px">projectTranscript()</div>
+        <div style="color:#8b95a3">UNCHANGED · text→message,<br>tool_use→action,<br>tool_result→✓/✗</div>
+      </div>
+
+      <div style="align-self:center;color:#4a5260">→</div>
+
+      <div style="flex:1;min-width:120px;background:#0f1a12;border:1px solid #2a5a36;border-radius:8px;padding:10px">
+        <div style="color:#3fb950;font-weight:600;margin-bottom:4px">entriesByIdAtom</div>
+        <div style="color:#8b95a3">keyed by agent id<br>(like previousInfoByIdAtom)</div>
+      </div>
+
+      <div style="align-self:center;color:#4a5260">→</div>
+
+      <div style="flex:1;min-width:120px;background:#0f1a12;border:1px solid #2a5a36;border-radius:8px;padding:10px">
+        <div style="color:#3fb950;font-weight:600;margin-bottom:4px">&lt;PreviousInfo&gt;</div>
+        <div style="color:#8b95a3">UNCHANGED · the bounded<br>narration pane renders it</div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;border-top:1px dashed #1c2230;padding-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:11.5px">
+      <div style="flex:1;min-width:220px">
+        <div style="color:#d29922;font-weight:600;margin-bottom:4px">lifecycle = the subscription</div>
+        <div style="color:#8b95a3;line-height:1.5">Open the stream only for a <b style="color:#c9d1d9">visible</b> working agent. Collapse / scroll-away / exit → unmount → ctx cancels → goroutine + watcher tear down. No global refcounting.</div>
+      </div>
+      <div style="flex:1;min-width:220px">
+        <div style="color:#d29922;font-weight:600;margin-bottom:4px">vs. a WPS event</div>
+        <div style="color:#8b95a3;line-height:1.5">WPS broadcasts to all subscribers + needs a separate start/stop-watching control. Right for rare events (asks). Transcripts are per-agent + high-frequency → the stream's 1:1 lifecycle fits better.</div>
+      </div>
+    </div>
+
+  </div>
+</div>

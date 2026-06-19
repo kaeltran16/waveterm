@@ -66,6 +66,12 @@ export function askingCount(agents: AgentVM[]): number {
     return agents.filter((a) => a.state === "asking").length;
 }
 
+/** Pure: the agents to render as output panels — asking → working (sortAgents order),
+ *  idle excluded (idle agents live in the sidebar, not this view). */
+export function outputPanelOrder(agents: AgentVM[]): AgentVM[] {
+    return sortAgents(agents).filter((a) => a.state !== "idle");
+}
+
 export interface AgentSections {
     asking: AgentVM[];
     working: AgentVM[];

@@ -1,0 +1,81 @@
+<h2>Current Agents view</h2>
+<p class="subtitle">A faithful reproduction of what ships today — our shared starting point. Where does triage actually get slow for you?</p>
+
+<div class="mockup">
+  <div class="mockup-header">Agents tab — as it is now</div>
+  <div class="mockup-body" style="padding:0;background:#0b0e14;color:#c9d1d9;font-family:-apple-system,Segoe UI,sans-serif;border-radius:6px;overflow:hidden">
+
+    <!-- header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1c2230;padding:12px 18px">
+      <b style="font-size:15px;color:#e6edf3">Agents</b>
+      <span style="font-size:12px;color:#6b7585"><span style="color:#d29922">1 asking</span> · 2 working · 1 idle</span>
+    </div>
+
+    <div style="padding:18px">
+
+      <!-- needs you -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6b7585;margin-bottom:12px">needs you</div>
+
+      <div style="margin-bottom:14px;border:1px solid #d29922;background:rgba(210,153,34,.05);border-radius:10px;padding:16px 18px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="height:8px;width:8px;border-radius:50%;background:#d29922;display:inline-block"></span>
+            <b style="font-size:14px;color:#e6edf3">loom</b>
+            <span style="font-size:12.5px;color:#6b7585">· Fix duplicate-session race</span>
+          </div>
+          <span style="font-size:11.5px;color:#d29922">asking · 4m</span>
+        </div>
+
+        <!-- previous info -->
+        <div style="margin-top:10px;max-width:80ch;line-height:1.6">
+          <div style="margin-top:10px;font-size:13px;color:#dde3ea">There are two existing patterns for cloning session state and they conflict. I need a decision before I can finish the handler.</div>
+          <div style="margin:10px 0;border-left:2px solid #2a2f3a;padding-left:14px;font-family:monospace;font-size:12px;line-height:1.9;color:#7d8896">
+            <div><span style="display:inline-block;width:56px;color:#9aa4b2">read</span>sessionmodel.ts</div>
+            <div><span style="display:inline-block;width:56px;color:#9aa4b2">grep</span>duplicateSession</div>
+            <div><span style="display:inline-block;width:56px;color:#9aa4b2">ran</span>task build:wsh<span style="color:#3fb950"> ✓</span></div>
+            <div><span style="display:inline-block;width:56px;color:#9aa4b2">edited</span>sessionmodel.ts</div>
+          </div>
+        </div>
+
+        <!-- question -->
+        <div style="margin-top:14px;border-top:1px solid #2a2f3a;padding-top:14px">
+          <div style="font-size:14px;font-weight:600;color:#e6edf3">Which cloning approach for duplicated sessions?</div>
+          <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px">
+            <span style="border:1px solid #238636;font-weight:600;color:#3fb950;border-radius:7px;padding:6px 18px;font-size:12.5px">Deep clone <span style="color:#6b7585;font-weight:400;font-size:11px">(Recommended)</span></span>
+            <span style="border:1px solid #2c3340;color:#c9d1d9;border-radius:7px;padding:6px 18px;font-size:12.5px">Shallow + lazy</span>
+            <span style="border:1px solid #2c3340;color:#c9d1d9;border-radius:7px;padding:6px 18px;font-size:12.5px">Reference shared</span>
+          </div>
+          <div style="margin-top:14px;text-align:right">
+            <span style="background:rgba(35,134,54,.4);color:rgba(255,255,255,.5);border-radius:7px;padding:6px 18px;font-size:12.5px;font-weight:600">Submit</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- working -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6b7585;margin:24px 0 12px">working</div>
+      <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #14181f;padding:10px 4px">
+        <span style="height:7px;width:7px;border-radius:50%;background:#3fb950;display:inline-block"></span>
+        <b style="font-size:13px;color:#e6edf3">graphify</b>
+        <span style="font-size:12.5px;color:#6b7585">Build knowledge graph from specs</span>
+        <span style="margin-left:auto;font-family:monospace;font-size:12px;color:#7d8896">⟳ running task generate</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #14181f;padding:10px 4px">
+        <span style="height:7px;width:7px;border-radius:50%;background:#3fb950;display:inline-block"></span>
+        <b style="font-size:13px;color:#e6edf3">deep-research</b>
+        <span style="font-size:12.5px;color:#6b7585">Survey terminal multiplexers</span>
+        <span style="margin-left:auto;font-family:monospace;font-size:12px;color:#7d8896">⟳ fetching 6 sources</span>
+      </div>
+
+      <!-- idle -->
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#6b7585;margin:24px 0 12px">idle</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;opacity:.6">
+        <span style="height:7px;width:7px;border-radius:50%;background:#4a5260;display:inline-block"></span>
+        <b style="font-size:13px;color:#c9d1d9">review-spec</b>
+        <span style="font-size:12.5px;color:#6b7585">stopped without asking</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:24px">This is just a reference — no need to click anything. I'll ask the question in the terminal.</p>

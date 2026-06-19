@@ -1406,6 +1406,20 @@ func (ws *WshServer) GetAgentTranscriptCommand(ctx context.Context, data wshrpc.
 	return &wshrpc.CommandGetAgentTranscriptRtnData{Lines: lines}, nil
 }
 
+func (ws *WshServer) StreamAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandStreamAgentTranscriptData) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {
+	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 16)
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("StreamAgentTranscriptCommand", recover())
+		}()
+		defer close(ch)
+		if err := streamTranscript(ctx, data.Path, data.TailLines, ch); err != nil {
+			ch <- wshutil.RespErr[wshrpc.AgentTranscriptUpdate](err)
+		}
+	}()
+	return ch
+}
+
 func (ws *WshServer) SetVarCommand(ctx context.Context, data wshrpc.CommandVarData) error {
 	_, fileData, err := filestore.WFS.ReadFile(ctx, data.ZoneId, data.FileName)
 	if err == fs.ErrNotExist {

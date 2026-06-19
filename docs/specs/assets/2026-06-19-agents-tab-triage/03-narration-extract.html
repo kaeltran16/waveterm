@@ -1,0 +1,46 @@
+<h2>From the raw stream → the working row</h2>
+<p class="subtitle">Left: your actual transcript. Bright = narration (assistant prose, the <code>message</code> entries). Dimmed = plumbing we drop (tool calls + outputs). Right: what the row distills to.</p>
+
+<div class="split">
+
+  <!-- RAW -->
+  <div class="mockup">
+    <div class="mockup-header">Raw transcript (what Claude emits)</div>
+    <div class="mockup-body" style="background:#0b0e14;font-family:monospace;font-size:11.5px;line-height:1.6;padding:14px">
+      <div style="color:#dde3ea">● All 4 fail as expected. Creating the detector:</div>
+      <div style="color:#3a414d;margin-top:6px">● Write(defense_evasion_detector.py)<br>&nbsp;&nbsp;⎿ Wrote 134 lines … +124 lines</div>
+      <div style="color:#3a414d;margin-top:6px">● Bash(docker exec … pytest -k detector …)<br>&nbsp;&nbsp;⎿ … PASSED … +9 lines</div>
+      <div style="color:#dde3ea;margin-top:8px">● Task 4 ✅ (-k detector matched the whole file — all 11 pass). Starting Task 5 (scheduler cron — a one-line default + env read, verified by import):</div>
+      <div style="color:#3a414d;margin-top:6px">● Update(scheduler_settings.py) ⎿ Added 1 line</div>
+      <div style="color:#3a414d;margin-top:6px">● Update(scheduler_settings.py) ⎿ Added 1 line</div>
+      <div style="color:#3a414d;margin-top:6px">● Bash(… verify import …) ⎿ 35 * * * *</div>
+      <div style="color:#dde3ea;margin-top:8px">● Task 5 ✅ (prints 35 * * * *). Starting Task 6 (the scheduler job).</div>
+    </div>
+  </div>
+
+  <!-- DISTILLED -->
+  <div class="mockup">
+    <div class="mockup-header">Working row (distilled)</div>
+    <div class="mockup-body" style="background:#0b0e14;padding:14px;font-family:-apple-system,Segoe UI,sans-serif">
+      <div style="padding:9px 4px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="height:7px;width:7px;border-radius:50%;background:#3fb950"></span>
+          <b style="font-size:13px;color:#e6edf3">cyber-detector</b>
+          <span style="margin-left:auto;font-size:11px;color:#7d8896">opus · 8m · ⟳ 12s</span>
+        </div>
+        <div style="margin-left:17px;margin-top:5px;font-size:12.5px;color:#dde3ea;line-height:1.5">Task 5 ✅ (prints 35 * * * *). Starting Task 6 (the scheduler job).</div>
+      </div>
+
+      <div style="margin-left:17px;margin-top:14px;border-top:1px dashed #1c2230;padding-top:8px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#4a5260;margin-bottom:4px">▸ earlier (on expand)</div>
+        <div style="font-size:11.5px;color:#6b7585;line-height:1.6">
+          <div>All 4 fail as expected. Creating the detector.</div>
+          <div>Task 4 ✅ — all 11 pass. Starting Task 5.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:22px">The <code>⟳ 12s</code> next to the elapsed time is the liveness cue — "last activity 12s ago" — so a quiet agent reads as quiet, not current. One decision below in the terminal.</p>

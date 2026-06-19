@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, type AgentVM, type LiveAgentInput } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, outputPanelOrder, type AgentState, type AgentVM, type LiveAgentInput } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -147,5 +147,21 @@ describe("withAsk", () => {
         expect(withAsk(baseWorking(), null, NOW)).toEqual(baseWorking());
         const cleared: AgentAskData = { oref: "block:abc", askid: "ask-1", cleared: true };
         expect(withAsk(baseWorking(), cleared, NOW)).toEqual(baseWorking());
+    });
+});
+
+describe("outputPanelOrder", () => {
+    const mk = (id: string, state: AgentState, n: number): AgentVM =>
+        ({ id, name: id, task: "", state, blockedMs: n, activeMs: n }) as AgentVM;
+
+    it("orders asking-first then working, excludes idle", () => {
+        const agents = [
+            mk("w1", "working", 100),
+            mk("idle1", "idle", 0),
+            mk("ask1", "asking", 50),
+            mk("w2", "working", 300),
+        ];
+        const out = outputPanelOrder(agents).map((a) => a.id);
+        expect(out).toEqual(["ask1", "w2", "w1"]);
     });
 });

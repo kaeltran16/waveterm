@@ -69,3 +69,14 @@ describe("extractAiTitle", () => {
         expect(extractAiTitle([])).toBeUndefined();
     });
 });
+
+describe("projectTranscript thinking blocks", () => {
+    it("skips assistant thinking blocks (internal chain-of-thought is not narration)", () => {
+        const lines = [
+            JSON.stringify({ type: "assistant", message: { content: [{ type: "thinking", thinking: "secret reasoning" }] } }),
+            JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "visible narration" }] } }),
+        ];
+        const entries = projectTranscript(lines);
+        expect(entries).toEqual([{ kind: "message", text: "visible narration" }]);
+    });
+});

@@ -129,6 +129,11 @@ declare global {
         model?: string;
     };
 
+    // wshrpc.AgentTranscriptUpdate
+    type AgentTranscriptUpdate = {
+        lines: string[];
+    };
+
     // wshrpc.AiMessageData
     type AiMessageData = {
         message?: string;
@@ -767,6 +772,12 @@ declare global {
         delay?: number;
         cancel?: boolean;
         error?: string;
+    };
+
+    // wshrpc.CommandStreamAgentTranscriptData
+    type CommandStreamAgentTranscriptData = {
+        path: string;
+        taillines?: number;
     };
 
     // wshrpc.CommandStreamData
