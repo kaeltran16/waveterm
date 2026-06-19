@@ -47,8 +47,9 @@ Two mechanisms, both sourcing the single `@theme` block in `tailwindsetup.css`. 
   - `bg-[#d29922]/[0.05]` → `bg-warning/5`, `border-[#d29922]/60` → `border-warning/60`, etc.
 
 - **JS / inline-style colors → CSS vars.** Colors set through `style={{}}` or JS constants can't be utility classes, so they reference the same theme vars directly:
-  - `STATUS_COLOR`, `SUBAGENT_MARKER_COLOR` (`sessionrow.tsx`), `COLOR_WORKING` / `COLOR_WAITING` (`sessionviewmodel.ts`) → `var(--color-accent)` / `var(--color-warning)` / `var(--color-muted)` / `var(--color-error)`.
+  - `STATUS_COLOR`, `SUBAGENT_MARKER_COLOR` (`sessionrow.tsx`) → `var(--color-accent)` / `var(--color-warning)` / `var(--color-muted)` / `var(--color-error)`. These are **display-only** maps (used solely in `style={{}}`), so they migrate.
   - The existing CSS `transition-[background-color] duration-300` on the status dot still tweens between two resolved color values.
+- **DO NOT migrate `COLOR_WORKING` / `COLOR_WAITING` (`sessionviewmodel.ts`).** These are **not display colors** — they are the wire-protocol contract with the out-of-repo status reporter: `badgeToStatus()` classifies the incoming badge color by matching it against these literals (`#3fb950` / `#d29922`). Changing them would break status classification unless the reporter changes too. They stay as-is. (The display dots happen to share the same source hex today but are a separate `STATUS_COLOR` map; decoupling display from the wire contract is the correct outcome.)
 
 ## 5. Semantic color map
 
@@ -80,12 +81,14 @@ Two mechanisms, both sourcing the single `@theme` block in `tailwindsetup.css`. 
 
 **Sidebar** (`frontend/app/tab/sessionsidebar/`)
 - `sessionrow.tsx` — `STATUS_COLOR`, `SUBAGENT_MARKER_COLOR`, active/blocked row accents (`#429dff`/`#d29922`), drop-indicator blue, idle text hex.
-- `sessionviewmodel.ts` — `COLOR_WORKING` / `COLOR_WAITING` constant values.
+- `sessionviewmodel.ts` — **untouched.** `COLOR_WORKING` / `COLOR_WAITING` are the reporter wire-protocol contract (see §4), not display.
 - `sessionsidebar.tsx` — header dot/badge `#d29922` → `warning`, container **border** `#20242b` → `border` (the `rgba(0,0,0,0.55)` glass background is left as-is per §3), hover/text hex → tokens.
 
 ## 8. Testing / verification
 
-- **Unit tests unaffected**, with one expected exception: `sessionviewmodel.test.ts` asserts the literal `#3fb950` / `#d29922` round-trip in `badgeToStatus`. If those constants change to `var(...)` strings, that mapping logic and its test must be updated together (the badge-color → status classification must still work for whatever the new source values are). Confirm `badgeToStatus`'s input contract during implementation — it may receive resolved colors rather than the constants.
+- **No test edits anywhere.** Two tests reference these colors, and both stay green untouched:
+  - `sessionviewmodel.test.ts` asserts `badgeToStatus({color:"#3fb950"})` → `working`. Because `COLOR_WORKING`/`COLOR_WAITING` are **not** migrated (§4), the literals it matches are unchanged, so the test passes as-is. This test is the **guard** that the wire-protocol contract survived the re-skin — run it and confirm green.
+  - `sessionrow.test.tsx` asserts the rendered markup contains `STATUS_COLOR.working` (etc.). It imports the const as the expected substring, so it is self-referential: when `STATUS_COLOR.working` becomes `var(--color-accent)`, both the rendered `style` and the expectation change together. Stays green automatically.
 - **Pure logic untouched** in `agentsviewmodel.ts` (sorting, grouping, ask-answer building) — its tests stay green.
 - **Visual confirmation in the running dev app** via the CDP flow (`memory/cdp-verify-dev-app.md`): sidebar + tab across asking / working / idle / quiet / fail / active states, confirming colors resolve to theme tokens and the two surfaces match. Because motion and layout are untouched, this is a pure visual diff.
 

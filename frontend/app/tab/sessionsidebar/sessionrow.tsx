@@ -8,9 +8,9 @@ import { modelLabel, type SessionStatus, type SubagentState } from "./sessionvie
 
 // Dot colors mirror the Phase 0 reporter (working/waiting) plus a neutral idle grey.
 export const STATUS_COLOR: Record<SessionStatus, string> = {
-    working: "#3fb950",
-    waiting: "#d29922",
-    idle: "#7d8590",
+    working: "var(--color-accent)",
+    waiting: "var(--color-warning)",
+    idle: "var(--color-muted)",
 };
 
 // Hollow/check/cross markers — a different glyph shape than the session's filled dot, so a
@@ -21,9 +21,9 @@ export const SUBAGENT_MARKER: Record<SubagentState, string> = {
     failure: "✗",
 };
 export const SUBAGENT_MARKER_COLOR: Record<SubagentState, string> = {
-    working: "#7d8590",
-    success: "#3fb950",
-    failure: "#f85149",
+    working: "var(--color-muted)",
+    success: "var(--color-accent)",
+    failure: "var(--color-error)",
 };
 
 interface SessionRowProps {
@@ -90,10 +90,10 @@ export function SessionRow({
             className={cn(
                 "session-row group flex min-h-8 w-full cursor-pointer items-center gap-2 border-l-2 border-transparent py-1 pl-2 pr-1.5 transition-colors",
                 !active && !blocked && "hover:bg-[rgba(255,255,255,0.08)]",
-                active && "session-row--active border-l-[#429dff] bg-[rgba(66,157,255,0.08)] hover:bg-[rgba(66,157,255,0.14)]",
-                blocked && "session-row--blocked border-l-[#d29922] bg-[rgba(210,153,34,0.08)] hover:bg-[rgba(210,153,34,0.14)]",
-                dropIndicator === "top" && "shadow-[inset_0_2px_0_0_#429dff]",
-                dropIndicator === "bottom" && "shadow-[inset_0_-2px_0_0_#429dff]"
+                active && "session-row--active border-l-accent bg-accent/10 hover:bg-accent/15",
+                blocked && "session-row--blocked border-l-warning bg-warning/10 hover:bg-warning/15",
+                dropIndicator === "top" && "shadow-[inset_0_2px_0_0_var(--color-accent)]",
+                dropIndicator === "bottom" && "shadow-[inset_0_-2px_0_0_var(--color-accent)]"
             )}
             draggable={!editing}
             onClick={onSelect}
@@ -260,11 +260,11 @@ export function SessionGroup({ label, count, collapsed, aggregateStatus, onToggl
     return (
         <div className="flex flex-col">
             <div
-                className="flex h-7 w-full cursor-pointer items-center gap-1.5 px-2 text-[11px] text-[#8b949e]"
+                className="flex h-7 w-full cursor-pointer items-center gap-1.5 px-2 text-[11px] text-muted"
                 onClick={onToggle}
             >
                 <i className={makeIconClass(collapsed ? "chevron-right" : "chevron-down", true) + " text-[9px]"} />
-                <span className="min-w-0 truncate text-[12px] font-semibold text-[#adbac7]" title={label}>
+                <span className="min-w-0 truncate text-[12px] font-semibold text-secondary" title={label}>
                     {label}
                 </span>
                 <span

@@ -39,7 +39,7 @@ export function NarrationTimeline({
                         transition={{ duration: 0.22, ease: "easeOut" }}
                         className={cn(
                             "mt-2.5 text-[13px]",
-                            i === lastMessageIdx ? "border-l-2 border-[#3fb950] pl-2 text-[#f0f6fc]" : "text-[#dde3ea]"
+                            i === lastMessageIdx ? "border-l-2 border-accent pl-2 text-primary" : "text-secondary"
                         )}
                     >
                         {e.text}
@@ -50,11 +50,11 @@ export function NarrationTimeline({
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
-                        className="my-2.5 border-l-2 border-[#2a2f3a] pl-3.5 font-mono text-[12px] leading-7 text-[#7d8896]"
+                        className="my-2.5 border-l-2 border-border pl-3.5 font-mono text-[12px] leading-7 text-muted"
                     >
-                        <span className="inline-block w-14 text-[#9aa4b2]">{e.verb}</span>
+                        <span className="inline-block w-14 text-secondary">{e.verb}</span>
                         {e.target}
-                        {e.note ? <span className="text-[#6b7585]"> ({e.note})</span> : null}
+                        {e.note ? <span className="text-muted"> ({e.note})</span> : null}
                         {e.outcome ? (
                             <motion.span
                                 key={e.outcome}
@@ -63,7 +63,7 @@ export function NarrationTimeline({
                                 transition={{ type: "spring", stiffness: 500, damping: 18 }}
                                 className={cn(
                                     "ml-1 inline-block",
-                                    e.outcome === "ok" ? "text-[#3fb950]" : "text-[#f85149]"
+                                    e.outcome === "ok" ? "text-accent" : "text-error"
                                 )}
                             >
                                 {e.outcome === "ok" ? "✓" : "✗"}

@@ -155,16 +155,16 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
 
     return (
         <div
-            className="flex h-full flex-col overflow-y-auto rounded-[10px] border border-[#20242b] shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+            className="flex h-full flex-col overflow-y-auto rounded-[10px] border border-border shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
             style={{ backdropFilter: "blur(20px)", background: "rgba(0, 0, 0, 0.55)" }}
         >
             <button
                 type="button"
-                className="group flex w-full shrink-0 cursor-pointer items-center gap-2 px-2 py-2 text-[13.5px] text-[#e6edf3] transition-colors hover:bg-[#d29922]/10"
+                className="group flex w-full shrink-0 cursor-pointer items-center gap-2 px-2 py-2 text-[13.5px] text-primary transition-colors hover:bg-warning/10"
                 onClick={() => openAgentsTab()}
                 aria-label="Open Agents"
             >
-                <span className="text-[#d29922]">⬤</span>
+                <span className="text-warning">⬤</span>
                 <span className="font-semibold">Agents</span>
                 <AnimatePresence>
                     {asking > 0 && (
@@ -174,17 +174,17 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.6, opacity: 0 }}
                             transition={{ type: "spring", stiffness: 600, damping: 20 }}
-                            className="ml-auto rounded-[9px] bg-[#d29922] px-2 text-[10px] font-bold text-black"
+                            className="ml-auto rounded-[9px] bg-warning px-2 text-[10px] font-bold text-black"
                         >
                             {asking} asking
                         </motion.span>
                     )}
                 </AnimatePresence>
             </button>
-            <div className="h-px shrink-0 bg-[#20242b]" />
+            <div className="h-px shrink-0 bg-border" />
             <button
                 type="button"
-                className="group flex w-full shrink-0 cursor-pointer items-center gap-1.5 px-2 py-[7px] text-xs text-[#8b949e] transition-colors hover:text-primary"
+                className="group flex w-full shrink-0 cursor-pointer items-center gap-1.5 px-2 py-[7px] text-xs text-muted transition-colors hover:text-primary"
                 onClick={() => createTab()}
                 aria-label="New Tab"
             >

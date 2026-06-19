@@ -65,22 +65,22 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
     };
 
     return (
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[9px] border border-[#1c2230] bg-[#0b0e14]">
-            <div className="flex shrink-0 items-center gap-2.5 border-b border-[#1c2230] px-[14px] py-2">
+        <div className="relative flex h-full flex-col overflow-hidden rounded-[9px] border border-border bg-background">
+            <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-[14px] py-2">
                 <motion.span
                     className={cn(
                         "h-2 w-2 shrink-0 rounded-full",
-                        quiet ? "border border-[#4a5260] bg-transparent" : "bg-[#3fb950]"
+                        quiet ? "border border-muted bg-transparent" : "bg-accent"
                     )}
                     animate={quiet ? { scale: 1 } : { scale: [1, 1.25, 1], opacity: [1, 0.7, 1] }}
                     transition={quiet ? { duration: 0 } : { duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
                 />
-                <b className="text-[13px] text-[#e6edf3]">{agent.name}</b>
-                <span className="truncate text-[11.5px] text-[#6b7585]">
+                <b className="text-[13px] text-primary">{agent.name}</b>
+                <span className="truncate text-[11.5px] text-muted">
                     {project ? `${project} · ` : ""}
                     {agent.task}
                 </span>
-                <span className={cn("ml-auto flex shrink-0 items-center gap-1 text-[11px]", quiet ? "text-[#d29922]" : "text-[#7d8896]")}>
+                <span className={cn("ml-auto flex shrink-0 items-center gap-1 text-[11px]", quiet ? "text-warning" : "text-muted")}>
                     {agent.model ? `${agent.model} · ` : ""}
                     {formatAge(agent.activeMs)}
                     {since ? (
@@ -101,7 +101,7 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
                 <button
                     type="button"
                     onClick={() => onOpen(agent.id)}
-                    className="shrink-0 cursor-pointer rounded-[5px] border border-[#2c3340] px-2.5 py-0.5 text-[10.5px] text-[#c9d1d9] hover:bg-white/[0.04]"
+                    className="shrink-0 cursor-pointer rounded-[5px] border border-border px-2.5 py-0.5 text-[10.5px] text-secondary hover:bg-white/[0.04]"
                 >
                     Open terminal
                 </button>
@@ -119,7 +119,7 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: 0.9 }}
                         transition={{ type: "spring", stiffness: 500, damping: 26 }}
-                        className="absolute bottom-3 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-[#1f6feb] px-3 py-1 text-[11px] font-semibold text-white shadow-lg"
+                        className="absolute bottom-3 left-1/2 -translate-x-1/2 cursor-pointer rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-white shadow-lg"
                     >
                         ↓ {newCount} new
                     </motion.button>

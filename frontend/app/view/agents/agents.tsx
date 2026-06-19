@@ -27,12 +27,12 @@ function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) =>
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             onClick={() => onFocus(agent.id)}
-            className="flex cursor-pointer items-center gap-2.5 rounded-[7px] border border-[#d29922]/60 bg-[#d29922]/[0.05] px-3 py-2 hover:bg-[#d29922]/10"
+            className="flex cursor-pointer items-center gap-2.5 rounded-[7px] border border-warning/60 bg-warning/5 px-3 py-2 hover:bg-warning/10"
         >
-            <span className="h-2 w-2 shrink-0 rounded-full bg-[#d29922]" />
-            <b className="shrink-0 text-[12.5px] text-[#e6edf3]">{agent.name}</b>
-            <span className="truncate text-[12px] text-[#8b949e]">{question}</span>
-            <span className="ml-auto shrink-0 text-[10.5px] text-[#d29922]">{formatAge(agent.blockedMs)} · answer →</span>
+            <span className="h-2 w-2 shrink-0 rounded-full bg-warning" />
+            <b className="shrink-0 text-[12.5px] text-primary">{agent.name}</b>
+            <span className="truncate text-[12px] text-muted">{question}</span>
+            <span className="ml-auto shrink-0 text-[10.5px] text-warning">{formatAge(agent.blockedMs)} · answer →</span>
         </motion.div>
     );
 }
@@ -124,12 +124,12 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const empty = asking.length === 0 && working.length === 0;
 
     return (
-        <div className="flex h-full w-full flex-col bg-[#0b0e14] text-[#c9d1d9]">
-            <div className="flex shrink-0 items-center justify-between border-b border-[#1c2230] px-[18px] py-3">
-                <b className="text-[15px] text-[#e6edf3]">Agents</b>
-                <span className="flex items-center gap-1 text-[12px] text-[#6b7585]">
-                    <RollingCount value={asking.length} className="text-[#d29922]" />
-                    <span className="text-[#d29922]">asking</span>
+        <div className="flex h-full w-full flex-col bg-background text-secondary">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-[18px] py-3">
+                <b className="text-[15px] text-primary">Agents</b>
+                <span className="flex items-center gap-1 text-[12px] text-muted">
+                    <RollingCount value={asking.length} className="text-warning" />
+                    <span className="text-warning">asking</span>
                     <span>·</span>
                     <RollingCount value={working.length} />
                     <span>working</span>
@@ -147,8 +147,8 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                             className="flex flex-1 flex-col items-center justify-center gap-1 text-center"
                         >
                             <div className="text-[22px] opacity-50">🤖</div>
-                            <div className="text-[13px] font-semibold text-[#c9d1d9]">No active agents</div>
-                            <div className="text-[11.5px] text-[#6b7585]">
+                            <div className="text-[13px] font-semibold text-secondary">No active agents</div>
+                            <div className="text-[11.5px] text-muted">
                                 Agents appear here the moment one starts working or asks a question.
                             </div>
                         </motion.div>
@@ -177,7 +177,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 </AnimatePresence>
                 {queue.length > 0 && (
                     <motion.div layout className="flex shrink-0 flex-col gap-1.5">
-                        <div className="text-[10.5px] uppercase tracking-wide text-[#9aa4b2]">
+                        <div className="text-[10.5px] uppercase tracking-wide text-secondary">
                             {queue.length} more waiting
                         </div>
                         <div className="flex max-h-[180px] flex-col gap-1.5 overflow-y-auto">

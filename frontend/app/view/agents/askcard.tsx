@@ -26,11 +26,11 @@ function QuestionGroup({
 }) {
     const options = question.options ?? [];
     return (
-        <div className="mt-3.5 border-t border-[#2a2f3a] pt-3.5">
+        <div className="mt-3.5 border-t border-border pt-3.5">
             {question.header ? (
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#6b7585]">{question.header}</div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{question.header}</div>
             ) : null}
-            <div className="text-[14px] font-semibold text-[#e6edf3]">{question.question}</div>
+            <div className="text-[14px] font-semibold text-primary">{question.question}</div>
             {options.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2.5">
                     {options.map((opt, oi) => {
@@ -49,10 +49,10 @@ function QuestionGroup({
                                 className={cn(
                                     "cursor-pointer rounded-[7px] px-[18px] py-1.5 text-[12.5px]",
                                     isSelected
-                                        ? "bg-[#238636] font-semibold text-white"
+                                        ? "bg-accent/80 font-semibold text-primary hover:bg-accent"
                                         : isRecommended
-                                          ? "border border-[#238636] font-semibold text-[#3fb950]"
-                                          : "border border-[#2c3340] text-[#c9d1d9]"
+                                          ? "border border-accent font-semibold text-accent"
+                                          : "border border-border text-secondary"
                                 )}
                             >
                                 {opt.label}
@@ -60,7 +60,7 @@ function QuestionGroup({
                                     <span
                                         className={cn(
                                             "ml-1.5 text-[11px] font-normal",
-                                            isSelected ? "text-white/75" : "text-[#8b949e]"
+                                            isSelected ? "text-primary/75" : "text-muted"
                                         )}
                                     >
                                         {opt.description}
@@ -114,18 +114,18 @@ export function AskCard({
     };
 
     return (
-        <div className="mb-3.5 rounded-[10px] border border-[#d29922] bg-[#d29922]/[0.05] px-[18px] py-4">
+        <div className="mb-3.5 rounded-[10px] border border-warning bg-warning/5 px-[18px] py-4">
             <div className="flex items-center gap-2.5">
                 <div className="flex min-w-0 cursor-pointer items-center gap-2.5 hover:[&_b]:underline" onClick={() => onOpen(agent.id)}>
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-[#d29922]" />
-                    <b className="shrink-0 text-[14px] text-[#e6edf3]">{agent.name}</b>
-                    {agent.task ? <span className="truncate text-[12.5px] text-[#6b7585]">· {agent.task}</span> : null}
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-warning" />
+                    <b className="shrink-0 text-[14px] text-primary">{agent.name}</b>
+                    {agent.task ? <span className="truncate text-[12.5px] text-muted">· {agent.task}</span> : null}
                 </div>
-                <span className="ml-auto shrink-0 text-[11px] text-[#d29922]">asking · {formatAge(agent.blockedMs)}</span>
+                <span className="ml-auto shrink-0 text-[11px] text-warning">asking · {formatAge(agent.blockedMs)}</span>
                 <button
                     type="button"
                     onClick={() => onOpen(agent.id)}
-                    className="shrink-0 cursor-pointer rounded-[5px] border border-[#2c3340] px-2.5 py-0.5 text-[10.5px] text-[#c9d1d9] hover:bg-white/[0.04]"
+                    className="shrink-0 cursor-pointer rounded-[5px] border border-border px-2.5 py-0.5 text-[10.5px] text-secondary hover:bg-white/[0.04]"
                 >
                     Open terminal
                 </button>
@@ -154,10 +154,10 @@ export function AskCard({
                     className={cn(
                         "rounded-[7px] px-[18px] py-1.5 text-[12.5px] font-semibold",
                         sent
-                            ? "bg-[#238636] text-white"
+                            ? "bg-accent text-primary"
                             : canSubmit
-                              ? "cursor-pointer bg-[#238636] text-white"
-                              : "bg-[#238636]/40 text-white/50"
+                              ? "cursor-pointer bg-accent/80 text-primary hover:bg-accent"
+                              : "bg-accent/40 text-primary/50"
                     )}
                 >
                     {sent ? "✓ Sent" : "Submit"}
