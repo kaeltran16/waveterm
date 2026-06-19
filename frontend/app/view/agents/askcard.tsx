@@ -8,6 +8,7 @@ import { motion } from "motion/react";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { buildAskAnswers, canSubmitAsk, formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
+import { StatusDot } from "./statusdot";
 
 function PreviousInfo({ entries }: { entries: AgentEntry[] }) {
     return <NarrationTimeline entries={entries} className="mt-2.5" />;
@@ -117,7 +118,7 @@ export function AskCard({
         <div className="mb-3.5 rounded-[10px] border border-warning bg-warning/5 px-[18px] py-4">
             <div className="flex items-center gap-2.5">
                 <div className="flex min-w-0 cursor-pointer items-center gap-2.5 hover:[&_b]:underline" onClick={() => onOpen(agent.id)}>
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-warning" />
+                    <StatusDot state="asking" />
                     <b className="shrink-0 text-[14px] text-primary">{agent.name}</b>
                     {agent.task ? <span className="truncate text-[12.5px] text-muted">· {agent.task}</span> : null}
                 </div>

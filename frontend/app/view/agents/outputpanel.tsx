@@ -9,6 +9,7 @@ import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { liveEntriesByIdAtom, lastActivityByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
+import { StatusDot } from "./statusdot";
 
 function formatSince(ms: number): string {
     if (ms < 60_000) {
@@ -67,14 +68,7 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
     return (
         <div className="relative flex h-full flex-col overflow-hidden rounded-[9px] border border-border bg-background">
             <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-[14px] py-2">
-                <motion.span
-                    className={cn(
-                        "h-2 w-2 shrink-0 rounded-full",
-                        quiet ? "border border-muted bg-transparent" : "bg-accent"
-                    )}
-                    animate={quiet ? { scale: 1 } : { scale: [1, 1.25, 1], opacity: [1, 0.7, 1] }}
-                    transition={quiet ? { duration: 0 } : { duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                />
+                <StatusDot state="working" quiet={quiet} />
                 <b className="text-[13px] text-primary">{agent.name}</b>
                 <span className="truncate text-[11.5px] text-muted">
                     {project ? `${project} · ` : ""}
