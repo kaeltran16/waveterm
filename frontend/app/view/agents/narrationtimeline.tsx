@@ -4,6 +4,7 @@
 import { cn } from "@/util/util";
 import { motion } from "motion/react";
 import type { AgentEntry } from "./agentsviewmodel";
+import { MarkdownMessage } from "./markdownmessage";
 
 // Reasoning (message) entries render as prose; action entries render as a dim
 // monospace verb/target strip. tool_result content is never present here (the
@@ -42,7 +43,18 @@ export function NarrationTimeline({
                             i === lastMessageIdx ? "border-l-2 border-accent pl-2 text-primary" : "text-secondary"
                         )}
                     >
-                        {e.text}
+                        <MarkdownMessage text={e.text} />
+                    </motion.div>
+                ) : e.kind === "user" ? (
+                    <motion.div
+                        key={i}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
+                        className="mt-2.5 flex gap-1.5 text-[12.5px] text-muted"
+                    >
+                        <span className="select-none text-muted/70">&gt;</span>
+                        <span className="whitespace-pre-wrap">{e.text}</span>
                     </motion.div>
                 ) : (
                     <motion.div

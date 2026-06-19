@@ -43,8 +43,12 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
 
         let cwd: string | undefined;
         let termBlockId: string | undefined;
+        let isAgentsTab = false;
         for (const blockId of tab?.blockids ?? []) {
             const block = get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
+            if (block?.meta?.view === "agents") {
+                isAgentsTab = true;
+            }
             if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
                 cwd = block.meta["cmd:cwd"];
                 termBlockId = blockId;
@@ -78,6 +82,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             agent: meta["session:agent"],
             customLabel: meta["session:label"],
             pinned: meta["session:pinned"] === true,
+            isAgentsTab,
             cwd,
             serviceLabel: (cwd && labelMap.get(cwd)) || cwdToServiceLabel(cwd),
             status,

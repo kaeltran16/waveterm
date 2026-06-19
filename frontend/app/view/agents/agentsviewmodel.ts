@@ -7,6 +7,7 @@ export type AgentState = "asking" | "working" | "idle";
 // One item of "previous info": something the agent said, or something it did.
 export type AgentEntry =
     | { kind: "message"; text: string }
+    | { kind: "user"; text: string }
     | { kind: "action"; verb: string; target: string; outcome?: "ok" | "fail"; note?: string };
 
 export interface AgentAskOption {
@@ -156,6 +157,20 @@ export function resolveFocusedAskId(asking: AgentVM[], current?: string): string
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
  *  the reporter's status (a blocked AskCommand RPC may still report "working"); blockedMs is
  *  derived from now - ask.ts. A null/cleared ask leaves the agent untouched. */
+/** Pure: a pending ask is stale once the agent has demonstrably resumed — a newer status update
+ *  (statusTs > askTs) reporting working/idle. A blocked agent emits no fresh working/idle status
+ *  until it resumes, so this only fires after the question was resolved by some path (terminal,
+ *  panel, or the agent moving on). The PostToolUse clear hook is the fast path; this is the fallback. */
+export function isAskStale(askTs: number | undefined, statusTs: number | undefined, statusState: string): boolean {
+    if (askTs == null || statusTs == null) {
+        return false;
+    }
+    if (statusState !== "working" && statusState !== "idle") {
+        return false;
+    }
+    return statusTs > askTs;
+}
+
 export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): AgentVM {
     if (ask == null || ask.cleared) {
         return vm;

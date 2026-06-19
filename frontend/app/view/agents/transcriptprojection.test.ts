@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { extractAiTitle, projectTranscript } from "./transcriptprojection";
 
 const LINES: string[] = [
-    JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "fix the race" }] } }), // human prompt -> skipped
+    JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "fix the race" }] } }), // human prompt -> user entry
     JSON.stringify({
         type: "assistant",
         message: {
@@ -25,6 +25,7 @@ const LINES: string[] = [
 describe("projectTranscript", () => {
     it("projects messages, actions, and outcomes in order", () => {
         expect(projectTranscript(LINES)).toEqual([
+            { kind: "user", text: "fix the race" },
             { kind: "message", text: "The clone re-reads the source block by id, so a stale id slips through." },
             { kind: "action", verb: "edited", target: "sessionmodel.go" },
             { kind: "action", verb: "ran", target: "go test ./...", outcome: "fail" },
@@ -50,6 +51,35 @@ describe("projectTranscript", () => {
             JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "missing", is_error: true }] } }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "go test ./..." }]);
+    });
+});
+
+describe("projectTranscript user turns", () => {
+    const L = (obj: unknown) => JSON.stringify(obj);
+
+    it("projects a user string turn as a user entry, in order", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "text", text: "Hello" }] } }),
+            L({ type: "user", message: { content: "do the thing" } }),
+        ]);
+        expect(out).toEqual([
+            { kind: "message", text: "Hello" },
+            { kind: "user", text: "do the thing" },
+        ]);
+    });
+
+    it("projects a user text block as a user entry", () => {
+        const out = projectTranscript([L({ type: "user", message: { content: [{ type: "text", text: "option B" }] } })]);
+        expect(out).toEqual([{ kind: "user", text: "option B" }]);
+    });
+
+    it("emits no user entry for a tool_result-only record but still applies the outcome", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }] } }),
+            L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", is_error: false }] } }),
+        ]);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ kind: "action", verb: "ran", outcome: "ok" });
     });
 });
 

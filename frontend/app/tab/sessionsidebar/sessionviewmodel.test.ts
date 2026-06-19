@@ -178,6 +178,32 @@ describe("buildSessionViewModel", () => {
     });
 });
 
+describe("buildSessionViewModel — agents tab", () => {
+    it("agents tab is pinned with no service suffix and is flagged", () => {
+        const out = buildSessionViewModel([
+            {
+                tabId: "t1",
+                name: "Agents",
+                pinned: true,
+                serviceLabel: "ungrouped",
+                status: "idle",
+                active: false,
+                isAgentsTab: true,
+            } as SessionInput,
+        ]);
+        expect(out.pinned).toHaveLength(1);
+        expect(out.pinned[0].label).toBe("Agents");
+        expect(out.pinned[0].isAgentsTab).toBe(true);
+    });
+
+    it("a normal pinned row still gets the service suffix", () => {
+        const out = buildSessionViewModel([
+            { tabId: "t2", name: "loom", pinned: true, serviceLabel: "waveterm", status: "idle", active: false } as SessionInput,
+        ]);
+        expect(out.pinned[0].label).toBe("loom · waveterm");
+    });
+});
+
 describe("buildSessionViewModel — detail", () => {
     it("carries the detail string onto the row", () => {
         const vm = buildSessionViewModel([

@@ -57,6 +57,7 @@ export interface SessionInput {
     agent?: string;
     customLabel?: string;
     pinned: boolean;
+    isAgentsTab?: boolean;
     cwd?: string;
     serviceLabel: string;
     status: SessionStatus;
@@ -76,6 +77,7 @@ export interface SessionRowVM {
     active: boolean;
     blocked: boolean;
     pinned: boolean;
+    isAgentsTab?: boolean;
     detail?: string;
     model?: string;
     subagents: SubagentVM[];
@@ -98,7 +100,7 @@ function rowLabel(s: SessionInput, includeService: boolean): string {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
     const base = custom ?? (agent && agent.length > 0 ? agent : "session");
-    return includeService ? `${base} · ${s.serviceLabel}` : base;
+    return includeService && !s.isAgentsTab ? `${base} · ${s.serviceLabel}` : base;
 }
 
 function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
@@ -112,6 +114,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         active: s.active,
         blocked: status === "waiting",
         pinned: s.pinned,
+        isAgentsTab: s.isAgentsTab ?? false,
         detail: s.detail,
         model: s.model,
         subagents,

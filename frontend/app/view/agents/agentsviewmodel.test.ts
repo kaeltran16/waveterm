@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, resolveFocusedAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isAskStale, resolveFocusedAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -200,5 +200,19 @@ describe("resolveFocusedAskId", () => {
         expect(resolveFocusedAskId([a("x"), a("y")], "gone")).toBe("x");
         expect(resolveFocusedAskId([a("x")], undefined)).toBe("x");
         expect(resolveFocusedAskId([], "x")).toBe(undefined);
+    });
+});
+
+describe("isAskStale", () => {
+    it("stale when a newer working/idle status supersedes the ask", () => {
+        expect(isAskStale(1_000, 2_000, "working")).toBe(true);
+        expect(isAskStale(1_000, 2_000, "idle")).toBe(true);
+    });
+    it("not stale while waiting, when status is not newer, or when a ts is missing", () => {
+        expect(isAskStale(1_000, 2_000, "waiting")).toBe(false);
+        expect(isAskStale(1_000, 1_000, "working")).toBe(false);
+        expect(isAskStale(1_000, 500, "working")).toBe(false);
+        expect(isAskStale(undefined, 2_000, "working")).toBe(false);
+        expect(isAskStale(1_000, undefined, "working")).toBe(false);
     });
 });

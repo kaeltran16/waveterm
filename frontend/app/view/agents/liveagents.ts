@@ -11,7 +11,7 @@ import { getAgentStatusAtom } from "@/app/tab/sessionsidebar/agentstatusstore";
 import { sessionSidebarViewModelAtom } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
 import { flattenVisualOrder } from "@/app/tab/sessionsidebar/sessionviewmodel";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
-import { agentVMFromInput, askingCount, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { agentVMFromInput, askingCount, isAskStale, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { getAgentAskAtom } from "./agentaskstore";
 import { fetchPreviousInfo } from "./previousinfo";
 
@@ -53,7 +53,9 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
             },
             now
         );
-        agents.push(withAsk(vm, get(getAgentAskAtom(row.termBlockOref)), now));
+        const ask = get(getAgentAskAtom(row.termBlockOref));
+        const effectiveAsk = ask && !isAskStale(ask.ts, status.ts, status.state) ? ask : null;
+        agents.push(withAsk(vm, effectiveAsk, now));
     }
     return agents;
 });

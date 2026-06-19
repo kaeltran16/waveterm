@@ -80,7 +80,7 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
                     {project ? `${project} · ` : ""}
                     {agent.task}
                 </span>
-                <span className={cn("ml-auto flex shrink-0 items-center gap-1 text-[11px]", quiet ? "text-warning" : "text-muted")}>
+                <span className={cn("ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px]", quiet ? "text-warning" : "text-muted")}>
                     {agent.model ? `${agent.model} · ` : ""}
                     {formatAge(agent.activeMs)}
                     {since ? (
@@ -93,7 +93,7 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
                             >
                                 ⟳
                             </motion.span>
-                            <span>{since}</span>
+                            <span className="inline-block w-7 text-right">{since}</span>
                         </>
                     ) : null}
                     {quiet ? <span>· quiet</span> : null}

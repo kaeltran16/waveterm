@@ -15,6 +15,7 @@ import { formatAge, groupAgents, resolveFocusedAskId, type AgentVM } from "./age
 import { ensurePreviousInfo, liveAgentsAtom } from "./liveagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { WorkingPanel } from "./outputpanel";
+import { IdleSection } from "./idlesection";
 
 function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) => void }) {
     const question = agent.ask?.questions?.[0]?.question ?? "";
@@ -59,7 +60,7 @@ function RollingCount({ value, className }: { value: number; className?: string 
 
 function AgentsView({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
-    const { asking, working } = groupAgents(agents);
+    const { asking, working, idle } = groupAgents(agents);
     const open = (id: string) => setActiveTab(id);
     const answer = (oref: string, answers: AgentAnswerItem[]) => {
         if (!oref) {
@@ -121,7 +122,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         };
     }, []);
 
-    const empty = asking.length === 0 && working.length === 0;
+    const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
 
     return (
         <div className="flex h-full w-full flex-col bg-background text-secondary">
@@ -214,6 +215,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                         </AnimatePresence>
                     </div>
                 )}
+                <IdleSection agents={idle} onOpen={open} />
             </div>
         </div>
     );

@@ -32,6 +32,7 @@ interface SessionRowProps {
     active: boolean;
     blocked: boolean;
     pinned: boolean;
+    isAgentsTab?: boolean;
     detail?: string;
     model?: string;
     subagentCount?: number;
@@ -57,6 +58,7 @@ export function SessionRow({
     active,
     blocked,
     pinned,
+    isAgentsTab,
     detail,
     model,
     subagentCount = 0,
@@ -203,16 +205,18 @@ export function SessionRow({
                     }}
                 />
             )}
-            <i
-                className={cn(
-                    makeIconClass("thumbtack", true) + " text-[10px]",
-                    pinned ? "opacity-90" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
-                )}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onTogglePin();
-                }}
-            />
+            {!isAgentsTab && (
+                <i
+                    className={cn(
+                        makeIconClass("thumbtack", true) + " text-[10px]",
+                        pinned ? "opacity-90" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                    )}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onTogglePin();
+                    }}
+                />
+            )}
         </div>
     );
 }

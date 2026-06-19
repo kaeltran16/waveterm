@@ -61,11 +61,11 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
         } catch {
             continue;
         }
-        const content = rec?.message?.content;
-        if (!Array.isArray(content)) {
-            continue;
-        }
         if (rec.type === "assistant") {
+            const content = rec?.message?.content;
+            if (!Array.isArray(content)) {
+                continue;
+            }
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
                     entries.push({ kind: "message", text: block.text });
@@ -84,7 +84,21 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             continue;
         }
         if (rec.type === "user") {
+            const content = rec?.message?.content;
+            if (typeof content === "string") {
+                if (content.trim() !== "") {
+                    entries.push({ kind: "user", text: content });
+                }
+                continue;
+            }
+            if (!Array.isArray(content)) {
+                continue;
+            }
             for (const block of content) {
+                if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
+                    entries.push({ kind: "user", text: block.text });
+                    continue;
+                }
                 if (block?.type !== "tool_result" || typeof block.tool_use_id !== "string") {
                     continue;
                 }

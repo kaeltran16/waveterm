@@ -88,6 +88,7 @@ function SessionRowTree({
                 active={row.active}
                 blocked={row.blocked}
                 pinned={row.pinned}
+                isAgentsTab={row.isAgentsTab}
                 detail={row.detail}
                 subagentCount={row.subagents.length}
                 expanded={row.subagentsExpanded}
@@ -174,7 +175,7 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.6, opacity: 0 }}
                             transition={{ type: "spring", stiffness: 600, damping: 20 }}
-                            className="ml-auto rounded-[9px] bg-warning px-2 text-[10px] font-bold text-black"
+                            className="ml-auto rounded-[9px] bg-warning px-2 py-0.5 text-[10px] font-bold leading-none text-black"
                         >
                             {asking} asking
                         </motion.span>
