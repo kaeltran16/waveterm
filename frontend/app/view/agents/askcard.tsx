@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { useState } from "react";
-import { formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { liveEntriesByIdAtom } from "./livetranscript";
+import { buildAskAnswers, canSubmitAsk, formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
 
 function PreviousInfo({ entries }: { entries: AgentEntry[] }) {
@@ -72,13 +74,11 @@ export function AskCard({
     onOpen: (id: string) => void;
 }) {
     const [selections, setSelections] = useState<Record<number, Set<number>>>({});
+    const liveEntries = useAtomValue(liveEntriesByIdAtom);
+    const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
 
     const questions = agent.ask?.questions ?? [];
-
-    // MVP: the panel can drive the native picker only for a single single-select question.
-    // Everything else (multi-select, multi-question) is answered in the terminal.
-    const panelAnswerable = questions.length === 1 && !questions[0]?.multiSelect;
-    const canSubmit = panelAnswerable && (selections[0]?.size ?? 0) === 1;
+    const canSubmit = canSubmitAsk(questions, selections);
 
     const handleToggle = (qi: number, oi: number) => {
         setSelections((prev) => {
@@ -88,7 +88,6 @@ export function AskCard({
                 if (current.has(oi)) current.delete(oi);
                 else current.add(oi);
             } else {
-                // single-select: replace
                 current.clear();
                 current.add(oi);
             }
@@ -98,8 +97,7 @@ export function AskCard({
 
     const handleSubmit = () => {
         if (!canSubmit) return;
-        const answers: AgentAnswerItem[] = [{ selectedindexes: Array.from(selections[0] ?? []) }];
-        onAnswer?.(agent.ask?.oref, answers);
+        onAnswer?.(agent.ask?.oref, buildAskAnswers(questions, selections));
     };
 
     return (
@@ -113,46 +111,38 @@ export function AskCard({
                 <span className="text-[11.5px] text-[#d29922]">asking · {formatAge(agent.blockedMs)}</span>
             </div>
 
-            {agent.previousInfo?.length ? <PreviousInfo entries={agent.previousInfo} /> : null}
+            {entries.length ? <PreviousInfo entries={entries} /> : null}
 
-            {agent.ask && panelAnswerable ? (
-                <>
-                    {questions.map((q, qi) => (
-                        <QuestionGroup
-                            key={qi}
-                            question={q}
-                            qi={qi}
-                            selections={selections[qi] ?? new Set()}
-                            onToggle={handleToggle}
-                        />
-                    ))}
-                    <div className="mt-3.5 flex justify-end">
-                        <button
-                            type="button"
-                            disabled={!canSubmit}
-                            onClick={handleSubmit}
-                            className={cn(
-                                "rounded-[7px] px-[18px] py-1.5 text-[12.5px] font-semibold",
-                                canSubmit
-                                    ? "cursor-pointer bg-[#238636] text-white"
-                                    : "bg-[#238636]/40 text-white/50"
-                            )}
-                        >
-                            Submit
-                        </button>
-                    </div>
-                </>
-            ) : (
-                <div className="mt-3.5 border-t border-[#2a2f3a] pt-3.5">
-                    <button
-                        type="button"
-                        onClick={() => onOpen(agent.id)}
-                        className="cursor-pointer rounded-[7px] bg-[#238636] px-[18px] py-1.5 text-[12.5px] font-semibold text-white"
-                    >
-                        Open session to answer
-                    </button>
-                </div>
-            )}
+            {questions.map((q, qi) => (
+                <QuestionGroup
+                    key={qi}
+                    question={q}
+                    qi={qi}
+                    selections={selections[qi] ?? new Set()}
+                    onToggle={handleToggle}
+                />
+            ))}
+
+            <div className="mt-3.5 flex items-center justify-end gap-2.5">
+                <button
+                    type="button"
+                    onClick={() => onOpen(agent.id)}
+                    className="cursor-pointer rounded-[7px] border border-[#2c3340] px-[14px] py-1.5 text-[12px] text-[#c9d1d9] hover:bg-white/[0.04]"
+                >
+                    Open terminal
+                </button>
+                <button
+                    type="button"
+                    disabled={!canSubmit}
+                    onClick={handleSubmit}
+                    className={cn(
+                        "rounded-[7px] px-[18px] py-1.5 text-[12.5px] font-semibold",
+                        canSubmit ? "cursor-pointer bg-[#238636] text-white" : "bg-[#238636]/40 text-white/50"
+                    )}
+                >
+                    Submit
+                </button>
+            </div>
         </div>
     );
 }

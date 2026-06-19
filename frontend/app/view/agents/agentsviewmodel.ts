@@ -66,12 +66,6 @@ export function askingCount(agents: AgentVM[]): number {
     return agents.filter((a) => a.state === "asking").length;
 }
 
-/** Pure: the agents to render as output panels — asking → working (sortAgents order),
- *  idle excluded (idle agents live in the sidebar, not this view). */
-export function outputPanelOrder(agents: AgentVM[]): AgentVM[] {
-    return sortAgents(agents).filter((a) => a.state !== "idle");
-}
-
 export interface AgentSections {
     asking: AgentVM[];
     working: AgentVM[];
@@ -132,6 +126,31 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.activeMs = age;
     }
     return vm;
+}
+
+/** Pure: one AgentAnswerItem per question, carrying that question's selected option indexes (ascending). */
+export function buildAskAnswers(questions: AgentAskQuestion[], selections: Record<number, Set<number>>): AgentAnswerItem[] {
+    return questions.map((_, qi) => ({ selectedindexes: Array.from(selections[qi] ?? []).sort((a, b) => a - b) }));
+}
+
+/** Pure: submittable only when every question has at least one selected option. */
+export function canSubmitAsk(questions: AgentAskQuestion[], selections: Record<number, Set<number>>): boolean {
+    return questions.length > 0 && questions.every((_, qi) => (selections[qi]?.size ?? 0) >= 1);
+}
+
+/** Pure: a working agent is "quiet" when no new narration has arrived for thresholdMs. */
+export function isQuiet(lastActivityMs: number | undefined, now: number, thresholdMs = 45_000): boolean {
+    return lastActivityMs != null && now - lastActivityMs > thresholdMs;
+}
+
+/** Pure: which asking agent owns the focus slot. Keep the current focus if it's still asking;
+ *  otherwise fall back to the first (oldest-blocked) asking agent. groupAgents already sorts
+ *  asking longest-blocked-first, so asking[0] is the oldest. */
+export function resolveFocusedAskId(asking: AgentVM[], current?: string): string | undefined {
+    if (current != null && asking.some((a) => a.id === current)) {
+        return current;
+    }
+    return asking[0]?.id;
 }
 
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of

@@ -10,16 +10,29 @@ import { atom, useAtomValue, type Atom } from "jotai";
 import { fireAndForget } from "@/util/util";
 import { useEffect, useRef, useState } from "react";
 import { AskCard } from "./askcard";
-import { askingCount, outputPanelOrder, type AgentVM } from "./agentsviewmodel";
+import { formatAge, groupAgents, resolveFocusedAskId, type AgentVM } from "./agentsviewmodel";
 import { ensurePreviousInfo, liveAgentsAtom } from "./liveagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { WorkingPanel } from "./outputpanel";
 
+function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) => void }) {
+    const question = agent.ask?.questions?.[0]?.question ?? "";
+    return (
+        <div
+            onClick={() => onFocus(agent.id)}
+            className="flex cursor-pointer items-center gap-2.5 rounded-[7px] border border-[#d29922]/60 bg-[#d29922]/[0.05] px-3 py-2 hover:bg-[#d29922]/10"
+        >
+            <span className="h-2 w-2 shrink-0 rounded-full bg-[#d29922]" />
+            <b className="shrink-0 text-[12.5px] text-[#e6edf3]">{agent.name}</b>
+            <span className="truncate text-[12px] text-[#8b949e]">{question}</span>
+            <span className="ml-auto shrink-0 text-[10.5px] text-[#d29922]">{formatAge(agent.blockedMs)} · answer →</span>
+        </div>
+    );
+}
+
 function AgentsView({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
-    const ordered = outputPanelOrder(agents);
-    const asking = askingCount(agents);
-    const working = ordered.filter((a) => a.state === "working").length;
+    const { asking, working } = groupAgents(agents);
     const open = (id: string) => setActiveTab(id);
     const answer = (oref: string, answers: AgentAnswerItem[]) => {
         if (!oref) {
@@ -28,28 +41,33 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers }));
     };
 
-    // 1s tick so the liveness cue (⟳ since) stays current without a global ticker
+    const [focusedAskId, setFocusedAskId] = useState<string>();
+    const focusedId = resolveFocusedAskId(asking, focusedAskId);
+    const focused = asking.find((a) => a.id === focusedId);
+    const queue = asking.filter((a) => a.id !== focusedId);
+
+    // 1s tick so the liveness cue (⟳ since / quiet) stays current without a global ticker
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
         const t = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(t);
     }, []);
 
-    // one-shot previous-info for asking agents (unchanged, spec §3)
+    // one-shot previous-info for asking agents (seeds first paint; the live stream supersedes it once a chunk arrives)
     useEffect(() => {
-        for (const a of agents) {
-            if (a.state === "asking" && a.transcriptPath) {
+        for (const a of asking) {
+            if (a.transcriptPath) {
                 void ensurePreviousInfo(a.id, a.transcriptPath);
             }
         }
-    }, [agents]);
+    }, [asking]);
 
-    // open a live transcript stream per visible working agent; stop streams that left the set
+    // open a live transcript stream per visible asking/working agent; stop streams that left the set
     const streamedRef = useRef<Set<string>>(new Set());
     useEffect(() => {
         const wantedById = new Map<string, string>();
-        for (const a of ordered) {
-            if (a.state === "working" && a.transcriptPath) {
+        for (const a of [...asking, ...working]) {
+            if (a.transcriptPath) {
                 wantedById.set(a.id, a.transcriptPath);
             }
         }
@@ -65,7 +83,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 streamedRef.current.delete(id);
             }
         }
-    }, [ordered]);
+    }, [asking, working]);
 
     useEffect(() => {
         return () => {
@@ -76,28 +94,49 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         };
     }, []);
 
+    const empty = asking.length === 0 && working.length === 0;
+
     return (
         <div className="flex h-full w-full flex-col bg-[#0b0e14] text-[#c9d1d9]">
             <div className="flex shrink-0 items-center justify-between border-b border-[#1c2230] px-[18px] py-3">
                 <b className="text-[15px] text-[#e6edf3]">Agents</b>
                 <span className="text-[12px] text-[#6b7585]">
-                    <span className="text-[#d29922]">{asking} asking</span> · {working} working
+                    <span className="text-[#d29922]">{asking.length} asking</span> · {working.length} working
                 </span>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-[18px]">
-                {ordered.length === 0 && (
-                    <div className="px-0.5 py-6 text-[13px] text-[#6b7585]">No active agents</div>
-                )}
-                {ordered.map((a) =>
-                    a.state === "asking" ? (
-                        // keying by askId forces a fresh card (resetting per-question selection state) when the same
-                        // agent raises a new ask — otherwise a batched clear+new-ask render would reuse the stale instance.
-                        <div key={a.ask?.askId ?? a.id} className="shrink-0">
-                            <AskCard agent={a} onAnswer={answer} onOpen={open} />
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden p-[18px]">
+                {empty && (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
+                        <div className="text-[22px] opacity-50">🤖</div>
+                        <div className="text-[13px] font-semibold text-[#c9d1d9]">No active agents</div>
+                        <div className="text-[11.5px] text-[#6b7585]">
+                            Agents appear here the moment one starts working or asks a question.
                         </div>
-                    ) : (
-                        <WorkingPanel key={a.id} agent={a} now={now} onOpen={open} />
-                    )
+                    </div>
+                )}
+                {focused && (
+                    <div className="max-h-[55%] shrink-0 overflow-y-auto">
+                        <AskCard key={focused.ask?.askId ?? focused.id} agent={focused} onAnswer={answer} onOpen={open} />
+                    </div>
+                )}
+                {queue.length > 0 && (
+                    <div className="flex shrink-0 flex-col gap-1.5">
+                        <div className="text-[10.5px] uppercase tracking-wide text-[#9aa4b2]">
+                            {queue.length} more waiting
+                        </div>
+                        <div className="flex max-h-[180px] flex-col gap-1.5 overflow-y-auto">
+                            {queue.map((a) => (
+                                <QueueRow key={a.id} agent={a} onFocus={setFocusedAskId} />
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {working.length > 0 && (
+                    <div className="grid min-h-0 flex-1 auto-rows-[260px] grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-2.5 overflow-y-auto">
+                        {working.map((a) => (
+                            <WorkingPanel key={a.id} agent={a} now={now} onOpen={open} />
+                        ))}
+                    </div>
                 )}
             </div>
         </div>

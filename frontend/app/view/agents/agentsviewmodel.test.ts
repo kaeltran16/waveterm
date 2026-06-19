@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, outputPanelOrder, type AgentState, type AgentVM, type LiveAgentInput } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, resolveFocusedAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -150,18 +150,55 @@ describe("withAsk", () => {
     });
 });
 
-describe("outputPanelOrder", () => {
-    const mk = (id: string, state: AgentState, n: number): AgentVM =>
-        ({ id, name: id, task: "", state, blockedMs: n, activeMs: n }) as AgentVM;
+describe("buildAskAnswers", () => {
+    const q = (multiSelect = false): AgentAskQuestion => ({
+        question: "q",
+        multiSelect,
+        options: [{ label: "a" }, { label: "b" }, { label: "c" }],
+    });
 
-    it("orders asking-first then working, excludes idle", () => {
-        const agents = [
-            mk("w1", "working", 100),
-            mk("idle1", "idle", 0),
-            mk("ask1", "asking", 50),
-            mk("w2", "working", 300),
-        ];
-        const out = outputPanelOrder(agents).map((a) => a.id);
-        expect(out).toEqual(["ask1", "w2", "w1"]);
+    it("emits one answer item per question, indexes sorted ascending", () => {
+        const questions = [q(false), q(true)];
+        const selections = { 0: new Set([1]), 1: new Set([2, 0]) };
+        expect(buildAskAnswers(questions, selections)).toEqual([
+            { selectedindexes: [1] },
+            { selectedindexes: [0, 2] },
+        ]);
+    });
+
+    it("emits empty indexes for an unanswered question", () => {
+        expect(buildAskAnswers([q()], {})).toEqual([{ selectedindexes: [] }]);
+    });
+});
+
+describe("canSubmitAsk", () => {
+    const q = (): AgentAskQuestion => ({ question: "q", options: [{ label: "a" }] });
+
+    it("true only when every question has at least one selection", () => {
+        expect(canSubmitAsk([q(), q()], { 0: new Set([0]), 1: new Set([0]) })).toBe(true);
+        expect(canSubmitAsk([q(), q()], { 0: new Set([0]) })).toBe(false);
+        expect(canSubmitAsk([], {})).toBe(false);
+    });
+});
+
+describe("isQuiet", () => {
+    it("true past the threshold, false within it or when activity is unknown", () => {
+        expect(isQuiet(1_000, 1_000 + 46_000)).toBe(true);
+        expect(isQuiet(1_000, 1_000 + 10_000)).toBe(false);
+        expect(isQuiet(undefined, 99_999)).toBe(false);
+    });
+});
+
+describe("resolveFocusedAskId", () => {
+    const a = (id: string): AgentVM => ({ id, name: id, task: "", state: "asking" }) as AgentVM;
+
+    it("keeps the current focus if it's still asking", () => {
+        expect(resolveFocusedAskId([a("x"), a("y")], "y")).toBe("y");
+    });
+
+    it("falls back to the first (oldest-blocked) asking agent otherwise", () => {
+        expect(resolveFocusedAskId([a("x"), a("y")], "gone")).toBe("x");
+        expect(resolveFocusedAskId([a("x")], undefined)).toBe("x");
+        expect(resolveFocusedAskId([], "x")).toBe(undefined);
     });
 });
