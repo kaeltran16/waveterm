@@ -1,0 +1,86 @@
+<h2>Surface scope — does the re-skin include the sidebar?</h2>
+<p class="subtitle">The sidebar and the Agents tab sit side by side and show the same agents. The tab is re-skinned to Wave's palette in both options below — the only difference is whether the sidebar's status colors come along. Watch the green dots and the amber "asking" accent.</p>
+
+<div class="split">
+
+  <!-- LEFT: tab only -->
+  <div class="mockup">
+    <div class="mockup-header">A · Tab only — sidebar keeps its old colors</div>
+    <div class="mockup-body" style="background:#161616;padding:0;display:flex;min-height:300px">
+
+      <!-- sidebar (bespoke / unchanged) -->
+      <div style="width:150px;flex:none;background:#0a0d12;border-right:1px solid #20242b;padding:8px 6px;font-size:11px;display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;align-items:center;gap:5px;color:#e6edf3;font-size:12px"><span style="color:#d29922">&#x2B24;</span>Agents<span style="margin-left:auto;background:#d29922;color:#000;border-radius:8px;padding:0 5px;font-size:9px;font-weight:700">1</span></div>
+        <div style="color:#8b949e;font-size:10px;margin-top:2px">&#43; New Tab</div>
+        <div style="color:#adbac7;font-weight:600;margin-top:3px">&#9662; waveterm <span style="color:#6b7585">(3)</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px;border-left:2px solid #d29922;background:rgba(210,153,34,0.08);border-radius:3px"><span style="width:8px;height:8px;border-radius:50%;background:#d29922"></span><span style="color:#e6edf3">loom</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px;border-left:2px solid #429dff;background:rgba(66,157,255,0.08);border-radius:3px"><span style="width:8px;height:8px;border-radius:50%;background:#3fb950"></span><span style="color:#e6edf3">cyber-detector</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px"><span style="width:8px;height:8px;border-radius:50%;background:#3fb950"></span><span style="color:#c9d1d9">graphify</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px"><span style="width:8px;height:8px;border-radius:50%;background:#7d8590"></span><span style="color:#8b949e">review-spec</span></div>
+      </div>
+
+      <!-- tab (Wave tokens) -->
+      <div style="flex:1;background:#222222;padding:12px;display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><b style="color:#f7f7f7;font-size:13px">Agents</b><span style="font-size:11px;color:#8c918c"><span style="color:#e0b956">1 asking</span> · 2 working</span></div>
+        <div style="border:1px solid #e0b956;background:rgba(224,185,86,0.07);border-radius:7px;padding:9px 11px;font-size:12px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#e0b956"></span><b style="color:#f7f7f7">loom</b><span style="margin-left:auto;color:#e0b956;font-size:10px">asking · 4m</span></div>
+          <div style="margin-top:7px;color:#f7f7f7;font-weight:600">Which cloning approach?</div>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.14);border-radius:7px;padding:9px 11px;font-size:12px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#58c142"></span><b style="color:#f7f7f7">cyber-detector</b><span style="margin-left:auto;color:#c3c8c2;font-size:10px">opus · 8m</span></div>
+          <div style="margin-top:7px;color:#f7f7f7;border-left:2px solid #58c142;padding-left:8px">All 4 fail. Creating the detector.</div>
+        </div>
+        <div style="margin-top:auto;font-size:10px;color:#e54d2e;background:rgba(229,77,46,0.08);border:1px solid rgba(229,77,46,0.3);border-radius:5px;padding:5px 7px">⚠ sidebar green <b>#3fb950</b> ≠ tab green <b>#58c142</b>; ambers differ too</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: tab + sidebar -->
+  <div class="mockup">
+    <div class="mockup-header">B · Tab + sidebar — colors unified</div>
+    <div class="mockup-body" style="background:#161616;padding:0;display:flex;min-height:300px">
+
+      <!-- sidebar (Wave tokens) -->
+      <div style="width:150px;flex:none;background:#191919;border-right:1px solid rgba(255,255,255,0.14);padding:8px 6px;font-size:11px;display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;align-items:center;gap:5px;color:#f7f7f7;font-size:12px"><span style="color:#e0b956">&#x2B24;</span>Agents<span style="margin-left:auto;background:#e0b956;color:#000;border-radius:8px;padding:0 5px;font-size:9px;font-weight:700">1</span></div>
+        <div style="color:#8c918c;font-size:10px;margin-top:2px">&#43; New Tab</div>
+        <div style="color:#c3c8c2;font-weight:600;margin-top:3px">&#9662; waveterm <span style="color:#8c918c">(3)</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px;border-left:2px solid #e0b956;background:rgba(224,185,86,0.08);border-radius:3px"><span style="width:8px;height:8px;border-radius:50%;background:#e0b956"></span><span style="color:#f7f7f7">loom</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px;border-left:2px solid #58c142;background:rgba(88,193,66,0.10);border-radius:3px"><span style="width:8px;height:8px;border-radius:50%;background:#58c142"></span><span style="color:#f7f7f7">cyber-detector</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px"><span style="width:8px;height:8px;border-radius:50%;background:#58c142"></span><span style="color:#c3c8c2">graphify</span></div>
+        <div style="display:flex;align-items:center;gap:6px;padding:3px 5px"><span style="width:8px;height:8px;border-radius:50%;background:#8c918c"></span><span style="color:#8c918c">review-spec</span></div>
+      </div>
+
+      <!-- tab (Wave tokens) -->
+      <div style="flex:1;background:#222222;padding:12px;display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><b style="color:#f7f7f7;font-size:13px">Agents</b><span style="font-size:11px;color:#8c918c"><span style="color:#e0b956">1 asking</span> · 2 working</span></div>
+        <div style="border:1px solid #e0b956;background:rgba(224,185,86,0.07);border-radius:7px;padding:9px 11px;font-size:12px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#e0b956"></span><b style="color:#f7f7f7">loom</b><span style="margin-left:auto;color:#e0b956;font-size:10px">asking · 4m</span></div>
+          <div style="margin-top:7px;color:#f7f7f7;font-weight:600">Which cloning approach?</div>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,0.14);border-radius:7px;padding:9px 11px;font-size:12px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#58c142"></span><b style="color:#f7f7f7">cyber-detector</b><span style="margin-left:auto;color:#c3c8c2;font-size:10px">opus · 8m</span></div>
+          <div style="margin-top:7px;color:#f7f7f7;border-left:2px solid #58c142;padding-left:8px">All 4 fail. Creating the detector.</div>
+        </div>
+        <div style="margin-top:auto;font-size:10px;color:#58c142;background:rgba(88,193,66,0.08);border:1px solid rgba(88,193,66,0.3);border-radius:5px;padding:5px 7px">✓ same green &amp; amber on both surfaces — one app</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="both" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Tab + sidebar colors</h3>
+      <p>Migrate the shared status/accent colors in the sidebar too (status constants, dot/marker colors, active/blocked accents). Consistent everywhere. Touches shared chrome — higher regression surface (drag-reorder, rename, badges).</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tabonly" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Agents tab only</h3>
+      <p>Re-skin just the four agents-view files. Lowest risk, fastest. Accepts that the sidebar stays on the old palette and won't perfectly match the tab (left mockup).</p>
+    </div>
+  </div>
+</div>

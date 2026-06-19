@@ -1,0 +1,97 @@
+<h2>Target: the Agents surface on Wave's tokens (layout unchanged)</h2>
+<p class="subtitle">Same layout, density, and motion you have today — only the palette is rebound to Wave's <code>@theme</code> tokens. Sidebar + tab share one green (working), one amber (asking), one red (fail). This is the "after" we'd build to.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Wave window — sidebar + Agents tab</div>
+  <div class="mockup-body" style="background:#161616;padding:0;display:flex;min-height:420px;font-size:12px">
+
+    <!-- sidebar -->
+    <div style="width:168px;flex:none;background:#191919;border-right:1px solid rgba(255,255,255,0.14);padding:9px 7px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:6px;color:#f7f7f7;font-size:13px">&#x2B24;<span style="color:#e0b956;margin-left:-3px"></span>Agents<span style="margin-left:auto;background:#e0b956;color:#15311d;border-radius:8px;padding:0 6px;font-size:9px;font-weight:700">1</span></div>
+      <div style="color:#8c918c;font-size:11px">&#43; New Tab</div>
+      <div style="height:1px;background:rgba(255,255,255,0.10);margin:2px 0"></div>
+      <div style="color:#c3c8c2;font-weight:600">&#9662; waveterm <span style="color:#8c918c;font-weight:400">(3)</span></div>
+      <div style="display:flex;align-items:center;gap:7px;padding:4px 6px;border-left:2px solid #e0b956;background:rgba(224,185,86,0.10);border-radius:4px"><span style="width:9px;height:9px;border-radius:50%;background:#e0b956"></span><span style="color:#f7f7f7">loom</span><span style="margin-left:auto;color:#8c918c;font-size:10px">opus</span></div>
+      <div style="display:flex;align-items:center;gap:7px;padding:4px 6px;border-left:2px solid #58c142;background:rgba(88,193,66,0.10);border-radius:4px"><span style="width:9px;height:9px;border-radius:50%;background:#58c142"></span><span style="color:#f7f7f7">cyber-detector</span></div>
+      <div style="display:flex;align-items:center;gap:7px;padding:4px 6px"><span style="width:9px;height:9px;border-radius:50%;background:#58c142"></span><span style="color:#c3c8c2">graphify</span><span style="margin-left:auto;color:#8c918c;font-size:10px">sonnet</span></div>
+      <div style="display:flex;align-items:center;gap:7px;padding:2px 6px 2px 20px;color:#8c918c;font-size:11px"><span style="color:#58c142">&#9702;</span>subagent: tests</div>
+      <div style="display:flex;align-items:center;gap:7px;padding:4px 6px"><span style="width:9px;height:9px;border-radius:50%;background:#8c918c"></span><span style="color:#8c918c">review-spec</span></div>
+      <div style="color:#c3c8c2;font-weight:600;margin-top:3px">&#9662; cyber_anomaly <span style="color:#8c918c;font-weight:400">(1)</span></div>
+    </div>
+
+    <!-- tab content -->
+    <div style="flex:1;background:#222222;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.14)">
+        <b style="color:#f7f7f7;font-size:14px">Agents</b>
+        <span style="font-size:12px;color:#8c918c"><b style="color:#e0b956">2</b> <span style="color:#e0b956">asking</span> · <b style="color:#f7f7f7">2</b> working</span>
+      </div>
+
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px;overflow:hidden">
+
+        <!-- focused ask -->
+        <div style="border:1px solid #e0b956;background:rgba(224,185,86,0.06);border-radius:9px;padding:13px 15px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="width:9px;height:9px;border-radius:50%;background:#e0b956"></span>
+            <b style="color:#f7f7f7;font-size:13px">loom</b>
+            <span style="color:#8c918c">· duplicate-session race</span>
+            <span style="margin-left:auto;color:#e0b956;font-size:11px">oldest · 4m</span>
+          </div>
+          <div style="margin-top:9px;color:#c3c8c2;border-left:2px solid #58c142;padding-left:9px;font-size:12px">Both clone paths conflict on the lockfile; I need a decision before continuing.</div>
+          <div style="margin-top:11px;color:#f7f7f7;font-weight:600;font-size:13px">Which cloning approach should I take?</div>
+          <div style="margin-top:10px;display:flex;gap:9px;flex-wrap:wrap">
+            <span style="background:rgba(88,193,66,0.85);color:#f7f7f7;border-radius:7px;padding:6px 16px;font-weight:600">Deep</span>
+            <span style="border:1px solid rgba(255,255,255,0.18);color:#c3c8c2;border-radius:7px;padding:6px 16px">Shallow</span>
+            <span style="border:1px solid #58c142;color:#6ee785;border-radius:7px;padding:6px 16px;font-weight:600">Reference (Recommended)</span>
+          </div>
+          <div style="margin-top:11px;display:flex;justify-content:flex-end"><span style="background:rgba(88,193,66,0.85);color:#f7f7f7;border-radius:7px;padding:6px 18px;font-weight:600">Submit</span></div>
+        </div>
+
+        <!-- queue -->
+        <div style="color:#8c918c;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em">1 more waiting</div>
+        <div style="display:flex;align-items:center;gap:8px;border:1px solid rgba(224,185,86,0.55);background:rgba(224,185,86,0.05);border-radius:7px;padding:7px 11px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#e0b956"></span>
+          <b style="color:#f7f7f7">api-migrator</b>
+          <span style="color:#8c918c;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">v2 returns 404 — roll back or patch?</span>
+          <span style="color:#e0b956;font-size:10px;white-space:nowrap">2m · answer →</span>
+        </div>
+
+        <!-- working grid -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:2px">
+          <div style="border:1px solid rgba(255,255,255,0.14);border-radius:9px;overflow:hidden;background:#222">
+            <div style="display:flex;align-items:center;gap:7px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.14)">
+              <span style="width:8px;height:8px;border-radius:50%;background:#58c142"></span>
+              <b style="color:#f7f7f7">cyber-detector</b>
+              <span style="margin-left:auto;color:#c3c8c2;font-size:10px">opus · 8m · &#x27F3;12s</span>
+            </div>
+            <div style="padding:10px 12px;line-height:1.55">
+              <div style="color:#f7f7f7;border-left:2px solid #58c142;padding-left:8px">All 4 fail as expected. Creating the detector.</div>
+              <div style="margin-top:7px;font-family:ui-monospace,monospace;font-size:11px;color:#8c918c;border-left:2px solid rgba(255,255,255,0.14);padding-left:9px">wrote&nbsp;&nbsp;detector.py <span style="color:#58c142">&#x2713;</span></div>
+              <div style="margin-top:5px;font-family:ui-monospace,monospace;font-size:11px;color:#8c918c;border-left:2px solid rgba(255,255,255,0.14);padding-left:9px">ran&nbsp;&nbsp;&nbsp;&nbsp;pytest <span style="color:#e54d2e">&#x2717;</span></div>
+            </div>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,0.14);border-radius:9px;overflow:hidden;background:#222">
+            <div style="display:flex;align-items:center;gap:7px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.14)">
+              <span style="width:8px;height:8px;border-radius:50%;background:#8c918c;border:1px solid #8c918c"></span>
+              <b style="color:#f7f7f7">graphify</b>
+              <span style="margin-left:auto;color:#e0b956;font-size:10px">sonnet · 2m · quiet</span>
+            </div>
+            <div style="padding:10px 12px;line-height:1.55">
+              <div style="color:#f7f7f7;border-left:2px solid #58c142;padding-left:8px">Clustering 38 nodes into communities now.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="label">Token map</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px">
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 9px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#222;border:1px solid #444;vertical-align:-1px;margin-right:5px"></span>canvas → <code>bg-background</code></span>
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 9px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f7f7f7;vertical-align:-1px;margin-right:5px"></span>text → <code>text-primary/secondary</code></span>
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 9px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#58c142;vertical-align:-1px;margin-right:5px"></span>working/✓ → <code>accent</code></span>
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 9px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e0b956;vertical-align:-1px;margin-right:5px"></span>asking → <code>warning</code></span>
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 9px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e54d2e;vertical-align:-1px;margin-right:5px"></span>fail → <code>error</code></span>
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 9px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#8c918c;vertical-align:-1px;margin-right:5px"></span>idle → <code>muted</code></span>
+  <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(88,193,66,0.4);border-radius:6px;padding:5px 9px">⚠ blue active-row & "new" pill → <code>accent</code> (no blue token)</span>
+</div>
