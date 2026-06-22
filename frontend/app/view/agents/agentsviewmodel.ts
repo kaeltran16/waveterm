@@ -135,27 +135,36 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     return vm;
 }
 
-export type PanelPreset = "s" | "m" | "l";
+export type PanelPreset = "s" | "m" | "l" | "full";
 
-/** Pre-determined working-panel sizes in the 2-col grid: `cols` = column span, `height` in px.
- *  S/M grow height within one column; L spans the full row. Single source of truth for sizing + snapping. */
-export const PANEL_PRESETS: Record<PanelPreset, { cols: 1 | 2; height: number }> = {
+/** Pre-determined working-panel sizes in the 2-col grid: `cols` = column span, `height` in px (or
+ *  "fill" = the live viewport height, resolved at render). S/M grow height within one column; L spans
+ *  the full row; full spans the row and fills the viewport. Single source of truth for sizing + snapping. */
+export const PANEL_PRESETS: Record<PanelPreset, { cols: 1 | 2; height: number | "fill" }> = {
     s: { cols: 1, height: 240 },
     m: { cols: 1, height: 360 },
     l: { cols: 2, height: 360 },
+    full: { cols: 2, height: "fill" },
 };
 
 export const DEFAULT_PANEL_PRESET: PanelPreset = "s";
 
+/** Resolve a preset's height to pixels: "fill" becomes the live viewport height (fillPx). */
+export function resolveHeight(preset: PanelPreset, fillPx: number): number {
+    const h = PANEL_PRESETS[preset].height;
+    return h === "fill" ? fillPx : h;
+}
+
 /** Pure: map a freely-dragged width/height to the nearest preset. Column span is chosen by whichever
- *  of one-/two-column width is closer; among presets with that span, the nearest height wins. */
-export function snapToPreset(width: number, height: number, oneColW: number, twoColW: number): PanelPreset {
+ *  of one-/two-column width is closer; among presets with that span, the nearest height wins. fillPx
+ *  resolves the "fill" preset's height so it can be compared like any fixed preset. */
+export function snapToPreset(width: number, height: number, oneColW: number, twoColW: number, fillPx: number): PanelPreset {
     const cols: 1 | 2 = Math.abs(width - twoColW) < Math.abs(width - oneColW) ? 2 : 1;
     const all = Object.keys(PANEL_PRESETS) as PanelPreset[];
     const pool = all.filter((p) => PANEL_PRESETS[p].cols === cols);
     const candidates = pool.length > 0 ? pool : all;
     return candidates.reduce((best, p) =>
-        Math.abs(PANEL_PRESETS[p].height - height) < Math.abs(PANEL_PRESETS[best].height - height) ? p : best
+        Math.abs(resolveHeight(p, fillPx) - height) < Math.abs(resolveHeight(best, fillPx) - height) ? p : best
     );
 }
 

@@ -264,19 +264,24 @@ describe("isAskStale", () => {
 describe("snapToPreset", () => {
     const ONE = 300;
     const TWO = 610; // 300*2 + 10 gap
+    const FILL = 900; // measured viewport height feeding the "full" preset
 
     it("one-column widths snap to s (short) or m (tall) by nearest height", () => {
-        expect(snapToPreset(ONE, 240, ONE, TWO)).toBe("s");
-        expect(snapToPreset(ONE, 360, ONE, TWO)).toBe("m");
-        expect(snapToPreset(ONE, 250, ONE, TWO)).toBe("s");
-        expect(snapToPreset(ONE, 340, ONE, TWO)).toBe("m");
+        expect(snapToPreset(ONE, 240, ONE, TWO, FILL)).toBe("s");
+        expect(snapToPreset(ONE, 360, ONE, TWO, FILL)).toBe("m");
+        expect(snapToPreset(ONE, 250, ONE, TWO, FILL)).toBe("s");
+        expect(snapToPreset(ONE, 340, ONE, TWO, FILL)).toBe("m");
     });
-    it("two-column widths always snap to l (the only full-row preset), regardless of height", () => {
-        expect(snapToPreset(TWO, 360, ONE, TWO)).toBe("l");
-        expect(snapToPreset(TWO, 240, ONE, TWO)).toBe("l");
+    it("two-column widths snap to l when shorter than halfway to the viewport height", () => {
+        expect(snapToPreset(TWO, 360, ONE, TWO, FILL)).toBe("l");
+        expect(snapToPreset(TWO, 240, ONE, TWO, FILL)).toBe("l");
+    });
+    it("two-column widths snap to full when dragged near the viewport height", () => {
+        expect(snapToPreset(TWO, FILL, ONE, TWO, FILL)).toBe("full");
+        expect(snapToPreset(TWO, 800, ONE, TWO, FILL)).toBe("full"); // past the 630 midpoint
     });
     it("column span follows whichever of one-/two-column width is closer", () => {
-        expect(snapToPreset(380, 240, ONE, TWO)).toBe("s"); // closer to one column
-        expect(snapToPreset(540, 360, ONE, TWO)).toBe("l"); // closer to two columns
+        expect(snapToPreset(380, 240, ONE, TWO, FILL)).toBe("s"); // closer to one column
+        expect(snapToPreset(540, 360, ONE, TWO, FILL)).toBe("l"); // closer to two columns
     });
 });

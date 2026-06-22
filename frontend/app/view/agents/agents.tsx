@@ -18,12 +18,14 @@ import {
     isRecentlyIdle,
     reorderList,
     resolveFocusedAskId,
+    resolveHeight,
     snapToPreset,
     PANEL_PRESETS,
     DEFAULT_PANEL_PRESET,
     type AgentVM,
     type PanelPreset,
 } from "./agentsviewmodel";
+import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { ensurePreviousInfo, liveAgentsAtom } from "./liveagents";
 import { mockAgentsAtom, USE_MOCK_AGENTS } from "./mockagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
@@ -33,6 +35,7 @@ import { IdleSection } from "./idlesection";
 const PanelGap = 10; // matches the working grid's gap-2.5 (0.625rem)
 const PanelMinW = 160;
 const PanelMinH = 140;
+const PanelFillFallback = 360; // before the viewport is measured, "fill" renders at the l-preset height
 
 function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) => void }) {
     const question = agent.ask?.questions?.[0]?.question ?? "";
@@ -82,6 +85,7 @@ interface ResizeDrag {
     top: number;
     oneColW: number;
     twoColW: number;
+    fillPx: number;
     curW: number;
     curH: number;
 }
@@ -89,6 +93,7 @@ interface ResizeDrag {
 function DraggablePanel({
     id,
     preset,
+    fillPx,
     onResize,
     onDragStart,
     onDropOn,
@@ -96,6 +101,7 @@ function DraggablePanel({
 }: {
     id: string;
     preset: PanelPreset;
+    fillPx: number;
     onResize: (id: string, preset: PanelPreset) => void;
     onDragStart: () => void;
     onDropOn: (targetId: string, before: boolean) => void;
@@ -125,6 +131,7 @@ function DraggablePanel({
             top: rect.top,
             oneColW: (containerW - PanelGap) / 2,
             twoColW: containerW,
+            fillPx,
             curW: rect.width,
             curH: rect.height,
         };
@@ -148,10 +155,11 @@ function DraggablePanel({
             return;
         }
         e.currentTarget.releasePointerCapture(e.pointerId);
-        onResize(id, snapToPreset(d.curW, d.curH, d.oneColW, d.twoColW));
+        onResize(id, snapToPreset(d.curW, d.curH, d.oneColW, d.twoColW, d.fillPx));
     };
 
-    const { cols, height } = PANEL_PRESETS[preset];
+    const { cols } = PANEL_PRESETS[preset];
+    const height = resolveHeight(preset, fillPx);
     return (
         // No motion `layout`/`layoutId` here: the panel re-renders on the 1s liveness tick, and per-render
         // layout projection jitters against the grid. Drag-reorder still works; panels snap instead of sliding.
@@ -289,6 +297,10 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const [dragId, setDragId] = useState<string>();
     const [presetById, setPresetById] = useState<Record<string, PanelPreset>>({});
     const resizePanel = (id: string, preset: PanelPreset) => setPresetById((m) => ({ ...m, [id]: preset }));
+
+    // measures the scroll viewport so a "full" panel fills the visible area and re-fills on block/window resize
+    const [scrollRef, , scrollRect] = useDimensionsWithCallbackRef<HTMLDivElement>(100);
+    const fillPx = scrollRect?.height ?? PanelFillFallback;
     useEffect(() => {
         const ids = gridAgents.map((w) => w.id);
         setOrder((prev) => {
@@ -313,7 +325,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     <span>working</span>
                 </span>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-[18px]">
+            <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-[18px]">
                 <AnimatePresence>
                     {empty && (
                         <motion.div
@@ -373,6 +385,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                                     key={a.id}
                                     id={a.id}
                                     preset={presetById[a.id] ?? DEFAULT_PANEL_PRESET}
+                                    fillPx={fillPx}
                                     onResize={resizePanel}
                                     onDragStart={() => setDragId(a.id)}
                                     onDropOn={(targetId, before) => {
