@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Live narration for working agents: opens StreamAgentTranscriptCommand per visible
-// agent, accumulates raw JSONL lines, and projects them with projectTranscript (the
-// unchanged seam) into liveEntriesByIdAtom. lastActivityByIdAtom stamps each chunk for
+// agent, accumulates raw JSONL lines, and projects them with the agent's projector
+// (transcriptregistry) into liveEntriesByIdAtom. lastActivityByIdAtom stamps each chunk for
 // the liveness cue. The open stream IS the subscription — stopTranscriptStream cancels
 // the generator, which cancels the backend ctx and tears down the fsnotify watcher.
 
@@ -12,7 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentEntry } from "./agentsviewmodel";
-import { projectTranscript } from "./transcriptprojection";
+import { projectorFor } from "./transcriptregistry";
 
 const STREAM_TAIL_LINES = 300;
 // The server applies a 5s default request timeout (DefaultTimeoutMs) to every RPC, streams
@@ -29,10 +29,11 @@ interface StreamHandle {
 }
 const streams = new Map<string, StreamHandle>();
 
-export function startTranscriptStream(id: string, path: string): void {
+export function startTranscriptStream(id: string, path: string, agent?: string): void {
     if (!path || streams.has(id)) {
         return;
     }
+    const project = projectorFor(agent, path).project;
     const gen = RpcApi.StreamAgentTranscriptCommand(TabRpcClient, { path, taillines: STREAM_TAIL_LINES }, { timeout: STREAM_TIMEOUT_MS });
     let cancelled = false;
     streams.set(id, {
@@ -52,7 +53,7 @@ export function startTranscriptStream(id: string, path: string): void {
                     continue;
                 }
                 lines.push(...chunk.lines);
-                const entries = projectTranscript(lines);
+                const entries = project(lines);
                 globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
                 globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });
             }
