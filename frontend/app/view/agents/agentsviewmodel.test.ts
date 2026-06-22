@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isAskStale, resolveFocusedAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isAskStale, resolveFocusedAskId, reorderList, snapToPreset, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -95,6 +95,11 @@ describe("agentVMFromInput", () => {
         expect(vm.blockedMs).toBeUndefined();
         expect(vm.activity).toBe("stopped without asking");
         expect(vm.model).toBe("");
+    });
+
+    it("carries the terminal blockId", () => {
+        const vm = agentVMFromInput({ id: "tab-1", name: "x", status: "working", blockId: "uuid-1" }, NOW);
+        expect(vm.blockId).toBe("uuid-1");
     });
 });
 
@@ -203,6 +208,17 @@ describe("resolveFocusedAskId", () => {
     });
 });
 
+describe("reorderList", () => {
+    it("moves an id before/after a target", () => {
+        expect(reorderList(["a", "b", "c"], "a", "c", false)).toEqual(["b", "c", "a"]);
+        expect(reorderList(["a", "b", "c"], "c", "a", true)).toEqual(["c", "a", "b"]);
+    });
+    it("no-ops on self, or when an id is absent", () => {
+        expect(reorderList(["a", "b"], "a", "a", true)).toEqual(["a", "b"]);
+        expect(reorderList(["a", "b"], "z", "a", true)).toEqual(["a", "b"]);
+    });
+});
+
 describe("isAskStale", () => {
     it("stale when a newer working/idle status supersedes the ask", () => {
         expect(isAskStale(1_000, 2_000, "working")).toBe(true);
@@ -214,5 +230,25 @@ describe("isAskStale", () => {
         expect(isAskStale(1_000, 500, "working")).toBe(false);
         expect(isAskStale(undefined, 2_000, "working")).toBe(false);
         expect(isAskStale(1_000, undefined, "working")).toBe(false);
+    });
+});
+
+describe("snapToPreset", () => {
+    const ONE = 300;
+    const TWO = 610; // 300*2 + 10 gap
+
+    it("one-column widths snap to s (short) or m (tall) by nearest height", () => {
+        expect(snapToPreset(ONE, 240, ONE, TWO)).toBe("s");
+        expect(snapToPreset(ONE, 360, ONE, TWO)).toBe("m");
+        expect(snapToPreset(ONE, 250, ONE, TWO)).toBe("s");
+        expect(snapToPreset(ONE, 340, ONE, TWO)).toBe("m");
+    });
+    it("two-column widths always snap to l (the only full-row preset), regardless of height", () => {
+        expect(snapToPreset(TWO, 360, ONE, TWO)).toBe("l");
+        expect(snapToPreset(TWO, 240, ONE, TWO)).toBe("l");
+    });
+    it("column span follows whichever of one-/two-column width is closer", () => {
+        expect(snapToPreset(380, 240, ONE, TWO)).toBe("s"); // closer to one column
+        expect(snapToPreset(540, 360, ONE, TWO)).toBe("l"); // closer to two columns
     });
 });

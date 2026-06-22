@@ -8,14 +8,29 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { cn, fireAndForget } from "@/util/util";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { AskCard } from "./askcard";
-import { formatAge, groupAgents, resolveFocusedAskId, type AgentVM } from "./agentsviewmodel";
+import {
+    formatAge,
+    groupAgents,
+    reorderList,
+    resolveFocusedAskId,
+    snapToPreset,
+    PANEL_PRESETS,
+    DEFAULT_PANEL_PRESET,
+    type AgentVM,
+    type PanelPreset,
+} from "./agentsviewmodel";
 import { ensurePreviousInfo, liveAgentsAtom } from "./liveagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { WorkingPanel } from "./outputpanel";
 import { IdleSection } from "./idlesection";
+
+const PanelGap = 10; // matches the working grid's gap-2.5 (0.625rem)
+const PanelMinW = 160;
+const PanelMinH = 140;
 
 function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) => void }) {
     const question = agent.ask?.questions?.[0]?.question ?? "";
@@ -55,6 +70,144 @@ function RollingCount({ value, className }: { value: number; className?: string 
                 </motion.span>
             </AnimatePresence>
         </span>
+    );
+}
+
+interface ResizeDrag {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    left: number;
+    top: number;
+    oneColW: number;
+    twoColW: number;
+    curW: number;
+    curH: number;
+}
+
+function DraggablePanel({
+    id,
+    preset,
+    onResize,
+    onDragStart,
+    onDropOn,
+    children,
+}: {
+    id: string;
+    preset: PanelPreset;
+    onResize: (id: string, preset: PanelPreset) => void;
+    onDragStart: () => void;
+    onDropOn: (targetId: string, before: boolean) => void;
+    children: ReactNode;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    const dragRef = useRef<ResizeDrag>(null);
+    // ghost is a free-floating preview rendered over the page during the drag; the panel itself only
+    // changes once we snap on release, so the grid never reflows mid-drag.
+    const [ghost, setGhost] = useState<{ left: number; top: number; w: number; h: number }>(null);
+
+    const onResizeDown = (e: React.PointerEvent) => {
+        const panel = ref.current;
+        if (!panel) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = panel.getBoundingClientRect();
+        const containerW = panel.parentElement?.clientWidth ?? rect.width;
+        dragRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            w: rect.width,
+            h: rect.height,
+            left: rect.left,
+            top: rect.top,
+            oneColW: (containerW - PanelGap) / 2,
+            twoColW: containerW,
+            curW: rect.width,
+            curH: rect.height,
+        };
+        setGhost({ left: rect.left, top: rect.top, w: rect.width, h: rect.height });
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+    const onResizeMove = (e: React.PointerEvent) => {
+        const d = dragRef.current;
+        if (!d) {
+            return;
+        }
+        d.curW = Math.max(PanelMinW, d.w + (e.clientX - d.x));
+        d.curH = Math.max(PanelMinH, d.h + (e.clientY - d.y));
+        setGhost({ left: d.left, top: d.top, w: d.curW, h: d.curH });
+    };
+    const onResizeUp = (e: React.PointerEvent) => {
+        const d = dragRef.current;
+        dragRef.current = null;
+        setGhost(null);
+        if (!d) {
+            return;
+        }
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        onResize(id, snapToPreset(d.curW, d.curH, d.oneColW, d.twoColW));
+    };
+
+    const { cols, height } = PANEL_PRESETS[preset];
+    return (
+        // No motion `layout`/`layoutId` here: the panel re-renders on the 1s liveness tick, and per-render
+        // layout projection jitters against the grid. Drag-reorder still works; panels snap instead of sliding.
+        <motion.div
+            ref={ref}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                onDropOn(id, e.clientX < rect.left + rect.width / 2);
+            }}
+            style={{ height, overflow: "hidden" }}
+            className={cn("relative min-w-0", cols === 2 ? "col-span-2" : "col-span-1")}
+            data-agent-id={id}
+        >
+            <div
+                draggable
+                onDragStart={onDragStart}
+                className="absolute right-2 top-2 z-10 cursor-grab select-none text-[12px] text-muted active:cursor-grabbing"
+                title="Drag to reorder"
+            >
+                ⠿
+            </div>
+            {children}
+            <div
+                onPointerDown={onResizeDown}
+                onPointerMove={onResizeMove}
+                onPointerUp={onResizeUp}
+                title="Drag to resize (snaps to S / M / L)"
+                className="absolute bottom-0 right-0 z-20 flex h-4 w-4 cursor-se-resize items-end justify-end p-0.5 text-muted hover:text-secondary"
+            >
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                    <path d="M8 2 L2 8 M8 5.5 L5.5 8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                </svg>
+            </div>
+            {ghost &&
+                createPortal(
+                    <div
+                        style={{
+                            position: "fixed",
+                            left: ghost.left,
+                            top: ghost.top,
+                            width: ghost.w,
+                            height: ghost.h,
+                            zIndex: 1000,
+                            pointerEvents: "none",
+                        }}
+                        className="rounded-[9px] border-2 border-dashed border-accent bg-accent/10"
+                    />,
+                    document.body
+                )}
+        </motion.div>
     );
 }
 
@@ -122,10 +275,24 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         };
     }, []);
 
+    const [order, setOrder] = useState<string[]>([]);
+    const [dragId, setDragId] = useState<string>();
+    const [presetById, setPresetById] = useState<Record<string, PanelPreset>>({});
+    const resizePanel = (id: string, preset: PanelPreset) => setPresetById((m) => ({ ...m, [id]: preset }));
+    useEffect(() => {
+        const ids = working.map((w) => w.id);
+        setOrder((prev) => {
+            const kept = prev.filter((id) => ids.includes(id));
+            const added = ids.filter((id) => !kept.includes(id));
+            return [...kept, ...added];
+        });
+    }, [working.map((w) => w.id).join(",")]);
+    const orderedWorking = order.map((id) => working.find((w) => w.id === id)).filter(Boolean) as AgentVM[];
+
     const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
 
     return (
-        <div className="flex h-full w-full flex-col bg-background text-secondary">
+        <div className="flex h-full w-full flex-col text-secondary">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-[18px] py-3">
                 <b className="text-[15px] text-primary">Agents</b>
                 <span className="flex items-center gap-1 text-[12px] text-muted">
@@ -191,26 +358,24 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     </motion.div>
                 )}
                 {working.length > 0 && (
-                    // cap at 2 columns: each min track is the larger of 360px or ~half the row,
-                    // so a 3rd column never fits, while it still reflows to 1 when narrower than 2×360
-                    <div
-                        className="grid min-h-0 flex-1 auto-rows-[260px] gap-2.5 overflow-y-auto"
-                        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(max(360px, calc(50% - 5px)), 1fr))" }}
-                    >
+                    <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2.5 overflow-y-auto">
                         <AnimatePresence mode="popLayout">
-                            {working.map((a) => (
-                                <motion.div
+                            {orderedWorking.map((a) => (
+                                <DraggablePanel
                                     key={a.id}
-                                    layout
-                                    layoutId={a.id}
-                                    initial={{ opacity: 0, scale: 0.96 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.96 }}
-                                    transition={{ duration: 0.2, ease: "easeOut" }}
-                                    className="min-h-0"
+                                    id={a.id}
+                                    preset={presetById[a.id] ?? DEFAULT_PANEL_PRESET}
+                                    onResize={resizePanel}
+                                    onDragStart={() => setDragId(a.id)}
+                                    onDropOn={(targetId, before) => {
+                                        if (dragId) {
+                                            setOrder((o) => reorderList(o, dragId, targetId, before));
+                                        }
+                                        setDragId(undefined);
+                                    }}
                                 >
                                     <WorkingPanel agent={a} now={now} onOpen={open} />
-                                </motion.div>
+                                </DraggablePanel>
                             ))}
                         </AnimatePresence>
                     </div>

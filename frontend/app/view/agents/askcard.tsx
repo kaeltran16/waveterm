@@ -6,6 +6,7 @@ import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { motion } from "motion/react";
 import { liveEntriesByIdAtom } from "./livetranscript";
+import { AgentComposer } from "./agentcomposer";
 import { buildAskAnswers, canSubmitAsk, formatAge, type AgentAskQuestion, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
 import { StatusDot } from "./statusdot";
@@ -164,6 +165,8 @@ export function AskCard({
                     {sent ? "✓ Sent" : "Submit"}
                 </motion.button>
             </div>
+
+            <AgentComposer blockId={agent.blockId} placeholder={`reply to ${agent.name}…`} />
         </div>
     );
 }

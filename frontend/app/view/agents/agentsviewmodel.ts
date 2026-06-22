@@ -40,6 +40,7 @@ export interface AgentVM {
     previousInfo?: AgentEntry[]; // asking: messages + actions leading to the question
     ask?: AgentAsk; // present iff state === "asking"
     transcriptPath?: string; // source for on-demand previous-info (not rendered directly)
+    blockId?: string; // terminal block OID — target for ControllerInputCommand
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -105,6 +106,7 @@ export interface LiveAgentInput {
     model?: string; // raw model id
     ts?: number; // last status change (UnixMilli)
     transcriptPath?: string;
+    blockId?: string;
 }
 
 /** Pure: one live row -> an AgentVM. `waiting` becomes `asking`; age is derived from `now - ts`
@@ -120,6 +122,7 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         model: modelLabel(input.model),
         activity: input.detail,
         transcriptPath: input.transcriptPath,
+        blockId: input.blockId,
     };
     if (state === "asking") {
         vm.blockedMs = age;
@@ -127,6 +130,42 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.activeMs = age;
     }
     return vm;
+}
+
+export type PanelPreset = "s" | "m" | "l";
+
+/** Pre-determined working-panel sizes in the 2-col grid: `cols` = column span, `height` in px.
+ *  S/M grow height within one column; L spans the full row. Single source of truth for sizing + snapping. */
+export const PANEL_PRESETS: Record<PanelPreset, { cols: 1 | 2; height: number }> = {
+    s: { cols: 1, height: 240 },
+    m: { cols: 1, height: 360 },
+    l: { cols: 2, height: 360 },
+};
+
+export const DEFAULT_PANEL_PRESET: PanelPreset = "s";
+
+/** Pure: map a freely-dragged width/height to the nearest preset. Column span is chosen by whichever
+ *  of one-/two-column width is closer; among presets with that span, the nearest height wins. */
+export function snapToPreset(width: number, height: number, oneColW: number, twoColW: number): PanelPreset {
+    const cols: 1 | 2 = Math.abs(width - twoColW) < Math.abs(width - oneColW) ? 2 : 1;
+    const all = Object.keys(PANEL_PRESETS) as PanelPreset[];
+    const pool = all.filter((p) => PANEL_PRESETS[p].cols === cols);
+    const candidates = pool.length > 0 ? pool : all;
+    return candidates.reduce((best, p) =>
+        Math.abs(PANEL_PRESETS[p].height - height) < Math.abs(PANEL_PRESETS[best].height - height) ? p : best
+    );
+}
+
+/** Pure: move draggedId before/after targetId in a flat id list. Returns the input on a no-op
+ *  (self-drop, or either id absent). Never mutates the input. */
+export function reorderList(ids: string[], draggedId: string, targetId: string, placeBefore: boolean): string[] {
+    if (draggedId === targetId || !ids.includes(draggedId) || !ids.includes(targetId)) {
+        return ids;
+    }
+    const without = ids.filter((id) => id !== draggedId);
+    const idx = without.indexOf(targetId);
+    const at = placeBefore ? idx : idx + 1;
+    return [...without.slice(0, at), draggedId, ...without.slice(at)];
 }
 
 /** Pure: one AgentAnswerItem per question, carrying that question's selected option indexes (ascending). */

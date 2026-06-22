@@ -5,6 +5,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { AgentComposer } from "./agentcomposer";
 import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { liveEntriesByIdAtom, lastActivityByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -119,6 +120,7 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
                     </motion.button>
                 ) : null}
             </AnimatePresence>
+            <AgentComposer blockId={agent.blockId} placeholder={`message ${agent.name}…`} />
         </div>
     );
 }
