@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, reorderList, snapToPreset, mergeOrder, nextAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, reorderList, snapToPreset, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -86,6 +86,11 @@ describe("agentVMFromInput", () => {
         expect(vm.blockedMs).toBe(240_000);
         expect(vm.activeMs).toBeUndefined();
         expect(vm.model).toBe("opus");
+    });
+
+    it("carries the agent identity through to the vm (drives projector selection)", () => {
+        const vm = agentVMFromInput({ id: "tab-c", name: "siem", status: "working", agent: "codex", ts: NOW }, NOW);
+        expect(vm.agent).toBe("codex");
     });
 
     it("maps anything else to idle, with no age field, and tolerates a missing ts", () => {
@@ -306,5 +311,42 @@ describe("nextAskId", () => {
     });
     it("returns undefined for an empty list", () => {
         expect(nextAskId([], "x")).toBeUndefined();
+    });
+});
+
+describe("usageLevel", () => {
+    it("bands by threshold (boundaries inclusive toward ok/warn)", () => {
+        expect(usageLevel(0)).toBe("ok");
+        expect(usageLevel(60)).toBe("ok");
+        expect(usageLevel(60.1)).toBe("warn");
+        expect(usageLevel(85)).toBe("warn");
+        expect(usageLevel(85.1)).toBe("hot");
+        expect(usageLevel(100)).toBe("hot");
+    });
+});
+
+describe("formatTokens", () => {
+    it("formats by magnitude", () => {
+        expect(formatTokens(512)).toBe("512");
+        expect(formatTokens(38_000)).toBe("38k");
+        expect(formatTokens(142_000)).toBe("142k");
+        expect(formatTokens(2_100_000)).toBe("2.1M");
+        expect(formatTokens(1_000_000)).toBe("1.0M");
+    });
+});
+
+describe("formatReset", () => {
+    const NOW = 1_000_000_000_000; // ms
+    const inMins = (m: number) => Math.floor(NOW / 1000) + m * 60;
+
+    it("'now' at or past the reset", () => {
+        expect(formatReset(Math.floor(NOW / 1000), NOW)).toBe("now");
+        expect(formatReset(Math.floor(NOW / 1000) - 60, NOW)).toBe("now");
+    });
+    it("minutes under an hour", () => {
+        expect(formatReset(inMins(44), NOW)).toBe("44m");
+    });
+    it("hours and minutes past an hour", () => {
+        expect(formatReset(inMins(131), NOW)).toBe("2h 11m");
     });
 });

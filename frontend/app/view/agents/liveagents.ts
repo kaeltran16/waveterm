@@ -7,7 +7,7 @@
 // asking agents only (spec §10.3). ask routing via getAgentAskAtom + withAsk (Plan 3c).
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { getAgentStatusAtom } from "@/app/tab/sessionsidebar/agentstatusstore";
+import { getAgentStatusAtom, getAgentUsageAtom } from "@/app/tab/sessionsidebar/agentstatusstore";
 import { sessionSidebarViewModelAtom } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
 import { flattenVisualOrder } from "@/app/tab/sessionsidebar/sessionviewmodel";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
@@ -47,6 +47,7 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
                 name: row.label,
                 status: row.status,
                 detail: row.detail,
+                agent: status.agent,
                 model: row.model,
                 ts: status.ts,
                 transcriptPath: status.transcriptpath,
@@ -54,6 +55,7 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
             },
             now
         );
+        vm.usage = get(getAgentUsageAtom(row.termBlockOref));
         const ask = get(getAgentAskAtom(row.termBlockOref));
         const effectiveAsk = ask && !isAskStale(ask.ts, status.ts, status.state) ? ask : null;
         agents.push(withAsk(vm, effectiveAsk, now));
@@ -83,7 +85,7 @@ export const liveAskingCountAtom: Atom<number> = atom((get) => askingCount(get(l
 /** Fetch + cache previous-info (and the ai-title task) for one asking agent. Idempotent: skips if
  *  already loaded or in flight. Fetched once when the agent enters asking — the question moment;
  *  it is not refreshed while the agent stays asking (a noted 3a limitation). */
-export async function ensurePreviousInfo(id: string, transcriptPath: string): Promise<void> {
+export async function ensurePreviousInfo(id: string, transcriptPath: string, agent?: string): Promise<void> {
     if (!transcriptPath || previousInfoLoading.has(id)) {
         return;
     }
@@ -92,7 +94,7 @@ export async function ensurePreviousInfo(id: string, transcriptPath: string): Pr
     }
     previousInfoLoading.add(id);
     try {
-        const result = await fetchPreviousInfo(transcriptPath);
+        const result = await fetchPreviousInfo(transcriptPath, agent);
         const current = globalStore.get(previousInfoByIdAtom);
         globalStore.set(previousInfoByIdAtom, { ...current, [id]: { entries: result.entries, title: result.title } });
     } finally {

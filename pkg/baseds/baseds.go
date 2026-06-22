@@ -55,9 +55,24 @@ type AgentSubagentDelta struct {
 	Model  string `json:"model,omitempty"`  // resolved model id (e.g. claude-sonnet-4-6)
 }
 
+// AgentUsage is an optional usage snapshot carried on AgentStatusData, sourced from the Claude
+// Code statusLine JSON. Like AgentSubagentDelta it rides a stateless (State-empty) Persist:0 event.
+// The rate-limit fields are pointers because they are populated only for Claude.ai Pro/Max sessions
+// and may be independently absent — nil means "unknown", which must render differently from 0%.
+type AgentUsage struct {
+	ContextPct    float64  `json:"contextpct,omitempty"`    // context_window.used_percentage
+	ContextMax    int      `json:"contextmax,omitempty"`    // context_window_size (200000 | 1000000)
+	CostUSD       float64  `json:"costusd,omitempty"`       // cost.total_cost_usd
+	FiveHourPct   *float64 `json:"fivehourpct,omitempty"`   // rate_limits.five_hour.used_percentage
+	FiveHourReset *int64   `json:"fivehourreset,omitempty"` // rate_limits.five_hour.resets_at (epoch seconds)
+	WeekPct       *float64 `json:"weekpct,omitempty"`       // rate_limits.seven_day.used_percentage
+	WeekReset     *int64   `json:"weekreset,omitempty"`     // rate_limits.seven_day.resets_at (epoch seconds)
+}
+
 // AgentStatusData is the payload of Event_AgentStatus. ORef is the block (or tab)
 // the status applies to; State is one of the AgentState_* constants. When Subagent is
-// non-nil the event carries a subagent delta (State may be empty in that case).
+// non-nil the event carries a subagent delta, and when Usage is non-nil a usage snapshot;
+// in both delta cases State may be empty.
 type AgentStatusData struct {
 	ORef           string              `json:"oref"`
 	State          string              `json:"state"`
@@ -68,6 +83,7 @@ type AgentStatusData struct {
 	TranscriptPath string              `json:"transcriptpath,omitempty"`
 	Ts             int64               `json:"ts"`
 	Subagent       *AgentSubagentDelta `json:"subagent,omitempty"`
+	Usage          *AgentUsage         `json:"usage,omitempty"`
 }
 
 type AgentAskOption struct {

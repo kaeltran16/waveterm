@@ -33,6 +33,7 @@ export interface AgentVM {
     name: string; // e.g. "loom"
     task: string; // e.g. "Fix duplicate-session race"
     state: AgentState;
+    agent?: string; // coding-agent identity (claude | codex | …) — selects the transcript projector
     model?: string; // short family label (e.g. "opus")
     activity?: string; // working: live activity line; idle: reason
     blockedMs?: number; // asking: how long blocked (sort + age)
@@ -42,6 +43,7 @@ export interface AgentVM {
     transcriptPath?: string; // source for on-demand previous-info (not rendered directly)
     blockId?: string; // terminal block OID — target for ControllerInputCommand
     idleSince?: number; // idle: when it went idle (UnixMilli) — drives the keep-as-panel grace window
+    usage?: AgentUsage; // latest context %, cost, and plan rate-limit snapshot (from the statusLine reporter)
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -97,6 +99,40 @@ export function formatAge(ms?: number): string {
     return `${Math.floor(mins / 60)}h`;
 }
 
+/** Pure: usage percentage -> threshold band for color (shared by the plan strip and context bars). */
+export function usageLevel(pct: number): "ok" | "warn" | "hot" {
+    if (pct > 85) {
+        return "hot";
+    }
+    if (pct > 60) {
+        return "warn";
+    }
+    return "ok";
+}
+
+/** Pure: a token count -> short label ("38k" / "142k" / "1.0M"). */
+export function formatTokens(n: number): string {
+    if (n >= 1_000_000) {
+        return `${(n / 1_000_000).toFixed(1)}M`;
+    }
+    if (n >= 1_000) {
+        return `${Math.round(n / 1_000)}k`;
+    }
+    return String(n);
+}
+
+/** Pure: an epoch-seconds reset time -> short countdown ("now" / "44m" / "2h 11m"). */
+export function formatReset(resetSec: number, now: number): string {
+    const mins = Math.floor((resetSec * 1000 - now) / 60_000);
+    if (mins <= 0) {
+        return "now";
+    }
+    if (mins < 60) {
+        return `${mins}m`;
+    }
+    return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
 /** Minimal per-agent inputs the live roster feeds the pure mapping. `status` is the sidebar's
  *  SessionStatus string ("working" | "waiting" | "idle"); `ts` is the status event's UnixMilli. */
 export interface LiveAgentInput {
@@ -104,6 +140,7 @@ export interface LiveAgentInput {
     name: string;
     status: string;
     detail?: string;
+    agent?: string; // coding-agent identity (claude | codex | …)
     model?: string; // raw model id
     ts?: number; // last status change (UnixMilli)
     transcriptPath?: string;
@@ -120,6 +157,7 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         name: input.name,
         task: "",
         state,
+        agent: input.agent,
         model: modelLabel(input.model),
         activity: input.detail,
         transcriptPath: input.transcriptPath,

@@ -119,6 +119,7 @@ declare global {
         transcriptpath?: string;
         ts: number;
         subagent?: AgentSubagentDelta;
+        usage?: AgentUsage;
     };
 
     // baseds.AgentSubagentDelta
@@ -133,6 +134,17 @@ declare global {
     // wshrpc.AgentTranscriptUpdate
     type AgentTranscriptUpdate = {
         lines: string[];
+    };
+
+    // baseds.AgentUsage
+    type AgentUsage = {
+        contextpct?: number;
+        contextmax?: number;
+        costusd?: number;
+        fivehourpct?: number;
+        fivehourreset?: number;
+        weekpct?: number;
+        weekreset?: number;
     };
 
     // wshrpc.AiMessageData

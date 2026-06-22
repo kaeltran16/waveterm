@@ -38,6 +38,15 @@ var (
 	agentSubagentId     string
 	agentSubagentType   string
 	agentSubagentStatus string
+
+	agentUsageFlag       bool
+	agentUsageContext    float64
+	agentUsageContextMax int
+	agentUsageCost       float64
+	agentUsageFiveHour   float64
+	agentUsageFiveReset  int64
+	agentUsageWeek       float64
+	agentUsageWeekReset  int64
 )
 
 func init() {
@@ -54,6 +63,14 @@ func init() {
 	agentStatusCmd.Flags().StringVar(&agentStatusTitle, "title", "", "agent ai-title / task summary (used as the sidebar tab label)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTranscript, "transcript", "", "path to the agent's transcript JSONL (for previous-info projection)")
 	agentStatusCmd.Flags().BoolVar(&agentSubagentModel, "subagent-model", false, "report a subagent's resolved model (requires --id, --model)")
+	agentStatusCmd.Flags().BoolVar(&agentUsageFlag, "usage", false, "report a usage-only delta from the statusLine JSON (no --state)")
+	agentStatusCmd.Flags().Float64Var(&agentUsageContext, "context-pct", 0, "context window used percentage")
+	agentStatusCmd.Flags().IntVar(&agentUsageContextMax, "context-max", 0, "context window size in tokens (200000 | 1000000)")
+	agentStatusCmd.Flags().Float64Var(&agentUsageCost, "cost-usd", 0, "session cost in USD")
+	agentStatusCmd.Flags().Float64Var(&agentUsageFiveHour, "five-hour-pct", 0, "5-hour rate-limit used percentage (Claude.ai Pro/Max only)")
+	agentStatusCmd.Flags().Int64Var(&agentUsageFiveReset, "five-hour-reset", 0, "5-hour window reset (epoch seconds)")
+	agentStatusCmd.Flags().Float64Var(&agentUsageWeek, "week-pct", 0, "weekly rate-limit used percentage (Claude.ai Pro/Max only)")
+	agentStatusCmd.Flags().Int64Var(&agentUsageWeekReset, "week-reset", 0, "weekly window reset (epoch seconds)")
 }
 
 func validAgentState(s string) bool {
@@ -75,6 +92,10 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 
 	if agentSubagentStart || agentSubagentStop || agentSubagentModel {
 		return publishSubagentDelta(oref)
+	}
+
+	if agentUsageFlag {
+		return publishUsageDelta(cmd, oref)
 	}
 
 	if !validAgentState(agentStatusState) {
@@ -104,6 +125,51 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("publishing agentstatus event: %v", err)
 	}
 	fmt.Printf("agentstatus %s set\n", agentStatusState)
+	return nil
+}
+
+func publishUsageDelta(cmd *cobra.Command, oref *waveobj.ORef) error {
+	usage := &baseds.AgentUsage{
+		ContextPct: agentUsageContext,
+		ContextMax: agentUsageContextMax,
+		CostUSD:    agentUsageCost,
+	}
+	// only attach the rate-limit fields when explicitly provided, so an API-key (non-Pro/Max)
+	// session that omits them reports nil ("unknown") rather than a misleading 0%
+	if cmd.Flags().Changed("five-hour-pct") {
+		usage.FiveHourPct = &agentUsageFiveHour
+		if cmd.Flags().Changed("five-hour-reset") {
+			usage.FiveHourReset = &agentUsageFiveReset
+		}
+	}
+	if cmd.Flags().Changed("week-pct") {
+		usage.WeekPct = &agentUsageWeek
+		if cmd.Flags().Changed("week-reset") {
+			usage.WeekReset = &agentUsageWeekReset
+		}
+	}
+
+	eventData := baseds.AgentStatusData{
+		ORef:  oref.String(),
+		Ts:    time.Now().UnixMilli(),
+		Usage: usage,
+	}
+
+	// Persist:0 — usage deltas are ephemeral, exactly like subagent deltas. The retained Persist:1
+	// parent-state event for this scope shares the same persistKey and must remain the one a late
+	// subscriber replays; a retained usage event would evict it.
+	event := wps.WaveEvent{
+		Event:   wps.Event_AgentStatus,
+		Scopes:  []string{oref.String()},
+		Persist: 0,
+		Data:    eventData,
+	}
+
+	err := wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+	if err != nil {
+		return fmt.Errorf("publishing agentstatus usage event: %v", err)
+	}
+	fmt.Printf("agentstatus usage set\n")
 	return nil
 }
 

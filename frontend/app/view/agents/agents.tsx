@@ -19,6 +19,8 @@ import {
     reorderList,
     resolveHeight,
     snapToPreset,
+    formatReset,
+    usageLevel,
     PANEL_PRESETS,
     DEFAULT_PANEL_PRESET,
     type AgentVM,
@@ -52,6 +54,28 @@ function RollingCount({ value, className }: { value: number; className?: string 
                     {value}
                 </motion.span>
             </AnimatePresence>
+        </span>
+    );
+}
+
+const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
+const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", warn: "text-warning", hot: "text-error" };
+
+// One account-global plan-usage gauge (5h or weekly window). A null pct — API-key auth, or a window
+// not yet reported — renders nothing rather than a misleading 0%.
+function PlanGauge({ label, pct, reset, now }: { label: string; pct?: number; reset?: number; now: number }) {
+    if (pct == null) {
+        return null;
+    }
+    const lvl = usageLevel(pct);
+    return (
+        <span className="flex items-center gap-2">
+            <span className="text-secondary">{label}</span>
+            <span className="h-1 w-20 overflow-hidden rounded-full bg-white/10">
+                <span className={cn("block h-full rounded-full", PLAN_BAR[lvl])} style={{ width: `${Math.min(100, pct)}%` }} />
+            </span>
+            <span className={cn("font-semibold tabular-nums", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
+            {reset ? <span className="text-muted">· {formatReset(reset, now)}</span> : null}
         </span>
     );
 }
@@ -208,6 +232,10 @@ function DraggablePanel({
 function AgentsView({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const { asking, working, idle } = groupAgents(agents);
+    // plan usage is account-global; every agent reports the same numbers — take the freshest (active agents first)
+    const planUsage = [...asking, ...working, ...idle]
+        .map((a) => a.usage)
+        .find((u) => u?.fivehourpct != null || u?.weekpct != null);
     const open = (id: string) => setActiveTab(id);
     const answer = (oref: string, answers: AgentAnswerItem[]) => {
         if (!oref) {
@@ -237,7 +265,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         for (const a of asking) {
             if (a.transcriptPath) {
-                void ensurePreviousInfo(a.id, a.transcriptPath);
+                void ensurePreviousInfo(a.id, a.transcriptPath, a.agent);
             }
         }
     }, [asking]);
@@ -245,15 +273,15 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     // open a live transcript stream per visible asking/working agent; stop streams that left the set
     const streamedRef = useRef<Set<string>>(new Set());
     useEffect(() => {
-        const wantedById = new Map<string, string>();
+        const wantedById = new Map<string, { path: string; agent?: string }>();
         for (const a of [...asking, ...working]) {
             if (a.transcriptPath) {
-                wantedById.set(a.id, a.transcriptPath);
+                wantedById.set(a.id, { path: a.transcriptPath, agent: a.agent });
             }
         }
-        for (const [id, path] of wantedById) {
+        for (const [id, { path, agent }] of wantedById) {
             if (!streamedRef.current.has(id)) {
-                startTranscriptStream(id, path);
+                startTranscriptStream(id, path, agent);
                 streamedRef.current.add(id);
             }
         }
@@ -324,6 +352,13 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     </span>
                 </span>
             </div>
+            {planUsage ? (
+                <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-1 border-b border-border bg-accent/[0.035] px-[18px] py-2 text-[11px]">
+                    <span className="text-[10px] uppercase tracking-wide text-muted">Plan usage</span>
+                    <PlanGauge label="Session" pct={planUsage.fivehourpct} reset={planUsage.fivehourreset} now={now} />
+                    <PlanGauge label="This week" pct={planUsage.weekpct} reset={planUsage.weekreset} now={now} />
+                </div>
+            ) : null}
             <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-[18px]">
                 <AnimatePresence>
                     {empty && (

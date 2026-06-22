@@ -9,7 +9,7 @@
 import { atom } from "jotai";
 import type { AgentEntry, AgentVM } from "./agentsviewmodel";
 
-export const USE_MOCK_AGENTS = true;
+export const USE_MOCK_AGENTS = false;
 
 const NOW = Date.now();
 
@@ -47,6 +47,15 @@ export const mockAgentsAtom = atom<AgentVM[]>([
         model: "opus",
         blockedMs: 180_000,
         blockId: "mock-blk-1",
+        usage: {
+            contextpct: 84,
+            contextmax: 200000,
+            costusd: 4.2,
+            fivehourpct: 62,
+            fivehourreset: Math.floor(NOW / 1000) + 7860,
+            weekpct: 34,
+            weekreset: Math.floor(NOW / 1000) + 342000,
+        },
         previousInfo: detectorNarration,
         ask: {
             askId: "a1",
@@ -121,6 +130,7 @@ export const mockAgentsAtom = atom<AgentVM[]>([
         model: "sonnet",
         activeMs: 120_000,
         blockId: "mock-blk-4",
+        usage: { contextpct: 71, contextmax: 200000, costusd: 2.1 },
         previousInfo: waveNarration,
     },
     {
@@ -142,6 +152,7 @@ export const mockAgentsAtom = atom<AgentVM[]>([
         activeMs: 300_000,
         idleSince: NOW - 30_000, // within the 5m grace -> renders as a panel with a Dismiss button
         blockId: "mock-blk-6",
+        usage: { contextpct: 61, contextmax: 200000, costusd: 1.8 },
         previousInfo: scribeNarration,
     },
     {

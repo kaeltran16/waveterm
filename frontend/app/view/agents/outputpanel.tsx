@@ -7,11 +7,13 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AgentComposer } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
-import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
+import { formatAge, formatTokens, isQuiet, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { liveEntriesByIdAtom, lastActivityByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
+
+const USAGE_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
 
 export function WorkingPanel({
     agent,
@@ -35,6 +37,7 @@ export function WorkingPanel({
     const idle = agent.state === "idle";
     const asking = agent.state === "asking";
     const idleMs = agent.idleSince != null ? Math.max(0, now - agent.idleSince) : undefined;
+    const usage = agent.usage;
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const stickRef = useRef(true);
@@ -122,6 +125,25 @@ export function WorkingPanel({
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 12L12 4M12 4H6M12 4v6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
             </div>
+            {usage?.contextpct != null ? (
+                <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-[14px] py-1.5 text-[11px] tabular-nums text-muted">
+                    <span className="text-[10px] uppercase tracking-wide">ctx</span>
+                    <span className="h-1 w-[110px] overflow-hidden rounded-full bg-white/10">
+                        <span
+                            className={cn("block h-full rounded-full", USAGE_BAR[usageLevel(usage.contextpct)])}
+                            style={{ width: `${Math.min(100, usage.contextpct)}%` }}
+                        />
+                    </span>
+                    <span className="text-secondary">
+                        {formatTokens(Math.round((usage.contextpct / 100) * (usage.contextmax || 200000)))}
+                        <span className="text-muted">
+                            {" "}
+                            / {formatTokens(usage.contextmax || 200000)} · {Math.round(usage.contextpct)}%
+                        </span>
+                    </span>
+                    {usage.costusd ? <span className="ml-auto">${usage.costusd.toFixed(2)}</span> : null}
+                </div>
+            ) : null}
             <div ref={scrollRef} onScroll={onScroll} className={cn("min-h-0 flex-1 overflow-y-auto px-[14px] py-[11px]", asking && "opacity-60")}>
                 <NarrationTimeline entries={entries} accentLatest />
             </div>

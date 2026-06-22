@@ -21,6 +21,18 @@ export function getAgentStatusAtom(oref: string): PrimitiveAtom<AgentStatusData>
     return statusAtom;
 }
 
+// per-block latest usage snapshot (context %, cost, plan rate limits); set by usage-only events
+const agentUsageAtoms = new Map<string, PrimitiveAtom<AgentUsage>>();
+
+export function getAgentUsageAtom(oref: string): PrimitiveAtom<AgentUsage> {
+    let usageAtom = agentUsageAtoms.get(oref);
+    if (!usageAtom) {
+        usageAtom = atom(null) as PrimitiveAtom<AgentUsage>;
+        agentUsageAtoms.set(oref, usageAtom);
+    }
+    return usageAtom;
+}
+
 // per-block ephemeral subagent list, reduced from start/stop deltas; cleared on the parent's idle transition
 const subagentAtoms = new Map<string, PrimitiveAtom<SubagentVM[]>>();
 
@@ -102,6 +114,9 @@ export function setupAgentStatusSubscription() {
                 if (action === "stop") {
                     scheduleSubagentExpiry(data.oref, sa.id);
                 }
+            }
+            if (data.usage != null) {
+                globalStore.set(getAgentUsageAtom(data.oref), data.usage);
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
