@@ -217,6 +217,37 @@ describe("buildSessionViewModel — detail", () => {
     });
 });
 
+describe("buildSessionViewModel — title (task summary)", () => {
+    it("uses the task summary as the label when no custom label is set", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", title: "Fix duplicate-session race", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("Fix duplicate-session race");
+    });
+    it("lets a custom label override the task summary", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", customLabel: "my name", title: "Fix duplicate-session race", cwd: "/src/X" }),
+        ]);
+        expect(vm.groups[0].sessions[0].label).toBe("my name");
+    });
+    it("falls back to the agent name when there is no task summary", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("claude");
+    });
+    it("ignores a whitespace-only task summary", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", title: "   ", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("claude");
+    });
+    it("trims surrounding whitespace from the task summary", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", title: "  Refactor auth  ", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("Refactor auth");
+    });
+    it("keeps the service suffix on a pinned row labeled by its task summary", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", title: "Refactor auth", cwd: "/src/CorrelationEngine", pinned: true }),
+        ]);
+        expect(vm.pinned[0].label).toBe("Refactor auth · CorrelationEngine");
+    });
+});
+
 describe("toggleCollapsed", () => {
     it("adds a label that is not present", () => {
         expect(toggleCollapsed([], "ServiceA")).toEqual(["ServiceA"]);

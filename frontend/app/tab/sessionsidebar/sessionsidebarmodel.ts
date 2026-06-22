@@ -61,6 +61,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
         let status: SessionStatus = badgeStatus;
         let detail: string | undefined;
         let model: string | undefined;
+        let title: string | undefined;
         let subagents: SubagentVM[] = [];
         let subagentsExpanded = false;
         let termBlockOref: string | undefined;
@@ -72,6 +73,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
                 detail = agentStatus.detail;
             }
             model = agentStatus?.model;
+            title = agentStatus?.title;
             subagents = get(getSubagentsAtom(termBlockOref));
             subagentsExpanded = subagentExpanded(subagents, get(getSubagentExpandAtom(termBlockOref)));
         }
@@ -82,6 +84,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             name: tab?.name ?? "",
             agent: meta["session:agent"],
             customLabel: meta["session:label"],
+            title,
             pinned: meta["session:pinned"] === true,
             isAgentsTab,
             cwd,

@@ -64,6 +64,7 @@ type AgentStatusData struct {
 	Detail         string              `json:"detail,omitempty"`
 	Agent          string              `json:"agent,omitempty"`
 	Model          string              `json:"model,omitempty"`
+	Title          string              `json:"title,omitempty"` // agent's ai-title (task summary), used as the sidebar label
 	TranscriptPath string              `json:"transcriptpath,omitempty"`
 	Ts             int64               `json:"ts"`
 	Subagent       *AgentSubagentDelta `json:"subagent,omitempty"`

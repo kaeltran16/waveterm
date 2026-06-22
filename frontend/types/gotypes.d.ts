@@ -115,6 +115,7 @@ declare global {
         detail?: string;
         agent?: string;
         model?: string;
+        title?: string;
         transcriptpath?: string;
         ts: number;
         subagent?: AgentSubagentDelta;

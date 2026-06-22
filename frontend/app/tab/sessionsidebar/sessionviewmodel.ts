@@ -56,6 +56,7 @@ export interface SessionInput {
     name: string;
     agent?: string;
     customLabel?: string;
+    title?: string; // agent ai-title (task summary): auto label between customLabel and agent
     pinned: boolean;
     isAgentsTab?: boolean;
     cwd?: string;
@@ -98,8 +99,9 @@ export interface SidebarViewModel {
 
 function rowLabel(s: SessionInput, includeService: boolean): string {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
+    const title = s.title && s.title.trim().length > 0 ? s.title.trim() : undefined;
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
-    const base = custom ?? (agent && agent.length > 0 ? agent : "session");
+    const base = custom ?? title ?? (agent && agent.length > 0 ? agent : "session");
     return includeService && !s.isAgentsTab ? `${base} · ${s.serviceLabel}` : base;
 }
 
