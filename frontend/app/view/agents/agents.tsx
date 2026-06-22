@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
-import { setActiveTab } from "@/app/store/global";
+import { getApi, setActiveTab } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
@@ -25,6 +25,7 @@ import {
     type PanelPreset,
 } from "./agentsviewmodel";
 import { ensurePreviousInfo, liveAgentsAtom } from "./liveagents";
+import { mockAgentsAtom, USE_MOCK_AGENTS } from "./mockagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { WorkingPanel } from "./outputpanel";
 import { IdleSection } from "./idlesection";
@@ -37,8 +38,6 @@ function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) =>
     const question = agent.ask?.questions?.[0]?.question ?? "";
     return (
         <motion.div
-            layout
-            layoutId={agent.id}
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
@@ -314,7 +313,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     <span>working</span>
                 </span>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden p-[18px]">
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-[18px]">
                 <AnimatePresence>
                     {empty && (
                         <motion.div
@@ -333,17 +332,15 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                         </motion.div>
                     )}
                 </AnimatePresence>
-                <AnimatePresence mode="popLayout">
+                <AnimatePresence>
                     {focused && (
                         <motion.div
-                            key={focused.id}
-                            layout
-                            layoutId={focused.id}
+                            key="focused-ask"
                             initial={{ opacity: 0, scale: 0.98 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.98 }}
                             transition={{ duration: 0.2, ease: "easeOut" }}
-                            className="max-h-[55%] shrink-0 overflow-y-auto"
+                            className="shrink-0"
                         >
                             <AskCard
                                 key={focused.ask?.askId ?? focused.id}
@@ -355,21 +352,21 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     )}
                 </AnimatePresence>
                 {queue.length > 0 && (
-                    <motion.div layout className="flex shrink-0 flex-col gap-1.5">
+                    <div className="flex shrink-0 flex-col gap-1.5">
                         <div className="text-[10.5px] uppercase tracking-wide text-secondary">
                             {queue.length} more waiting
                         </div>
-                        <div className="flex max-h-[180px] flex-col gap-1.5 overflow-y-auto">
-                            <AnimatePresence mode="popLayout">
+                        <div className="flex flex-col gap-1.5">
+                            <AnimatePresence>
                                 {queue.map((a) => (
                                     <QueueRow key={a.id} agent={a} onFocus={setFocusedAskId} />
                                 ))}
                             </AnimatePresence>
                         </div>
-                    </motion.div>
+                    </div>
                 )}
                 {gridAgents.length > 0 && (
-                    <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2.5 overflow-y-auto">
+                    <div className="grid grid-cols-2 content-start gap-2.5">
                         <AnimatePresence mode="popLayout">
                             {orderedGrid.map((a) => (
                                 <DraggablePanel
@@ -414,13 +411,15 @@ export class AgentsViewModel implements ViewModel {
     viewIcon = atom<string>("robot");
     viewName = atom<string>("Agents");
     noPadding = atom(true);
-    agentsAtom: Atom<AgentVM[]> = liveAgentsAtom;
+    agentsAtom: Atom<AgentVM[]>;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;
         this.nodeModel = nodeModel;
         this.tabModel = tabModel;
         this.viewType = "agents";
+        // DEV-only: swap in the throwaway mock roster (see mockagents.ts). Never active in a prod build.
+        this.agentsAtom = USE_MOCK_AGENTS && getApi().getIsDev() ? mockAgentsAtom : liveAgentsAtom;
     }
 
     get viewComponent(): ViewComponent {
