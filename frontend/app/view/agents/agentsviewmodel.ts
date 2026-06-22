@@ -87,6 +87,26 @@ export function groupAgents(agents: AgentVM[]): AgentSections {
     };
 }
 
+/** Pure: the text of the most recent message-kind entry, or undefined. Drives the working row's
+ *  current-activity line and the focus view's accented "now" message. */
+export function latestMessageText(entries: AgentEntry[]): string | undefined {
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e.kind === "message") {
+            return e.text;
+        }
+    }
+    return undefined;
+}
+
+export type AgentActionEntry = Extract<AgentEntry, { kind: "action" }>;
+
+/** Pure: the last `max` action-kind entries, oldest-first. Drives the working row's steps column. */
+export function recentActions(entries: AgentEntry[], max: number): AgentActionEntry[] {
+    const actions = entries.filter((e): e is AgentActionEntry => e.kind === "action");
+    return max > 0 ? actions.slice(-max) : actions;
+}
+
 /** Pure: a millisecond duration -> short age label ("just now" / "4m" / "2h"). */
 export function formatAge(ms?: number): string {
     if (ms == null || ms < 60_000) {
@@ -173,39 +193,6 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     return vm;
 }
 
-export type PanelPreset = "s" | "m" | "l" | "full";
-
-/** Pre-determined working-panel sizes in the 2-col grid: `cols` = column span, `height` in px (or
- *  "fill" = the live viewport height, resolved at render). S/M grow height within one column; L spans
- *  the full row; full spans the row and fills the viewport. Single source of truth for sizing + snapping. */
-export const PANEL_PRESETS: Record<PanelPreset, { cols: 1 | 2; height: number | "fill" }> = {
-    s: { cols: 1, height: 240 },
-    m: { cols: 1, height: 360 },
-    l: { cols: 2, height: 360 },
-    full: { cols: 2, height: "fill" },
-};
-
-export const DEFAULT_PANEL_PRESET: PanelPreset = "s";
-
-/** Resolve a preset's height to pixels: "fill" becomes the live viewport height (fillPx). */
-export function resolveHeight(preset: PanelPreset, fillPx: number): number {
-    const h = PANEL_PRESETS[preset].height;
-    return h === "fill" ? fillPx : h;
-}
-
-/** Pure: map a freely-dragged width/height to the nearest preset. Column span is chosen by whichever
- *  of one-/two-column width is closer; among presets with that span, the nearest height wins. fillPx
- *  resolves the "fill" preset's height so it can be compared like any fixed preset. */
-export function snapToPreset(width: number, height: number, oneColW: number, twoColW: number, fillPx: number): PanelPreset {
-    const cols: 1 | 2 = Math.abs(width - twoColW) < Math.abs(width - oneColW) ? 2 : 1;
-    const all = Object.keys(PANEL_PRESETS) as PanelPreset[];
-    const pool = all.filter((p) => PANEL_PRESETS[p].cols === cols);
-    const candidates = pool.length > 0 ? pool : all;
-    return candidates.reduce((best, p) =>
-        Math.abs(resolveHeight(p, fillPx) - height) < Math.abs(resolveHeight(best, fillPx) - height) ? p : best
-    );
-}
-
 /** Pure: move draggedId before/after targetId in a flat id list. Returns the input on a no-op
  *  (self-drop, or either id absent). Never mutates the input. */
 export function reorderList(ids: string[], draggedId: string, targetId: string, placeBefore: boolean): string[] {
@@ -237,6 +224,19 @@ export function nextAskId(ids: string[], current?: string): string | undefined {
     }
     const idx = current != null ? ids.indexOf(current) : -1;
     return ids[(idx + 1) % ids.length];
+}
+
+/** Pure: the id `delta` steps from `current` in `ids`, clamped at both ends (no wrap). Falls back to
+ *  the first id when `current` is absent/unknown. Undefined for an empty list. Drives j/k cursor moves. */
+export function moveCursor(ids: string[], current: string | undefined, delta: number): string | undefined {
+    if (ids.length === 0) {
+        return undefined;
+    }
+    const idx = current != null ? ids.indexOf(current) : -1;
+    if (idx === -1) {
+        return ids[0];
+    }
+    return ids[Math.max(0, Math.min(ids.length - 1, idx + delta))];
 }
 
 /** Pure: one AgentAnswerItem per question, carrying that question's selected option indexes (ascending). */

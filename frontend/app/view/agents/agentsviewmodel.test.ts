@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, reorderList, snapToPreset, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, reorderList, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, latestMessageText, recentActions, moveCursor, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -271,31 +271,6 @@ describe("mergeOrder", () => {
     });
 });
 
-describe("snapToPreset", () => {
-    const ONE = 300;
-    const TWO = 610; // 300*2 + 10 gap
-    const FILL = 900; // measured viewport height feeding the "full" preset
-
-    it("one-column widths snap to s (short) or m (tall) by nearest height", () => {
-        expect(snapToPreset(ONE, 240, ONE, TWO, FILL)).toBe("s");
-        expect(snapToPreset(ONE, 360, ONE, TWO, FILL)).toBe("m");
-        expect(snapToPreset(ONE, 250, ONE, TWO, FILL)).toBe("s");
-        expect(snapToPreset(ONE, 340, ONE, TWO, FILL)).toBe("m");
-    });
-    it("two-column widths snap to l when shorter than halfway to the viewport height", () => {
-        expect(snapToPreset(TWO, 360, ONE, TWO, FILL)).toBe("l");
-        expect(snapToPreset(TWO, 240, ONE, TWO, FILL)).toBe("l");
-    });
-    it("two-column widths snap to full when dragged near the viewport height", () => {
-        expect(snapToPreset(TWO, FILL, ONE, TWO, FILL)).toBe("full");
-        expect(snapToPreset(TWO, 800, ONE, TWO, FILL)).toBe("full"); // past the 630 midpoint
-    });
-    it("column span follows whichever of one-/two-column width is closer", () => {
-        expect(snapToPreset(380, 240, ONE, TWO, FILL)).toBe("s"); // closer to one column
-        expect(snapToPreset(540, 360, ONE, TWO, FILL)).toBe("l"); // closer to two columns
-    });
-});
-
 describe("nextAskId", () => {
     it("returns the first when current is undefined", () => {
         expect(nextAskId(["x", "y", "z"], undefined)).toBe("x");
@@ -348,5 +323,66 @@ describe("formatReset", () => {
     });
     it("hours and minutes past an hour", () => {
         expect(formatReset(inMins(131), NOW)).toBe("2h 11m");
+    });
+});
+
+describe("latestMessageText", () => {
+    it("returns the last message-kind entry's text", () => {
+        const entries: AgentEntry[] = [
+            { kind: "message", text: "first" },
+            { kind: "action", verb: "read", target: "a.ts" },
+            { kind: "message", text: "second" },
+        ];
+        expect(latestMessageText(entries)).toBe("second");
+    });
+    it("ignores trailing actions and user turns", () => {
+        const entries: AgentEntry[] = [
+            { kind: "message", text: "hello" },
+            { kind: "user", text: "do x" },
+            { kind: "action", verb: "ran", target: "go test" },
+        ];
+        expect(latestMessageText(entries)).toBe("hello");
+    });
+    it("is undefined when there are no messages", () => {
+        expect(latestMessageText([{ kind: "action", verb: "read", target: "a" }])).toBeUndefined();
+        expect(latestMessageText([])).toBeUndefined();
+    });
+});
+
+describe("recentActions", () => {
+    const entries: AgentEntry[] = [
+        { kind: "action", verb: "read", target: "a" },
+        { kind: "message", text: "m" },
+        { kind: "action", verb: "edited", target: "b" },
+        { kind: "action", verb: "ran", target: "test", outcome: "ok" },
+    ];
+    it("returns only actions, oldest-first, capped to max", () => {
+        expect(recentActions(entries, 2)).toEqual([
+            { kind: "action", verb: "edited", target: "b" },
+            { kind: "action", verb: "ran", target: "test", outcome: "ok" },
+        ]);
+    });
+    it("returns all actions when max exceeds the count", () => {
+        expect(recentActions(entries, 10)).toHaveLength(3);
+    });
+    it("returns an empty array when there are no actions", () => {
+        expect(recentActions([{ kind: "message", text: "x" }], 3)).toEqual([]);
+    });
+});
+
+describe("moveCursor", () => {
+    const ids = ["a", "b", "c"];
+    it("moves by one and clamps at both ends (no wrap)", () => {
+        expect(moveCursor(ids, "a", 1)).toBe("b");
+        expect(moveCursor(ids, "b", -1)).toBe("a");
+        expect(moveCursor(ids, "c", 1)).toBe("c");
+        expect(moveCursor(ids, "a", -1)).toBe("a");
+    });
+    it("starts at the first id when current is absent or unknown", () => {
+        expect(moveCursor(ids, undefined, 1)).toBe("a");
+        expect(moveCursor(ids, "zzz", -1)).toBe("a");
+    });
+    it("is undefined for an empty list", () => {
+        expect(moveCursor([], "a", 1)).toBeUndefined();
     });
 });

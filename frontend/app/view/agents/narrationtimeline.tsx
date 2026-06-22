@@ -14,10 +14,12 @@ import { MarkdownMessage } from "./markdownmessage";
 export function NarrationTimeline({
     entries,
     accentLatest,
+    large,
     className,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
+    large?: boolean;
     className?: string;
 }) {
     let lastMessageIdx = -1;
@@ -39,7 +41,8 @@ export function NarrationTimeline({
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
                         className={cn(
-                            "mt-2.5 text-[13px]",
+                            "mt-2.5",
+                            large ? "text-[15px]" : "text-[13px]",
                             i === lastMessageIdx ? "border-l-2 border-accent pl-2 text-primary" : "text-secondary"
                         )}
                     >
@@ -51,7 +54,7 @@ export function NarrationTimeline({
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
-                        className="mt-2.5 flex gap-1.5 text-[12px] text-muted"
+                        className={cn("mt-2.5 flex gap-1.5 text-muted", large ? "text-[13px]" : "text-[12px]")}
                     >
                         <span className="select-none text-muted/70">&gt;</span>
                         <span className="whitespace-pre-wrap">{e.text}</span>
@@ -62,7 +65,7 @@ export function NarrationTimeline({
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
-                        className="my-2.5 border-l-2 border-border pl-3.5 font-mono text-[12px] leading-7 text-muted"
+                        className={cn("my-2.5 border-l-2 border-border pl-3.5 font-mono leading-7 text-muted", large ? "text-[13px]" : "text-[12px]")}
                     >
                         <span className="inline-block w-14 text-secondary">{e.verb}</span>
                         {e.target}
