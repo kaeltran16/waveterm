@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getTabBadgeAtom } from "@/app/store/badge";
-import { setActiveTab } from "@/app/store/global";
+import { getApi, setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import { modalsModel } from "@/app/store/modalmodel";
 import { WorkspaceService } from "@/app/store/services";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -229,6 +230,27 @@ export function reorderSession(memberIds: string[], draggedId: string, targetId:
         return;
     }
     fireAndForget(() => RpcApi.UpdateWorkspaceTabIdsCommand(TabRpcClient, ws.oid, next));
+}
+
+/** Close every tab in a group after a single confirmation. Callers pass only cwd groups (never the
+ *  pinned group), so the Agents tab is never bulk-closed. */
+export function closeGroup(label: string, memberIds: string[]) {
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null || memberIds.length === 0) {
+        return;
+    }
+    const noun = memberIds.length === 1 ? "tab" : "tabs";
+    modalsModel.pushModal("ConfirmModal", {
+        title: "Close group",
+        message: `Close ${memberIds.length} ${noun} in "${label}"? This can't be undone.`,
+        confirmLabel: `Close ${noun}`,
+        destructive: true,
+        onConfirm: () => {
+            for (const tabId of memberIds) {
+                fireAndForget(() => getApi().closeTab(ws.oid, tabId, false));
+            }
+        },
+    });
 }
 
 /** Duplicate a session: open a new tab running the same agent in the same cwd as the source.

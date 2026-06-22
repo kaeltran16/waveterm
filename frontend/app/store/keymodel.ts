@@ -693,11 +693,11 @@ function registerGlobalKeys() {
         return true;
     });
     globalKeyMap.set("Ctrl:Tab", () => {
-        cycleWaiting(1);
+        cycleSession(1);
         return true;
     });
     globalKeyMap.set("Ctrl:Shift:Tab", () => {
-        cycleWaiting(-1);
+        cycleWaiting(1);
         return true;
     });
     for (let idx = 1; idx <= 9; idx++) {

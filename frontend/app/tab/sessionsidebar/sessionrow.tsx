@@ -257,15 +257,17 @@ interface SessionGroupProps {
     collapsed: boolean;
     aggregateStatus: SessionStatus;
     onToggle: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
     children?: ReactNode;
 }
 
-export function SessionGroup({ label, count, collapsed, aggregateStatus, onToggle, children }: SessionGroupProps) {
+export function SessionGroup({ label, count, collapsed, aggregateStatus, onToggle, onContextMenu, children }: SessionGroupProps) {
     return (
         <div className="flex flex-col">
             <div
                 className="flex h-7 w-full cursor-pointer items-center gap-1.5 px-2 text-[11px] text-muted"
                 onClick={onToggle}
+                onContextMenu={onContextMenu}
             >
                 <i className={makeIconClass(collapsed ? "chevron-right" : "chevron-down", true) + " text-[9px]"} />
                 <span className="min-w-0 truncate text-[12px] font-semibold text-secondary" title={label}>

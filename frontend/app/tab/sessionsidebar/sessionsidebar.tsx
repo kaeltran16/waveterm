@@ -14,7 +14,7 @@ import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
 import { setupAgentStatusSubscription, toggleSubagentExpand } from "./agentstatusstore";
 import { ensureSessionGroupLabels } from "./sessiongroupstore";
 import { SessionGroup, SessionRow, SubagentRow } from "./sessionrow";
-import { collapsedGroupsAtom, duplicateSession, openAgentsTab, renameSession, reorderSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
+import { closeGroup, collapsedGroupsAtom, duplicateSession, openAgentsTab, renameSession, reorderSession, sessionCwdsAtom, sessionSidebarViewModelAtom, setCollapsedGroups, togglePin } from "./sessionsidebarmodel";
 import { aggregateStatus, toggleCollapsed, type SessionRowVM } from "./sessionviewmodel";
 
 const PINNED_LABEL = "Pinned";
@@ -41,6 +41,11 @@ function buildSessionRowMenu(row: SessionRowVM, renameRef: React.RefObject<(() =
     return menu;
 }
 
+function buildGroupMenu(label: string, memberIds: string[]): ContextMenuItem[] {
+    const noun = memberIds.length === 1 ? "tab" : "tabs";
+    return [{ label: `Close group (${memberIds.length} ${noun})`, click: () => closeGroup(label, memberIds) }];
+}
+
 function SessionRowTree({
     row,
     memberIds,
@@ -60,7 +65,13 @@ function SessionRowTree({
     const canDrop = drag != null && memberIds.includes(drag.draggedId);
     const isSource = drag?.draggedId === row.tabId;
     const dropIndicator = !isSource && drag?.overId === row.tabId ? (drag.placeBefore ? "top" : "bottom") : undefined;
-    const onDragStart = () => setDrag({ draggedId: row.tabId, overId: row.tabId, placeBefore: true });
+    const onDragStart = (e: React.DragEvent) => {
+        // Electron aborts a native drag whose dataTransfer is never initialized (dragstart fires but no
+        // dragover/drop follow), so seed it before we start tracking the drag in state.
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", row.tabId);
+        setDrag({ draggedId: row.tabId, overId: row.tabId, placeBefore: true });
+    };
     const onDragOver = (e: React.DragEvent) => {
         if (!canDrop) {
             return;
@@ -221,6 +232,16 @@ export function SessionSidebar({ workspace }: { workspace: Workspace }) {
                     collapsed={collapsed.has(g.label)}
                     aggregateStatus={g.aggregateStatus}
                     onToggle={() => toggle(g.label)}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        ContextMenuModel.getInstance().showContextMenu(
+                            buildGroupMenu(
+                                g.label,
+                                g.sessions.map((s) => s.tabId)
+                            ),
+                            e
+                        );
+                    }}
                 >
                     {g.sessions.map((r) => (
                         <SessionRowTree
