@@ -11,13 +11,12 @@ import { cn, fireAndForget } from "@/util/util";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
-import { AskCard } from "./askcard";
 import {
-    formatAge,
     groupAgents,
     isRecentlyIdle,
+    mergeOrder,
+    nextAskId,
     reorderList,
-    resolveFocusedAskId,
     resolveHeight,
     snapToPreset,
     PANEL_PRESETS,
@@ -36,25 +35,6 @@ const PanelGap = 10; // matches the working grid's gap-2.5 (0.625rem)
 const PanelMinW = 160;
 const PanelMinH = 140;
 const PanelFillFallback = 360; // before the viewport is measured, "fill" renders at the l-preset height
-
-function QueueRow({ agent, onFocus }: { agent: AgentVM; onFocus: (id: string) => void }) {
-    const question = agent.ask?.questions?.[0]?.question ?? "";
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-            onClick={() => onFocus(agent.id)}
-            className="flex cursor-pointer items-center gap-2.5 rounded-[7px] border border-warning/60 bg-warning/5 px-3 py-2 hover:bg-warning/10"
-        >
-            <span className="h-2 w-2 shrink-0 rounded-full bg-warning" />
-            <b className="shrink-0 text-[12.5px] text-primary">{agent.name}</b>
-            <span className="truncate text-[12px] text-muted">{question}</span>
-            <span className="ml-auto shrink-0 text-[10.5px] text-warning">{formatAge(agent.blockedMs)} · answer →</span>
-        </motion.div>
-    );
-}
 
 // Rolls a changing integer: the old value slides up and out while the new one slides in.
 function RollingCount({ value, className }: { value: number; className?: string }) {
@@ -94,6 +74,7 @@ function DraggablePanel({
     id,
     preset,
     fillPx,
+    pulse,
     onResize,
     onDragStart,
     onDropOn,
@@ -102,6 +83,7 @@ function DraggablePanel({
     id: string;
     preset: PanelPreset;
     fillPx: number;
+    pulse?: boolean;
     onResize: (id: string, preset: PanelPreset) => void;
     onDragStart: () => void;
     onDropOn: (targetId: string, before: boolean) => void;
@@ -176,7 +158,11 @@ function DraggablePanel({
                 onDropOn(id, e.clientX < rect.left + rect.width / 2);
             }}
             style={{ height, overflow: "hidden" }}
-            className={cn("relative min-w-0", cols === 2 ? "col-span-2" : "col-span-1")}
+            className={cn(
+                "relative min-w-0",
+                cols === 2 ? "col-span-2" : "col-span-1",
+                pulse && "rounded-[10px] ring-2 ring-warning ring-offset-2 ring-offset-background transition-shadow"
+            )}
             data-agent-id={id}
         >
             <div
@@ -230,11 +216,6 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers }));
     };
 
-    const [focusedAskId, setFocusedAskId] = useState<string>();
-    const focusedId = resolveFocusedAskId(asking, focusedAskId);
-    const focused = asking.find((a) => a.id === focusedId);
-    const queue = asking.filter((a) => a.id !== focusedId);
-
     // 1s tick so the liveness cue (⟳ since / quiet) stays current without a global ticker
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
@@ -250,7 +231,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, now) && !dismissed.has(dismissKey(a)));
     const recentIds = new Set(recentlyIdle.map((a) => a.id));
     const parkedIdle = idle.filter((a) => !recentIds.has(a.id));
-    const gridAgents = [...working, ...recentlyIdle];
+    const gridAgents = [...asking, ...working, ...recentlyIdle];
 
     // one-shot previous-info for asking agents (seeds first paint; the live stream supersedes it once a chunk arrives)
     useEffect(() => {
@@ -297,17 +278,25 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const [dragId, setDragId] = useState<string>();
     const [presetById, setPresetById] = useState<Record<string, PanelPreset>>({});
     const resizePanel = (id: string, preset: PanelPreset) => setPresetById((m) => ({ ...m, [id]: preset }));
+    const [pulseId, setPulseId] = useState<string>();
+    const lastJumpRef = useRef<string>();
+    const jumpToNextAsk = () => {
+        const target = nextAskId(asking.map((a) => a.id), lastJumpRef.current);
+        if (!target) {
+            return;
+        }
+        lastJumpRef.current = target;
+        document.querySelector(`[data-agent-id="${target}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        setPulseId(target);
+        setTimeout(() => setPulseId((p) => (p === target ? undefined : p)), 1200);
+    };
 
     // measures the scroll viewport so a "full" panel fills the visible area and re-fills on block/window resize
     const [scrollRef, , scrollRect] = useDimensionsWithCallbackRef<HTMLDivElement>(100);
     const fillPx = scrollRect?.height ?? PanelFillFallback;
     useEffect(() => {
         const ids = gridAgents.map((w) => w.id);
-        setOrder((prev) => {
-            const kept = prev.filter((id) => ids.includes(id));
-            const added = ids.filter((id) => !kept.includes(id));
-            return [...kept, ...added];
-        });
+        setOrder((prev) => mergeOrder(prev, ids));
     }, [gridAgents.map((w) => w.id).join(",")]);
     const orderedGrid = order.map((id) => gridAgents.find((w) => w.id === id)).filter(Boolean) as AgentVM[];
 
@@ -316,13 +305,23 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     return (
         <div className="flex h-full w-full flex-col text-secondary">
             <div className="flex shrink-0 items-center justify-between border-b border-border px-[18px] py-3">
-                <b className="text-[15px] text-primary">Agents</b>
-                <span className="flex items-center gap-1 text-[12px] text-muted">
-                    <RollingCount value={asking.length} className="text-warning" />
-                    <span className="text-warning">asking</span>
-                    <span>·</span>
-                    <RollingCount value={working.length} />
-                    <span>working</span>
+                <b className="text-[14px] font-semibold text-primary">Agents</b>
+                <span className="flex items-center gap-2 text-[12px] text-muted">
+                    {asking.length > 0 ? (
+                        <button
+                            type="button"
+                            onClick={jumpToNextAsk}
+                            className="flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-warning bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning hover:bg-warning/15"
+                        >
+                            <span className="h-2 w-2 rounded-full bg-warning" />
+                            <RollingCount value={asking.length} /> needs you
+                            <span className="font-normal text-muted">· jump →</span>
+                        </button>
+                    ) : null}
+                    <span className="flex items-center gap-1">
+                        <RollingCount value={working.length} />
+                        <span>working</span>
+                    </span>
                 </span>
             </div>
             <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-[18px]">
@@ -336,47 +335,14 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                             transition={{ duration: 0.25 }}
                             className="flex flex-1 flex-col items-center justify-center gap-1 text-center"
                         >
-                            <div className="text-[22px] opacity-50">🤖</div>
+                            <div className="text-[18px] opacity-40">🤖</div>
                             <div className="text-[13px] font-semibold text-secondary">No active agents</div>
-                            <div className="text-[11.5px] text-muted">
+                            <div className="text-[11px] text-muted">
                                 Agents appear here the moment one starts working or asks a question.
                             </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
-                <AnimatePresence>
-                    {focused && (
-                        <motion.div
-                            key="focused-ask"
-                            initial={{ opacity: 0, scale: 0.98 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.98 }}
-                            transition={{ duration: 0.2, ease: "easeOut" }}
-                            className="shrink-0"
-                        >
-                            <AskCard
-                                key={focused.ask?.askId ?? focused.id}
-                                agent={focused}
-                                onAnswer={answer}
-                                onOpen={open}
-                            />
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-                {queue.length > 0 && (
-                    <div className="flex shrink-0 flex-col gap-1.5">
-                        <div className="text-[10.5px] uppercase tracking-wide text-secondary">
-                            {queue.length} more waiting
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                            <AnimatePresence>
-                                {queue.map((a) => (
-                                    <QueueRow key={a.id} agent={a} onFocus={setFocusedAskId} />
-                                ))}
-                            </AnimatePresence>
-                        </div>
-                    </div>
-                )}
                 {gridAgents.length > 0 && (
                     <div className="grid grid-cols-2 content-start gap-2.5">
                         <AnimatePresence mode="popLayout">
@@ -386,6 +352,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                                     id={a.id}
                                     preset={presetById[a.id] ?? DEFAULT_PANEL_PRESET}
                                     fillPx={fillPx}
+                                    pulse={pulseId === a.id}
                                     onResize={resizePanel}
                                     onDragStart={() => setDragId(a.id)}
                                     onDropOn={(targetId, before) => {
@@ -399,6 +366,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                                         agent={a}
                                         now={now}
                                         onOpen={open}
+                                        onAnswer={answer}
                                         onDismiss={
                                             a.state === "idle"
                                                 ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))

@@ -37,9 +37,9 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
                                     className="flex cursor-pointer items-center gap-2.5 px-2 py-1.5"
                                 >
                                     <span className="h-2 w-2 shrink-0 rounded-full bg-muted" />
-                                    <b className="shrink-0 text-[12.5px] text-secondary">{a.name}</b>
+                                    <b className="shrink-0 text-[12px] text-secondary">{a.name}</b>
                                     <span className="truncate text-[12px] text-muted">{a.activity}</span>
-                                    <span className="ml-auto shrink-0 text-[10.5px] text-muted">{formatAge(a.activeMs)} idle</span>
+                                    <span className="ml-auto shrink-0 text-[10px] text-muted">{formatAge(a.activeMs)} idle</span>
                                 </div>
                                 <AgentComposer blockId={a.blockId} placeholder={`message ${a.name}…`} />
                             </div>

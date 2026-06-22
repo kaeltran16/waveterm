@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, resolveFocusedAskId, reorderList, snapToPreset, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, reorderList, snapToPreset, mergeOrder, nextAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -222,20 +222,6 @@ describe("isRecentlyIdle", () => {
     });
 });
 
-describe("resolveFocusedAskId", () => {
-    const a = (id: string): AgentVM => ({ id, name: id, task: "", state: "asking" }) as AgentVM;
-
-    it("keeps the current focus if it's still asking", () => {
-        expect(resolveFocusedAskId([a("x"), a("y")], "y")).toBe("y");
-    });
-
-    it("falls back to the first (oldest-blocked) asking agent otherwise", () => {
-        expect(resolveFocusedAskId([a("x"), a("y")], "gone")).toBe("x");
-        expect(resolveFocusedAskId([a("x")], undefined)).toBe("x");
-        expect(resolveFocusedAskId([], "x")).toBe(undefined);
-    });
-});
-
 describe("reorderList", () => {
     it("moves an id before/after a target", () => {
         expect(reorderList(["a", "b", "c"], "a", "c", false)).toEqual(["b", "c", "a"]);
@@ -261,6 +247,25 @@ describe("isAskStale", () => {
     });
 });
 
+describe("mergeOrder", () => {
+    it("seeds from ids when prev is empty", () => {
+        expect(mergeOrder([], ["a", "b"])).toEqual(["a", "b"]);
+    });
+    it("keeps existing slots even when ids reorders them (the anchor)", () => {
+        // 'a' jumped to the front of ids (e.g. it started asking) — it must NOT move slot
+        expect(mergeOrder(["a", "b", "c"], ["b", "a", "c"])).toEqual(["a", "b", "c"]);
+    });
+    it("appends genuinely-new ids after the kept ones", () => {
+        expect(mergeOrder(["a", "b"], ["a", "b", "c"])).toEqual(["a", "b", "c"]);
+    });
+    it("drops ids no longer present", () => {
+        expect(mergeOrder(["a", "b", "c"], ["a", "c"])).toEqual(["a", "c"]);
+    });
+    it("is a no-op when the set is unchanged", () => {
+        expect(mergeOrder(["a", "b"], ["a", "b"])).toEqual(["a", "b"]);
+    });
+});
+
 describe("snapToPreset", () => {
     const ONE = 300;
     const TWO = 610; // 300*2 + 10 gap
@@ -283,5 +288,23 @@ describe("snapToPreset", () => {
     it("column span follows whichever of one-/two-column width is closer", () => {
         expect(snapToPreset(380, 240, ONE, TWO, FILL)).toBe("s"); // closer to one column
         expect(snapToPreset(540, 360, ONE, TWO, FILL)).toBe("l"); // closer to two columns
+    });
+});
+
+describe("nextAskId", () => {
+    it("returns the first when current is undefined", () => {
+        expect(nextAskId(["x", "y", "z"], undefined)).toBe("x");
+    });
+    it("advances to the id after current", () => {
+        expect(nextAskId(["x", "y", "z"], "x")).toBe("y");
+    });
+    it("wraps from the last back to the first", () => {
+        expect(nextAskId(["x", "y", "z"], "z")).toBe("x");
+    });
+    it("returns the first when current is no longer present", () => {
+        expect(nextAskId(["x", "y", "z"], "gone")).toBe("x");
+    });
+    it("returns undefined for an empty list", () => {
+        expect(nextAskId([], "x")).toBeUndefined();
     });
 });

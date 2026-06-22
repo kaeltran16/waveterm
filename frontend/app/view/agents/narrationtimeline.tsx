@@ -51,7 +51,7 @@ export function NarrationTimeline({
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
-                        className="mt-2.5 flex gap-1.5 text-[12.5px] text-muted"
+                        className="mt-2.5 flex gap-1.5 text-[12px] text-muted"
                     >
                         <span className="select-none text-muted/70">&gt;</span>
                         <span className="whitespace-pre-wrap">{e.text}</span>

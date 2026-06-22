@@ -6,38 +6,34 @@ import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AgentComposer } from "./agentcomposer";
+import { AnswerBar } from "./answerbar";
 import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { liveEntriesByIdAtom, lastActivityByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
 
-function formatSince(ms: number): string {
-    if (ms < 60_000) {
-        return `${Math.max(1, Math.floor(ms / 1000))}s`;
-    }
-    return `${Math.floor(ms / 60_000)}m`;
-}
-
 export function WorkingPanel({
     agent,
     now,
     onOpen,
     onDismiss,
+    onAnswer,
 }: {
     agent: AgentVM;
     now: number;
     onOpen: (id: string) => void;
     onDismiss?: () => void;
+    onAnswer?: (oref: string, answers: AgentAnswerItem[]) => void;
 }) {
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
     const lastTs = lastActivity[agent.id];
-    const since = lastTs != null ? formatSince(Math.max(0, now - lastTs)) : null;
     const quiet = isQuiet(lastTs, now);
     const project = projectNameFromTranscriptPath(agent.transcriptPath);
     const idle = agent.state === "idle";
+    const asking = agent.state === "asking";
     const idleMs = agent.idleSince != null ? Math.max(0, now - agent.idleSince) : undefined;
 
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -79,37 +75,32 @@ export function WorkingPanel({
     };
 
     return (
-        <div className="relative flex h-full flex-col overflow-hidden rounded-[9px] border border-border bg-background">
+        <div
+            className={cn(
+                "group relative flex h-full flex-col overflow-hidden rounded-[10px] bg-background",
+                asking ? "border border-warning shadow-[0_0_0_1px_rgba(224,185,86,0.3),0_0_20px_rgba(224,185,86,0.12)]" : "border border-border"
+            )}
+        >
             <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-[14px] py-2">
                 <StatusDot state={agent.state} quiet={quiet} />
                 <b className="text-[13px] text-primary">{agent.name}</b>
-                <span className="truncate text-[11.5px] text-muted">
+                <span className="truncate text-[11px] text-muted">
                     {project ? `${project} · ` : ""}
                     {agent.task}
                 </span>
-                {idle ? (
+                {asking ? (
+                    <span className="ml-auto shrink-0 rounded-[4px] border border-warning px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warning">
+                        needs you
+                    </span>
+                ) : idle ? (
                     <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px] text-muted">
                         {agent.model ? `${agent.model} · ` : ""}
                         {formatAge(idleMs)} idle
                     </span>
                 ) : (
-                    <span className={cn("ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px]", quiet ? "text-warning" : "text-muted")}>
+                    <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px] text-muted">
                         {agent.model ? `${agent.model} · ` : ""}
                         {formatAge(agent.activeMs)}
-                        {since ? (
-                            <>
-                                <span>·</span>
-                                <motion.span
-                                    className="inline-block"
-                                    animate={quiet ? { rotate: 0 } : { rotate: 360 }}
-                                    transition={quiet ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "linear" }}
-                                >
-                                    ⟳
-                                </motion.span>
-                                <span className="inline-block w-7 text-right">{since}</span>
-                            </>
-                        ) : null}
-                        {quiet ? <span>· quiet</span> : null}
                     </span>
                 )}
                 {onDismiss ? (
@@ -117,20 +108,21 @@ export function WorkingPanel({
                         type="button"
                         onClick={onDismiss}
                         title="Move to Idle"
-                        className="shrink-0 cursor-pointer rounded-[5px] border border-border px-2.5 py-0.5 text-[10.5px] text-secondary hover:bg-white/[0.04]"
+                        className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
                     >
-                        Dismiss
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v8M4 8l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                     </button>
                 ) : null}
                 <button
                     type="button"
                     onClick={() => onOpen(agent.id)}
-                    className="shrink-0 cursor-pointer rounded-[5px] border border-border px-2.5 py-0.5 text-[10.5px] text-secondary hover:bg-white/[0.04]"
+                    title="Open terminal"
+                    className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
                 >
-                    Open terminal
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 12L12 4M12 4H6M12 4v6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
             </div>
-            <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-[14px] py-[11px]">
+            <div ref={scrollRef} onScroll={onScroll} className={cn("min-h-0 flex-1 overflow-y-auto px-[14px] py-[11px]", asking && "opacity-60")}>
                 <NarrationTimeline entries={entries} accentLatest />
             </div>
             <AnimatePresence>
@@ -149,6 +141,7 @@ export function WorkingPanel({
                     </motion.button>
                 ) : null}
             </AnimatePresence>
+            {asking ? <AnswerBar agent={agent} onAnswer={onAnswer} /> : null}
             <AgentComposer blockId={agent.blockId} placeholder={`message ${agent.name}…`} />
         </div>
     );

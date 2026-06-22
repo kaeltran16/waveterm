@@ -180,6 +180,27 @@ export function reorderList(ids: string[], draggedId: string, targetId: string, 
     return [...without.slice(0, at), draggedId, ...without.slice(at)];
 }
 
+/** Pure: reconcile a stable order list against the current id set. Kept ids retain their existing
+ *  slot regardless of `ids` order (anchored ordering); new ids append in `ids` order; absent ids
+ *  drop. This is why a working->asking transition never moves a panel: the id stays in the set. */
+export function mergeOrder(prev: string[], ids: string[]): string[] {
+    const present = new Set(ids);
+    const kept = prev.filter((id) => present.has(id));
+    const keptSet = new Set(kept);
+    const added = ids.filter((id) => !keptSet.has(id));
+    return [...kept, ...added];
+}
+
+/** Pure: the ask to jump to after `current`, cycling with wrap. Defaults to the first ask when
+ *  `current` is absent or no longer in the list. Undefined for an empty list. */
+export function nextAskId(ids: string[], current?: string): string | undefined {
+    if (ids.length === 0) {
+        return undefined;
+    }
+    const idx = current != null ? ids.indexOf(current) : -1;
+    return ids[(idx + 1) % ids.length];
+}
+
 /** Pure: one AgentAnswerItem per question, carrying that question's selected option indexes (ascending). */
 export function buildAskAnswers(questions: AgentAskQuestion[], selections: Record<number, Set<number>>): AgentAnswerItem[] {
     return questions.map((_, qi) => ({ selectedindexes: Array.from(selections[qi] ?? []).sort((a, b) => a - b) }));
@@ -205,15 +226,6 @@ export function isRecentlyIdle(agent: AgentVM, now: number, graceMs = IDLE_GRACE
     return agent.state === "idle" && agent.idleSince != null && now - agent.idleSince < graceMs;
 }
 
-/** Pure: which asking agent owns the focus slot. Keep the current focus if it's still asking;
- *  otherwise fall back to the first (oldest-blocked) asking agent. groupAgents already sorts
- *  asking longest-blocked-first, so asking[0] is the oldest. */
-export function resolveFocusedAskId(asking: AgentVM[], current?: string): string | undefined {
-    if (current != null && asking.some((a) => a.id === current)) {
-        return current;
-    }
-    return asking[0]?.id;
-}
 
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
  *  the reporter's status (a blocked AskCommand RPC may still report "working"); blockedMs is
