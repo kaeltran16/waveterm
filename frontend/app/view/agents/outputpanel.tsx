@@ -19,7 +19,17 @@ function formatSince(ms: number): string {
     return `${Math.floor(ms / 60_000)}m`;
 }
 
-export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: number; onOpen: (id: string) => void }) {
+export function WorkingPanel({
+    agent,
+    now,
+    onOpen,
+    onDismiss,
+}: {
+    agent: AgentVM;
+    now: number;
+    onOpen: (id: string) => void;
+    onDismiss?: () => void;
+}) {
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
@@ -27,6 +37,8 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
     const since = lastTs != null ? formatSince(Math.max(0, now - lastTs)) : null;
     const quiet = isQuiet(lastTs, now);
     const project = projectNameFromTranscriptPath(agent.transcriptPath);
+    const idle = agent.state === "idle";
+    const idleMs = agent.idleSince != null ? Math.max(0, now - agent.idleSince) : undefined;
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const stickRef = useRef(true);
@@ -69,30 +81,47 @@ export function WorkingPanel({ agent, now, onOpen }: { agent: AgentVM; now: numb
     return (
         <div className="relative flex h-full flex-col overflow-hidden rounded-[9px] border border-border bg-background">
             <div className="flex shrink-0 items-center gap-2.5 border-b border-border px-[14px] py-2">
-                <StatusDot state="working" quiet={quiet} />
+                <StatusDot state={agent.state} quiet={quiet} />
                 <b className="text-[13px] text-primary">{agent.name}</b>
                 <span className="truncate text-[11.5px] text-muted">
                     {project ? `${project} · ` : ""}
                     {agent.task}
                 </span>
-                <span className={cn("ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px]", quiet ? "text-warning" : "text-muted")}>
-                    {agent.model ? `${agent.model} · ` : ""}
-                    {formatAge(agent.activeMs)}
-                    {since ? (
-                        <>
-                            <span>·</span>
-                            <motion.span
-                                className="inline-block"
-                                animate={quiet ? { rotate: 0 } : { rotate: 360 }}
-                                transition={quiet ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "linear" }}
-                            >
-                                ⟳
-                            </motion.span>
-                            <span className="inline-block w-7 text-right">{since}</span>
-                        </>
-                    ) : null}
-                    {quiet ? <span>· quiet</span> : null}
-                </span>
+                {idle ? (
+                    <span className="ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px] text-muted">
+                        {agent.model ? `${agent.model} · ` : ""}
+                        {formatAge(idleMs)} idle
+                    </span>
+                ) : (
+                    <span className={cn("ml-auto flex shrink-0 items-center gap-1 tabular-nums text-[11px]", quiet ? "text-warning" : "text-muted")}>
+                        {agent.model ? `${agent.model} · ` : ""}
+                        {formatAge(agent.activeMs)}
+                        {since ? (
+                            <>
+                                <span>·</span>
+                                <motion.span
+                                    className="inline-block"
+                                    animate={quiet ? { rotate: 0 } : { rotate: 360 }}
+                                    transition={quiet ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "linear" }}
+                                >
+                                    ⟳
+                                </motion.span>
+                                <span className="inline-block w-7 text-right">{since}</span>
+                            </>
+                        ) : null}
+                        {quiet ? <span>· quiet</span> : null}
+                    </span>
+                )}
+                {onDismiss ? (
+                    <button
+                        type="button"
+                        onClick={onDismiss}
+                        title="Move to Idle"
+                        className="shrink-0 cursor-pointer rounded-[5px] border border-border px-2.5 py-0.5 text-[10.5px] text-secondary hover:bg-white/[0.04]"
+                    >
+                        Dismiss
+                    </button>
+                ) : null}
                 <button
                     type="button"
                     onClick={() => onOpen(agent.id)}

@@ -15,6 +15,7 @@ import { AskCard } from "./askcard";
 import {
     formatAge,
     groupAgents,
+    isRecentlyIdle,
     reorderList,
     resolveFocusedAskId,
     snapToPreset,
@@ -234,6 +235,16 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         return () => clearInterval(t);
     }, []);
 
+    // A just-finished agent keeps its full panel (so you can reply) for IDLE_GRACE_MS, then collapses
+    // into the Idle list. Dismissals are keyed by idle episode (id:idleSince) so a fresh idle episode
+    // gets a fresh panel without any cleanup — the old key simply stops matching.
+    const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+    const dismissKey = (a: AgentVM) => `${a.id}:${a.idleSince ?? ""}`;
+    const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, now) && !dismissed.has(dismissKey(a)));
+    const recentIds = new Set(recentlyIdle.map((a) => a.id));
+    const parkedIdle = idle.filter((a) => !recentIds.has(a.id));
+    const gridAgents = [...working, ...recentlyIdle];
+
     // one-shot previous-info for asking agents (seeds first paint; the live stream supersedes it once a chunk arrives)
     useEffect(() => {
         for (const a of asking) {
@@ -280,14 +291,14 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const [presetById, setPresetById] = useState<Record<string, PanelPreset>>({});
     const resizePanel = (id: string, preset: PanelPreset) => setPresetById((m) => ({ ...m, [id]: preset }));
     useEffect(() => {
-        const ids = working.map((w) => w.id);
+        const ids = gridAgents.map((w) => w.id);
         setOrder((prev) => {
             const kept = prev.filter((id) => ids.includes(id));
             const added = ids.filter((id) => !kept.includes(id));
             return [...kept, ...added];
         });
-    }, [working.map((w) => w.id).join(",")]);
-    const orderedWorking = order.map((id) => working.find((w) => w.id === id)).filter(Boolean) as AgentVM[];
+    }, [gridAgents.map((w) => w.id).join(",")]);
+    const orderedGrid = order.map((id) => gridAgents.find((w) => w.id === id)).filter(Boolean) as AgentVM[];
 
     const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
 
@@ -357,10 +368,10 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                         </div>
                     </motion.div>
                 )}
-                {working.length > 0 && (
+                {gridAgents.length > 0 && (
                     <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2.5 overflow-y-auto">
                         <AnimatePresence mode="popLayout">
-                            {orderedWorking.map((a) => (
+                            {orderedGrid.map((a) => (
                                 <DraggablePanel
                                     key={a.id}
                                     id={a.id}
@@ -374,13 +385,22 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                                         setDragId(undefined);
                                     }}
                                 >
-                                    <WorkingPanel agent={a} now={now} onOpen={open} />
+                                    <WorkingPanel
+                                        agent={a}
+                                        now={now}
+                                        onOpen={open}
+                                        onDismiss={
+                                            a.state === "idle"
+                                                ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
+                                                : undefined
+                                        }
+                                    />
                                 </DraggablePanel>
                             ))}
                         </AnimatePresence>
                     </div>
                 )}
-                <IdleSection agents={idle} onOpen={open} />
+                <IdleSection agents={parkedIdle} onOpen={open} />
             </div>
         </div>
     );

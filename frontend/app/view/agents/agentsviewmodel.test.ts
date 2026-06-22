@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isAskStale, resolveFocusedAskId, reorderList, snapToPreset, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, resolveFocusedAskId, reorderList, snapToPreset, type AgentVM, type LiveAgentInput, type AgentAskQuestion } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -95,6 +95,12 @@ describe("agentVMFromInput", () => {
         expect(vm.blockedMs).toBeUndefined();
         expect(vm.activity).toBe("stopped without asking");
         expect(vm.model).toBe("");
+        expect(vm.idleSince).toBeUndefined();
+    });
+
+    it("stamps idleSince from ts for an idle row", () => {
+        const vm = agentVMFromInput({ id: "tab-3", name: "obsidian", status: "idle", ts: NOW - 30_000 }, NOW);
+        expect(vm.idleSince).toBe(NOW - 30_000);
     });
 
     it("carries the terminal blockId", () => {
@@ -191,6 +197,28 @@ describe("isQuiet", () => {
         expect(isQuiet(1_000, 1_000 + 46_000)).toBe(true);
         expect(isQuiet(1_000, 1_000 + 10_000)).toBe(false);
         expect(isQuiet(undefined, 99_999)).toBe(false);
+    });
+});
+
+describe("isRecentlyIdle", () => {
+    const NOW = 1_000_000;
+
+    it("true for an idle agent within the grace window", () => {
+        expect(isRecentlyIdle(mk("a", "idle", { idleSince: NOW - 60_000 }), NOW)).toBe(true);
+    });
+    it("false once past the grace window", () => {
+        expect(isRecentlyIdle(mk("a", "idle", { idleSince: NOW - 360_000 }), NOW)).toBe(false);
+    });
+    it("false for non-idle agents regardless of idleSince", () => {
+        expect(isRecentlyIdle(mk("a", "working", { idleSince: NOW }), NOW)).toBe(false);
+        expect(isRecentlyIdle(mk("a", "asking", { idleSince: NOW }), NOW)).toBe(false);
+    });
+    it("false when idleSince is missing", () => {
+        expect(isRecentlyIdle(mk("a", "idle"), NOW)).toBe(false);
+    });
+    it("honors a custom grace window (boundary exclusive)", () => {
+        expect(isRecentlyIdle(mk("a", "idle", { idleSince: NOW - 1_000 }), NOW, 1_000)).toBe(false);
+        expect(isRecentlyIdle(mk("a", "idle", { idleSince: NOW - 999 }), NOW, 1_000)).toBe(true);
     });
 });
 

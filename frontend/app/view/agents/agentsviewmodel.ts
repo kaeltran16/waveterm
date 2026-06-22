@@ -41,6 +41,7 @@ export interface AgentVM {
     ask?: AgentAsk; // present iff state === "asking"
     transcriptPath?: string; // source for on-demand previous-info (not rendered directly)
     blockId?: string; // terminal block OID — target for ControllerInputCommand
+    idleSince?: number; // idle: when it went idle (UnixMilli) — drives the keep-as-panel grace window
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -128,6 +129,8 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.blockedMs = age;
     } else if (state === "working") {
         vm.activeMs = age;
+    } else if (input.ts != null) {
+        vm.idleSince = input.ts;
     }
     return vm;
 }
@@ -181,6 +184,16 @@ export function canSubmitAsk(questions: AgentAskQuestion[], selections: Record<n
 /** Pure: a working agent is "quiet" when no new narration has arrived for thresholdMs. */
 export function isQuiet(lastActivityMs: number | undefined, now: number, thresholdMs = 45_000): boolean {
     return lastActivityMs != null && now - lastActivityMs > thresholdMs;
+}
+
+/** Single source of truth for how long a just-finished agent keeps its full panel (so you can
+ *  reply) before it collapses into the Idle list. */
+export const IDLE_GRACE_MS = 300_000;
+
+/** Pure: a just-finished idle agent still warrants a full panel until graceMs after it went idle.
+ *  False for non-idle agents, those past the window, or those with no idleSince. */
+export function isRecentlyIdle(agent: AgentVM, now: number, graceMs = IDLE_GRACE_MS): boolean {
+    return agent.state === "idle" && agent.idleSince != null && now - agent.idleSince < graceMs;
 }
 
 /** Pure: which asking agent owns the focus slot. Keep the current focus if it's still asking;
