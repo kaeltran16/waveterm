@@ -164,6 +164,9 @@ type MetaTSType struct {
 	SessionLabel           string   `json:"session:label,omitempty"`           // tab (user-set custom name; overrides the agent-derived row label)
 	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
 
+	// for loom git client (Wave Agent Sessions fork)
+	AppLoom bool `json:"app:loom,omitempty"` // block (marks the live loom block for toggle)
+
 	Count int `json:"count,omitempty"` // temp for cpu plot. will remove later
 }
 

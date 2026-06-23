@@ -1325,6 +1325,7 @@ declare global {
         "session:agent"?: string;
         "session:label"?: string;
         "session:collapsedgroups"?: string[];
+        "app:loom"?: boolean;
         count?: number;
     };
 

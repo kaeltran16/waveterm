@@ -159,6 +159,8 @@ const (
 	MetaKey_SessionLabel                     = "session:label"
 	MetaKey_SessionCollapsedGroups           = "session:collapsedgroups"
 
+	MetaKey_AppLoom                          = "app:loom"
+
 	MetaKey_Count                            = "count"
 )
 

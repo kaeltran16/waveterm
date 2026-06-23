@@ -208,6 +208,23 @@ export function findActiveSessionTermBlock(): { blockId: string; cwd: string } |
     return undefined;
 }
 
+/** The active tab's loom block id (the one stamped with app:loom), if open. */
+export function findActiveLoomBlockId(): string | undefined {
+    const ws = globalStore.get(atoms.workspace);
+    const activeId = ws?.activetabid;
+    if (activeId == null) {
+        return undefined;
+    }
+    const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", activeId)));
+    for (const blockId of tab?.blockids ?? []) {
+        const block = globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
+        if (block?.meta?.["app:loom"]) {
+            return blockId;
+        }
+    }
+    return undefined;
+}
+
 /** Resolve a tab's terminal block (the session block) — same rule the sidebar groups on. */
 function findSessionTermBlock(tabId: string): { blockId: string; meta: Record<string, any> } | undefined {
     const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));

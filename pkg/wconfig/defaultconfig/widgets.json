@@ -50,5 +50,15 @@
                 "view": "processviewer"
             }
         }
+    },
+    "defwidget@loom": {
+        "display:order": 0,
+        "icon": "code-branch",
+        "label": "loom",
+        "blockdef": {
+            "meta": {
+                "app:loom": true
+            }
+        }
     }
 }

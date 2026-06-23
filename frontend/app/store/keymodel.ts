@@ -21,7 +21,7 @@ import {
     WOS,
 } from "@/app/store/global";
 import { getActiveTabModel } from "@/app/store/tab-model";
-import { cycleSession, cycleWaiting, findActiveSessionTermBlock, jumpToNeedsYou, switchToVisualIndex } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
+import { cycleSession, cycleWaiting, findActiveLoomBlockId, findActiveSessionTermBlock, jumpToNeedsYou, switchToVisualIndex } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
 import { loomBinOrDefault } from "@/app/tab/sessionsidebar/sessionviewmodel";
 import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import { deleteLayoutModelForTab, getLayoutModelForStaticTab, NavigateDirection } from "@/layout/index";
@@ -390,7 +390,16 @@ async function handleSplitVertical(position: "before" | "after") {
     await createBlockSplitVertically(blockDef, focusedNode.data.blockId, position);
 }
 
-async function handleGitSplit() {
+export async function handleGitSplit() {
+    const existingLoom = findActiveLoomBlockId();
+    if (existingLoom != null) {
+        const layoutModel = getLayoutModelForStaticTab();
+        const node = layoutModel.getNodeByBlockId(existingLoom);
+        if (node) {
+            fireAndForget(() => layoutModel.closeNode(node.id));
+        }
+        return;
+    }
     const termBlock = findActiveSessionTermBlock();
     if (termBlock == null) {
         return;
@@ -403,6 +412,7 @@ async function handleGitSplit() {
             cmd: loomBin,
             "cmd:interactive": true,
             "cmd:cwd": termBlock.cwd,
+            "app:loom": true,
         },
     };
     await createBlockSplitHorizontally(blockDef, termBlock.blockId, "after");

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Tooltip } from "@/app/element/tooltip";
+import { handleGitSplit } from "@/app/store/keymodel";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useWaveEnv, WaveEnv, WaveEnvSubset } from "@/app/waveenv/waveenv";
 import { shouldIncludeWidgetForWorkspace } from "@/app/workspace/widgetfilter";
@@ -57,6 +58,10 @@ type WidgetPropsType = {
 
 async function handleWidgetSelect(widget: WidgetConfigType, env: WidgetsEnv) {
     const blockDef = widget.blockdef;
+    if (blockDef?.meta?.["app:loom"]) {
+        handleGitSplit();
+        return;
+    }
     env.createBlock(blockDef, widget.magnified);
 }
 
