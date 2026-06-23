@@ -7,7 +7,7 @@ import { AnimatePresence, motion, Reorder, useDragControls } from "motion/react"
 import { useEffect, useRef, useState } from "react";
 import { AgentComposer } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
-import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
+import { formatAge, hasAnswerableAsk, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
@@ -59,7 +59,7 @@ export function AgentRow({
     const asking = agent.state === "asking";
     const idle = agent.state === "idle";
     const idleMs = agent.idleSince != null ? Math.max(0, now - agent.idleSince) : undefined;
-    const hasQuestions = (agent.ask?.questions?.length ?? 0) > 0;
+    const hasQuestions = hasAnswerableAsk(agent);
 
     // in-row narration sticks to the latest line unless the user scrolls up to read history
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -218,7 +218,7 @@ export function AgentRow({
             ) : null}
 
             <AnimatePresence>
-                {isCursor && !asking ? (
+                {isCursor && !hasQuestions ? (
                     <motion.div
                         key="composer"
                         initial={{ opacity: 0, y: -4 }}

@@ -15,6 +15,7 @@ import {
     canSubmitAsk,
     formatReset,
     groupAgents,
+    hasAnswerableAsk,
     isRecentlyIdle,
     mergeOrder,
     moveCursor,
@@ -336,7 +337,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             }
         } else if (e.key === "r") {
             e.preventDefault();
-            if (cur && cur.state !== "asking") {
+            if (cur && !hasAnswerableAsk(cur)) {
                 focusRowComposer(cur.id);
             }
         } else if (e.key === "Escape") {

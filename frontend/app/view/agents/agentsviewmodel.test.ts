@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -194,6 +194,22 @@ describe("canSubmitAsk", () => {
         expect(canSubmitAsk([q(), q()], { 0: new Set([0]), 1: new Set([0]) })).toBe(true);
         expect(canSubmitAsk([q(), q()], { 0: new Set([0]) })).toBe(false);
         expect(canSubmitAsk([], {})).toBe(false);
+    });
+});
+
+describe("hasAnswerableAsk", () => {
+    it("true when the ask carries at least one question", () => {
+        expect(hasAnswerableAsk(mk("a", "asking", { ask: { questions: [{ question: "q", options: [{ label: "a" }] }] } }))).toBe(true);
+    });
+    it("false for an asking agent with no structured ask (plain-text question)", () => {
+        expect(hasAnswerableAsk(mk("a", "asking"))).toBe(false);
+    });
+    it("false when the ask exists but has zero questions", () => {
+        expect(hasAnswerableAsk(mk("a", "asking", { ask: { questions: [] } }))).toBe(false);
+    });
+    it("false for working and idle agents", () => {
+        expect(hasAnswerableAsk(mk("a", "working"))).toBe(false);
+        expect(hasAnswerableAsk(mk("a", "idle"))).toBe(false);
     });
 });
 

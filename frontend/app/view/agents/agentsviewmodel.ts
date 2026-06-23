@@ -260,6 +260,15 @@ export function canSubmitAsk(questions: AgentAskQuestion[], selections: Record<n
     return questions.length > 0 && questions.every((_, qi) => (selections[qi]?.size ?? 0) >= 1);
 }
 
+/** Pure: whether the agent has a structured ask (with options) to answer. The amber "asking" status and
+ *  a structured ask are decoupled — the reporter can mark an agent "waiting" for a plain-text question
+ *  (e.g. "Proceed? (yes/no)") that never produced an AskUserQuestion payload. Drives the choice between
+ *  the option-picker AnswerBar (true) and the free-text composer (false); without it an asking agent
+ *  with no questions would show neither. */
+export function hasAnswerableAsk(agent: AgentVM): boolean {
+    return (agent.ask?.questions?.length ?? 0) > 0;
+}
+
 /** Pure: a working agent is "quiet" when no new narration has arrived for thresholdMs. */
 export function isQuiet(lastActivityMs: number | undefined, now: number, thresholdMs = 45_000): boolean {
     return lastActivityMs != null && now - lastActivityMs > thresholdMs;
