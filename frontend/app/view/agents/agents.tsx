@@ -98,6 +98,7 @@ const HINTS: [string, string][] = [
     ["←→ / h l", "question"],
     ["↵", "open / confirm"],
     ["r", "reply"],
+    ["t", "terminal"],
     ["esc", "back"],
 ];
 
@@ -110,6 +111,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         ["← → / h l", "switch question (multi-question asks)"],
         ["↵ (Enter)", "confirm selected answer, else open focus view"],
         ["r", "reply inline to the highlighted agent"],
+        ["t", "open the highlighted agent's terminal tab"],
         ["esc", "leave focus view / blur reply box / close this"],
         ["?", "toggle this help"],
     ];
@@ -342,6 +344,11 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             e.preventDefault();
             if (cur && !hasAnswerableAsk(cur)) {
                 focusRowComposer(cur.id);
+            }
+        } else if (e.key === "t") {
+            e.preventDefault();
+            if (cur) {
+                setActiveTab(cur.id);
             }
         } else if (e.key === "Escape") {
             if (showHelp) {

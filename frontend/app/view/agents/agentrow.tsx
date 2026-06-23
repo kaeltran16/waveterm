@@ -221,20 +221,22 @@ export function AgentRow({
                 {isCursor && !hasQuestions ? (
                     <motion.div
                         key="composer"
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.16, ease: "easeOut" }}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18, ease: "easeOut" }}
+                        style={{ overflow: "hidden" }}
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
-                        className="mt-2 ml-[26px]"
                     >
-                        <AgentComposer
-                            blockId={agent.blockId}
-                            placeholder={`message ${agent.name}…`}
-                            onEscape={onComposerEscape}
-                            className="border-t-0 px-0 py-0"
-                        />
+                        <div className="mt-2 ml-[26px]">
+                            <AgentComposer
+                                blockId={agent.blockId}
+                                placeholder={`message ${agent.name}…`}
+                                onEscape={onComposerEscape}
+                                className="border-t-0 px-0 py-0"
+                            />
+                        </div>
                     </motion.div>
                 ) : null}
             </AnimatePresence>
