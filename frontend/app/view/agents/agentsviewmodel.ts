@@ -107,6 +107,78 @@ export function recentActions(entries: AgentEntry[], max: number): AgentActionEn
     return max > 0 ? actions.slice(-max) : actions;
 }
 
+export const CollapseRunThreshold = 3;
+
+// A timeline render item: prose/user pass through inline; a maximal run of >= threshold
+// consecutive actions folds into one `group` (keyed by the run's first entry index, which
+// is stable because entries are append-only). Shorter runs stay as inline `action` items.
+export type TimelineItem =
+    | { kind: "message"; text: string; index: number }
+    | { kind: "user"; text: string; index: number }
+    | { kind: "action"; action: AgentActionEntry; index: number }
+    | { kind: "group"; startIndex: number; actions: AgentActionEntry[] };
+
+/** Pure: collapse bursts of consecutive actions into groups while preserving chronology. */
+export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThreshold): TimelineItem[] {
+    const items: TimelineItem[] = [];
+    let runStart = -1;
+    let run: AgentActionEntry[] = [];
+    const flush = () => {
+        if (run.length === 0) {
+            return;
+        }
+        if (run.length >= threshold) {
+            items.push({ kind: "group", startIndex: runStart, actions: run });
+        } else {
+            run.forEach((action, k) => items.push({ kind: "action", action, index: runStart + k }));
+        }
+        run = [];
+        runStart = -1;
+    };
+    entries.forEach((e, i) => {
+        if (e.kind === "action") {
+            if (run.length === 0) {
+                runStart = i;
+            }
+            run.push(e);
+            return;
+        }
+        flush();
+        if (e.kind === "message") {
+            items.push({ kind: "message", text: e.text, index: i });
+        } else {
+            items.push({ kind: "user", text: e.text, index: i });
+        }
+    });
+    flush();
+    return items;
+}
+
+export interface ActionsSummary {
+    total: number;
+    byVerb: { verb: string; count: number }[];
+    outcome: "ok" | "fail";
+}
+
+/** Pure: per-verb counts (count desc, then first appearance) plus the aggregate outcome
+ *  (fail if any action failed). Drives a collapsed group's summary label. */
+export function summarizeActions(actions: AgentActionEntry[]): ActionsSummary {
+    const order: string[] = [];
+    const counts = new Map<string, number>();
+    let outcome: "ok" | "fail" = "ok";
+    for (const a of actions) {
+        if (!counts.has(a.verb)) {
+            order.push(a.verb);
+        }
+        counts.set(a.verb, (counts.get(a.verb) ?? 0) + 1);
+        if (a.outcome === "fail") {
+            outcome = "fail";
+        }
+    }
+    const byVerb = order.map((verb) => ({ verb, count: counts.get(verb)! })).sort((x, y) => y.count - x.count);
+    return { total: actions.length, byVerb, outcome };
+}
+
 /** Pure: a millisecond duration -> short age label ("just now" / "4m" / "2h"). */
 export function formatAge(ms?: number): string {
     if (ms == null || ms < 60_000) {

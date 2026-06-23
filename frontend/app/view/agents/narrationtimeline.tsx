@@ -2,26 +2,65 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { Fragment, useState } from "react";
 import { motion } from "motion/react";
-import type { AgentEntry } from "./agentsviewmodel";
+import { groupTimeline, summarizeActions, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
 
 // Reasoning (message) entries render as prose; action entries render as a dim
 // monospace verb/target strip. tool_result content is never present here (the
 // projection discards it). With accentLatest, the newest message is highlighted.
-// Entries are append-only and keyed by index, so `initial` plays only for newly
-// appended (newly mounted) entries — existing ones do not re-animate on each chunk.
+// Bursts of >= CollapseRunThreshold consecutive actions fold into one summary
+// line (via groupTimeline) to keep prose readable; the line expands on click and
+// the expand sticks. While `active`, the trailing run stays expanded so the live
+// panel shows work as it lands. Entries are append-only and keyed by entry index,
+// so `initial` plays only for newly appended (newly mounted) entries.
+
+function ActionStrip({ action, large }: { action: AgentActionEntry; large?: boolean }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className={cn(
+                "my-2.5 border-l-2 border-border pl-3.5 font-mono leading-7 text-muted",
+                large ? "text-[13px]" : "text-[12px]"
+            )}
+        >
+            <span className="inline-block w-14 text-secondary">{action.verb}</span>
+            {action.target}
+            {action.note ? <span className="text-muted"> ({action.note})</span> : null}
+            {action.outcome ? (
+                <motion.span
+                    key={action.outcome}
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 18 }}
+                    className={cn("ml-1 inline-block", action.outcome === "ok" ? "text-accent" : "text-error")}
+                >
+                    {action.outcome === "ok" ? "✓" : "✗"}
+                </motion.span>
+            ) : null}
+        </motion.div>
+    );
+}
+
 export function NarrationTimeline({
     entries,
     accentLatest,
     large,
+    active,
     className,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
     large?: boolean;
+    active?: boolean;
     className?: string;
 }) {
+    const [expanded, setExpanded] = useState<Set<number>>(new Set());
+    const items = groupTimeline(entries);
+
     let lastMessageIdx = -1;
     if (accentLatest) {
         for (let i = entries.length - 1; i >= 0; i--) {
@@ -31,62 +70,87 @@ export function NarrationTimeline({
             }
         }
     }
+
+    // expand-only: folding is automatic (settled runs collapse), clicking only opens.
+    const expand = (startIndex: number) => setExpanded((prev) => new Set(prev).add(startIndex));
+
     return (
         <div className={cn("leading-relaxed", className)}>
-            {entries.map((e, i) =>
-                e.kind === "message" ? (
-                    <motion.div
-                        key={i}
+            {items.map((item, idx) => {
+                if (item.kind === "message") {
+                    return (
+                        <motion.div
+                            key={item.index}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.22, ease: "easeOut" }}
+                            className={cn(
+                                "mt-2.5",
+                                large ? "text-[15px]" : "text-[13px]",
+                                item.index === lastMessageIdx
+                                    ? "border-l-2 border-accent pl-2 text-primary"
+                                    : "text-secondary"
+                            )}
+                        >
+                            <MarkdownMessage text={item.text} />
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "user") {
+                    return (
+                        <motion.div
+                            key={item.index}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.22, ease: "easeOut" }}
+                            className={cn("mt-2.5 flex gap-1.5 text-muted", large ? "text-[13px]" : "text-[12px]")}
+                        >
+                            <span className="select-none text-muted/70">&gt;</span>
+                            <span className="whitespace-pre-wrap">{item.text}</span>
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "action") {
+                    return <ActionStrip key={item.index} action={item.action} large={large} />;
+                }
+                const isTrailing = idx === items.length - 1;
+                const isOpen = expanded.has(item.startIndex) || (active && isTrailing);
+                if (isOpen) {
+                    return (
+                        <Fragment key={"g" + item.startIndex}>
+                            {item.actions.map((action, k) => (
+                                <ActionStrip key={item.startIndex + k} action={action} large={large} />
+                            ))}
+                        </Fragment>
+                    );
+                }
+                const summary = summarizeActions(item.actions);
+                return (
+                    <motion.button
+                        key={"g" + item.startIndex}
+                        type="button"
+                        onClick={() => expand(item.startIndex)}
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.22, ease: "easeOut" }}
                         className={cn(
-                            "mt-2.5",
-                            large ? "text-[15px]" : "text-[13px]",
-                            i === lastMessageIdx ? "border-l-2 border-accent pl-2 text-primary" : "text-secondary"
+                            "my-2.5 flex w-full cursor-pointer items-center gap-1.5 rounded-r border-l-2 border-accent/50 bg-accent/[0.06] px-2.5 py-1 font-mono text-muted transition-colors hover:bg-accent/10",
+                            large ? "text-[13px]" : "text-[12px]"
                         )}
                     >
-                        <MarkdownMessage text={e.text} />
-                    </motion.div>
-                ) : e.kind === "user" ? (
-                    <motion.div
-                        key={i}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: "easeOut" }}
-                        className={cn("mt-2.5 flex gap-1.5 text-muted", large ? "text-[13px]" : "text-[12px]")}
-                    >
-                        <span className="select-none text-muted/70">&gt;</span>
-                        <span className="whitespace-pre-wrap">{e.text}</span>
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        key={i}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: "easeOut" }}
-                        className={cn("my-2.5 border-l-2 border-border pl-3.5 font-mono leading-7 text-muted", large ? "text-[13px]" : "text-[12px]")}
-                    >
-                        <span className="inline-block w-14 text-secondary">{e.verb}</span>
-                        {e.target}
-                        {e.note ? <span className="text-muted"> ({e.note})</span> : null}
-                        {e.outcome ? (
-                            <motion.span
-                                key={e.outcome}
-                                initial={{ scale: 0, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                transition={{ type: "spring", stiffness: 500, damping: 18 }}
-                                className={cn(
-                                    "ml-1 inline-block",
-                                    e.outcome === "ok" ? "text-accent" : "text-error"
-                                )}
-                            >
-                                {e.outcome === "ok" ? "✓" : "✗"}
-                            </motion.span>
-                        ) : null}
-                    </motion.div>
-                )
-            )}
+                        <span className="text-accent">▸</span>
+                        <span className="text-secondary">{summary.total} tools</span>
+                        {summary.byVerb.map((v) => (
+                            <span key={v.verb}>
+                                · {v.count} {v.verb}
+                            </span>
+                        ))}
+                        <span className={cn("ml-0.5", summary.outcome === "ok" ? "text-accent" : "text-error")}>
+                            {summary.outcome === "ok" ? "✓" : "✗"}
+                        </span>
+                    </motion.button>
+                );
+            })}
         </div>
     );
 }

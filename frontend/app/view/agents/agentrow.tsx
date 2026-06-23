@@ -186,7 +186,7 @@ export function AgentRow({
                         className="mt-2 ml-[26px] overflow-y-auto"
                         style={{ maxHeight: narrationMax }}
                     >
-                        <NarrationTimeline entries={entries} accentLatest />
+                        <NarrationTimeline entries={entries} accentLatest active={agent.state === "working"} />
                     </div>
                     <div
                         onPointerDown={onResizeDown}

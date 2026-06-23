@@ -300,6 +300,9 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             } else if (e.key === "ArrowRight") {
                 e.preventDefault();
                 focusStep(1);
+            } else if (e.key === "t") {
+                e.preventDefault();
+                setActiveTab(focusId);
             }
             return;
         }

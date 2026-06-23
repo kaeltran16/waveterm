@@ -121,7 +121,7 @@ export function FocusView({
                 <button
                     type="button"
                     onClick={onOpenTerminal}
-                    title="Open terminal"
+                    title="Open terminal (t)"
                     className="shrink-0 cursor-pointer rounded-[6px] border border-border px-2 py-1 text-[12px] text-secondary hover:bg-white/[0.04]"
                 >
                     ↗ terminal
@@ -157,7 +157,7 @@ export function FocusView({
             ) : null}
 
             <div ref={scrollRef} onScroll={onScroll} className={cn("relative min-h-0 flex-1 overflow-y-auto px-[22px] py-[16px]", asking && "opacity-90")}>
-                <NarrationTimeline entries={entries} accentLatest large />
+                <NarrationTimeline key={agent.id} entries={entries} accentLatest large active={agent.state === "working"} />
                 <AnimatePresence>
                     {newCount > 0 ? (
                         <motion.button

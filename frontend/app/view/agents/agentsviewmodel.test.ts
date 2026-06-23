@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -419,5 +419,96 @@ describe("moveCursor", () => {
     });
     it("is undefined for an empty list", () => {
         expect(moveCursor([], "a", 1)).toBeUndefined();
+    });
+});
+
+describe("groupTimeline", () => {
+    it("leaves a run of two actions inline (no group)", () => {
+        const entries: AgentEntry[] = [
+            { kind: "message", text: "m" },
+            { kind: "action", verb: "read", target: "a" },
+            { kind: "action", verb: "read", target: "b" },
+        ];
+        const items = groupTimeline(entries);
+        expect(items.map((i) => i.kind)).toEqual(["message", "action", "action"]);
+        expect(items.some((i) => i.kind === "group")).toBe(false);
+    });
+
+    it("folds a run of three or more actions into one group keyed by first index", () => {
+        const entries: AgentEntry[] = [
+            { kind: "message", text: "m" },
+            { kind: "action", verb: "read", target: "a" },
+            { kind: "action", verb: "read", target: "b" },
+            { kind: "action", verb: "grep", target: "c" },
+        ];
+        const items = groupTimeline(entries);
+        expect(items).toHaveLength(2);
+        expect(items[0]).toEqual({ kind: "message", text: "m", index: 0 });
+        const group = items[1];
+        expect(group.kind).toBe("group");
+        if (group.kind === "group") {
+            expect(group.startIndex).toBe(1);
+            expect(group.actions).toHaveLength(3);
+        }
+    });
+
+    it("splits adjacent runs around a message into separate groups", () => {
+        const entries: AgentEntry[] = [
+            { kind: "action", verb: "read", target: "a" },
+            { kind: "action", verb: "read", target: "b" },
+            { kind: "action", verb: "read", target: "c" },
+            { kind: "message", text: "thinking" },
+            { kind: "action", verb: "edit", target: "d" },
+            { kind: "action", verb: "edit", target: "e" },
+            { kind: "action", verb: "edit", target: "f" },
+        ];
+        const items = groupTimeline(entries);
+        expect(items.map((i) => i.kind)).toEqual(["group", "message", "group"]);
+        const g1 = items[0];
+        const g2 = items[2];
+        if (g1.kind === "group" && g2.kind === "group") {
+            expect(g1.startIndex).toBe(0);
+            expect(g2.startIndex).toBe(4);
+        }
+    });
+
+    it("honors an explicit threshold", () => {
+        const entries: AgentEntry[] = [
+            { kind: "action", verb: "read", target: "a" },
+            { kind: "action", verb: "read", target: "b" },
+        ];
+        expect(groupTimeline(entries, 2).map((i) => i.kind)).toEqual(["group"]);
+    });
+});
+
+describe("summarizeActions", () => {
+    const actions: AgentActionEntry[] = [
+        { kind: "action", verb: "read", target: "a" },
+        { kind: "action", verb: "grep", target: "b" },
+        { kind: "action", verb: "read", target: "c" },
+        { kind: "action", verb: "read", target: "d" },
+        { kind: "action", verb: "edit", target: "e" },
+    ];
+
+    it("counts verbs ordered by count desc then first appearance", () => {
+        const s = summarizeActions(actions);
+        expect(s.total).toBe(5);
+        expect(s.byVerb).toEqual([
+            { verb: "read", count: 3 },
+            { verb: "grep", count: 1 },
+            { verb: "edit", count: 1 },
+        ]);
+    });
+
+    it("aggregates outcome as ok when nothing failed", () => {
+        expect(summarizeActions(actions).outcome).toBe("ok");
+    });
+
+    it("aggregates outcome as fail when any action failed", () => {
+        const withFail: AgentActionEntry[] = [
+            { kind: "action", verb: "read", target: "a", outcome: "ok" },
+            { kind: "action", verb: "edit", target: "b", outcome: "fail" },
+        ];
+        expect(summarizeActions(withFail).outcome).toBe("fail");
     });
 });
