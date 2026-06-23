@@ -24,12 +24,14 @@ export function FocusView({
     hasNext,
     selections,
     sent,
+    activeQuestion,
     onBack,
     onPrev,
     onNext,
     onOpenTerminal,
     onToggleAnswer,
     onSubmitAnswer,
+    onSelectQuestion,
 }: {
     agent: AgentVM;
     now: number;
@@ -38,12 +40,14 @@ export function FocusView({
     hasNext: boolean;
     selections: Record<number, Set<number>>;
     sent: boolean;
+    activeQuestion?: number;
     onBack: () => void;
     onPrev: () => void;
     onNext: () => void;
     onOpenTerminal: () => void;
     onToggleAnswer: (qi: number, oi: number) => void;
     onSubmitAnswer: () => void;
+    onSelectQuestion?: (qi: number) => void;
 }) {
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
@@ -178,8 +182,10 @@ export function FocusView({
                     selections={selections}
                     sent={sent}
                     numbered
+                    activeQuestion={activeQuestion}
                     onToggle={onToggleAnswer}
                     onSubmit={onSubmitAnswer}
+                    onSelectQuestion={onSelectQuestion}
                     className="shrink-0 border-t border-warning bg-warning/5 px-[18px] py-3"
                 />
             ) : null}

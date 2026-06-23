@@ -8,8 +8,8 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { cn, fireAndForget } from "@/util/util";
-import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence, Reorder } from "motion/react";
 import {
     buildAskAnswers,
     canSubmitAsk,
@@ -19,7 +19,7 @@ import {
     mergeOrder,
     moveCursor,
     nextAskId,
-    reorderList,
+    providerPlanUsage,
     usageLevel,
     type AgentVM,
 } from "./agentsviewmodel";
@@ -53,21 +53,39 @@ function RollingCount({ value, className }: { value: number; className?: string 
 const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
 const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", warn: "text-warning", hot: "text-error" };
 
-// One account-global plan-usage gauge (5h or weekly window). A null pct — API-key auth, or a window
-// not yet reported — renders nothing rather than a misleading 0%.
-function PlanGauge({ label, pct, reset, now }: { label: string; pct?: number; reset?: number; now: number }) {
+// Provider identity dots for the plan strip. Not theme tokens — Claude clay / Codex periwinkle are
+// brand colors, kept here as the single source.
+const PROVIDER_DOT: Record<string, string> = { claude: "bg-[#d97757]", codex: "bg-[#96aacd]" };
+
+// One rate-limit window (5h or weekly) as a compact mini-gauge. A null pct — API-key auth, or a window
+// not yet reported — renders nothing rather than a misleading 0%. The reset countdown rides the title
+// (hover) so the whole strip stays on one line.
+function MiniGauge({ win, pct, reset, now }: { win: string; pct?: number; reset?: number; now: number }) {
     if (pct == null) {
         return null;
     }
     const lvl = usageLevel(pct);
     return (
-        <span className="flex items-center gap-2">
-            <span className="text-secondary">{label}</span>
-            <span className="h-1 w-20 overflow-hidden rounded-full bg-white/10">
+        <span className="flex items-center gap-1.5" title={reset ? `${win} resets in ${formatReset(reset, now)}` : undefined}>
+            <span className="text-[10px] uppercase tracking-wide text-muted">{win}</span>
+            <span className="h-1 w-9 overflow-hidden rounded-full bg-white/10">
                 <span className={cn("block h-full rounded-full", PLAN_BAR[lvl])} style={{ width: `${Math.min(100, pct)}%` }} />
             </span>
             <span className={cn("font-semibold tabular-nums", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
-            {reset ? <span className="text-muted">· {formatReset(reset, now)}</span> : null}
+        </span>
+    );
+}
+
+// One provider's plan limits (5h + weekly) as an inline group; Claude and Codex bill separate quotas.
+function ProviderPlan({ provider, usage, now }: { provider: string; usage: AgentVM["usage"]; now: number }) {
+    return (
+        <span className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 font-semibold text-primary">
+                <span className={cn("h-[7px] w-[7px] rounded-full", PROVIDER_DOT[provider] ?? "bg-muted")} />
+                {provider.charAt(0).toUpperCase() + provider.slice(1)}
+            </span>
+            <MiniGauge win="5h" pct={usage.fivehourpct} reset={usage.fivehourreset} now={now} />
+            <MiniGauge win="wk" pct={usage.weekpct} reset={usage.weekreset} now={now} />
         </span>
     );
 }
@@ -76,6 +94,7 @@ const HINTS: [string, string][] = [
     ["↑↓ / j k", "move"],
     ["n", "next ask"],
     ["1–9", "answer"],
+    ["←→ / h l", "question"],
     ["↵", "open / confirm"],
     ["r", "reply"],
     ["esc", "back"],
@@ -87,9 +106,10 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         ["↓ / j", "move cursor down"],
         ["n", "jump to next ask"],
         ["1–9", "select an answer option"],
+        ["← → / h l", "switch question (multi-question asks)"],
         ["↵ (Enter)", "confirm selected answer, else open focus view"],
-        ["r", "open focus view and reply"],
-        ["esc", "leave focus view / close this"],
+        ["r", "reply inline to the highlighted agent"],
+        ["esc", "leave focus view / blur reply box / close this"],
         ["?", "toggle this help"],
     ];
     return (
@@ -110,10 +130,9 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
 function AgentsView({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const { asking, working, idle } = groupAgents(agents);
-    // plan usage is account-global; every agent reports the same numbers — take the freshest (active agents first)
-    const planUsage = [...asking, ...working, ...idle]
-        .map((a) => a.usage)
-        .find((u) => u?.fivehourpct != null || u?.weekpct != null);
+    // plan limits are per-provider: Claude (Claude.ai) and Codex (ChatGPT) bill separate 5h/weekly
+    // quotas, so we surface one snapshot per provider rather than a single global figure.
+    const planByProvider = providerPlanUsage([...asking, ...working, ...idle]);
     const answer = (oref: string, answers: AgentAnswerItem[]) => {
         if (!oref) {
             return;
@@ -180,7 +199,6 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
 
     // anchored order (kept ids hold their slot; new ids append) + manual drag reorder
     const [order, setOrder] = useState<string[]>([]);
-    const [dragId, setDragId] = useState<string>();
     useEffect(() => {
         const ids = listAgents.map((a) => a.id);
         setOrder((prev) => mergeOrder(prev, ids));
@@ -191,6 +209,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     // cursor + answer selection + focus + help
     const [cursorId, setCursorId] = useState<string>();
     const [answerSel, setAnswerSel] = useState<Record<string, Record<number, Set<number>>>>({});
+    const [answerTab, setAnswerTab] = useState<Record<string, number>>({});
     const [sentIds, setSentIds] = useState<Set<string>>(() => new Set());
     const [focusId, setFocusId] = useState<string>();
     const [focusReply, setFocusReply] = useState(false);
@@ -214,6 +233,10 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         document.querySelector(`[data-agent-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
         setPulseId(id);
         setTimeout(() => setPulseId((p) => (p === id ? undefined : p)), 1200);
+    };
+
+    const focusRowComposer = (id: string) => {
+        (document.querySelector(`[data-agent-id="${id}"] textarea`) as HTMLTextAreaElement)?.focus();
     };
 
     const toggleAnswer = (id: string, qi: number, oi: number) => {
@@ -247,6 +270,8 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         answer(a.ask?.oref, buildAskAnswers(qs, sel));
         setSentIds((s) => new Set(s).add(id));
     };
+
+    const selectQuestion = (id: string, qi: number) => setAnswerTab((prev) => ({ ...prev, [id]: qi }));
 
     const openFocus = (id: string, reply: boolean) => {
         setFocusId(id);
@@ -284,6 +309,15 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         } else if (e.key === "ArrowUp" || e.key === "k") {
             e.preventDefault();
             setCursorId((c) => moveCursor(orderedIds, c, -1));
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "h" || e.key === "l") {
+            const n = cur?.ask?.questions?.length ?? 0;
+            if (cur?.state !== "asking" || n <= 1) {
+                return;
+            }
+            e.preventDefault();
+            const delta = e.key === "ArrowLeft" || e.key === "h" ? -1 : 1;
+            const curTab = Math.min(answerTab[cur.id] ?? 0, n - 1);
+            selectQuestion(cur.id, Math.max(0, Math.min(n - 1, curTab + delta)));
         } else if (e.key === "n") {
             e.preventDefault();
             const target = nextAskId(asking.map((a) => a.id), lastJumpRef.current);
@@ -302,7 +336,9 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             }
         } else if (e.key === "r") {
             e.preventDefault();
-            if (cursorId) openFocus(cursorId, true);
+            if (cur && cur.state !== "asking") {
+                focusRowComposer(cur.id);
+            }
         } else if (e.key === "Escape") {
             if (showHelp) {
                 e.preventDefault();
@@ -313,11 +349,12 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             setShowHelp((v) => !v);
         } else if (/^[1-9]$/.test(e.key)) {
             if (cur?.state === "asking") {
+                const qi = Math.min(answerTab[cur.id] ?? 0, (cur.ask?.questions?.length ?? 1) - 1);
                 const oi = parseInt(e.key, 10) - 1;
-                const opts = cur.ask?.questions?.[0]?.options ?? [];
+                const opts = cur.ask?.questions?.[qi]?.options ?? [];
                 if (oi < opts.length) {
                     e.preventDefault();
-                    toggleAnswer(cur.id, 0, oi);
+                    toggleAnswer(cur.id, qi, oi);
                 }
             }
         }
@@ -338,12 +375,14 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     hasNext={i < orderedIds.length - 1}
                     selections={answerSel[focusAgent.id] ?? {}}
                     sent={sentIds.has(focusAgent.id)}
+                    activeQuestion={answerTab[focusAgent.id] ?? 0}
                     onBack={() => setFocusId(undefined)}
                     onPrev={() => focusStep(-1)}
                     onNext={() => focusStep(1)}
                     onOpenTerminal={() => setActiveTab(focusAgent.id)}
                     onToggleAnswer={(qi, oi) => toggleAnswer(focusAgent.id, qi, oi)}
                     onSubmitAnswer={() => submitAnswer(focusAgent.id)}
+                    onSelectQuestion={(qi) => selectQuestion(focusAgent.id, qi)}
                 />
             </div>
         );
@@ -383,11 +422,15 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 </span>
             </div>
 
-            {planUsage ? (
-                <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-1 border-b border-border bg-accent/[0.035] px-[18px] py-2 text-[11px]">
-                    <span className="text-[10px] uppercase tracking-wide text-muted">Plan usage</span>
-                    <PlanGauge label="Session" pct={planUsage.fivehourpct} reset={planUsage.fivehourreset} now={now} />
-                    <PlanGauge label="This week" pct={planUsage.weekpct} reset={planUsage.weekreset} now={now} />
+            {planByProvider.length > 0 ? (
+                <div className="flex shrink-0 items-center gap-4 overflow-x-auto border-b border-border bg-accent/[0.035] px-[18px] py-2 text-[11px]">
+                    <span className="text-[10px] uppercase tracking-wide text-muted">Plan</span>
+                    {planByProvider.map(({ provider, usage }, i) => (
+                        <Fragment key={provider}>
+                            {i > 0 ? <span className="text-white/15">|</span> : null}
+                            <ProviderPlan provider={provider} usage={usage} now={now} />
+                        </Fragment>
+                    ))}
                 </div>
             ) : null}
 
@@ -409,39 +452,30 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     )}
                 </AnimatePresence>
 
-                <AnimatePresence mode="popLayout">
-                    {orderedList.map((a) => (
-                        <motion.div
-                            key={a.id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.18 }}
-                            className={cn(pulseId === a.id && "ring-2 ring-warning ring-inset")}
-                        >
+                <Reorder.Group as="div" axis="y" values={orderedIds} onReorder={setOrder}>
+                    <AnimatePresence mode="popLayout">
+                        {orderedList.map((a) => (
                             <AgentRow
+                                key={a.id}
                                 agent={a}
                                 now={now}
                                 isCursor={cursorId === a.id}
+                                pulse={pulseId === a.id}
                                 selections={answerSel[a.id] ?? {}}
                                 sent={sentIds.has(a.id)}
+                                activeQuestion={answerTab[a.id] ?? 0}
                                 onCursor={() => setCursorId(a.id)}
                                 onOpen={() => openFocus(a.id, false)}
                                 onOpenTerminal={() => setActiveTab(a.id)}
                                 onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
                                 onSubmitAnswer={() => submitAnswer(a.id)}
+                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                onComposerEscape={() => containerRef.current?.focus()}
                                 onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-                                onDragStart={() => setDragId(a.id)}
-                                onDropOn={(before) => {
-                                    if (dragId) {
-                                        setOrder((o) => reorderList(o, dragId, a.id, before));
-                                    }
-                                    setDragId(undefined);
-                                }}
                             />
-                        </motion.div>
-                    ))}
-                </AnimatePresence>
+                        ))}
+                    </AnimatePresence>
+                </Reorder.Group>
 
                 <div className="px-[18px]">
                     <IdleSection agents={parkedIdle} onOpen={(id) => setActiveTab(id)} />

@@ -3,15 +3,19 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, Reorder, useDragControls } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { AgentComposer } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
-import { formatAge, isQuiet, latestMessageText, recentActions, type AgentVM } from "./agentsviewmodel";
+import { formatAge, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
+import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
 
-const StepCount = 3;
-const WorkingClampPx = 66; // ~3 lines at 13px / 1.6 line-height
+const RowNarrationMaxPx = 240; // default scroll-height cap for the in-row narration (user-resizable)
+const RowNarrationMinPx = 96; // lower bound when dragging the resize grip
+const RowNarrationMaxFrac = 0.8; // upper bound as a fraction of the viewport height
 
 export function AgentRow({
     agent,
@@ -19,29 +23,34 @@ export function AgentRow({
     isCursor,
     selections,
     sent,
+    activeQuestion,
     onCursor,
     onOpen,
     onOpenTerminal,
     onToggleAnswer,
     onSubmitAnswer,
+    onSelectQuestion,
+    onComposerEscape,
     onDismiss,
-    onDragStart,
-    onDropOn,
+    pulse,
 }: {
     agent: AgentVM;
     now: number;
     isCursor: boolean;
     selections: Record<number, Set<number>>;
     sent: boolean;
+    activeQuestion?: number;
     onCursor: () => void;
     onOpen: () => void;
     onOpenTerminal: () => void;
     onToggleAnswer: (qi: number, oi: number) => void;
     onSubmitAnswer: () => void;
+    onSelectQuestion?: (qi: number) => void;
+    onComposerEscape?: () => void;
     onDismiss?: () => void;
-    onDragStart: () => void;
-    onDropOn: (before: boolean) => void;
+    pulse?: boolean;
 }) {
+    const controls = useDragControls();
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
@@ -50,48 +59,78 @@ export function AgentRow({
     const asking = agent.state === "asking";
     const idle = agent.state === "idle";
     const idleMs = agent.idleSince != null ? Math.max(0, now - agent.idleSince) : undefined;
-    const msg = latestMessageText(entries) ?? agent.activity ?? "";
-    const steps = recentActions(entries, StepCount);
+    const hasQuestions = (agent.ask?.questions?.length ?? 0) > 0;
 
-    const proseRef = useRef<HTMLDivElement>(null);
-    const [clamped, setClamped] = useState(false);
-    useLayoutEffect(() => {
-        const el = proseRef.current;
-        if (el) {
-            setClamped(el.scrollHeight - el.clientHeight > 2);
+    // in-row narration sticks to the latest line unless the user scrolls up to read history
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const stickRef = useRef(true);
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (el && stickRef.current) {
+            el.scrollTop = el.scrollHeight;
         }
-    }, [msg]);
+    }, [entries]);
+    const onNarrationScroll = () => {
+        const el = scrollRef.current;
+        if (!el) {
+            return;
+        }
+        stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    };
+
+    // per-row narration cap, dragged via the grip below the timeline (resets on remount — not persisted)
+    const [narrationMax, setNarrationMax] = useState(RowNarrationMaxPx);
+    const resizeRef = useRef<{ y: number; h: number }>(null);
+    const onResizeDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        resizeRef.current = { y: e.clientY, h: narrationMax };
+    };
+    const onResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!resizeRef.current) {
+            return;
+        }
+        const next = resizeRef.current.h + (e.clientY - resizeRef.current.y);
+        setNarrationMax(Math.max(RowNarrationMinPx, Math.min(window.innerHeight * RowNarrationMaxFrac, next)));
+    };
+    const onResizeUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        resizeRef.current = null;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+    };
 
     return (
-        <div
+        <Reorder.Item
+            as="div"
+            value={agent.id}
+            dragListener={false}
+            dragControls={controls}
+            dragMomentum={false}
+            dragTransition={{ bounceStiffness: 600, bounceDamping: 30 }}
+            layout
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ layout: { type: "spring", stiffness: 650, damping: 32 }, opacity: { duration: 0.15 } }}
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-                e.preventDefault();
-                const r = e.currentTarget.getBoundingClientRect();
-                onDropOn(e.clientY < r.top + r.height / 2);
-            }}
             className={cn(
                 "group relative cursor-pointer border-b border-border px-[22px] py-3 transition-colors",
                 asking ? "bg-warning/5" : "hover:bg-white/[0.02]",
                 isCursor &&
                     (asking
                         ? "bg-warning/10 shadow-[inset_3px_0_0_var(--color-warning)]"
-                        : "bg-accent/[0.06] shadow-[inset_3px_0_0_var(--color-accent)]")
+                        : "bg-accent/[0.06] shadow-[inset_3px_0_0_var(--color-accent)]"),
+                pulse && "ring-2 ring-warning ring-inset"
             )}
         >
             <div className="flex items-center gap-2.5">
                 <span
-                    draggable
-                    onDragStart={(e) => {
-                        e.stopPropagation();
-                        onDragStart();
-                    }}
+                    onPointerDown={(e) => controls.start(e)}
                     onClick={(e) => e.stopPropagation()}
                     title="Drag to reorder"
-                    className="shrink-0 cursor-grab select-none text-[11px] text-muted opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+                    className="shrink-0 cursor-grab touch-none select-none text-[11px] text-muted opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
                 >
                     ⠿
                 </span>
@@ -139,45 +178,66 @@ export function AgentRow({
                 </button>
             </div>
 
-            {asking ? (
+            {entries.length > 0 ? (
+                <>
+                    <div
+                        ref={scrollRef}
+                        onScroll={onNarrationScroll}
+                        className="mt-2 ml-[26px] overflow-y-auto"
+                        style={{ maxHeight: narrationMax }}
+                    >
+                        <NarrationTimeline entries={entries} accentLatest />
+                    </div>
+                    <div
+                        onPointerDown={onResizeDown}
+                        onPointerMove={onResizeMove}
+                        onPointerUp={onResizeUp}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Drag to resize"
+                        className="group/resize mt-0.5 ml-[26px] flex h-2.5 cursor-ns-resize items-center justify-center"
+                    >
+                        <span className="h-[3px] w-8 rounded-full bg-border transition-colors group-hover/resize:bg-muted" />
+                    </div>
+                </>
+            ) : agent.activity ? (
+                <div className="mt-2 ml-[26px] whitespace-pre-wrap text-[13px] leading-[1.6] text-secondary">{agent.activity}</div>
+            ) : null}
+
+            {asking && hasQuestions ? (
                 <AnswerBar
                     agent={agent}
                     selections={selections}
                     sent={sent}
                     numbered
+                    activeQuestion={activeQuestion}
                     onToggle={onToggleAnswer}
                     onSubmit={onSubmitAnswer}
-                    className="ml-[26px]"
+                    onSelectQuestion={onSelectQuestion}
+                    className="mt-2 ml-[26px]"
                 />
-            ) : (
-                <div className="mt-2 ml-[26px] grid grid-cols-[minmax(0,1.7fr)_minmax(180px,0.85fr)] gap-6 max-[820px]:grid-cols-1 max-[820px]:gap-2">
-                    <div className="relative" style={{ maxHeight: WorkingClampPx, overflow: "hidden" }}>
-                        <div ref={proseRef} className="whitespace-pre-wrap text-[13px] leading-[1.6] text-secondary">
-                            {msg}
-                        </div>
-                        {clamped ? (
-                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-background to-transparent" />
-                        ) : null}
-                    </div>
-                    {steps.length > 0 ? (
-                        <div className="border-l border-border pl-3.5 font-mono text-[12px] leading-[1.95] text-muted">
-                            {steps.map((s, i) => (
-                                <div key={i}>
-                                    <span className="inline-block w-11 text-secondary/70">{s.verb}</span>
-                                    {s.target}
-                                    {s.outcome ? (
-                                        <span className={cn("ml-1", s.outcome === "ok" ? "text-accent" : "text-error")}>
-                                            {s.outcome === "ok" ? "✓" : "✗"}
-                                        </span>
-                                    ) : null}
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div />
-                    )}
-                </div>
-            )}
-        </div>
+            ) : null}
+
+            <AnimatePresence>
+                {isCursor && !asking ? (
+                    <motion.div
+                        key="composer"
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.16, ease: "easeOut" }}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className="mt-2 ml-[26px]"
+                    >
+                        <AgentComposer
+                            blockId={agent.blockId}
+                            placeholder={`message ${agent.name}…`}
+                            onEscape={onComposerEscape}
+                            className="border-t-0 px-0 py-0"
+                        />
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+        </Reorder.Item>
     );
 }

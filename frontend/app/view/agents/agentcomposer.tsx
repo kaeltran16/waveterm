@@ -11,7 +11,17 @@ const ComposerMaxH = 160; // grows up to here, then the textarea scrolls
 
 // Sends free text to an agent's terminal block. "\r" submits (the PTY treats CR as Enter), mirroring
 // how term-model writes xterm input via ControllerInputCommand.
-export function AgentComposer({ blockId, placeholder, className }: { blockId?: string; placeholder: string; className?: string }) {
+export function AgentComposer({
+    blockId,
+    placeholder,
+    className,
+    onEscape,
+}: {
+    blockId?: string;
+    placeholder: string;
+    className?: string;
+    onEscape?: () => void;
+}) {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
     useLayoutEffect(() => {
@@ -42,6 +52,9 @@ export function AgentComposer({ blockId, placeholder, className }: { blockId?: s
                     if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         send();
+                    } else if (e.key === "Escape" && onEscape) {
+                        e.preventDefault();
+                        onEscape();
                     }
                 }}
                 placeholder={placeholder}

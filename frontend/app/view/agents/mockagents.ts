@@ -21,10 +21,25 @@ const detectorNarration: AgentEntry[] = [
 ];
 
 const waveNarration: AgentEntry[] = [
-    { kind: "user", text: "fix the windows packaging backend gotcha" },
-    { kind: "action", verb: "ran", target: "task package", outcome: "ok" },
+    { kind: "user", text: "fix the windows packaging backend gotcha and verify the packaged app boots" },
+    { kind: "message", text: "Starting with the asarUnpack mapping — the packaged wavesrv wasn't being found at runtime." },
     { kind: "action", verb: "read", target: "electron-builder.config.cjs" },
-    { kind: "message", text: "asarUnpack maps dist/bin/**; verifying the packaged backend now." },
+    { kind: "action", verb: "read", target: "Taskfile.yml" },
+    { kind: "message", text: "Found it: dist/bin/** is unpacked, but an orphaned wavesrv from a prior build was shadowing the fresh one." },
+    { kind: "action", verb: "ran", target: "rm -rf dist/bin", outcome: "ok" },
+    { kind: "action", verb: "ran", target: "task build:backend", outcome: "ok" },
+    { kind: "action", verb: "ran", target: "task package", outcome: "ok" },
+    { kind: "message", text: "Package built. Pre-seeding the winCodeSign cache to dodge the symlink-privilege failure." },
+    { kind: "action", verb: "ran", target: "pwsh ./scripts/seed-wincodesign.ps1", outcome: "ok" },
+    { kind: "action", verb: "ran", target: "task package", outcome: "ok" },
+    { kind: "message", text: "Signed build produced. Launching the packaged app to confirm the backend handshakes." },
+    { kind: "action", verb: "ran", target: "./dist/win-unpacked/Wave.exe", outcome: "ok" },
+    { kind: "action", verb: "read", target: "wavesrv.log" },
+    { kind: "message", text: "Backend came up clean — websocket bound, domain socket connected, no orphan process." },
+    { kind: "action", verb: "ran", target: "go test ./pkg/...", outcome: "fail" },
+    { kind: "message", text: "One flaky reaper test failed; re-running to confirm it's the known race, not a regression." },
+    { kind: "action", verb: "ran", target: "go test ./pkg/wcore/ -run Reaper -count=3", outcome: "ok" },
+    { kind: "message", text: "Confirmed flaky — passes on retry. Packaging fix is solid; writing up the gotcha now." },
 ];
 
 const graphifyNarration: AgentEntry[] = [
@@ -121,6 +136,93 @@ export const mockAgentsAtom = atom<AgentVM[]>([
                 },
             ],
         },
+    },
+    {
+        id: "mock-ask-multi",
+        name: "planner",
+        task: "Plan the v0.15 release cut",
+        state: "asking",
+        model: "opus",
+        blockedMs: 60_000,
+        blockId: "mock-blk-8",
+        previousInfo: [
+            { kind: "message", text: "Scoped the v0.15 cut. A few decisions before I draft the plan." },
+            { kind: "action", verb: "read", target: "CHANGELOG.md" },
+            { kind: "action", verb: "read", target: "package.json" },
+        ],
+        ask: {
+            askId: "a-multi",
+            oref: "block:mock-blk-8",
+            questions: [
+                {
+                    header: "VERSION",
+                    question: "What version number should this release be?",
+                    options: [
+                        { label: "0.15.0 (Recommended)", description: "minor bump — new Agents tab + tabbed asks" },
+                        { label: "0.14.6", description: "treat it as a patch" },
+                        { label: "1.0.0", description: "call it stable" },
+                    ],
+                },
+                {
+                    header: "INCLUDE",
+                    question: "Which in-flight features make the cut? (pick any)",
+                    multiSelect: true,
+                    options: [{ label: "Agents tab" }, { label: "Resizable narration" }, { label: "Tabbed asks" }, { label: "Usage bridge" }],
+                },
+                {
+                    header: "CHANNEL",
+                    question: "Which release channel?",
+                    options: [{ label: "Stable" }, { label: "Beta" }],
+                },
+            ],
+        },
+    },
+    {
+        id: "mock-ask-two",
+        name: "migrator",
+        task: "Migrate config store to v2 schema",
+        state: "asking",
+        model: "sonnet",
+        blockedMs: 30_000,
+        blockId: "mock-blk-10",
+        previousInfo: [
+            { kind: "message", text: "Schema v2 migration is ready. Two calls before I run it." },
+            { kind: "action", verb: "read", target: "pkg/wconfig/schema.go" },
+            { kind: "action", verb: "ran", target: "go test ./pkg/wconfig/...", outcome: "ok" },
+        ],
+        ask: {
+            askId: "a-two",
+            oref: "block:mock-blk-10",
+            questions: [
+                {
+                    header: "BACKUP",
+                    question: "Back up the existing config before migrating?",
+                    options: [
+                        { label: "Yes, snapshot first (Recommended)", description: "copy config dir to a timestamped backup" },
+                        { label: "No, migrate in place", description: "faster, but no rollback" },
+                    ],
+                },
+                {
+                    header: "ON CONFLICT",
+                    question: "If a key can't be mapped, what should I do?",
+                    options: [{ label: "Keep old value" }, { label: "Use v2 default" }, { label: "Abort migration" }],
+                },
+            ],
+        },
+    },
+    {
+        id: "mock-ask-noopts",
+        name: "detector",
+        task: "Check scenario implementation status",
+        state: "asking",
+        model: "sonnet",
+        blockedMs: 45_000,
+        blockId: "mock-blk-9",
+        previousInfo: [
+            { kind: "message", text: "Checked all 12 scenarios; 9 are implemented and passing." },
+            { kind: "action", verb: "ran", target: "go test ./pkg/scenario/...", outcome: "ok" },
+            { kind: "message", text: "3 scenarios are still stubbed. I'm blocked at the prompt waiting for direction on whether to implement them now." },
+        ],
     },
     {
         id: "mock-work-1",

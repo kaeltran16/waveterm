@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, reorderList, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, latestMessageText, recentActions, moveCursor, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -227,17 +227,6 @@ describe("isRecentlyIdle", () => {
     });
 });
 
-describe("reorderList", () => {
-    it("moves an id before/after a target", () => {
-        expect(reorderList(["a", "b", "c"], "a", "c", false)).toEqual(["b", "c", "a"]);
-        expect(reorderList(["a", "b", "c"], "c", "a", true)).toEqual(["c", "a", "b"]);
-    });
-    it("no-ops on self, or when an id is absent", () => {
-        expect(reorderList(["a", "b"], "a", "a", true)).toEqual(["a", "b"]);
-        expect(reorderList(["a", "b"], "z", "a", true)).toEqual(["a", "b"]);
-    });
-});
-
 describe("isAskStale", () => {
     it("stale when a newer working/idle status supersedes the ask", () => {
         expect(isAskStale(1_000, 2_000, "working")).toBe(true);
@@ -323,6 +312,36 @@ describe("formatReset", () => {
     });
     it("hours and minutes past an hour", () => {
         expect(formatReset(inMins(131), NOW)).toBe("2h 11m");
+    });
+});
+
+describe("providerPlanUsage", () => {
+    const claude = mk("c", "working", { agent: "claude", usage: { fivehourpct: 42, weekpct: 78 } });
+    const codex = mk("x", "working", { agent: "codex", usage: { fivehourpct: 17, weekpct: 57 } });
+
+    it("returns one row per provider, claude before codex", () => {
+        const rows = providerPlanUsage([codex, claude]);
+        expect(rows.map((r) => r.provider)).toEqual(["claude", "codex"]);
+        expect(rows[0].usage.fivehourpct).toBe(42);
+        expect(rows[1].usage.weekpct).toBe(57);
+    });
+
+    it("keeps the freshest (first) agent per provider", () => {
+        const stale = mk("c2", "idle", { agent: "claude", usage: { fivehourpct: 5, weekpct: 5 } });
+        const rows = providerPlanUsage([claude, stale]);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].usage.fivehourpct).toBe(42);
+    });
+
+    it("excludes agents with no rate-limit data (context-only or none)", () => {
+        const ctxOnly = mk("k", "working", { agent: "codex", usage: { contextpct: 80 } });
+        const bare = mk("b", "working", { agent: "claude" });
+        expect(providerPlanUsage([ctxOnly, bare])).toEqual([]);
+    });
+
+    it("defaults a missing provider label to claude", () => {
+        const rows = providerPlanUsage([mk("u", "working", { usage: { weekpct: 30 } })]);
+        expect(rows[0].provider).toBe("claude");
     });
 });
 

@@ -6,26 +6,25 @@ import { type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 
 function QuestionGroup({
     question,
-    qi,
     numbered,
     selections,
     onClickOption,
 }: {
     question: AgentAskQuestion;
-    qi: number;
     numbered?: boolean;
     selections: Set<number>;
     onClickOption: (oi: number) => void;
 }) {
     const options = question.options ?? [];
     // rich asks (any option has a description) read better as stacked rows; bare label-only asks
-    // stay as compact wrapping chips. Keyboard number badges (1-9) only on the first question.
+    // stay as compact wrapping chips. Number badges (1-9) map to the keyboard shortcut; the parent
+    // renders only the keyboard-target question, so badges always belong to the rendered group.
     const stacked = options.some((o) => o.description);
     // Claude Code's AskUserQuestion payload has no separate "recommended" flag — by convention it
     // appends the literal "(Recommended)" marker to the option label, so this substring is the only signal.
     const isRec = (label: string) => label.toLowerCase().includes("(recommended)");
     return (
-        <div className={cn("mt-3", qi > 0 && "border-t border-border pt-3")}>
+        <div className="mt-3">
             {question.header ? (
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{question.header}</div>
             ) : null}
@@ -35,7 +34,7 @@ function QuestionGroup({
                     {options.map((opt, oi) => {
                         const isSelected = selections.has(oi);
                         const isRecommended = isRec(opt.label);
-                        const showNum = numbered && qi === 0 && oi < 9;
+                        const showNum = numbered && oi < 9;
                         return (
                             <button
                                 key={oi}
@@ -79,7 +78,7 @@ function QuestionGroup({
                     {options.map((opt, oi) => {
                         const isSelected = selections.has(oi);
                         const isRecommended = isRec(opt.label);
-                        const showNum = numbered && qi === 0 && oi < 9;
+                        const showNum = numbered && oi < 9;
                         return (
                             <button
                                 key={oi}
@@ -117,16 +116,20 @@ export function AnswerBar({
     selections,
     sent,
     numbered,
+    activeQuestion,
     onToggle,
     onSubmit,
+    onSelectQuestion,
     className,
 }: {
     agent: AgentVM;
     selections: Record<number, Set<number>>;
     sent?: boolean;
     numbered?: boolean;
+    activeQuestion?: number;
     onToggle: (qi: number, oi: number) => void;
     onSubmit: () => void;
+    onSelectQuestion?: (qi: number) => void;
     className?: string;
 }) {
     const questions = agent.ask?.questions ?? [];
@@ -144,24 +147,67 @@ export function AnswerBar({
         );
     }
     const needsConfirm = questions.some((q) => q.multiSelect);
+    const renderGroup = (qi: number) => (
+        <QuestionGroup
+            question={questions[qi]}
+            numbered={numbered}
+            selections={selections[qi] ?? new Set()}
+            onClickOption={(oi) => {
+                onToggle(qi, oi);
+                if (questions[qi].multiSelect) {
+                    return;
+                }
+                // single-select: jump to the next still-unanswered question, else submit
+                const next = questions.findIndex((_, j) => j !== qi && (selections[j]?.size ?? 0) === 0);
+                if (next === -1) {
+                    onSubmit();
+                } else {
+                    onSelectQuestion?.(next);
+                }
+            }}
+        />
+    );
+
+    // one ask renders inline; multiple asks become tabs so they don't stack into a tall wall
+    if (questions.length === 1) {
+        return (
+            <div className={className}>
+                {renderGroup(0)}
+                {needsConfirm ? <div className="mt-2 text-[11px] text-muted">press Enter to submit</div> : null}
+            </div>
+        );
+    }
+
+    const idx = Math.max(0, Math.min(activeQuestion ?? 0, questions.length - 1));
+    const answeredCount = questions.filter((_, qi) => (selections[qi]?.size ?? 0) > 0).length;
     return (
         <div className={className}>
-            {questions.map((q, qi) => (
-                <QuestionGroup
-                    key={qi}
-                    question={q}
-                    qi={qi}
-                    numbered={numbered}
-                    selections={selections[qi] ?? new Set()}
-                    onClickOption={(oi) => {
-                        onToggle(qi, oi);
-                        if (!q.multiSelect) {
-                            onSubmit();
-                        }
-                    }}
-                />
-            ))}
-            {needsConfirm ? <div className="mt-2 text-[11px] text-muted">press Enter to submit</div> : null}
+            <div className="flex flex-wrap gap-1.5">
+                {questions.map((q, qi) => {
+                    const answered = (selections[qi]?.size ?? 0) > 0;
+                    const active = qi === idx;
+                    return (
+                        <button
+                            key={qi}
+                            type="button"
+                            onClick={() => onSelectQuestion?.(qi)}
+                            className={cn(
+                                "flex cursor-pointer items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-[12px] transition-colors",
+                                active
+                                    ? "border-accent bg-accent/15 text-primary"
+                                    : "border-border text-secondary hover:bg-white/[0.04]"
+                            )}
+                        >
+                            <span className={cn("h-1.5 w-1.5 rounded-full", answered ? "bg-accent" : "bg-muted/40")} />
+                            {q.header || `Q${qi + 1}`}
+                        </button>
+                    );
+                })}
+            </div>
+            {renderGroup(idx)}
+            <div className="mt-2 text-[11px] text-muted">
+                {answeredCount}/{questions.length} answered · {needsConfirm ? "press Enter to submit" : "answer all to submit"}
+            </div>
         </div>
     );
 }

@@ -153,6 +153,29 @@ export function formatReset(resetSec: number, now: number): string {
     return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
+const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1 };
+
+/** Pure: the freshest plan-limit usage snapshot per provider. Claude (Claude.ai) and Codex (ChatGPT)
+ *  bill separate 5h/weekly quotas, so the strip shows one row per provider instead of a single global
+ *  figure. Input order is the priority (active-first): the first agent of each provider carrying
+ *  rate-limit data wins. Rows come back claude-first, then codex, then any others in first-seen order. */
+export function providerPlanUsage(agents: AgentVM[]): { provider: string; usage: AgentUsage }[] {
+    const byProvider = new Map<string, AgentUsage>();
+    for (const a of agents) {
+        const u = a.usage;
+        if (!u || (u.fivehourpct == null && u.weekpct == null)) {
+            continue;
+        }
+        const provider = a.agent || "claude";
+        if (!byProvider.has(provider)) {
+            byProvider.set(provider, u);
+        }
+    }
+    return [...byProvider.entries()]
+        .map(([provider, usage]) => ({ provider, usage }))
+        .sort((a, b) => (PROVIDER_RANK[a.provider] ?? 99) - (PROVIDER_RANK[b.provider] ?? 99));
+}
+
 /** Minimal per-agent inputs the live roster feeds the pure mapping. `status` is the sidebar's
  *  SessionStatus string ("working" | "waiting" | "idle"); `ts` is the status event's UnixMilli. */
 export interface LiveAgentInput {
@@ -191,18 +214,6 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.idleSince = input.ts;
     }
     return vm;
-}
-
-/** Pure: move draggedId before/after targetId in a flat id list. Returns the input on a no-op
- *  (self-drop, or either id absent). Never mutates the input. */
-export function reorderList(ids: string[], draggedId: string, targetId: string, placeBefore: boolean): string[] {
-    if (draggedId === targetId || !ids.includes(draggedId) || !ids.includes(targetId)) {
-        return ids;
-    }
-    const without = ids.filter((id) => id !== draggedId);
-    const idx = without.indexOf(targetId);
-    const at = placeBefore ? idx : idx + 1;
-    return [...without.slice(0, at), draggedId, ...without.slice(at)];
 }
 
 /** Pure: reconcile a stable order list against the current id set. Kept ids retain their existing
