@@ -299,6 +299,52 @@ export function mergeOrder(prev: string[], ids: string[]): string[] {
     return [...kept, ...added];
 }
 
+/** Pure: split working-state agents into the active set (rendered in the working region) and the
+ *  backgrounded set (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within
+ *  each is preserved. Asking agents are never passed here (they live in the asks region), so a
+ *  backgrounded agent that starts asking naturally re-surfaces. */
+export function partitionBackgrounded(
+    working: AgentVM[],
+    backgroundedIds: Set<string>
+): { active: AgentVM[]; backgrounded: AgentVM[] } {
+    const active: AgentVM[] = [];
+    const backgrounded: AgentVM[] = [];
+    for (const a of working) {
+        (backgroundedIds.has(a.id) ? backgrounded : active).push(a);
+    }
+    return { active, backgrounded };
+}
+
+export type MaxPanels = "auto" | number;
+
+/** Pure: which working rows render expanded (narration) vs collapsed (header-only). "auto" expands
+ *  every row — flexbox then shares the working region's height among them. A number N caps expansion
+ *  to the first N by order, but the cursor row is always expanded (swapped into the last slot when it
+ *  would otherwise fall outside the cap, so navigating never hides the row you're on). */
+export function expandedWorkingIds(orderedActive: string[], cursorId: string | undefined, maxPanels: MaxPanels): Set<string> {
+    if (maxPanels === "auto" || maxPanels >= orderedActive.length) {
+        return new Set(orderedActive);
+    }
+    const cap = Math.max(1, maxPanels);
+    const head = orderedActive.slice(0, cap);
+    if (cursorId != null && orderedActive.includes(cursorId) && !head.includes(cursorId)) {
+        head[head.length - 1] = cursorId;
+    }
+    return new Set(head);
+}
+
+/** Pure: the asking agent whose body is expanded in the spotlight. The cursor's ask wins when the
+ *  cursor is on an ask; otherwise the first ask. Undefined when nothing is asking. */
+export function focusedAskId(askingIds: string[], cursorId: string | undefined): string | undefined {
+    if (askingIds.length === 0) {
+        return undefined;
+    }
+    if (cursorId != null && askingIds.includes(cursorId)) {
+        return cursorId;
+    }
+    return askingIds[0];
+}
+
 /** Pure: the ask to jump to after `current`, cycling with wrap. Defaults to the first ask when
  *  `current` is absent or no longer in the list. Undefined for an empty list. */
 export function nextAskId(ids: string[], current?: string): string | undefined {

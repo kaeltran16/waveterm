@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, expandedWorkingIds, focusedAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -510,5 +510,56 @@ describe("summarizeActions", () => {
             { kind: "action", verb: "edit", target: "b", outcome: "fail" },
         ];
         expect(summarizeActions(withFail).outcome).toBe("fail");
+    });
+});
+
+describe("partitionBackgrounded", () => {
+    it("splits working agents by the backgrounded id set, preserving order", () => {
+        const working = [mk("a", "working"), mk("b", "working"), mk("c", "working")];
+        const out = partitionBackgrounded(working, new Set(["b"]));
+        expect(out.active.map((x) => x.id)).toEqual(["a", "c"]);
+        expect(out.backgrounded.map((x) => x.id)).toEqual(["b"]);
+    });
+    it("returns all active when the set is empty", () => {
+        const working = [mk("a", "working"), mk("b", "working")];
+        const out = partitionBackgrounded(working, new Set());
+        expect(out.active.map((x) => x.id)).toEqual(["a", "b"]);
+        expect(out.backgrounded).toEqual([]);
+    });
+});
+
+describe("expandedWorkingIds", () => {
+    it("auto expands every row", () => {
+        const ids = ["a", "b", "c"];
+        expect([...expandedWorkingIds(ids, "a", "auto")]).toEqual(["a", "b", "c"]);
+    });
+    it("a numeric cap expands the first N by order", () => {
+        const ids = ["a", "b", "c", "d"];
+        expect([...expandedWorkingIds(ids, "a", 2)].sort()).toEqual(["a", "b"]);
+    });
+    it("forces the cursor row into the expanded set, dropping the last slot", () => {
+        const ids = ["a", "b", "c", "d"];
+        const out = expandedWorkingIds(ids, "d", 2);
+        expect(out.has("d")).toBe(true);
+        expect(out.has("a")).toBe(true);
+        expect(out.has("b")).toBe(false);
+        expect(out.size).toBe(2);
+    });
+    it("a cap >= length expands all", () => {
+        const ids = ["a", "b"];
+        expect([...expandedWorkingIds(ids, undefined, 5)]).toEqual(["a", "b"]);
+    });
+});
+
+describe("focusedAskId", () => {
+    it("is undefined when nothing is asking", () => {
+        expect(focusedAskId([], "a")).toBeUndefined();
+    });
+    it("is the cursor when the cursor is on an ask", () => {
+        expect(focusedAskId(["a", "b"], "b")).toBe("b");
+    });
+    it("falls back to the first ask when the cursor is not an ask", () => {
+        expect(focusedAskId(["a", "b"], "z")).toBe("a");
+        expect(focusedAskId(["a", "b"], undefined)).toBe("a");
     });
 });

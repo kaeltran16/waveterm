@@ -13,6 +13,8 @@ import { motion, AnimatePresence, Reorder } from "motion/react";
 import {
     buildAskAnswers,
     canSubmitAsk,
+    expandedWorkingIds,
+    focusedAskId,
     formatReset,
     groupAgents,
     hasAnswerableAsk,
@@ -20,14 +22,17 @@ import {
     mergeOrder,
     moveCursor,
     nextAskId,
+    partitionBackgrounded,
     providerPlanUsage,
     usageLevel,
     type AgentVM,
+    type MaxPanels,
 } from "./agentsviewmodel";
 import { ensurePreviousInfo, liveAgentsAtom } from "./liveagents";
 import { mockAgentsAtom, USE_MOCK_AGENTS } from "./mockagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { AgentRow } from "./agentrow";
+import { BackgroundedSection } from "./backgroundedsection";
 import { FocusView } from "./focusview";
 import { IdleSection } from "./idlesection";
 
@@ -47,6 +52,29 @@ function RollingCount({ value, className }: { value: number; className?: string 
                     {value}
                 </motion.span>
             </AnimatePresence>
+        </span>
+    );
+}
+
+const MAX_PANEL_OPTIONS: MaxPanels[] = ["auto", 1, 2, 3, 4];
+
+function MaxPanelsControl({ value, onChange }: { value: MaxPanels; onChange: (v: MaxPanels) => void }) {
+    return (
+        <span className="flex items-center gap-1" title="Max expanded panels">
+            <span className="text-[10px] uppercase tracking-wide text-muted">panels</span>
+            {MAX_PANEL_OPTIONS.map((opt) => (
+                <button
+                    key={String(opt)}
+                    type="button"
+                    onClick={() => onChange(opt)}
+                    className={cn(
+                        "cursor-pointer rounded-[4px] border px-1.5 py-0.5 text-[10px] transition-colors",
+                        value === opt ? "border-accent bg-accent/15 text-primary" : "border-border text-muted hover:bg-white/[0.04]"
+                    )}
+                >
+                    {opt === "auto" ? "Auto" : opt}
+                </button>
+            ))}
         </span>
     );
 }
@@ -99,6 +127,7 @@ const HINTS: [string, string][] = [
     ["↵", "open / confirm"],
     ["r", "reply"],
     ["t", "terminal"],
+    ["b", "background"],
     ["esc", "back"],
 ];
 
@@ -112,6 +141,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         ["↵ (Enter)", "confirm selected answer, else open focus view"],
         ["r", "reply inline to the highlighted agent"],
         ["t", "open the highlighted agent's terminal tab"],
+        ["b", "background the highlighted agent (keeps running)"],
         ["esc", "leave focus view / blur reply box / close this"],
         ["?", "toggle this help"],
     ];
@@ -154,10 +184,15 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     // into the Idle list. Dismissals are keyed by idle episode (id:idleSince).
     const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
     const dismissKey = (a: AgentVM) => `${a.id}:${a.idleSince ?? ""}`;
+    const [backgroundedIds, setBackgroundedIds] = useState<Set<string>>(() => new Set());
+    const [maxPanels, setMaxPanels] = useState<MaxPanels>("auto");
+    const [dividerRatio, setDividerRatio] = useState<number>(undefined);
+    const regionsRef = useRef<HTMLDivElement>(null);
     const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, now) && !dismissed.has(dismissKey(a)));
     const recentIds = new Set(recentlyIdle.map((a) => a.id));
     const parkedIdle = idle.filter((a) => !recentIds.has(a.id));
-    const listAgents = [...asking, ...working, ...recentlyIdle];
+    // the working region holds active working + just-finished (grace) rows, minus anything backgrounded
+    const { active: activeWorking, backgrounded } = partitionBackgrounded([...working, ...recentlyIdle], backgroundedIds);
 
     // one-shot previous-info for asking agents (seeds first paint; the live stream supersedes it)
     useEffect(() => {
@@ -203,11 +238,13 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     // anchored order (kept ids hold their slot; new ids append) + manual drag reorder
     const [order, setOrder] = useState<string[]>([]);
     useEffect(() => {
-        const ids = listAgents.map((a) => a.id);
+        const ids = activeWorking.map((a) => a.id);
         setOrder((prev) => mergeOrder(prev, ids));
-    }, [listAgents.map((a) => a.id).join(",")]);
-    const orderedList = order.map((id) => listAgents.find((a) => a.id === id)).filter(Boolean) as AgentVM[];
-    const orderedIds = orderedList.map((a) => a.id);
+    }, [activeWorking.map((a) => a.id).join(",")]);
+    const orderedActive = order.map((id) => activeWorking.find((a) => a.id === id)).filter(Boolean) as AgentVM[];
+    const orderedActiveIds = orderedActive.map((a) => a.id);
+    // cursor traverses asks (spotlight order) then the working rows
+    const navigableIds = [...asking.map((a) => a.id), ...orderedActiveIds];
 
     // cursor + answer selection + focus + help
     const [cursorId, setCursorId] = useState<string>();
@@ -221,16 +258,36 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const expandedSet = expandedWorkingIds(orderedActiveIds, cursorId, maxPanels);
+    const focusedAsk = focusedAskId(asking.map((a) => a.id), cursorId);
+
     // keep the cursor valid as the set changes; seed it to the first row
     useEffect(() => {
-        if (orderedIds.length === 0) {
+        if (navigableIds.length === 0) {
             if (cursorId != null) setCursorId(undefined);
             return;
         }
-        if (cursorId == null || !orderedIds.includes(cursorId)) {
-            setCursorId(orderedIds[0]);
+        if (cursorId == null || !navigableIds.includes(cursorId)) {
+            setCursorId(navigableIds[0]);
         }
-    }, [orderedIds.join(",")]);
+    }, [navigableIds.join(",")]);
+
+    // asking overrides backgrounded: a muted agent that starts asking re-surfaces (it's in `asking`,
+    // not `working`), so drop it from the set to avoid re-muting when it returns to working.
+    useEffect(() => {
+        const askingSet = new Set(asking.map((a) => a.id));
+        setBackgroundedIds((prev) => {
+            let changed = false;
+            const next = new Set(prev);
+            for (const id of prev) {
+                if (askingSet.has(id)) {
+                    next.delete(id);
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [asking.map((a) => a.id).join(",")]);
 
     const scrollToPulse = (id: string) => {
         document.querySelector(`[data-agent-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -276,13 +333,45 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
 
     const selectQuestion = (id: string, qi: number) => setAnswerTab((prev) => ({ ...prev, [id]: qi }));
 
+    const toggleBackground = (id: string) => {
+        setBackgroundedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    const dividerDragRef = useRef(false);
+    const onDividerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dividerDragRef.current = true;
+    };
+    const onDividerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+        if (!dividerDragRef.current || !regionsRef.current) {
+            return;
+        }
+        const rect = regionsRef.current.getBoundingClientRect();
+        const ratio = (e.clientY - rect.top) / rect.height;
+        setDividerRatio(Math.max(0.15, Math.min(0.85, ratio)));
+    };
+    const onDividerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+        dividerDragRef.current = false;
+        e.currentTarget.releasePointerCapture(e.pointerId);
+    };
+
     const openFocus = (id: string, reply: boolean) => {
         setFocusId(id);
         setFocusReply(reply);
     };
 
     const focusStep = (delta: number) => {
-        setFocusId((cur) => moveCursor(orderedIds, cur, delta) ?? cur);
+        setFocusId((cur) => moveCursor(navigableIds, cur, delta) ?? cur);
         setFocusReply(false);
     };
 
@@ -308,13 +397,13 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             }
             return;
         }
-        const cur = orderedList.find((a) => a.id === cursorId);
+        const cur = asking.find((a) => a.id === cursorId) ?? orderedActive.find((a) => a.id === cursorId);
         if (e.key === "ArrowDown" || e.key === "j") {
             e.preventDefault();
-            setCursorId((c) => moveCursor(orderedIds, c, 1));
+            setCursorId((c) => moveCursor(navigableIds, c, 1));
         } else if (e.key === "ArrowUp" || e.key === "k") {
             e.preventDefault();
-            setCursorId((c) => moveCursor(orderedIds, c, -1));
+            setCursorId((c) => moveCursor(navigableIds, c, -1));
         } else if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "h" || e.key === "l") {
             const n = cur?.ask?.questions?.length ?? 0;
             if (cur?.state !== "asking" || n <= 1) {
@@ -350,6 +439,11 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             if (cur) {
                 setActiveTab(cur.id);
             }
+        } else if (e.key === "b") {
+            e.preventDefault();
+            if (cur && cur.state !== "asking") {
+                toggleBackground(cur.id);
+            }
         } else if (e.key === "Escape") {
             if (showHelp) {
                 e.preventDefault();
@@ -372,10 +466,10 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     };
 
     const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
-    const focusAgent = focusId != null ? orderedList.find((a) => a.id === focusId) : undefined;
+    const focusAgent = focusId != null ? [...asking, ...orderedActive].find((a) => a.id === focusId) : undefined;
 
     if (focusAgent) {
-        const i = orderedIds.indexOf(focusAgent.id);
+        const i = navigableIds.indexOf(focusAgent.id);
         return (
             <div ref={containerRef} tabIndex={0} onKeyDown={onKeyDown} className="h-full w-full outline-none">
                 <FocusView
@@ -383,7 +477,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     now={now}
                     autofocusComposer={focusReply}
                     hasPrev={i > 0}
-                    hasNext={i < orderedIds.length - 1}
+                    hasNext={i < navigableIds.length - 1}
                     selections={answerSel[focusAgent.id] ?? {}}
                     sent={sentIds.has(focusAgent.id)}
                     activeQuestion={answerTab[focusAgent.id] ?? 0}
@@ -426,6 +520,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                             <span className="font-normal text-muted">· jump →</span>
                         </button>
                     ) : null}
+                    <MaxPanelsControl value={maxPanels} onChange={setMaxPanels} />
                     <span className="flex items-center gap-1">
                         <RollingCount value={working.length} />
                         <span>working</span>
@@ -445,7 +540,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 </div>
             ) : null}
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div ref={regionsRef} className="flex min-h-0 flex-1 flex-col">
                 <AnimatePresence>
                     {empty && (
                         <motion.div
@@ -463,32 +558,99 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     )}
                 </AnimatePresence>
 
-                <Reorder.Group as="div" axis="y" values={orderedIds} onReorder={setOrder}>
+                {asking.length > 0 ? (
+                    <Reorder.Group
+                        as="div"
+                        axis="y"
+                        values={asking.map((a) => a.id)}
+                        onReorder={() => {}}
+                        className="shrink-0 overflow-y-auto"
+                        style={{
+                            flex: dividerRatio != null ? `0 0 ${dividerRatio * 100}%` : "0 0 auto",
+                            maxHeight: dividerRatio != null ? undefined : "60%",
+                        }}
+                    >
+                        <AnimatePresence mode="popLayout">
+                            {asking.map((a) => {
+                                const isFocused = focusedAsk === a.id;
+                                return (
+                                    <AgentRow
+                                        key={a.id}
+                                        agent={a}
+                                        now={now}
+                                        isCursor={cursorId === a.id}
+                                        expanded={isFocused}
+                                        fill={false}
+                                        pulse={pulseId === a.id}
+                                        selections={answerSel[a.id] ?? {}}
+                                        sent={sentIds.has(a.id)}
+                                        activeQuestion={answerTab[a.id] ?? 0}
+                                        onCursor={() => setCursorId(a.id)}
+                                        onOpen={() => openFocus(a.id, false)}
+                                        onOpenTerminal={() => setActiveTab(a.id)}
+                                        onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                        onSubmitAnswer={() => submitAnswer(a.id)}
+                                        onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                        onComposerEscape={() => containerRef.current?.focus()}
+                                    />
+                                );
+                            })}
+                        </AnimatePresence>
+                    </Reorder.Group>
+                ) : null}
+
+                {asking.length > 0 && orderedActive.length > 0 ? (
+                    <div
+                        onPointerDown={onDividerDown}
+                        onPointerMove={onDividerMove}
+                        onPointerUp={onDividerUp}
+                        onDoubleClick={() => setDividerRatio(undefined)}
+                        title="Drag to bias asks vs working · double-click for auto"
+                        className="group/div flex h-2.5 shrink-0 cursor-ns-resize items-center justify-center"
+                    >
+                        <span className="h-[3px] w-10 rounded-full bg-border transition-colors group-hover/div:bg-accent" />
+                    </div>
+                ) : null}
+
+                <Reorder.Group
+                    as="div"
+                    axis="y"
+                    values={orderedActiveIds}
+                    onReorder={setOrder}
+                    className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+                >
                     <AnimatePresence mode="popLayout">
-                        {orderedList.map((a) => (
-                            <AgentRow
-                                key={a.id}
-                                agent={a}
-                                now={now}
-                                isCursor={cursorId === a.id}
-                                pulse={pulseId === a.id}
-                                selections={answerSel[a.id] ?? {}}
-                                sent={sentIds.has(a.id)}
-                                activeQuestion={answerTab[a.id] ?? 0}
-                                onCursor={() => setCursorId(a.id)}
-                                onOpen={() => openFocus(a.id, false)}
-                                onOpenTerminal={() => setActiveTab(a.id)}
-                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                onSubmitAnswer={() => submitAnswer(a.id)}
-                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                onComposerEscape={() => containerRef.current?.focus()}
-                                onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-                            />
-                        ))}
+                        {orderedActive.map((a) => {
+                            const isExpanded = expandedSet.has(a.id);
+                            return (
+                                <AgentRow
+                                    key={a.id}
+                                    agent={a}
+                                    now={now}
+                                    isCursor={cursorId === a.id}
+                                    expanded={isExpanded}
+                                    fill={isExpanded}
+                                    pulse={pulseId === a.id}
+                                    selections={answerSel[a.id] ?? {}}
+                                    sent={sentIds.has(a.id)}
+                                    activeQuestion={answerTab[a.id] ?? 0}
+                                    onCursor={() => setCursorId(a.id)}
+                                    onOpen={() => openFocus(a.id, false)}
+                                    onOpenTerminal={() => setActiveTab(a.id)}
+                                    onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                    onSubmitAnswer={() => submitAnswer(a.id)}
+                                    onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                    onComposerEscape={() => containerRef.current?.focus()}
+                                    onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
+                                    onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+                                />
+                            );
+                        })}
                     </AnimatePresence>
                 </Reorder.Group>
 
-                <div className="px-[18px]">
+                <div className="shrink-0 px-[18px]">
+                    <BackgroundedSection agents={backgrounded} onRestore={(id) => toggleBackground(id)} />
                     <IdleSection agents={parkedIdle} onOpen={(id) => setActiveTab(id)} />
                 </div>
             </div>

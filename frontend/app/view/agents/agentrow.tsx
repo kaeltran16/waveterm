@@ -4,7 +4,7 @@
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion, Reorder, useDragControls } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { AgentComposer } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
 import { formatAge, hasAnswerableAsk, isQuiet, type AgentVM } from "./agentsviewmodel";
@@ -13,14 +13,14 @@ import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
 
-const RowNarrationMaxPx = 240; // default scroll-height cap for the in-row narration (user-resizable)
-const RowNarrationMinPx = 96; // lower bound when dragging the resize grip
-const RowNarrationMaxFrac = 0.8; // upper bound as a fraction of the viewport height
+const MinExpandedRowPx = 120; // a fill row never shrinks below this; past it the working region scrolls
 
 export function AgentRow({
     agent,
     now,
     isCursor,
+    expanded,
+    fill,
     selections,
     sent,
     activeQuestion,
@@ -31,12 +31,15 @@ export function AgentRow({
     onSubmitAnswer,
     onSelectQuestion,
     onComposerEscape,
+    onBackground,
     onDismiss,
     pulse,
 }: {
     agent: AgentVM;
     now: number;
     isCursor: boolean;
+    expanded: boolean;
+    fill: boolean;
     selections: Record<number, Set<number>>;
     sent: boolean;
     activeQuestion?: number;
@@ -47,6 +50,7 @@ export function AgentRow({
     onSubmitAnswer: () => void;
     onSelectQuestion?: (qi: number) => void;
     onComposerEscape?: () => void;
+    onBackground?: () => void;
     onDismiss?: () => void;
     pulse?: boolean;
 }) {
@@ -69,34 +73,13 @@ export function AgentRow({
         if (el && stickRef.current) {
             el.scrollTop = el.scrollHeight;
         }
-    }, [entries]);
+    }, [entries, expanded]);
     const onNarrationScroll = () => {
         const el = scrollRef.current;
         if (!el) {
             return;
         }
         stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    };
-
-    // per-row narration cap, dragged via the grip below the timeline (resets on remount — not persisted)
-    const [narrationMax, setNarrationMax] = useState(RowNarrationMaxPx);
-    const resizeRef = useRef<{ y: number; h: number }>(null);
-    const onResizeDown = (e: React.PointerEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        e.stopPropagation();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        resizeRef.current = { y: e.clientY, h: narrationMax };
-    };
-    const onResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
-        if (!resizeRef.current) {
-            return;
-        }
-        const next = resizeRef.current.h + (e.clientY - resizeRef.current.y);
-        setNarrationMax(Math.max(RowNarrationMinPx, Math.min(window.innerHeight * RowNarrationMaxFrac, next)));
-    };
-    const onResizeUp = (e: React.PointerEvent<HTMLDivElement>) => {
-        resizeRef.current = null;
-        e.currentTarget.releasePointerCapture(e.pointerId);
     };
 
     return (
@@ -115,8 +98,9 @@ export function AgentRow({
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
+            style={{ flex: fill ? "1 1 0" : "0 0 auto", minHeight: fill ? MinExpandedRowPx : undefined }}
             className={cn(
-                "group relative cursor-pointer border-b border-border px-[22px] py-3 transition-colors",
+                "group relative flex min-h-0 cursor-pointer flex-col border-b border-border px-[22px] py-3 transition-colors",
                 asking ? "bg-warning/5" : "hover:bg-white/[0.02]",
                 isCursor &&
                     (asking
@@ -125,7 +109,7 @@ export function AgentRow({
                 pulse && "ring-2 ring-warning ring-inset"
             )}
         >
-            <div className="flex items-center gap-2.5">
+            <div className="flex shrink-0 items-center gap-2.5">
                 <span
                     onPointerDown={(e) => controls.start(e)}
                     onClick={(e) => e.stopPropagation()}
@@ -150,6 +134,21 @@ export function AgentRow({
                         {idle ? `${formatAge(idleMs)} idle` : formatAge(agent.activeMs)}
                     </span>
                 )}
+                {onBackground ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onBackground();
+                        }}
+                        title="Background (b) — collapse, keep running"
+                        className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                            <path d="M3 8h10M3 11h10M3 5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                        </svg>
+                    </button>
+                ) : null}
                 {onDismiss ? (
                     <button
                         type="button"
@@ -178,32 +177,19 @@ export function AgentRow({
                 </button>
             </div>
 
-            {entries.length > 0 ? (
-                <>
-                    <div
-                        ref={scrollRef}
-                        onScroll={onNarrationScroll}
-                        className="mt-2 ml-[26px] overflow-y-auto"
-                        style={{ maxHeight: narrationMax }}
-                    >
-                        <NarrationTimeline entries={entries} accentLatest active={agent.state === "working"} />
-                    </div>
-                    <div
-                        onPointerDown={onResizeDown}
-                        onPointerMove={onResizeMove}
-                        onPointerUp={onResizeUp}
-                        onClick={(e) => e.stopPropagation()}
-                        title="Drag to resize"
-                        className="group/resize mt-0.5 ml-[26px] flex h-2.5 cursor-ns-resize items-center justify-center"
-                    >
-                        <span className="h-[3px] w-8 rounded-full bg-border transition-colors group-hover/resize:bg-muted" />
-                    </div>
-                </>
-            ) : agent.activity ? (
+            {expanded && entries.length > 0 ? (
+                <div
+                    ref={scrollRef}
+                    onScroll={onNarrationScroll}
+                    className={cn("mt-2 ml-[26px] overflow-y-auto", fill && "min-h-0 flex-1")}
+                >
+                    <NarrationTimeline entries={entries} accentLatest active={agent.state === "working"} />
+                </div>
+            ) : expanded && agent.activity ? (
                 <div className="mt-2 ml-[26px] whitespace-pre-wrap text-[13px] leading-[1.6] text-secondary">{agent.activity}</div>
             ) : null}
 
-            {asking && hasQuestions ? (
+            {expanded && asking && hasQuestions ? (
                 <AnswerBar
                     agent={agent}
                     selections={selections}
@@ -213,12 +199,12 @@ export function AgentRow({
                     onToggle={onToggleAnswer}
                     onSubmit={onSubmitAnswer}
                     onSelectQuestion={onSelectQuestion}
-                    className="mt-2 ml-[26px]"
+                    className="mt-2 ml-[26px] shrink-0"
                 />
             ) : null}
 
             <AnimatePresence>
-                {isCursor && !hasQuestions ? (
+                {expanded && isCursor && !hasQuestions ? (
                     <motion.div
                         key="composer"
                         initial={{ height: 0, opacity: 0 }}
@@ -226,6 +212,7 @@ export function AgentRow({
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.18, ease: "easeOut" }}
                         style={{ overflow: "hidden" }}
+                        className="shrink-0"
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
                     >
