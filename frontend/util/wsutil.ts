@@ -24,5 +24,13 @@ function newWebSocket(url: string, headers: { [key: string]: string }): ComboWeb
     }
 }
 
-export { newWebSocket };
+function buildWsConnUrl(baseHostPort: string, stableId: string, authKey: string | null): string {
+    let url = baseHostPort + "/ws?stableid=" + encodeURIComponent(stableId);
+    if (authKey) {
+        url += "&authkey=" + encodeURIComponent(authKey);
+    }
+    return url;
+}
+
+export { buildWsConnUrl, newWebSocket };
 export type { ComboWebSocket as WebSocket };

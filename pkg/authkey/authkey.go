@@ -17,10 +17,13 @@ const AuthKeyHeader = "X-AuthKey"
 func ValidateIncomingRequest(r *http.Request) error {
 	reqAuthKey := r.Header.Get(AuthKeyHeader)
 	if reqAuthKey == "" {
-		return fmt.Errorf("no x-authkey header")
+		reqAuthKey = r.URL.Query().Get("authkey")
+	}
+	if reqAuthKey == "" {
+		return fmt.Errorf("no x-authkey header or authkey query param")
 	}
 	if reqAuthKey != GetAuthKey() {
-		return fmt.Errorf("x-authkey header is invalid")
+		return fmt.Errorf("authkey is invalid")
 	}
 	return nil
 }

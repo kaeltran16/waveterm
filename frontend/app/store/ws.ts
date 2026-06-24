@@ -1,11 +1,9 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { type WebSocket, newWebSocket } from "@/util/wsutil";
+import { buildWsConnUrl, type WebSocket, newWebSocket } from "@/util/wsutil";
 import debug from "debug";
 import { sprintf } from "sprintf-js";
-
-const AuthKeyHeader = "X-AuthKey";
 
 const dlog = debug("wave:ws");
 
@@ -75,12 +73,8 @@ class WSControl {
         dlog("try reconnect:", desc);
         this.opening = true;
         this.wsConn = newWebSocket(
-            this.baseHostPort + "/ws?stableid=" + encodeURIComponent(this.stableId),
-            this.eoOpts
-                ? {
-                      [AuthKeyHeader]: this.eoOpts.authKey,
-                  }
-                : null
+            buildWsConnUrl(this.baseHostPort, this.stableId, this.eoOpts ? this.eoOpts.authKey : null),
+            null
         );
         this.wsConn.onopen = (e: Event) => {
             this.onopen(e);
