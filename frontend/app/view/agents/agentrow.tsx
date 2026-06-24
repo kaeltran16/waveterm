@@ -181,9 +181,9 @@ export function AgentRow({
                 <div
                     ref={scrollRef}
                     onScroll={onNarrationScroll}
-                    className={cn("mt-2 ml-[26px] overflow-y-auto", fill && "min-h-0 flex-1")}
+                    className={cn("mt-2 ml-[26px] overflow-y-auto", fill ? "min-h-0 flex-1" : "max-h-48")}
                 >
-                    <NarrationTimeline entries={entries} accentLatest active={agent.state === "working"} />
+                    <NarrationTimeline entries={entries} accentLatest active={agent.state !== "idle"} />
                 </div>
             ) : expanded && agent.activity ? (
                 <div className="mt-2 ml-[26px] whitespace-pre-wrap text-[13px] leading-[1.6] text-secondary">{agent.activity}</div>

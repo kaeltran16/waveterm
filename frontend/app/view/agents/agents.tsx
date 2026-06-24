@@ -14,7 +14,6 @@ import {
     buildAskAnswers,
     canSubmitAsk,
     expandedWorkingIds,
-    focusedAskId,
     formatReset,
     groupAgents,
     hasAnswerableAsk,
@@ -186,13 +185,13 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const dismissKey = (a: AgentVM) => `${a.id}:${a.idleSince ?? ""}`;
     const [backgroundedIds, setBackgroundedIds] = useState<Set<string>>(() => new Set());
     const [maxPanels, setMaxPanels] = useState<MaxPanels>("auto");
-    const [dividerRatio, setDividerRatio] = useState<number>(undefined);
-    const regionsRef = useRef<HTMLDivElement>(null);
     const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, now) && !dismissed.has(dismissKey(a)));
     const recentIds = new Set(recentlyIdle.map((a) => a.id));
     const parkedIdle = idle.filter((a) => !recentIds.has(a.id));
-    // the working region holds active working + just-finished (grace) rows, minus anything backgrounded
-    const { active: activeWorking, backgrounded } = partitionBackgrounded([...working, ...recentlyIdle], backgroundedIds);
+    // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
+    // minus anything backgrounded. Asking agents are never backgrounded (the effect below un-mutes any
+    // that start asking), so they always land in `active` and hold whatever slot they already had.
+    const { active: activeAgents, backgrounded } = partitionBackgrounded([...asking, ...working, ...recentlyIdle], backgroundedIds);
 
     // one-shot previous-info for asking agents (seeds first paint; the live stream supersedes it)
     useEffect(() => {
@@ -235,16 +234,17 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         };
     }, []);
 
-    // anchored order (kept ids hold their slot; new ids append) + manual drag reorder
+    // anchored order (kept ids hold their slot; new ids append) + manual drag reorder. This is what
+    // stops a working->asking transition from jumping: the id already holds a slot, so it stays put.
     const [order, setOrder] = useState<string[]>([]);
     useEffect(() => {
-        const ids = activeWorking.map((a) => a.id);
+        const ids = activeAgents.map((a) => a.id);
         setOrder((prev) => mergeOrder(prev, ids));
-    }, [activeWorking.map((a) => a.id).join(",")]);
-    const orderedActive = order.map((id) => activeWorking.find((a) => a.id === id)).filter(Boolean) as AgentVM[];
-    const orderedActiveIds = orderedActive.map((a) => a.id);
-    // cursor traverses asks (spotlight order) then the working rows
-    const navigableIds = [...asking.map((a) => a.id), ...orderedActiveIds];
+    }, [activeAgents.map((a) => a.id).join(",")]);
+    const orderedAgents = order.map((id) => activeAgents.find((a) => a.id === id)).filter(Boolean) as AgentVM[];
+    const orderedIds = orderedAgents.map((a) => a.id);
+    // cursor traverses the single unified list
+    const navigableIds = orderedIds;
 
     // cursor + answer selection + focus + help
     const [cursorId, setCursorId] = useState<string>();
@@ -258,8 +258,10 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const expandedSet = expandedWorkingIds(orderedActiveIds, cursorId, maxPanels);
-    const focusedAsk = focusedAskId(asking.map((a) => a.id), cursorId);
+    // asks are always expanded (their answer bar must show); working/idle rows expand per maxPanels.
+    const askingIds = new Set(asking.map((a) => a.id));
+    const cappableIds = orderedIds.filter((id) => !askingIds.has(id));
+    const expandedSet = new Set<string>([...askingIds, ...expandedWorkingIds(cappableIds, cursorId, maxPanels)]);
 
     // keep the cursor valid as the set changes; seed it to the first row
     useEffect(() => {
@@ -345,26 +347,6 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         });
     };
 
-    const dividerDragRef = useRef(false);
-    const onDividerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-        e.preventDefault();
-        e.stopPropagation();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        dividerDragRef.current = true;
-    };
-    const onDividerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-        if (!dividerDragRef.current || !regionsRef.current) {
-            return;
-        }
-        const rect = regionsRef.current.getBoundingClientRect();
-        const ratio = (e.clientY - rect.top) / rect.height;
-        setDividerRatio(Math.max(0.15, Math.min(0.85, ratio)));
-    };
-    const onDividerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-        dividerDragRef.current = false;
-        e.currentTarget.releasePointerCapture(e.pointerId);
-    };
-
     const openFocus = (id: string, reply: boolean) => {
         setFocusId(id);
         setFocusReply(reply);
@@ -397,7 +379,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
             }
             return;
         }
-        const cur = asking.find((a) => a.id === cursorId) ?? orderedActive.find((a) => a.id === cursorId);
+        const cur = orderedAgents.find((a) => a.id === cursorId);
         if (e.key === "ArrowDown" || e.key === "j") {
             e.preventDefault();
             setCursorId((c) => moveCursor(navigableIds, c, 1));
@@ -466,7 +448,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     };
 
     const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
-    const focusAgent = focusId != null ? [...asking, ...orderedActive].find((a) => a.id === focusId) : undefined;
+    const focusAgent = focusId != null ? orderedAgents.find((a) => a.id === focusId) : undefined;
 
     if (focusAgent) {
         const i = navigableIds.indexOf(focusAgent.id);
@@ -540,7 +522,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 </div>
             ) : null}
 
-            <div ref={regionsRef} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col">
                 <AnimatePresence>
                     {empty && (
                         <motion.div
@@ -558,69 +540,15 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     )}
                 </AnimatePresence>
 
-                {asking.length > 0 ? (
-                    <Reorder.Group
-                        as="div"
-                        axis="y"
-                        values={asking.map((a) => a.id)}
-                        onReorder={() => {}}
-                        className="shrink-0 overflow-y-auto"
-                        style={{
-                            flex: dividerRatio != null ? `0 0 ${dividerRatio * 100}%` : "0 0 auto",
-                            maxHeight: dividerRatio != null ? undefined : "60%",
-                        }}
-                    >
-                        <AnimatePresence mode="popLayout">
-                            {asking.map((a) => {
-                                const isFocused = focusedAsk === a.id;
-                                return (
-                                    <AgentRow
-                                        key={a.id}
-                                        agent={a}
-                                        now={now}
-                                        isCursor={cursorId === a.id}
-                                        expanded={isFocused}
-                                        fill={false}
-                                        pulse={pulseId === a.id}
-                                        selections={answerSel[a.id] ?? {}}
-                                        sent={sentIds.has(a.id)}
-                                        activeQuestion={answerTab[a.id] ?? 0}
-                                        onCursor={() => setCursorId(a.id)}
-                                        onOpen={() => openFocus(a.id, false)}
-                                        onOpenTerminal={() => setActiveTab(a.id)}
-                                        onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                        onSubmitAnswer={() => submitAnswer(a.id)}
-                                        onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                        onComposerEscape={() => containerRef.current?.focus()}
-                                    />
-                                );
-                            })}
-                        </AnimatePresence>
-                    </Reorder.Group>
-                ) : null}
-
-                {asking.length > 0 && orderedActive.length > 0 ? (
-                    <div
-                        onPointerDown={onDividerDown}
-                        onPointerMove={onDividerMove}
-                        onPointerUp={onDividerUp}
-                        onDoubleClick={() => setDividerRatio(undefined)}
-                        title="Drag to bias asks vs working · double-click for auto"
-                        className="group/div flex h-2.5 shrink-0 cursor-ns-resize items-center justify-center"
-                    >
-                        <span className="h-[3px] w-10 rounded-full bg-border transition-colors group-hover/div:bg-accent" />
-                    </div>
-                ) : null}
-
                 <Reorder.Group
                     as="div"
                     axis="y"
-                    values={orderedActiveIds}
+                    values={orderedIds}
                     onReorder={setOrder}
                     className="flex min-h-0 flex-1 flex-col overflow-y-auto"
                 >
                     <AnimatePresence mode="popLayout">
-                        {orderedActive.map((a) => {
+                        {orderedAgents.map((a) => {
                             const isExpanded = expandedSet.has(a.id);
                             return (
                                 <AgentRow
@@ -629,7 +557,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                                     now={now}
                                     isCursor={cursorId === a.id}
                                     expanded={isExpanded}
-                                    fill={isExpanded}
+                                    fill={isExpanded && a.state !== "asking"}
                                     pulse={pulseId === a.id}
                                     selections={answerSel[a.id] ?? {}}
                                     sent={sentIds.has(a.id)}

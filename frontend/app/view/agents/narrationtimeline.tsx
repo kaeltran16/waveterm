@@ -27,7 +27,7 @@ function ActionStrip({ action, large }: { action: AgentActionEntry; large?: bool
                 large ? "text-[13px]" : "text-[12px]"
             )}
         >
-            <span className="inline-block w-14 text-secondary">{action.verb}</span>
+            <span className="inline-block min-w-14 pr-2 text-secondary">{action.verb}</span>
             {action.target}
             {action.note ? <span className="text-muted"> ({action.note})</span> : null}
             {action.outcome ? (
