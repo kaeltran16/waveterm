@@ -7,11 +7,18 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { useEffect, useRef } from "react";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
 import { hlog } from "./api";
+import * as chrome from "./chrome";
+import { buildTauriMenu } from "./menu";
 
 export function TerminalHarness({ client, tabId }: { client: WshClient; tabId: string }) {
     const elemRef = useRef<HTMLDivElement>(null);
+    const [zoom, setZoom] = useState(1);
+    const [ctrlShift, setCtrlShift] = useState(false);
+    const [ctxChecked, setCtxChecked] = useState(false);
 
     useEffect(() => {
         let disposed = false;
@@ -92,13 +99,51 @@ export function TerminalHarness({ client, tabId }: { client: WshClient; tabId: s
         getApi().onWaveInit((opts) => getApi().sendLog("wave-init received: " + JSON.stringify(opts)));
     }, []);
 
+    useEffect(() => {
+        setZoom(getApi().getZoomFactor());
+        getApi().onZoomFactorChange((z) => setZoom(z));
+        getApi().onControlShiftStateUpdate((s) => setCtrlShift(s));
+    }, []);
+
+    const onContextMenu = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        const items: ContextMenuItem[] = [
+            { label: "Log Hello", click: () => getApi().sendLog("ctx: hello") },
+            { type: "separator" },
+            { label: "Checkable", type: "checkbox", checked: ctxChecked, click: () => setCtxChecked((v) => !v) },
+            { label: "Submenu", submenu: [{ label: "Inner", click: () => getApi().sendLog("ctx: inner") }] },
+        ];
+        const menu = await buildTauriMenu(items);
+        await menu.popup(new LogicalPosition(e.clientX, e.clientY));
+    };
+
     return (
-        <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", gap: 8, padding: 4, background: "#222", color: "#ddd", fontFamily: "monospace", fontSize: 12 }}>
+        <div
+            style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column" }}
+            onContextMenu={onContextMenu}
+        >
+            <div
+                data-tauri-drag-region
+                style={{ display: "flex", alignItems: "center", height: 32, background: "#1a1a1a", color: "#ddd", fontFamily: "monospace", fontSize: 12, userSelect: "none" }}
+            >
+                <span style={{ paddingLeft: 10, flex: 1, pointerEvents: "none" }}>Wave Tauri Spike</span>
+                <button onClick={() => getCurrentWindow().minimize()}>—</button>
+                <button onClick={() => getCurrentWindow().toggleMaximize()}>▢</button>
+                <button onClick={() => getCurrentWindow().close()}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, padding: 4, alignItems: "center", background: "#222", color: "#ddd", fontFamily: "monospace", fontSize: 12 }}>
                 <button onClick={() => getApi().setWindowInitStatus("ready")}>init: ready</button>
                 <button onClick={() => getApi().openExternal("https://waveterm.dev")}>open external</button>
                 <button onClick={() => getApi().incrementTermCommands()}>incr term cmds</button>
                 <button onClick={() => getApi().setIsActive()}>set active</button>
+                <span style={{ marginLeft: 12 }}>zoom:</span>
+                <button onClick={() => chrome.zoomOut()}>-</button>
+                <span>{zoom.toFixed(2)}</span>
+                <button onClick={() => chrome.zoomIn()}>+</button>
+                <button onClick={() => chrome.zoomReset()}>reset</button>
+                <button onClick={() => chrome.toggleFullscreen()}>fullscreen</button>
+                <span style={{ marginLeft: 12 }}>ctrl+shift:</span>
+                <span style={{ width: 10, height: 10, borderRadius: 5, background: ctrlShift ? "#4caf50" : "#555" }} />
             </div>
             <div ref={elemRef} style={{ flex: 1 }} />
         </div>

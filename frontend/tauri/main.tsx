@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createRoot } from "react-dom/client";
 import { hlog, installTauriApi, type InitData } from "./api";
+import { installChromeListeners } from "./chrome";
 
 function waitForOpen(getOpen: () => boolean, timeoutMs: number): Promise<boolean> {
     return new Promise((res) => {
@@ -21,6 +22,7 @@ async function boot() {
     try {
         const init = await invoke<InitData>("get_init");
         installTauriApi(init);
+        installChromeListeners();
         hlog("init: ws=" + init.wsEndpoint + " version=" + init.version);
 
         // Global-free RPC: a base WshClient wired via initElectronWshrpc (router + WPS + authKey),

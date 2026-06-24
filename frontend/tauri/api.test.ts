@@ -4,6 +4,10 @@ const invokeMock = vi.fn(() => Promise.resolve());
 const listenMock = vi.fn(() => Promise.resolve(() => {}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: any[]) => invokeMock(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: any[]) => listenMock(...a) }));
+vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ setZoom: () => Promise.resolve() }) }));
+vi.mock("@tauri-apps/api/window", () => ({
+    getCurrentWindow: () => ({ setFullscreen: () => Promise.resolve(), isFullscreen: () => Promise.resolve(false) }),
+}));
 
 import { installTauriApi, type InitData } from "./api";
 
@@ -98,7 +102,6 @@ describe("stubs fill the rest of ElectronApi with benign defaults", () => {
     it("typed sync getters return benign defaults", () => {
         installTauriApi(INIT);
         const api = (window as any).api;
-        expect(api.getZoomFactor()).toBe(1);
         expect(api.getCursorPoint()).toEqual({ x: 0, y: 0 });
     });
     it("invoke-returning stubs resolve to benign values", async () => {
@@ -107,5 +110,33 @@ describe("stubs fill the rest of ElectronApi with benign defaults", () => {
         await expect(api.closeTab("w", "t", false)).resolves.toBe(false);
         await expect(api.saveTextFile("a", "b")).resolves.toBe(false);
         await expect(api.clearWebviewStorage(1)).resolves.toBeUndefined();
+    });
+});
+
+describe("phase-2 chrome methods", () => {
+    it("getAboutModalDetails returns version+buildTime from the boot cache", () => {
+        installTauriApi(INIT);
+        expect((window as any).api.getAboutModalDetails()).toEqual({ version: "0.1.0", buildTime: 1 });
+    });
+    it("getZoomFactor delegates to the chrome controller (starts at 1)", () => {
+        installTauriApi(INIT);
+        expect((window as any).api.getZoomFactor()).toBe(1);
+    });
+    it("setKeyboardChordMode is a no-op that does not warn or throw", () => {
+        installTauriApi(INIT);
+        expect((window as any).api.setKeyboardChordMode()).toBeUndefined();
+    });
+    it("onFullScreenChange / onZoomFactorChange / onControlShiftStateUpdate register without throwing", () => {
+        installTauriApi(INIT);
+        const api = (window as any).api;
+        expect(api.onFullScreenChange(() => {})).toBeUndefined();
+        expect(api.onZoomFactorChange(() => {})).toBeUndefined();
+        expect(api.onControlShiftStateUpdate(() => {})).toBeUndefined();
+    });
+    it("showContextMenu / onContextMenuClick remain benign stubs (cut, not ported)", () => {
+        installTauriApi(INIT);
+        const api = (window as any).api;
+        expect(api.showContextMenu("ws", [])).toBeUndefined();
+        expect(api.onContextMenuClick(() => {})).toBeUndefined();
     });
 });

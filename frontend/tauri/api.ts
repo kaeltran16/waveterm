@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import * as chrome from "./chrome";
 
 // mirrors the Rust InitData (serde camelCase): the single boot prefetch that feeds every
 // synchronous getter, so they can satisfy ElectronApi's sync signatures without awaiting.
@@ -66,23 +67,35 @@ export function installTauriApi(init: InitData) {
         incrementTermCommands: () => {
             invoke("increment_term_commands").catch(noop);
         },
+
+        // --- window chrome + interaction (Phase 2) ---
+        getZoomFactor: () => chrome.getZoomFactor(),
+        onZoomFactorChange: (cb: (zoomFactor: number) => void) => chrome.onZoomFactorChange(cb),
+        onFullScreenChange: (cb: (isFullScreen: boolean) => void) => chrome.onFullScreenChange(cb),
+        onControlShiftStateUpdate: (cb: (state: boolean) => void) => chrome.onControlShiftStateUpdate(cb),
+        // real no-op: Tauri has no main-process key interception to coordinate; keymodel.ts's
+        // JS chord timer is the mechanism (spec P2-4).
+        setKeyboardChordMode: () => {},
+        getAboutModalDetails: () => ({ version: init.version, buildTime: init.buildTime }),
     };
 
     installStubs(api);
     (window as any).api = api;
 }
 
-// Everything outside the day-one set: typed benign-default stubs (not throws), so the bridge
-// implements the full ElectronApi type and an incidental call cannot crash. Deleted with the
-// cut subsystems in Phase 5; the deferred ones get real impls in Phase 2/3.
+// Everything outside the implemented set: typed benign-default stubs (not throws), so the bridge
+// implements the full ElectronApi type and an incidental call cannot crash. showContextMenu/
+// onContextMenuClick are CUT (the Tauri primitive is menu.ts buildTauriMenu); updateWindowControls
+// Overlay/onMenuItemAbout are obsolete under the custom titlebar. All deleted with their callers in
+// Phase 5.
 function installStubs(api: Partial<ElectronApi>) {
     const voidStubs = [
         "showWorkspaceAppMenu", "showBuilderAppMenu", "showContextMenu", "onContextMenuClick",
-        "downloadFile", "onFullScreenChange", "onZoomFactorChange", "onUpdaterStatusChange",
+        "downloadFile", "onUpdaterStatusChange",
         "installAppUpdate", "onMenuItemAbout", "updateWindowControlsOverlay", "onReinjectKey",
-        "setWebviewFocus", "registerGlobalWebviewKeys", "onControlShiftStateUpdate",
+        "setWebviewFocus", "registerGlobalWebviewKeys",
         "createWorkspace", "switchWorkspace", "deleteWorkspace", "setActiveTab", "createTab",
-        "onBuilderInit", "onQuicklook", "openNativePath", "setKeyboardChordMode",
+        "onBuilderInit", "onQuicklook", "openNativePath",
         "setWaveAIOpen", "closeBuilderWindow", "nativePaste", "openBuilder",
         "setBuilderWindowAppId", "doRefresh", "onNavigate", "onIframeNavigate",
     ];
@@ -97,8 +110,6 @@ function installStubs(api: Partial<ElectronApi>) {
     api.getConfigDir = () => { stubWarn("getConfigDir"); return ""; };
     api.getHomeDir = () => { stubWarn("getHomeDir"); return ""; };
     api.getWebviewPreload = () => { stubWarn("getWebviewPreload"); return ""; };
-    api.getAboutModalDetails = () => { stubWarn("getAboutModalDetails"); return {} as any; };
-    api.getZoomFactor = () => { stubWarn("getZoomFactor"); return 1; };
     api.getUpdaterStatus = () => { stubWarn("getUpdaterStatus"); return "unavailable" as any; };
     api.getUpdaterChannel = () => { stubWarn("getUpdaterChannel"); return ""; };
 
