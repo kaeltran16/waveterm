@@ -2,8 +2,9 @@
 
 mod estart;
 mod init;
+mod commands;
 
-use init::{InitData, InitState};
+use init::InitState;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use tauri::Manager;
@@ -42,13 +43,10 @@ fn spawn_wavesrv(auth_key: String, state: tauri::State<InitState>) {
             }
             if let Some(info) = estart::parse_estart(&line) {
                 let mut d = state_data.lock().unwrap();
-                *d = InitData {
-                    ws_endpoint: info.ws,
-                    web_endpoint: info.web,
-                    auth_key: auth_key.clone(),
-                    version: info.version,
-                    build_time: info.buildtime,
-                };
+                d.ws_endpoint = info.ws;
+                d.web_endpoint = info.web;
+                d.version = info.version;
+                d.build_time = info.buildtime;
                 println!("[tauri] wavesrv ready: {:?}", *d);
             } else {
                 println!("[wavesrv] {}", line);
@@ -61,8 +59,25 @@ fn main() {
     let auth_key = Uuid::new_v4().to_string();
     tauri::Builder::default()
         .manage(InitState::default())
-        .invoke_handler(tauri::generate_handler![init::get_init, init::harness_log])
+        .invoke_handler(tauri::generate_handler![
+            init::get_init,
+            init::fe_log,
+            commands::set_window_init_status,
+            commands::set_is_active,
+            commands::open_external,
+            commands::increment_term_commands
+        ])
         .setup(move |app| {
+            // seed the static identity fields before wavesrv parsing fills in the endpoints.
+            {
+                let state = app.state::<InitState>();
+                let mut d = state.0.lock().unwrap();
+                d.auth_key = auth_key.clone();
+                d.platform = "win32".to_string();
+                d.is_dev = cfg!(debug_assertions);
+                d.user_name = std::env::var("USERNAME").unwrap_or_default();
+                d.host_name = std::env::var("COMPUTERNAME").unwrap_or_default();
+            }
             spawn_wavesrv(auth_key.clone(), app.state::<InitState>());
             Ok(())
         })

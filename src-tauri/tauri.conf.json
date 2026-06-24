@@ -10,7 +10,7 @@
   },
   "app": {
     "windows": [
-      { "title": "Wave Tauri Spike", "width": 1000, "height": 700 }
+      { "label": "main", "title": "Wave Tauri Spike", "width": 1000, "height": 700 }
     ],
     "security": { "csp": null }
   }

@@ -42,7 +42,6 @@ docsite/
 
 .kilo-format-temp-*
 .superpowers
-docs/superpowers
 .claude
 /.graphify_scope
 .graphify_ast.json

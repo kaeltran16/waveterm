@@ -1,13 +1,14 @@
 import { getFileSubject } from "@/app/store/wps";
 import type { WshClient } from "@/app/store/wshclient";
 import { RpcApi } from "@/app/store/wshclientapi";
+import { getApi } from "@/store/global";
 import { base64ToArray, stringToBase64 } from "@/util/util";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
-import { hlog } from "./api-shim";
+import { hlog } from "./api";
 
 export function TerminalHarness({ client, tabId }: { client: WshClient; tabId: string }) {
     const elemRef = useRef<HTMLDivElement>(null);
@@ -86,5 +87,20 @@ export function TerminalHarness({ client, tabId }: { client: WshClient; tabId: s
         };
     }, []);
 
-    return <div ref={elemRef} style={{ width: "100vw", height: "100vh" }} />;
+    useEffect(() => {
+        // observe-gate 2: prove the Rust→FE event round-trip and the capabilities wiring.
+        getApi().onWaveInit((opts) => getApi().sendLog("wave-init received: " + JSON.stringify(opts)));
+    }, []);
+
+    return (
+        <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", gap: 8, padding: 4, background: "#222", color: "#ddd", fontFamily: "monospace", fontSize: 12 }}>
+                <button onClick={() => getApi().setWindowInitStatus("ready")}>init: ready</button>
+                <button onClick={() => getApi().openExternal("https://waveterm.dev")}>open external</button>
+                <button onClick={() => getApi().incrementTermCommands()}>incr term cmds</button>
+                <button onClick={() => getApi().setIsActive()}>set active</button>
+            </div>
+            <div ref={elemRef} style={{ flex: 1 }} />
+        </div>
+    );
 }

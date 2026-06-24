@@ -1,8 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createRoot } from "react-dom/client";
-import { hlog, installApiShim } from "./api-shim";
-
-type InitData = { wsEndpoint: string; webEndpoint: string; authKey: string; version: string; buildTime: number };
+import { hlog, installTauriApi, type InitData } from "./api";
 
 function waitForOpen(getOpen: () => boolean, timeoutMs: number): Promise<boolean> {
     return new Promise((res) => {
@@ -22,14 +20,7 @@ function waitForOpen(getOpen: () => boolean, timeoutMs: number): Promise<boolean
 async function boot() {
     try {
         const init = await invoke<InitData>("get_init");
-        (window as any).__waveAuthKey = init.authKey;
-        installApiShim();
-        // the real endpoints.ts reads endpoints via getApi().getEnv(); feed it from get_init.
-        (window as any).api.getEnv = (k: string) => {
-            if (k === "WAVE_SERVER_WS_ENDPOINT") return init.wsEndpoint;
-            if (k === "WAVE_SERVER_WEB_ENDPOINT") return init.webEndpoint;
-            return null;
-        };
+        installTauriApi(init);
         hlog("init: ws=" + init.wsEndpoint + " version=" + init.version);
 
         // Global-free RPC: a base WshClient wired via initElectronWshrpc (router + WPS + authKey),

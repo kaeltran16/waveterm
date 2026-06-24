@@ -9,6 +9,10 @@ pub struct InitData {
     pub auth_key: String,
     pub version: String,
     pub build_time: i64,
+    pub platform: String,
+    pub is_dev: bool,
+    pub user_name: String,
+    pub host_name: String,
 }
 
 #[derive(Default)]
@@ -19,9 +23,9 @@ pub fn get_init(state: tauri::State<InitState>) -> InitData {
     state.0.lock().unwrap().clone()
 }
 
-// bridge: the harness routes its console/milestones here so they land in the Rust console
-// (the WebView2 console isn't observable from the dev loop).
+// backs both getApi().sendLog and the harness's hlog. Renamed from harness_log:
+// the WebView2 console isn't observable from the dev loop, so logs land in the Rust console.
 #[tauri::command]
-pub fn harness_log(msg: String) {
-    println!("[harness] {}", msg);
+pub fn fe_log(msg: String) {
+    println!("[fe-log] {}", msg);
 }
