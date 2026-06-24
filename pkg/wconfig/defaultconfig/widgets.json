@@ -21,38 +21,20 @@
             }
         }
     },
-    "defwidget@web": {
+    "defwidget@agents": {
         "display:order": -3,
-        "icon": "globe",
-        "label": "web",
+        "icon": "robot",
+        "label": "agents",
         "blockdef": {
             "meta": {
-                "view": "web"
-            }
-        }
-    },
-    "defwidget@sysinfo": {
-        "display:order": -2,
-        "icon": "chart-line",
-        "label": "sysinfo",
-        "blockdef": {
-            "meta": {
-                "view": "sysinfo"
-            }
-        }
-    },
-    "defwidget@processviewer": {
-        "display:order": -1,
-        "icon": "list-tree",
-        "label": "processes",
-        "blockdef": {
-            "meta": {
-                "view": "processviewer"
+                "view": "agents",
+                "controller": null,
+                "cmd:cwd": null
             }
         }
     },
     "defwidget@loom": {
-        "display:order": 0,
+        "display:order": -2,
         "icon": "code-branch",
         "label": "loom",
         "blockdef": {

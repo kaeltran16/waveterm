@@ -57,6 +57,7 @@ const previewElectronApi: ElectronApi = {
     openBuilder: (_appId?: string) => {},
     setBuilderWindowAppId: (_appId: string) => {},
     doRefresh: () => {},
+    getPathForFile: (_file: File) => "",
     saveTextFile: (_fileName: string, _content: string) => Promise.resolve(false),
     setIsActive: async () => {},
 };

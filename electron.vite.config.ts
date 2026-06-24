@@ -131,20 +131,9 @@ export default defineConfig({
                 input: {
                     index: "index.html",
                 },
-                output: {
-                    manualChunks(id) {
-                        const p = id.replace(/\\/g, "/");
-                        if (p.includes("node_modules/monaco") || p.includes("node_modules/@monaco")) return "monaco";
-                        if (p.includes("node_modules/mermaid") || p.includes("node_modules/@mermaid")) return "mermaid";
-                        if (p.includes("node_modules/katex") || p.includes("node_modules/@katex")) return "katex";
-                        if (p.includes("node_modules/shiki") || p.includes("node_modules/@shiki")) {
-                            return "shiki";
-                        }
-                        if (p.includes("node_modules/cytoscape") || p.includes("node_modules/@cytoscape"))
-                            return "cytoscape";
-                        return undefined;
-                    },
-                },
+                // intentionally no manualChunks: forcing monaco/shiki/mermaid/cytoscape/katex into
+                // named chunks hoists these dynamic-only libs into the entry's static modulepreload
+                // set (eager fetch+compile at startup). letting rollup auto-split keeps them lazy.
             },
         },
         optimizeDeps: {

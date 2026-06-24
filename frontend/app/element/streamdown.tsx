@@ -197,7 +197,7 @@ function Collapsible({ title, children, defaultOpen = false }) {
     );
 }
 
-interface WaveStreamdownProps {
+export interface WaveStreamdownProps {
     text: string;
     parseIncompleteMarkdown?: boolean;
     className?: string;

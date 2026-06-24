@@ -1,7 +1,7 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { WaveStreamdown } from "@/app/element/streamdown";
+import { WaveStreamdown } from "@/app/element/streamdown-lazy";
 import { cn } from "@/util/util";
 import { memo, useEffect, useRef } from "react";
 import { getFileIcon } from "./ai-utils";

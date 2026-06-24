@@ -1,11 +1,14 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { MonacoDiffViewer } from "@/app/monaco/monaco-react";
 import { useOverrideConfigAtom } from "@/app/store/global";
 import { boundNumber } from "@/util/util";
 import type * as MonacoTypes from "monaco-editor";
-import { useMemo, useRef } from "react";
+import { lazy, Suspense, useMemo, useRef } from "react";
+
+const MonacoDiffViewer = lazy(() =>
+    import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer }))
+);
 
 interface DiffViewerProps {
     blockId: string;
@@ -62,13 +65,15 @@ export function DiffViewer({ blockId, original, modified, language, fileName }: 
     return (
         <div className="flex flex-col w-full h-full overflow-hidden items-center justify-center">
             <div className="flex flex-col h-full w-full">
-                <MonacoDiffViewer
-                    path={editorPath}
-                    original={original}
-                    modified={modified}
-                    options={editorOpts}
-                    language={language}
-                />
+                <Suspense fallback={null}>
+                    <MonacoDiffViewer
+                        path={editorPath}
+                        original={original}
+                        modified={modified}
+                        options={editorOpts}
+                        language={language}
+                    />
+                </Suspense>
             </div>
         </div>
     );

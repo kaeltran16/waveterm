@@ -1,7 +1,7 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { WaveStreamdown } from "@/app/element/streamdown";
+import { WaveStreamdown } from "@/app/element/streamdown-lazy";
 import { memo, useEffect, useRef, useState } from "react";
 
 interface ChatConfig {

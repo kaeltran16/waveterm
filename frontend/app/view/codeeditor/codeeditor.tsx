@@ -1,12 +1,15 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { MonacoCodeEditor } from "@/app/monaco/monaco-react";
 import { useOverrideConfigAtom } from "@/app/store/global";
 import { boundNumber } from "@/util/util";
 import type * as MonacoTypes from "monaco-editor";
-import * as MonacoModule from "monaco-editor";
+import type * as MonacoModule from "monaco-editor";
 import React, { useMemo, useRef } from "react";
+
+const MonacoCodeEditor = React.lazy(() =>
+    import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoCodeEditor }))
+);
 
 function defaultEditorOptions(): MonacoTypes.editor.IEditorOptions {
     const opts: MonacoTypes.editor.IEditorOptions = {
@@ -95,15 +98,17 @@ export function CodeEditor({ blockId, text, language, fileName, readonly, onChan
     return (
         <div className="flex flex-col w-full h-full items-center justify-center">
             <div className="flex flex-col h-full w-full" ref={divRef}>
-                <MonacoCodeEditor
-                    readonly={readonly}
-                    text={text}
-                    options={editorOpts}
-                    onChange={handleEditorChange}
-                    onMount={handleEditorOnMount}
-                    path={editorPath}
-                    language={language}
-                />
+                <React.Suspense fallback={null}>
+                    <MonacoCodeEditor
+                        readonly={readonly}
+                        text={text}
+                        options={editorOpts}
+                        onChange={handleEditorChange}
+                        onMount={handleEditorOnMount}
+                        path={editorPath}
+                        language={language}
+                    />
+                </React.Suspense>
             </div>
         </div>
     );
