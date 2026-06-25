@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
 import { resolve } from "path";
 import { defineConfig } from "vite";
@@ -8,7 +9,7 @@ const fe = resolve(__dirname, ".."); // frontend/
 // A flat "@" -> frontend alias would mis-resolve @/store, @/view, @/element, @/shadcn.
 export default defineConfig({
     root: resolve(__dirname),
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     resolve: {
         alias: {
             "@/app": resolve(fe, "app"),

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createRoot } from "react-dom/client";
+import "./tailwind.css";
 import { bootWaveCore } from "@/app/boot/boot-core";
 import { CockpitRoot } from "@/app/cockpit/cockpit-root";
 import { hlog, installTauriApi, type InitData } from "./api";
