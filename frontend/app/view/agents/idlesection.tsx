@@ -5,6 +5,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { AgentComposer } from "./agentcomposer";
 import { formatAge, type AgentVM } from "./agentsviewmodel";
+import { SectionHeader } from "./sectionheader";
 
 export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id: string) => void }) {
     const [open, setOpen] = useState(false);
@@ -13,14 +14,17 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
     }
     return (
         <div className="shrink-0">
-            <div
-                className="flex cursor-pointer items-center gap-2 py-1.5 text-[11px] text-muted"
+            <SectionHeader
+                className="mb-2 py-1.5"
+                label="Idle"
+                labelClassName="text-muted"
+                count={agents.length}
+                dotClassName="bg-muted"
+                countPillClassName="bg-surface-raised text-muted"
+                dividerClassName="bg-gradient-to-r from-edge-mid to-transparent"
+                caret={open ? "▾" : "▸"}
                 onClick={() => setOpen((v) => !v)}
-            >
-                <span className="text-[9px]">{open ? "▾" : "▸"}</span>
-                <span className="uppercase tracking-wide">Idle</span>
-                <span className="ml-auto tabular-nums opacity-70">{agents.length}</span>
-            </div>
+            />
             <AnimatePresence initial={false}>
                 {open && (
                     <motion.div

@@ -3,11 +3,11 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { AnimatePresence, motion, Reorder, useDragControls } from "motion/react";
+import { Reorder, useDragControls } from "motion/react";
 import { useEffect, useRef } from "react";
-import { AgentComposer } from "./agentcomposer";
+import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
-import { formatAge, hasAnswerableAsk, isQuiet, type AgentVM } from "./agentsviewmodel";
+import { cardSpanStyle, formatAge, hasAnswerableAsk, isQuiet, type AgentVM } from "./agentsviewmodel";
 import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
@@ -30,6 +30,10 @@ export function AgentRow({
     onBackground,
     onDismiss,
     pulse,
+    wide,
+    height,
+    onToggleWide,
+    onResize,
 }: {
     agent: AgentVM;
     now: number;
@@ -47,8 +51,27 @@ export function AgentRow({
     onBackground?: () => void;
     onDismiss?: () => void;
     pulse?: boolean;
+    wide?: boolean;
+    height?: number;
+    onToggleWide: () => void;
+    onResize: (height: number) => void;
 }) {
     const controls = useDragControls();
+    const composerRef = useRef<AgentComposerHandle>(null);
+    const cardRef = useRef<HTMLDivElement>(null);
+    const onResizeStart = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startY = e.clientY;
+        const startH = height ?? cardRef.current?.offsetHeight ?? 0;
+        const move = (ev: PointerEvent) => onResize(Math.max(140, startH + (ev.clientY - startY)));
+        const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+    };
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
@@ -89,6 +112,8 @@ export function AgentRow({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ layout: { type: "spring", stiffness: 650, damping: 32 }, opacity: { duration: 0.15 } }}
+            ref={cardRef}
+            style={cardSpanStyle({ wide, height })}
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
@@ -115,7 +140,7 @@ export function AgentRow({
                 <b className={cn("shrink-0 text-primary", asking ? "text-[15px]" : "text-[14px]")}>{agent.name}</b>
                 <span className="truncate text-[12px] text-muted">
                     {project ? `${project} · ` : ""}
-                    {agent.task || agent.activity || ""}
+                    {idle ? agent.activity ?? "" : agent.task}
                 </span>
                 {asking ? (
                     <span className="ml-auto shrink-0 rounded-[4px] border border-warning px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warning">
@@ -161,6 +186,17 @@ export function AgentRow({
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation();
+                        onToggleWide();
+                    }}
+                    title={wide ? "Narrow" : "Widen"}
+                    className="shrink-0 cursor-pointer rounded-[6px] border border-border px-1.5 py-0.5 text-[11px] text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
+                >
+                    {wide ? "⤡" : "⤢"}
+                </button>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
                         onOpenTerminal();
                     }}
                     title="Open terminal tab"
@@ -170,16 +206,24 @@ export function AgentRow({
                 </button>
             </div>
 
+            {asking ? (
+                <div className="mt-2 ml-[26px] font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-warning/80">
+                    Waiting on you
+                </div>
+            ) : agent.state === "working" && agent.activity ? (
+                <div className="mt-2 ml-[26px] flex items-start gap-2">
+                    <span
+                        className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+                        style={{ animation: "pulseDot 1.4s infinite" }}
+                    />
+                    <span className="font-mono text-[12.5px] leading-[1.5] text-success">{agent.activity}</span>
+                </div>
+            ) : null}
+
             {entries.length > 0 ? (
-                <div
-                    ref={scrollRef}
-                    onScroll={onNarrationScroll}
-                    className="mt-2 ml-[26px] max-h-56 min-h-[64px] overflow-y-auto"
-                >
+                <div ref={scrollRef} onScroll={onNarrationScroll} className="mt-2 ml-[26px] max-h-56 min-h-[64px] overflow-y-auto">
                     <NarrationTimeline entries={entries} accentLatest active={agent.state !== "idle"} />
                 </div>
-            ) : agent.activity ? (
-                <div className="mt-2 ml-[26px] whitespace-pre-wrap text-[13px] leading-[1.6] text-secondary">{agent.activity}</div>
             ) : null}
 
             {asking && hasQuestions ? (
@@ -196,30 +240,40 @@ export function AgentRow({
                 />
             ) : null}
 
-            <AnimatePresence>
-                {isCursor && !hasQuestions ? (
-                    <motion.div
-                        key="composer"
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.18, ease: "easeOut" }}
-                        style={{ overflow: "hidden" }}
-                        className="shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="mt-2 ml-[26px]">
-                            <AgentComposer
-                                blockId={agent.blockId}
-                                placeholder={`message ${agent.name}…`}
-                                onEscape={onComposerEscape}
-                                className="border-t-0 px-0 py-0"
-                            />
-                        </div>
-                    </motion.div>
+            <div
+                className="mt-2 ml-[26px] flex shrink-0 flex-col gap-2 pb-2"
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+            >
+                {asking && agent.ask?.replySuggestions?.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                        {agent.ask.replySuggestions.map((s, i) => (
+                            <button
+                                key={i}
+                                type="button"
+                                onClick={() => composerRef.current?.fill(s)}
+                                className="cursor-pointer whitespace-nowrap rounded-[7px] border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:border-warning/55 hover:bg-warning/20"
+                            >
+                                {s}
+                            </button>
+                        ))}
+                    </div>
                 ) : null}
-            </AnimatePresence>
+                <AgentComposer
+                    ref={composerRef}
+                    blockId={agent.blockId}
+                    placeholder={`message ${agent.name}…`}
+                    onEscape={onComposerEscape}
+                    className="border-t-0 px-0 py-0"
+                />
+            </div>
+            <div
+                onPointerDown={onResizeStart}
+                title="Drag to resize"
+                className="absolute inset-x-0 bottom-0 flex h-[9px] cursor-ns-resize items-center justify-center"
+            >
+                <div className="h-[3px] w-[34px] rounded-[3px] bg-edge-strong" />
+            </div>
         </Reorder.Item>
     );
 }

@@ -6,6 +6,7 @@ import { CockpitRoot } from "@/app/cockpit/cockpit-root";
 import { hlog, installTauriApi, type InitData } from "./api";
 import { installChromeListeners } from "./chrome";
 import { resolveBootIds } from "./bootids";
+import { loadFonts } from "@/util/fontutil";
 
 window.addEventListener("error", (e) => hlog("WINDOW ERROR: " + (e.error?.stack ?? e.message)));
 window.addEventListener("unhandledrejection", (e) => hlog("UNHANDLED REJECTION: " + (e.reason?.stack ?? String(e.reason))));
@@ -15,6 +16,7 @@ async function boot() {
         const init = await invoke<InitData>("get_init");
         installTauriApi(init);
         installChromeListeners();
+        loadFonts(); // register Hanken Grotesk + JetBrains Mono (fonts swap in on load)
         hlog("init: ws=" + init.wsEndpoint + " web=" + init.webEndpoint + " version=" + init.version);
 
         const ids = await resolveBootIds();

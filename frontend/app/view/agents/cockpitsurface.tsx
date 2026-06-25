@@ -10,14 +10,19 @@ import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
 import {
     canSubmitAsk,
+    filterAgents,
+    formatAge,
     formatReset,
+    formatTokens,
     groupAgents,
     hasAnswerableAsk,
     isRecentlyIdle,
+    matchesProjectFilter,
     mergeOrder,
     moveCursor,
     nextAskId,
     partitionBackgrounded,
+    projectsFromAgents,
     providerPlanUsage,
     toggleSelection,
     usageLevel,
@@ -25,6 +30,9 @@ import {
 } from "./agentsviewmodel";
 import { BackgroundedSection } from "./backgroundedsection";
 import { IdleSection } from "./idlesection";
+import { ProjectSwitcher } from "./projectswitcher";
+import { recentActivityAtom } from "./recentactivity";
+import { SectionHeader } from "./sectionheader";
 import { ensurePreviousInfo } from "./liveagents";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 
@@ -55,36 +63,43 @@ const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", war
 // brand colors, kept here as the single source.
 const PROVIDER_DOT: Record<string, string> = { claude: "bg-[#d97757]", codex: "bg-[#96aacd]" };
 
-// One rate-limit window (5h or weekly) as a compact mini-gauge. A null pct — API-key auth, or a window
-// not yet reported — renders nothing rather than a misleading 0%. The reset countdown rides the title
-// (hover) so the whole strip stays on one line.
-function MiniGauge({ win, pct, reset, now }: { win: string; pct?: number; reset?: number; now: number }) {
+// recent-activity dot color by agent state (matches the in-view StatusDot palette)
+const RECENT_DOT: Record<string, string> = {
+    asking: "var(--color-warning)",
+    working: "var(--color-accent)",
+    idle: "var(--color-muted)",
+};
+
+// PLACEHOLDER (docs/deferred.md): AgentUsage has no real token totals. These per-window ceilings (handoff
+// values) let UsageBar render a believable "used / limit tok" figure derived from pct so the layout is
+// judgeable. NOT real telemetry — replace when per-window token data exists.
+const FAKE_TOKEN_LIMIT: Record<string, number> = { "5-hour window": 2_200_000, Weekly: 44_000_000 };
+
+// One plan window as a full-width handoff bar: label + pct + bar + (fabricated token count) + reset
+// countdown. A null pct (API-key auth, or a window not yet reported) renders nothing.
+function UsageBar({ label, pct, reset, now }: { label: string; pct?: number; reset?: number; now: number }) {
     if (pct == null) {
         return null;
     }
     const lvl = usageLevel(pct);
+    const limit = FAKE_TOKEN_LIMIT[label];
+    const used = limit != null ? (pct / 100) * limit : undefined;
     return (
-        <span className="flex items-center gap-1.5" title={reset ? `${win} resets in ${formatReset(reset, now)}` : undefined}>
-            <span className="text-[10px] uppercase tracking-wide text-muted">{win}</span>
-            <span className="h-1 w-9 overflow-hidden rounded-full bg-white/10">
-                <span className={cn("block h-full rounded-full", PLAN_BAR[lvl])} style={{ width: `${Math.min(100, pct)}%` }} />
-            </span>
-            <span className={cn("font-semibold tabular-nums", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
-        </span>
-    );
-}
-
-// One provider's plan limits (5h + weekly) as an inline group; Claude and Codex bill separate quotas.
-function ProviderPlan({ provider, usage, now }: { provider: string; usage: AgentVM["usage"]; now: number }) {
-    return (
-        <span className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 font-semibold text-primary">
-                <span className={cn("h-[7px] w-[7px] rounded-full", PROVIDER_DOT[provider] ?? "bg-muted")} />
-                {provider.charAt(0).toUpperCase() + provider.slice(1)}
-            </span>
-            <MiniGauge win="5h" pct={usage.fivehourpct} reset={usage.fivehourreset} now={now} />
-            <MiniGauge win="wk" pct={usage.weekpct} reset={usage.weekreset} now={now} />
-        </span>
+        <div>
+            <div className="mb-[7px] flex items-baseline justify-between">
+                <span className="text-[12.5px] font-medium text-secondary">{label}</span>
+                <span className={cn("font-mono text-[12px] font-semibold", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
+            </div>
+            <div className="h-[7px] overflow-hidden rounded-[4px] bg-surface-raised">
+                <div className={cn("h-full rounded-[4px]", PLAN_BAR[lvl])} style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
+            {used != null || reset ? (
+                <div className="mt-[6px] flex justify-between font-mono text-[10.5px] text-muted">
+                    <span>{used != null ? `${formatTokens(used)} / ${formatTokens(limit!)} tok` : ""}</span>
+                    {reset ? <span>resets {formatReset(reset, now)}</span> : null}
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -222,17 +237,34 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [cursorId, setCursorId] = useModelAtom(model.cursorIdAtom);
     const [answerSel, setAnswerSel] = useModelAtom(model.answerSelAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
+    const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
+    const toggleWide = (id: string) =>
+        setCardPrefs((p) => ({ ...p, [id]: { ...p[id], wide: !p[id]?.wide } }));
+    const setCardHeight = (id: string, h: number) =>
+        setCardPrefs((p) => ({ ...p, [id]: { ...p[id], height: h } }));
     const sentIds = useAtomValue(model.sentIdsAtom);
     const railOpen = useAtomValue(model.railOpenAtom);
     const chip = useAtomValue(model.chipFilterAtom);
     const setChip = (c: ChipFilter) => globalStore.set(model.chipFilterAtom, c);
+    const recent = useAtomValue(recentActivityAtom);
     const [showHelp, setShowHelp] = useState(false);
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
 
     // status chips narrow what the grid renders; cursor/order still operate over the full set
-    const shownAgents = chip === "all" ? orderedAgents : orderedAgents.filter((a) => a.state === chip);
+    const projectFilter = useAtomValue(model.projectFilterAtom);
+    const liveOnly = useAtomValue(model.liveOnlyAtom);
+    // project scope + live-only first; the chip narrows what the grid renders (counts ignore the chip)
+    const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
+    const shownAgents = chip === "all" ? visibleOrdered : visibleOrdered.filter((a) => a.state === chip);
+    const liveCount = visibleOrdered.length;
+    const liveAsking = visibleOrdered.filter((a) => a.state === "asking").length;
+    const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
+    const projectCount = projectsFromAgents(agents).length;
+    // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
+    const shownParkedIdle = liveOnly ? [] : parkedIdle.filter((a) => matchesProjectFilter(a, projectFilter));
+    const shownBackgrounded = backgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
 
     // keep the cursor valid as the set changes; seed it to the first row
     useEffect(() => {
@@ -398,18 +430,34 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 <div className="mb-3 flex items-baseline gap-3">
                     <h1 className="text-[20px] font-bold tracking-[-0.02em] text-primary">Cockpit</h1>
                     <p className="text-[12.5px] text-muted">
-                        {agents.length} agents ·{" "}
+                        {agents.length} agents · {projectCount} projects ·{" "}
                         <span className="font-semibold text-warning">
                             <RollingCount value={asking.length} /> need you
                         </span>
                     </p>
-                    <button
-                        type="button"
-                        onClick={() => globalStore.set(model.railOpenAtom, !railOpen)}
-                        className="ml-auto cursor-pointer rounded-[6px] border border-border px-2 py-1 text-[11.5px] text-muted hover:border-edge-mid"
-                    >
-                        {railOpen ? "Hide panel ›" : "‹ Usage"}
-                    </button>
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => globalStore.set(model.railOpenAtom, !railOpen)}
+                            className="cursor-pointer rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
+                        >
+                            {railOpen ? "Hide panel ›" : "‹ Usage"}
+                        </button>
+                        <ProjectSwitcher model={model} variant="header" />
+                        <button
+                            type="button"
+                            onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
+                            className={cn(
+                                "flex cursor-pointer items-center gap-[7px] rounded-[8px] border px-2.5 py-1.5 text-[12px] font-medium",
+                                liveOnly
+                                    ? "border-success/60 bg-success/10 text-success"
+                                    : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
+                            )}
+                        >
+                            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                            Live only
+                        </button>
+                    </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     {(
@@ -459,12 +507,31 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         )}
                     </AnimatePresence>
 
+                    {liveCount > 0 ? (
+                        <div className="shrink-0 px-5 pt-4">
+                            <SectionHeader
+                                label="Live agents"
+                                labelClassName="text-accent-soft"
+                                count={liveCount}
+                                dotClassName="bg-accent-soft"
+                                pulse
+                                countPillClassName="bg-accent/10 text-accent-soft"
+                                dividerClassName="bg-gradient-to-r from-accent/20 to-transparent"
+                                right={
+                                    <span className="text-[11.5px] text-muted">
+                                        <span className="font-semibold text-warning">{liveAsking} need you</span> · {liveWorking} working
+                                    </span>
+                                }
+                            />
+                        </div>
+                    ) : null}
+
                     <Reorder.Group
                         as="div"
                         axis="y"
                         values={orderedIds}
                         onReorder={setOrder}
-                        className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto p-5"
+                        className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto px-5 pb-5 pt-2.5"
                     >
                         <AnimatePresence mode="popLayout">
                             {shownAgents.map((a) => (
@@ -474,6 +541,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                     now={now}
                                     isCursor={cursorId === a.id}
                                     pulse={pulseId === a.id}
+                                    wide={cardPrefs[a.id]?.wide}
+                                    height={cardPrefs[a.id]?.height}
+                                    onToggleWide={() => toggleWide(a.id)}
+                                    onResize={(h) => setCardHeight(a.id, h)}
                                     selections={answerSel[a.id] ?? {}}
                                     sent={sentIds.has(a.id)}
                                     activeQuestion={answerTab[a.id] ?? 0}
@@ -492,8 +563,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </Reorder.Group>
 
                     <div className="shrink-0 px-[18px]">
-                        <BackgroundedSection agents={backgrounded} onRestore={(id) => toggleBackground(id)} />
-                        <IdleSection agents={parkedIdle} onOpen={(id) => model.openTerminal(id)} />
+                        <BackgroundedSection agents={shownBackgrounded} onRestore={(id) => toggleBackground(id)} />
+                        <IdleSection agents={shownParkedIdle} onOpen={(id) => model.openTerminal(id)} />
                     </div>
                 </div>
 
@@ -512,10 +583,53 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             </div>
                             <div className="flex flex-col gap-4">
                                 {planByProvider.map(({ provider, usage }) => (
-                                    <ProviderPlan key={provider} provider={provider} usage={usage} now={now} />
+                                    <div key={provider} className="flex flex-col gap-4">
+                                        {planByProvider.length > 1 ? (
+                                            <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
+                                                <span className={cn("h-[7px] w-[7px] rounded-full", PROVIDER_DOT[provider] ?? "bg-muted")} />
+                                                {provider.charAt(0).toUpperCase() + provider.slice(1)}
+                                            </div>
+                                        ) : null}
+                                        <UsageBar label="5-hour window" pct={usage.fivehourpct} reset={usage.fivehourreset} now={now} />
+                                        <UsageBar label="Weekly" pct={usage.weekpct} reset={usage.weekreset} now={now} />
+                                    </div>
                                 ))}
                             </div>
                         </div>
+                        {recent.length > 0 ? (
+                            <div>
+                                <div className="mb-3 flex items-center justify-between">
+                                    <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                        Recent activity
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => globalStore.set(model.surfaceAtom, "activity")}
+                                        className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
+                                    >
+                                        View all →
+                                    </button>
+                                </div>
+                                <div className="flex flex-col">
+                                    {recent.map((e) => (
+                                        <div key={e.id} className="flex gap-[11px] border-b border-border py-[9px]">
+                                            <span
+                                                className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
+                                                style={{ backgroundColor: RECENT_DOT[e.state] }}
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="text-[12px] leading-[1.4] text-secondary">
+                                                    <span className="font-mono font-semibold text-primary">{e.agent}</span> {e.text}
+                                                </div>
+                                                <div className="mt-[3px] font-mono text-[10px] text-muted">
+                                                    {e.typeLabel} · {now - e.ts < 60_000 ? "just now" : `${formatAge(now - e.ts)} ago`}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : null}
                     </aside>
                 ) : null}
             </div>

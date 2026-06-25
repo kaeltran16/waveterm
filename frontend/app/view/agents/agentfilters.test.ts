@@ -1,0 +1,101 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { describe, expect, it } from "vitest";
+import {
+    cardSpanStyle,
+    filterAgents,
+    matchesProjectFilter,
+    projectsFromAgents,
+    topFiveHourPct,
+    type AgentVM,
+} from "./agentsviewmodel";
+
+const P = "/h/.claude/projects/C--Users-u-IdeaProjects-waveterm/x.jsonl";
+const Q = "/h/.claude/projects/C--Users-u-IdeaProjects-loom/y.jsonl";
+
+const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
+    id,
+    name: id,
+    task: "",
+    state,
+    ...extra,
+});
+
+describe("projectsFromAgents", () => {
+    it("groups distinct projects with agent + asking counts, sorted by name", () => {
+        const out = projectsFromAgents([
+            mk("a", "working", { transcriptPath: P }),
+            mk("b", "asking", { transcriptPath: P }),
+            mk("c", "idle", { transcriptPath: Q }),
+        ]);
+        expect(out).toEqual([
+            { name: "loom", agentCount: 1, askingCount: 0 },
+            { name: "waveterm", agentCount: 2, askingCount: 1 },
+        ]);
+    });
+    it("skips agents whose transcript path yields no project", () => {
+        expect(projectsFromAgents([mk("a", "working"), mk("b", "idle", { transcriptPath: "" })])).toEqual([]);
+    });
+});
+
+describe("matchesProjectFilter", () => {
+    it("matches everything for 'all'", () => {
+        expect(matchesProjectFilter(mk("a", "working"), "all")).toBe(true);
+    });
+    it("matches by derived project name", () => {
+        expect(matchesProjectFilter(mk("a", "working", { transcriptPath: P }), "waveterm")).toBe(true);
+        expect(matchesProjectFilter(mk("a", "working", { transcriptPath: Q }), "waveterm")).toBe(false);
+    });
+});
+
+describe("filterAgents", () => {
+    const agents = [
+        mk("a", "working", { transcriptPath: P }),
+        mk("b", "idle", { transcriptPath: P }),
+        mk("c", "asking", { transcriptPath: Q }),
+    ];
+    it("returns all when filter=all and liveOnly=false", () => {
+        expect(filterAgents(agents, "all", false).map((a) => a.id)).toEqual(["a", "b", "c"]);
+    });
+    it("drops idle when liveOnly", () => {
+        expect(filterAgents(agents, "all", true).map((a) => a.id)).toEqual(["a", "c"]);
+    });
+    it("scopes by project, preserving order", () => {
+        expect(filterAgents(agents, "waveterm", false).map((a) => a.id)).toEqual(["a", "b"]);
+    });
+    it("composes project + liveOnly", () => {
+        expect(filterAgents(agents, "waveterm", true).map((a) => a.id)).toEqual(["a"]);
+    });
+});
+
+describe("topFiveHourPct", () => {
+    it("returns the highest non-null fivehourpct", () => {
+        expect(
+            topFiveHourPct([
+                mk("a", "working", { usage: { fivehourpct: 30 } }),
+                mk("b", "working", { usage: { fivehourpct: 71 } }),
+                mk("c", "working", { usage: {} }),
+            ])
+        ).toBe(71);
+    });
+    it("returns undefined when no agent reports a 5h pct", () => {
+        expect(topFiveHourPct([mk("a", "working"), mk("b", "working", { usage: {} })])).toBeUndefined();
+    });
+});
+
+describe("cardSpanStyle", () => {
+    it("spans both columns when wide", () => {
+        expect(cardSpanStyle({ wide: true })).toEqual({ gridColumn: "1 / -1" });
+    });
+    it("applies a pixel height", () => {
+        expect(cardSpanStyle({ height: 240 })).toEqual({ height: "240px" });
+    });
+    it("combines wide + height", () => {
+        expect(cardSpanStyle({ wide: true, height: 200 })).toEqual({ gridColumn: "1 / -1", height: "200px" });
+    });
+    it("is empty for undefined / no prefs", () => {
+        expect(cardSpanStyle()).toEqual({});
+        expect(cardSpanStyle({})).toEqual({});
+    });
+});

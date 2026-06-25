@@ -4,26 +4,38 @@
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
-import { useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 
 const ComposerMinH = 64; // ~3 lines at 12px
 const ComposerMaxH = 160; // grows up to here, then the textarea scrolls
 
+export interface AgentComposerHandle {
+    fill: (text: string) => void;
+}
+
 // Sends free text to an agent's terminal block. "\r" submits (the PTY treats CR as Enter), mirroring
 // how term-model writes xterm input via ControllerInputCommand.
-export function AgentComposer({
-    blockId,
-    placeholder,
-    className,
-    onEscape,
-}: {
-    blockId?: string;
-    placeholder: string;
-    className?: string;
-    onEscape?: () => void;
-}) {
+export const AgentComposer = forwardRef<
+    AgentComposerHandle,
+    {
+        blockId?: string;
+        placeholder: string;
+        className?: string;
+        onEscape?: () => void;
+    }
+>(function AgentComposer({ blockId, placeholder, className, onEscape }, ref) {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
+    useImperativeHandle(
+        ref,
+        () => ({
+            fill: (t: string) => {
+                setText(t);
+                taRef.current?.focus();
+            },
+        }),
+        []
+    );
     useLayoutEffect(() => {
         const el = taRef.current;
         if (!el) {
@@ -70,4 +82,4 @@ export function AgentComposer({
             </button>
         </div>
     );
-}
+});

@@ -7,13 +7,11 @@ import { AgentsViewModel } from "@/app/view/agents/agents";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
 import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
-import { fireAndForget } from "@/util/util";
 import { Provider } from "jotai";
 import { useRef } from "react";
-import { newAgentSession } from "./cockpit-actions";
+import { CockpitAppBar } from "./app-bar";
 import "./cockpit.scss";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
-import { CockpitTitlebar } from "./titlebar";
 
 const AgentsBlockId = "cockpit-agents";
 
@@ -23,7 +21,6 @@ export function CockpitRoot() {
         <Provider store={globalStore}>
             <WaveEnvContext.Provider value={waveEnvRef.current}>
                 <div className="cockpit-shell">
-                    <CockpitTitlebar />
                     <CockpitBody waveEnv={waveEnvRef.current} />
                 </div>
             </WaveEnvContext.Provider>
@@ -48,14 +45,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     const model = agentsModelRef.current;
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="shrink-0 border-b border-border p-2">
-                <button
-                    onClick={() => fireAndForget(() => newAgentSession(model))}
-                    className="cursor-pointer rounded-[6px] bg-accent px-3 py-1.5 text-[13px] font-semibold text-white hover:opacity-90"
-                >
-                    + New Agent
-                </button>
-            </div>
+            <CockpitAppBar model={model} />
             <div className="min-h-0 flex-1">
                 <CockpitShell model={model} tabId={tabIdRef.current} />
             </div>

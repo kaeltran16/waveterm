@@ -8,7 +8,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
-import { buildAskAnswers, canSubmitAsk, type AgentVM } from "./agentsviewmodel";
+import { buildAskAnswers, canSubmitAsk, type AgentVM, type CardPref } from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { liveAgentsAtom } from "./liveagents";
@@ -53,6 +53,12 @@ export class AgentsViewModel implements ViewModel {
     focusReplyAtom = atom(false);
     railOpenAtom = atom(true);
     chipFilterAtom = atom<ChipFilter>("all");
+
+    // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
+    // both the app-bar switcher and the header button; card prefs are ephemeral (not persisted).
+    projectFilterAtom = atom<string>("all"); // "all" | <projectName>
+    liveOnlyAtom = atom(false);
+    cardPrefsAtom = atom<Record<string, CardPref>>({}) as PrimitiveAtom<Record<string, CardPref>>;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;

@@ -3,6 +3,20 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Usage-bar token counts (fabricated)
+
+- **What:** the cockpit right-rail usage bars (5-hour window / Weekly) render a `used / limit tok` line
+  (handoff lines 326/331), but the figure is **fabricated** — `used = pct% × FAKE_TOKEN_LIMIT`, where the
+  ceilings (2.2M / 44M) are hardcoded handoff values, not telemetry.
+- **Why fabricated, not real:** `AgentUsage` (`baseds.AgentUsage`) carries no token totals — only
+  `fivehourpct`, `fivehourreset`, `weekpct`, `weekreset`. The fake number makes the bar layout judgeable
+  during the visual pass; it must not be read as real usage.
+- **Where it plugs in:** `FAKE_TOKEN_LIMIT` + `UsageBar` in `frontend/app/view/agents/cockpitsurface.tsx`
+  (marked `PLACEHOLDER`).
+- **To resume:** extend `AgentUsage` (and the statusLine reporter that fills it) with per-window token
+  used/limit fields, then feed real values into `UsageBar` and delete `FAKE_TOKEN_LIMIT`.
+- **Deferred:** 2026-06-25, during the cockpit handoff-parity pass.
+
 ## Agent (Focus) surface placeholders (Phase 1b)
 
 - **What:** the Agent 3-pane focus surface (`frontend/app/view/agents/agentsurface.tsx` +

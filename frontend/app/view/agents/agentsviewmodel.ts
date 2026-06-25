@@ -1,6 +1,7 @@
 // Pure view-model logic for the Agents view. No React, no Wave runtime imports.
 
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
+import { projectNameFromTranscriptPath } from "./projectname";
 
 export type AgentState = "asking" | "working" | "idle";
 
@@ -26,6 +27,7 @@ export interface AgentAsk {
     questions: AgentAskQuestion[];
     askId?: string;
     oref?: string;
+    replySuggestions?: string[]; // free-form quick-replies (populated by test-data scenarios; undefined on the live path)
 }
 
 export interface AgentVM {
@@ -44,6 +46,12 @@ export interface AgentVM {
     blockId?: string; // terminal block OID — target for ControllerInputCommand
     idleSince?: number; // idle: when it went idle (UnixMilli) — drives the keep-as-panel grace window
     usage?: AgentUsage; // latest context %, cost, and plan rate-limit snapshot (from the statusLine reporter)
+}
+
+// Per-card ephemeral layout prefs (widen span + dragged height). Not persisted this pass.
+export interface CardPref {
+    wide?: boolean;
+    height?: number;
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -447,4 +455,71 @@ export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): Age
             oref: ask.oref,
         },
     };
+}
+
+export interface ProjectInfo {
+    name: string;
+    agentCount: number;
+    askingCount: number;
+}
+
+/** Pure: distinct projects derived from transcript paths, each with its agent + asking counts.
+ *  Agents with no derivable project name are skipped. Sorted by project name. */
+export function projectsFromAgents(agents: AgentVM[]): ProjectInfo[] {
+    const byName = new Map<string, ProjectInfo>();
+    for (const a of agents) {
+        const name = projectNameFromTranscriptPath(a.transcriptPath ?? "");
+        if (!name) {
+            continue;
+        }
+        const cur = byName.get(name) ?? { name, agentCount: 0, askingCount: 0 };
+        cur.agentCount++;
+        if (a.state === "asking") {
+            cur.askingCount++;
+        }
+        byName.set(name, cur);
+    }
+    return [...byName.values()].sort((x, y) => x.name.localeCompare(y.name));
+}
+
+/** Pure: does an agent fall within the current project scope? "all" matches everything. */
+export function matchesProjectFilter(agent: AgentVM, filter: string): boolean {
+    if (filter === "all") {
+        return true;
+    }
+    return projectNameFromTranscriptPath(agent.transcriptPath ?? "") === filter;
+}
+
+/** Pure: apply the project scope + live-only (hide idle) filters, preserving input order. The chip
+ *  filter is applied separately by the caller so the live-section counts can ignore it. */
+export function filterAgents(agents: AgentVM[], projectFilter: string, liveOnly: boolean): AgentVM[] {
+    return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || a.state !== "idle"));
+}
+
+/** Pure: the highest reported 5-hour plan pct across agents, or undefined if none report one.
+ *  Drives the app-bar usage donut (one figure across providers). */
+export function topFiveHourPct(agents: AgentVM[]): number | undefined {
+    let top: number | undefined;
+    for (const a of agents) {
+        const p = a.usage?.fivehourpct;
+        if (p == null) {
+            continue;
+        }
+        if (top == null || p > top) {
+            top = p;
+        }
+    }
+    return top;
+}
+
+/** Pure: map a card's prefs to its grid style — `wide` spans both columns; `height` sets a px height. */
+export function cardSpanStyle(pref?: CardPref): { gridColumn?: string; height?: string } {
+    const style: { gridColumn?: string; height?: string } = {};
+    if (pref?.wide) {
+        style.gridColumn = "1 / -1";
+    }
+    if (pref?.height != null) {
+        style.height = `${pref.height}px`;
+    }
+    return style;
 }

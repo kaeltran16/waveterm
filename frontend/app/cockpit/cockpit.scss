@@ -7,39 +7,6 @@
     background: var(--main-bg-color, #1a1a1a);
     color: var(--main-text-color, #eee);
 }
-.cockpit-titlebar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 32px;
-    flex-shrink: 0;
-    background: var(--panel-bg-color, #222);
-    user-select: none;
-}
-.cockpit-titlebar-title {
-    padding: 0 12px;
-    font-size: 12px;
-    flex: 1;
-}
-.cockpit-titlebar-controls {
-    display: flex;
-    height: 100%;
-}
-.cockpit-tb-btn {
-    width: 44px;
-    height: 100%;
-    border: none;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    &:hover {
-        background: rgba(255, 255, 255, 0.1);
-    }
-    &.cockpit-tb-close:hover {
-        background: #c42b1c;
-        color: #fff;
-    }
-}
 .cockpit-focus-pane {
     flex: 1;
     min-width: 0;
