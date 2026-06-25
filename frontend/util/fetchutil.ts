@@ -16,7 +16,22 @@ if (typeof window === "undefined") {
 export function fetch(input: string | GlobalRequest | URL, init?: RequestInit): Promise<Response> {
     if (net) {
         return net.fetch(input.toString(), init);
-    } else {
-        return globalThis.fetch(input, init);
     }
+    // Tauri webview: globalThis.fetch is CORS-blocked (wavesrv is a different origin) and there is
+    // no session-level authkey injection (Electron does that via onBeforeSendHeaders). Route through
+    // the http plugin (Rust-side reqwest, no CORS) and carry the authkey header ourselves.
+    if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ != null) {
+        return tauriFetch(input, init);
+    }
+    return globalThis.fetch(input, init);
+}
+
+async function tauriFetch(input: string | GlobalRequest | URL, init?: RequestInit): Promise<Response> {
+    const { fetch: pluginFetch } = await import("@tauri-apps/plugin-http");
+    const authKey = (window as any).api?.getAuthKey?.();
+    const headers = new Headers(init?.headers);
+    if (authKey) {
+        headers.set("X-AuthKey", authKey);
+    }
+    return pluginFetch(input as any, { ...init, headers });
 }

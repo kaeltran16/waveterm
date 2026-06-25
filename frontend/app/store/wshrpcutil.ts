@@ -5,18 +5,20 @@ import { setWpsRpcClient, wpsReconnectHandler } from "@/app/store/wps";
 import { TabClient } from "@/app/store/tabrpcclient";
 import { WshRouter } from "@/app/store/wshrouter";
 import { getWSServerEndpoint } from "@/util/endpoints";
-import { addWSReconnectHandler, globalWS, initGlobalWS, WSControl } from "./ws";
+import { addWSReconnectHandler, type ElectronOverrideOpts, globalWS, initGlobalWS, WSControl } from "./ws";
 import { DefaultRouter, setDefaultRouter } from "./wshrpcutil-base";
 
 let TabRpcClient: TabClient;
 
-function initWshrpc(routeId: string): WSControl {
+// eoOpts carries the authkey when the host can't inject it session-wide (Tauri webview). Electron
+// leaves it undefined — its main process injects X-AuthKey via onBeforeSendHeaders.
+function initWshrpc(routeId: string, eoOpts?: ElectronOverrideOpts): WSControl {
     const router = new WshRouter(new UpstreamWshRpcProxy());
     setDefaultRouter(router);
     const handleFn = (event: WSEventType) => {
         DefaultRouter.recvRpcMessage(event.data);
     };
-    initGlobalWS(getWSServerEndpoint(), routeId, handleFn);
+    initGlobalWS(getWSServerEndpoint(), routeId, handleFn, eoOpts);
     globalWS.connectNow("connectWshrpc");
     TabRpcClient = new TabClient(routeId);
     setWpsRpcClient(TabRpcClient);

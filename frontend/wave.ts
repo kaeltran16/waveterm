@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { App } from "@/app/app";
-import { loadBadges } from "@/app/store/badge";
+import { bootWaveCore } from "@/app/boot/boot-core";
 import { GlobalModel } from "@/app/store/global-model";
 import {
     globalRefocus,
     registerBuilderGlobalKeys,
-    registerControlShiftStateUpdateHandler,
     registerElectronReinjectKeyHandler,
     registerGlobalKeys,
 } from "@/app/store/keymodel";
 import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
-import { makeBuilderRouteId, makeTabRouteId } from "@/app/store/wshrouter";
+import { makeBuilderRouteId } from "@/app/store/wshrouter";
 import { initWshrpc, TabRpcClient } from "@/app/store/wshrpcutil";
 import { BuilderApp } from "@/builder/builder-app";
 import { getLayoutModelForStaticTab } from "@/layout/index";
@@ -23,15 +22,11 @@ import {
     getApi,
     globalStore,
     initGlobal,
-    initGlobalWaveEventSubs,
     loadConnStatus,
-    subscribeToConnEvents,
 } from "@/store/global";
-import { activeTabIdAtom } from "@/store/tab-model";
 import * as WOS from "@/store/wos";
 import { loadFonts } from "@/util/fontutil";
 import { setKeyUtilPlatform } from "@/util/keyutil";
-import { isMacOS, setMacOSVersion } from "@/util/platformutil";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -140,60 +135,9 @@ function loadAllWorkspaceTabs(ws: Workspace) {
 }
 
 async function initWave(initOpts: WaveInitOpts) {
-    getApi().sendLog("Init Wave " + JSON.stringify(initOpts));
-    const globalInitOpts: GlobalInitOptions = {
-        tabId: initOpts.tabId,
-        clientId: initOpts.clientId,
-        windowId: initOpts.windowId,
-        platform,
-        environment: "renderer",
-        primaryTabStartup: initOpts.primaryTabStartup,
-    };
-    console.log("Wave Init", globalInitOpts);
-    globalStore.set(activeTabIdAtom, initOpts.tabId);
-    await GlobalModel.getInstance().initialize(globalInitOpts);
-    initGlobal(globalInitOpts);
-    (window as any).globalAtoms = atoms;
-
-    // Init WPS event handlers
-    const globalWS = initWshrpc(makeTabRouteId(initOpts.tabId));
-    (window as any).globalWS = globalWS;
-    (window as any).TabRpcClient = TabRpcClient;
-
-    // ensures client/window/workspace are loaded into the cache before rendering
-    try {
-        await loadConnStatus();
-        await loadBadges();
-        initGlobalWaveEventSubs(initOpts);
-        subscribeToConnEvents();
-        if (isMacOS()) {
-            const macOSVersion = await RpcApi.MacOSVersionCommand(TabRpcClient);
-            setMacOSVersion(macOSVersion);
-        }
-        const [_client, waveWindow, initialTab] = await Promise.all([
-            WOS.loadAndPinWaveObject<Client>(WOS.makeORef("client", initOpts.clientId)),
-            WOS.loadAndPinWaveObject<WaveWindow>(WOS.makeORef("window", initOpts.windowId)),
-            WOS.loadAndPinWaveObject<Tab>(WOS.makeORef("tab", initOpts.tabId)),
-        ]);
-        const [ws, _layoutState] = await Promise.all([
-            WOS.loadAndPinWaveObject<Workspace>(WOS.makeORef("workspace", waveWindow.workspaceid)),
-            WOS.reloadWaveObject<LayoutState>(WOS.makeORef("layout", initialTab.layoutstate)),
-        ]);
-        loadAllWorkspaceTabs(ws);
-        WOS.wpsSubscribeToObject(WOS.makeORef("workspace", waveWindow.workspaceid));
-        document.title = `Wave Terminal - ${initialTab.name}`; // TODO update with tab name change
-    } catch (e) {
-        console.error("Failed initialization error", e);
-        getApi().sendLog("Error in initialization (wave.ts, loading required objects) " + e.message + "\n" + e.stack);
-    }
+    await bootWaveCore(initOpts);
     registerGlobalKeys();
     registerElectronReinjectKeyHandler();
-    registerControlShiftStateUpdateHandler();
-    const fullConfig = await RpcApi.GetFullConfigCommand(TabRpcClient);
-    console.log("fullconfig", fullConfig);
-    globalStore.set(atoms.fullConfigAtom, fullConfig);
-    const waveaiModeConfig = await RpcApi.GetWaveAIModeConfigCommand(TabRpcClient);
-    globalStore.set(atoms.waveaiModeConfigAtom, waveaiModeConfig.configs);
     console.log("Wave First Render");
     let firstRenderResolveFn: () => void = null;
     const firstRenderPromise = new Promise<void>((resolve) => {

@@ -3,10 +3,11 @@
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { getApi, setActiveTab } from "@/app/store/global";
+import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TabModel } from "@/app/store/tab-model";
-import { atom, useAtomValue, type Atom } from "jotai";
+import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
 import { cn, fireAndForget } from "@/util/util";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
@@ -375,7 +376,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                 focusStep(1);
             } else if (e.key === "t") {
                 e.preventDefault();
-                setActiveTab(focusId);
+                model.openTerminal(focusId);
             }
             return;
         }
@@ -419,7 +420,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
         } else if (e.key === "t") {
             e.preventDefault();
             if (cur) {
-                setActiveTab(cur.id);
+                model.openTerminal(cur.id);
             }
         } else if (e.key === "b") {
             e.preventDefault();
@@ -466,7 +467,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                     onBack={() => setFocusId(undefined)}
                     onPrev={() => focusStep(-1)}
                     onNext={() => focusStep(1)}
-                    onOpenTerminal={() => setActiveTab(focusAgent.id)}
+                    onOpenTerminal={() => model.openTerminal(focusAgent.id)}
                     onToggleAnswer={(qi, oi) => toggleAnswer(focusAgent.id, qi, oi)}
                     onSubmitAnswer={() => submitAnswer(focusAgent.id)}
                     onSelectQuestion={(qi) => selectQuestion(focusAgent.id, qi)}
@@ -564,7 +565,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
                                     activeQuestion={answerTab[a.id] ?? 0}
                                     onCursor={() => setCursorId(a.id)}
                                     onOpen={() => openFocus(a.id, false)}
-                                    onOpenTerminal={() => setActiveTab(a.id)}
+                                    onOpenTerminal={() => model.openTerminal(a.id)}
                                     onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
                                     onSubmitAnswer={() => submitAnswer(a.id)}
                                     onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
@@ -579,7 +580,7 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
 
                 <div className="shrink-0 px-[18px]">
                     <BackgroundedSection agents={backgrounded} onRestore={(id) => toggleBackground(id)} />
-                    <IdleSection agents={parkedIdle} onOpen={(id) => setActiveTab(id)} />
+                    <IdleSection agents={parkedIdle} onOpen={(id) => model.openTerminal(id)} />
                 </div>
             </div>
 
@@ -611,6 +612,10 @@ export class AgentsViewModel implements ViewModel {
     viewName = atom<string>("Agents");
     noPadding = atom(true);
     agentsAtom: Atom<AgentVM[]>;
+    // cockpit: the term blockId the inline focus pane renders. Unused on the Electron path.
+    terminalTargetAtom = atom(null) as PrimitiveAtom<string>;
+    // cockpit sets this so "open terminal" renders inline instead of switching tabs (which don't exist there).
+    inlineTerminal = false;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;
@@ -619,6 +624,15 @@ export class AgentsViewModel implements ViewModel {
         this.viewType = "agents";
         // DEV-only: swap in the throwaway mock roster (see mockagents.ts). Never active in a prod build.
         this.agentsAtom = USE_MOCK_AGENTS && getApi().getIsDev() ? mockAgentsAtom : liveAgentsAtom;
+    }
+
+    openTerminal(agentId: string) {
+        if (this.inlineTerminal) {
+            const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
+            globalStore.set(this.terminalTargetAtom, agent?.blockId);
+            return;
+        }
+        setActiveTab(agentId);
     }
 
     get viewComponent(): ViewComponent {

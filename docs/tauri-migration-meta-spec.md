@@ -150,9 +150,12 @@ first: it gets built once, on the final runtime.
 | **0 · Tracer bullet** | Rust `main` → spawn `wavesrv` → `get_init` → websocket connects → **one xterm terminal runs a real PTY in the Tauri webview** | ~1 wk |
 | **1 · Day-one bridge** | Boot + env/identity + terminal basics behind the unchanged `getApi()` interface | ~1 wk |
 | **2 · Chrome + interaction** | Custom titlebar, zoom, fullscreen, context menus, chord mode | ~1–1.5 wk |
-| **3 · Net-new native** | tray, notifications, file-dialog, spawn-editor (Tauri plugins) | ~0.5–1 wk |
-| **4 · Packaging + updater** | Tauri bundler, Windows signing, updater plugin + release feed | ~1–2 wk |
-| **5 · Frontend teardown** | Delete block/tab/layout engine, `workspace.tsx`, `builder/`, `tsunami`, `<webview>`; boot into a minimal cockpit-shaped shell (surfaces stubbed) | ~1–2 wk |
+| ~~**3 · Net-new native**~~ | **Deferred** → feature roadmap (tray, notifications, file-dialog, spawn-editor). Features, not foundation; off the critical path (T9) | — |
+| **5a · Boot the real cockpit** | Real frontend-resolved boot (client/window/workspace/tab over unchanged Go services) → the agent cockpit runs in the Tauri window, replacing the harness; old block/tab/layout machinery dormant (bypassed, not deleted); inline focus pane replaces `setActiveTab` | ~1 wk |
+| **5b · Frontend teardown** | Delete block/tab/layout engine, `workspace.tsx`, `builder/`, `tsunami`, `<webview>` (~15.5k LOC); the Phase 2 consumer-flips (`ContextMenuModel`→`buildTauriMenu`, `keymodel`→`chrome.ts`); unify the Tauri vite entry | ~1 wk |
+| **4 · Packaging + updater** | Tauri bundler, Windows signing, updater plugin + release feed; remove `emain/` + electron-builder | ~1–2 wk |
+
+**Sequencing note (T10):** Phase 5 (now split 5a/5b) runs **before** Phase 4. Phases 0–2 ran on a throwaway bare-xterm harness; reaching the *real* app on Tauri (5a) is the foundation milestone worth hitting before the human-gated signing/packaging pipeline — packaging the harness has little value, and packaging after Phase 5 signs/ships the real thing once.
 
 **Foundation work-size: ~6–9 weeks of human labor** — Windows-only, the cuts applied.
 This is a *sizing* anchor, not calendar time: the migration is agent-executed (§12), so
@@ -204,6 +207,18 @@ timeline swing up front:
   the macOS/Linux timeline swing; deferrable additions noted in §9.*
 - **T8 — Executor:** Claude Code (agent-driven), with the human in the loop for
   verification, credentials/signing, and per-phase review (see §12). *Resolves team size.*
+- **T9 — Phase 3 deferred:** net-new native (tray, notifications, file-dialog, spawn-editor)
+  moves to a feature roadmap, not the foundation track. *They are features, not foundation, and
+  off the critical path to "Wave runs on Tauri"; the bridge already stubs the Electron-shaped
+  ones and the net-new ones have no callers yet.*
+- **T10 — Phase 5 before Phase 4:** boot the real app on Tauri before building the human-gated
+  packaging/signing pipeline. *Phases 0–2 ran on a throwaway harness; packaging the harness has
+  little value, and packaging after Phase 5 signs/ships the real app once.*
+- **T11 — Phase 5 split 5a/5b:** 5a boots the real cockpit with the old machinery dormant
+  (bypassed); 5b deletes the now-provably-dead machinery + does the Phase 2 consumer-flips.
+  *Make-it-work-then-delete: a boot regression in a big-bang phase could be the new code or the
+  deletion; splitting makes the deletion provably safe. Sub-spec:
+  `docs/superpowers/specs/2026-06-24-tauri-phase5a-boot-cockpit-design.md`.*
 
 ## 12. Execution model
 
