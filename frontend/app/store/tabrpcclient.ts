@@ -35,7 +35,7 @@ export class TabClient extends WshClient {
         const containerRect = displayContainer.getBoundingClientRect();
         const additionalProps = layoutModel.getNodeAdditionalProperties(node);
 
-        let electronRect: Electron.Rectangle;
+        let electronRect: { x: number; y: number; width: number; height: number };
 
         if (!additionalProps?.rect) {
             // Bug: rect is not set when there is only one block in the layout

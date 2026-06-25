@@ -15,8 +15,8 @@ vars:
     WINGET_PACKAGE: CommandLine.Wave
 
 tasks:
-    electron:dev:
-        desc: Run the Electron application via the Vite dev server (enables hot reloading).
+    tauri:dev:
+        desc: Run the Tauri application via the Vite dev server (enables hot reloading).
         cmd: npm run dev
         aliases:
             - dev
@@ -29,33 +29,6 @@ tasks:
             WCLOUD_PING_ENDPOINT: "https://ping-dev.waveterm.dev/central"
             WCLOUD_ENDPOINT: "https://api-dev.waveterm.dev/central"
             WCLOUD_WS_ENDPOINT: "wss://wsapi-dev.waveterm.dev"
-            WAVETERM_NOCONFIRMQUIT: "1"
-
-    electron:start:
-        desc: Run the Electron application directly.
-        cmd: npm run start
-        aliases:
-            - start
-        deps:
-            - npm:install
-            - build:backend
-        env:
-            WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
-            WCLOUD_PING_ENDPOINT: "https://ping-dev.waveterm.dev/central"
-            WCLOUD_ENDPOINT: "https://api-dev.waveterm.dev/central"
-            WCLOUD_WS_ENDPOINT: "wss://wsapi-dev.waveterm.dev"
-
-    electron:quickdev:
-        desc: Run the Electron application via the Vite dev server (quick dev - no docsite, arm64 only, no generate, no wsh).
-        cmd: npm run dev
-        deps:
-            - npm:install
-            - build:backend:quickdev
-        env:
-            WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
-            WCLOUD_PING_ENDPOINT: "https://ping-dev.waveterm.dev/central"
-            WCLOUD_ENDPOINT: "https://api-dev.waveterm.dev/central"
-            WCLOUD_WS_ENDPOINT: "wss://wsapi-dev.waveterm.dev/"
             WAVETERM_NOCONFIRMQUIT: "1"
 
     preview:
@@ -71,18 +44,6 @@ tasks:
         cmd: npx vite build
         deps:
             - npm:install
-
-    electron:winquickdev:
-        desc: Run the Electron application via the Vite dev server (quick dev - Windows amd64 only, no generate, no wsh).
-        cmd: npm run dev
-        deps:
-            - npm:install
-            - build:backend:quickdev:windows
-        env:
-            WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
-            WCLOUD_PING_ENDPOINT: "https://ping-dev.waveterm.dev/central"
-            WCLOUD_ENDPOINT: "https://api-dev.waveterm.dev/central"
-            WCLOUD_WS_ENDPOINT: "wss://wsapi-dev.waveterm.dev/"
 
     docs:npm:install:
         desc: Runs `npm install` in docs directory
@@ -120,22 +81,6 @@ tasks:
             - "docs/build/**/*"
         deps:
             - docs:npm:install
-
-    package:
-        desc: Package the application for the current platform.
-        cmds:
-            - npm run build:prod && npm exec electron-builder -- -c electron-builder.config.cjs -p never {{.CLI_ARGS}}
-        deps:
-            - clean
-            - npm:install
-            - build:backend
-            - build:tsunamiscaffold
-
-    build:frontend:dev:
-        desc: Build the frontend in development mode.
-        cmd: npm run build:dev
-        deps:
-            - npm:install
 
     build:backend:
         desc: Build the wavesrv and wsh components.
@@ -460,7 +405,7 @@ tasks:
             - task: dev:cleardata:macos
 
     check:ts:
-        desc: Typecheck TypeScript code (frontend and electron).
+        desc: Typecheck TypeScript code (frontend).
         cmd: npx tsc --noEmit
         deps:
             - npm:install

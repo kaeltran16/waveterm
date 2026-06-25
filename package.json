@@ -9,23 +9,16 @@
     "license": "Apache-2.0",
     "version": "0.14.5",
     "homepage": "https://waveterm.dev",
-    "build": {
-        "appId": "dev.commandline.waveterm"
-    },
     "private": true,
-    "main": "./dist/main/index.js",
     "type": "module",
     "browserslist": [
         "Chrome >= 128"
     ],
     "scripts": {
-        "dev": "electron-vite dev",
-        "start": "electron-vite preview",
-        "build:dev": "electron-vite build --mode development",
-        "build:prod": "electron-vite build --mode production",
+        "dev": "cargo tauri dev",
+        "build": "cargo tauri build",
         "coverage": "vitest run --coverage",
-        "test": "vitest",
-        "postinstall": "node ./postinstall.cjs"
+        "test": "vitest"
     },
     "devDependencies": {
         "@eslint/js": "^9.39",
@@ -45,13 +38,9 @@
         "@types/ws": "^8",
         "@vitejs/plugin-react-swc": "4.2.3",
         "@vitest/coverage-istanbul": "^3.0.9",
-        "electron": "^41.1.0",
-        "electron-builder": "^26.8",
-        "electron-vite": "^5.0",
         "eslint": "^9.39",
         "eslint-config-prettier": "^10.1.8",
         "globals": "^17.4.0",
-        "node-abi": "^4.26.0",
         "prettier": "^3.8.1",
         "prettier-plugin-jsdoc": "^1.8.0",
         "prettier-plugin-organize-imports": "^4.3.0",
@@ -91,7 +80,6 @@
         "css-tree": "^3.1.0",
         "dayjs": "^1.11.19",
         "debug": "^4.4.3",
-        "electron-updater": "^6.6",
         "env-paths": "^3.0.0",
         "fast-average-color": "^9.5.0",
         "htl": "^0.3.1",
