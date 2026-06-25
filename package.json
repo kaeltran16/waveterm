@@ -17,6 +17,7 @@
     "scripts": {
         "dev": "cargo tauri dev",
         "build": "cargo tauri build",
+        "cockpit:fixtures": "node scripts/gen-cockpit-fixtures.mjs",
         "coverage": "vitest run --coverage",
         "test": "vitest"
     },

@@ -22,6 +22,7 @@ manifests/
 .env
 out
 .kilocode/package-lock.json
+public/cockpit-fixtures/active.json
 
 # Yarn Modern
 .pnp.*

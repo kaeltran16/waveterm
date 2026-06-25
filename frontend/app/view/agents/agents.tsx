@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
-import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { TabModel } from "@/app/store/tab-model";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -11,8 +10,8 @@ import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { buildAskAnswers, canSubmitAsk, type AgentVM } from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
+import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { liveAgentsAtom } from "./liveagents";
-import { mockAgentsAtom, USE_MOCK_AGENTS } from "./mockagents";
 
 export type SurfaceKey =
     | "cockpit"
@@ -60,8 +59,14 @@ export class AgentsViewModel implements ViewModel {
         this.nodeModel = nodeModel;
         this.tabModel = tabModel;
         this.viewType = "agents";
-        // DEV-only: swap in the throwaway mock roster (see mockagents.ts). Never active in a prod build.
-        this.agentsAtom = USE_MOCK_AGENTS && getApi().getIsDev() ? mockAgentsAtom : liveAgentsAtom;
+        // DEV-only: runtime mock roster from public/cockpit-fixtures/active.json (see devmock.ts +
+        // scripts/gen-cockpit-fixtures.mjs). import.meta.env.DEV is build-time, so prod always uses live.
+        if (import.meta.env.DEV) {
+            void loadDevMockRoster();
+            this.agentsAtom = devRosterAtom;
+        } else {
+            this.agentsAtom = liveAgentsAtom;
+        }
     }
 
     // openTerminal routes to the interim Agent surface (spec §6): set the target block, clear any focused
