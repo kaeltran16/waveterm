@@ -5,9 +5,9 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue, type PrimitiveAtom } from "jotai";
 import { AnimatePresence, motion, Reorder } from "motion/react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
-import type { AgentsViewModel } from "./agents";
+import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
 import {
     canSubmitAsk,
     formatReset,
@@ -90,14 +90,14 @@ function ProviderPlan({ provider, usage, now }: { provider: string; usage: Agent
 
 const HINTS: [string, string][] = [
     ["↑↓ / j k", "move"],
-    ["n", "next ask"],
+    ["⏎", "open"],
+    ["esc", "back"],
     ["1–9", "answer"],
-    ["←→ / h l", "question"],
-    ["↵", "open / confirm"],
     ["r", "reply"],
     ["t", "terminal"],
     ["b", "background"],
-    ["esc", "back"],
+    ["n", "next ask"],
+    ["[ ]", "switch surface"],
 ];
 
 function HelpOverlay({ onClose }: { onClose: () => void }) {
@@ -223,10 +223,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [answerSel, setAnswerSel] = useModelAtom(model.answerSelAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
+    const railOpen = useAtomValue(model.railOpenAtom);
+    const chip = useAtomValue(model.chipFilterAtom);
+    const setChip = (c: ChipFilter) => globalStore.set(model.chipFilterAtom, c);
     const [showHelp, setShowHelp] = useState(false);
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // status chips narrow what the grid renders; cursor/order still operate over the full set
+    const shownAgents = chip === "all" ? orderedAgents : orderedAgents.filter((a) => a.state === chip);
 
     // keep the cursor valid as the set changes; seed it to the first row
     useEffect(() => {
@@ -300,6 +306,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
             return; // typing — let the input own its keys
+        }
+        // surface switch: `[` previous / `]` next (rail order). 1–9 are answer keys, so no number jumps.
+        if (e.key === "]" || e.key === "[") {
+            e.preventDefault();
+            const surfaceOrder: SurfaceKey[] = ["cockpit", "agent", "activity", "channels", "sessions", "files", "memory", "usage"];
+            const curSurface = globalStore.get(model.surfaceAtom);
+            const idx = surfaceOrder.indexOf(curSurface);
+            const nextSurface = surfaceOrder[(idx + (e.key === "]" ? 1 : surfaceOrder.length - 1)) % surfaceOrder.length];
+            globalStore.set(model.surfaceAtom, nextSurface);
+            return;
         }
         const cur = orderedAgents.find((a) => a.id === cursorId);
         if (e.key === "ArrowDown" || e.key === "j") {
@@ -378,99 +394,130 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             onKeyDown={onKeyDown}
             className="relative flex h-full w-full flex-col text-secondary outline-none"
         >
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-[18px] py-3">
-                <b className="text-[14px] font-semibold text-primary">Agents</b>
-                <span className="flex items-center gap-2 text-[12px] text-muted">
-                    {asking.length > 0 ? (
+            <div className="sticky top-0 z-[5] shrink-0 border-b border-border bg-background px-[30px] pb-3 pt-4">
+                <div className="mb-3 flex items-baseline gap-3">
+                    <h1 className="text-[20px] font-bold tracking-[-0.02em] text-primary">Cockpit</h1>
+                    <p className="text-[12.5px] text-muted">
+                        {agents.length} agents ·{" "}
+                        <span className="font-semibold text-warning">
+                            <RollingCount value={asking.length} /> need you
+                        </span>
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => globalStore.set(model.railOpenAtom, !railOpen)}
+                        className="ml-auto cursor-pointer rounded-[6px] border border-border px-2 py-1 text-[11.5px] text-muted hover:border-edge-mid"
+                    >
+                        {railOpen ? "Hide panel ›" : "‹ Usage"}
+                    </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    {(
+                        [
+                            ["all", "All", agents.length],
+                            ["asking", "Asking", asking.length],
+                            ["working", "Working", working.length],
+                            ["idle", "Idle", idle.length],
+                        ] as [ChipFilter, string, number][]
+                    ).map(([key, label, count]) => (
                         <button
+                            key={key}
                             type="button"
-                            onClick={() => {
-                                const target = nextAskId(asking.map((a) => a.id), lastJumpRef.current);
-                                if (!target) return;
-                                lastJumpRef.current = target;
-                                setCursorId(target);
-                                scrollToPulse(target);
-                            }}
-                            className="flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-warning bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning hover:bg-warning/15"
+                            onClick={() => setChip(key)}
+                            className={cn(
+                                "flex cursor-pointer items-center gap-2 rounded-[8px] border px-3 py-1.5 text-[12.5px]",
+                                chip === key
+                                    ? "border-edge-strong bg-surface-raised text-primary"
+                                    : "border-border text-muted hover:border-edge-mid"
+                            )}
                         >
-                            <span className="h-2 w-2 rounded-full bg-warning" />
-                            <RollingCount value={asking.length} /> needs you
-                            <span className="font-normal text-muted">· jump →</span>
+                            {label}
+                            <span className="font-mono text-[11px] font-semibold">
+                                <RollingCount value={count} />
+                            </span>
                         </button>
-                    ) : null}
-                    <span className="flex items-center gap-1">
-                        <RollingCount value={working.length} />
-                        <span>working</span>
-                    </span>
-                </span>
-            </div>
-
-            {planByProvider.length > 0 ? (
-                <div className="flex shrink-0 items-center gap-4 overflow-x-auto border-b border-border bg-accent/[0.035] px-[18px] py-2 text-[11px]">
-                    <span className="text-[10px] uppercase tracking-wide text-muted">Plan</span>
-                    {planByProvider.map(({ provider, usage }, i) => (
-                        <Fragment key={provider}>
-                            {i > 0 ? <span className="text-white/15">|</span> : null}
-                            <ProviderPlan provider={provider} usage={usage} now={now} />
-                        </Fragment>
                     ))}
                 </div>
-            ) : null}
+            </div>
 
-            <div className="flex min-h-0 flex-1 flex-col">
-                <AnimatePresence>
-                    {empty && (
-                        <motion.div
-                            key="empty"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.25 }}
-                            className="flex flex-1 flex-col items-center justify-center gap-1 p-[18px] text-center"
-                        >
-                            <div className="text-[18px] opacity-40">🤖</div>
-                            <div className="text-[13px] font-semibold text-secondary">No active agents</div>
-                            <div className="text-[11px] text-muted">Agents appear here the moment one starts working or asks a question.</div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <Reorder.Group
-                    as="div"
-                    axis="y"
-                    values={orderedIds}
-                    onReorder={setOrder}
-                    className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto p-5"
-                >
-                    <AnimatePresence mode="popLayout">
-                        {orderedAgents.map((a) => (
-                            <AgentRow
-                                key={a.id}
-                                agent={a}
-                                now={now}
-                                isCursor={cursorId === a.id}
-                                pulse={pulseId === a.id}
-                                selections={answerSel[a.id] ?? {}}
-                                sent={sentIds.has(a.id)}
-                                activeQuestion={answerTab[a.id] ?? 0}
-                                onCursor={() => setCursorId(a.id)}
-                                onOpen={() => openFocus(a.id, false)}
-                                onOpenTerminal={() => model.openTerminal(a.id)}
-                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                onSubmitAnswer={() => submitAnswer(a.id)}
-                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                onComposerEscape={() => containerRef.current?.focus()}
-                                onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
-                                onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-                            />
-                        ))}
+            <div className="flex min-h-0 flex-1">
+                <div className="flex min-h-0 flex-1 flex-col">
+                    <AnimatePresence>
+                        {empty && (
+                            <motion.div
+                                key="empty"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.25 }}
+                                className="flex flex-1 flex-col items-center justify-center gap-1 p-[18px] text-center"
+                            >
+                                <div className="text-[18px] opacity-40">🤖</div>
+                                <div className="text-[13px] font-semibold text-secondary">No active agents</div>
+                                <div className="text-[11px] text-muted">Agents appear here the moment one starts working or asks a question.</div>
+                            </motion.div>
+                        )}
                     </AnimatePresence>
-                </Reorder.Group>
 
-                <div className="shrink-0 px-[18px]">
-                    <BackgroundedSection agents={backgrounded} onRestore={(id) => toggleBackground(id)} />
-                    <IdleSection agents={parkedIdle} onOpen={(id) => model.openTerminal(id)} />
+                    <Reorder.Group
+                        as="div"
+                        axis="y"
+                        values={orderedIds}
+                        onReorder={setOrder}
+                        className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto p-5"
+                    >
+                        <AnimatePresence mode="popLayout">
+                            {shownAgents.map((a) => (
+                                <AgentRow
+                                    key={a.id}
+                                    agent={a}
+                                    now={now}
+                                    isCursor={cursorId === a.id}
+                                    pulse={pulseId === a.id}
+                                    selections={answerSel[a.id] ?? {}}
+                                    sent={sentIds.has(a.id)}
+                                    activeQuestion={answerTab[a.id] ?? 0}
+                                    onCursor={() => setCursorId(a.id)}
+                                    onOpen={() => openFocus(a.id, false)}
+                                    onOpenTerminal={() => model.openTerminal(a.id)}
+                                    onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                    onSubmitAnswer={() => submitAnswer(a.id)}
+                                    onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                    onComposerEscape={() => containerRef.current?.focus()}
+                                    onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
+                                    onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+                                />
+                            ))}
+                        </AnimatePresence>
+                    </Reorder.Group>
+
+                    <div className="shrink-0 px-[18px]">
+                        <BackgroundedSection agents={backgrounded} onRestore={(id) => toggleBackground(id)} />
+                        <IdleSection agents={parkedIdle} onOpen={(id) => model.openTerminal(id)} />
+                    </div>
                 </div>
+
+                {railOpen ? (
+                    <aside className="flex w-[300px] shrink-0 flex-col gap-6 overflow-y-auto border-l border-border bg-surface px-5 py-5">
+                        <div>
+                            <div className="mb-3.5 flex items-center justify-between">
+                                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Usage</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => globalStore.set(model.surfaceAtom, "usage")}
+                                    className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
+                                >
+                                    Details →
+                                </button>
+                            </div>
+                            <div className="flex flex-col gap-4">
+                                {planByProvider.map(({ provider, usage }) => (
+                                    <ProviderPlan key={provider} provider={provider} usage={usage} now={now} />
+                                ))}
+                            </div>
+                        </div>
+                    </aside>
+                ) : null}
             </div>
 
             {!empty ? (

@@ -24,6 +24,8 @@ export type SurfaceKey =
     | "memory"
     | "usage";
 
+export type ChipFilter = "all" | "asking" | "working" | "idle";
+
 export class AgentsViewModel implements ViewModel {
     viewType: string;
     blockId: string;
@@ -40,7 +42,6 @@ export class AgentsViewModel implements ViewModel {
     surfaceAtom = atom<SurfaceKey>("cockpit");
     nowAtom = atom(Date.now());
     cursorIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
-    cockpitSelIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
     orderAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
     backgroundedIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
     dismissedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
@@ -51,6 +52,8 @@ export class AgentsViewModel implements ViewModel {
     sentIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
     focusIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
     focusReplyAtom = atom(false);
+    railOpenAtom = atom(true);
+    chipFilterAtom = atom<ChipFilter>("all");
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;
