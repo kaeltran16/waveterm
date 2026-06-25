@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import ClaudeColorSvg from "@/app/asset/claude-color.svg";
-import { SubBlock } from "@/app/block/block";
+import { SubBlock } from "@/app/block/subblock";
 import type { BlockNodeModel } from "@/app/block/blocktypes";
 import { NullErrorBoundary } from "@/app/element/errorboundary";
 import { Search, useSearch } from "@/app/element/search";

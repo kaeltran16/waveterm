@@ -76,7 +76,6 @@ export type MockEnv = {
     services?: ServiceOverrides;
     atoms?: Partial<GlobalAtomsType>;
     electron?: Partial<ElectronApi>;
-    createBlock?: WaveEnv["createBlock"];
     showContextMenu?: WaveEnv["showContextMenu"];
     connStatus?: Record<string, ConnStatus>;
     mockWaveObjs?: Record<string, WaveObj>;
@@ -119,7 +118,6 @@ export function mergeMockEnv(base: MockEnv, overrides: MockEnv): MockEnv {
             overrides.electron != null || base.electron != null
                 ? { ...(base.electron ?? {}), ...(overrides.electron ?? {}) }
                 : undefined,
-        createBlock: overrides.createBlock ?? base.createBlock,
         showContextMenu: overrides.showContextMenu ?? base.showContextMenu,
         connStatus: mergeRecords(base.connStatus, overrides.connStatus),
         mockWaveObjs: mergeRecords(base.mockWaveObjs, overrides.mockWaveObjs),
@@ -492,29 +490,6 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
         isDev: () => mergedOverrides.isDev ?? true,
         isWindows: () => platform === PlatformWindows,
         isMacOS: () => platform === PlatformMacOS,
-        createBlock:
-            mergedOverrides.createBlock ??
-            ((blockDef: BlockDef, magnified?: boolean, ephemeral?: boolean) => {
-                console.log("[mock createBlock]", blockDef, { magnified, ephemeral });
-                const newBlockId = crypto.randomUUID();
-                const newBlock: Block = {
-                    otype: "block",
-                    oid: newBlockId,
-                    version: 1,
-                    meta: blockDef.meta ?? {},
-                };
-                mockWosFns.mockSetWaveObj(`block:${newBlockId}`, newBlock);
-                const tabORef = `tab:${tabId}`;
-                const tabAtom = getWaveObjectAtom<Tab>(tabORef);
-                const currentTab = globalStore.get(tabAtom);
-                if (currentTab != null) {
-                    mockWosFns.mockSetWaveObj(tabORef, {
-                        ...currentTab,
-                        blockids: [...(currentTab.blockids ?? []), newBlockId],
-                    });
-                }
-                return Promise.resolve(newBlockId);
-            }),
         showContextMenu: mergedOverrides.showContextMenu ?? showPreviewContextMenu,
         getLocalHostDisplayNameAtom: () => {
             return localHostDisplayNameAtom;

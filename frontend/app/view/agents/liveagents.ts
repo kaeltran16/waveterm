@@ -7,9 +7,9 @@
 // asking agents only (spec §10.3). ask routing via getAgentAskAtom + withAsk (Plan 3c).
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { getAgentStatusAtom, getAgentUsageAtom } from "@/app/tab/sessionsidebar/agentstatusstore";
-import { sessionSidebarViewModelAtom } from "@/app/tab/sessionsidebar/sessionsidebarmodel";
-import { flattenVisualOrder } from "@/app/tab/sessionsidebar/sessionviewmodel";
+import { getAgentStatusAtom, getAgentUsageAtom } from "@/app/view/agents/session-models/agentstatusstore";
+import { sessionSidebarViewModelAtom } from "@/app/view/agents/session-models/sessionsidebarmodel";
+import { flattenVisualOrder } from "@/app/view/agents/session-models/sessionviewmodel";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { agentVMFromInput, askingCount, isAskStale, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { getAgentAskAtom } from "./agentaskstore";

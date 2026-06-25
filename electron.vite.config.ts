@@ -1,15 +1,10 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react-swc";
 import { defineConfig } from "electron-vite";
-import { ViteImageOptimizer } from "vite-plugin-image-optimizer";
-import svgr from "vite-plugin-svgr";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 // from our electron build
-const CHROME = "chrome140";
 const NODE = "node22";
 
 // for debugging
@@ -120,58 +115,5 @@ export default defineConfig({
             open: false,
         },
         plugins: [tsconfigPaths()],
-    },
-    renderer: {
-        root: ".",
-        build: {
-            target: CHROME,
-            sourcemap: true,
-            outDir: "dist/frontend",
-            rollupOptions: {
-                input: {
-                    index: "index.html",
-                },
-                // intentionally no manualChunks: forcing monaco/shiki/mermaid/cytoscape/katex into
-                // named chunks hoists these dynamic-only libs into the entry's static modulepreload
-                // set (eager fetch+compile at startup). letting rollup auto-split keeps them lazy.
-            },
-        },
-        optimizeDeps: {
-            include: ["monaco-yaml/yaml.worker.js"],
-        },
-        server: {
-            open: false,
-            watch: {
-                ignored: [
-                    "dist/**",
-                    "**/*.go",
-                    "**/go.mod",
-                    "**/go.sum",
-                    "**/*.md",
-                    "**/*.mdx",
-                    "**/*.json",
-                    "**/emain/**",
-                    "**/*.txt",
-                    "**/*.log",
-                ],
-            },
-        },
-        css: {
-            preprocessorOptions: {
-                scss: {
-                    silenceDeprecations: ["mixed-decls"],
-                },
-            },
-        },
-        plugins: [
-            tsconfigPaths(),
-            { ...ViteImageOptimizer(), apply: "build" },
-            svgr({
-                svgrOptions: { exportType: "default", ref: true, svgo: false, titleProp: true },
-                include: "**/*.svg",
-            }),
-            react({}),
-            tailwindcss(),
-        ],
     },
 });

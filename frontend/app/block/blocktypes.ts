@@ -1,7 +1,6 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { NodeModel } from "@/layout/index";
 import { Atom } from "jotai";
 
 export interface BlockNodeModel {
@@ -11,17 +10,6 @@ export interface BlockNodeModel {
     onClose: () => void;
     focusNode: () => void;
     toggleMagnify: () => void;
-}
-
-export type FullBlockProps = {
-    preview: boolean;
-    nodeModel: NodeModel;
-    viewModel: ViewModel;
-};
-
-export interface BlockProps {
-    preview: boolean;
-    nodeModel: NodeModel;
 }
 
 export type FullSubBlockProps = {
@@ -38,14 +26,4 @@ export interface BlockComponentModel2 {
     onPointerEnter?: React.PointerEventHandler<HTMLDivElement>;
     onFocusCapture?: React.FocusEventHandler<HTMLDivElement>;
     blockRef?: React.RefObject<HTMLDivElement>;
-}
-
-export interface BlockFrameProps {
-    blockModel?: BlockComponentModel2;
-    nodeModel?: NodeModel;
-    viewModel?: ViewModel;
-    preview: boolean;
-    numBlocksInTab?: number;
-    children?: React.ReactNode;
-    connBtnRef?: React.RefObject<HTMLDivElement>;
 }

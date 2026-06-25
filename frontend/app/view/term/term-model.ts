@@ -1,7 +1,6 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { WaveAIModel } from "@/app/aipanel/waveai-model";
 import { BlockNodeModel } from "@/app/block/blocktypes";
 import { appHandleKeyDown } from "@/app/store/keymodel";
 import { modalsModel } from "@/app/store/modalmodel";
@@ -13,12 +12,8 @@ import { DefaultRouter, TabRpcClient } from "@/app/store/wshrpcutil";
 import { TermClaudeIcon, TerminalView } from "@/app/view/term/term";
 import { TermWshClient } from "@/app/view/term/term-wsh";
 import { VDomModel } from "@/app/view/vdom/vdom-model";
-import { WorkspaceLayoutModel } from "@/app/workspace/workspace-layout-model";
 import {
     atoms,
-    createBlock,
-    createBlockSplitHorizontally,
-    createBlockSplitVertically,
     getAllBlockComponentModels,
     getApi,
     getBlockComponentModel,
@@ -40,7 +35,7 @@ import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
-import { computeTheme, DefaultTermTheme, isLikelyOnSameHost, trimTerminalSelection } from "./termutil";
+import { computeTheme, DefaultTermTheme, trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
 
 export class TermViewModel implements ViewModel {
@@ -284,14 +279,6 @@ export class TermViewModel implements ViewModel {
             const connStatus = get(this.connStatus);
             const isCmd = get(this.isCmdController);
             const rtn: IconButtonDecl[] = [];
-
-            const isAIPanelOpen = get(WorkspaceLayoutModel.getInstance().panelVisibleAtom);
-            if (isAIPanelOpen) {
-                const shellIntegrationButton = this.getShellIntegrationIconButton(get);
-                if (shellIntegrationButton) {
-                    rtn.push(shellIntegrationButton);
-                }
-            }
 
             if (get(getSettingsKeyAtom("debug:webglstatus"))) {
                 const webglButton = this.getWebGlIconButton(get);
@@ -840,23 +827,6 @@ export class TermViewModel implements ViewModel {
                     }
                 },
             });
-            menu.push({ type: "separator" });
-            menu.push({
-                label: "Send to Wave AI",
-                click: () => {
-                    if (selection) {
-                        const aiModel = WaveAIModel.getInstance();
-                        aiModel.appendText(selection, true, { scrollToBottom: true });
-                        const layoutModel = WorkspaceLayoutModel.getInstance();
-                        if (!layoutModel.getAIPanelVisible()) {
-                            layoutModel.setAIPanelVisible(true);
-                        }
-                        aiModel.focusInput();
-                    }
-                },
-            });
-
-            menu.push({ type: "separator" });
         }
 
         const hoveredLinkUri = this.termRef.current?.hoveredLinkUri;
@@ -868,17 +838,6 @@ export class TermViewModel implements ViewModel {
                 // not a valid URL
             }
             if (hoveredURL) {
-                menu.push({
-                    label: hoveredURL.hostname ? "Open URL (" + hoveredURL.hostname + ")" : "Open URL",
-                    click: () => {
-                        createBlock({
-                            meta: {
-                                view: "web",
-                                url: hoveredURL.toString(),
-                            },
-                        });
-                    },
-                });
                 menu.push({
                     label: "Open URL in External Browser",
                     click: () => {
@@ -928,60 +887,7 @@ export class TermViewModel implements ViewModel {
         termThemeKeys.sort((a, b) => {
             return (termThemes[a]["display:order"] ?? 0) - (termThemes[b]["display:order"] ?? 0);
         });
-        const defaultTermBlockDef: BlockDef = {
-            meta: {
-                view: "term",
-                controller: "shell",
-            },
-        };
-
         const fullMenu: ContextMenuItem[] = [];
-        fullMenu.push({
-            label: "Split Horizontally",
-            click: () => {
-                const blockData = globalStore.get(this.blockAtom);
-                const blockDef: BlockDef = {
-                    meta: blockData?.meta || defaultTermBlockDef.meta,
-                };
-                createBlockSplitHorizontally(blockDef, this.blockId, "after");
-            },
-        });
-        fullMenu.push({
-            label: "Split Vertically",
-            click: () => {
-                const blockData = globalStore.get(this.blockAtom);
-                const blockDef: BlockDef = {
-                    meta: blockData?.meta || defaultTermBlockDef.meta,
-                };
-                createBlockSplitVertically(blockDef, this.blockId, "after");
-            },
-        });
-        fullMenu.push({ type: "separator" });
-
-        const lastCommand = globalStore.get(this.termRef?.current?.lastCommandAtom);
-        const cwd = blockData?.meta?.["cmd:cwd"];
-        const canShowFileBrowser = cwd != null && isLikelyOnSameHost(lastCommand);
-
-        if (canShowFileBrowser) {
-            fullMenu.push({
-                label: "File Browser",
-                click: () => {
-                    const blockData = globalStore.get(this.blockAtom);
-                    const connection = blockData?.meta?.connection;
-                    const cwd = blockData?.meta?.["cmd:cwd"];
-                    const meta: Record<string, any> = {
-                        view: "preview",
-                        file: cwd,
-                    };
-                    if (connection) {
-                        meta.connection = connection;
-                    }
-                    const blockDef: BlockDef = { meta };
-                    createBlock(blockDef);
-                },
-            });
-            fullMenu.push({ type: "separator" });
-        }
 
         fullMenu.push({
             label: "Save Session As...",

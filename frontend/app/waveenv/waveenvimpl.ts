@@ -4,7 +4,6 @@
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import {
     atoms,
-    createBlock,
     getBlockMetaKeyAtom,
     getConfigBackgroundAtom,
     getConnConfigKeyAtom,
@@ -31,7 +30,6 @@ export function makeWaveEnvImpl(): WaveEnv {
         isWindows,
         isMacOS,
         atoms,
-        createBlock,
         services: AllServiceImpls,
         callBackendService: WOS.callBackendService,
         showContextMenu: (menu: ContextMenuItem[], e: React.MouseEvent) => {

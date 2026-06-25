@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { BlockNodeModel } from "@/app/block/blocktypes";
-import { getApi, setActiveTab } from "@/app/store/global";
+import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -612,10 +612,8 @@ export class AgentsViewModel implements ViewModel {
     viewName = atom<string>("Agents");
     noPadding = atom(true);
     agentsAtom: Atom<AgentVM[]>;
-    // cockpit: the term blockId the inline focus pane renders. Unused on the Electron path.
+    // the term blockId the inline focus pane renders
     terminalTargetAtom = atom(null) as PrimitiveAtom<string>;
-    // cockpit sets this so "open terminal" renders inline instead of switching tabs (which don't exist there).
-    inlineTerminal = false;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;
@@ -627,12 +625,8 @@ export class AgentsViewModel implements ViewModel {
     }
 
     openTerminal(agentId: string) {
-        if (this.inlineTerminal) {
-            const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
-            globalStore.set(this.terminalTargetAtom, agent?.blockId);
-            return;
-        }
-        setActiveTab(agentId);
+        const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
+        globalStore.set(this.terminalTargetAtom, agent?.blockId);
     }
 
     get viewComponent(): ViewComponent {

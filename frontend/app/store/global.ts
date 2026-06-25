@@ -3,24 +3,12 @@
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import {
-    getLayoutModelForStaticTab,
-    LayoutTreeActionType,
-    LayoutTreeInsertNodeAction,
-    newLayoutNode,
-} from "@/layout/index";
-import {
-    LayoutTreeReplaceNodeAction,
-    LayoutTreeSplitHorizontalAction,
-    LayoutTreeSplitVerticalAction,
-} from "@/layout/lib/types";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { fetch } from "@/util/fetchutil";
 import { setPlatform } from "@/util/platformutil";
 import {
     base64ToString,
     deepCompareReturnPrev,
-    fireAndForget,
     getPrefixedSettings,
     isBlank,
     isLocalConnName,
@@ -32,7 +20,7 @@ import { setupBadgesSubscription } from "./badge";
 import { atoms, blockComponentModelMap, ConnStatusMapAtom, initGlobalAtoms, orefAtomCache } from "./global-atoms";
 import { globalStore } from "./jotaiStore";
 import { modalsModel } from "./modalmodel";
-import { ClientService, ObjectService } from "./services";
+import { ClientService } from "./services";
 import { isPreviewWindow } from "./windowtype";
 import * as WOS from "./wos";
 import { getFileSubject, waveEventSubscribeSingle } from "./wps";
@@ -43,13 +31,6 @@ function initGlobal(initOpts: GlobalInitOptions) {
     globalPrimaryTabStartup = initOpts.primaryTabStartup ?? false;
     setPlatform(initOpts.platform);
     initGlobalAtoms(initOpts);
-    try {
-        getApi().onMenuItemAbout(() => {
-            modalsModel.pushModal("AboutModal");
-        });
-    } catch (e) {
-        console.log("failed to initialize onMenuItemAbout handler", e);
-    }
 }
 
 function initGlobalWaveEventSubs(initOpts: WaveInitOpts) {
@@ -359,91 +340,6 @@ function getApi(): ElectronApi {
     return (window as any).api;
 }
 
-async function createBlockSplitHorizontally(
-    blockDef: BlockDef,
-    targetBlockId: string,
-    position: "before" | "after"
-): Promise<string> {
-    const layoutModel = getLayoutModelForStaticTab();
-    const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
-    const newBlockId = await ObjectService.CreateBlock(blockDef, rtOpts);
-    const targetNodeId = layoutModel.getNodeByBlockId(targetBlockId)?.id;
-    if (targetNodeId == null) {
-        throw new Error(`targetNodeId not found for blockId: ${targetBlockId}`);
-    }
-    const splitAction: LayoutTreeSplitHorizontalAction = {
-        type: LayoutTreeActionType.SplitHorizontal,
-        targetNodeId: targetNodeId,
-        newNode: newLayoutNode(undefined, undefined, undefined, { blockId: newBlockId }),
-        position: position,
-        focused: true,
-    };
-    layoutModel.treeReducer(splitAction);
-    return newBlockId;
-}
-
-async function createBlockSplitVertically(
-    blockDef: BlockDef,
-    targetBlockId: string,
-    position: "before" | "after"
-): Promise<string> {
-    const layoutModel = getLayoutModelForStaticTab();
-    const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
-    const newBlockId = await ObjectService.CreateBlock(blockDef, rtOpts);
-    const targetNodeId = layoutModel.getNodeByBlockId(targetBlockId)?.id;
-    if (targetNodeId == null) {
-        throw new Error(`targetNodeId not found for blockId: ${targetBlockId}`);
-    }
-    const splitAction: LayoutTreeSplitVerticalAction = {
-        type: LayoutTreeActionType.SplitVertical,
-        targetNodeId: targetNodeId,
-        newNode: newLayoutNode(undefined, undefined, undefined, { blockId: newBlockId }),
-        position: position,
-        focused: true,
-    };
-    layoutModel.treeReducer(splitAction);
-    return newBlockId;
-}
-
-async function createBlock(blockDef: BlockDef, magnified = false, ephemeral = false): Promise<string> {
-    const layoutModel = getLayoutModelForStaticTab();
-    const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
-    const blockId = await ObjectService.CreateBlock(blockDef, rtOpts);
-    if (ephemeral) {
-        layoutModel.newEphemeralNode(blockId);
-        return blockId;
-    }
-    const insertNodeAction: LayoutTreeInsertNodeAction = {
-        type: LayoutTreeActionType.InsertNode,
-        node: newLayoutNode(undefined, undefined, undefined, { blockId }),
-        magnified,
-        focused: true,
-    };
-    layoutModel.treeReducer(insertNodeAction);
-    return blockId;
-}
-
-async function replaceBlock(blockId: string, blockDef: BlockDef, focus: boolean): Promise<string> {
-    const layoutModel = getLayoutModelForStaticTab();
-    const rtOpts: RuntimeOpts = { termsize: { rows: 25, cols: 80 } };
-    const newBlockId = await ObjectService.CreateBlock(blockDef, rtOpts);
-    setTimeout(() => {
-        fireAndForget(() => ObjectService.DeleteBlock(blockId));
-    }, 300);
-    const targetNodeId = layoutModel.getNodeByBlockId(blockId)?.id;
-    if (targetNodeId == null) {
-        throw new Error(`targetNodeId not found for blockId: ${blockId}`);
-    }
-    const replaceNodeAction: LayoutTreeReplaceNodeAction = {
-        type: LayoutTreeActionType.ReplaceNode,
-        targetNodeId: targetNodeId,
-        newNode: newLayoutNode(undefined, undefined, undefined, { blockId: newBlockId }),
-        focused: focus,
-    };
-    layoutModel.treeReducer(replaceNodeAction);
-    return newBlockId;
-}
-
 // when file is not found, returns {data: null, fileInfo: null}
 async function fetchWaveFile(
     zoneId: string,
@@ -473,11 +369,6 @@ async function fetchWaveFile(
     const fileInfo = JSON.parse(base64ToString(fileInfo64));
     const data = await resp.arrayBuffer();
     return { data: new Uint8Array(data), fileInfo };
-}
-
-function setNodeFocus(nodeId: string) {
-    const layoutModel = getLayoutModelForStaticTab();
-    layoutModel.focusNode(nodeId);
 }
 
 const objectIdWeakMap = new WeakMap();
@@ -533,18 +424,8 @@ function getLocalHostDisplayNameAtom(): Atom<string> {
  * @param uri The link to open.
  * @param forceOpenInternally Force the link to open in a new web widget.
  */
-async function openLink(uri: string, forceOpenInternally = false) {
-    if (forceOpenInternally || globalStore.get(atoms.settingsAtom)?.["web:openlinksinternally"]) {
-        const blockDef: BlockDef = {
-            meta: {
-                view: "web",
-                url: uri,
-            },
-        };
-        await createBlock(blockDef);
-    } else {
-        getApi().openExternal(uri);
-    }
+async function openLink(uri: string, _forceOpenInternally = false) {
+    getApi().openExternal(uri);
 }
 
 function registerBlockComponentModel(blockId: string, bcm: BlockComponentModel) {
@@ -563,27 +444,11 @@ function getAllBlockComponentModels(): BlockComponentModel[] {
     return Array.from(blockComponentModelMap.values());
 }
 
-function getFocusedBlockId(): string {
-    const layoutModel = getLayoutModelForStaticTab();
-    if (layoutModel?.focusedNode == null) return null;
-    const focusedLayoutNode = globalStore.get(layoutModel.focusedNode);
-    return focusedLayoutNode?.data?.blockId;
-}
-
-// pass null to refocus the currently focused block
+// refocus a block by id (null is a no-op since the layout-tree focus model is gone)
 function refocusNode(blockId: string) {
     if (blockId == null) {
-        blockId = getFocusedBlockId();
-        if (blockId == null) {
-            return;
-        }
-    }
-    const layoutModel = getLayoutModelForStaticTab();
-    const layoutNodeId = layoutModel.getNodeByBlockId(blockId);
-    if (layoutNodeId?.id == null) {
         return;
     }
-    layoutModel.focusNode(layoutNodeId.id);
     const bcm = getBlockComponentModel(blockId);
     const ok = bcm?.viewModel?.giveFocus?.();
     if (!ok) {
@@ -675,9 +540,6 @@ function recordTEvent(event: string, props?: TEventProps) {
 
 export {
     atoms,
-    createBlock,
-    createBlockSplitHorizontally,
-    createBlockSplitVertically,
     createTab,
     fetchWaveFile,
     getAllBlockComponentModels,
@@ -689,7 +551,6 @@ export {
     getConfigBackgroundAtom,
     getConnConfigKeyAtom,
     getConnStatusAtom,
-    getFocusedBlockId,
     getHostName,
     getLocalHostDisplayNameAtom,
     getObjectId,
@@ -710,9 +571,7 @@ export {
     recordTEvent,
     refocusNode,
     registerBlockComponentModel,
-    replaceBlock,
     setActiveTab,
-    setNodeFocus,
     setPlatform,
     subscribeToConnEvents,
     unregisterBlockComponentModel,

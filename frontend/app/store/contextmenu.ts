@@ -1,7 +1,8 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { atoms, getApi, globalStore } from "./global";
+import { fireAndForget } from "@/util/util";
+import { buildTauriMenu } from "../../tauri/menu";
 
 type ShowContextMenuOpts = {
     onSelect?: (item: ContextMenuItem) => void;
@@ -11,12 +12,8 @@ type ShowContextMenuOpts = {
 
 class ContextMenuModel {
     private static instance: ContextMenuModel;
-    handlers: Map<string, ContextMenuItem> = new Map(); // id -> item
-    activeOpts: ShowContextMenuOpts | null = null;
 
-    private constructor() {
-        getApi().onContextMenuClick(this.handleContextMenuClick.bind(this));
-    }
+    private constructor() {}
 
     static getInstance(): ContextMenuModel {
         if (ContextMenuModel.instance == null) {
@@ -25,65 +22,13 @@ class ContextMenuModel {
         return ContextMenuModel.instance;
     }
 
-    handleContextMenuClick(id: string | null): void {
-        const opts = this.activeOpts;
-        this.activeOpts = null;
-        const item = id != null ? this.handlers.get(id) : null;
-        this.handlers.clear();
-        if (item == null) {
-            opts?.onCancel?.();
-            opts?.onClose?.(null);
-            return;
-        }
-        item.click?.();
-        opts?.onSelect?.(item);
-        opts?.onClose?.(item);
-    }
-
-    _convertAndRegisterMenu(menu: ContextMenuItem[]): ElectronContextMenuItem[] {
-        const electronMenuItems: ElectronContextMenuItem[] = [];
-        for (const item of menu) {
-            const electronItem: ElectronContextMenuItem = {
-                role: item.role,
-                type: item.type,
-                label: item.label,
-                sublabel: item.sublabel,
-                id: crypto.randomUUID(),
-                checked: item.checked,
-            };
-            if (item.visible === false) {
-                electronItem.visible = false;
-            }
-            if (item.enabled === false) {
-                electronItem.enabled = false;
-            }
-            if (item.click) {
-                this.handlers.set(electronItem.id, item);
-            }
-            if (item.submenu) {
-                electronItem.submenu = this._convertAndRegisterMenu(item.submenu);
-            }
-            electronMenuItems.push(electronItem);
-        }
-        return electronMenuItems;
-    }
-
-    showContextMenu(menu: ContextMenuItem[], ev: React.MouseEvent<any>, opts?: ShowContextMenuOpts): void {
-        ev.stopPropagation();
-        this.handlers.clear();
-        this.activeOpts = opts;
-        const electronMenuItems = this._convertAndRegisterMenu(menu);
-        
-        const workspaceId = globalStore.get(atoms.workspaceId);
-        let oid: string;
-        
-        if (workspaceId != null) {
-            oid = workspaceId;
-        } else {
-            oid = globalStore.get(atoms.builderId);
-        }
-        
-        getApi().showContextMenu(oid, electronMenuItems);
+    showContextMenu(menu: ContextMenuItem[], ev: React.MouseEvent<any>, _opts?: ShowContextMenuOpts): void {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        fireAndForget(async () => {
+            const m = await buildTauriMenu(menu);
+            await m.popup();
+        });
     }
 }
 

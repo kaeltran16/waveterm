@@ -18,7 +18,6 @@ export default defineConfig({
             "@/shadcn": resolve(fe, "app/shadcn"),
             "@/util": resolve(fe, "util"),
             "@/layout": resolve(fe, "layout"),
-            "@/builder": resolve(fe, "builder"),
             "@/preview": resolve(fe, "preview"),
         },
     },

@@ -1,6 +1,6 @@
 // Pure view-model logic for the Agents view. No React, no Wave runtime imports.
 
-import { modelLabel } from "@/app/tab/sessionsidebar/sessionviewmodel";
+import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
 
 export type AgentState = "asking" | "working" | "idle";
 

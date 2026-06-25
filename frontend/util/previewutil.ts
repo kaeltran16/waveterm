@@ -1,6 +1,5 @@
-import { createBlock, getApi } from "@/app/store/global";
+import { getApi } from "@/app/store/global";
 import { makeNativeLabel } from "./platformutil";
-import { fireAndForget } from "./util";
 import { formatRemoteUri } from "./waveutil";
 
 export function addOpenMenuItems(menu: ContextMenuItem[], conn: string, finfo: FileInfo): ContextMenuItem[] {
@@ -37,38 +36,5 @@ export function addOpenMenuItems(menu: ContextMenuItem[], conn: string, finfo: F
             },
         });
     }
-    menu.push({
-        type: "separator",
-    });
-    if (!finfo.isdir) {
-        menu.push({
-            label: "Open Preview in New Block",
-            click: () =>
-                fireAndForget(async () => {
-                    const blockDef: BlockDef = {
-                        meta: {
-                            view: "preview",
-                            file: finfo.path,
-                            connection: conn,
-                        },
-                    };
-                    await createBlock(blockDef);
-                }),
-        });
-    }
-    menu.push({
-        label: "Open Terminal Here",
-        click: () => {
-            const termBlockDef: BlockDef = {
-                meta: {
-                    controller: "shell",
-                    view: "term",
-                    "cmd:cwd": finfo.isdir ? finfo.path : finfo.dir,
-                    connection: conn,
-                },
-            };
-            fireAndForget(() => createBlock(termBlockDef));
-        },
-    });
     return menu;
 }

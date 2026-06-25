@@ -3,7 +3,6 @@
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { createBlock } from "@/store/global";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { stringToBase64 } from "@/util/util";
 import clsx from "clsx";
@@ -79,16 +78,13 @@ function TermSticker({ sticker, config }: { sticker: StickerType; config: Sticke
         style.overflowY = "hidden";
     }
     let clickHandler = null;
-    if (sticker.pointerevents && (sticker.clickcmd || sticker.clickblockdef)) {
+    if (sticker.pointerevents && sticker.clickcmd) {
         style.cursor = "pointer";
         clickHandler = () => {
             console.log("clickHandler", sticker.clickcmd, sticker.clickblockdef);
             if (sticker.clickcmd) {
                 const b64data = stringToBase64(sticker.clickcmd);
                 RpcApi.ControllerInputCommand(TabRpcClient, { blockid: config.blockId, inputdata64: b64data });
-            }
-            if (sticker.clickblockdef) {
-                createBlock(sticker.clickblockdef);
             }
         };
     }

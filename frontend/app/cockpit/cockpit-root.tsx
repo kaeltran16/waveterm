@@ -65,7 +65,6 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             tabModel: getTabModelByTabId(tabIdRef.current, waveEnv),
             waveEnv,
         });
-        model.inlineTerminal = true;
         agentsModelRef.current = model;
     }
     const model = agentsModelRef.current;

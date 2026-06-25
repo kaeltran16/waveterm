@@ -61,7 +61,6 @@ export type WaveEnv = {
     isWindows: () => boolean;
     isMacOS: () => boolean;
     atoms: GlobalAtomsType;
-    createBlock: (blockDef: BlockDef, magnified?: boolean, ephemeral?: boolean) => Promise<string>;
     services: typeof AllServiceImpls;
     callBackendService: (service: string, method: string, args: any[], noUIContext?: boolean) => Promise<any>;
     showContextMenu: (menu: ContextMenuItem[], e: React.MouseEvent) => void;
