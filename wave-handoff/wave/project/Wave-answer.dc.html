@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@keyframes caretA{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes ringA{0%{box-shadow:0 0 0 0 rgba(230,180,80,.5)}70%{box-shadow:0 0 0 6px rgba(230,180,80,0)}100%{box-shadow:0 0 0 0 rgba(230,180,80,0)}}
+@keyframes fadeA{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+<div onClick="{{ stop }}" style="margin-top:14px;padding-top:14px;border-top:1px solid #20262e;animation:fadeA .18s both;font-family:'Hanken Grotesk',system-ui,sans-serif">
+
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">Live transcript</span>
+    <div style="flex:1;height:1px;background:#1c2128"></div>
+    <button onClick="{{ onTerminal }}" title="Open terminal (T)" style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid #232a32;border-radius:7px;padding:5px 9px;color:#9aa3ad;font:600 10.5px 'JetBrains Mono';cursor:pointer" style-hover="border-color:#2f3742;color:#cfd5db">&gt;_ term</button>
+    <button onClick="{{ onMute }}" title="Mute &amp; background (M)" style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid #232a32;border-radius:7px;padding:5px 9px;color:#9aa3ad;font:600 10.5px 'JetBrains Mono';cursor:pointer" style-hover="border-color:#2f3742;color:#cfd5db">⤓ mute</button>
+    <button onClick="{{ onOpen }}" style="display:flex;align-items:center;gap:5px;background:#13171d;border:1px solid #232a32;border-radius:7px;padding:5px 11px;color:#aebfff;font:600 11px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#7c95ff">Open agent →</button>
+    <button onClick="{{ onClose }}" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid #232a32;border-radius:7px;color:#9aa3ad;font-size:13px;cursor:pointer" style-hover="border-color:#2f3742;color:#e6e9ed">✕</button>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:13px;max-height:220px;overflow-y:auto;padding-right:2px">
+    <sc-for list="{{ peekRows }}" as="t" hint-placeholder-count="3">
+      <sc-if value="{{ t.isUser }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:9px;align-items:flex-start"><div style="width:21px;height:21px;border-radius:6px;flex:none;background:linear-gradient(135deg,#3a4250,#23282f);border:1px solid #2c333d;display:flex;align-items:center;justify-content:center;font:600 8.5px 'JetBrains Mono';color:#cfd5db">DK</div><p style="font-size:12.5px;line-height:1.55;color:#cdd3da;margin-top:2px">{{ t.text }}</p></div>
+      </sc-if>
+      <sc-if value="{{ t.isAgent }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;gap:9px;align-items:flex-start"><div style="width:21px;height:21px;border-radius:6px;flex:none;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.3);display:flex;align-items:center;justify-content:center"><div style="width:7px;height:7px;border-radius:50%;background:#8aa0ff"></div></div><p style="font-size:12.5px;line-height:1.55;color:#bcc3cc;margin-top:2px">{{ t.text }}</p></div>
+      </sc-if>
+      <sc-if value="{{ t.isTool }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-left:30px;display:flex;align-items:center;gap:8px;padding:7px 11px;background:#101318;border:1px solid #1c2128;border-radius:8px"><span style="color:#5b626b;font-size:9px">▸</span><span style="font:500 11px 'JetBrains Mono';color:#9aa3ad;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.summary }}</span></div>
+      </sc-if>
+      <sc-if value="{{ t.isQuestion }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-left:30px;position:relative;background:#15140f;border:1px solid rgba(230,180,80,.35);border-radius:10px;padding:11px 13px;overflow:hidden"><div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:#e6b450"></div><div style="display:flex;align-items:center;gap:7px;margin-bottom:6px"><div style="width:6px;height:6px;border-radius:50%;background:#e6b450;animation:ringA 2s infinite"></div><span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:#e6b450">Awaiting your reply</span></div><p style="font-size:12.5px;line-height:1.55;color:#e7ddc9">{{ t.text }}</p></div>
+      </sc-if>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ hasQuestions }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#101319;border:1px solid #20262e;border-radius:12px;padding:12px 13px;margin-bottom:11px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px">
+        <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:{{ accentVal }}">Answer</span>
+        <sc-if value="{{ multiQ }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:5px">
+            <sc-for list="{{ tabs }}" as="q" hint-placeholder-count="2">
+              <button onClick="{{ q.select }}" style="display:flex;align-items:center;gap:5px;background:{{ q.bg }};border:1px solid {{ q.border }};border-radius:7px;padding:3px 9px;color:{{ q.color }};font:600 11px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#323a44"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:4px;font:700 8.5px 'JetBrains Mono';color:{{ q.dotTextColor }};background:{{ q.dotBg }}">{{ q.dot }}</span>{{ q.label }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="flex:1"></div>
+        <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ modeLabel }}</span>
+      </div>
+      <p style="font-size:13px;line-height:1.5;color:#dfe4ea;margin-bottom:11px;font-weight:500">{{ activePrompt }}</p>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        <sc-for list="{{ activeOptions }}" as="o" hint-placeholder-count="3">
+          <button onClick="{{ o.pick }}" style="display:flex;align-items:flex-start;gap:11px;text-align:left;background:{{ o.optBg }};border:1px solid {{ o.optBorder }};border-radius:10px;padding:10px 12px;cursor:pointer;width:100%" style-hover="border-color:{{ o.hoverBorder }}">
+            <span style="flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px;font:700 10.5px 'JetBrains Mono';color:{{ o.numColor }};background:{{ o.numBg }};border:1px solid {{ o.numBorder }};margin-top:1px">{{ o.num }}</span>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12.5px;font-weight:600;color:{{ o.labelColor }}">{{ o.label }}</span><sc-if value="{{ o.recommended }}" hint-placeholder-val="{{ false }}"><span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ accentVal }};background:{{ accentSoftVal }};border:1px solid {{ accentDimVal }};border-radius:5px;padding:1px 6px">recommended</span></sc-if></div>
+              <sc-if value="{{ o.showDesc }}" hint-placeholder-val="{{ true }}"><div style="font-size:11px;line-height:1.45;color:#7e868f;margin-top:3px">{{ o.desc }}</div></sc-if>
+            </div>
+            <span style="flex:none;font-size:13px;color:{{ accentVal }};margin-top:1px;width:14px;text-align:center">{{ o.check }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <sc-if value="{{ activeIsMulti }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ confirm }}" style="margin-top:10px;width:100%;background:{{ confirmBg }};color:{{ confirmColor }};border:1px solid {{ confirmBorder }};border-radius:9px;padding:8px;font:600 12px 'Hanken Grotesk';cursor:pointer">{{ confirmLabel }}</button>
+      </sc-if>
+      <sc-if value="{{ singleAnswered }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:9px;display:flex;align-items:center;gap:7px;font:500 11px 'JetBrains Mono';color:#7fb89a"><span>✓</span>{{ singleAnsweredText }}</div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <div style="background:#13171d;border:1px solid {{ composerBorder }};border-radius:11px;padding:11px 13px;box-shadow:{{ composerRing }}">
+    <div style="display:flex;align-items:center;font-size:13px;color:#6b7178;min-height:20px">{{ composerPlaceholder }}<span style="display:inline-block;width:1.5px;height:15px;background:#7c95ff;margin-left:2px;animation:caretA 1s step-end infinite"></span></div>
+    <div style="display:flex;align-items:center;gap:9px;margin-top:11px">
+      <button style="display:flex;align-items:center;gap:6px;background:transparent;border:1px solid #262d36;border-radius:7px;padding:5px 10px;color:#9aa3ad;font:500 11px 'JetBrains Mono';cursor:pointer" style-hover="border-color:#323a44">{{ modelLabel }}<span style="font-size:8px;color:#5b626b">▾</span></button>
+      <button style="background:transparent;border:1px solid #262d36;border-radius:7px;padding:5px 10px;color:#9aa3ad;font:500 12px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#323a44">＋ Attach</button>
+      <div style="flex:1"></div>
+      <span style="font:500 10px 'JetBrains Mono';color:#5b626b">R to focus · ⏎ send</span>
+      <button style="display:flex;align-items:center;gap:6px;background:#7c95ff;color:#0b0e14;border:0;border-radius:8px;padding:6px 14px;font:600 12px 'Hanken Grotesk';cursor:pointer" style-hover="background:#8da3ff">Send ⏎</button>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;640&quot;,&quot;height&quot;:&quot;460&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#e6b450&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;accentSoft&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;rgba(230,180,80,.13)&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;accentDim&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;rgba(230,180,80,.45)&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;agentName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;auth-refactor&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;agentModel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Opus 4.6&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;peek&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;any[]&quot;},&quot;questions&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;any[]&quot;},&quot;open&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;},&quot;close&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;},&quot;terminal&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;},&quot;mute&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 0, picks: {}, answered: {}, replyFocus: false };
+
+  SAMPLE_PEEK() {
+    return [
+      { role:'agent', text:"Sessions are stored in-process with express-session's MemoryStore — that won't survive horizontal scaling. I found 14 call sites." },
+      { role:'tool', summary:'Ran tests · npm test -- auth → 41 passing' },
+      { role:'question', text:'Migrate the session store to Redis or keep Postgres with a sessions table?' },
+    ];
+  }
+  SAMPLE_Q() {
+    return [
+      { tab:'Store', prompt:'Where should the session store live?', multi:false, options:[
+        { label:'Redis', desc:'New managed dependency (~$15/mo) · clean horizontal scaling', recommended:true },
+        { label:'Postgres sessions table', desc:'No new infra · reuses existing DB · a little more code' },
+        { label:'Reuse the cache instance', desc:'No new cost · couples sessions to cache lifecycle' },
+      ] },
+      { tab:'Safeguards', prompt:'Which safeguards should I add?', multi:true, options:[
+        { label:'Feature flag', desc:'Gate the cutover for instant rollback', recommended:true },
+        { label:'Dual-write window', desc:'Write to both stores during migration' },
+        { label:'Smoke test on deploy', desc:'Verify login after each rollout step', recommended:true },
+      ] },
+    ];
+  }
+
+  componentDidMount() {
+    this._onKey = (e) => {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const qs = this.questions();
+      if (e.key === 'r' || e.key === 'R') { this.setState({ replyFocus: true }); e.preventDefault(); return; }
+      if (!qs.length) return;
+      const ti = Math.min(this.state.tab, qs.length - 1);
+      const q = qs[ti];
+      if (/^[1-9]$/.test(e.key)) {
+        const oi = parseInt(e.key, 10) - 1;
+        if (q && oi < q.options.length) { this.pick(ti, oi); e.preventDefault(); }
+        return;
+      }
+      if (e.key === 'Enter' && q && q.multi) { this.confirm(ti); e.preventDefault(); }
+    };
+    window.addEventListener('keydown', this._onKey);
+  }
+  componentWillUnmount() { window.removeEventListener('keydown', this._onKey); }
+
+  questions() { return this.props.questions || this.SAMPLE_Q(); }
+
+  pick(ti, oi) {
+    const qs = this.questions(); const q = qs[ti]; if (!q) return;
+    if (q.multi) {
+      this.setState(s => {
+        const cur = (s.picks[ti] || []).slice();
+        const k = cur.indexOf(oi); if (k >= 0) cur.splice(k, 1); else cur.push(oi);
+        return { picks: { ...s.picks, [ti]: cur } };
+      });
+    } else {
+      this.setState(s => {
+        const answered = { ...s.answered, [ti]: oi };
+        let next = ti;
+        for (let i = 0; i < qs.length; i++) { if (answered[i] === undefined) { next = i; break; } }
+        return { answered, tab: next };
+      });
+    }
+  }
+  confirm(ti) {
+    const qs = this.questions();
+    this.setState(s => {
+      const sel = (s.picks[ti] || []);
+      if (!sel.length) return {};
+      const answered = { ...s.answered, [ti]: sel.slice() };
+      let next = ti;
+      for (let i = 0; i < qs.length; i++) { if (answered[i] === undefined) { next = i; break; } }
+      return { answered, tab: next };
+    });
+  }
+
+  renderVals() {
+    const accentVal = this.props.accent || '#e6b450';
+    const accentSoftVal = this.props.accentSoft || 'rgba(230,180,80,.13)';
+    const accentDimVal = this.props.accentDim || 'rgba(230,180,80,.45)';
+    const peek = this.props.peek || this.SAMPLE_PEEK();
+    const qs = this.questions();
+    const answered = this.state.answered;
+    const picks = this.state.picks;
+    const hasQuestions = qs.length > 0;
+    const multiQ = qs.length > 1;
+    const tab = Math.min(this.state.tab, Math.max(0, qs.length - 1));
+
+    const peekRows = peek.map(t => ({
+      ...t, isUser: t.role === 'user', isAgent: t.role === 'agent', isTool: t.role === 'tool', isQuestion: t.role === 'question',
+    }));
+
+    const tabs = qs.map((q, i) => {
+      const isAnswered = answered[i] !== undefined;
+      const active = i === tab;
+      return {
+        label: q.tab || ('Q' + (i + 1)),
+        active,
+        dot: isAnswered ? '✓' : (i + 1) + '',
+        dotBg: isAnswered ? 'rgba(84,199,154,.18)' : (active ? accentSoftVal : '#1b212a'),
+        dotTextColor: isAnswered ? '#54c79a' : (active ? accentVal : '#8b939d'),
+        bg: active ? '#15191f' : 'transparent',
+        border: active ? '#2c333d' : '#1f262e',
+        color: active ? '#e6e9ed' : '#8b939d',
+        select: () => this.setState({ tab: i }),
+      };
+    });
+
+    const q = qs[tab] || null;
+    const activeIsMulti = !!(q && q.multi);
+    const activePrompt = q ? q.prompt : '';
+    const modeLabel = q ? (q.multi ? 'Pick any · then confirm' : 'Pick one') : '';
+    const committed = q ? answered[tab] : undefined;
+    const pendMulti = picks[tab] || [];
+
+    const activeOptions = q ? q.options.map((o, oi) => {
+      let selected;
+      if (q.multi) selected = Array.isArray(committed) ? committed.includes(oi) : pendMulti.includes(oi);
+      else selected = committed === oi;
+      return {
+        num: (oi + 1) + '',
+        label: o.label, desc: o.desc || '', showDesc: !!o.desc, recommended: !!o.recommended,
+        selected,
+        check: selected ? (q.multi ? '✓' : '●') : '',
+        numBg: selected ? accentVal : '#1b212a',
+        numColor: selected ? '#0b0e14' : '#8b939d',
+        numBorder: selected ? accentVal : '#2a323c',
+        optBg: selected ? accentSoftVal : '#13171d',
+        optBorder: selected ? accentVal : (o.recommended ? accentDimVal : '#262d36'),
+        hoverBorder: selected ? accentVal : '#323a44',
+        labelColor: selected ? '#eef1f4' : '#cfd5db',
+        pick: (e) => { if (e && e.stopPropagation) e.stopPropagation(); this.pick(tab, oi); },
+      };
+    }) : [];
+
+    const isAnsweredMulti = Array.isArray(committed);
+    const selCount = pendMulti.length;
+    const confirmReady = selCount > 0 && !isAnsweredMulti;
+    const confirmLabel = isAnsweredMulti ? ('✓ Answered · ' + committed.length + ' selected')
+      : (confirmReady ? ('Confirm ' + selCount + ' selected ⏎') : 'Select one or more options');
+    const confirmBg = isAnsweredMulti ? 'rgba(84,199,154,.14)' : (confirmReady ? '#7c95ff' : '#13171d');
+    const confirmColor = isAnsweredMulti ? '#7fd8b4' : (confirmReady ? '#0b0e14' : '#6b7178');
+    const confirmBorder = isAnsweredMulti ? 'rgba(84,199,154,.4)' : (confirmReady ? '#7c95ff' : '#262d36');
+
+    const singleAnswered = !!(q && !q.multi && committed !== undefined);
+    const singleAnsweredText = singleAnswered ? ('Answered: ' + q.options[committed].label + ' — pick another to change') : '';
+
+    return {
+      stop: (e) => { if (e && e.stopPropagation) e.stopPropagation(); },
+      accentVal, accentSoftVal, accentDimVal,
+      peekRows, hasQuestions, multiQ, tabs,
+      activeOptions, activeIsMulti, activePrompt, modeLabel,
+      confirm: () => this.confirm(tab), confirmLabel, confirmBg, confirmColor, confirmBorder,
+      singleAnswered, singleAnsweredText,
+      modelLabel: this.props.agentModel || 'Opus 4.6',
+      composerPlaceholder: hasQuestions ? 'Or type a different reply…' : ('Reply to ' + (this.props.agentName || 'agent') + '…'),
+      composerBorder: this.state.replyFocus ? '#7c95ff' : '#262d36',
+      composerRing: this.state.replyFocus ? '0 0 0 3px rgba(124,149,255,.14)' : 'none',
+      onOpen: this.props.open || (() => {}),
+      onClose: this.props.close || (() => {}),
+      onTerminal: this.props.terminal || (() => {}),
+      onMute: this.props.mute || (() => {}),
+    };
+  }
+}
+</script>
+</body>
+</html>
