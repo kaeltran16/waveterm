@@ -5,6 +5,7 @@ let isJetBrainsMonoLoaded = false;
 let isHackFontLoaded = false;
 let isHackNerdFontLoaded = false;
 let isInterFontLoaded = false;
+let isHankenGroteskLoaded = false;
 
 function addToFontFaceSet(fontFaceSet: FontFaceSet, fontFace: FontFace) {
     // any cast to work around typing issue
@@ -80,7 +81,22 @@ function loadInterFont() {
     interFont.load();
 }
 
+function loadHankenGroteskFont() {
+    if (isHankenGroteskLoaded) {
+        return;
+    }
+    isHankenGroteskLoaded = true;
+    // variable font: a single woff2 covers the whole weight axis (same as Inter)
+    const hankenFont = new FontFace("Hanken Grotesk", "url('fonts/hanken-grotesk-variable.woff2')", {
+        style: "normal",
+        weight: "100 900",
+    });
+    addToFontFaceSet(document.fonts, hankenFont);
+    hankenFont.load();
+}
+
 function loadFonts() {
+    loadHankenGroteskFont();
     loadInterFont();
     loadJetBrainsMonoFont();
     loadHackNerdFont();
