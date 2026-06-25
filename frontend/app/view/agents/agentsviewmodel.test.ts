@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, expandedWorkingIds, focusedAskId, toggleSelection, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -525,29 +525,6 @@ describe("partitionBackgrounded", () => {
         const out = partitionBackgrounded(working, new Set());
         expect(out.active.map((x) => x.id)).toEqual(["a", "b"]);
         expect(out.backgrounded).toEqual([]);
-    });
-});
-
-describe("expandedWorkingIds", () => {
-    it("auto expands every row", () => {
-        const ids = ["a", "b", "c"];
-        expect([...expandedWorkingIds(ids, "a", "auto")]).toEqual(["a", "b", "c"]);
-    });
-    it("a numeric cap expands the first N by order", () => {
-        const ids = ["a", "b", "c", "d"];
-        expect([...expandedWorkingIds(ids, "a", 2)].sort()).toEqual(["a", "b"]);
-    });
-    it("forces the cursor row into the expanded set, dropping the last slot", () => {
-        const ids = ["a", "b", "c", "d"];
-        const out = expandedWorkingIds(ids, "d", 2);
-        expect(out.has("d")).toBe(true);
-        expect(out.has("a")).toBe(true);
-        expect(out.has("b")).toBe(false);
-        expect(out.size).toBe(2);
-    });
-    it("a cap >= length expands all", () => {
-        const ids = ["a", "b"];
-        expect([...expandedWorkingIds(ids, undefined, 5)]).toEqual(["a", "b"]);
     });
 });
 

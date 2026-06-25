@@ -13,14 +13,10 @@ import { NarrationTimeline } from "./narrationtimeline";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
 
-const MinExpandedRowPx = 120; // a fill row never shrinks below this; past it the working region scrolls
-
 export function AgentRow({
     agent,
     now,
     isCursor,
-    expanded,
-    fill,
     selections,
     sent,
     activeQuestion,
@@ -38,8 +34,6 @@ export function AgentRow({
     agent: AgentVM;
     now: number;
     isCursor: boolean;
-    expanded: boolean;
-    fill: boolean;
     selections: Record<number, Set<number>>;
     sent: boolean;
     activeQuestion?: number;
@@ -73,7 +67,7 @@ export function AgentRow({
         if (el && stickRef.current) {
             el.scrollTop = el.scrollHeight;
         }
-    }, [entries, expanded]);
+    }, [entries]);
     const onNarrationScroll = () => {
         const el = scrollRef.current;
         if (!el) {
@@ -98,9 +92,8 @@ export function AgentRow({
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
-            style={{ flex: fill ? "1 1 0" : "0 0 auto", minHeight: fill ? MinExpandedRowPx : undefined }}
             className={cn(
-                "group relative flex min-h-0 cursor-pointer flex-col border-b border-border px-[22px] py-3 transition-colors",
+                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border border-border bg-panel px-4 py-3 transition-colors",
                 asking ? "bg-warning/5" : "hover:bg-white/[0.02]",
                 isCursor &&
                     (asking
@@ -177,19 +170,19 @@ export function AgentRow({
                 </button>
             </div>
 
-            {expanded && entries.length > 0 ? (
+            {entries.length > 0 ? (
                 <div
                     ref={scrollRef}
                     onScroll={onNarrationScroll}
-                    className={cn("mt-2 ml-[26px] overflow-y-auto", fill ? "min-h-0 flex-1" : "max-h-48")}
+                    className="mt-2 ml-[26px] max-h-56 min-h-[64px] overflow-y-auto"
                 >
                     <NarrationTimeline entries={entries} accentLatest active={agent.state !== "idle"} />
                 </div>
-            ) : expanded && agent.activity ? (
+            ) : agent.activity ? (
                 <div className="mt-2 ml-[26px] whitespace-pre-wrap text-[13px] leading-[1.6] text-secondary">{agent.activity}</div>
             ) : null}
 
-            {expanded && asking && hasQuestions ? (
+            {asking && hasQuestions ? (
                 <AnswerBar
                     agent={agent}
                     selections={selections}
@@ -204,7 +197,7 @@ export function AgentRow({
             ) : null}
 
             <AnimatePresence>
-                {expanded && isCursor && !hasQuestions ? (
+                {isCursor && !hasQuestions ? (
                     <motion.div
                         key="composer"
                         initial={{ height: 0, opacity: 0 }}

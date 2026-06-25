@@ -228,9 +228,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // every active row is expanded in the list (Task 8 replaces this list with the always-on-feed grid)
-    const expandedSet = new Set<string>(orderedIds);
-
     // keep the cursor valid as the set changes; seed it to the first row
     useEffect(() => {
         if (navigableIds.length === 0) {
@@ -443,35 +440,30 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     axis="y"
                     values={orderedIds}
                     onReorder={setOrder}
-                    className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+                    className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto p-5"
                 >
                     <AnimatePresence mode="popLayout">
-                        {orderedAgents.map((a) => {
-                            const isExpanded = expandedSet.has(a.id);
-                            return (
-                                <AgentRow
-                                    key={a.id}
-                                    agent={a}
-                                    now={now}
-                                    isCursor={cursorId === a.id}
-                                    expanded={isExpanded}
-                                    fill={isExpanded && a.state !== "asking"}
-                                    pulse={pulseId === a.id}
-                                    selections={answerSel[a.id] ?? {}}
-                                    sent={sentIds.has(a.id)}
-                                    activeQuestion={answerTab[a.id] ?? 0}
-                                    onCursor={() => setCursorId(a.id)}
-                                    onOpen={() => openFocus(a.id, false)}
-                                    onOpenTerminal={() => model.openTerminal(a.id)}
-                                    onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                    onSubmitAnswer={() => submitAnswer(a.id)}
-                                    onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                    onComposerEscape={() => containerRef.current?.focus()}
-                                    onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
-                                    onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-                                />
-                            );
-                        })}
+                        {orderedAgents.map((a) => (
+                            <AgentRow
+                                key={a.id}
+                                agent={a}
+                                now={now}
+                                isCursor={cursorId === a.id}
+                                pulse={pulseId === a.id}
+                                selections={answerSel[a.id] ?? {}}
+                                sent={sentIds.has(a.id)}
+                                activeQuestion={answerTab[a.id] ?? 0}
+                                onCursor={() => setCursorId(a.id)}
+                                onOpen={() => openFocus(a.id, false)}
+                                onOpenTerminal={() => model.openTerminal(a.id)}
+                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                onSubmitAnswer={() => submitAnswer(a.id)}
+                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                onComposerEscape={() => containerRef.current?.focus()}
+                                onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
+                                onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+                            />
+                        ))}
                     </AnimatePresence>
                 </Reorder.Group>
 
