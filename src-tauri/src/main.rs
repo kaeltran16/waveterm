@@ -3,28 +3,25 @@
 mod estart;
 mod init;
 mod commands;
+mod paths;
 
 use init::InitState;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::Manager;
 use uuid::Uuid;
 
-fn spawn_wavesrv(auth_key: String, state: tauri::State<InitState>) {
-    // Phase 0: spawn the dev-built binary by path (sidecar bundling is Phase 4).
-    // CARGO_MANIFEST_DIR is the compile-time absolute path to src-tauri/, so this is robust
-    // to the runtime cwd (cargo runs the binary with cwd = manifest dir, not the project root).
-    let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist/bin/wavesrv.x64.exe");
-    // Isolated data/config home in temp. wavesrv hard-requires both vars (wavebase.CacheAndRemoveEnvVars)
-    // and resolves its DB/socket/lock from the data home — pointing them here keeps the spike's backend
-    // fully sandboxed from the real Wave app's default data dir.
-    let spike_home = std::env::temp_dir().join("wave-tauri-spike");
-    let data_home = spike_home.join("data");
-    let config_home = spike_home.join("config");
+fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state: tauri::State<InitState>) {
+    // Packaged: app_path = resource_dir(); dev: app_path = src-tauri/../dist (paths::resolve_app_path).
+    // wavesrv + wsh both live under {app_path}/bin; wavesrv discovers wsh via WAVETERM_APP_PATH.
+    let exe = app_path.join("bin").join("wavesrv.x64.exe");
+    let (data_home, config_home) = paths::data_home_dirs(&data_base);
     let _ = std::fs::create_dir_all(&data_home);
     let _ = std::fs::create_dir_all(&config_home);
     let mut child = Command::new(&exe)
         .env("WAVETERM_AUTH_KEY", &auth_key)
+        .env("WAVETERM_APP_PATH", &app_path)
         .env("WAVETERM_DATA_HOME", &data_home)
         .env("WAVETERM_CONFIG_HOME", &config_home)
         // inherit stdout (we only read stderr) so an unread stdout pipe can't fill and deadlock wavesrv.
@@ -79,7 +76,13 @@ fn main() {
                 d.user_name = std::env::var("USERNAME").unwrap_or_default();
                 d.host_name = std::env::var("COMPUTERNAME").unwrap_or_default();
             }
-            spawn_wavesrv(auth_key.clone(), app.state::<InitState>());
+            let is_dev = cfg!(debug_assertions);
+            let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            // resource_dir() only matters when packaged; avoid calling it in dev.
+            let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
+            let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
+            let data_base = app.path().app_local_data_dir()?;
+            spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
             Ok(())
         })
         .run(tauri::generate_context!())

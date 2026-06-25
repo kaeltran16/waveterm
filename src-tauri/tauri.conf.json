@@ -1,17 +1,27 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "wave-tauri-spike",
+  "productName": "WaveTauri",
   "version": "0.1.0",
-  "identifier": "dev.waveterm.tauri.spike",
+  "identifier": "dev.waveterm.tauri",
   "build": {
     "devUrl": "http://localhost:5174",
     "beforeDevCommand": "npx vite --config frontend/tauri/vite.config.ts",
+    "beforeBuildCommand": "npx vite build --config frontend/tauri/vite.config.ts",
     "frontendDist": "../frontend/tauri/dist"
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Wave Tauri Spike", "width": 1000, "height": 700, "decorations": false }
+      { "label": "main", "title": "Wave Tauri", "width": 1000, "height": 700, "decorations": false }
     ],
     "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "../dist/bin/wavesrv.x64.exe": "bin/wavesrv.x64.exe",
+      "../dist/bin/wsh-*-windows.x64.exe": "bin/"
+    }
   }
 }
