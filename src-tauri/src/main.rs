@@ -53,6 +53,12 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
 }
 
 fn main() {
+    // dev-only: expose WebView2's Chrome DevTools Protocol on :9222 for visual verification.
+    // WebView2 reads extra Chromium args from this env var before the webview is created.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
+    }
     let auth_key = Uuid::new_v4().to_string();
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
