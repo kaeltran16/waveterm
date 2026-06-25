@@ -11,7 +11,9 @@ import { SCENARIOS } from "./cockpit-fixtures/scenarios.mjs";
 import { validateScenario } from "./cockpit-fixtures/validate.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const outDir = join(here, "..", "public", "cockpit-fixtures");
+// Vite's root is frontend/tauri, so its publicDir is frontend/tauri/public (served at "/"). Repo-root
+// public/ is NOT served by the dev server, so the fixture must live here to be fetchable in dev.
+const outDir = join(here, "..", "frontend", "tauri", "public", "cockpit-fixtures");
 const outFile = join(outDir, "active.json");
 
 const arg = process.argv[2];
@@ -42,5 +44,5 @@ if (!ok) {
 
 mkdirSync(outDir, { recursive: true });
 writeFileSync(outFile, JSON.stringify(roster, null, 2));
-console.log(`wrote ${roster.length} agents (${arg}) -> public/cockpit-fixtures/active.json`);
+console.log(`wrote ${roster.length} agents (${arg}) -> frontend/tauri/public/cockpit-fixtures/active.json`);
 console.log(`reload the dev app (Ctrl+R) to inject. clear with: node scripts/gen-cockpit-fixtures.mjs --clear`);

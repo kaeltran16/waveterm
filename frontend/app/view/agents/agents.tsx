@@ -59,8 +59,8 @@ export class AgentsViewModel implements ViewModel {
         this.nodeModel = nodeModel;
         this.tabModel = tabModel;
         this.viewType = "agents";
-        // DEV-only: runtime mock roster from public/cockpit-fixtures/active.json (see devmock.ts +
-        // scripts/gen-cockpit-fixtures.mjs). import.meta.env.DEV is build-time, so prod always uses live.
+        // DEV-only: runtime mock roster from frontend/tauri/public/cockpit-fixtures/active.json (see
+        // devmock.ts + scripts/gen-cockpit-fixtures.mjs). import.meta.env.DEV is build-time -> prod uses live.
         if (import.meta.env.DEV) {
             void loadDevMockRoster();
             this.agentsAtom = devRosterAtom;
