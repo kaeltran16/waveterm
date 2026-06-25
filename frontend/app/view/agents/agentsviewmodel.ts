@@ -373,6 +373,31 @@ export function buildAskAnswers(questions: AgentAskQuestion[], selections: Recor
     return questions.map((_, qi) => ({ selectedindexes: Array.from(selections[qi] ?? []).sort((a, b) => a - b) }));
 }
 
+/** Pure: toggle option `oi` of question `qi` in a selection map. Single-select replaces the
+ *  question's choice; multi-select toggles membership. Never mutates `prev` (clones the map and
+ *  the affected set). Mirrors the AnswerBar's interaction. */
+export function toggleSelection(
+    prev: Record<number, Set<number>>,
+    qi: number,
+    oi: number,
+    multiSelect: boolean
+): Record<number, Set<number>> {
+    const next = { ...prev };
+    const set = new Set(next[qi] ?? []);
+    if (multiSelect) {
+        if (set.has(oi)) {
+            set.delete(oi);
+        } else {
+            set.add(oi);
+        }
+    } else {
+        set.clear();
+        set.add(oi);
+    }
+    next[qi] = set;
+    return next;
+}
+
 /** Pure: submittable only when every question has at least one selected option. */
 export function canSubmitAsk(questions: AgentAskQuestion[], selections: Record<number, Set<number>>): boolean {
     return questions.length > 0 && questions.every((_, qi) => (selections[qi]?.size ?? 0) >= 1);

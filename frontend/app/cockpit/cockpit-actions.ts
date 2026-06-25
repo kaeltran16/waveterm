@@ -14,4 +14,6 @@ export async function newAgentSession(model: AgentsViewModel): Promise<void> {
         { termsize: { rows: 40, cols: 120 } }
     );
     globalStore.set(model.terminalTargetAtom, blockId);
+    // route to the Agent surface so CockpitFocusPane renders the block and the controller starts
+    globalStore.set(model.surfaceAtom, "agent");
 }

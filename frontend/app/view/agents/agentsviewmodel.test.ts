@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, expandedWorkingIds, focusedAskId, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, expandedWorkingIds, focusedAskId, toggleSelection, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -561,5 +561,27 @@ describe("focusedAskId", () => {
     it("falls back to the first ask when the cursor is not an ask", () => {
         expect(focusedAskId(["a", "b"], "z")).toBe("a");
         expect(focusedAskId(["a", "b"], undefined)).toBe("a");
+    });
+});
+
+describe("toggleSelection", () => {
+    it("single-select replaces the prior choice for that question", () => {
+        const out = toggleSelection({ 0: new Set([1]) }, 0, 2, false);
+        expect([...out[0]]).toEqual([2]);
+    });
+    it("multi-select adds then removes on repeat", () => {
+        const added = toggleSelection({}, 0, 1, true);
+        expect([...added[0]]).toEqual([1]);
+        const removed = toggleSelection(added, 0, 1, true);
+        expect([...removed[0]]).toEqual([]);
+    });
+    it("does not mutate the previous selections", () => {
+        const prev = { 0: new Set([1]) };
+        toggleSelection(prev, 0, 2, false);
+        expect([...prev[0]]).toEqual([1]);
+    });
+    it("keeps selections for other questions intact", () => {
+        const out = toggleSelection({ 0: new Set([1]), 1: new Set([3]) }, 0, 2, false);
+        expect([...out[1]]).toEqual([3]);
     });
 });

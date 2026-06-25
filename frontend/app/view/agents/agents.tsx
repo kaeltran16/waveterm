@@ -160,7 +160,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     );
 }
 
-function AgentsView({ model }: { model: AgentsViewModel }) {
+export function AgentsView({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const { asking, working, idle } = groupAgents(agents);
     // plan limits are per-provider: Claude (Claude.ai) and Codex (ChatGPT) bill separate 5h/weekly
@@ -603,6 +603,16 @@ function AgentsView({ model }: { model: AgentsViewModel }) {
     );
 }
 
+export type SurfaceKey =
+    | "cockpit"
+    | "agent"
+    | "activity"
+    | "channels"
+    | "sessions"
+    | "files"
+    | "memory"
+    | "usage";
+
 export class AgentsViewModel implements ViewModel {
     viewType: string;
     blockId: string;
@@ -615,6 +625,22 @@ export class AgentsViewModel implements ViewModel {
     // the term blockId the inline focus pane renders
     terminalTargetAtom = atom(null) as PrimitiveAtom<string>;
 
+    // orchestration state lifted off AgentsView's useStates (spec §4); surfaces read/write via globalStore
+    surfaceAtom = atom<SurfaceKey>("cockpit");
+    nowAtom = atom(Date.now());
+    cursorIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+    cockpitSelIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+    orderAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
+    backgroundedIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
+    dismissedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
+    answerSelAtom = atom<Record<string, Record<number, Set<number>>>>({}) as PrimitiveAtom<
+        Record<string, Record<number, Set<number>>>
+    >;
+    answerTabAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
+    sentIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
+    focusIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+    focusReplyAtom = atom(false);
+
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;
         this.nodeModel = nodeModel;
@@ -624,9 +650,12 @@ export class AgentsViewModel implements ViewModel {
         this.agentsAtom = USE_MOCK_AGENTS && getApi().getIsDev() ? mockAgentsAtom : liveAgentsAtom;
     }
 
+    // openTerminal routes to the interim Agent surface (spec §6): set the target block, switch surface.
+    // The Agent surface renders CockpitFocusPane for terminalTargetAtom; the term controller starts on render.
     openTerminal(agentId: string) {
         const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
         globalStore.set(this.terminalTargetAtom, agent?.blockId);
+        globalStore.set(this.surfaceAtom, "agent");
     }
 
     get viewComponent(): ViewComponent {
