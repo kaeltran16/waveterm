@@ -10,6 +10,7 @@ import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { buildAskAnswers, canSubmitAsk, type AgentVM, type CardPref } from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
+import type { ActivityType } from "./activityevents";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { liveAgentsAtom } from "./liveagents";
 
@@ -53,6 +54,8 @@ export class AgentsViewModel implements ViewModel {
     focusReplyAtom = atom(false);
     railOpenAtom = atom(true);
     chipFilterAtom = atom<ChipFilter>("all");
+    // Activity surface: selected type filter chip (spec §4.1). Default "all".
+    activityFilterAtom = atom<ActivityType | "all">("all");
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
     // both the app-bar switcher and the header button; card prefs are ephemeral (not persisted).
