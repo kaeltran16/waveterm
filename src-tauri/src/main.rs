@@ -62,6 +62,7 @@ fn main() {
     let auth_key = Uuid::new_v4().to_string();
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(InitState::default())
         .invoke_handler(tauri::generate_handler![
             init::get_init,

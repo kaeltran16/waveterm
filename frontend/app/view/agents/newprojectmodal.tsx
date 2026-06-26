@@ -35,6 +35,26 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
             setError(String(e));
         }
     };
+    // Native OS folder picker (Tauri dialog plugin). Dynamic import keeps non-Tauri contexts (preview,
+    // vitest) clean, mirroring fetchutil's plugin-http import. Auto-fills Name from the folder basename.
+    const browse = async () => {
+        try {
+            const { open } = await import("@tauri-apps/plugin-dialog");
+            const picked = await open({ directory: true, multiple: false, title: "Select project folder" });
+            if (typeof picked === "string" && picked) {
+                setPath(picked);
+                if (!name.trim()) {
+                    const base = picked.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+                    if (base) {
+                        setName(base);
+                    }
+                }
+                setError(null);
+            }
+        } catch (e) {
+            setError(String(e));
+        }
+    };
     return (
         <div
             onClick={close}
@@ -67,12 +87,21 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                         <div className="mb-[9px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
                             Local path
                         </div>
-                        <input
-                            value={path}
-                            onChange={(e) => setPath(e.target.value)}
-                            placeholder="~/code/my-service"
-                            className="w-full rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 font-mono text-[12.5px] text-secondary outline-none focus:border-accent-700"
-                        />
+                        <div className="flex items-center gap-2">
+                            <input
+                                value={path}
+                                onChange={(e) => setPath(e.target.value)}
+                                placeholder="~/code/my-service"
+                                className="flex-1 rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 font-mono text-[12.5px] text-secondary outline-none focus:border-accent-700"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => void browse()}
+                                className="shrink-0 cursor-pointer rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 text-[12.5px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
+                            >
+                                Browse…
+                            </button>
+                        </div>
                     </div>
                     {error ? <div className="text-[12px] text-error">{error}</div> : null}
                 </div>

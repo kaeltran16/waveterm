@@ -15,6 +15,7 @@
     "core:window:allow-is-fullscreen",
     "core:webview:allow-set-webview-zoom",
     "core:menu:default",
+    "dialog:allow-open",
     {
       "identifier": "http:default",
       "allow": [
