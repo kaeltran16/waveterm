@@ -4,13 +4,52 @@
 import { cn } from "@/util/util";
 import { type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 
+// The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
+// cockpit passes accent = stateColor — asking → amber, else → periwinkle). So an asking agent's
+// options/tabs/check read in the same "needs you" amber as its card, not a generic blue prompt.
+type Accent = {
+    selected: string; // selected option/chip: border + soft fill
+    rec: string; // recommended option: dim border only (label stays neutral)
+    pill: string; // recommended badge
+    numSel: string; // selected number badge fill
+    check: string; // selected checkmark
+    tab: string; // active multi-question tab
+    dot: string; // answered tab dot
+};
+const ACCENT_ASKING: Accent = {
+    selected: "border-warning bg-warning/15",
+    rec: "border-warning/50",
+    pill: "border border-warning/40 bg-warning/10 text-warning",
+    numSel: "bg-warning text-background",
+    check: "text-warning",
+    tab: "border-warning bg-warning/15 text-primary",
+    dot: "bg-warning",
+};
+const ACCENT_DEFAULT: Accent = {
+    selected: "border-accent bg-accent/15",
+    rec: "border-accent/50",
+    pill: "border border-accent/40 bg-accent/10 text-accent",
+    numSel: "bg-accent text-background",
+    check: "text-accent",
+    tab: "border-accent bg-accent/15 text-primary",
+    dot: "bg-accent",
+};
+
+// Claude Code's AskUserQuestion payload has no separate "recommended" flag — by convention it appends
+// the literal "(Recommended)" marker to the option label, so this substring is the only signal. The
+// handoff shows it as a separate pill, so strip the marker from the label and badge it instead.
+const isRec = (label: string) => /\(recommended\)/i.test(label);
+const cleanLabel = (label: string) => label.replace(/\s*\(recommended\)\s*/i, " ").trim();
+
 function QuestionGroup({
     question,
+    accent,
     numbered,
     selections,
     onClickOption,
 }: {
     question: AgentAskQuestion;
+    accent: Accent;
     numbered?: boolean;
     selections: Set<number>;
     onClickOption: (oi: number) => void;
@@ -20,15 +59,14 @@ function QuestionGroup({
     // stay as compact wrapping chips. Number badges (1-9) map to the keyboard shortcut; the parent
     // renders only the keyboard-target question, so badges always belong to the rendered group.
     const stacked = options.some((o) => o.description);
-    // Claude Code's AskUserQuestion payload has no separate "recommended" flag — by convention it
-    // appends the literal "(Recommended)" marker to the option label, so this substring is the only signal.
-    const isRec = (label: string) => label.toLowerCase().includes("(recommended)");
     return (
         <div className="mt-3">
             {question.header ? (
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">{question.header}</div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    {question.header}
+                </div>
             ) : null}
-            <div className="text-[14px] font-semibold text-primary">{question.question}</div>
+            <div className="text-[13px] font-semibold text-primary">{question.question}</div>
             {options.length === 0 ? null : stacked ? (
                 <div className="mt-2.5 flex flex-col gap-1.5">
                     {options.map((opt, oi) => {
@@ -41,34 +79,61 @@ function QuestionGroup({
                                 type="button"
                                 onClick={() => onClickOption(oi)}
                                 className={cn(
-                                    "flex w-full cursor-pointer items-start gap-2.5 rounded-[8px] border px-3 py-2 text-left transition-colors",
+                                    "flex w-full cursor-pointer items-start gap-2.5 rounded-[8px] border px-3 py-2 text-left",
                                     isSelected
-                                        ? "border-accent bg-accent/15"
+                                        ? accent.selected
                                         : isRecommended
-                                          ? "border-accent/60 hover:bg-accent/10"
+                                          ? accent.rec
                                           : "border-border hover:bg-white/[0.04]"
                                 )}
                             >
                                 {showNum ? (
-                                    <span className="mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] bg-black/30 font-mono text-[10px] text-secondary">
+                                    <span
+                                        className={cn(
+                                            "mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] font-mono text-[10px]",
+                                            isSelected ? accent.numSel : "bg-black/30 text-secondary"
+                                        )}
+                                    >
                                         {oi + 1}
                                     </span>
                                 ) : null}
-                                <span className="min-w-0">
-                                    <span
-                                        className={cn(
-                                            "text-[13px] font-semibold",
-                                            isSelected ? "text-primary" : isRecommended ? "text-accent" : "text-secondary"
-                                        )}
-                                    >
-                                        {opt.label}
+                                <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2">
+                                        <span
+                                            className={cn(
+                                                "text-[12.5px] font-semibold",
+                                                isSelected ? "text-primary" : "text-secondary"
+                                            )}
+                                        >
+                                            {cleanLabel(opt.label)}
+                                        </span>
+                                        {isRecommended ? (
+                                            <span
+                                                className={cn(
+                                                    "shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[8.5px] font-semibold uppercase tracking-wide",
+                                                    accent.pill
+                                                )}
+                                            >
+                                                recommended
+                                            </span>
+                                        ) : null}
                                     </span>
                                     {opt.description ? (
-                                        <span className={cn("mt-0.5 block text-[12px] leading-[1.5]", isSelected ? "text-primary/75" : "text-muted")}>
+                                        <span
+                                            className={cn(
+                                                "mt-0.5 block text-[11px] leading-[1.45]",
+                                                isSelected ? "text-primary/75" : "text-muted"
+                                            )}
+                                        >
                                             {opt.description}
                                         </span>
                                     ) : null}
                                 </span>
+                                {isSelected ? (
+                                    <span className={cn("mt-0.5 shrink-0 text-[13px]", accent.check)}>
+                                        {question.multiSelect ? "✓" : "●"}
+                                    </span>
+                                ) : null}
                             </button>
                         );
                     })}
@@ -85,20 +150,25 @@ function QuestionGroup({
                                 type="button"
                                 onClick={() => onClickOption(oi)}
                                 className={cn(
-                                    "flex cursor-pointer items-center gap-2 rounded-[6px] px-3 py-1 text-[12px] transition-colors",
+                                    "flex cursor-pointer items-center gap-2 rounded-[6px] border px-3 py-1 text-[12px]",
                                     isSelected
-                                        ? "bg-accent/80 font-semibold text-primary hover:bg-accent"
+                                        ? cn(accent.selected, "font-semibold text-primary")
                                         : isRecommended
-                                          ? "border border-accent font-semibold text-accent hover:bg-accent/10"
-                                          : "border border-border text-secondary hover:bg-white/[0.04]"
+                                          ? cn(accent.rec, "font-semibold text-secondary")
+                                          : "border-border text-secondary hover:bg-white/[0.04]"
                                 )}
                             >
                                 {showNum ? (
-                                    <span className="inline-flex h-[16px] w-[16px] items-center justify-center rounded-[4px] bg-black/30 font-mono text-[10px] text-secondary">
+                                    <span
+                                        className={cn(
+                                            "inline-flex h-[16px] w-[16px] items-center justify-center rounded-[4px] font-mono text-[10px]",
+                                            isSelected ? accent.numSel : "bg-black/30 text-secondary"
+                                        )}
+                                    >
                                         {oi + 1}
                                     </span>
                                 ) : null}
-                                <span>{opt.label}</span>
+                                <span>{cleanLabel(opt.label)}</span>
                             </button>
                         );
                     })}
@@ -108,9 +178,9 @@ function QuestionGroup({
     );
 }
 
-// Amber answer surface for an asking agent. Selection state is owned by the parent (so the keyboard
-// triage keymap and mouse clicks write the same place). Mouse: single-select submits on click,
-// multi-select waits for the parent's submit (Enter). When `sent`, shows a confirmation in place.
+// Answer surface for an asking agent. Selection state is owned by the parent (so the keyboard triage
+// keymap and mouse clicks write the same place). Mouse: single-select submits on click, multi-select
+// waits for the parent's submit (Enter). When `sent`, shows a confirmation in place.
 export function AnswerBar({
     agent,
     selections,
@@ -133,16 +203,17 @@ export function AnswerBar({
     className?: string;
 }) {
     const questions = agent.ask?.questions ?? [];
+    const accent = agent.state === "asking" ? ACCENT_ASKING : ACCENT_DEFAULT;
     if (questions.length === 0) {
         return null;
     }
     if (sent) {
         const chosen = questions
-            .flatMap((q, qi) => Array.from(selections[qi] ?? []).map((oi) => q.options?.[oi]?.label ?? ""))
+            .flatMap((q, qi) => Array.from(selections[qi] ?? []).map((oi) => cleanLabel(q.options?.[oi]?.label ?? "")))
             .filter(Boolean);
         return (
             <div className={cn("text-[12px] text-secondary", className)}>
-                <span className="text-accent">✓</span> Answered{chosen.length ? `: ${chosen.join(", ")}` : ""}
+                <span className={accent.check}>✓</span> Answered{chosen.length ? `: ${chosen.join(", ")}` : ""}
             </div>
         );
     }
@@ -150,6 +221,7 @@ export function AnswerBar({
     const renderGroup = (qi: number) => (
         <QuestionGroup
             question={questions[qi]}
+            accent={accent}
             numbered={numbered}
             selections={selections[qi] ?? new Set()}
             onClickOption={(oi) => {
@@ -192,13 +264,11 @@ export function AnswerBar({
                             type="button"
                             onClick={() => onSelectQuestion?.(qi)}
                             className={cn(
-                                "flex cursor-pointer items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-[12px] transition-colors",
-                                active
-                                    ? "border-accent bg-accent/15 text-primary"
-                                    : "border-border text-secondary hover:bg-white/[0.04]"
+                                "flex cursor-pointer items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-[12px]",
+                                active ? accent.tab : "border-border text-secondary hover:bg-white/[0.04]"
                             )}
                         >
-                            <span className={cn("h-1.5 w-1.5 rounded-full", answered ? "bg-accent" : "bg-muted/40")} />
+                            <span className={cn("h-1.5 w-1.5 rounded-full", answered ? accent.dot : "bg-muted/40")} />
                             {q.header || `Q${qi + 1}`}
                         </button>
                     );
@@ -206,7 +276,8 @@ export function AnswerBar({
             </div>
             {renderGroup(idx)}
             <div className="mt-2 text-[11px] text-muted">
-                {answeredCount}/{questions.length} answered · {needsConfirm ? "press Enter to submit" : "answer all to submit"}
+                {answeredCount}/{questions.length} answered ·{" "}
+                {needsConfirm ? "press Enter to submit" : "answer all to submit"}
             </div>
         </div>
     );

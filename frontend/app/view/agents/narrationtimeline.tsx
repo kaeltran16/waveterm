@@ -3,7 +3,6 @@
 
 import { cn } from "@/util/util";
 import { Fragment, useState } from "react";
-import { motion } from "motion/react";
 import { groupTimeline, summarizeActions, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
 
@@ -13,15 +12,11 @@ import { MarkdownMessage } from "./markdownmessage";
 // Bursts of >= CollapseRunThreshold consecutive actions fold into one summary
 // line (via groupTimeline) to keep prose readable; the line expands on click and
 // the expand sticks. While `active`, the trailing run stays expanded so the live
-// panel shows work as it lands. Entries are append-only and keyed by entry index,
-// so `initial` plays only for newly appended (newly mounted) entries.
+// panel shows work as it lands. Entries are append-only and keyed by entry index.
 
 function ActionStrip({ action, large }: { action: AgentActionEntry; large?: boolean }) {
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
+        <div
             className={cn(
                 "my-2.5 border-l-2 border-border pl-3.5 font-mono leading-7 text-muted",
                 large ? "text-[13px]" : "text-[12px]"
@@ -31,17 +26,11 @@ function ActionStrip({ action, large }: { action: AgentActionEntry; large?: bool
             {action.target}
             {action.note ? <span className="text-muted"> ({action.note})</span> : null}
             {action.outcome ? (
-                <motion.span
-                    key={action.outcome}
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 18 }}
-                    className={cn("ml-1 inline-block", action.outcome === "ok" ? "text-accent" : "text-error")}
-                >
+                <span className={cn("ml-1 inline-block", action.outcome === "ok" ? "text-accent" : "text-error")}>
                     {action.outcome === "ok" ? "✓" : "✗"}
-                </motion.span>
+                </span>
             ) : null}
-        </motion.div>
+        </div>
     );
 }
 
@@ -79,11 +68,8 @@ export function NarrationTimeline({
             {items.map((item, idx) => {
                 if (item.kind === "message") {
                     return (
-                        <motion.div
+                        <div
                             key={item.index}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.22, ease: "easeOut" }}
                             className={cn(
                                 "mt-2.5",
                                 large ? "text-[15px]" : "text-[13px]",
@@ -93,21 +79,18 @@ export function NarrationTimeline({
                             )}
                         >
                             <MarkdownMessage text={item.text} />
-                        </motion.div>
+                        </div>
                     );
                 }
                 if (item.kind === "user") {
                     return (
-                        <motion.div
+                        <div
                             key={item.index}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.22, ease: "easeOut" }}
                             className={cn("mt-2.5 flex gap-1.5 text-muted", large ? "text-[13px]" : "text-[12px]")}
                         >
                             <span className="select-none text-muted/70">&gt;</span>
                             <span className="whitespace-pre-wrap">{item.text}</span>
-                        </motion.div>
+                        </div>
                     );
                 }
                 if (item.kind === "action") {
@@ -126,15 +109,12 @@ export function NarrationTimeline({
                 }
                 const summary = summarizeActions(item.actions);
                 return (
-                    <motion.button
+                    <button
                         key={"g" + item.startIndex}
                         type="button"
                         onClick={() => expand(item.startIndex)}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: "easeOut" }}
                         className={cn(
-                            "my-2.5 flex w-full cursor-pointer items-center gap-1.5 rounded-r border-l-2 border-accent/50 bg-accent/[0.06] px-2.5 py-1 font-mono text-muted transition-colors hover:bg-accent/10",
+                            "my-2.5 flex w-full cursor-pointer items-center gap-1.5 rounded-r border-l-2 border-accent/50 bg-accent/[0.06] px-2.5 py-1 font-mono text-muted hover:bg-accent/10",
                             large ? "text-[13px]" : "text-[12px]"
                         )}
                     >
@@ -148,7 +128,7 @@ export function NarrationTimeline({
                         <span className={cn("ml-0.5", summary.outcome === "ok" ? "text-accent" : "text-error")}>
                             {summary.outcome === "ok" ? "✓" : "✗"}
                         </span>
-                    </motion.button>
+                    </button>
                 );
             })}
         </div>

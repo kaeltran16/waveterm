@@ -4,7 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, motion, Reorder } from "motion/react";
+import { Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
@@ -30,34 +30,39 @@ import {
 } from "./agentsviewmodel";
 import { BackgroundedSection } from "./backgroundedsection";
 import { IdleSection } from "./idlesection";
+import { ensurePreviousInfo } from "./liveagents";
+import {
+    lastActivityByIdAtom,
+    liveEntriesByIdAtom,
+    startTranscriptStream,
+    stopTranscriptStream,
+} from "./livetranscript";
 import { ProjectSwitcher } from "./projectswitcher";
 import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
-import { ensurePreviousInfo } from "./liveagents";
-import { lastActivityByIdAtom, liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 
-// Rolls a changing integer: the old value slides up and out while the new one slides in.
 function RollingCount({ value, className }: { value: number; className?: string }) {
-    return (
-        <span className={cn("relative inline-flex overflow-hidden align-baseline", className)}>
-            <AnimatePresence mode="popLayout" initial={false}>
-                <motion.span
-                    key={value}
-                    initial={{ y: "-100%", opacity: 0 }}
-                    animate={{ y: "0%", opacity: 1 }}
-                    exit={{ y: "100%", opacity: 0 }}
-                    transition={{ duration: 0.2, ease: "easeOut" }}
-                    className="tabular-nums"
-                >
-                    {value}
-                </motion.span>
-            </AnimatePresence>
-        </span>
-    );
+    return <span className={cn("tabular-nums", className)}>{value}</span>;
 }
 
 const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
 const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", warn: "text-warning", hot: "text-error" };
+
+// Filter-chip palette (handoff mkChip, dc.html:1945-1981): an active chip takes its status color for the
+// border + a soft tint, and the count renders in that color; the label brightens to primary. Inactive
+// chips keep an edge border + muted label, but the count stays brighter (secondary) so it reads at a glance.
+const CHIP_ACTIVE: Record<ChipFilter, string> = {
+    all: "border-accent bg-accent/[0.12]",
+    asking: "border-warning bg-warning/[0.12]",
+    working: "border-success bg-success/[0.12]",
+    idle: "border-edge-strong bg-surface-raised",
+};
+const CHIP_NUM: Record<ChipFilter, string> = {
+    all: "text-accent-soft",
+    asking: "text-warning",
+    working: "text-success",
+    idle: "text-secondary",
+};
 
 // Provider identity dots for the plan strip. Not theme tokens — Claude clay / Codex periwinkle are
 // brand colors, kept here as the single source.
@@ -91,7 +96,10 @@ function UsageBar({ label, pct, reset, now }: { label: string; pct?: number; res
                 <span className={cn("font-mono text-[12px] font-semibold", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
             </div>
             <div className="h-[7px] overflow-hidden rounded-[4px] bg-surface-raised">
-                <div className={cn("h-full rounded-[4px]", PLAN_BAR[lvl])} style={{ width: `${Math.min(100, pct)}%` }} />
+                <div
+                    className={cn("h-full rounded-[4px]", PLAN_BAR[lvl])}
+                    style={{ width: `${Math.min(100, pct)}%` }}
+                />
             </div>
             {used != null || reset ? (
                 <div className="mt-[6px] flex justify-between font-mono text-[10.5px] text-muted">
@@ -131,7 +139,10 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     ];
     return (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-            <div className="min-w-[320px] rounded-[10px] border border-border bg-background p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div
+                className="min-w-[320px] rounded-[10px] border border-border bg-background p-4 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <div className="mb-2 text-[13px] font-semibold text-primary">Keyboard</div>
                 {rows.map(([k, d]) => (
                     <div key={k} className="flex items-center justify-between gap-6 py-1 text-[12px]">
@@ -178,7 +189,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
     // minus anything backgrounded. Asking agents are never backgrounded (the effect below un-mutes any
     // that start asking), so they always land in `active` and hold whatever slot they already had.
-    const { active: activeAgents, backgrounded } = partitionBackgrounded([...asking, ...working, ...recentlyIdle], backgroundedIds);
+    const { active: activeAgents, backgrounded } = partitionBackgrounded(
+        [...asking, ...working, ...recentlyIdle],
+        backgroundedIds
+    );
 
     // one-shot previous-info for asking agents (seeds first paint; the live stream supersedes it)
     useEffect(() => {
@@ -238,10 +252,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [answerSel, setAnswerSel] = useModelAtom(model.answerSelAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
     const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
-    const toggleWide = (id: string) =>
-        setCardPrefs((p) => ({ ...p, [id]: { ...p[id], wide: !p[id]?.wide } }));
-    const setCardHeight = (id: string, h: number) =>
-        setCardPrefs((p) => ({ ...p, [id]: { ...p[id], height: h } }));
+    const toggleWide = (id: string) => setCardPrefs((p) => ({ ...p, [id]: { ...p[id], wide: !p[id]?.wide } }));
+    const setCardHeight = (id: string, h: number) => setCardPrefs((p) => ({ ...p, [id]: { ...p[id], height: h } }));
     const sentIds = useAtomValue(model.sentIdsAtom);
     const railOpen = useAtomValue(model.railOpenAtom);
     const chip = useAtomValue(model.chipFilterAtom);
@@ -344,10 +356,20 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         // surface switch: `[` previous / `]` next (rail order). 1–9 are answer keys, so no number jumps.
         if (e.key === "]" || e.key === "[") {
             e.preventDefault();
-            const surfaceOrder: SurfaceKey[] = ["cockpit", "agent", "activity", "channels", "sessions", "files", "memory", "usage"];
+            const surfaceOrder: SurfaceKey[] = [
+                "cockpit",
+                "agent",
+                "activity",
+                "channels",
+                "sessions",
+                "files",
+                "memory",
+                "usage",
+            ];
             const curSurface = globalStore.get(model.surfaceAtom);
             const idx = surfaceOrder.indexOf(curSurface);
-            const nextSurface = surfaceOrder[(idx + (e.key === "]" ? 1 : surfaceOrder.length - 1)) % surfaceOrder.length];
+            const nextSurface =
+                surfaceOrder[(idx + (e.key === "]" ? 1 : surfaceOrder.length - 1)) % surfaceOrder.length];
             globalStore.set(model.surfaceAtom, nextSurface);
             return;
         }
@@ -369,7 +391,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             selectQuestion(cur.id, Math.max(0, Math.min(n - 1, curTab + delta)));
         } else if (e.key === "n") {
             e.preventDefault();
-            const target = nextAskId(asking.map((a) => a.id), lastJumpRef.current);
+            const target = nextAskId(
+                asking.map((a) => a.id),
+                lastJumpRef.current
+            );
             if (target) {
                 lastJumpRef.current = target;
                 setCursorId(target);
@@ -426,88 +451,85 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             ref={containerRef}
             tabIndex={0}
             onKeyDown={onKeyDown}
-            className="relative flex h-full w-full flex-col text-secondary outline-none"
+            className="relative flex h-full w-full text-secondary outline-none"
         >
-            <div className="sticky top-0 z-[5] shrink-0 border-b border-border bg-background px-[30px] pb-3 pt-4">
-                <div className="mb-3 flex items-baseline gap-3">
-                    <h1 className="text-[20px] font-bold tracking-[-0.02em] text-primary">Cockpit</h1>
-                    <p className="text-[12.5px] text-muted">
-                        {agents.length} agents · {projectCount} projects ·{" "}
-                        <span className="font-semibold text-warning">
-                            <RollingCount value={asking.length} /> need you
-                        </span>
-                    </p>
-                    <div className="ml-auto flex shrink-0 items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => globalStore.set(model.railOpenAtom, !railOpen)}
-                            className="cursor-pointer rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
-                        >
-                            {railOpen ? "Hide panel ›" : "‹ Usage"}
-                        </button>
-                        <ProjectSwitcher model={model} variant="header" />
-                        <button
-                            type="button"
-                            onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
-                            className={cn(
-                                "flex cursor-pointer items-center gap-[7px] rounded-[8px] border px-2.5 py-1.5 text-[12px] font-medium",
-                                liveOnly
-                                    ? "border-success/60 bg-success/10 text-success"
-                                    : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
-                            )}
-                        >
-                            <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                            Live only
-                        </button>
+            <div className="flex min-w-0 flex-1 flex-col bg-background">
+                <div className="sticky top-0 z-[5] shrink-0 border-b border-border bg-background px-[30px] pb-3 pt-4">
+                    <div className="mb-3 flex items-baseline gap-3">
+                        <h1 className="text-[20px] font-bold tracking-[-0.02em] text-primary">Cockpit</h1>
+                        <p className="text-[12.5px] text-muted">
+                            {agents.length} agents · {projectCount} projects ·{" "}
+                            <span className="font-semibold text-warning">
+                                <RollingCount value={asking.length} /> need you
+                            </span>
+                        </p>
+                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => globalStore.set(model.railOpenAtom, !railOpen)}
+                                className="cursor-pointer rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
+                            >
+                                {railOpen ? "Hide panel ›" : "‹ Usage"}
+                            </button>
+                            <ProjectSwitcher model={model} variant="header" />
+                            <button
+                                type="button"
+                                onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
+                                className={cn(
+                                    "flex cursor-pointer items-center gap-[7px] rounded-[8px] border px-2.5 py-1.5 text-[12px] font-medium",
+                                    liveOnly
+                                        ? "border-success/60 bg-success/10 text-success"
+                                        : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
+                                )}
+                            >
+                                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                Live only
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {(
+                            [
+                                ["all", "All", agents.length],
+                                ["asking", "Asking", asking.length],
+                                ["working", "Working", working.length],
+                                ["idle", "Idle", idle.length],
+                            ] as [ChipFilter, string, number][]
+                        ).map(([key, label, count]) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setChip(key)}
+                                className={cn(
+                                    "flex cursor-pointer items-center gap-2 rounded-[8px] border px-3 py-1.5 text-[12.5px]",
+                                    chip === key
+                                        ? cn(CHIP_ACTIVE[key], "text-primary")
+                                        : "border-border text-muted hover:border-edge-mid"
+                                )}
+                            >
+                                {label}
+                                <RollingCount
+                                    value={count}
+                                    className={cn(
+                                        "font-mono text-[11px] font-semibold",
+                                        chip === key ? CHIP_NUM[key] : "text-secondary"
+                                    )}
+                                />
+                            </button>
+                        ))}
                     </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {(
-                        [
-                            ["all", "All", agents.length],
-                            ["asking", "Asking", asking.length],
-                            ["working", "Working", working.length],
-                            ["idle", "Idle", idle.length],
-                        ] as [ChipFilter, string, number][]
-                    ).map(([key, label, count]) => (
-                        <button
-                            key={key}
-                            type="button"
-                            onClick={() => setChip(key)}
-                            className={cn(
-                                "flex cursor-pointer items-center gap-2 rounded-[8px] border px-3 py-1.5 text-[12.5px]",
-                                chip === key
-                                    ? "border-edge-strong bg-surface-raised text-primary"
-                                    : "border-border text-muted hover:border-edge-mid"
-                            )}
-                        >
-                            {label}
-                            <span className="font-mono text-[11px] font-semibold">
-                                <RollingCount value={count} />
-                            </span>
-                        </button>
-                    ))}
-                </div>
-            </div>
 
-            <div className="flex min-h-0 flex-1">
                 <div className="flex min-h-0 flex-1 flex-col">
-                    <AnimatePresence>
-                        {empty && (
-                            <motion.div
-                                key="empty"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.25 }}
-                                className="flex flex-1 flex-col items-center justify-center gap-1 p-[18px] text-center"
-                            >
-                                <div className="text-[18px] opacity-40">🤖</div>
-                                <div className="text-[13px] font-semibold text-secondary">No active agents</div>
-                                <div className="text-[11px] text-muted">Agents appear here the moment one starts working or asks a question.</div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {empty ? (
+                        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-[18px] text-center">
+                            <div className="text-[18px] opacity-40">🤖</div>
+                            <div className="text-[13px] font-semibold text-secondary">No active agents</div>
+                            <div className="text-[11px] text-muted">
+                                Agents appear here the moment one starts working or asks a question.
+                            </div>
+                        </div>
+                    ) : null}
 
                     {liveCount > 0 ? (
                         <div className="shrink-0 px-5 pt-4">
@@ -516,12 +538,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 labelClassName="text-accent-soft"
                                 count={liveCount}
                                 dotClassName="bg-accent-soft"
-                                pulse
                                 countPillClassName="bg-accent/10 text-accent-soft"
                                 dividerClassName="bg-gradient-to-r from-accent/20 to-transparent"
                                 right={
                                     <span className="text-[11.5px] text-muted">
-                                        <span className="font-semibold text-warning">{liveAsking} need you</span> · {liveWorking} working
+                                        <span className="font-semibold text-warning">{liveAsking} need you</span> ·{" "}
+                                        {liveWorking} working
                                     </span>
                                 }
                             />
@@ -535,33 +557,35 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         onReorder={setOrder}
                         className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto px-5 pb-5 pt-2.5"
                     >
-                        <AnimatePresence mode="popLayout">
-                            {shownAgents.map((a) => (
-                                <AgentRow
-                                    key={a.id}
-                                    agent={a}
-                                    now={now}
-                                    isCursor={cursorId === a.id}
-                                    pulse={pulseId === a.id}
-                                    wide={cardPrefs[a.id]?.wide}
-                                    height={cardPrefs[a.id]?.height}
-                                    onToggleWide={() => toggleWide(a.id)}
-                                    onResize={(h) => setCardHeight(a.id, h)}
-                                    selections={answerSel[a.id] ?? {}}
-                                    sent={sentIds.has(a.id)}
-                                    activeQuestion={answerTab[a.id] ?? 0}
-                                    onCursor={() => setCursorId(a.id)}
-                                    onOpen={() => openFocus(a.id, false)}
-                                    onOpenTerminal={() => model.openTerminal(a.id)}
-                                    onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                    onSubmitAnswer={() => submitAnswer(a.id)}
-                                    onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                    onComposerEscape={() => containerRef.current?.focus()}
-                                    onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
-                                    onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-                                />
-                            ))}
-                        </AnimatePresence>
+                        {shownAgents.map((a) => (
+                            <AgentRow
+                                key={a.id}
+                                agent={a}
+                                now={now}
+                                isCursor={cursorId === a.id}
+                                pulse={pulseId === a.id}
+                                wide={cardPrefs[a.id]?.wide}
+                                height={cardPrefs[a.id]?.height}
+                                onToggleWide={() => toggleWide(a.id)}
+                                onResize={(h) => setCardHeight(a.id, h)}
+                                selections={answerSel[a.id] ?? {}}
+                                sent={sentIds.has(a.id)}
+                                activeQuestion={answerTab[a.id] ?? 0}
+                                onCursor={() => setCursorId(a.id)}
+                                onOpen={() => openFocus(a.id, false)}
+                                onOpenTerminal={() => model.openTerminal(a.id)}
+                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                onSubmitAnswer={() => submitAnswer(a.id)}
+                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                onComposerEscape={() => containerRef.current?.focus()}
+                                onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
+                                onDismiss={
+                                    a.state === "idle"
+                                        ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
+                                        : undefined
+                                }
+                            />
+                        ))}
                     </Reorder.Group>
 
                     <div className="shrink-0 px-[18px]">
@@ -570,86 +594,105 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                {railOpen ? (
-                    <aside className="flex w-[300px] shrink-0 flex-col gap-6 overflow-y-auto border-l border-border bg-surface px-5 py-5">
+                {!empty ? (
+                    <div className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted">
+                        {HINTS.map(([k, d]) => (
+                            <span key={k} className="flex items-center gap-1">
+                                <span className="rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-secondary">
+                                    {k}
+                                </span>
+                                {d}
+                            </span>
+                        ))}
+                        <button
+                            type="button"
+                            onClick={() => setShowHelp(true)}
+                            className="ml-auto cursor-pointer font-mono hover:text-secondary"
+                        >
+                            ?
+                        </button>
+                    </div>
+                ) : null}
+            </div>
+
+            {railOpen ? (
+                <aside className="flex w-[300px] shrink-0 flex-col gap-6 overflow-y-auto border-l border-border bg-surface px-5 py-5">
+                    <div>
+                        <div className="mb-3.5 flex items-center justify-between">
+                            <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                Usage
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => globalStore.set(model.surfaceAtom, "usage")}
+                                className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
+                            >
+                                Details →
+                            </button>
+                        </div>
+                        <div className="flex flex-col gap-4">
+                            {planByProvider.map(({ provider, usage }) => (
+                                <div key={provider} className="flex flex-col gap-4">
+                                    {planByProvider.length > 1 ? (
+                                        <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
+                                            <span
+                                                className={cn(
+                                                    "h-[7px] w-[7px] rounded-full",
+                                                    PROVIDER_DOT[provider] ?? "bg-muted"
+                                                )}
+                                            />
+                                            {provider.charAt(0).toUpperCase() + provider.slice(1)}
+                                        </div>
+                                    ) : null}
+                                    <UsageBar
+                                        label="5-hour window"
+                                        pct={usage.fivehourpct}
+                                        reset={usage.fivehourreset}
+                                        now={now}
+                                    />
+                                    <UsageBar label="Weekly" pct={usage.weekpct} reset={usage.weekreset} now={now} />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    {recent.length > 0 ? (
                         <div>
-                            <div className="mb-3.5 flex items-center justify-between">
-                                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Usage</h3>
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                    Recent activity
+                                </h3>
                                 <button
                                     type="button"
-                                    onClick={() => globalStore.set(model.surfaceAtom, "usage")}
+                                    onClick={() => globalStore.set(model.surfaceAtom, "activity")}
                                     className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
                                 >
-                                    Details →
+                                    View all →
                                 </button>
                             </div>
-                            <div className="flex flex-col gap-4">
-                                {planByProvider.map(({ provider, usage }) => (
-                                    <div key={provider} className="flex flex-col gap-4">
-                                        {planByProvider.length > 1 ? (
-                                            <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
-                                                <span className={cn("h-[7px] w-[7px] rounded-full", PROVIDER_DOT[provider] ?? "bg-muted")} />
-                                                {provider.charAt(0).toUpperCase() + provider.slice(1)}
+                            <div className="flex flex-col">
+                                {recent.map((e) => (
+                                    <div key={e.id} className="flex gap-[11px] border-b border-border py-[9px]">
+                                        <span
+                                            className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
+                                            style={{ backgroundColor: RECENT_DOT[e.state] }}
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-[12px] leading-[1.4] text-secondary">
+                                                <span className="font-mono font-semibold text-primary">{e.agent}</span>{" "}
+                                                {e.text}
                                             </div>
-                                        ) : null}
-                                        <UsageBar label="5-hour window" pct={usage.fivehourpct} reset={usage.fivehourreset} now={now} />
-                                        <UsageBar label="Weekly" pct={usage.weekpct} reset={usage.weekreset} now={now} />
+                                            <div className="mt-[3px] font-mono text-[10px] text-muted">
+                                                {e.typeLabel} ·{" "}
+                                                {now - e.ts < 60_000 ? "just now" : `${formatAge(now - e.ts)} ago`}
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
                         </div>
-                        {recent.length > 0 ? (
-                            <div>
-                                <div className="mb-3 flex items-center justify-between">
-                                    <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                        Recent activity
-                                    </h3>
-                                    <button
-                                        type="button"
-                                        onClick={() => globalStore.set(model.surfaceAtom, "activity")}
-                                        className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
-                                    >
-                                        View all →
-                                    </button>
-                                </div>
-                                <div className="flex flex-col">
-                                    {recent.map((e) => (
-                                        <div key={e.id} className="flex gap-[11px] border-b border-border py-[9px]">
-                                            <span
-                                                className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
-                                                style={{ backgroundColor: RECENT_DOT[e.state] }}
-                                            />
-                                            <div className="min-w-0 flex-1">
-                                                <div className="text-[12px] leading-[1.4] text-secondary">
-                                                    <span className="font-mono font-semibold text-primary">{e.agent}</span> {e.text}
-                                                </div>
-                                                <div className="mt-[3px] font-mono text-[10px] text-muted">
-                                                    {e.typeLabel} · {now - e.ts < 60_000 ? "just now" : `${formatAge(now - e.ts)} ago`}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : null}
-                    </aside>
-                ) : null}
-            </div>
-
-            {!empty ? (
-                <div className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted">
-                    {HINTS.map(([k, d]) => (
-                        <span key={k} className="flex items-center gap-1">
-                            <span className="rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-secondary">{k}</span>
-                            {d}
-                        </span>
-                    ))}
-                    <button type="button" onClick={() => setShowHelp(true)} className="ml-auto cursor-pointer font-mono hover:text-secondary">
-                        ?
-                    </button>
-                </div>
+                    ) : null}
+                </aside>
             ) : null}
-
             {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
     );

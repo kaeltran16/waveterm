@@ -30,7 +30,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
     return (
         <div
             data-tauri-drag-region
-            className="flex h-[46px] shrink-0 items-center gap-4 border-b border-border bg-surface pl-4 pr-3.5"
+            className="flex h-[46px] shrink-0 items-center gap-4 border-b border-border bg-surface pl-4"
         >
             <div className="flex items-center gap-[9px]">
                 <div className="flex h-[19px] w-[19px] items-center justify-center rounded-[6px] bg-gradient-to-br from-accent-300 to-accent-500">
@@ -55,13 +55,27 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">⌘K</span>
             </button>
 
-            <div className="flex items-center gap-3">
+            <button
+                type="button"
+                onClick={() => fireAndForget(() => newAgentSession(model))}
+                className="flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-accent px-3 py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
+            >
+                <span className="-mt-px text-[15px] leading-none">+</span>New agent
+            </button>
+
+            {/* Usage column: the 5h gauge sits above the usage rail. The left border IS the rail divider —
+                this column is w-[300px] and flush to the right edge, so its border-l lands exactly on the
+                rail's left edge (also 300px), reading as one continuous vertical line from top to bottom. */}
+            <div className="flex h-full w-[300px] shrink-0 items-center border-l border-border pl-3">
                 <button
                     type="button"
                     onClick={() => globalStore.set(model.surfaceAtom, "usage")}
                     className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1.5 py-1 hover:bg-surface-hover"
                 >
-                    <span className="flex h-[22px] w-[22px] items-center justify-center rounded-full" style={{ background: donut }}>
+                    <span
+                        className="flex h-[22px] w-[22px] items-center justify-center rounded-full"
+                        style={{ background: donut }}
+                    >
                         <span className="h-[14px] w-[14px] rounded-full bg-surface" />
                     </span>
                     <span className="text-left leading-tight">
@@ -71,15 +85,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                         <span className="block text-[9px] text-muted">5h limit</span>
                     </span>
                 </button>
-                <div className="h-5 w-px bg-edge-mid" />
-                <button
-                    type="button"
-                    onClick={() => fireAndForget(() => newAgentSession(model))}
-                    className="flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-accent px-3 py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
-                >
-                    <span className="-mt-px text-[15px] leading-none">+</span>New agent
-                </button>
-                <div className="ml-1 flex items-center">
+                <div className="ml-auto flex h-full items-center">
                     <button
                         onClick={() => win.minimize()}
                         aria-label="Minimize"

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useAtomValue } from "jotai";
+import { ActivitySurface } from "./activitysurface";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
 import { CockpitSurface } from "./cockpitsurface";
@@ -19,6 +20,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                     <CockpitSurface model={model} />
                 ) : surface === "agent" ? (
                     <AgentSurface model={model} tabId={tabId} />
+                ) : surface === "activity" ? (
+                    <ActivitySurface model={model} />
                 ) : surface === "files" ? (
                     <FilesSurface model={model} />
                 ) : (

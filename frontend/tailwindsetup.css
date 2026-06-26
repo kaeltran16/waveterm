@@ -22,15 +22,15 @@
     --color-primary: #e6e9ed;
     --color-secondary: #cfd5db;
     --color-muted-foreground: #c3cad1;
-    --color-muted: #6b7178;
     --color-ink-mid: #9aa3ad; /* mid grey — handoff tool badges + secondary button text */
+    --color-muted: #6b7178;
     --color-ink-faint: #3a424c;
 
     /* Borders (handoff edge) */
-    --color-edge-faint: #161a20; /* faint dividers — handoff transcript tool-box rows */
     --color-border: #1c2128;
     --color-edge-mid: #20262e;
     --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20; /* faint dividers — handoff transcript tool-box rows */
 
     /* Accent (periwinkle; anchors #aebfff/#8da3ff/#7c95ff/#5f74e0 from handoff, rest interpolated) */
     --color-accent-50: #e8ecff;
@@ -124,7 +124,7 @@ svg [aria-label="tip"] g path {
     width: 10px;
 }
 
-/* Handoff design-system globals: scrollbar + motion (see wave-handoff cockpit prototype) */
+/* Handoff design-system globals: scrollbar (see wave-handoff cockpit prototype) */
 ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -141,73 +141,6 @@ svg [aria-label="tip"] g path {
 }
 ::-webkit-scrollbar-track {
     background: transparent;
-}
-
-@keyframes pulseDot {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.32;
-    }
-}
-@keyframes ringAmber {
-    0% {
-        box-shadow: 0 0 0 0 rgba(230, 180, 80, 0.5);
-    }
-    70% {
-        box-shadow: 0 0 0 7px rgba(230, 180, 80, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(230, 180, 80, 0);
-    }
-}
-@keyframes ringGreen {
-    0% {
-        box-shadow: 0 0 0 0 rgba(84, 199, 154, 0.45);
-    }
-    70% {
-        box-shadow: 0 0 0 6px rgba(84, 199, 154, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(84, 199, 154, 0);
-    }
-}
-@keyframes flow {
-    0% {
-        transform: translateX(-120%);
-    }
-    100% {
-        transform: translateX(360%);
-    }
-}
-@keyframes caret {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0;
-    }
-}
-@keyframes fadeUp {
-    from {
-        opacity: 0;
-        transform: translateY(7px);
-    }
-    to {
-        opacity: 1;
-        transform: none;
-    }
-}
-@keyframes slideUp {
-    from {
-        transform: translateY(100%);
-    }
-    to {
-        transform: translateY(0);
-    }
 }
 
 /* Monaco editor scrollbar styling */

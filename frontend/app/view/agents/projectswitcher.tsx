@@ -38,10 +38,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
             {open ? (
                 <>
                     <div className="fixed inset-0 z-50" onClick={() => setOpen(false)} />
-                    <div
-                        className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-[12px] border border-edge-strong bg-surface-raised shadow-popover"
-                        style={{ animation: "fadeUp .14s both" }}
-                    >
+                    <div className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-[12px] border border-edge-strong bg-surface-raised shadow-popover">
                         <div className="px-3 pb-1.5 pt-[9px]">
                             <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
                                 Switch project
@@ -57,7 +54,9 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                 )}
                             >
                                 <span className="h-2 w-2 shrink-0 rounded-[3px] bg-muted" />
-                                <span className="flex-1 truncate text-[13px] font-medium text-secondary">All projects</span>
+                                <span className="flex-1 truncate text-[13px] font-medium text-secondary">
+                                    All projects
+                                </span>
                                 <span className="font-mono text-[11px] text-muted">{agents.length}</span>
                             </button>
                             {projects.map((p) => (
@@ -76,9 +75,13 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                             p.askingCount > 0 ? "bg-warning" : "bg-success"
                                         )}
                                     />
-                                    <span className="flex-1 truncate text-[13px] font-medium text-secondary">{p.name}</span>
+                                    <span className="flex-1 truncate text-[13px] font-medium text-secondary">
+                                        {p.name}
+                                    </span>
                                     {p.askingCount > 0 ? (
-                                        <span className="font-mono text-[10px] font-semibold text-warning">{p.askingCount}</span>
+                                        <span className="font-mono text-[10px] font-semibold text-warning">
+                                            {p.askingCount}
+                                        </span>
                                     ) : null}
                                     <span className="font-mono text-[11px] text-muted">{p.agentCount}</span>
                                 </button>
