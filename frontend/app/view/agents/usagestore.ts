@@ -11,7 +11,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { discoverSessions } from "./activitydiscovery";
-import { aggregateUsage, extractUsage, type UsageRecord, type UsageStats } from "./usagestats";
+import { aggregateUsage, extractCodexUsage, extractUsage, type UsageRecord, type UsageStats } from "./usagestats";
 
 const SESSION_READ_CAP = 150; // newest-first files to scan (bounds work without trusting modtime units)
 const USAGE_READ_MAXLINES = 20000; // ~whole file; the backend reads the full file then tails to this
@@ -44,7 +44,7 @@ export async function loadUsage(): Promise<void> {
             } catch {
                 continue;
             }
-            records.push(...extractUsage(lines, s.agent));
+            records.push(...(s.agent === "codex" ? extractCodexUsage(lines) : extractUsage(lines, s.agent)));
         }
         globalStore.set(usageStatsAtom, aggregateUsage(records, Date.now()));
     } finally {

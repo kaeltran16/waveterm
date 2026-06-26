@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { aggregateUsage, dedupeUsage, extractUsage, spendOf, tokensOf, type UsageRecord } from "./usagestats";
+import {
+    aggregateUsage,
+    dedupeUsage,
+    extractCodexUsage,
+    extractUsage,
+    spendOf,
+    tokensOf,
+    type UsageRecord,
+} from "./usagestats";
 
 function rec(over: Partial<UsageRecord>): UsageRecord {
     return {
@@ -172,5 +180,69 @@ describe("dedupeUsage", () => {
     });
     it("keeps distinct keys separate", () => {
         expect(dedupeUsage([mk({ id: "a" }), mk({ id: "b" })])).toHaveLength(2);
+    });
+});
+
+// Codex transcripts use a different shape than Claude: token usage lives in event_msg lines
+// (payload.type "token_count") as a CUMULATIVE total_token_usage, and the model is carried by a
+// preceding turn_context line. cached_input_tokens is a subset of input_tokens, so the record is
+// normalized (input = input - cached) to keep tokensOf == Codex's own total.
+const codexTurnContext = (model: string, ts = "2026-06-26T03:07:50.000Z") =>
+    JSON.stringify({ timestamp: ts, type: "turn_context", payload: { model } });
+
+const codexTokenCount = (totalUsage: object, ts = "2026-06-26T03:08:00.663Z") =>
+    JSON.stringify({
+        timestamp: ts,
+        type: "event_msg",
+        payload: { type: "token_count", info: { total_token_usage: totalUsage, last_token_usage: totalUsage } },
+    });
+
+const CODEX_USAGE = {
+    input_tokens: 9458,
+    cached_input_tokens: 7040,
+    output_tokens: 89,
+    reasoning_output_tokens: 71,
+    total_tokens: 9547,
+};
+
+describe("extractCodexUsage", () => {
+    it("normalizes a token_count event so tokensOf equals Codex's own total_tokens", () => {
+        const [r] = extractCodexUsage([codexTurnContext("gpt-5.5"), codexTokenCount(CODEX_USAGE)]);
+        expect(r.provider).toBe("codex");
+        expect(r.model).toBe("gpt-5.5");
+        expect(r.inputTokens).toBe(9458 - 7040); // non-cached portion only
+        expect(r.cacheReadTokens).toBe(7040);
+        expect(r.outputTokens).toBe(89); // reasoning already included
+        expect(r.cacheCreateTokens).toBe(0);
+        expect(tokensOf(r)).toBe(9547);
+        expect(r.ts).toBe(Date.parse("2026-06-26T03:08:00.663Z"));
+    });
+
+    it("emits one record per session using the max cumulative total (not the sum of turns)", () => {
+        const small = { input_tokens: 100, cached_input_tokens: 0, output_tokens: 10, total_tokens: 110 };
+        const big = { input_tokens: 5000, cached_input_tokens: 1000, output_tokens: 500, total_tokens: 5500 };
+        const recs = extractCodexUsage([
+            codexTurnContext("gpt-5.5"),
+            codexTokenCount(small, "2026-06-26T03:08:00.000Z"),
+            codexTokenCount(big, "2026-06-26T03:20:00.000Z"),
+        ]);
+        expect(recs).toHaveLength(1);
+        expect(tokensOf(recs[0])).toBe(5500);
+        expect(recs[0].ts).toBe(Date.parse("2026-06-26T03:20:00.000Z"));
+    });
+
+    it("falls back to model 'codex' when no turn_context precedes the totals", () => {
+        const [r] = extractCodexUsage([codexTokenCount(CODEX_USAGE)]);
+        expect(r.model).toBe("codex");
+    });
+
+    it("ignores null-info token_count, non-token lines, and malformed JSON; returns [] with no usage", () => {
+        expect(
+            extractCodexUsage([
+                "{not json",
+                JSON.stringify({ type: "event_msg", payload: { type: "token_count", info: null } }),
+                JSON.stringify({ type: "response_item", payload: {} }),
+            ])
+        ).toEqual([]);
     });
 });

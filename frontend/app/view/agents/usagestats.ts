@@ -118,6 +118,61 @@ export function extractUsage(lines: string[], provider: string): UsageRecord[] {
     return out;
 }
 
+// Codex transcripts (~/.codex/sessions/**/rollout-*.jsonl) use a different shape: token usage is in
+// event_msg lines (payload.type "token_count") as a CUMULATIVE total_token_usage that grows
+// monotonically over the session, and the model id lives on a preceding turn_context line (not on the
+// token_count event). Summing per-turn last_token_usage over-counts, so we take the max cumulative —
+// Codex's own authoritative session total. cached_input_tokens is a SUBSET of input_tokens (unlike
+// Claude's separate buckets), so we map input = input - cached to keep tokensOf == total_tokens.
+// One record per session file (no cross-file history copy, so no dedup key needed).
+export function extractCodexUsage(lines: string[]): UsageRecord[] {
+    let model = "codex";
+    let best: { total: number; tu: any; ts: number; model: string } | undefined;
+    for (const line of lines) {
+        let rec: any;
+        try {
+            rec = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (rec?.type === "turn_context") {
+            const m = rec.payload?.model;
+            if (typeof m === "string" && m) {
+                model = m;
+            }
+            continue;
+        }
+        if (rec?.type !== "event_msg" || rec.payload?.type !== "token_count") {
+            continue;
+        }
+        const tu = rec.payload.info?.total_token_usage;
+        const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+        if (!tu || Number.isNaN(ts)) {
+            continue;
+        }
+        const total = typeof tu.total_tokens === "number" ? tu.total_tokens : (tu.input_tokens ?? 0) + (tu.output_tokens ?? 0);
+        if (!best || total > best.total) {
+            best = { total, tu, ts, model };
+        }
+    }
+    if (!best) {
+        return [];
+    }
+    const input = best.tu.input_tokens ?? 0;
+    const cached = best.tu.cached_input_tokens ?? 0;
+    return [
+        {
+            ts: best.ts,
+            provider: "codex",
+            model: best.model,
+            inputTokens: Math.max(0, input - cached),
+            outputTokens: best.tu.output_tokens ?? 0,
+            cacheReadTokens: cached,
+            cacheCreateTokens: 0,
+        },
+    ];
+}
+
 // Claude Code writes the SAME logical request to the JSONL more than once: streaming snapshots that
 // share message.id+requestId with a growing output_tokens, and the full prior history re-copied into
 // a new file when a session is resumed/compacted. Summing every line double-counts (measured ~68% on
