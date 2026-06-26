@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import type { AgentsViewModel } from "./agents";
 import { AgentComposer } from "./agentcomposer";
+import type { AgentsViewModel } from "./agents";
+import { formatAge, projectOf, toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
-import { projectOf, toggleSelection, type AgentVM } from "./agentsviewmodel";
+import { FocusTranscript } from "./focustranscript";
 import { liveEntriesByIdAtom } from "./livetranscript";
-import { NarrationTimeline } from "./narrationtimeline";
 import { StatusDot } from "./statusdot";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
@@ -82,7 +80,7 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
     return (
         <div className="flex min-w-0 flex-1 flex-col">
             {/* header */}
-            <div className="flex shrink-0 items-center gap-[13px] border-b border-[#1a1f26] bg-[#0d1014] px-[22px] py-[14px]">
+            <div className="flex shrink-0 items-center gap-[13px] border-b border-[#1a1f26] bg-background px-[22px] py-[14px]">
                 <StatusDot state={agent.state} className="!h-[9px] !w-[9px]" />
                 <div className="min-w-0">
                     <div className="flex items-center gap-[9px]">
@@ -121,51 +119,60 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
             </div>
 
             {/* transcript */}
-            <div ref={scrollRef} onScroll={onScroll} className={cn("relative min-h-0 flex-1 overflow-y-auto px-[22px] pb-[16px] pt-[24px]", asking && "opacity-90")}>
+            <div
+                ref={scrollRef}
+                onScroll={onScroll}
+                className="relative min-h-0 flex-1 overflow-y-auto bg-background px-[22px] pb-[16px] pt-[24px]"
+            >
                 <div className="mx-auto flex max-w-[720px] flex-col gap-[18px]">
-                    <NarrationTimeline key={agent.id} entries={entries} accentLatest large active={agent.state === "working"} />
-                </div>
-                <AnimatePresence>
-                    {newCount > 0 ? (
-                        <motion.button
-                            key="newpill"
-                            type="button"
-                            onClick={jumpToLatest}
-                            initial={{ opacity: 0, y: 8, scale: 0.9 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 8, scale: 0.9 }}
-                            transition={{ type: "spring", stiffness: 500, damping: 26 }}
-                            className="sticky bottom-3 left-1/2 ml-[-40px] cursor-pointer rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-white shadow-lg"
-                        >
-                            ↓ {newCount} new
-                        </motion.button>
+                    <FocusTranscript key={agent.id} entries={entries} agentName={agent.name} />
+                    {/* handoff (dc.html:456-461): an asking agent's reply sits inline at the end of the
+                        transcript — warm-dark fill + amber left bar + "Awaiting your reply", indented under
+                        the avatar gutter (ml-38) so it lines up with the message turns */}
+                    {asking ? (
+                        <div className="relative ml-[38px] overflow-hidden rounded-[12px] border border-warning/35 bg-lane-asking px-[17px] py-[14px]">
+                            <span className="absolute inset-y-0 left-0 w-[3px] bg-warning" />
+                            <div className="flex items-center gap-2">
+                                <span className="h-[7px] w-[7px] rounded-full bg-warning" />
+                                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[.08em] text-warning">
+                                    Awaiting your reply
+                                    {agent.blockedMs != null ? ` · ${formatAge(agent.blockedMs)}` : ""}
+                                </span>
+                            </div>
+                            <AnswerBar
+                                agent={agent}
+                                selections={answerSel[agent.id] ?? {}}
+                                sent={sentIds.has(agent.id)}
+                                numbered
+                                activeQuestion={answerTab[agent.id] ?? 0}
+                                onToggle={(qi, oi) => {
+                                    const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
+                                    globalStore.set(model.answerSelAtom, {
+                                        ...answerSel,
+                                        [agent.id]: toggleSelection(answerSel[agent.id] ?? {}, qi, oi, multi),
+                                    });
+                                }}
+                                onSubmit={() => model.submitAnswer(agent.id)}
+                                onSelectQuestion={(qi) =>
+                                    globalStore.set(model.answerTabAtom, { ...answerTab, [agent.id]: qi })
+                                }
+                            />
+                        </div>
                     ) : null}
-                </AnimatePresence>
+                </div>
+                {newCount > 0 ? (
+                    <button
+                        type="button"
+                        onClick={jumpToLatest}
+                        className="sticky bottom-3 left-1/2 ml-[-40px] cursor-pointer rounded-full bg-accent px-3 py-1 text-[11px] font-semibold text-white shadow-lg"
+                    >
+                        ↓ {newCount} new
+                    </button>
+                ) : null}
             </div>
 
-            {/* amber answer for structured asks */}
-            {asking ? (
-                <AnswerBar
-                    agent={agent}
-                    selections={answerSel[agent.id] ?? {}}
-                    sent={sentIds.has(agent.id)}
-                    numbered
-                    activeQuestion={answerTab[agent.id] ?? 0}
-                    onToggle={(qi, oi) => {
-                        const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
-                        globalStore.set(model.answerSelAtom, {
-                            ...answerSel,
-                            [agent.id]: toggleSelection(answerSel[agent.id] ?? {}, qi, oi, multi),
-                        });
-                    }}
-                    onSubmit={() => model.submitAnswer(agent.id)}
-                    onSelectQuestion={(qi) => globalStore.set(model.answerTabAtom, { ...answerTab, [agent.id]: qi })}
-                    className="shrink-0 border-t border-warning bg-warning/5 px-[18px] py-3"
-                />
-            ) : null}
-
             {/* footer: suggestion chips (placeholder) + composer */}
-            <div className="shrink-0 border-t border-[#1a1f26] bg-[#0d1014] px-[22px] pb-[16px] pt-[14px]">
+            <div className="shrink-0 border-t border-[#1a1f26] bg-background px-[22px] pb-[16px] pt-[14px]">
                 <div className="mx-auto max-w-[720px]">
                     <div className="mb-[11px] flex flex-wrap gap-[8px]">
                         {PLACEHOLDER_SUGGESTIONS.map((s) => (

@@ -6,8 +6,8 @@ import { useAtomValue } from "jotai";
 import { Reorder, useDragControls } from "motion/react";
 import { useEffect, useRef } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
-import { AnswerBar } from "./answerbar";
 import { cardSpanStyle, formatAge, hasAnswerableAsk, isQuiet, projectOf, type AgentVM } from "./agentsviewmodel";
+import { AnswerBar } from "./answerbar";
 import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { StatusDot } from "./statusdot";
@@ -107,10 +107,6 @@ export function AgentRow({
             dragMomentum={false}
             dragTransition={{ bounceStiffness: 600, bounceDamping: 30 }}
             layout
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ layout: { type: "spring", stiffness: 650, damping: 32 }, opacity: { duration: 0.15 } }}
             ref={cardRef}
             style={cardSpanStyle({ wide, height })}
             data-agent-id={agent.id}
@@ -119,9 +115,10 @@ export function AgentRow({
             className={cn(
                 // handoff lane colors (dc.html:1743-1746): warm-dark bg + soft amber border for asking,
                 // not a bright tint; the cursor is a subtle 1.5px ring (the SoT selection idiom), not a solid bar.
-                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border px-4 py-3 transition-colors",
+                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border px-4 py-3",
                 asking ? "border-warning/40 bg-lane-asking" : "border-edge-mid bg-lane hover:bg-surface-hover",
-                isCursor && (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
+                isCursor &&
+                    (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
                 pulse && "ring-2 ring-warning ring-inset"
             )}
         >
@@ -130,7 +127,7 @@ export function AgentRow({
                     onPointerDown={(e) => controls.start(e)}
                     onClick={(e) => e.stopPropagation()}
                     title="Drag to reorder"
-                    className="shrink-0 cursor-grab touch-none select-none text-[11px] text-muted opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+                    className="shrink-0 cursor-grab touch-none select-none text-[11px] text-muted opacity-0 group-hover:opacity-100 active:cursor-grabbing"
                 >
                     ⠿
                 </span>
@@ -141,7 +138,7 @@ export function AgentRow({
                         {project}
                     </span>
                 ) : null}
-                <span className="truncate text-[12px] text-muted">{idle ? agent.activity ?? "" : agent.task}</span>
+                <span className="truncate text-[12px] text-muted">{idle ? (agent.activity ?? "") : agent.task}</span>
                 {asking ? (
                     <span className="ml-auto shrink-0 rounded-[4px] border border-warning px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warning">
                         needs you
@@ -160,10 +157,15 @@ export function AgentRow({
                             onBackground();
                         }}
                         title="Background (b) — collapse, keep running"
-                        className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
+                        className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 hover:bg-white/[0.04] group-hover:opacity-100"
                     >
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                            <path d="M3 8h10M3 11h10M3 5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                            <path
+                                d="M3 8h10M3 11h10M3 5h10"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                            />
                         </svg>
                     </button>
                 ) : null}
@@ -175,10 +177,16 @@ export function AgentRow({
                             onDismiss();
                         }}
                         title="Move to Idle"
-                        className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
+                        className="shrink-0 cursor-pointer rounded-[6px] border border-border p-1 text-secondary opacity-0 hover:bg-white/[0.04] group-hover:opacity-100"
                     >
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                            <path d="M8 3v8M4 8l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                            <path
+                                d="M8 3v8M4 8l4 4 4-4"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            />
                         </svg>
                     </button>
                 ) : null}
@@ -189,7 +197,7 @@ export function AgentRow({
                         onToggleWide();
                     }}
                     title={wide ? "Narrow" : "Widen"}
-                    className="shrink-0 cursor-pointer rounded-[6px] border border-border px-1.5 py-0.5 text-[11px] text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
+                    className="shrink-0 cursor-pointer rounded-[6px] border border-border px-1.5 py-0.5 text-[11px] text-secondary opacity-0 hover:bg-white/[0.04] group-hover:opacity-100"
                 >
                     {wide ? "⤡" : "⤢"}
                 </button>
@@ -200,7 +208,7 @@ export function AgentRow({
                         onOpenTerminal();
                     }}
                     title="Open terminal tab"
-                    className="shrink-0 cursor-pointer rounded-[6px] border border-border px-2 py-0.5 text-[11px] text-secondary opacity-0 transition-opacity hover:bg-white/[0.04] group-hover:opacity-100"
+                    className="shrink-0 cursor-pointer rounded-[6px] border border-border px-2 py-0.5 text-[11px] text-secondary opacity-0 hover:bg-white/[0.04] group-hover:opacity-100"
                 >
                     ↗ terminal
                 </button>
@@ -212,16 +220,17 @@ export function AgentRow({
                 </div>
             ) : agent.state === "working" && agent.activity ? (
                 <div className="mt-2 ml-[26px] flex items-start gap-2">
-                    <span
-                        className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-success"
-                        style={{ animation: "pulseDot 1.4s infinite" }}
-                    />
+                    <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
                     <span className="font-mono text-[12.5px] leading-[1.5] text-success">{agent.activity}</span>
                 </div>
             ) : null}
 
             {entries.length > 0 ? (
-                <div ref={scrollRef} onScroll={onNarrationScroll} className="mt-2 ml-[26px] max-h-56 min-h-[64px] overflow-y-auto">
+                <div
+                    ref={scrollRef}
+                    onScroll={onNarrationScroll}
+                    className="mt-2 ml-[26px] max-h-56 min-h-[64px] overflow-y-auto"
+                >
                     <NarrationTimeline entries={entries} accentLatest active={agent.state !== "idle"} />
                 </div>
             ) : null}

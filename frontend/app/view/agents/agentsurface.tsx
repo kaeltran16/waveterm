@@ -3,9 +3,11 @@
 //
 // The Agent (Focus) surface (Phase 1b): a 3-pane focus over the existing agents/* data. When a
 // terminal target is set ("Open terminal"), the whole surface is the term block (CockpitFocusPane),
-// matching the interim. With no focus it falls back to the Cockpit surface. Routing is shell-side
-// (this file is imported only by cockpitshell.tsx) so agents.tsx never imports CockpitFocusPane,
-// keeping the agents -> focus-pane -> blockregistry -> agents eval cycle broken.
+// matching the interim. With no explicit focus it defaults to the first agent in order (handoff
+// dc.html:1790 `focusAgent = …find(fid) || list[0]`) — never the cockpit grid; only a zero-agent
+// roster shows an empty state. Routing is shell-side (this file is imported only by cockpitshell.tsx)
+// so agents.tsx never imports CockpitFocusPane, keeping the agents -> focus-pane -> blockregistry ->
+// agents eval cycle broken.
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -16,7 +18,6 @@ import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentTranscript } from "./agenttranscript";
 import { AgentTree } from "./agenttree";
 import { moveCursor } from "./agentsviewmodel";
-import { CockpitSurface } from "./cockpitsurface";
 
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const terminalTarget = useAtomValue(model.terminalTargetAtom);
@@ -24,8 +25,19 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const agents = useAtomValue(model.agentsAtom);
     const order = useAtomValue(model.orderAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
-    const agent = focusId != null ? agents.find((a) => a.id === focusId) : undefined;
+    // handoff (dc.html:1790): focusAgent = …find(fid) || list[0] — the Focus surface always shows an
+    // agent, defaulting to the first in order; it never falls back to the cockpit grid. focusId is then
+    // kept "always real" like the handoff's state model (initialized to a default, never left empty).
+    const focused = focusId != null ? agents.find((a) => a.id === focusId) : undefined;
+    const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0];
     const showFocus = !terminalTarget && agent != null;
+
+    // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
+    useEffect(() => {
+        if (agent != null && focusId !== agent.id) {
+            globalStore.set(model.focusIdAtom, agent.id);
+        }
+    }, [agent?.id, focusId, model]);
 
     // pull keyboard focus to the wrapper so esc/←→/t work without a click (mirrors the interim)
     useEffect(() => {
@@ -38,7 +50,11 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         return <CockpitFocusPane blockId={terminalTarget} tabId={tabId} />;
     }
     if (!agent) {
-        return <CockpitSurface model={model} />;
+        return (
+            <div className="flex h-full w-full items-center justify-center text-[13px] text-muted">
+                No active agents.
+            </div>
+        );
     }
 
     const step = (delta: number) => {

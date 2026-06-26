@@ -39,13 +39,29 @@ const ICON: Record<SurfaceKey, ReactNode> = {
         </svg>
     ),
     sessions: (
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+        <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinejoin="round"
+        >
             <path d="M10 3l7 3.5-7 3.5-7-3.5z" />
             <path d="M3 10.5l7 3.5 7-3.5" />
         </svg>
     ),
     files: (
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+        <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+        >
             <path d="M3 5.5C3 4.7 3.6 4 4.4 4h3.3c.4 0 .7.2 1 .5L13 6h2.6c.8 0 1.4.7 1.4 1.5V14c0 .8-.6 1.5-1.4 1.5H4.4C3.6 15.5 3 14.8 3 14z" />
         </svg>
     ),
@@ -90,7 +106,7 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
                         type="button"
                         onClick={() => setActive(key)}
                         className={cn(
-                            "relative mx-2 flex cursor-pointer flex-col items-center gap-[5px] rounded-[10px] border-0 bg-transparent py-[11px] text-muted transition-colors hover:text-muted-foreground",
+                            "relative mx-2 flex cursor-pointer flex-col items-center gap-[5px] rounded-[10px] border-0 bg-transparent py-[11px] text-muted hover:text-muted-foreground",
                             isActive && "text-accent-soft"
                         )}
                     >
