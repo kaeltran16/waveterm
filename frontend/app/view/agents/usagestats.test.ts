@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateUsage, extractUsage, spendOf, tokensOf, type UsageRecord } from "./usagestats";
+import { aggregateUsage, dedupeUsage, extractUsage, spendOf, tokensOf, type UsageRecord } from "./usagestats";
 
 function rec(over: Partial<UsageRecord>): UsageRecord {
     return {
@@ -108,5 +108,69 @@ describe("aggregateUsage", () => {
             totals: { tokensToday: 0, tokensWeek: 0, spendTodayUsd: 0, spendWeekUsd: 0 },
             providers: [],
         });
+    });
+
+    it("deduplicates streamed/duplicated records before totaling", () => {
+        // two JSONL snapshots of the SAME request (growing output_tokens) must count once, not twice
+        const snap = (out: number): UsageRecord => ({
+            id: "msg_1:req_1",
+            ts: now,
+            provider: "claude",
+            model: "claude-opus-4",
+            inputTokens: 100,
+            outputTokens: out,
+            cacheReadTokens: 0,
+            cacheCreateTokens: 0,
+        });
+        const stats = aggregateUsage([snap(10), snap(50)], now);
+        expect(stats.totals.tokensToday).toBe(150); // 100 input + 50 output (final), not 260
+    });
+});
+
+describe("extractUsage dedup key", () => {
+    it("captures message.id:requestId as the dedup key", () => {
+        const line = JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-06-26T10:00:00.000Z",
+            requestId: "req_1",
+            message: { id: "msg_1", model: "claude-opus-4", usage: { output_tokens: 5 } },
+        });
+        expect(extractUsage([line], "claude")[0].id).toBe("msg_1:req_1");
+    });
+    it("leaves id undefined when requestId or message.id is missing", () => {
+        const line = JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-06-26T10:00:00.000Z",
+            message: { id: "msg_1", model: "claude-opus-4", usage: { output_tokens: 5 } },
+        });
+        expect(extractUsage([line], "claude")[0].id).toBeUndefined();
+    });
+});
+
+describe("dedupeUsage", () => {
+    const mk = (over: Partial<UsageRecord>): UsageRecord => ({
+        ts: 0,
+        provider: "claude",
+        model: "claude-opus-4",
+        inputTokens: 100,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreateTokens: 0,
+        ...over,
+    });
+    it("collapses records sharing a key, keeping the largest output_tokens (final snapshot)", () => {
+        const deduped = dedupeUsage([
+            mk({ id: "k", outputTokens: 10 }),
+            mk({ id: "k", outputTokens: 50 }),
+            mk({ id: "k", outputTokens: 30 }),
+        ]);
+        expect(deduped).toHaveLength(1);
+        expect(deduped[0].outputTokens).toBe(50);
+    });
+    it("keeps records without a key (cannot be deduped)", () => {
+        expect(dedupeUsage([mk({ outputTokens: 1 }), mk({ outputTokens: 2 })])).toHaveLength(2);
+    });
+    it("keeps distinct keys separate", () => {
+        expect(dedupeUsage([mk({ id: "a" }), mk({ id: "b" })])).toHaveLength(2);
     });
 });

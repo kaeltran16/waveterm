@@ -9,6 +9,7 @@
 export const USAGE_WINDOW_DAYS = 7;
 
 export interface UsageRecord {
+    id?: string; // `${message.id}:${requestId}` dedup key; undefined when either is absent
     ts: number; // epoch ms
     provider: string; // "claude" | "codex"
     model: string; // raw model id
@@ -99,7 +100,12 @@ export function extractUsage(lines: string[], provider: string): UsageRecord[] {
         if (!usage || typeof model !== "string" || Number.isNaN(ts)) {
             continue;
         }
+        const id =
+            typeof msg.id === "string" && typeof rec.requestId === "string"
+                ? `${msg.id}:${rec.requestId}`
+                : undefined;
         out.push({
+            id,
             ts,
             provider,
             model,
@@ -110,6 +116,28 @@ export function extractUsage(lines: string[], provider: string): UsageRecord[] {
         });
     }
     return out;
+}
+
+// Claude Code writes the SAME logical request to the JSONL more than once: streaming snapshots that
+// share message.id+requestId with a growing output_tokens, and the full prior history re-copied into
+// a new file when a session is resumed/compacted. Summing every line double-counts (measured ~68% on
+// real data). Mirror ccusage: collapse each message.id:requestId to one record — the largest
+// output_tokens is the final/complete snapshot (input/cache are constant across snapshots). Records
+// without a key (older lines, codex) can't be deduped, so they pass through untouched.
+export function dedupeUsage(records: UsageRecord[]): UsageRecord[] {
+    const byKey = new Map<string, UsageRecord>();
+    const keyless: UsageRecord[] = [];
+    for (const r of records) {
+        if (!r.id) {
+            keyless.push(r);
+            continue;
+        }
+        const cur = byKey.get(r.id);
+        if (!cur || r.outputTokens > cur.outputTokens) {
+            byKey.set(r.id, r);
+        }
+    }
+    return [...keyless, ...byKey.values()];
 }
 
 // Mirrors agentsviewmodel's module-local PROVIDER_RANK (claude-first). Kept local to keep this a
@@ -132,7 +160,7 @@ export function aggregateUsage(records: UsageRecord[], now: number): UsageStats 
     let spendTodayUsd = 0;
     let spendWeekUsd = 0;
     const byProvider = new Map<string, Map<string, { tokens: number; spend: number }>>();
-    for (const r of records) {
+    for (const r of dedupeUsage(records)) {
         if (r.ts < weekStart) {
             continue;
         }
