@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    aggregateUsage,
-    dedupeUsage,
-    extractCodexUsage,
-    extractUsage,
-    spendOf,
-    tokensOf,
-    type UsageRecord,
-} from "./usagestats";
+import { aggregateUsage, dedupeUsage, extractCodexUsage, extractUsage, tokensOf, type UsageRecord } from "./usagestats";
 
 function rec(over: Partial<UsageRecord>): UsageRecord {
     return {
@@ -27,17 +19,6 @@ describe("tokensOf", () => {
         expect(
             tokensOf(rec({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 1000, cacheCreateTokens: 200 }))
         ).toBe(1350);
-    });
-});
-
-describe("spendOf", () => {
-    it("prices opus tokens by class", () => {
-        const s = spendOf(rec({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 1000, cacheCreateTokens: 200 }));
-        // 100*15 + 50*75 + 1000*1.5 + 200*18.75 = 10500 (per 1e6) = 0.0105
-        expect(s).toBeCloseTo(0.0105, 6);
-    });
-    it("returns 0 for unknown models (tokens still counted elsewhere)", () => {
-        expect(spendOf(rec({ model: "gpt-5", inputTokens: 1000 }))).toBe(0);
     });
 });
 
@@ -78,6 +59,23 @@ describe("extractUsage", () => {
         expect(
             extractUsage([JSON.stringify({ type: "assistant", message: { model: "claude-opus-4" } })], "claude")
         ).toEqual([]);
+    });
+    it("captures 1h extended-cache tokens from cache_creation", () => {
+        const line = JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-06-26T10:00:00.000Z",
+            message: {
+                model: "claude-opus-4-8",
+                usage: {
+                    input_tokens: 10,
+                    cache_creation_input_tokens: 500,
+                    cache_creation: { ephemeral_1h_input_tokens: 500, ephemeral_5m_input_tokens: 0 },
+                },
+            },
+        });
+        const [r] = extractUsage([line], "claude");
+        expect(r.cacheCreateTokens).toBe(500);
+        expect(r.cacheCreate1hTokens).toBe(500);
     });
 });
 

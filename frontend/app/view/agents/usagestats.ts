@@ -3,8 +3,10 @@
 //
 // Pure usage aggregation for the Usage surface. Parses per-message token usage out of agent
 // transcript JSONL (extractUsage) and folds it into today/week + per-provider per-model totals
-// (aggregateUsage). Spend is a client-side estimate from a static pricing table. No React, no
-// Wave runtime imports — unit-tested in isolation.
+// (aggregateUsage). Spend is computed from token counts via usagepricing. Pure module — no React or
+// Wave runtime imports, unit-tested in isolation.
+
+import { spendOf } from "./usagepricing";
 
 export const USAGE_WINDOW_DAYS = 7;
 
@@ -17,6 +19,7 @@ export interface UsageRecord {
     outputTokens: number;
     cacheReadTokens: number;
     cacheCreateTokens: number;
+    cacheCreate1hTokens?: number; // subset of cacheCreateTokens billed at the 1h extended-cache rate (else 5m)
 }
 
 export interface ModelUsage {
@@ -37,49 +40,13 @@ export interface UsageStats {
     providers: ProviderUsage[]; // claude-first
 }
 
-// $ per million tokens. Client-side ESTIMATE (like Claude Code's own cost figure); refresh as plans
-// change. Unknown models price at 0 (tokens still counted; spend under-reports rather than guesses).
-interface ModelPrice {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-}
-const PRICING: Record<string, ModelPrice> = {
-    opus: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-    sonnet: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-    haiku: { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1.0 },
-};
-
-function priceFor(model: string): ModelPrice | undefined {
-    const m = model.toLowerCase();
-    if (m.includes("opus")) return PRICING.opus;
-    if (m.includes("sonnet")) return PRICING.sonnet;
-    if (m.includes("haiku")) return PRICING.haiku;
-    return undefined;
-}
-
 export function tokensOf(r: UsageRecord): number {
     return r.inputTokens + r.outputTokens + r.cacheReadTokens + r.cacheCreateTokens;
 }
 
-export function spendOf(r: UsageRecord): number {
-    const p = priceFor(r.model);
-    if (!p) {
-        return 0;
-    }
-    return (
-        (r.inputTokens * p.input +
-            r.outputTokens * p.output +
-            r.cacheReadTokens * p.cacheRead +
-            r.cacheCreateTokens * p.cacheWrite) /
-        1_000_000
-    );
-}
-
 // Parse per-message token usage from raw transcript JSONL lines. Claude Code writes one assistant
 // entry per turn with message.model + message.usage. Codex uses a different shape (no type:"assistant"
-// with usage), so codex lines yield nothing here — deferred (see docs/deferred.md). Tolerant of
+// with usage), so codex lines yield nothing here — see extractCodexUsage for those. Tolerant of
 // malformed lines and missing fields, like the Activity event projector.
 export function extractUsage(lines: string[], provider: string): UsageRecord[] {
     const out: UsageRecord[] = [];
@@ -113,6 +80,7 @@ export function extractUsage(lines: string[], provider: string): UsageRecord[] {
             outputTokens: usage.output_tokens ?? 0,
             cacheReadTokens: usage.cache_read_input_tokens ?? 0,
             cacheCreateTokens: usage.cache_creation_input_tokens ?? 0,
+            cacheCreate1hTokens: usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
         });
     }
     return out;

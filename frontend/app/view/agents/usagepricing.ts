@@ -1,0 +1,61 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Single source of truth for usage cost. Per-million-token prices for the model families seen in
+// agent transcripts, bundled offline (the cockpit makes no network call for pricing). Sourced from
+// the LiteLLM price DB + OpenAI Codex rate card, 2026-06; refresh the table when plans change. Cost
+// is a client-side ESTIMATE — no costUSD is persisted in Claude/Codex transcripts.
+
+import type { UsageRecord } from "./usagestats";
+
+export interface ModelPrice {
+    input: number; // $ per 1M tokens
+    output: number;
+    cacheRead: number;
+    cacheWrite5m: number; // Anthropic 5-minute (default) cache write; OpenAI families: 0 (no cache-write charge)
+    cacheWrite1h: number; // Anthropic 1-hour extended cache write (2x base input)
+}
+
+// Family -> price. OpenAI families don't bill cache writes (cacheWrite* = 0); Codex records carry
+// cacheCreateTokens = 0 anyway. codex-auto-review and similar aliases fall under the codex family.
+const MODEL_PRICES: Record<string, ModelPrice> = {
+    opus: { input: 15, output: 75, cacheRead: 1.5, cacheWrite5m: 18.75, cacheWrite1h: 30 },
+    sonnet: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 },
+    haiku: { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite5m: 1.0, cacheWrite1h: 1.6 },
+    "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite5m: 0, cacheWrite1h: 0 },
+    codex: { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite5m: 0, cacheWrite1h: 0 },
+    "gpt-5": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite5m: 0, cacheWrite1h: 0 },
+};
+
+// Family substring match. Order matters: gpt-5.5 before the gpt-5 base, and codex before gpt-5 (a
+// codex alias like "codex-auto-review" has no gpt-5 substring). Unknown -> undefined (spend 0).
+export function priceFor(model: string): ModelPrice | undefined {
+    const m = model.toLowerCase();
+    if (m.includes("opus")) return MODEL_PRICES.opus;
+    if (m.includes("sonnet")) return MODEL_PRICES.sonnet;
+    if (m.includes("haiku")) return MODEL_PRICES.haiku;
+    if (m.includes("gpt-5.5")) return MODEL_PRICES["gpt-5.5"];
+    if (m.includes("codex")) return MODEL_PRICES.codex;
+    if (m.includes("gpt-5")) return MODEL_PRICES["gpt-5"];
+    return undefined;
+}
+
+// Client-side cost estimate. Cache writes split into 1h (extended) vs 5m (default) tiers; the 1h
+// portion is a subset of cacheCreateTokens, the remainder is 5m. Unknown models price at 0 (tokens
+// still counted elsewhere; spend under-reports rather than guesses).
+export function spendOf(r: UsageRecord): number {
+    const p = priceFor(r.model);
+    if (!p) {
+        return 0;
+    }
+    const cache1h = r.cacheCreate1hTokens ?? 0;
+    const cache5m = Math.max(0, r.cacheCreateTokens - cache1h);
+    return (
+        (r.inputTokens * p.input +
+            r.outputTokens * p.output +
+            r.cacheReadTokens * p.cacheRead +
+            cache5m * p.cacheWrite5m +
+            cache1h * p.cacheWrite1h) /
+        1_000_000
+    );
+}
