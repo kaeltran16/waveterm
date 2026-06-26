@@ -78,6 +78,7 @@ type WshRpcInterface interface {
 	SetConnectionsConfigCommand(ctx context.Context, data ConnConfigRequest) error
 	CreateProjectCommand(ctx context.Context, data CommandCreateProjectData) error
 	CreateWorktreeCommand(ctx context.Context, data CommandCreateWorktreeData) (CommandCreateWorktreeRtnData, error)
+	ListBranchesCommand(ctx context.Context, data CommandListBranchesData) (CommandListBranchesRtnData, error)
 	GetFullConfigCommand(ctx context.Context) (wconfig.FullConfigType, error)
 	GetWaveAIModeConfigCommand(ctx context.Context) (wconfig.AIModeConfigUpdate, error)
 	BlockInfoCommand(ctx context.Context, blockId string) (*BlockInfoData, error)
@@ -436,6 +437,19 @@ type CommandCreateWorktreeData struct {
 
 type CommandCreateWorktreeRtnData struct {
 	WorktreePath string `json:"worktreepath"`
+}
+
+type CommandListBranchesData struct {
+	ProjectPath string `json:"projectpath"`
+}
+
+type BranchInfo struct {
+	Name string `json:"name"`
+	Age  string `json:"age"`
+}
+
+type CommandListBranchesRtnData struct {
+	Branches []BranchInfo `json:"branches"`
 }
 
 type ConnStatus struct {

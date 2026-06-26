@@ -596,6 +596,18 @@ func (ws *WshServer) CreateWorktreeCommand(ctx context.Context, data wshrpc.Comm
 	return wshrpc.CommandCreateWorktreeRtnData{WorktreePath: wt}, nil
 }
 
+func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.CommandListBranchesData) (wshrpc.CommandListBranchesRtnData, error) {
+	branches, err := gitinfo.ListBranches(ctx, data.ProjectPath)
+	if err != nil {
+		return wshrpc.CommandListBranchesRtnData{}, err
+	}
+	rtn := wshrpc.CommandListBranchesRtnData{Branches: make([]wshrpc.BranchInfo, 0, len(branches))}
+	for _, b := range branches {
+		rtn.Branches = append(rtn.Branches, wshrpc.BranchInfo{Name: b.Name, Age: b.Age})
+	}
+	return rtn, nil
+}
+
 func (ws *WshServer) GetFullConfigCommand(ctx context.Context) (wconfig.FullConfigType, error) {
 	watcher := wconfig.GetWatcher()
 	return watcher.GetFullConfig(), nil

@@ -670,6 +670,12 @@ func ListAllEditableAppsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshr
 	return resp, err
 }
 
+// command "listbranches", wshserver.ListBranchesCommand
+func ListBranchesCommand(w *wshutil.WshRpc, data wshrpc.CommandListBranchesData, opts *wshrpc.RpcOpts) (wshrpc.CommandListBranchesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[wshrpc.CommandListBranchesRtnData](w, "listbranches", data, opts)
+	return resp, err
+}
+
 // command "macosversion", wshserver.MacOSVersionCommand
 func MacOSVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "macosversion", nil, opts)

@@ -127,3 +127,49 @@ func TestCreateWorktreeNotARepo(t *testing.T) {
 		t.Fatal("expected error outside a git repo")
 	}
 }
+
+func TestListBranches(t *testing.T) {
+	dir := repoWithChange(t)
+	branches, err := ListBranches(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(branches) != 1 || branches[0].Name != "main" {
+		t.Fatalf("branches = %+v, want [main]", branches)
+	}
+	if branches[0].Age == "" {
+		t.Fatal("expected a non-empty relative age")
+	}
+}
+
+func TestListBranchesMultiple(t *testing.T) {
+	dir := repoWithChange(t)
+	git(t, dir, "branch", "feat/x")
+	git(t, dir, "branch", "feat/y")
+	branches, err := ListBranches(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(branches) != 3 {
+		t.Fatalf("want 3 branches, got %d: %+v", len(branches), branches)
+	}
+	names := map[string]bool{}
+	for _, b := range branches {
+		names[b.Name] = true
+	}
+	for _, want := range []string{"main", "feat/x", "feat/y"} {
+		if !names[want] {
+			t.Fatalf("missing branch %q in %+v", want, branches)
+		}
+	}
+}
+
+func TestListBranchesNotARepo(t *testing.T) {
+	branches, err := ListBranches(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("expected nil error for non-repo, got %v", err)
+	}
+	if len(branches) != 0 {
+		t.Fatalf("expected no branches, got %+v", branches)
+	}
+}

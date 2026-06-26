@@ -3,9 +3,11 @@
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { runtimeLaunchLabel, runtimeShowsTask, runtimeStartupCommand, type Runtime } from "./launch";
 import { launchableProjects, projectsAtom } from "./projectsstore";
@@ -25,12 +27,38 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [task, setTask] = useState("");
     const [startup, setStartup] = useState("claude");
     const [branch, setBranch] = useState("feat/new-agent");
+    const [branches, setBranches] = useState<BranchInfo[]>([]);
+    const [branchListOpen, setBranchListOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const projects = launchableProjects(registry);
+    const selectedProject = project || projects[0]?.name || "";
+    const selectedPath = projects.find((p) => p.name === selectedProject)?.path ?? "";
+    // Pull the project's branches (recency-ordered) for the worktree-branch suggestions. Terminal
+    // runtime and non-repo projects degrade to free-text (empty list).
+    useEffect(() => {
+        if (!open || runtime === "terminal" || !selectedPath) {
+            setBranches([]);
+            return;
+        }
+        let cancelled = false;
+        RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: selectedPath })
+            .then((rtn) => {
+                if (!cancelled) {
+                    setBranches(rtn.branches ?? []);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setBranches([]);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, runtime, selectedPath]);
     if (!open) {
         return null;
     }
-    const projects = launchableProjects(registry);
-    const selectedProject = project || projects[0]?.name || "";
     const close = () => {
         globalStore.set(model.newAgentOpenAtom, false);
         setError(null);
@@ -160,11 +188,53 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         </div>
                     </Section>
                     <Section label="Worktree branch">
-                        <input
-                            value={branch}
-                            onChange={(e) => setBranch(e.target.value)}
-                            className="w-full rounded-[8px] border border-edge-mid bg-surface px-3 py-[9px] font-mono text-[12.5px] text-secondary outline-none focus:border-accent-700"
-                        />
+                        <div className="relative">
+                            <div className="flex items-center rounded-[8px] border border-edge-mid bg-surface focus-within:border-accent-700">
+                                <input
+                                    value={branch}
+                                    onChange={(e) => setBranch(e.target.value)}
+                                    onFocus={() => setBranchListOpen(true)}
+                                    placeholder="feat/new-agent"
+                                    className="flex-1 bg-transparent px-3 py-[9px] font-mono text-[12.5px] text-secondary outline-none"
+                                />
+                                {branches.length > 0 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setBranchListOpen((v) => !v)}
+                                        className="cursor-pointer px-3 py-[9px] text-[10px] text-muted hover:text-primary"
+                                    >
+                                        ▾
+                                    </button>
+                                ) : null}
+                            </div>
+                            {branchListOpen && branches.length > 0 ? (
+                                <div className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded-[8px] border border-edge-mid bg-modalbg py-1 shadow-popover">
+                                    {branches.map((b) => (
+                                        <button
+                                            key={b.name}
+                                            type="button"
+                                            onClick={() => {
+                                                setBranch(b.name);
+                                                setBranchListOpen(false);
+                                            }}
+                                            className={cn(
+                                                "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
+                                                b.name === branch ? "text-primary" : "text-secondary"
+                                            )}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    "h-[6px] w-[6px] shrink-0 rounded-full",
+                                                    b.name === branch ? "bg-accent" : "bg-muted"
+                                                )}
+                                            />
+                                            <span className="flex-1 truncate font-mono text-[12px]">{b.name}</span>
+                                            {b.age ? <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span> : null}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
+                        </div>
                     </Section>
                     {error ? <div className="text-[12px] text-error">{error}</div> : null}
                 </div>

@@ -73,6 +73,38 @@ func GetDiff(ctx context.Context, cwd, path string) (*Diff, error) {
 	return &Diff{Diff: diff}, nil
 }
 
+type BranchInfo struct {
+	Name string
+	Age  string // relative committer date, e.g. "2 hours ago"
+}
+
+// ListBranches returns the local branches of the repo at repoPath, most-recently-committed first.
+// It returns an empty slice (no error) when repoPath is not a git repository, so the caller can
+// degrade to free-text input without surfacing an error.
+func ListBranches(ctx context.Context, repoPath string) ([]BranchInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, repoPath, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return nil, nil
+	}
+	out, err := run(ctx, repoPath, "for-each-ref", "--sort=-committerdate",
+		"--format=%(refname:short)\t%(committerdate:relative)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	var branches []BranchInfo
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		name, age, _ := strings.Cut(line, "\t")
+		branches = append(branches, BranchInfo{Name: name, Age: age})
+	}
+	return branches, nil
+}
+
 // runErr is like run but captures stderr into the error (for write operations where the cause matters).
 func runErr(ctx context.Context, cwd string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...)

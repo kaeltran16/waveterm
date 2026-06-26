@@ -271,6 +271,12 @@ declare global {
         workspaceid?: string;
     };
 
+    // wshrpc.BranchInfo
+    type BranchInfo = {
+        name: string;
+        age: string;
+    };
+
     // wshrpc.BuilderStatusData
     type BuilderStatusData = {
         status: string;
@@ -637,6 +643,16 @@ declare global {
         entrycount: number;
         totalentries: number;
         truncated?: boolean;
+    };
+
+    // wshrpc.CommandListBranchesData
+    type CommandListBranchesData = {
+        projectpath: string;
+    };
+
+    // wshrpc.CommandListBranchesRtnData
+    type CommandListBranchesRtnData = {
+        branches: BranchInfo[];
     };
 
     // wshrpc.CommandMakeDraftFromLocalData
