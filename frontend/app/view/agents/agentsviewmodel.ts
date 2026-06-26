@@ -626,3 +626,36 @@ export function taskProgress(tasks: CardTask[]): { done: number; total: number; 
     const done = tasks.filter((t) => t.done).length;
     return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
 }
+
+/** A just-launched agent that doesn't exist in the roster yet (the reporter hasn't emitted a status).
+ *  `tabId` is the session tab we created — the SAME id the real roster row will use (`row.tabId`),
+ *  so supersede needs no id migration. */
+export interface PendingLaunch {
+    tabId: string;
+    blockId: string;
+    name: string;
+    project: string;
+    ts: number; // launch time (UnixMilli) — drives the booting row's age
+}
+
+/** Pure: a pending launch -> a "booting" working AgentVM. No transcriptPath (none exists yet); the
+ *  Agent surface shows its live terminal until the real row arrives. */
+export function pendingToVM(p: PendingLaunch, now: number): AgentVM {
+    return {
+        id: p.tabId,
+        name: p.name,
+        task: "",
+        state: "working",
+        project: p.project,
+        blockId: p.blockId,
+        activeMs: Math.max(0, now - p.ts),
+    };
+}
+
+/** Pure: overlay booting launches onto the base roster. A pending entry whose tabId already exists in
+ *  base is dropped (the real row supersedes it). Never mutates input. */
+export function mergePendingLaunches(base: AgentVM[], pending: PendingLaunch[], now: number): AgentVM[] {
+    const baseIds = new Set(base.map((a) => a.id));
+    const overlay = pending.filter((p) => !baseIds.has(p.tabId)).map((p) => pendingToVM(p, now));
+    return [...base, ...overlay];
+}

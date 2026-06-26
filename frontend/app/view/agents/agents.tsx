@@ -8,7 +8,14 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
-import { buildAskAnswers, canSubmitAsk, type AgentVM, type CardPref } from "./agentsviewmodel";
+import {
+    buildAskAnswers,
+    canSubmitAsk,
+    mergePendingLaunches,
+    type AgentVM,
+    type CardPref,
+    type PendingLaunch,
+} from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
 import type { ActivityType } from "./activityevents";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
@@ -34,7 +41,9 @@ export class AgentsViewModel implements ViewModel {
     viewIcon = atom<string>("robot");
     viewName = atom<string>("Agents");
     noPadding = atom(true);
-    agentsAtom: Atom<AgentVM[]>;
+    agentsAtom: Atom<AgentVM[]>; // base roster overlaid with pending launches
+    baseRosterAtom: Atom<AgentVM[]>; // un-overlaid roster (dev mock or live) — read by the prune effect
+    pendingLaunchesAtom = atom<PendingLaunch[]>([]) as PrimitiveAtom<PendingLaunch[]>;
     // the term blockId the Agent surface renders; undefined = no terminal open
     terminalTargetAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
@@ -78,10 +87,14 @@ export class AgentsViewModel implements ViewModel {
         // devmock.ts + scripts/gen-cockpit-fixtures.mjs). import.meta.env.DEV is build-time -> prod uses live.
         if (import.meta.env.DEV) {
             void loadDevMockRoster();
-            this.agentsAtom = devRosterAtom;
+            this.baseRosterAtom = devRosterAtom;
         } else {
-            this.agentsAtom = liveAgentsAtom;
+            this.baseRosterAtom = liveAgentsAtom;
         }
+        const base = this.baseRosterAtom;
+        const pendingAtom = this.pendingLaunchesAtom;
+        // Booting launches overlay the roster until the reporter registers them (supersede by tabId).
+        this.agentsAtom = atom((get) => mergePendingLaunches(get(base), get(pendingAtom), Date.now()));
     }
 
     // openTerminal routes to the interim Agent surface (spec §6): set the target block, clear any focused
@@ -89,7 +102,7 @@ export class AgentsViewModel implements ViewModel {
     openTerminal(agentId: string) {
         const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
         globalStore.set(this.terminalTargetAtom, agent?.blockId);
-        globalStore.set(this.focusIdAtom, undefined);
+        globalStore.set(this.focusIdAtom, agentId);
         globalStore.set(this.surfaceAtom, "agent");
     }
 

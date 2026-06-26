@@ -1,10 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
-import { ObjectService } from "@/app/store/services";
+import { WorkspaceService } from "@/app/store/services";
 import { RpcApi } from "@/app/store/wshclientapi";
+import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { AgentsViewModel } from "@/app/view/agents/agents";
+import type { PendingLaunch } from "@/app/view/agents/agentsviewmodel";
 import { buildLaunchMeta, type Runtime } from "@/app/view/agents/launch";
 
 export interface LaunchAgentOpts {
@@ -12,11 +15,15 @@ export interface LaunchAgentOpts {
     startupCommand: string;
     task: string;
     projectPath: string;
-    branch?: string; // wired in Phase 3
+    projectName: string; // labels the roster row + carries project scope
+    branch?: string;
 }
 
-// Launch a runtime in the chosen project directory and route to the Agent surface. The new term
-// block's controller starts on render; a claude/codex session joins the roster via the reporter.
+// Launch a runtime as its OWN session tab (so it's a first-class roster row), focus it in the Agent
+// surface, and register it as a pending launch. We do NOT setActiveTab — the cockpit stays on the
+// Agents tab; the agent's process starts when its terminal mounts in the focus pane. The new tab's
+// default term block is reconfigured via SetMeta before it renders, so meta is honored at controller
+// start (the backend starts controllers lazily on the first terminal-view resync).
 export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<void> {
     let cwd = opts.projectPath;
     if (opts.runtime !== "terminal" && opts.branch?.trim()) {
@@ -26,17 +33,37 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         });
         cwd = rtn.worktreepath;
     }
-    const blockId = await ObjectService.CreateBlock(
-        {
-            meta: buildLaunchMeta({
-                runtime: opts.runtime,
-                startupCommand: opts.startupCommand,
-                task: opts.task,
-                cwd,
-            }),
-        },
-        { termsize: { rows: 40, cols: 120 } }
-    );
-    globalStore.set(model.terminalTargetAtom, blockId);
+    const ws = globalStore.get(atoms.workspace);
+    if (ws?.oid == null) {
+        throw new Error("no active workspace");
+    }
+    const tabId = await WorkspaceService.CreateTab(ws.oid, opts.projectName, false);
+    const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
+    const blockId = tab?.blockids?.[0];
+    if (blockId == null) {
+        throw new Error("new tab has no block");
+    }
+    await RpcApi.SetMetaCommand(TabRpcClient, {
+        oref: WOS.makeORef("block", blockId),
+        meta: buildLaunchMeta({
+            runtime: opts.runtime,
+            startupCommand: opts.startupCommand,
+            task: opts.task,
+            cwd,
+        }),
+    });
+    await RpcApi.SetMetaCommand(TabRpcClient, {
+        oref: WOS.makeORef("tab", tabId),
+        meta: { "session:agent": opts.runtime, "session:label": opts.projectName },
+    });
+    const pending: PendingLaunch = {
+        tabId,
+        blockId,
+        name: opts.projectName,
+        project: opts.projectName,
+        ts: Date.now(),
+    };
+    globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
+    globalStore.set(model.focusIdAtom, tabId);
     globalStore.set(model.surfaceAtom, "agent");
 }

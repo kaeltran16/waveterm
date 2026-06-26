@@ -197,6 +197,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                 startupCommand: startup,
                 task,
                 projectPath: path,
+                projectName: c.name,
                 branch: branchArg,
             });
             close();

@@ -3,6 +3,25 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## New Agent → Agent tab: dev-mock handoff (2026-06-26)
+
+When a cockpit fixture is loaded (`frontend/tauri/public/cockpit-fixtures/active.json`, dev only),
+`agentsAtom`'s base is the static mock, so a launched agent's real roster row never appears there and
+the pending "booting" overlay never supersedes to the live transcript. Without a fixture, dev falls
+through to the live roster (`devRosterAtom` -> `liveAgentsAtom`) and the handoff works end-to-end.
+Verify the launch → terminal → transcript handoff in dev with **no fixture active**, or in a packaged
+build / via `scripts/inject-live-agents.mjs`.
+
+Live-CDP finding (2026-06-26): even with no fixture, the boot→transcript auto-swap did not surface in
+the dev app. The launch, new-tab roster citizenship, focused booting row, in-layout terminal, and a real
+`claude` turn (with token usage) were all confirmed live — but the agent never registered as a roster
+row, so the pending overlay never superseded. Cause: the external status reporter resolves `wsh` via
+`shutil.which("wsh")` (`agent-status-spike/agent_status_reporter.py`), which is the **packaged Wave's**
+`wsh` on PATH; its `wsh agentstatus` call lands in the packaged wavesrv, not the isolated `waveterm-dev`
+instance the dev app reads. The supersede + prune logic itself is unit-tested (`agentsviewmodel.test.ts`,
+`mergePendingLaunches`). To see the handoff live, run a packaged build (where dev/prod wavesrv coincide),
+or point the dev terminal's `wsh` at the dev wavesrv.
+
 ## Cockpit card — fabricated data (2026-06-26)
 
 The Cockpit live-agent card renders two affordances from **deterministic placeholder

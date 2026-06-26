@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, mergePendingLaunches, pendingToVM, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -632,5 +632,47 @@ describe("placeholder card data", () => {
             { text: "d", done: false },
         ];
         expect(taskProgress(some)).toEqual({ done: 1, total: 4, pct: 25 });
+    });
+});
+
+describe("pendingToVM", () => {
+    it("maps a pending launch to a booting working VM with age from now-ts", () => {
+        const p: PendingLaunch = { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 1000 };
+        expect(pendingToVM(p, 5000)).toMatchObject({
+            id: "t1",
+            name: "payments-api",
+            task: "",
+            state: "working",
+            project: "payments-api",
+            blockId: "b1",
+            activeMs: 4000,
+        });
+    });
+});
+
+describe("mergePendingLaunches", () => {
+    const base: AgentVM[] = [{ id: "a", name: "loom", task: "", state: "working" }];
+
+    it("appends a pending launch not present in the base roster", () => {
+        const pending: PendingLaunch[] = [
+            { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 0 },
+        ];
+        const out = mergePendingLaunches(base, pending, 1000);
+        expect(out.map((a) => a.id)).toEqual(["a", "t1"]);
+        expect(out[1].state).toBe("working");
+    });
+
+    it("drops a pending launch once its tabId exists in the base roster (supersede)", () => {
+        const real: AgentVM[] = [{ id: "t1", name: "payments-api", task: "", state: "working" }];
+        const pending: PendingLaunch[] = [
+            { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 0 },
+        ];
+        const out = mergePendingLaunches(real, pending, 1000);
+        expect(out).toHaveLength(1);
+        expect(out[0].id).toBe("t1");
+    });
+
+    it("returns the base unchanged when there are no pending launches", () => {
+        expect(mergePendingLaunches(base, [], 1000)).toHaveLength(1);
     });
 });
