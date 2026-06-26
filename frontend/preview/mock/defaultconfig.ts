@@ -17,6 +17,7 @@ export const DefaultFullConfig: FullConfigType = {
     presets: presetsJson as unknown as { [key: string]: MetaType },
     termthemes: termthemesJson as unknown as { [key: string]: TermThemeType },
     connections: {},
+    projects: {},
     bookmarks: {},
     waveai: waveaiJson as unknown as { [key: string]: AIModeConfigType },
     backgrounds: backgroundsJson as { [key: string]: BackgroundConfigType },

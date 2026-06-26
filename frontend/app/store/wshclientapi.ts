@@ -204,6 +204,12 @@ export class RpcApiType {
         return client.wshRpcCall("createblock", data, opts);
     }
 
+    // command "createproject" [call]
+    CreateProjectCommand(client: WshClient, data: CommandCreateProjectData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createproject", data, opts);
+        return client.wshRpcCall("createproject", data, opts);
+    }
+
     // command "createsubblock" [call]
     CreateSubBlockCommand(client: WshClient, data: CommandCreateSubBlockData, opts?: RpcOpts): Promise<ORef> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createsubblock", data, opts);

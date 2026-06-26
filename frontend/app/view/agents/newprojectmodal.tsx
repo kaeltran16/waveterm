@@ -1,0 +1,98 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { useAtomValue } from "jotai";
+import { useState } from "react";
+import type { AgentsViewModel } from "./agents";
+
+export function NewProjectModal({ model }: { model: AgentsViewModel }) {
+    const open = useAtomValue(model.newProjectOpenAtom);
+    const [name, setName] = useState("");
+    const [path, setPath] = useState("");
+    const [error, setError] = useState<string | null>(null);
+    if (!open) {
+        return null;
+    }
+    const close = () => {
+        globalStore.set(model.newProjectOpenAtom, false);
+        setName("");
+        setPath("");
+        setError(null);
+    };
+    const canCreate = name.trim().length > 0 && path.trim().length > 0;
+    const create = async () => {
+        if (!canCreate) {
+            return;
+        }
+        try {
+            await RpcApi.CreateProjectCommand(TabRpcClient, { name: name.trim(), path: path.trim() });
+            globalStore.set(model.projectFilterAtom, name.trim());
+            close();
+        } catch (e) {
+            setError(String(e));
+        }
+    };
+    return (
+        <div
+            onClick={close}
+            className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[14vh] backdrop-blur-sm"
+        >
+            <div
+                onClick={(e) => e.stopPropagation()}
+                className="w-[min(480px,92vw)] overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover"
+            >
+                <div className="flex items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
+                    <span className="flex-1 text-[15px] font-semibold text-primary">New project</span>
+                    <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
+                        esc
+                    </span>
+                </div>
+                <div className="flex flex-col gap-[15px] px-[18px] py-4">
+                    <div>
+                        <div className="mb-[9px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                            Name
+                        </div>
+                        <input
+                            autoFocus
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder="my-service"
+                            className="w-full rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 text-[13.5px] font-medium text-primary outline-none focus:border-accent-700"
+                        />
+                    </div>
+                    <div>
+                        <div className="mb-[9px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                            Local path
+                        </div>
+                        <input
+                            value={path}
+                            onChange={(e) => setPath(e.target.value)}
+                            placeholder="~/code/my-service"
+                            className="w-full rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 font-mono text-[12.5px] text-secondary outline-none focus:border-accent-700"
+                        />
+                    </div>
+                    {error ? <div className="text-[12px] text-error">{error}</div> : null}
+                </div>
+                <div className="flex items-center gap-3 border-t border-border px-[18px] py-[13px]">
+                    <div className="flex-1" />
+                    <button
+                        onClick={close}
+                        className="cursor-pointer rounded-[8px] border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => void create()}
+                        disabled={!canCreate}
+                        className="cursor-pointer rounded-[8px] border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-not-allowed disabled:bg-edge-strong disabled:text-muted"
+                    >
+                        Create project
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}

@@ -393,6 +393,12 @@ declare global {
         targetaction?: string;
     };
 
+    // wshrpc.CommandCreateProjectData
+    type CommandCreateProjectData = {
+        name: string;
+        path: string;
+    };
+
     // wshrpc.CommandCreateSubBlockData
     type CommandCreateSubBlockData = {
         parentblockid: string;
@@ -1155,6 +1161,7 @@ declare global {
         backgrounds: {[key: string]: BackgroundConfigType};
         termthemes: {[key: string]: TermThemeType};
         connections: {[key: string]: ConnKeywords};
+        projects: {[key: string]: ProjectKeywords};
         bookmarks: {[key: string]: WebBookmark};
         waveai: {[key: string]: AIModeConfigType};
         configerrors: ConfigError[];
@@ -1444,6 +1451,11 @@ declare global {
         memfree?: number;
         numcpu?: number;
         cpusum?: number;
+    };
+
+    // wconfig.ProjectKeywords
+    type ProjectKeywords = {
+        path?: string;
     };
 
     // uctypes.RateLimitInfo

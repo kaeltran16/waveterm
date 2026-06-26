@@ -57,6 +57,10 @@ export class AgentsViewModel implements ViewModel {
     // Activity surface: selected type filter chip (spec §4.1). Default "all".
     activityFilterAtom = atom<ActivityType | "all">("all");
 
+    // New Project / New Agent modal visibility (gated overlays rendered from the cockpit root).
+    newProjectOpenAtom = atom(false);
+    newAgentOpenAtom = atom(false);
+
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
     // both the app-bar switcher and the header button; card prefs are ephemeral (not persisted).
     projectFilterAtom = atom<string>("all"); // "all" | <projectName>

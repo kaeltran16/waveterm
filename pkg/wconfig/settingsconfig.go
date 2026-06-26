@@ -26,6 +26,7 @@ import (
 const SettingsFile = "settings.json"
 const ConnectionsFile = "connections.json"
 const ProfilesFile = "profiles.json"
+const ProjectsFile = "projects.json"
 
 var configWriteLock sync.Mutex
 
@@ -375,11 +376,16 @@ type FullConfigType struct {
 	Backgrounds    map[string]BackgroundConfigType `json:"backgrounds"`
 	TermThemes     map[string]TermThemeType        `json:"termthemes"`
 	Connections    map[string]ConnKeywords         `json:"connections"`
+	Projects       map[string]ProjectKeywords      `json:"projects"`
 	Bookmarks      map[string]WebBookmark          `json:"bookmarks"`
 	WaveAIModes    map[string]AIModeConfigType     `json:"waveai"`
 	ConfigErrors   []ConfigError                   `json:"configerrors" configfile:"-"`
 	Version        string                          `json:"version" configfile:"-"`
 	BuildTime      string                          `json:"buildtime" configfile:"-"`
+}
+
+type ProjectKeywords struct {
+	Path string `json:"path,omitempty"`
 }
 
 type ConnKeywords struct {
@@ -898,6 +904,25 @@ func SetConnectionsConfigValue(connName string, toMerge waveobj.MetaMapType) err
 	}
 	m[connName] = connData
 	return WriteWaveHomeConfigFile(ConnectionsFile, m)
+}
+
+func SetProjectConfigValue(projName string, toMerge waveobj.MetaMapType) error {
+	m, cerrs := ReadWaveHomeConfigFile(ProjectsFile)
+	if len(cerrs) > 0 {
+		return fmt.Errorf("error reading config file: %v", cerrs[0])
+	}
+	if m == nil {
+		m = make(waveobj.MetaMapType)
+	}
+	projData := m.GetMap(projName)
+	if projData == nil {
+		projData = make(waveobj.MetaMapType)
+	}
+	for configKey, val := range toMerge {
+		projData[configKey] = val
+	}
+	m[projName] = projData
+	return WriteWaveHomeConfigFile(ProjectsFile, m)
 }
 
 func MigratePresetsBackgrounds() {

@@ -5,6 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
+import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
 import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
 import { Provider } from "jotai";
@@ -49,6 +50,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <div className="min-h-0 flex-1">
                 <CockpitShell model={model} tabId={tabIdRef.current} />
             </div>
+            <NewProjectModal model={model} />
         </div>
     );
 }

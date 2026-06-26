@@ -562,6 +562,32 @@ func (ws *WshServer) SetConnectionsConfigCommand(ctx context.Context, data wshrp
 	return wconfig.SetConnectionsConfigValue(data.Host, data.MetaMapType)
 }
 
+func (ws *WshServer) CreateProjectCommand(ctx context.Context, data wshrpc.CommandCreateProjectData) error {
+	name := strings.TrimSpace(data.Name)
+	if name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	path := strings.TrimSpace(data.Path)
+	if path == "" {
+		return fmt.Errorf("project path is required")
+	}
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot resolve home directory: %w", err)
+		}
+		path = filepath.Join(home, path[1:])
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("path does not exist: %s", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory: %s", path)
+	}
+	return wconfig.SetProjectConfigValue(name, waveobj.MetaMapType{"path": path})
+}
+
 func (ws *WshServer) GetFullConfigCommand(ctx context.Context) (wconfig.FullConfigType, error) {
 	watcher := wconfig.GetWatcher()
 	return watcher.GetFullConfig(), nil

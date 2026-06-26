@@ -7,6 +7,7 @@ import { useAtomValue } from "jotai";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
+import { mergeSwitcherProjects, projectsAtom } from "./projectsstore";
 
 // Project scope dropdown bound to projectFilterAtom. "bar" = the app-bar `/ name ▾` trigger;
 // "header" = the cockpit-header bordered button. Both share one atom (spec D3).
@@ -14,7 +15,8 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
     const agents = useAtomValue(model.agentsAtom);
     const filter = useAtomValue(model.projectFilterAtom);
     const [open, setOpen] = useState(false);
-    const projects = projectsFromAgents(agents);
+    const registry = useAtomValue(projectsAtom);
+    const projects = mergeSwitcherProjects(projectsFromAgents(agents), registry);
     const label = filter === "all" ? "All projects" : filter;
     const select = (v: string) => {
         globalStore.set(model.projectFilterAtom, v);
@@ -87,6 +89,17 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                 </button>
                             ))}
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setOpen(false);
+                                globalStore.set(model.newProjectOpenAtom, true);
+                            }}
+                            className="flex w-full cursor-pointer items-center gap-2 border-t border-border px-[15px] py-[11px] text-left text-accent-soft hover:bg-surface-hover"
+                        >
+                            <span className="text-[15px] leading-none">+</span>
+                            <span className="text-[12.5px] font-semibold">New project</span>
+                        </button>
                     </div>
                 </>
             ) : null}
