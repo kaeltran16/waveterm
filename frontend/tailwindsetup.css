@@ -22,6 +22,7 @@
     --color-primary: #e6e9ed;
     --color-secondary: #cfd5db;
     --color-muted-foreground: #c3cad1;
+    --color-ink-mid: #9aa3ad; /* mid grey — handoff tool badges + secondary button text */
     --color-muted: #6b7178;
     --color-ink-faint: #3a424c;
 
@@ -29,6 +30,7 @@
     --color-border: #1c2128;
     --color-edge-mid: #20262e;
     --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20; /* faint dividers — handoff transcript tool-box rows */
 
     /* Accent (periwinkle; anchors #aebfff/#8da3ff/#7c95ff/#5f74e0 from handoff, rest interpolated) */
     --color-accent-50: #e8ecff;
