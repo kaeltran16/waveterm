@@ -5,6 +5,7 @@ import { useAtomValue } from "jotai";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
 import { CockpitSurface } from "./cockpitsurface";
+import { FilesSurface } from "./filessurface";
 import { NavRail } from "./navrail";
 import { PlaceholderSurface } from "./placeholdersurface";
 
@@ -18,6 +19,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                     <CockpitSurface model={model} />
                 ) : surface === "agent" ? (
                     <AgentSurface model={model} tabId={tabId} />
+                ) : surface === "files" ? (
+                    <FilesSurface model={model} />
                 ) : (
                     <PlaceholderSurface surface={surface} />
                 )}

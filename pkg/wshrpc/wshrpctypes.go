@@ -90,6 +90,8 @@ type WshRpcInterface interface {
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
 	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
 	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
+	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
+	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
@@ -573,6 +575,28 @@ type CommandGetAgentTranscriptData struct {
 
 type CommandGetAgentTranscriptRtnData struct {
 	Lines []string `json:"lines"`
+}
+
+type CommandGitChangesData struct {
+	Cwd string `json:"cwd"`
+}
+
+type CommandGitChangesRtnData struct {
+	Branch  string `json:"branch"`
+	StatusZ string `json:"statusz"`
+	Numstat string `json:"numstat"`
+	IsRepo  bool   `json:"isrepo"`
+}
+
+type CommandGitDiffData struct {
+	Cwd  string `json:"cwd"`
+	Path string `json:"path"`
+}
+
+type CommandGitDiffRtnData struct {
+	Diff      string `json:"diff"`
+	Content   string `json:"content"`
+	Untracked bool   `json:"untracked"`
 }
 
 type CommandStreamAgentTranscriptData struct {

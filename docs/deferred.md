@@ -3,6 +3,23 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Files surface — deferred (v1)
+
+- **Codex cwd via tail read:** `loadFilesForAgent` reads the transcript TAIL for cwd. Claude's
+  cwd recurs on most records (resolves), but Codex's cwd is only on the first-line `session_meta`,
+  so Codex resolves only for sessions short enough to fit the tail. To fix: add a head-read option
+  to `GetAgentTranscriptCommand` (or a tiny dedicated command) and use it for Codex.
+- **Remote worktrees:** git runs on the wavesrv (local) host. SSH/WSL agent worktrees need the
+  `GitChanges`/`GitDiff` commands routed to `wsh` on that host (same impl can live on `wsh`).
+- **Project picker:** the handoff's cross-project `toggleProjects` picker is a stub — Files is
+  focused-agent-scoped. The left header shows the cwd basename but does not switch projects.
+- **Agent-rail placeholders:** Branch + Files-touched in the Agent details rail (Phase 1b) can now
+  be fed by `GitChangesCommand` + `gitstatus.ts`; wiring is a follow-on, not done here.
+- **Live visual verification (CDP) deferred:** Task 9 of the plan (CDP screenshot vs the handoff)
+  was deferred because a dev app was already bound to `:9222` and shares the `waveterm-dev` data
+  home; do the visual pass when that port is free, focusing a real agent (mock roster resolves to
+  "Not a git repository").
+
 ## Usage-bar token counts (fabricated)
 
 - **What:** the cockpit right-rail usage bars (5-hour window / Weekly) render a `used / limit tok` line

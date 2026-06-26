@@ -524,6 +524,32 @@ declare global {
         chatid: string;
     };
 
+    // wshrpc.CommandGitChangesData
+    type CommandGitChangesData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandGitChangesRtnData
+    type CommandGitChangesRtnData = {
+        branch: string;
+        statusz: string;
+        numstat: string;
+        isrepo: boolean;
+    };
+
+    // wshrpc.CommandGitDiffData
+    type CommandGitDiffData = {
+        cwd: string;
+        path: string;
+    };
+
+    // wshrpc.CommandGitDiffRtnData
+    type CommandGitDiffRtnData = {
+        diff: string;
+        content: string;
+        untracked: boolean;
+    };
+
     // wshrpc.CommandJobCmdExitedData
     type CommandJobCmdExitedData = {
         jobid: string;

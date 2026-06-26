@@ -538,6 +538,18 @@ func GetWaveAIRateLimitCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*uctype
 	return resp, err
 }
 
+// command "gitchanges", wshserver.GitChangesCommand
+func GitChangesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitChangesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitChangesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitChangesRtnData](w, "gitchanges", data, opts)
+	return resp, err
+}
+
+// command "gitdiff", wshserver.GitDiffCommand
+func GitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitDiffRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitDiffRtnData](w, "gitdiff", data, opts)
+	return resp, err
+}
+
 // command "jobcmdexited", wshserver.JobCmdExitedCommand
 func JobCmdExitedCommand(w *wshutil.WshRpc, data wshrpc.CommandJobCmdExitedData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "jobcmdexited", data, opts)
