@@ -24,7 +24,10 @@ export interface SessionDescriptor {
 
 async function listDir(path: string): Promise<FileInfo[]> {
     try {
-        return await RpcApi.FileListCommand(TabRpcClient, { path, opts: { all: true } });
+        // single-level listing only: `all: true` means RECURSIVE in the fileshare and the local
+        // backend rejects it ("recursive directory listings are not supported"). discovery walks
+        // the tree one level at a time itself, so a flat list is exactly what's needed.
+        return await RpcApi.FileListCommand(TabRpcClient, { path });
     } catch {
         return [];
     }
