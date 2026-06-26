@@ -11,7 +11,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { agentCwd } from "./agentcwd";
 import { liveProjectsForLaunch } from "./agentsviewmodel";
-import { runtimeLaunchLabel, runtimeShowsTask, runtimeStartupCommand, type Runtime } from "./launch";
+import {
+    deriveBranch,
+    runtimeLaunchLabel,
+    runtimeShowsTask,
+    runtimeStartupCommand,
+    runtimeSupportsWorktree,
+    worktreeOutcome,
+    type Runtime,
+} from "./launch";
 import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
 
 const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
@@ -31,7 +39,10 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [project, setProject] = useState<string>("");
     const [task, setTask] = useState("");
     const [startup, setStartup] = useState("claude");
-    const [branch, setBranch] = useState("feat/new-agent");
+    const [useWorktree, setUseWorktree] = useState(false);
+    const [branch, setBranch] = useState("");
+    const [branchEdited, setBranchEdited] = useState(false);
+    const [currentBranch, setCurrentBranch] = useState("");
     const [branches, setBranches] = useState<BranchInfo[]>([]);
     const [branchListOpen, setBranchListOpen] = useState(false);
     const [resolvedPaths, setResolvedPaths] = useState<Record<string, string>>({});
@@ -42,6 +53,13 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const selectedProject = project || candidates[0]?.name || "";
     const selectedCandidate = candidates.find((c) => c.name === selectedProject);
     const selectedPath = pathFor(selectedCandidate);
+    const branchNames = branches.map((b) => b.name);
+    // The field shows the project's current branch until the user types/picks their own.
+    const effectiveBranch = branchEdited ? branch : currentBranch;
+    const close = () => {
+        globalStore.set(model.newAgentOpenAtom, false);
+        setError(null);
+    };
     // Resolve a launch cwd for live (un-registered) projects from a representative agent's transcript
     // (the same source the Files surface uses). Registered projects already carry a stored path.
     useEffect(() => {
@@ -106,13 +124,48 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             cancelled = true;
         };
     }, [open, runtime, selectedPath]);
+    // Current branch drives the worktree default + outcome hint; GitChanges returns it via rev-parse.
+    useEffect(() => {
+        if (!open || !selectedPath) {
+            setCurrentBranch("");
+            return;
+        }
+        let cancelled = false;
+        RpcApi.GitChangesCommand(TabRpcClient, { cwd: selectedPath })
+            .then((rtn) => {
+                if (!cancelled) {
+                    setCurrentBranch(rtn?.branch ?? "");
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setCurrentBranch("");
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, selectedPath]);
+    // Switching projects re-defaults the branch field to the new project's current branch.
+    useEffect(() => {
+        setBranchEdited(false);
+    }, [selectedPath]);
+    // Esc closes the modal (the "esc" badge); outside-click no longer dismisses (see backdrop below).
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                close();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [open]);
     if (!open) {
         return null;
     }
-    const close = () => {
-        globalStore.set(model.newAgentOpenAtom, false);
-        setError(null);
-    };
     const pickRuntime = (r: Runtime) => {
         setRuntime(r);
         setStartup(runtimeStartupCommand(r));
@@ -124,6 +177,16 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             setError("Couldn't find a folder for this project. Add it via + New project.");
             return;
         }
+        let branchArg: string | undefined;
+        if (useWorktree && runtimeSupportsWorktree(runtime)) {
+            const chosen = effectiveBranch.trim();
+            if (!chosen) {
+                setError("Enter a branch name or turn off the worktree option.");
+                return;
+            }
+            // git can't reuse the already-checked-out branch; branch a fresh one off it instead.
+            branchArg = chosen === currentBranch ? deriveBranch(currentBranch, branchNames) : chosen;
+        }
         try {
             // Persist live-derived projects on first launch so they become stable, registered targets.
             if (!c.registered) {
@@ -134,7 +197,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                 startupCommand: startup,
                 task,
                 projectPath: path,
-                branch,
+                branch: branchArg,
             });
             close();
         } catch (e) {
@@ -142,14 +205,8 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         }
     };
     return (
-        <div
-            onClick={close}
-            className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[11vh] backdrop-blur-sm"
-        >
-            <div
-                onClick={(e) => e.stopPropagation()}
-                className="flex max-h-[86vh] w-[min(640px,93vw)] flex-col overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover"
-            >
+        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[11vh] backdrop-blur-sm">
+            <div className="flex max-h-[86vh] w-[min(640px,93vw)] flex-col overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover">
                 <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
                     <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-accent-300 to-accent-500">
                         <div className="h-[7px] w-[7px] rounded-full bg-surface" />
@@ -252,55 +309,95 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                     </Section>
-                    <Section label="Worktree branch">
-                        <div className="relative">
-                            <div className="flex items-center rounded-[8px] border border-edge-mid bg-surface focus-within:border-accent-700">
-                                <input
-                                    value={branch}
-                                    onChange={(e) => setBranch(e.target.value)}
-                                    onFocus={() => setBranchListOpen(true)}
-                                    placeholder="feat/new-agent"
-                                    className="flex-1 bg-transparent px-3 py-[9px] font-mono text-[12.5px] text-secondary outline-none"
-                                />
-                                {branches.length > 0 ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setBranchListOpen((v) => !v)}
-                                        className="cursor-pointer px-3 py-[9px] text-[10px] text-muted hover:text-primary"
-                                    >
-                                        ▾
-                                    </button>
-                                ) : null}
+                    {runtimeSupportsWorktree(runtime) ? (
+                        <Section label="Worktree">
+                            <div className="flex items-center gap-[10px]">
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={useWorktree}
+                                    onClick={() => setUseWorktree((v) => !v)}
+                                    className={cn(
+                                        "relative h-[20px] w-[34px] shrink-0 cursor-pointer rounded-full transition-colors",
+                                        useWorktree ? "bg-accent" : "bg-edge-strong"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "absolute top-[3px] h-[14px] w-[14px] rounded-full bg-background transition-all",
+                                            useWorktree ? "left-[18px]" : "left-[2px]"
+                                        )}
+                                    />
+                                </button>
+                                <span
+                                    onClick={() => setUseWorktree((v) => !v)}
+                                    className="cursor-pointer text-[12.5px] font-medium text-secondary"
+                                >
+                                    Run in an isolated git worktree
+                                </span>
                             </div>
-                            {branchListOpen && branches.length > 0 ? (
-                                <div className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded-[8px] border border-edge-mid bg-modalbg py-1 shadow-popover">
-                                    {branches.map((b) => (
-                                        <button
-                                            key={b.name}
-                                            type="button"
-                                            onClick={() => {
-                                                setBranch(b.name);
-                                                setBranchListOpen(false);
+                            {useWorktree ? (
+                                <div className="relative mt-[11px]">
+                                    <div className="flex items-center rounded-[8px] border border-edge-mid bg-surface focus-within:border-accent-700">
+                                        <input
+                                            value={effectiveBranch}
+                                            onChange={(e) => {
+                                                setBranch(e.target.value);
+                                                setBranchEdited(true);
                                             }}
-                                            className={cn(
-                                                "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
-                                                b.name === branch ? "text-primary" : "text-secondary"
-                                            )}
-                                        >
-                                            <span
-                                                className={cn(
-                                                    "h-[6px] w-[6px] shrink-0 rounded-full",
-                                                    b.name === branch ? "bg-accent" : "bg-muted"
-                                                )}
-                                            />
-                                            <span className="flex-1 truncate font-mono text-[12px]">{b.name}</span>
-                                            {b.age ? <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span> : null}
-                                        </button>
-                                    ))}
+                                            onFocus={() => setBranchListOpen(true)}
+                                            placeholder={currentBranch || "feat/new-agent"}
+                                            className="flex-1 bg-transparent px-3 py-[9px] font-mono text-[12.5px] text-secondary outline-none"
+                                        />
+                                        {branches.length > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setBranchListOpen((v) => !v)}
+                                                className="cursor-pointer px-3 py-[9px] text-[10px] text-muted hover:text-primary"
+                                            >
+                                                ▾
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                    {branchListOpen && branches.length > 0 ? (
+                                        <div className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded-[8px] border border-edge-mid bg-modalbg py-1 shadow-popover">
+                                            {branches.map((b) => (
+                                                <button
+                                                    key={b.name}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setBranch(b.name);
+                                                        setBranchEdited(true);
+                                                        setBranchListOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
+                                                        b.name === effectiveBranch ? "text-primary" : "text-secondary"
+                                                    )}
+                                                >
+                                                    <span
+                                                        className={cn(
+                                                            "h-[6px] w-[6px] shrink-0 rounded-full",
+                                                            b.name === effectiveBranch ? "bg-accent" : "bg-muted"
+                                                        )}
+                                                    />
+                                                    <span className="flex-1 truncate font-mono text-[12px]">
+                                                        {b.name}
+                                                    </span>
+                                                    {b.age ? (
+                                                        <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span>
+                                                    ) : null}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                    <div className="mt-[7px] text-[11px] text-muted">
+                                        {worktreeOutcome({ branch: effectiveBranch, currentBranch, branchNames })}
+                                    </div>
                                 </div>
                             ) : null}
-                        </div>
-                    </Section>
+                        </Section>
+                    ) : null}
                     {error ? <div className="text-[12px] text-error">{error}</div> : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-3 border-t border-border px-[18px] py-[13px]">

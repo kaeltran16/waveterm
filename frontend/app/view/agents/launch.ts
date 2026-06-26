@@ -22,6 +22,40 @@ export function runtimeShowsTask(runtime: Runtime): boolean {
     return runtime !== "terminal";
 }
 
+// Worktrees only make sense for the agent runtimes; a terminal launches in the project dir.
+export function runtimeSupportsWorktree(runtime: Runtime): boolean {
+    return runtime !== "terminal";
+}
+
+// A fresh, non-colliding branch name off base (git refuses a worktree on an already-checked-out
+// branch). "<base>-agent", bumping "-agent-2", "-3"… past names already in the repo.
+export function deriveBranch(base: string, existing: string[]): string {
+    const candidate = `${base}-agent`;
+    if (!existing.includes(candidate)) {
+        return candidate;
+    }
+    let n = 2;
+    while (existing.includes(`${candidate}-${n}`)) {
+        n++;
+    }
+    return `${candidate}-${n}`;
+}
+
+// One-line preview of what launching a worktree on `branch` will do, so the choice is never silent.
+export function worktreeOutcome(args: { branch: string; currentBranch: string; branchNames: string[] }): string {
+    const branch = args.branch.trim();
+    if (!branch) {
+        return "Enter a branch name";
+    }
+    if (branch === args.currentBranch) {
+        return `Creates new branch ${deriveBranch(branch, args.branchNames)} off ${args.currentBranch}`;
+    }
+    if (args.branchNames.includes(branch)) {
+        return `Checks out existing branch ${branch} in a worktree`;
+    }
+    return `Creates new branch ${branch} off current HEAD`;
+}
+
 export interface LaunchMetaSpec {
     runtime: Runtime;
     startupCommand: string; // resolved command (defaults to the runtime cmd; user-editable)

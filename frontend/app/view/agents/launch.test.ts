@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { buildLaunchMeta, runtimeLaunchLabel, runtimeShowsTask, runtimeStartupCommand } from "./launch";
+import {
+    buildLaunchMeta,
+    deriveBranch,
+    runtimeLaunchLabel,
+    runtimeShowsTask,
+    runtimeStartupCommand,
+    runtimeSupportsWorktree,
+    worktreeOutcome,
+} from "./launch";
 
 describe("runtime helpers", () => {
     it("derives the startup command", () => {
@@ -17,6 +25,46 @@ describe("runtime helpers", () => {
     it("hides the task field for terminal", () => {
         expect(runtimeShowsTask("claude")).toBe(true);
         expect(runtimeShowsTask("terminal")).toBe(false);
+    });
+    it("supports worktrees for every runtime except terminal", () => {
+        expect(runtimeSupportsWorktree("claude")).toBe(true);
+        expect(runtimeSupportsWorktree("codex")).toBe(true);
+        expect(runtimeSupportsWorktree("antigravity")).toBe(true);
+        expect(runtimeSupportsWorktree("terminal")).toBe(false);
+    });
+});
+
+describe("deriveBranch", () => {
+    it("appends -agent when there is no collision", () => {
+        expect(deriveBranch("main", [])).toBe("main-agent");
+        expect(deriveBranch("main", ["main"])).toBe("main-agent");
+    });
+    it("bumps a numeric suffix on collision", () => {
+        expect(deriveBranch("main", ["main", "main-agent"])).toBe("main-agent-2");
+        expect(deriveBranch("main", ["main", "main-agent", "main-agent-2"])).toBe("main-agent-3");
+    });
+});
+
+describe("worktreeOutcome", () => {
+    it("prompts when the branch is empty", () => {
+        expect(worktreeOutcome({ branch: "", currentBranch: "main", branchNames: ["main"] })).toBe(
+            "Enter a branch name"
+        );
+    });
+    it("derives a fresh branch off the current (checked-out) branch", () => {
+        expect(worktreeOutcome({ branch: "main", currentBranch: "main", branchNames: ["main"] })).toBe(
+            "Creates new branch main-agent off main"
+        );
+    });
+    it("checks out an existing non-current branch", () => {
+        expect(
+            worktreeOutcome({ branch: "feat/x", currentBranch: "main", branchNames: ["main", "feat/x"] })
+        ).toBe("Checks out existing branch feat/x in a worktree");
+    });
+    it("creates a new branch for an unknown name", () => {
+        expect(worktreeOutcome({ branch: "feat/new", currentBranch: "main", branchNames: ["main"] })).toBe(
+            "Creates new branch feat/new off current HEAD"
+        );
     });
 });
 
