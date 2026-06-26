@@ -23,6 +23,7 @@ manifests/
 out
 .kilocode/package-lock.json
 frontend/tauri/public/cockpit-fixtures/active.json
+cdp-shots/
 
 # Yarn Modern
 .pnp.*

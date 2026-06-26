@@ -3,7 +3,8 @@
 // (no jsdom harness exists for the cockpit; this is the Tauri-era replacement for the old
 // Electron `:9222` flow).
 //
-//   node scripts/cdp-shot.mjs [outfile.png] [port]   # default: wave-cdp.png on :9222
+//   node scripts/cdp-shot.mjs [outfile.png] [port]   # default: cdp-shots/wave-cdp.png on :9222
+// Output defaults to the gitignored `cdp-shots/` dir so verification PNGs never surface in git.
 //
 // PREREQUISITE — the debug port must be enabled. `src-tauri/src/main.rs` sets, dev-only:
 //     #[cfg(debug_assertions)] WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222
@@ -19,7 +20,7 @@
 // Beyond screenshots, the same attach pattern drives full CDP: `Runtime.evaluate` to read the DOM /
 // jotai atoms (window.globalStore is exposed on the dev renderer), `Input.dispatchKeyEvent` for keys.
 
-const out = process.argv[2] ?? "wave-cdp.png";
+const out = process.argv[2] ?? "cdp-shots/wave-cdp.png";
 const port = process.argv[3] ?? "9222";
 
 async function pickTarget() {
@@ -67,6 +68,8 @@ const client = await cdp(target.webSocketDebuggerUrl);
 await client.send("Page.enable");
 const { data } = await client.send("Page.captureScreenshot", { format: "png" });
 client.close();
-const { writeFileSync } = await import("node:fs");
+const { writeFileSync, mkdirSync } = await import("node:fs");
+const { dirname } = await import("node:path");
+mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, Buffer.from(data, "base64"));
 console.log(`captured ${target.url} -> ${out}`);

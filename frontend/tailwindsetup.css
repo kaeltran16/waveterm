@@ -13,6 +13,8 @@
     --color-surface-hover: #171c22;
     --color-panel: rgba(19, 23, 29, 0.6);
     --color-modalbg: #13171d;
+    --color-lane: #12161b; /* agent-card lane fill (handoff laneBg) */
+    --color-lane-asking: #14130e; /* warm-dark asking-lane fill (handoff laneBg, asking) */
 
     /* Text (handoff ink ramp) */
     --color-foreground: #e6e9ed;

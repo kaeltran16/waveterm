@@ -2,12 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The right-rail "Recent activity" peek: newest narration entry per agent, newest-first.
-// Pure derivation (buildRecentActivity) + a live-roster atom (recentActivityAtom).
+// Pure derivation (buildRecentActivity); the cockpit calls it with its `now` tick + live atoms.
 
-import { atom, type Atom } from "jotai";
 import type { AgentEntry, AgentState, AgentVM } from "./agentsviewmodel";
-import { liveAgentsAtom } from "./liveagents";
-import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 
 export const RECENT_ACTIVITY_LIMIT = 6;
 
@@ -31,12 +28,15 @@ function describe(entry: AgentEntry): { text: string; typeLabel: string } {
 }
 
 /** Pure: one item per agent (its newest entry), newest-first by lastActivity, sliced to `max`.
- *  Live entries win; falls back to the agent's previousInfo (ts 0). Agents with no entries are skipped. */
+ *  Live entries win; falls back to the agent's previousInfo. When no live timestamp exists (e.g. a
+ *  fixture roster), ts is derived from the agent's age field (`now - blockedMs|activeMs`, or idleSince)
+ *  so the "x ago" label is real instead of 1970. Agents with no entries are skipped. */
 export function buildRecentActivity(
     agents: AgentVM[],
     entriesById: Record<string, AgentEntry[]>,
     lastActivityById: Record<string, number>,
-    max: number
+    max: number,
+    now: number
 ): RecentActivityItem[] {
     const items: RecentActivityItem[] = [];
     for (const a of agents) {
@@ -45,11 +45,8 @@ export function buildRecentActivity(
             continue;
         }
         const { text, typeLabel } = describe(entries[entries.length - 1]);
-        items.push({ id: a.id, agent: a.name, text, typeLabel, ts: lastActivityById[a.id] ?? a.idleSince ?? 0, state: a.state });
+        const ts = lastActivityById[a.id] ?? a.idleSince ?? now - (a.blockedMs ?? a.activeMs ?? 0);
+        items.push({ id: a.id, agent: a.name, text, typeLabel, ts, state: a.state });
     }
     return items.sort((x, y) => y.ts - x.ts).slice(0, max);
 }
-
-export const recentActivityAtom: Atom<RecentActivityItem[]> = atom((get) =>
-    buildRecentActivity(get(liveAgentsAtom), get(liveEntriesByIdAtom), get(lastActivityByIdAtom), RECENT_ACTIVITY_LIMIT)
-);

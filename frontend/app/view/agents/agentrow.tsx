@@ -7,10 +7,9 @@ import { Reorder, useDragControls } from "motion/react";
 import { useEffect, useRef } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
-import { cardSpanStyle, formatAge, hasAnswerableAsk, isQuiet, type AgentVM } from "./agentsviewmodel";
+import { cardSpanStyle, formatAge, hasAnswerableAsk, isQuiet, projectOf, type AgentVM } from "./agentsviewmodel";
 import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
-import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
 
 export function AgentRow({
@@ -76,7 +75,7 @@ export function AgentRow({
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
     const quiet = isQuiet(lastActivity[agent.id], now);
-    const project = projectNameFromTranscriptPath(agent.transcriptPath);
+    const project = projectOf(agent);
     const asking = agent.state === "asking";
     const idle = agent.state === "idle";
     const idleMs = agent.idleSince != null ? Math.max(0, now - agent.idleSince) : undefined;
@@ -118,12 +117,11 @@ export function AgentRow({
             onClick={onCursor}
             onDoubleClick={onOpen}
             className={cn(
-                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border border-border bg-panel px-4 py-3 transition-colors",
-                asking ? "bg-warning/5" : "hover:bg-white/[0.02]",
-                isCursor &&
-                    (asking
-                        ? "bg-warning/10 shadow-[inset_3px_0_0_var(--color-warning)]"
-                        : "bg-accent/[0.06] shadow-[inset_3px_0_0_var(--color-accent)]"),
+                // handoff lane colors (dc.html:1743-1746): warm-dark bg + soft amber border for asking,
+                // not a bright tint; the cursor is a subtle 1.5px ring (the SoT selection idiom), not a solid bar.
+                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border px-4 py-3 transition-colors",
+                asking ? "border-warning/40 bg-lane-asking" : "border-edge-mid bg-lane hover:bg-surface-hover",
+                isCursor && (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
                 pulse && "ring-2 ring-warning ring-inset"
             )}
         >
@@ -138,10 +136,12 @@ export function AgentRow({
                 </span>
                 <StatusDot state={agent.state} quiet={quiet} />
                 <b className={cn("shrink-0 text-primary", asking ? "text-[15px]" : "text-[14px]")}>{agent.name}</b>
-                <span className="truncate text-[12px] text-muted">
-                    {project ? `${project} · ` : ""}
-                    {idle ? agent.activity ?? "" : agent.task}
-                </span>
+                {project ? (
+                    <span className="shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10px] text-muted">
+                        {project}
+                    </span>
+                ) : null}
+                <span className="truncate text-[12px] text-muted">{idle ? agent.activity ?? "" : agent.task}</span>
                 {asking ? (
                     <span className="ml-auto shrink-0 rounded-[4px] border border-warning px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-warning">
                         needs you

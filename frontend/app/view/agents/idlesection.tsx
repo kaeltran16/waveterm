@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { AgentComposer } from "./agentcomposer";
-import { formatAge, type AgentVM } from "./agentsviewmodel";
+import { formatAge, projectOf, type AgentVM } from "./agentsviewmodel";
 import { SectionHeader } from "./sectionheader";
 
 export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id: string) => void }) {
@@ -34,20 +34,28 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
                         transition={{ duration: 0.18, ease: "easeOut" }}
                         className="flex flex-col gap-1 overflow-hidden"
                     >
-                        {agents.map((a) => (
-                            <div key={a.id} className="flex flex-col rounded-[6px] hover:bg-white/[0.04]">
-                                <div
-                                    onClick={() => onOpen(a.id)}
-                                    className="flex cursor-pointer items-center gap-2.5 px-2 py-1.5"
-                                >
-                                    <span className="h-2 w-2 shrink-0 rounded-full bg-muted" />
-                                    <b className="shrink-0 text-[12px] text-secondary">{a.name}</b>
-                                    <span className="truncate text-[12px] text-muted">{a.activity}</span>
-                                    <span className="ml-auto shrink-0 text-[10px] text-muted">{formatAge(a.activeMs)} idle</span>
+                        {agents.map((a) => {
+                            const project = projectOf(a);
+                            return (
+                                <div key={a.id} className="flex flex-col rounded-[6px] hover:bg-white/[0.04]">
+                                    <div
+                                        onClick={() => onOpen(a.id)}
+                                        className="flex cursor-pointer items-center gap-2.5 px-2 py-1.5"
+                                    >
+                                        <span className="h-2 w-2 shrink-0 rounded-full bg-muted" />
+                                        <b className="shrink-0 text-[12px] text-secondary">{a.name}</b>
+                                        {project ? (
+                                            <span className="shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10px] text-muted">
+                                                {project}
+                                            </span>
+                                        ) : null}
+                                        <span className="truncate text-[12px] text-muted">{a.activity}</span>
+                                        <span className="ml-auto shrink-0 text-[10px] text-muted">{formatAge(a.activeMs)} idle</span>
+                                    </div>
+                                    <AgentComposer blockId={a.blockId} placeholder={`message ${a.name}…`} />
                                 </div>
-                                <AgentComposer blockId={a.blockId} placeholder={`message ${a.name}…`} />
-                            </div>
-                        ))}
+                            );
+                        })}
                     </motion.div>
                 )}
             </AnimatePresence>

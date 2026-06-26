@@ -31,10 +31,10 @@ import {
 import { BackgroundedSection } from "./backgroundedsection";
 import { IdleSection } from "./idlesection";
 import { ProjectSwitcher } from "./projectswitcher";
-import { recentActivityAtom } from "./recentactivity";
+import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 import { ensurePreviousInfo } from "./liveagents";
-import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
+import { lastActivityByIdAtom, liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 
 // Rolls a changing integer: the old value slides up and out while the new one slides in.
 function RollingCount({ value, className }: { value: number; className?: string }) {
@@ -246,7 +246,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const railOpen = useAtomValue(model.railOpenAtom);
     const chip = useAtomValue(model.chipFilterAtom);
     const setChip = (c: ChipFilter) => globalStore.set(model.chipFilterAtom, c);
-    const recent = useAtomValue(recentActivityAtom);
+    const recentEntriesById = useAtomValue(liveEntriesByIdAtom);
+    const recentLastActivityById = useAtomValue(lastActivityByIdAtom);
+    const recent = buildRecentActivity(agents, recentEntriesById, recentLastActivityById, RECENT_ACTIVITY_LIMIT, now);
     const [showHelp, setShowHelp] = useState(false);
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);

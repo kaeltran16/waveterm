@@ -7,13 +7,13 @@ import type { AgentsViewModel } from "./agents";
 import {
     formatAge,
     formatTokens,
+    projectOf,
     recentActions,
     summarizeActions,
     usageLevel,
     type AgentVM,
 } from "./agentsviewmodel";
 import { liveEntriesByIdAtom } from "./livetranscript";
-import { projectNameFromTranscriptPath } from "./projectname";
 import { getSubagentsAtom } from "./session-models/agentstatusstore";
 
 const DefaultContextMax = 200000; // fallback when the reporter omits contextmax (mirrors focusview)
@@ -49,7 +49,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const subs = useAtomValue(getSubagentsAtom(`block:${agent.blockId}`));
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
-    const project = projectNameFromTranscriptPath(agent.transcriptPath ?? "");
+    const project = projectOf(agent);
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
     const tools = summarizeActions(recentActions(entries, 0)).byVerb;

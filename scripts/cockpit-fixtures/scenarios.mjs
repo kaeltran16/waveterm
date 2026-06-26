@@ -48,6 +48,7 @@ function mixed(now) {
         {
             id: "mock-ask-1",
             name: "siem-detector",
+            project: "siem-platform",
             task: "Entropy detector for SIEM-1662",
             state: "asking",
             model: "opus",
@@ -85,6 +86,7 @@ function mixed(now) {
         {
             id: "mock-ask-2",
             name: "loom",
+            project: "waveterm",
             task: "Refactor duplicate-session race",
             state: "asking",
             model: "sonnet",
@@ -112,6 +114,7 @@ function mixed(now) {
         {
             id: "mock-ask-3",
             name: "obsidian",
+            project: "vault",
             task: "Vault sync conflict",
             state: "asking",
             model: "haiku",
@@ -131,6 +134,7 @@ function mixed(now) {
         {
             id: "mock-ask-multi",
             name: "planner",
+            project: "waveterm",
             task: "Plan the v0.15 release cut",
             state: "asking",
             model: "opus",
@@ -171,6 +175,7 @@ function mixed(now) {
         {
             id: "mock-ask-two",
             name: "migrator",
+            project: "waveterm",
             task: "Migrate config store to v2 schema",
             state: "asking",
             model: "sonnet",
@@ -204,6 +209,7 @@ function mixed(now) {
         {
             id: "mock-ask-noopts",
             name: "detector",
+            project: "siem-platform",
             task: "Check scenario implementation status",
             state: "asking",
             model: "sonnet",
@@ -219,6 +225,7 @@ function mixed(now) {
         {
             id: "mock-work-1",
             name: "waveterm",
+            project: "waveterm",
             task: "Windows packaging fix",
             state: "working",
             model: "sonnet",
@@ -230,6 +237,7 @@ function mixed(now) {
         {
             id: "mock-work-2",
             name: "graphify",
+            project: "graphify",
             task: "Cluster communities",
             state: "working",
             model: "haiku",
@@ -240,6 +248,7 @@ function mixed(now) {
         {
             id: "mock-idle-1",
             name: "scribe",
+            project: "docs",
             task: "Draft release notes",
             state: "idle",
             model: "opus",
@@ -252,6 +261,7 @@ function mixed(now) {
         {
             id: "mock-idle-2",
             name: "janitor",
+            project: "waveterm",
             task: "",
             state: "idle",
             activity: "stopped without asking",

@@ -9,10 +9,9 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentComposer } from "./agentcomposer";
 import { AnswerBar } from "./answerbar";
-import { toggleSelection, type AgentVM } from "./agentsviewmodel";
+import { projectOf, toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
-import { projectNameFromTranscriptPath } from "./projectname";
 import { StatusDot } from "./statusdot";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
@@ -32,7 +31,7 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
     const sentIds = useAtomValue(model.sentIdsAtom);
     const focusReply = useAtomValue(model.focusReplyAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
-    const project = projectNameFromTranscriptPath(agent.transcriptPath ?? "");
+    const project = projectOf(agent);
     const asking = agent.state === "asking";
 
     const scrollRef = useRef<HTMLDivElement>(null);

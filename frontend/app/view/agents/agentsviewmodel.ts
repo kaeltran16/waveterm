@@ -37,6 +37,7 @@ export interface AgentVM {
     state: AgentState;
     agent?: string; // coding-agent identity (claude | codex | …) — selects the transcript projector
     model?: string; // short family label (e.g. "opus")
+    project?: string; // explicit project name; preferred over the lossy transcript-path derivation
     activity?: string; // working: live activity line; idle: reason
     blockedMs?: number; // asking: how long blocked (sort + age)
     activeMs?: number; // working: elapsed (sort)
@@ -463,12 +464,19 @@ export interface ProjectInfo {
     askingCount: number;
 }
 
-/** Pure: distinct projects derived from transcript paths, each with its agent + asking counts.
- *  Agents with no derivable project name are skipped. Sorted by project name. */
+/** Pure: an agent's project — the explicit `project` field if set, else derived from its transcript
+ *  path. The derivation is lossy (last hyphen segment only), so an explicit field is the only way to
+ *  carry hyphenated names like "payments-api". Single source for every project read in the cockpit. */
+export function projectOf(a: AgentVM): string {
+    return a.project || projectNameFromTranscriptPath(a.transcriptPath ?? "");
+}
+
+/** Pure: distinct projects across agents, each with its agent + asking counts.
+ *  Agents with no resolvable project name are skipped. Sorted by project name. */
 export function projectsFromAgents(agents: AgentVM[]): ProjectInfo[] {
     const byName = new Map<string, ProjectInfo>();
     for (const a of agents) {
-        const name = projectNameFromTranscriptPath(a.transcriptPath ?? "");
+        const name = projectOf(a);
         if (!name) {
             continue;
         }
@@ -487,7 +495,7 @@ export function matchesProjectFilter(agent: AgentVM, filter: string): boolean {
     if (filter === "all") {
         return true;
     }
-    return projectNameFromTranscriptPath(agent.transcriptPath ?? "") === filter;
+    return projectOf(agent) === filter;
 }
 
 /** Pure: apply the project scope + live-only (hide idle) filters, preserving input order. The chip

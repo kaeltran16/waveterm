@@ -5,8 +5,7 @@
 // Produces group headers + parent rows; subagent children are read from per-block atoms in the
 // component (they're ephemeral and keyed by block ORef), so they stay out of this pure helper.
 
-import type { AgentVM } from "./agentsviewmodel";
-import { projectNameFromTranscriptPath } from "./projectname";
+import { projectOf, type AgentVM } from "./agentsviewmodel";
 
 export const UNGROUPED_PROJECT = "ungrouped";
 
@@ -25,7 +24,7 @@ export function buildAgentTree(agents: AgentVM[], order: string[]): AgentTreeRow
     const groups: { project: string; agents: AgentVM[] }[] = [];
     const byProject = new Map<string, AgentVM[]>();
     for (const a of sorted) {
-        const project = projectNameFromTranscriptPath(a.transcriptPath ?? "") || UNGROUPED_PROJECT;
+        const project = projectOf(a) || UNGROUPED_PROJECT;
         let bucket = byProject.get(project);
         if (!bucket) {
             bucket = [];
