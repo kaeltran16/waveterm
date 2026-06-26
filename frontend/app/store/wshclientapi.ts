@@ -216,6 +216,12 @@ export class RpcApiType {
         return client.wshRpcCall("createsubblock", data, opts);
     }
 
+    // command "createworktree" [call]
+    CreateWorktreeCommand(client: WshClient, data: CommandCreateWorktreeData, opts?: RpcOpts): Promise<CommandCreateWorktreeRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createworktree", data, opts);
+        return client.wshRpcCall("createworktree", data, opts);
+    }
+
     // command "debugterm" [call]
     DebugTermCommand(client: WshClient, data: CommandDebugTermData, opts?: RpcOpts): Promise<CommandDebugTermRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "debugterm", data, opts);

@@ -588,6 +588,14 @@ func (ws *WshServer) CreateProjectCommand(ctx context.Context, data wshrpc.Comma
 	return wconfig.SetProjectConfigValue(name, waveobj.MetaMapType{"path": path})
 }
 
+func (ws *WshServer) CreateWorktreeCommand(ctx context.Context, data wshrpc.CommandCreateWorktreeData) (wshrpc.CommandCreateWorktreeRtnData, error) {
+	wt, err := gitinfo.CreateWorktree(ctx, data.ProjectPath, data.Branch)
+	if err != nil {
+		return wshrpc.CommandCreateWorktreeRtnData{}, err
+	}
+	return wshrpc.CommandCreateWorktreeRtnData{WorktreePath: wt}, nil
+}
+
 func (ws *WshServer) GetFullConfigCommand(ctx context.Context) (wconfig.FullConfigType, error) {
 	watcher := wconfig.GetWatcher()
 	return watcher.GetFullConfig(), nil

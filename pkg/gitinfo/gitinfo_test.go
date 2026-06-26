@@ -94,3 +94,36 @@ func TestGetDiffUntracked(t *testing.T) {
 		t.Fatalf("content = %q, want new", d.Content)
 	}
 }
+
+func TestWorktreePath(t *testing.T) {
+	got := WorktreePath("/home/u/code/payments-api", "feat/new-agent")
+	want := filepath.ToSlash(filepath.Join("/home/u/code", "payments-api-worktrees", "feat-new-agent"))
+	if filepath.ToSlash(got) != want {
+		t.Fatalf("WorktreePath = %q, want %q", filepath.ToSlash(got), want)
+	}
+}
+
+func TestCreateWorktreeNewBranch(t *testing.T) {
+	dir := repoWithChange(t)
+	wt, err := CreateWorktree(context.Background(), dir, "feat/new-agent")
+	if err != nil {
+		t.Fatalf("CreateWorktree: %v", err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree dir not created: %v", err)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(wt), "-worktrees/feat-new-agent") {
+		t.Fatalf("unexpected worktree path: %s", wt)
+	}
+	// idempotent: a second call reuses the existing worktree dir
+	wt2, err := CreateWorktree(context.Background(), dir, "feat/new-agent")
+	if err != nil || wt2 != wt {
+		t.Fatalf("reuse failed: wt2=%q err=%v", wt2, err)
+	}
+}
+
+func TestCreateWorktreeNotARepo(t *testing.T) {
+	if _, err := CreateWorktree(context.Background(), t.TempDir(), "feat/x"); err == nil {
+		t.Fatal("expected error outside a git repo")
+	}
+}

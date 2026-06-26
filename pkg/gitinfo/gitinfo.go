@@ -2,12 +2,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package gitinfo runs read-only git queries for the Files cockpit surface. It shells out to the
-// git binary (no go-git dependency) using fixed, read-only subcommands in a given working dir.
+// Package gitinfo runs git queries for the Files cockpit surface and creates worktrees for the
+// New Agent launcher. It shells out to the git binary (no go-git dependency) using fixed
+// subcommands in a given working dir.
 package gitinfo
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,4 +71,56 @@ func GetDiff(ctx context.Context, cwd, path string) (*Diff, error) {
 		return nil, err
 	}
 	return &Diff{Diff: diff}, nil
+}
+
+// runErr is like run but captures stderr into the error (for write operations where the cause matters).
+func runErr(ctx context.Context, cwd string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+// flattenBranch makes a git ref safe for a filesystem path segment (feat/x -> feat-x).
+func flattenBranch(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-")
+}
+
+// WorktreePath is the sibling-dir location for a worktree of branch off the repo at repoPath:
+//
+//	<parent>/<basename>-worktrees/<flattened-branch>
+func WorktreePath(repoPath, branch string) string {
+	return filepath.Join(filepath.Dir(repoPath), filepath.Base(repoPath)+"-worktrees", flattenBranch(branch))
+}
+
+// CreateWorktree creates (or reuses) a git worktree for branch off repoPath's current HEAD, in a
+// sibling dir. If the worktree dir already exists it is reused; if the branch exists it is checked
+// out, otherwise a new branch is created off HEAD. Returns the worktree path.
+func CreateWorktree(ctx context.Context, repoPath, branch string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, repoPath, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return "", fmt.Errorf("not a git repository: %s", repoPath)
+	}
+	wt := WorktreePath(repoPath, branch)
+	if _, statErr := os.Stat(wt); statErr == nil {
+		return wt, nil // reuse existing worktree dir
+	}
+	if err := os.MkdirAll(filepath.Dir(wt), 0o755); err != nil {
+		return "", err
+	}
+	_, brErr := run(ctx, repoPath, "rev-parse", "--verify", "refs/heads/"+branch)
+	if brErr == nil {
+		if _, err := runErr(ctx, repoPath, "worktree", "add", wt, branch); err != nil {
+			return "", err
+		}
+	} else {
+		if _, err := runErr(ctx, repoPath, "worktree", "add", wt, "-b", branch); err != nil {
+			return "", err
+		}
+	}
+	return wt, nil
 }

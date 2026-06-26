@@ -405,6 +405,17 @@ declare global {
         blockdef: BlockDef;
     };
 
+    // wshrpc.CommandCreateWorktreeData
+    type CommandCreateWorktreeData = {
+        projectpath: string;
+        branch: string;
+    };
+
+    // wshrpc.CommandCreateWorktreeRtnData
+    type CommandCreateWorktreeRtnData = {
+        worktreepath: string;
+    };
+
     // wshrpc.CommandDebugTermData
     type CommandDebugTermData = {
         blockid: string;
