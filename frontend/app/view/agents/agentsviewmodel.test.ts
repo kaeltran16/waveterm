@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, type AgentVM, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -584,5 +584,53 @@ describe("toggleSelection", () => {
     it("keeps selections for other questions intact", () => {
         const out = toggleSelection({ 0: new Set([1]), 1: new Set([3]) }, 0, 2, false);
         expect([...out[1]]).toEqual([3]);
+    });
+});
+
+describe("placeholder card data", () => {
+    const vm = (id: string, state: AgentState = "working"): AgentVM => ({ id, name: "x", task: "", state });
+
+    it("placeholderDiffStats is deterministic per id", () => {
+        expect(placeholderDiffStats(vm("agent-7"))).toEqual(placeholderDiffStats(vm("agent-7")));
+    });
+
+    it("placeholderDiffStats is undefined for idle", () => {
+        expect(placeholderDiffStats(vm("agent-7", "idle"))).toBeUndefined();
+    });
+
+    it("placeholderDiffStats varies across ids (some have changes, some do not)", () => {
+        const out = Array.from({ length: 30 }, (_, i) => placeholderDiffStats(vm(`agent-${i}`)));
+        expect(out.some((r) => r === undefined)).toBe(true);
+        expect(out.some((r) => r !== undefined)).toBe(true);
+    });
+
+    it("placeholderTasks is deterministic and sized 3-5 when present", () => {
+        const t1 = placeholderTasks(vm("agent-3"));
+        const t2 = placeholderTasks(vm("agent-3"));
+        expect(t1).toEqual(t2);
+        if (t1) {
+            expect(t1.length).toBeGreaterThanOrEqual(3);
+            expect(t1.length).toBeLessThanOrEqual(5);
+        }
+    });
+
+    it("placeholderTasks is undefined for idle", () => {
+        expect(placeholderTasks(vm("agent-3", "idle"))).toBeUndefined();
+    });
+
+    it("taskProgress computes done/total/pct", () => {
+        expect(taskProgress([])).toEqual({ done: 0, total: 0, pct: 0 });
+        const all: CardTask[] = [
+            { text: "a", done: true },
+            { text: "b", done: true },
+        ];
+        expect(taskProgress(all)).toEqual({ done: 2, total: 2, pct: 100 });
+        const some: CardTask[] = [
+            { text: "a", done: true },
+            { text: "b", done: false },
+            { text: "c", done: false },
+            { text: "d", done: false },
+        ];
+        expect(taskProgress(some)).toEqual({ done: 1, total: 4, pct: 25 });
     });
 });

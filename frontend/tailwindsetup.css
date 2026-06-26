@@ -53,6 +53,15 @@
     --color-warning: #e6b450;
     --color-asking: #e6b450;
     --color-success: #54c79a;
+    /* handoff card-body colors (Wave-cockpit-live.dc.html) */
+    --color-ask-question: #eddcb8; /* asking-band question prose */
+    --color-ask-label: #c79a3f; /* "waiting on you" label */
+    --color-on-warning: #1a1306; /* text on the filled needs-you badge */
+    --color-success-soft: #bfe6d6; /* working activity line */
+    --color-feed-label: #777f89; /* tool-line uppercase tool name */
+    --color-feed-summary: #9aa3ad; /* tool-line summary text */
+    --color-feed-time: #4f565f; /* tool-line faint meta */
+    --color-feed-glyph: #454c55; /* drag handle glyph */
     --color-working: #54c79a;
 
     /* Neutral overlays (theme-agnostic, preserved) */
@@ -161,6 +170,34 @@ svg [aria-label="tip"] g path {
     text-overflow: ellipsis;
 }
 
+@keyframes pulseDot {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.32;
+    }
+}
+@keyframes caret {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+}
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(7px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
 @keyframes float-up {
     0% {
         transform: translate(-50%, 0);

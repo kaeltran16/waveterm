@@ -11,13 +11,24 @@ const COLOR: Record<AgentState, string> = {
     idle: "var(--color-muted)",
 };
 
-export function StatusDot({ state, quiet, className }: { state: AgentState; quiet?: boolean; className?: string }) {
+export function StatusDot({
+    state,
+    quiet,
+    pulse,
+    className,
+}: {
+    state: AgentState;
+    quiet?: boolean;
+    pulse?: boolean;
+    className?: string;
+}) {
     const hollow = state === "working" && quiet;
     return (
         <span
             className={cn(
                 "h-2 w-2 shrink-0 rounded-full",
                 hollow ? "border border-muted bg-transparent" : "",
+                pulse && !hollow ? "animate-[pulseDot_1.6s_infinite]" : "",
                 className
             )}
             style={hollow ? undefined : { backgroundColor: COLOR[state] }}

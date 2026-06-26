@@ -66,6 +66,8 @@ export class AgentsViewModel implements ViewModel {
     projectFilterAtom = atom<string>("all"); // "all" | <projectName>
     liveOnlyAtom = atom(false);
     cardPrefsAtom = atom<Record<string, CardPref>>({}) as PrimitiveAtom<Record<string, CardPref>>;
+    // which card's composer is expanded (one at a time); asking cards are always expanded regardless
+    openComposerIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;

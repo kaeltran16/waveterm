@@ -554,3 +554,75 @@ export function cardSpanStyle(pref?: CardPref): { gridColumn?: string; height?: 
     }
     return style;
 }
+
+// --- PLACEHOLDER card data (docs/deferred.md) -------------------------------
+// The live AgentVM carries no git diff stats and no TodoWrite task list yet.
+// These deterministic helpers fabricate believable values (seeded from the id,
+// stable across renders) so the handoff card bands render. Delete and replace
+// with real data when the deferred wiring lands; this is the only seam.
+
+export interface DiffStats {
+    files: number;
+    adds: number;
+    dels: number;
+}
+
+export interface CardTask {
+    text: string;
+    done: boolean;
+}
+
+const PLACEHOLDER_TASK_POOL = [
+    "Read the failing test",
+    "Reproduce the bug",
+    "Patch the handler",
+    "Add a regression test",
+    "Update the docs",
+    "Run the suite",
+];
+
+function hashId(id: string): number {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) {
+        h = (h * 31 + id.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+}
+
+/** PLACEHOLDER: deterministic pseudo git stats; undefined for idle and ~1/3 of ids
+ *  (so `hasChanges` varies). Replace with real git-diff data (deferred). */
+export function placeholderDiffStats(agent: AgentVM): DiffStats | undefined {
+    if (agent.state === "idle") {
+        return undefined;
+    }
+    const h = hashId(agent.id);
+    if (h % 3 === 0) {
+        return undefined;
+    }
+    return { files: 1 + (h % 6), adds: 4 + (h % 180), dels: h % 60 };
+}
+
+/** PLACEHOLDER: deterministic pseudo task list; undefined for idle and ~1/4 of ids.
+ *  Replace with the agent's real TodoWrite state from the transcript (deferred). */
+export function placeholderTasks(agent: AgentVM): CardTask[] | undefined {
+    if (agent.state === "idle") {
+        return undefined;
+    }
+    const h = hashId(agent.id);
+    if (h % 4 === 0) {
+        return undefined;
+    }
+    const total = 3 + (h % 3); // 3..5
+    const done = h % (total + 1); // 0..total
+    return Array.from({ length: total }, (_, i) => ({
+        text: PLACEHOLDER_TASK_POOL[(h + i) % PLACEHOLDER_TASK_POOL.length],
+        done: i < done,
+    }));
+}
+
+/** Pure: done/total/percent for a task list. Real once the task data is wired. */
+export function taskProgress(tasks: CardTask[]): { done: number; total: number; pct: number } {
+    const total = tasks.length;
+    const done = tasks.filter((t) => t.done).length;
+    return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
+}

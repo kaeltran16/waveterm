@@ -3,6 +3,21 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Cockpit card — fabricated data (2026-06-26)
+
+The Cockpit live-agent card renders two affordances from **deterministic placeholder
+data**, because the live `AgentVM` carries no source for them yet. Live agents
+currently show fabricated numbers. Both have a single replacement seam in
+`frontend/app/view/agents/agentsviewmodel.ts`.
+
+- **Card diff stats** (`+adds / −dels` button in the card header) — fabricated by
+  `placeholderDiffStats(agent)`. Wire real `files/adds/dels` from the Files-surface
+  `gitinfo` RPCs for the agent's worktree, then delete `placeholderDiffStats`.
+- **Card task list** (the `done/total` chip + task popover) — fabricated by
+  `placeholderTasks(agent)`. Project the agent's latest TodoWrite tool state from the
+  transcript into `AgentVM`, then delete `placeholderTasks`. `taskProgress` is real and
+  stays.
+
 ## Usage surface — deferred (2026-06-26)
 
 - **Rate-limit window token cap** (handoff "1.34M / 2.2M tok"): no faithful source — the 5h/weekly %

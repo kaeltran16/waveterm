@@ -3,7 +3,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { useAtomValue, type PrimitiveAtom } from "jotai";
+import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
 import { Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
@@ -254,6 +254,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
     const toggleWide = (id: string) => setCardPrefs((p) => ({ ...p, [id]: { ...p[id], wide: !p[id]?.wide } }));
     const setCardHeight = (id: string, h: number) => setCardPrefs((p) => ({ ...p, [id]: { ...p[id], height: h } }));
+    const openComposerId = useAtomValue(model.openComposerIdAtom);
+    const setOpenComposerId = useSetAtom(model.openComposerIdAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
     const railOpen = useAtomValue(model.railOpenAtom);
     const chip = useAtomValue(model.chipFilterAtom);
@@ -411,7 +413,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         } else if (e.key === "r") {
             e.preventDefault();
             if (cur && !hasAnswerableAsk(cur)) {
-                focusRowComposer(cur.id);
+                setOpenComposerId(cur.id);
+                requestAnimationFrame(() => focusRowComposer(cur.id));
             }
         } else if (e.key === "t") {
             e.preventDefault();
@@ -571,14 +574,23 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 selections={answerSel[a.id] ?? {}}
                                 sent={sentIds.has(a.id)}
                                 activeQuestion={answerTab[a.id] ?? 0}
+                                composerOpen={openComposerId === a.id}
                                 onCursor={() => setCursorId(a.id)}
                                 onOpen={() => openFocus(a.id, false)}
                                 onOpenTerminal={() => model.openTerminal(a.id)}
+                                onOpenComposer={() => setOpenComposerId(a.id)}
                                 onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
                                 onSubmitAnswer={() => submitAnswer(a.id)}
                                 onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                onComposerEscape={() => containerRef.current?.focus()}
-                                onBackground={a.state === "working" ? () => toggleBackground(a.id) : undefined}
+                                onComposerEscape={() => {
+                                    setOpenComposerId(undefined);
+                                    containerRef.current?.focus();
+                                }}
+                                onBackground={
+                                    a.state === "working" || a.state === "asking"
+                                        ? () => toggleBackground(a.id)
+                                        : undefined
+                                }
                                 onDismiss={
                                     a.state === "idle"
                                         ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
