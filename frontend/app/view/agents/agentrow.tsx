@@ -325,90 +325,96 @@ export function AgentRow({
                 />
             ) : null}
 
-            {/* feed */}
+            {/* scrollable body: feed + answer + composer scroll together as one region, so nothing
+                clips at small card heights and the whole card reads as vertically scrollable. The feed
+                grows to keep the composer pinned to the bottom when content is short; the region scrolls
+                when it overflows. Header + asking band stay pinned above. */}
             <div
                 ref={scrollRef}
                 onScroll={onNarrationScroll}
-                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-1.5"
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden"
             >
-                {working && agent.activity ? (
-                    <div className="mb-1.5 flex items-center gap-2 border-b border-edge-mid pb-1.5">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.4s_infinite]" />
-                        <span
-                            title={agent.activity}
-                            className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"
-                        >
-                            {agent.activity}
-                        </span>
-                        {prog ? (
-                            <TaskChip done={prog.done} total={prog.total} onClick={() => setTasksOpen((v) => !v)} />
-                        ) : null}
-                    </div>
-                ) : null}
-                {entries.length > 0 ? <NarrationTimeline entries={entries} accentLatest active={!idle} /> : null}
-            </div>
-
-            {/* structured answer band */}
-            {asking && hasQuestions ? (
-                <AnswerBar
-                    agent={agent}
-                    selections={selections}
-                    sent={sent}
-                    numbered
-                    activeQuestion={activeQuestion}
-                    onToggle={onToggleAnswer}
-                    onSubmit={onSubmitAnswer}
-                    onSelectQuestion={onSelectQuestion}
-                    className="shrink-0 border-t border-edge-mid px-3 py-2"
-                />
-            ) : null}
-
-            {/* composer */}
-            {showComposer ? (
-                <div
-                    className="flex shrink-0 flex-col gap-1.5 border-t border-edge-mid px-3 py-2"
-                    onClick={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                >
-                    {asking && agent.ask?.replySuggestions?.length ? (
-                        <div className="flex flex-wrap gap-1.5">
-                            {agent.ask.replySuggestions.map((s, i) => (
-                                <button
-                                    key={i}
-                                    type="button"
-                                    onClick={() => composerRef.current?.fill(s)}
-                                    className="cursor-pointer whitespace-nowrap rounded-[7px] border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:border-warning/55 hover:bg-warning/20"
-                                >
-                                    {s}
-                                </button>
-                            ))}
+                {/* feed */}
+                <div className="shrink-0 grow px-3 py-1.5">
+                    {working && agent.activity ? (
+                        <div className="mb-1.5 flex items-center gap-2 border-b border-edge-mid pb-1.5">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.4s_infinite]" />
+                            <span
+                                title={agent.activity}
+                                className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"
+                            >
+                                {agent.activity}
+                            </span>
+                            {prog ? (
+                                <TaskChip done={prog.done} total={prog.total} onClick={() => setTasksOpen((v) => !v)} />
+                            ) : null}
                         </div>
                     ) : null}
-                    <AgentComposer
-                        ref={composerRef}
-                        blockId={agent.blockId}
-                        placeholder={`message ${agent.name}…`}
-                        onEscape={onComposerEscape}
-                        className="border-t-0 px-0 py-0"
+                    {entries.length > 0 ? <NarrationTimeline entries={entries} accentLatest active={!idle} /> : null}
+                </div>
+
+                {/* structured answer band */}
+                {asking && hasQuestions ? (
+                    <AnswerBar
+                        agent={agent}
+                        selections={selections}
+                        sent={sent}
+                        numbered
+                        activeQuestion={activeQuestion}
+                        onToggle={onToggleAnswer}
+                        onSubmit={onSubmitAnswer}
+                        onSelectQuestion={onSelectQuestion}
+                        className="shrink-0 border-t border-edge-mid px-3 py-2"
                     />
-                </div>
-            ) : (
-                <div
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenComposer();
-                    }}
-                    className="flex shrink-0 cursor-text items-center gap-2 border-t border-edge-mid px-3 py-1.5 hover:bg-surface-hover"
-                >
-                    <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
-                        +
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{`message ${agent.name}…`}</span>
-                    <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
-                        R
-                    </span>
-                </div>
-            )}
+                ) : null}
+
+                {/* composer */}
+                {showComposer ? (
+                    <div
+                        className="flex shrink-0 flex-col gap-1.5 border-t border-edge-mid px-3 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                    >
+                        {asking && agent.ask?.replySuggestions?.length ? (
+                            <div className="flex flex-wrap gap-1.5">
+                                {agent.ask.replySuggestions.map((s, i) => (
+                                    <button
+                                        key={i}
+                                        type="button"
+                                        onClick={() => composerRef.current?.fill(s)}
+                                        className="cursor-pointer whitespace-nowrap rounded-[7px] border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:border-warning/55 hover:bg-warning/20"
+                                    >
+                                        {s}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                        <AgentComposer
+                            ref={composerRef}
+                            blockId={agent.blockId}
+                            placeholder={`message ${agent.name}…`}
+                            onEscape={onComposerEscape}
+                            className="border-t-0 px-0 py-0"
+                        />
+                    </div>
+                ) : (
+                    <div
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenComposer();
+                        }}
+                        className="flex shrink-0 cursor-text items-center gap-2 border-t border-edge-mid px-3 py-1.5 hover:bg-surface-hover"
+                    >
+                        <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
+                            +
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{`message ${agent.name}…`}</span>
+                        <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
+                            R
+                        </span>
+                    </div>
+                )}
+            </div>
 
             {/* resize */}
             <div
