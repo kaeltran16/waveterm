@@ -5,11 +5,12 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
+import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
 import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
 import { Provider } from "jotai";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { CockpitAppBar } from "./app-bar";
 import "./cockpit.scss";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
@@ -44,6 +45,16 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
         agentsModelRef.current = model;
     }
     const model = agentsModelRef.current;
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N")) {
+                e.preventDefault();
+                globalStore.set(model.newAgentOpenAtom, true);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [model]);
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <CockpitAppBar model={model} />
@@ -51,6 +62,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
                 <CockpitShell model={model} tabId={tabIdRef.current} />
             </div>
             <NewProjectModal model={model} />
+            <NewAgentModal model={model} />
         </div>
     );
 }

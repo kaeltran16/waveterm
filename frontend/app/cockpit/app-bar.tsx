@@ -1,12 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { newAgentSession } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { topFiveHourPct, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
-import { fireAndForget } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
 
@@ -57,7 +55,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
 
             <button
                 type="button"
-                onClick={() => fireAndForget(() => newAgentSession(model))}
+                onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
                 className="flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-accent px-3 py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
             >
                 <span className="-mt-px text-[15px] leading-none">+</span>New agent
