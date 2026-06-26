@@ -9,6 +9,7 @@ import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { NavRail } from "./navrail";
 import { PlaceholderSurface } from "./placeholdersurface";
+import { UsageSurface } from "./usagesurface";
 
 export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const surface = useAtomValue(model.surfaceAtom);
@@ -24,6 +25,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                     <ActivitySurface model={model} />
                 ) : surface === "files" ? (
                     <FilesSurface model={model} />
+                ) : surface === "usage" ? (
+                    <UsageSurface model={model} />
                 ) : (
                     <PlaceholderSurface surface={surface} />
                 )}

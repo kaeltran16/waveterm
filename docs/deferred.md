@@ -3,6 +3,21 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Usage surface — deferred (2026-06-26)
+
+- **Rate-limit window token cap** (handoff "1.34M / 2.2M tok"): no faithful source — the 5h/weekly %
+  is Anthropic's opaque server-side number; transcript token sums are a different accounting. The
+  donut shows % + reset only. Revisit if a real cap / used-token source appears.
+- **Plan-tier badge** (handoff "Max 20×" / "Tier 4"): not carried by the statusLine; provider label
+  is shown without a tier badge.
+- **Codex/OpenAI token breakdown**: `extractUsage` only parses Claude `type:"assistant"` lines, and
+  OpenAI has no 5h/weekly window. A Codex provider row appears only when real data exists for it.
+- **Model-id prettifying**: the per-model bar shows the raw model id (e.g. "claude-opus-4-20250514")
+  rather than a friendly label.
+- **Pricing table** (`usagestats.ts` PRICING) is a hardcoded estimate; refresh as plans change.
+- **Scan bound**: `usagestore.ts` reads the newest `SESSION_READ_CAP` (150) sessions, up to
+  `USAGE_READ_MAXLINES` (20000) lines each. Pathologically large fleets/sessions could under-count.
+
 ## Files surface — deferred (v1)
 
 - **Codex cwd via tail read:** `loadFilesForAgent` reads the transcript TAIL for cwd. Claude's

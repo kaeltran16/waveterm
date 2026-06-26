@@ -6,7 +6,6 @@ const TITLES: Record<string, string> = {
     sessions: "Sessions",
     files: "Files",
     memory: "Memory",
-    usage: "Usage",
 };
 
 export function PlaceholderSurface({ surface }: { surface: string }) {
