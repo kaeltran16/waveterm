@@ -95,6 +95,7 @@ type WshRpcInterface interface {
 	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
 	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
+	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
@@ -627,6 +628,26 @@ type CommandGitDiffRtnData struct {
 	Diff      string `json:"diff"`
 	Content   string `json:"content"`
 	Untracked bool   `json:"untracked"`
+}
+
+type UsageBucket struct {
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
+	Day           string `json:"day"`
+	Input         int    `json:"input"`
+	Output        int    `json:"output"`
+	CacheRead     int    `json:"cacheread"`
+	CacheCreate   int    `json:"cachecreate"`
+	CacheCreate1h int    `json:"cachecreate1h"`
+	Msgs          int    `json:"msgs"`
+}
+
+type CommandGetUsageStatsData struct {
+	WindowDays int `json:"windowdays,omitempty"`
+}
+
+type CommandGetUsageStatsRtnData struct {
+	Buckets []UsageBucket `json:"buckets"`
 }
 
 type CommandStreamAgentTranscriptData struct {

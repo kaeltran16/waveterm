@@ -43,6 +43,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/suggestion"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
+	"github.com/wavetermdev/waveterm/pkg/usagestats"
 	"github.com/wavetermdev/waveterm/pkg/util/envutil"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
@@ -1467,6 +1468,22 @@ func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitD
 		return nil, fmt.Errorf("git diff: %w", err)
 	}
 	return &wshrpc.CommandGitDiffRtnData{Diff: d.Diff, Content: d.Content, Untracked: d.Untracked}, nil
+}
+
+func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.CommandGetUsageStatsData) (*wshrpc.CommandGetUsageStatsRtnData, error) {
+	buckets, err := usagestats.ScanUsage(data.WindowDays)
+	if err != nil {
+		return nil, fmt.Errorf("scanning usage: %w", err)
+	}
+	out := make([]wshrpc.UsageBucket, len(buckets))
+	for i, b := range buckets {
+		out[i] = wshrpc.UsageBucket{
+			Provider: b.Provider, Model: b.Model, Day: b.Day,
+			Input: b.Input, Output: b.Output, CacheRead: b.CacheRead,
+			CacheCreate: b.CacheCreate, CacheCreate1h: b.CacheCreate1h, Msgs: b.Msgs,
+		}
+	}
+	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out}, nil
 }
 
 func (ws *WshServer) StreamAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandStreamAgentTranscriptData) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {

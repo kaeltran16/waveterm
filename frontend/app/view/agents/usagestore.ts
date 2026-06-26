@@ -1,20 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Usage surface store: the aggregated UsageStats atom + the impure loader. Mirrors activitystore —
-// discover sessions (newest-first), read each transcript, parse usage, aggregate. Reads newest-first
-// up to a file cap; SessionDescriptor.modtime is unit-agnostic, so the 7-day cutoff is enforced on
-// parsed message ts inside aggregateUsage, not on modtime.
+// Usage surface store: the aggregated UsageStats atom + the impure loader. The scan now runs in
+// the Go backend (GetUsageStatsCommand walks every in-window transcript, no file cap); this just
+// asks for buckets and folds them into the view model. On RPC failure the last-good stats are
+// kept (a transient websocket drop must not blank the surface) and usageErrorAtom is set.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { discoverSessions } from "./activitydiscovery";
-import { aggregateUsage, extractCodexUsage, extractUsage, type UsageRecord, type UsageStats } from "./usagestats";
+import { aggregateBuckets, type UsageStats } from "./usagestats";
 
-const SESSION_READ_CAP = 150; // newest-first files to scan (bounds work without trusting modtime units)
-const USAGE_READ_MAXLINES = 20000; // ~whole file; the backend reads the full file then tails to this
+const DEFAULT_WINDOW_DAYS = 7;
 
 const EMPTY: UsageStats = {
     totals: { tokensToday: 0, tokensWeek: 0, spendTodayUsd: 0, spendWeekUsd: 0 },
@@ -22,31 +20,22 @@ const EMPTY: UsageStats = {
 };
 
 export const usageStatsAtom = atom<UsageStats>(EMPTY) as PrimitiveAtom<UsageStats>;
+export const usageErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 let loading = false;
 
-export async function loadUsage(): Promise<void> {
+export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void> {
     if (loading) {
         return;
     }
     loading = true;
     try {
-        const sessions = (await discoverSessions()).slice(0, SESSION_READ_CAP);
-        const records: UsageRecord[] = [];
-        for (const s of sessions) {
-            let lines: string[];
-            try {
-                const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, {
-                    path: s.path,
-                    maxlines: USAGE_READ_MAXLINES,
-                });
-                lines = rtn.lines ?? [];
-            } catch {
-                continue;
-            }
-            records.push(...(s.agent === "codex" ? extractCodexUsage(lines) : extractUsage(lines, s.agent)));
-        }
-        globalStore.set(usageStatsAtom, aggregateUsage(records, Date.now()));
+        const rtn = await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays });
+        globalStore.set(usageStatsAtom, aggregateBuckets(rtn.buckets ?? [], Date.now()));
+        globalStore.set(usageErrorAtom, false);
+    } catch {
+        // keep the last-good stats; surface a subtle "couldn't refresh" instead of blanking
+        globalStore.set(usageErrorAtom, true);
     } finally {
         loading = false;
     }

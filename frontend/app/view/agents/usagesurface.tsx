@@ -20,7 +20,7 @@ import {
     usageLevel,
 } from "./agentsviewmodel";
 import type { ModelUsage } from "./usagestats";
-import { loadUsage, usageStatsAtom } from "./usagestore";
+import { loadUsage, usageErrorAtom, usageStatsAtom } from "./usagestore";
 
 const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1 };
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
@@ -82,6 +82,7 @@ function ModelBar({ m }: { m: ModelUsage }) {
 export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const stats = useAtomValue(usageStatsAtom);
+    const loadError = useAtomValue(usageErrorAtom);
     const now = useAtomValue(model.nowAtom);
     const { asking, working, idle } = groupAgents(agents);
 
@@ -111,6 +112,11 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     <p className="text-[13.5px] text-secondary">
                         Live quota across providers. Rolling 5-hour window and weekly caps.
                     </p>
+                    {loadError ? (
+                        <p className="mt-1 text-[12px] text-warning">
+                            Couldn’t refresh — showing the last loaded usage.
+                        </p>
+                    ) : null}
                 </div>
 
                 <div className="mb-[34px] grid grid-cols-4 gap-3">

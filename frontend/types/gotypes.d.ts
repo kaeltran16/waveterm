@@ -542,6 +542,16 @@ declare global {
         filename?: string;
     };
 
+    // wshrpc.CommandGetUsageStatsData
+    type CommandGetUsageStatsData = {
+        windowdays?: number;
+    };
+
+    // wshrpc.CommandGetUsageStatsRtnData
+    type CommandGetUsageStatsRtnData = {
+        buckets: UsageBucket[];
+    };
+
     // wshrpc.CommandGetWaveAIChatData
     type CommandGetWaveAIChatData = {
         chatid: string;
@@ -1948,6 +1958,19 @@ declare global {
         id?: string;
         data?: any;
         providerMetadata?: {[key: string]: any};
+    };
+
+    // wshrpc.UsageBucket
+    type UsageBucket = {
+        provider: string;
+        model: string;
+        day: string;
+        input: number;
+        output: number;
+        cacheread: number;
+        cachecreate: number;
+        cachecreate1h: number;
+        msgs: number;
     };
 
     // userinput.UserInputRequest

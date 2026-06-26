@@ -526,6 +526,12 @@ func GetUpdateChannelCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, e
 	return resp, err
 }
 
+// command "getusagestats", wshserver.GetUsageStatsCommand
+func GetUsageStatsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetUsageStatsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetUsageStatsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetUsageStatsRtnData](w, "getusagestats", data, opts)
+	return resp, err
+}
+
 // command "getvar", wshserver.GetVarCommand
 func GetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.RpcOpts) (*wshrpc.CommandVarResponseData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandVarResponseData](w, "getvar", data, opts)

@@ -528,6 +528,12 @@ export class RpcApiType {
         return client.wshRpcCall("getupdatechannel", null, opts);
     }
 
+    // command "getusagestats" [call]
+    GetUsageStatsCommand(client: WshClient, data: CommandGetUsageStatsData, opts?: RpcOpts): Promise<CommandGetUsageStatsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getusagestats", data, opts);
+        return client.wshRpcCall("getusagestats", data, opts);
+    }
+
     // command "getvar" [call]
     GetVarCommand(client: WshClient, data: CommandVarData, opts?: RpcOpts): Promise<CommandVarResponseData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getvar", data, opts);
