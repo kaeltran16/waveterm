@@ -25,14 +25,35 @@ export function mergeSwitcherProjects(
     return [...live, ...extra];
 }
 
-export interface LaunchableProject {
+export interface LaunchCandidate {
     name: string;
-    path: string;
+    path: string; // registry path; "" for a live project until its cwd is resolved
+    transcriptPath?: string; // present for live projects (used to resolve the cwd)
+    registered: boolean;
 }
 
-// New Agent launch targets: registry entries that have a real path.
-export function launchableProjects(registry: Record<string, ProjectKeywords>): LaunchableProject[] {
-    return Object.entries(registry ?? {})
-        .filter(([, v]) => !!v?.path)
-        .map(([name, v]) => ({ name, path: v.path }));
+// New Agent launch targets = registry projects (stored path) ∪ live-derived projects (path resolved
+// lazily from a transcript cwd). Registry wins on a name collision; name-sorted. Mirrors the
+// switcher's merged list so the launcher shows the same projects.
+export function launchCandidates(
+    registry: Record<string, ProjectKeywords>,
+    live: { name: string; transcriptPath?: string }[]
+): LaunchCandidate[] {
+    const out: LaunchCandidate[] = [];
+    const seen = new Set<string>();
+    for (const [name, v] of Object.entries(registry ?? {})) {
+        if (!v?.path) {
+            continue;
+        }
+        out.push({ name, path: v.path, registered: true });
+        seen.add(name);
+    }
+    for (const p of live ?? []) {
+        if (seen.has(p.name)) {
+            continue;
+        }
+        seen.add(p.name);
+        out.push({ name: p.name, path: "", transcriptPath: p.transcriptPath, registered: false });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
 }

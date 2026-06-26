@@ -7,10 +7,12 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { agentCwd } from "./agentcwd";
+import { liveProjectsForLaunch } from "./agentsviewmodel";
 import { runtimeLaunchLabel, runtimeShowsTask, runtimeStartupCommand, type Runtime } from "./launch";
-import { launchableProjects, projectsAtom } from "./projectsstore";
+import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
 
 const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
     { id: "claude", name: "Claude Code", glyph: "✳" },
@@ -19,9 +21,12 @@ const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
     { id: "terminal", name: "Terminal", glyph: "›_" },
 ];
 
+const CWD_TAIL_LINES = 200;
+
 export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newAgentOpenAtom);
     const registry = useAtomValue(projectsAtom);
+    const agents = useAtomValue(model.agentsAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
     const [task, setTask] = useState("");
@@ -29,10 +34,55 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [branch, setBranch] = useState("feat/new-agent");
     const [branches, setBranches] = useState<BranchInfo[]>([]);
     const [branchListOpen, setBranchListOpen] = useState(false);
+    const [resolvedPaths, setResolvedPaths] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
-    const projects = launchableProjects(registry);
-    const selectedProject = project || projects[0]?.name || "";
-    const selectedPath = projects.find((p) => p.name === selectedProject)?.path ?? "";
+    // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones.
+    const candidates = useMemo(() => launchCandidates(registry, liveProjectsForLaunch(agents)), [registry, agents]);
+    const pathFor = (c: LaunchCandidate | undefined): string => (c ? c.path || resolvedPaths[c.name] || "" : "");
+    const selectedProject = project || candidates[0]?.name || "";
+    const selectedCandidate = candidates.find((c) => c.name === selectedProject);
+    const selectedPath = pathFor(selectedCandidate);
+    // Resolve a launch cwd for live (un-registered) projects from a representative agent's transcript
+    // (the same source the Files surface uses). Registered projects already carry a stored path.
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const todo = candidates.filter((c) => !c.registered && !c.path && c.transcriptPath && !(c.name in resolvedPaths));
+        if (todo.length === 0) {
+            return;
+        }
+        let cancelled = false;
+        void Promise.all(
+            todo.map(async (c) => {
+                try {
+                    const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, {
+                        path: c.transcriptPath!,
+                        maxlines: CWD_TAIL_LINES,
+                    });
+                    return [c.name, agentCwd(rtn?.lines ?? []) ?? ""] as const;
+                } catch {
+                    return [c.name, ""] as const;
+                }
+            })
+        ).then((pairs) => {
+            if (cancelled) {
+                return;
+            }
+            setResolvedPaths((prev) => {
+                const next = { ...prev };
+                for (const [name, p] of pairs) {
+                    next[name] = p;
+                }
+                return next;
+            });
+        });
+        return () => {
+            cancelled = true;
+        };
+        // resolvedPaths is read for the dedup filter but kept out of deps: the merge is functional and
+        // re-running on every resolution would loop.
+    }, [open, candidates]);
     // Pull the project's branches (recency-ordered) for the worktree-branch suggestions. Terminal
     // runtime and non-repo projects degrade to free-text (empty list).
     useEffect(() => {
@@ -68,17 +118,22 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         setStartup(runtimeStartupCommand(r));
     };
     const launch = async () => {
-        const proj = projects.find((p) => p.name === selectedProject);
-        if (!proj) {
-            setError("Add a project first, then pick it here.");
+        const c = candidates.find((p) => p.name === selectedProject);
+        const path = pathFor(c);
+        if (!c || !path) {
+            setError("Couldn't find a folder for this project. Add it via + New project.");
             return;
         }
         try {
+            // Persist live-derived projects on first launch so they become stable, registered targets.
+            if (!c.registered) {
+                await RpcApi.CreateProjectCommand(TabRpcClient, { name: c.name, path });
+            }
             await launchAgent(model, {
                 runtime,
                 startupCommand: startup,
                 task,
-                projectPath: proj.path,
+                projectPath: path,
                 branch,
             });
             close();
@@ -132,37 +187,47 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         </div>
                     </Section>
                     <Section label="Project">
-                        {projects.length === 0 ? (
+                        {candidates.length === 0 ? (
                             <div className="text-[12.5px] text-muted">
                                 No projects yet — add one from the project switcher (+ New project).
                             </div>
                         ) : (
                             <div className="flex flex-wrap gap-[7px]">
-                                {projects.map((p) => (
-                                    <button
-                                        key={p.name}
-                                        onClick={() => setProject(p.name)}
-                                        className={cn(
-                                            "flex cursor-pointer items-center gap-[7px] rounded-[8px] border bg-surface px-[11px] py-[7px] hover:border-edge-strong",
-                                            selectedProject === p.name ? "border-accent-700 bg-accentbg" : "border-edge-mid"
-                                        )}
-                                    >
-                                        <div
+                                {candidates.map((p) => {
+                                    const failed = !p.registered && p.name in resolvedPaths && !resolvedPaths[p.name];
+                                    const resolving = !p.registered && !pathFor(p) && !failed;
+                                    return (
+                                        <button
+                                            key={p.name}
+                                            disabled={failed}
+                                            onClick={() => setProject(p.name)}
+                                            title={failed ? "No working directory found for this project" : undefined}
                                             className={cn(
-                                                "h-[7px] w-[7px] rounded-[2px]",
-                                                selectedProject === p.name ? "bg-accent" : "bg-muted"
-                                            )}
-                                        />
-                                        <span
-                                            className={cn(
-                                                "text-[12.5px] font-medium",
-                                                selectedProject === p.name ? "text-primary" : "text-muted-foreground"
+                                                "flex items-center gap-[7px] rounded-[8px] border bg-surface px-[11px] py-[7px]",
+                                                failed
+                                                    ? "cursor-not-allowed opacity-40"
+                                                    : "cursor-pointer hover:border-edge-strong",
+                                                selectedProject === p.name ? "border-accent-700 bg-accentbg" : "border-edge-mid"
                                             )}
                                         >
-                                            {p.name}
-                                        </span>
-                                    </button>
-                                ))}
+                                            <div
+                                                className={cn(
+                                                    "h-[7px] w-[7px] rounded-[2px]",
+                                                    selectedProject === p.name ? "bg-accent" : "bg-muted"
+                                                )}
+                                            />
+                                            <span
+                                                className={cn(
+                                                    "text-[12.5px] font-medium",
+                                                    selectedProject === p.name ? "text-primary" : "text-muted-foreground"
+                                                )}
+                                            >
+                                                {p.name}
+                                            </span>
+                                            {resolving ? <span className="font-mono text-[9.5px] text-muted">…</span> : null}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
                     </Section>

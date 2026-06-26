@@ -490,6 +490,29 @@ export function projectsFromAgents(agents: AgentVM[]): ProjectInfo[] {
     return [...byName.values()].sort((x, y) => x.name.localeCompare(y.name));
 }
 
+export interface LiveProject {
+    name: string;
+    transcriptPath?: string; // a representative agent's transcript, for resolving the project cwd
+}
+
+/** Pure: distinct live projects, each with a representative transcriptPath used to resolve a launch
+ *  cwd. Prefers an agent that actually has a transcriptPath. Sorted by name. */
+export function liveProjectsForLaunch(agents: AgentVM[]): LiveProject[] {
+    const byName = new Map<string, string | undefined>();
+    for (const a of agents) {
+        const name = projectOf(a);
+        if (!name) {
+            continue;
+        }
+        if (!byName.has(name) || (!byName.get(name) && a.transcriptPath)) {
+            byName.set(name, a.transcriptPath);
+        }
+    }
+    return [...byName.entries()]
+        .map(([name, transcriptPath]) => ({ name, transcriptPath }))
+        .sort((x, y) => x.name.localeCompare(y.name));
+}
+
 /** Pure: does an agent fall within the current project scope? "all" matches everything. */
 export function matchesProjectFilter(agent: AgentVM, filter: string): boolean {
     if (filter === "all") {

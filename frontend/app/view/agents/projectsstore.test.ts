@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { launchableProjects, mergeSwitcherProjects, type SwitcherProject } from "./projectsstore";
+import { launchCandidates, mergeSwitcherProjects, type SwitcherProject } from "./projectsstore";
 
 describe("mergeSwitcherProjects", () => {
     it("appends registry-only projects with zero counts", () => {
@@ -19,9 +19,24 @@ describe("mergeSwitcherProjects", () => {
     });
 });
 
-describe("launchableProjects", () => {
-    it("returns name+path for entries that have a path", () => {
-        const registry = { a: { path: "/a" }, b: { path: "" } };
-        expect(launchableProjects(registry as any)).toEqual([{ name: "a", path: "/a" }]);
+describe("launchCandidates", () => {
+    it("includes registry projects (with paths) and live projects (path empty until resolved)", () => {
+        const registry = { "wave-test-proj": { path: "/repo" }, nopath: { path: "" } };
+        const live = [{ name: "vault", transcriptPath: "/v/a.jsonl" }, { name: "docs" }];
+        expect(launchCandidates(registry as any, live)).toEqual([
+            { name: "docs", path: "", transcriptPath: undefined, registered: false },
+            { name: "vault", path: "", transcriptPath: "/v/a.jsonl", registered: false },
+            { name: "wave-test-proj", path: "/repo", registered: true },
+        ]);
+    });
+    it("registry wins on a name collision (live duplicate dropped)", () => {
+        const registry = { vault: { path: "/repo/vault" } };
+        const live = [{ name: "vault", transcriptPath: "/v/a.jsonl" }];
+        expect(launchCandidates(registry as any, live)).toEqual([{ name: "vault", path: "/repo/vault", registered: true }]);
+    });
+    it("works with an empty registry", () => {
+        expect(launchCandidates({} as any, [{ name: "docs", transcriptPath: "/d.jsonl" }])).toEqual([
+            { name: "docs", path: "", transcriptPath: "/d.jsonl", registered: false },
+        ]);
     });
 });
