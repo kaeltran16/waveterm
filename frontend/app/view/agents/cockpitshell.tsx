@@ -15,7 +15,7 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
     return (
         <div className="flex h-full w-full">
             <NavRail model={model} />
-            <div className="relative min-w-0 flex-1">
+            <div className="relative min-w-0 flex-1 bg-background">
                 {surface === "cockpit" ? (
                     <CockpitSurface model={model} />
                 ) : surface === "agent" ? (

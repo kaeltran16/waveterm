@@ -75,7 +75,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
     }
     return (
         <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-[11px] border-b border-border bg-surface px-[20px] py-[13px]">
+            <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">
                 <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
                 <div className="flex-1" />
                 <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
@@ -93,7 +93,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
             ) : (
                 <>
                     {view.isDiff && (
-                        <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint bg-surface px-[20px] py-[8px] font-mono text-[11px] font-bold">
+                        <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px] font-mono text-[11px] font-bold">
                             <span className="text-success">+{view.adds}</span>
                             <span className="text-error">−{view.dels}</span>
                             <span className="font-medium text-ink-mid">{view.hunkLabel}</span>
@@ -169,7 +169,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     )}
                 </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col bg-surface">
+            <div className="flex min-w-0 flex-1 flex-col">
                 <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />
             </div>
         </div>

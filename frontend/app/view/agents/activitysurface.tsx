@@ -53,7 +53,7 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
     }, [model]);
     const groups = groupByProject(applyFilter(events, filter));
     return (
-        <div className="absolute inset-0 overflow-y-auto bg-background">
+        <div className="absolute inset-0 overflow-y-auto">
             <div className="mx-auto max-w-[820px] px-[30px] pb-[70px] pt-[30px]">
                 <div className="mb-5">
                     <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">Activity</h1>
