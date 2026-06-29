@@ -308,6 +308,12 @@ export function mergeOrder(prev: string[], ids: string[]): string[] {
     return [...kept, ...added];
 }
 
+/** pure: apply stored card order without hiding agents that appeared before orderAtom updated. */
+export function applyAgentOrder(order: string[], agents: AgentVM[]): AgentVM[] {
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    return mergeOrder(order, agents.map((a) => a.id)).map((id) => byId.get(id)).filter(Boolean) as AgentVM[];
+}
+
 /** Pure: split working-state agents into the active set (rendered in the working region) and the
  *  backgrounded set (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within
  *  each is preserved. Asking agents are never passed here (they live in the asks region), so a
@@ -418,6 +424,12 @@ export function isRecentlyIdle(agent: AgentVM, now: number, graceMs = IDLE_GRACE
     return agent.state === "idle" && agent.idleSince != null && now - agent.idleSince < graceMs;
 }
 
+/** pure: agents whose transcript should stay streamed into the cockpit panel. just-finished
+ *  agents keep rendering during the idle grace window, so their stream stays open too; otherwise a
+ *  fast final Codex/Claude write can race the stop event and never reach the panel. */
+export function streamableTranscriptAgents(agents: AgentVM[], now: number): AgentVM[] {
+    return agents.filter((a) => a.transcriptPath && (a.state === "asking" || a.state === "working" || isRecentlyIdle(a, now)));
+}
 
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
  *  the reporter's status (a blocked AskCommand RPC may still report "working"); blockedMs is

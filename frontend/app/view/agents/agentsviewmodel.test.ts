@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, mergePendingLaunches, pendingToVM, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -267,6 +267,22 @@ describe("isRecentlyIdle", () => {
     });
 });
 
+describe("streamableTranscriptAgents", () => {
+    const NOW = 1_000_000;
+
+    it("keeps streams open for rendered recently-idle agents", () => {
+        const agents = [
+            mk("asking", "asking", { transcriptPath: "/a.jsonl" }),
+            mk("working", "working", { transcriptPath: "/w.jsonl" }),
+            mk("recent", "idle", { transcriptPath: "/r.jsonl", idleSince: NOW - 30_000 }),
+            mk("old", "idle", { transcriptPath: "/o.jsonl", idleSince: NOW - 360_000 }),
+            mk("missing", "working"),
+        ];
+
+        expect(streamableTranscriptAgents(agents, NOW).map((a) => a.id)).toEqual(["asking", "working", "recent"]);
+    });
+});
+
 describe("isAskStale", () => {
     it("stale when a newer working/idle status supersedes the ask", () => {
         expect(isAskStale(1_000, 2_000, "working")).toBe(true);
@@ -297,6 +313,21 @@ describe("mergeOrder", () => {
     });
     it("is a no-op when the set is unchanged", () => {
         expect(mergeOrder(["a", "b"], ["a", "b"])).toEqual(["a", "b"]);
+    });
+});
+
+describe("applyAgentOrder", () => {
+    it("renders current agents even when stored order is empty or stale", () => {
+        const active = [mk("a", "working"), mk("b", "asking")];
+
+        expect(applyAgentOrder([], active).map((a) => a.id)).toEqual(["a", "b"]);
+        expect(applyAgentOrder(["missing"], active).map((a) => a.id)).toEqual(["a", "b"]);
+    });
+
+    it("preserves stored order for ids that still exist", () => {
+        const active = [mk("a", "working"), mk("b", "asking"), mk("c", "working")];
+
+        expect(applyAgentOrder(["b"], active).map((a) => a.id)).toEqual(["b", "a", "c"]);
     });
 });
 

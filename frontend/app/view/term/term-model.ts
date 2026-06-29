@@ -724,15 +724,14 @@ export class TermViewModel implements ViewModel {
         if (this.shouldHandleCtrlVPaste() && keyutil.checkKeyPressed(waveEvent, "Ctrl:v")) {
             event.preventDefault();
             event.stopPropagation();
-            getApi().nativePaste();
+            this.termRef.current?.pasteHandler();
             return false;
         }
 
         if (keyutil.checkKeyPressed(waveEvent, "Ctrl:Shift:v")) {
             event.preventDefault();
             event.stopPropagation();
-            getApi().nativePaste();
-            // this.termRef.current?.pasteHandler();
+            this.termRef.current?.pasteHandler();
             return false;
         } else if (keyutil.checkKeyPressed(waveEvent, "Ctrl:Shift:c")) {
             event.preventDefault();

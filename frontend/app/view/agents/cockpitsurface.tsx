@@ -17,6 +17,8 @@ import {
     groupAgents,
     hasAnswerableAsk,
     isRecentlyIdle,
+    applyAgentOrder,
+    streamableTranscriptAgents,
     matchesProjectFilter,
     mergeOrder,
     moveCursor,
@@ -203,14 +205,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [asking]);
 
-    // open a live transcript stream per visible asking/working agent; stop streams that left the set
+    // open a live transcript stream per rendered active agent; keep recently-idle streams during
+    // the grace window so final transcript writes cannot race the stop event.
     const streamedRef = useRef<Set<string>>(new Set());
     useEffect(() => {
         const wantedById = new Map<string, { path: string; agent?: string }>();
-        for (const a of [...asking, ...working]) {
-            if (a.transcriptPath) {
-                wantedById.set(a.id, { path: a.transcriptPath, agent: a.agent });
-            }
+        for (const a of streamableTranscriptAgents([...asking, ...working, ...recentlyIdle], now)) {
+            wantedById.set(a.id, { path: a.transcriptPath!, agent: a.agent });
         }
         for (const [id, { path, agent }] of wantedById) {
             if (!streamedRef.current.has(id)) {
@@ -224,7 +225,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 streamedRef.current.delete(id);
             }
         }
-    }, [asking, working]);
+    }, [asking, working, recentlyIdle, now]);
 
     useEffect(() => {
         return () => {
@@ -242,7 +243,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         const ids = activeAgents.map((a) => a.id);
         setOrder((prev) => mergeOrder(prev, ids));
     }, [activeAgents.map((a) => a.id).join(",")]);
-    const orderedAgents = order.map((id) => activeAgents.find((a) => a.id === id)).filter(Boolean) as AgentVM[];
+    const orderedAgents = applyAgentOrder(order, activeAgents);
     const orderedIds = orderedAgents.map((a) => a.id);
     // cursor traverses the single unified list
     const navigableIds = orderedIds;
