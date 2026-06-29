@@ -22,6 +22,8 @@ import {
 import { activeTabIdAtom } from "@/store/tab-model";
 import * as WOS from "@/store/wos";
 import { isMacOS, setMacOSVersion } from "@/util/platformutil";
+import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
+import { setupAgentStatusSubscription } from "@/app/view/agents/session-models/agentstatusstore";
 
 export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     const platform = getApi().getPlatform();
@@ -48,6 +50,12 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         await loadConnStatus();
         await loadBadges();
         initGlobalWaveEventSubs(initOpts);
+        // agent cockpit event ingestion: subscribe to agent:status (state/usage/subagents) and
+        // agent:ask. the only caller used to be sessionsidebar.tsx, removed in the phase 5b cockpit
+        // teardown — without these the cockpit never receives agent status, so the roster shows only
+        // pending-launch placeholders and the narration card body stays empty.
+        setupAgentStatusSubscription();
+        setupAgentAskSubscription();
         subscribeToConnEvents();
         if (isMacOS()) {
             const macOSVersion = await RpcApi.MacOSVersionCommand(TabRpcClient);
