@@ -8,11 +8,17 @@ mod paths;
 use init::InitState;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 use tauri::Manager;
 use uuid::Uuid;
 
-fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state: tauri::State<InitState>) {
+// Holds the spawned wavesrv so we can kill it on app exit. Without this the backend orphans when
+// the window closes (Windows doesn't kill a child on parent exit) and the stale wavesrv keeps
+// holding wave.lock + its own exe open — blocking the next launch and even reinstalls.
+struct WavesrvChild(Mutex<Option<Child>>);
+
+fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state: tauri::State<InitState>) -> Child {
     // Packaged: app_path = resource_dir(); dev: app_path = src-tauri/../dist (paths::resolve_app_path).
     // wavesrv + wsh both live under {app_path}/bin; wavesrv discovers wsh via WAVETERM_APP_PATH.
     let exe = app_path.join("bin").join("wavesrv.x64.exe");
@@ -64,6 +70,8 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
             }
         }
     });
+
+    child
 }
 
 fn main() {
@@ -78,6 +86,7 @@ fn main() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(InitState::default())
+        .manage(WavesrvChild(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             init::get_init,
             init::fe_log,
@@ -103,9 +112,18 @@ fn main() {
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
             let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
-            spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
+            let child = spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
+            app.state::<WavesrvChild>().0.lock().unwrap().replace(child);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Kill wavesrv when the app exits so it doesn't orphan and hold wave.lock + its exe.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(mut child) = app_handle.state::<WavesrvChild>().0.lock().unwrap().take() {
+                    let _ = child.kill();
+                }
+            }
+        });
 }
