@@ -123,6 +123,16 @@
 :root {
     --zoomfactor: 1;
     --zoomfactor-inv: 1;
+
+    /* Compat: legacy SCSS modules (modal.scss, typeaheadmodal.scss, search.scss) read these vars,
+       which used to come from the Electron-era theme.scss — not loaded in the cockpit. Without them
+       a modal's background is transparent and its z-index falls back to auto, painting the dialog
+       behind the terminal so its buttons can't be clicked. Map to the @theme tokens. */
+    --modal-bg-color: var(--color-surface-raised);
+    --modal-border-color: var(--color-edge-mid);
+    --zindex-modal-backdrop: 1;
+    --zindex-modal: 2;
+    --zindex-modal-wrapper: 500;
 }
 
 /* Chart tooltip styling for sysinfo plots */
