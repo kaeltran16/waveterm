@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { AgentComposer } from "./agentcomposer";
 import type { AgentsViewModel } from "./agents";
-import { formatAge, projectOf, toggleSelection, type AgentVM } from "./agentsviewmodel";
+import { formatAge, projectOf, toggleSelection, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { FocusTranscript } from "./focustranscript";
 import { liveEntriesByIdAtom } from "./livetranscript";
+import { railVisibleAtom } from "./railstore";
 import { StatusDot } from "./statusdot";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
@@ -19,8 +21,12 @@ const STATE_COLOR: Record<AgentVM["state"], string> = {
 };
 const STATE_LABEL: Record<AgentVM["state"], string> = { asking: "asking", working: "working", idle: "idle" };
 
-// PLACEHOLDER (1b): no suggestion generator — see spec §8. Disabled, for visual parity with the handoff footer.
-const PLACEHOLDER_SUGGESTIONS = ["Looks good, continue", "Run the tests", "Explain your plan"];
+// header Context % chip color by occupancy band (mirrors the rail gauge, as text not fill)
+const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
+    ok: "text-accent",
+    warn: "text-warning",
+    hot: "text-error",
+};
 
 export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
@@ -28,6 +34,7 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
     const answerTab = useAtomValue(model.answerTabAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
     const focusReply = useAtomValue(model.focusReplyAtom);
+    const railVisible = useAtomValue(railVisibleAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
     const project = projectOf(agent);
     const asking = agent.state === "asking";
@@ -93,11 +100,23 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
                         >
                             {STATE_LABEL[agent.state]}
                         </span>
+                        {agent.model ? (
+                            <span className="rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted">
+                                {agent.model}
+                            </span>
+                        ) : null}
+                        {agent.usage?.contextpct != null ? (
+                            <span
+                                className={cn(
+                                    "font-mono text-[10.5px] font-semibold",
+                                    CTX_TEXT[usageLevel(agent.usage.contextpct)]
+                                )}
+                            >
+                                {Math.round(agent.usage.contextpct)}%
+                            </span>
+                        ) : null}
                     </div>
-                    {/* PLACEHOLDER (1b): branch has no data source — see spec §8 */}
-                    <div className="mt-[2px] font-mono text-[11px] font-medium text-muted">
-                        {project ? `${project} · ` : ""}main
-                    </div>
+                    <div className="mt-[2px] font-mono text-[11px] font-medium text-muted">{project || "—"}</div>
                 </div>
                 <div className="flex-1" />
                 <button
@@ -107,14 +126,22 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
                 >
                     Open terminal
                 </button>
-                {/* DISABLED (1b): no lifecycle RPC — see spec §8 */}
                 <button
                     type="button"
-                    disabled
-                    title="coming soon"
-                    className="cursor-not-allowed rounded-[7px] border border-edge-mid bg-surface-raised px-[11px] py-[6px] text-[12px] font-medium text-muted opacity-50"
+                    onClick={() => globalStore.set(railVisibleAtom, !railVisible)}
+                    title={railVisible ? "Hide details (d)" : "Show details (d)"}
+                    aria-pressed={railVisible}
+                    className={cn(
+                        "rounded-[7px] border px-[9px] py-[6px]",
+                        railVisible
+                            ? "border-accent bg-accentbg text-accent"
+                            : "border-edge-mid bg-surface-raised text-[#aeb6bf] hover:border-edge-strong"
+                    )}
                 >
-                    Pause
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+                        <rect x="3" y="4" width="14" height="12" rx="2" />
+                        <line x1="13" y1="4" x2="13" y2="16" />
+                    </svg>
                 </button>
             </div>
 
@@ -171,22 +198,9 @@ export function AgentTranscript({ model, agent }: { model: AgentsViewModel; agen
                 ) : null}
             </div>
 
-            {/* footer: suggestion chips (placeholder) + composer */}
+            {/* footer: composer */}
             <div className="shrink-0 border-t border-[#1a1f26] bg-background px-[22px] pb-[16px] pt-[14px]">
                 <div className="mx-auto max-w-[720px]">
-                    <div className="mb-[11px] flex flex-wrap gap-[8px]">
-                        {PLACEHOLDER_SUGGESTIONS.map((s) => (
-                            <button
-                                key={s}
-                                type="button"
-                                disabled
-                                title="coming soon"
-                                className="cursor-not-allowed rounded-[20px] border border-warning/30 bg-warning/10 px-[13px] py-[5px] text-[12px] font-medium text-[#e6cd97] opacity-60"
-                            >
-                                {s}
-                            </button>
-                        ))}
-                    </div>
                     <div ref={composerWrapRef}>
                         <AgentComposer blockId={agent.blockId} placeholder={`message ${agent.name}…`} />
                     </div>

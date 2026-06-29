@@ -10,11 +10,9 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { agentCwd } from "./agentcwd";
+import { resolveCwd } from "./agentcwdresolve";
 import { parseUnifiedDiff, plainFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
-
-const CWD_TAIL_LINES = 200;
 
 export interface FilesState {
     cwd: string | null;
@@ -32,13 +30,17 @@ const current = { id: "" };
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null };
 
-export async function loadFilesForAgent(id: string, transcriptPath: string | undefined): Promise<void> {
+export async function loadFilesForAgent(
+    id: string,
+    transcriptPath: string | undefined,
+    blockId?: string
+): Promise<void> {
     current.id = id;
     globalStore.set(filesStateAtom, null);
     globalStore.set(filesSelectedPathAtom, null);
     globalStore.set(filesDiffAtom, null);
 
-    const cwd = await resolveCwd(transcriptPath);
+    const cwd = await resolveCwd(transcriptPath, blockId);
     if (current.id !== id) {
         return;
     }
@@ -61,18 +63,6 @@ export async function loadFilesForAgent(id: string, transcriptPath: string | und
         if (current.id === id) {
             globalStore.set(filesStateAtom, { ...EMPTY, cwd });
         }
-    }
-}
-
-async function resolveCwd(transcriptPath: string | undefined): Promise<string | null> {
-    if (!transcriptPath) {
-        return null;
-    }
-    try {
-        const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path: transcriptPath, maxlines: CWD_TAIL_LINES });
-        return agentCwd(rtn?.lines ?? []);
-    } catch {
-        return null;
     }
 }
 

@@ -1,7 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Agent (Focus) surface: always 3 panes (AgentTree | center | AgentDetailsRail). The center is the
+// The Agent (Focus) surface: AgentTree | center [| AgentDetailsRail]. The rail is toggleable
+// (railVisibleAtom, default off, `d` key) so the surface is normally 2 panes, 3 with the rail open.
+// The center is the
 // focused agent's live terminal while it's booting (pending) or explicitly opened via `t`, else its
 // narrated transcript — the boot->transcript handoff is derived from pending membership, so the roster
 // stays visible throughout. With no explicit focus it defaults to the first agent in order (handoff
@@ -19,6 +21,7 @@ import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentTranscript } from "./agenttranscript";
 import { AgentTree } from "./agenttree";
 import { moveCursor } from "./agentsviewmodel";
+import { railVisibleAtom } from "./railstore";
 
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const terminalTarget = useAtomValue(model.terminalTargetAtom);
@@ -26,6 +29,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const agents = useAtomValue(model.agentsAtom);
     const order = useAtomValue(model.orderAtom);
     const pending = useAtomValue(model.pendingLaunchesAtom);
+    const railVisible = useAtomValue(railVisibleAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // handoff (dc.html:1790): focusAgent = …find(fid) || list[0] — the Focus surface always shows an
     // agent, defaulting to the first in order; it never falls back to the cockpit grid. focusId is then
@@ -87,6 +91,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         } else if (e.key === "t") {
             e.preventDefault();
             model.openTerminal(agent.id);
+        } else if (e.key === "d") {
+            e.preventDefault();
+            globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom));
         }
     };
 
@@ -98,7 +105,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             ) : (
                 <AgentTranscript model={model} agent={agent} />
             )}
-            <AgentDetailsRail model={model} agent={agent} />
+            {railVisible ? <AgentDetailsRail model={model} agent={agent} /> : null}
         </div>
     );
 }

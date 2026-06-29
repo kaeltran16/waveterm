@@ -3,6 +3,16 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Agent rail "Tokens" — context occupancy, not cumulative (2026-06-26)
+
+- **What:** the Agent details rail's "Tokens" row shows live *context-window occupancy*
+  (`round(contextpct% × contextmax)`), not cumulative tokens spent this session.
+- **Why:** `AgentUsage` (the statusLine reporter) carries no token-total field. A true cumulative
+  figure needs a per-agent transcript scan (the Usage surface does this in aggregate, not per agent).
+- **Where it plugs in:** the "Tokens" `DetailRow` in `frontend/app/view/agents/agentdetailsrail.tsx`.
+- **To resume:** add a per-agent cumulative-token source (extend the reporter, or a per-agent
+  transcript scan reusing the Usage surface's extractor) and feed it into the row.
+
 ## New Agent → Agent tab: dev-mock handoff (2026-06-26)
 
 When a cockpit fixture is loaded (`frontend/tauri/public/cockpit-fixtures/active.json`, dev only),
@@ -84,6 +94,23 @@ currently show fabricated numbers. Both have a single replacement seam in
 - **Deferred:** 2026-06-25, during the cockpit handoff-parity pass.
 
 ## Agent (Focus) surface placeholders (Phase 1b)
+
+> **Resolved 2026-06-26 (agent-rail-toggle):** git Branch + Files-touched (with per-file
+> M/+/− status) are now real, sourced from `GitChangesCommand` via `railstore.ts`. cwd resolves
+> from the agent's terminal-block `cmd:cwd` meta first (set by `buildLaunchMeta`, so a
+> Wave-launched agent resolves its repo *before* its transcript or reporter enrichment exist),
+> falling back to the transcript tail — see `agentcwdresolve.ts`; the same shared resolver fixes
+> the Files surface for launched agents too. Stop/Resume are now real (ESC interrupt /
+> `"continue\r"` nudge via `ControllerInputCommand`), disabled only when the agent has no live
+> terminal block. The disabled **Pause** button and the placeholder **suggestion chips** were
+> removed. The details rail is now toggleable (default off, `d` key / header button, persisted
+> via `atomWithStorage("agent.rail.visible")`).
+>
+> Still data-gated: **Model**, **Tokens**, and **Cost** read the reporter-supplied `AgentVM.model`
+> / `AgentUsage`. A freshly-launched agent has no `transcriptPath` and no reporter enrichment yet,
+> so those rows show "—" until the external status reporter registers it (the dev wsh-routing gap
+> — see the New-Agent dev-mock-handoff entry). cwd was recoverable from Wave-owned block meta;
+> model/usage are not. **Tokens (total)** remains deferred regardless — see the entry below.
 
 - **What:** the Agent 3-pane focus surface (`frontend/app/view/agents/agentsurface.tsx` +
   `agenttree.tsx` / `agenttranscript.tsx` / `agentdetailsrail.tsx`) renders to full handoff

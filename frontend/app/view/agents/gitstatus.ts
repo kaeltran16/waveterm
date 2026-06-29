@@ -72,3 +72,24 @@ export function parseGitChanges(statusZ: string, numstat: string): GitChanges {
     }
     return { files, adds, dels };
 }
+
+// Tailwind text-color per git status — shared by the Files surface and the Agent details rail.
+export const STATUS_COLOR: Record<string, string> = {
+    A: "text-success",
+    M: "text-accent",
+    R: "text-accent",
+    C: "text-accent",
+    D: "text-error",
+    "?": "text-ink-mid",
+};
+
+export const statusColor = (s: string): string => STATUS_COLOR[s] ?? "text-ink-mid";
+
+// Pure: cap a changed-file list for a narrow surface (the 296px rail). Returns the first `cap`
+// files and the count hidden behind a "+N more" affordance.
+export function capFiles(files: GitChange[], cap: number): { shown: GitChange[]; more: number } {
+    if (files.length <= cap) {
+        return { shown: files, more: 0 };
+    }
+    return { shown: files.slice(0, cap), more: files.length - cap };
+}

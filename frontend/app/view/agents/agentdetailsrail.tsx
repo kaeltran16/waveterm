@@ -1,8 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { cn } from "@/util/util";
+import { cn, fireAndForget, stringToBase64 } from "@/util/util";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
+import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import {
     formatAge,
@@ -13,7 +16,9 @@ import {
     usageLevel,
     type AgentVM,
 } from "./agentsviewmodel";
+import { capFiles, statusColor } from "./gitstatus";
 import { liveEntriesByIdAtom } from "./livetranscript";
+import { loadRailForAgent, railStateAtom } from "./railstore";
 import { getSubagentsAtom } from "./session-models/agentstatusstore";
 
 const DefaultContextMax = 200000; // fallback when the reporter omits contextmax (mirrors focusview)
@@ -23,12 +28,7 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
     hot: "bg-error",
 };
 
-// PLACEHOLDER (1b): no git status source — see spec §8. Static sample matching the handoff.
-const PLACEHOLDER_FILES: { status: string; path: string; color: string }[] = [
-    { status: "M", path: "src/auth.ts", color: "text-success" },
-    { status: "M", path: "src/session.ts", color: "text-success" },
-    { status: "+", path: "middleware/store.ts", color: "text-accent" },
-];
+const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
 
 function DetailRow({ label, value }: { label: string; value: string }) {
     return (
@@ -53,6 +53,26 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
     const tools = summarizeActions(recentActions(entries, 0)).byVerb;
+    const railState = useAtomValue(railStateAtom);
+
+    useEffect(() => {
+        fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
+    }, [agent.id, agent.transcriptPath, agent.blockId]);
+
+    const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
+
+    const noTerminal = agent.blockId == null;
+    const drive = (data: string) => {
+        if (!agent.blockId) {
+            return;
+        }
+        fireAndForget(() =>
+            RpcApi.ControllerInputCommand(TabRpcClient, {
+                blockid: agent.blockId!,
+                inputdata64: stringToBase64(data),
+            })
+        );
+    };
 
     const running = agent.state === "idle" ? `${formatAge(undefined)} idle` : formatAge(agent.activeMs);
     const tokens =
@@ -67,8 +87,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                 </div>
                 <div className="flex flex-col">
                     <DetailRow label="Project" value={project || "—"} />
-                    {/* PLACEHOLDER (1b): git branch has no data source — see spec §8 */}
-                    <DetailRow label="Branch" value="main" />
+                    <DetailRow label="Branch" value={railState?.branch || "—"} />
                     <DetailRow label="Model" value={agent.model ?? "—"} />
                     <DetailRow label="Running" value={running} />
                     <DetailRow label="Tokens" value={tokens} />
@@ -153,32 +172,44 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                 <div className="mb-[11px]">
                     <SectionLabel>Files touched</SectionLabel>
                 </div>
-                {/* PLACEHOLDER (1b): no git status source — see spec §8 */}
-                <div className="flex flex-col gap-[7px]">
-                    {PLACEHOLDER_FILES.map((f) => (
-                        <div key={f.path} className="flex items-center gap-[8px] font-mono text-[11.5px] font-medium text-[#aeb6bf]">
-                            <span className={f.color}>{f.status}</span>
-                            {f.path}
-                        </div>
-                    ))}
-                </div>
+                {railState == null ? (
+                    <div className="text-[11.5px] text-muted">Loading…</div>
+                ) : !railState.isRepo ? (
+                    <div className="text-[11.5px] text-muted">Not a git repository</div>
+                ) : shownFiles.length === 0 ? (
+                    <div className="text-[11.5px] text-muted">No changes</div>
+                ) : (
+                    <div className="flex flex-col gap-[7px]">
+                        {shownFiles.map((f) => (
+                            <div
+                                key={f.path}
+                                className="flex items-center gap-[8px] font-mono text-[11.5px] font-medium text-[#aeb6bf]"
+                            >
+                                <span className={cn("flex-none font-bold", statusColor(f.status))}>{f.status}</span>
+                                <span className="min-w-0 truncate">{f.path}</span>
+                            </div>
+                        ))}
+                        {moreFiles > 0 ? <div className="text-[11px] text-muted">+{moreFiles} more</div> : null}
+                    </div>
+                )}
             </div>
 
-            {/* DISABLED (1b): no agent-lifecycle RPC — see spec §8 */}
             <div className="mt-[4px] flex gap-[8px]">
                 <button
                     type="button"
-                    disabled
-                    title="coming soon"
-                    className="flex-1 cursor-not-allowed rounded-[8px] border border-edge-mid bg-surface-raised py-[8px] text-[12px] font-medium text-muted opacity-50"
+                    onClick={() => drive("continue\r")}
+                    disabled={noTerminal}
+                    title={noTerminal ? "no live terminal" : "nudge the agent to continue from idle"}
+                    className="flex-1 rounded-[8px] border border-edge-mid bg-surface-raised py-[8px] text-[12px] font-medium text-secondary hover:border-edge-strong disabled:cursor-not-allowed disabled:text-muted disabled:opacity-50"
                 >
                     Resume
                 </button>
                 <button
                     type="button"
-                    disabled
-                    title="coming soon"
-                    className="flex-1 cursor-not-allowed rounded-[8px] border border-error/30 bg-transparent py-[8px] text-[12px] font-medium text-error opacity-50"
+                    onClick={() => drive("\x1b")}
+                    disabled={noTerminal}
+                    title={noTerminal ? "no live terminal" : "interrupt the current turn"}
+                    className="flex-1 rounded-[8px] border border-error/30 bg-transparent py-[8px] text-[12px] font-medium text-error hover:bg-error/10 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     Stop
                 </button>

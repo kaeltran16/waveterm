@@ -1,6 +1,6 @@
 // frontend/app/view/agents/gitstatus.test.ts
 import { describe, expect, it } from "vitest";
-import { parseGitChanges } from "./gitstatus";
+import { capFiles, parseGitChanges } from "./gitstatus";
 
 const NUL = "\0";
 
@@ -40,5 +40,26 @@ describe("parseGitChanges", () => {
 
     it("returns empty for a clean tree", () => {
         expect(parseGitChanges("", "")).toEqual({ files: [], adds: 0, dels: 0 });
+    });
+});
+
+describe("capFiles", () => {
+    const mk = (path: string) => ({ path, status: "M", adds: 0, dels: 0 });
+
+    it("returns all files and more=0 when at or under the cap", () => {
+        const files = [mk("a.ts"), mk("b.ts")];
+        expect(capFiles(files, 8)).toEqual({ shown: files, more: 0 });
+    });
+
+    it("truncates to the cap and reports the remainder", () => {
+        const files = Array.from({ length: 11 }, (_, i) => mk(`f${i}.ts`));
+        const r = capFiles(files, 8);
+        expect(r.shown).toHaveLength(8);
+        expect(r.shown[0].path).toBe("f0.ts");
+        expect(r.more).toBe(3);
+    });
+
+    it("handles an empty list", () => {
+        expect(capFiles([], 8)).toEqual({ shown: [], more: 0 });
     });
 });

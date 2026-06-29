@@ -11,18 +11,8 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import { type DiffLine, type FileView } from "./gitdiff";
-import type { GitChange } from "./gitstatus";
+import { statusColor, type GitChange } from "./gitstatus";
 import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, selectFile } from "./filesstore";
-
-const STATUS_COLOR: Record<string, string> = {
-    A: "text-success",
-    M: "text-accent",
-    R: "text-accent",
-    C: "text-accent",
-    D: "text-error",
-    "?": "text-ink-mid",
-};
-const statusColor = (s: string) => STATUS_COLOR[s] ?? "text-ink-mid";
 
 function baseName(p: string): string {
     const parts = p.split(/[/\\]/);
@@ -121,9 +111,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     useEffect(() => {
         if (focusId) {
-            fireAndForget(() => loadFilesForAgent(focusId, agent?.transcriptPath));
+            fireAndForget(() => loadFilesForAgent(focusId, agent?.transcriptPath, agent?.blockId));
         }
-    }, [focusId, agent?.transcriptPath]);
+    }, [focusId, agent?.transcriptPath, agent?.blockId]);
 
     if (!focusId) {
         return <EmptyCenter msg="Focus an agent to see its changed files" />;
