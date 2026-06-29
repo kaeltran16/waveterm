@@ -18,6 +18,12 @@ async function boot() {
         installChromeListeners();
         loadFonts(); // register Hanken Grotesk + JetBrains Mono (fonts swap in on load)
         hlog("init: ws=" + init.wsEndpoint + " web=" + init.webEndpoint + " version=" + init.version);
+        if (!init.webEndpoint) {
+            // wavesrv never reported its endpoints; without this an empty endpoint builds
+            // http:///wave/service, which the URL parser rewrites to host "wave" and the
+            // http scope rejects with a misleading "url not allowed" error.
+            throw new Error("backend endpoints unavailable: wavesrv did not report its ports (startup timed out)");
+        }
 
         const ids = await resolveBootIds();
         hlog("bootIds: " + JSON.stringify(ids));

@@ -19,19 +19,31 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
     let (data_home, config_home) = paths::data_home_dirs(&data_base);
     let _ = std::fs::create_dir_all(&data_home);
     let _ = std::fs::create_dir_all(&config_home);
-    let mut child = Command::new(&exe)
-        .env("WAVETERM_AUTH_KEY", &auth_key)
+    let mut cmd = Command::new(&exe);
+    cmd.env("WAVETERM_AUTH_KEY", &auth_key)
         .env("WAVETERM_APP_PATH", &app_path)
         .env("WAVETERM_DATA_HOME", &data_home)
         .env("WAVETERM_CONFIG_HOME", &config_home)
-        // inherit stdout (we only read stderr) so an unread stdout pipe can't fill and deadlock wavesrv.
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::piped())
+        // wavesrv logs to stderr (which we parse); discard stdout so an unread pipe can't
+        // fill and deadlock it.
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    // wavesrv is a console-subsystem exe. A GUI (no-console) parent spawning it without this
+    // flag makes Windows pop a separate console window for it — and closing that window sends
+    // CTRL_CLOSE_EVENT, killing wavesrv and the whole backend. Run it with no console.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = cmd
         .spawn()
         .unwrap_or_else(|e| panic!("failed to spawn wavesrv at {:?}: {}", exe, e));
 
     let stderr = child.stderr.take().unwrap();
     let state_data = state.0.clone();
+    let ready = state.1.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines().flatten() {
@@ -45,6 +57,8 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
                 d.version = info.version;
                 d.build_time = info.buildtime;
                 println!("[tauri] wavesrv ready: {:?}", *d);
+                drop(d); // release before waking get_init so it doesn't re-block on the lock
+                ready.notify_all();
             } else {
                 println!("[wavesrv] {}", line);
             }
@@ -88,7 +102,7 @@ fn main() {
             // resource_dir() only matters when packaged; avoid calling it in dev.
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
-            let data_base = app.path().app_local_data_dir()?;
+            let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
             spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
             Ok(())
         })

@@ -11,6 +11,19 @@ pub fn resolve_app_path(is_dev: bool, manifest_dir: &Path, resource_dir: &Path) 
     }
 }
 
+// dev and packaged builds share one bundle identifier, so app_local_data_dir() resolves
+// to the same %LOCALAPPDATA%/<id> for both. Without separation a running dev instance and
+// an installed build fight over the same SQLite store + wave.lock (the dev wavesrv wins the
+// lock and the packaged one blocks forever). Suffix the dev base to isolate them — this is
+// the waveterm-dev split the Electron build had and the Tauri port dropped.
+pub fn data_base_for(base: &Path, is_dev: bool) -> PathBuf {
+    if !is_dev {
+        return base.to_path_buf();
+    }
+    let name = base.file_name().and_then(|s| s.to_str()).unwrap_or("app");
+    base.with_file_name(format!("{name}-dev"))
+}
+
 // wavesrv hard-requires both WAVETERM_DATA_HOME and WAVETERM_CONFIG_HOME; split the
 // per-user base dir into those two homes.
 pub fn data_home_dirs(base: &Path) -> (PathBuf, PathBuf) {
@@ -31,6 +44,21 @@ mod tests {
     fn packaged_uses_resource_dir() {
         let got = resolve_app_path(false, Path::new("C:/ignored"), Path::new("C:/app/res"));
         assert_eq!(got, PathBuf::from("C:/app/res"));
+    }
+
+    #[test]
+    fn packaged_data_base_is_unchanged() {
+        let base = Path::new("C:/u/AppData/Local/dev.arc.app");
+        assert_eq!(data_base_for(base, false), base.to_path_buf());
+    }
+
+    #[test]
+    fn dev_data_base_is_suffixed_to_isolate_from_packaged() {
+        let base = Path::new("C:/u/AppData/Local/dev.arc.app");
+        assert_eq!(
+            data_base_for(base, true),
+            PathBuf::from("C:/u/AppData/Local/dev.arc.app-dev")
+        );
     }
 
     #[test]
