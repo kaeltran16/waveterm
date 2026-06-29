@@ -639,8 +639,13 @@ func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdS
 	}
 	jwtToken := cmdOpts.SwapToken.Env[wavebase.WaveJwtTokenVarName]
 	if jwtToken != "" && cmdOpts.ForceJwt {
-		blocklogger.Debugf(logCtx, "adding JWT token to environment\n")
-		shellutil.UpdateCmdEnv(ecmd, map[string]string{wavebase.WaveJwtTokenVarName: jwtToken})
+		// cmd:shell=false runs the command non-interactively, so the shell-integration bootstrap
+		// that exchanges the swap token for the session env never runs. Inject that env directly —
+		// not just WAVETERM_JWT but WAVETERM_BLOCKID/TABID/etc — so wsh (and hook-driven tools such
+		// as the external agent-status reporter, which gates on WAVETERM_BLOCKID) route to THIS
+		// wavesrv and resolve the right block.
+		blocklogger.Debugf(logCtx, "force-injecting swap-token session env\n")
+		shellutil.UpdateCmdEnv(ecmd, cmdOpts.SwapToken.Env)
 	}
 
 	/*

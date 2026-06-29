@@ -87,6 +87,12 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
         cmd,
         "cmd:args": args,
         "cmd:shell": false,
+        // force WAVETERM_JWT into the agent's env. cmd/shell:false runs the agent non-interactively,
+        // so Wave's shell-integration bootstrap (which exchanges the swap token for the real JWT)
+        // never runs; without this the agent inherits a stale/absent ambient JWT and the external
+        // status reporter's `wsh` routes agent:status to the wrong wavesrv (e.g. a coexisting Wave
+        // install) instead of this one — leaving the cockpit roster empty.
+        "cmd:jwt": true,
     };
     if (spec.cwd) {
         meta["cmd:cwd"] = spec.cwd;
