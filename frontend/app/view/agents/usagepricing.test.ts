@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { priceFor, spendOf } from "./usagepricing";
+import { priceFor, spendBreakdown, spendOf } from "./usagepricing";
 import type { UsageRecord } from "./usagestats";
 
 function rec(over: Partial<UsageRecord>): UsageRecord {
@@ -55,5 +55,44 @@ describe("spendOf", () => {
     });
     it("returns 0 for unknown models (tokens still counted elsewhere)", () => {
         expect(spendOf(rec({ model: "gemini-2.5-pro", inputTokens: 1000 }))).toBe(0);
+    });
+});
+
+describe("spendBreakdown", () => {
+    const rec = (over: Partial<UsageRecord>): UsageRecord => ({
+        ts: 0,
+        provider: "claude",
+        model: "claude-opus-4-8",
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreateTokens: 0,
+        ...over,
+    });
+
+    it("prices each class separately (opus rates, per 1M)", () => {
+        const b = spendBreakdown(
+            rec({ inputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 1e6, cacheCreateTokens: 1e6 })
+        );
+        expect(b.input).toBeCloseTo(15, 5);
+        expect(b.output).toBeCloseTo(75, 5);
+        expect(b.cacheRead).toBeCloseTo(1.5, 5);
+        expect(b.cacheWrite).toBeCloseTo(18.75, 5); // all 5m (no 1h portion)
+    });
+
+    it("splits cache write into 1h vs 5m tiers", () => {
+        const b = spendBreakdown(rec({ cacheCreateTokens: 1e6, cacheCreate1hTokens: 1e6 }));
+        expect(b.cacheWrite).toBeCloseTo(30, 5); // opus cacheWrite1h
+    });
+
+    it("unknown model -> all zero", () => {
+        const b = spendBreakdown(rec({ model: "mystery", inputTokens: 1e6 }));
+        expect(b).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    });
+
+    it("spendOf equals the sum of the breakdown", () => {
+        const r = rec({ inputTokens: 5e5, outputTokens: 3e5, cacheReadTokens: 9e6, cacheCreateTokens: 2e5 });
+        const b = spendBreakdown(r);
+        expect(spendOf(r)).toBeCloseTo(b.input + b.output + b.cacheRead + b.cacheWrite, 9);
     });
 });

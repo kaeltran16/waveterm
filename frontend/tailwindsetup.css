@@ -53,6 +53,7 @@
     --color-warning: #e6b450;
     --color-asking: #e6b450;
     --color-success: #54c79a;
+    --color-cacheread: #5b6675; /* usage split: cache-read segment (low-value, high-volume) */
     /* handoff card-body colors (Wave-cockpit-live.dc.html) */
     --color-ask-question: #eddcb8; /* asking-band question prose */
     --color-ask-label: #c79a3f; /* "waiting on you" label */

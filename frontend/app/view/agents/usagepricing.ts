@@ -40,22 +40,33 @@ export function priceFor(model: string): ModelPrice | undefined {
     return undefined;
 }
 
-// Client-side cost estimate. Cache writes split into 1h (extended) vs 5m (default) tiers; the 1h
-// portion is a subset of cacheCreateTokens, the remainder is 5m. Unknown models price at 0 (tokens
-// still counted elsewhere; spend under-reports rather than guesses).
-export function spendOf(r: UsageRecord): number {
+export interface SpendBreakdown {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number; // 1h + 5m cache-write tiers folded together
+}
+
+// Client-side cost estimate, broken out per token class. Cache writes split into 1h (extended) vs
+// 5m (default) tiers internally; the 1h portion is a subset of cacheCreateTokens, the remainder 5m.
+// Unknown models price at 0 (tokens still counted elsewhere; spend under-reports rather than guesses).
+export function spendBreakdown(r: UsageRecord): SpendBreakdown {
     const p = priceFor(r.model);
     if (!p) {
-        return 0;
+        return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     }
     const cache1h = r.cacheCreate1hTokens ?? 0;
     const cache5m = Math.max(0, r.cacheCreateTokens - cache1h);
-    return (
-        (r.inputTokens * p.input +
-            r.outputTokens * p.output +
-            r.cacheReadTokens * p.cacheRead +
-            cache5m * p.cacheWrite5m +
-            cache1h * p.cacheWrite1h) /
-        1_000_000
-    );
+    return {
+        input: (r.inputTokens * p.input) / 1_000_000,
+        output: (r.outputTokens * p.output) / 1_000_000,
+        cacheRead: (r.cacheReadTokens * p.cacheRead) / 1_000_000,
+        cacheWrite: (cache5m * p.cacheWrite5m + cache1h * p.cacheWrite1h) / 1_000_000,
+    };
+}
+
+// Total client-side cost estimate (sum of the per-class breakdown).
+export function spendOf(r: UsageRecord): number {
+    const b = spendBreakdown(r);
+    return b.input + b.output + b.cacheRead + b.cacheWrite;
 }

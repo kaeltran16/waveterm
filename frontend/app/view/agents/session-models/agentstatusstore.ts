@@ -5,6 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { atom, type PrimitiveAtom } from "jotai";
 import { reduceSubagents, type SubagentDelta, type SubagentVM } from "./sessionviewmodel";
+import { recordRateLimit } from "../ratelimitstore";
 
 // a completed subagent is noise after a minute; drop it this long after it stops
 const COMPLETED_SUBAGENT_TTL_MS = 60_000;
@@ -117,6 +118,9 @@ export function setupAgentStatusSubscription() {
             }
             if (data.usage != null) {
                 globalStore.set(getAgentUsageAtom(data.oref), data.usage);
+                // persist account-level windows so the Usage donuts survive idle (no-op if none present)
+                const provider = data.agent ?? globalStore.get(getAgentStatusAtom(data.oref))?.agent ?? "claude";
+                recordRateLimit(provider, data.usage);
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {

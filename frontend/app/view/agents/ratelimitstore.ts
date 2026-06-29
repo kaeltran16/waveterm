@@ -1,0 +1,112 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Persists the last-known account-level rate-limit windows (5-hour + weekly) per provider so the
+// Usage surface donuts survive when no agent is running. Live AgentUsage only exists while a Claude
+// agent is active; this saves a snapshot whenever one reports, seeds from localStorage at load, and
+// merges live-over-saved (with per-window rollover) for the surface. Pure-FE — no Go, no RPC.
+// See docs/superpowers/specs/2026-06-26-ratelimit-donut-persistence-design.md.
+
+import { atom, type PrimitiveAtom } from "jotai";
+import { globalStore } from "@/app/store/jotaiStore";
+
+const STORAGE_KEY = "wave:ratelimits";
+const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1 };
+
+export interface SavedSnapshot {
+    fivehourpct?: number;
+    fivehourreset?: number; // absolute epoch seconds (matches AgentUsage)
+    weekpct?: number;
+    weekreset?: number;
+    capturedAt: number; // epoch ms at record time
+}
+
+export interface DonutWindow {
+    pct?: number;
+    reset?: number;
+}
+
+export interface ProviderDonuts {
+    provider: string;
+    fivehour: DonutWindow;
+    week: DonutWindow;
+    stale?: { capturedAt: number }; // present iff sourced from a saved (not-live) snapshot
+}
+
+// Best-effort read; any failure (no localStorage, parse error) -> {}.
+export function readSavedRateLimits(): Record<string, SavedSnapshot> {
+    try {
+        const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+        if (!raw) {
+            return {};
+        }
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? (parsed as Record<string, SavedSnapshot>) : {};
+    } catch {
+        return {};
+    }
+}
+
+// Seeded from localStorage at module load so donuts render on a fresh launch with no agent.
+export const savedRateLimitsAtom = atom<Record<string, SavedSnapshot>>(
+    readSavedRateLimits()
+) as PrimitiveAtom<Record<string, SavedSnapshot>>;
+
+// Save a snapshot for `provider` — only when the usage carries a 5h or weekly window field.
+// Window fields + capturedAt only; context/cost are per-session and deliberately dropped.
+export function recordRateLimit(provider: string, usage: AgentUsage): void {
+    if (usage == null || (usage.fivehourpct == null && usage.weekpct == null)) {
+        return;
+    }
+    const snapshot: SavedSnapshot = {
+        fivehourpct: usage.fivehourpct,
+        fivehourreset: usage.fivehourreset,
+        weekpct: usage.weekpct,
+        weekreset: usage.weekreset,
+        capturedAt: Date.now(),
+    };
+    const next = { ...globalStore.get(savedRateLimitsAtom), [provider]: snapshot };
+    globalStore.set(savedRateLimitsAtom, next);
+    try {
+        globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+        // quota/disabled — the in-memory atom still serves this session
+    }
+}
+
+function windowFromSaved(pct: number | undefined, reset: number | undefined, now: number): DonutWindow {
+    if (reset != null && reset * 1000 <= now) {
+        return { pct: 0, reset: undefined }; // rolled over; the new cadence is unknowable
+    }
+    return { pct, reset };
+}
+
+// Live wins (no stale); else build from the saved snapshot with per-window rollover. Union of live
+// + saved provider keys, claude-first.
+export function mergeRateLimitWindows(
+    live: { provider: string; usage: AgentUsage }[],
+    saved: Record<string, SavedSnapshot>,
+    now: number
+): ProviderDonuts[] {
+    const liveMap = new Map(live.map((l) => [l.provider, l.usage]));
+    const providers = [...new Set([...liveMap.keys(), ...Object.keys(saved)])];
+    return providers
+        .map((provider) => {
+            const u = liveMap.get(provider);
+            if (u != null) {
+                return {
+                    provider,
+                    fivehour: { pct: u.fivehourpct, reset: u.fivehourreset },
+                    week: { pct: u.weekpct, reset: u.weekreset },
+                };
+            }
+            const s = saved[provider];
+            return {
+                provider,
+                fivehour: windowFromSaved(s.fivehourpct, s.fivehourreset, now),
+                week: windowFromSaved(s.weekpct, s.weekreset, now),
+                stale: { capturedAt: s.capturedAt },
+            };
+        })
+        .sort((a, b) => (PROVIDER_RANK[a.provider] ?? 99) - (PROVIDER_RANK[b.provider] ?? 99));
+}

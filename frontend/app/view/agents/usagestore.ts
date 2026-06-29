@@ -16,6 +16,14 @@ const DEFAULT_WINDOW_DAYS = 7;
 
 const EMPTY: UsageStats = {
     totals: { tokensToday: 0, tokensWeek: 0, spendTodayUsd: 0, spendWeekUsd: 0 },
+    split: [
+        { cls: "cacheRead", label: "Cache read", tokens: 0, spendUsd: 0 },
+        { cls: "output", label: "Output", tokens: 0, spendUsd: 0 },
+        { cls: "cacheWrite", label: "Cache write", tokens: 0, spendUsd: 0 },
+        { cls: "input", label: "Input", tokens: 0, spendUsd: 0 },
+    ],
+    daily: [],
+    dailyTruncated: false,
     providers: [],
 };
 
