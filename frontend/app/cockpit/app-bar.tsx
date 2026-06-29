@@ -34,7 +34,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <div className="flex h-[19px] w-[19px] items-center justify-center rounded-[6px] bg-gradient-to-br from-accent-300 to-accent-500">
                     <div className="h-[7px] w-[7px] rounded-full bg-surface" />
                 </div>
-                <span className="text-[14.5px] font-bold tracking-[-0.01em] text-primary">Wave</span>
+                <span className="text-[14.5px] font-bold tracking-[-0.01em] text-primary">Arc</span>
                 <span className="text-[13px] text-ink-faint">/</span>
                 <ProjectSwitcher model={model} variant="bar" />
             </div>

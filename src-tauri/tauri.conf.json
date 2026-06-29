@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "WaveTauri",
+  "productName": "Arc",
   "version": "0.1.0",
-  "identifier": "dev.waveterm.tauri",
+  "identifier": "dev.arc.app",
   "build": {
     "devUrl": "http://localhost:5174",
     "beforeDevCommand": "npx vite --config frontend/tauri/vite.config.ts",
@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Wave Tauri", "width": 1000, "height": 700, "decorations": false }
+      { "label": "main", "title": "Arc", "width": 1000, "height": 700, "decorations": false }
     ],
     "security": { "csp": null }
   },
