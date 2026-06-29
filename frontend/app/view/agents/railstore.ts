@@ -25,6 +25,10 @@ export interface RailGitState {
 // "agent.rail.visible"). Keep persisted prefs to this one atom for now.
 export const railVisibleAtom = atomWithStorage("agent.rail.visible", false);
 
+// Terminal-fullscreen toggle for the Agent surface: when on, the AgentTree (and the rail) are
+// hidden so the focused agent's live terminal fills the surface. Session-scoped UI, not persisted.
+export const terminalFullscreenAtom = atom(false);
+
 export const railStateAtom = atom<RailGitState | null>(null) as PrimitiveAtom<RailGitState | null>;
 
 // guards against a stale focus's load overwriting a newer one (same pattern as filesstore.ts)

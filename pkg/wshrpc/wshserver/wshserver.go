@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/skratchdot/open-golang/open"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
@@ -1484,6 +1485,21 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 		}
 	}
 	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out}, nil
+}
+
+func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.CommandGetRecentSessionsData) (*wshrpc.CommandGetRecentSessionsRtnData, error) {
+	sessions, err := agentsessions.ScanSessions(data.WindowDays, data.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("scanning sessions: %w", err)
+	}
+	out := make([]wshrpc.SessionInfo, len(sessions))
+	for i, s := range sessions {
+		out[i] = wshrpc.SessionInfo{
+			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
+			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal, LastActiveTs: s.LastActiveTs,
+		}
+	}
+	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
 }
 
 func (ws *WshServer) StreamAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandStreamAgentTranscriptData) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getTabBadgeAtom } from "@/app/store/badge";
-import { getApi, setActiveTab } from "@/app/store/global";
+import { setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
@@ -267,7 +267,7 @@ export function closeGroup(label: string, memberIds: string[]) {
         destructive: true,
         onConfirm: () => {
             for (const tabId of memberIds) {
-                fireAndForget(() => getApi().closeTab(ws.oid, tabId, false));
+                fireAndForget(() => WorkspaceService.CloseTab(ws.oid, tabId, false));
             }
         },
     });

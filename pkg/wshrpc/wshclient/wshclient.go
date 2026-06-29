@@ -478,6 +478,12 @@ func GetMetaCommand(w *wshutil.WshRpc, data wshrpc.CommandGetMetaData, opts *wsh
 	return resp, err
 }
 
+// command "getrecentsessions", wshserver.GetRecentSessionsCommand
+func GetRecentSessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetRecentSessionsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetRecentSessionsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetRecentSessionsRtnData](w, "getrecentsessions", data, opts)
+	return resp, err
+}
+
 // command "getrtinfo", wshserver.GetRTInfoCommand
 func GetRTInfoCommand(w *wshutil.WshRpc, data wshrpc.CommandGetRTInfoData, opts *wshrpc.RpcOpts) (*waveobj.ObjRTInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.ObjRTInfo](w, "getrtinfo", data, opts)

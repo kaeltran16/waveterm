@@ -480,6 +480,12 @@ export class RpcApiType {
         return client.wshRpcCall("getmeta", data, opts);
     }
 
+    // command "getrecentsessions" [call]
+    GetRecentSessionsCommand(client: WshClient, data: CommandGetRecentSessionsData, opts?: RpcOpts): Promise<CommandGetRecentSessionsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getrecentsessions", data, opts);
+        return client.wshRpcCall("getrecentsessions", data, opts);
+    }
+
     // command "getrtinfo" [call]
     GetRTInfoCommand(client: WshClient, data: CommandGetRTInfoData, opts?: RpcOpts): Promise<ObjRTInfo> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getrtinfo", data, opts);

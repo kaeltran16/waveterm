@@ -1,5 +1,6 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+import { ModalsRenderer } from "@/app/modals/modalsrenderer";
 import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { getTabModelByTabId } from "@/app/store/tab-model";
@@ -63,6 +64,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             </div>
             <NewProjectModal model={model} />
             <NewAgentModal model={model} />
+            <ModalsRenderer />
         </div>
     );
 }

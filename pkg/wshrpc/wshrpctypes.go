@@ -96,6 +96,7 @@ type WshRpcInterface interface {
 	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
+	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
@@ -648,6 +649,27 @@ type CommandGetUsageStatsData struct {
 
 type CommandGetUsageStatsRtnData struct {
 	Buckets []UsageBucket `json:"buckets"`
+}
+
+type SessionInfo struct {
+	ID           string `json:"id"`
+	Runtime      string `json:"runtime"`
+	ProjectPath  string `json:"projectpath"`
+	ProjectName  string `json:"projectname"`
+	Branch       string `json:"branch"`
+	Task         string `json:"task"`
+	Model        string `json:"model"`
+	TokensTotal  int    `json:"tokenstotal"`
+	LastActiveTs int64  `json:"lastactivets"`
+}
+
+type CommandGetRecentSessionsData struct {
+	WindowDays int `json:"windowdays,omitempty"`
+	Limit      int `json:"limit,omitempty"`
+}
+
+type CommandGetRecentSessionsRtnData struct {
+	Sessions []SessionInfo `json:"sessions"`
 }
 
 type CommandStreamAgentTranscriptData struct {

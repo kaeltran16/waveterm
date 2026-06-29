@@ -526,6 +526,17 @@ declare global {
         oref: ORef;
     };
 
+    // wshrpc.CommandGetRecentSessionsData
+    type CommandGetRecentSessionsData = {
+        windowdays?: number;
+        limit?: number;
+    };
+
+    // wshrpc.CommandGetRecentSessionsRtnData
+    type CommandGetRecentSessionsRtnData = {
+        sessions: SessionInfo[];
+    };
+
     // wshrpc.CommandGetSessionGroupData
     type CommandGetSessionGroupData = {
         cwd: string;
@@ -1563,6 +1574,19 @@ declare global {
     type SecretMeta = {
         desc: string;
         optional: boolean;
+    };
+
+    // wshrpc.SessionInfo
+    type SessionInfo = {
+        id: string;
+        runtime: string;
+        projectpath: string;
+        projectname: string;
+        branch: string;
+        task: string;
+        model: string;
+        tokenstotal: number;
+        lastactivets: number;
     };
 
     // wconfig.SettingsType
