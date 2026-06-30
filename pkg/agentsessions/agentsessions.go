@@ -1,10 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Package agentsessions scans Claude Code transcript JSONL on disk and returns lightweight,
-// resumable per-session metadata for the Agent-tab "No terminal running" hero. Sibling to
-// pkg/usagestats (which scans the same files for token buckets). The session id is the JSONL
-// filename stem — the key for `claude --resume <id>`.
+// Package agentsessions scans agent transcript JSONL on disk and returns lightweight,
+// resumable per-session metadata for the Agent surfaces. Sibling to pkg/usagestats
+// (which scans Claude files for token buckets).
 package agentsessions
 
 import (
@@ -25,17 +24,18 @@ const (
 	maxTaskLen        = 120
 )
 
-// SessionInfo is one resumable past Claude session.
+// SessionInfo is one resumable past agent session.
 type SessionInfo struct {
-	ID           string // filename stem = the `claude --resume` key
-	Runtime      string // "claude"
-	ProjectPath  string // cwd
-	ProjectName  string // last path segment of cwd
-	Branch       string
-	Task         string // first human prompt, trimmed
-	Model        string // last assistant model seen
-	TokensTotal  int
-	LastActiveTs int64 // file mtime, UnixMilli
+	ID            string // runtime resume key
+	Runtime       string // "claude" | "codex"
+	ProjectPath   string // cwd
+	ProjectName   string // last path segment of cwd
+	Branch        string
+	Task          string // first human prompt, trimmed
+	Model         string // last assistant model seen
+	TokensTotal   int
+	LastActiveTs  int64  // file mtime, UnixMilli
+	ResumeCommand string // runtime resume invocation; empty means not resumable
 }
 
 type claudeLine struct {
@@ -55,9 +55,9 @@ type claudeLine struct {
 }
 
 // extractClaudeSession folds one transcript file's lines into a SessionInfo. Returns nil when the
-// file carries no human prompt (e.g. a subagent/tool-only file) — those aren't useful to resume.
+// file carries no human prompt (e.g. a subagent/tool-only file) because those aren't useful to resume.
 func extractClaudeSession(id string, lines []string) *SessionInfo {
-	s := &SessionInfo{ID: id, Runtime: "claude"}
+	s := &SessionInfo{ID: id}
 	hasTask := false
 	for _, line := range lines {
 		var rec claudeLine
@@ -91,6 +91,63 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 	return s
 }
 
+type codexLine struct {
+	Type    string `json:"type"`
+	Payload struct {
+		Type      string `json:"type"`
+		SessionID string `json:"session_id"`
+		Cwd       string `json:"cwd"`
+		Model     string `json:"model"`
+		Message   string `json:"message"`
+		Git       struct {
+			Branch string `json:"branch"`
+		} `json:"git"`
+	} `json:"payload"`
+}
+
+// extractCodexSession folds one Codex rollout file into a SessionInfo. The resume key is
+// session_meta.session_id, not the filename stem. The task is the first event_msg/user_message.
+func extractCodexSession(_ string, lines []string) *SessionInfo {
+	s := &SessionInfo{}
+	model := "codex"
+	hasTask := false
+	for _, line := range lines {
+		var rec codexLine
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue
+		}
+		switch rec.Type {
+		case "session_meta":
+			if rec.Payload.SessionID != "" {
+				s.ID = rec.Payload.SessionID
+			}
+			if rec.Payload.Cwd != "" {
+				s.ProjectPath = rec.Payload.Cwd
+				s.ProjectName = filepath.Base(rec.Payload.Cwd)
+			}
+			if rec.Payload.Git.Branch != "" {
+				s.Branch = rec.Payload.Git.Branch
+			}
+		case "turn_context":
+			if rec.Payload.Model != "" {
+				model = rec.Payload.Model // last turn_context model wins
+			}
+		case "event_msg":
+			if rec.Payload.Type == "user_message" && !hasTask {
+				if txt := strings.TrimSpace(rec.Payload.Message); txt != "" {
+					s.Task = trimTo(txt, maxTaskLen)
+					hasTask = true
+				}
+			}
+		}
+	}
+	s.Model = model
+	if s.ID == "" || !hasTask {
+		return nil
+	}
+	return s
+}
+
 // stringContent returns trimmed text when message.content is a plain string (a human prompt).
 // Returns "" for array content (tool results) or anything else.
 func stringContent(raw json.RawMessage) string {
@@ -113,7 +170,7 @@ func trimTo(s string, max int) string {
 }
 
 // readLines reads non-blank lines from a transcript file. A package var so tests can assert
-// scanRoot's read-count invariant (only the newest candidates' content is read).
+// scanProvider's read-count invariant (only the newest candidates' content is read).
 var readLines = func(path string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -128,23 +185,51 @@ var readLines = func(path string) []string {
 	return lines
 }
 
-// scanRoot returns up to `limit` resumable sessions from a Claude projects root, newest-first. It
-// stats every *.jsonl (cheap dirent metadata, no content read) to rank by mtime, then reads CONTENT
-// only for the newest candidates — just enough to fill `limit` valid sessions. So surfacing 5 rows
-// never costs reading all (hundreds of) transcripts. Unexported so tests can target a fixture dir.
-func scanRoot(root string, windowDays, limit int) []SessionInfo {
+type provider struct {
+	runtime   string
+	root      string
+	matches   func(name string) bool
+	extract   func(stem string, lines []string) *SessionInfo
+	resumeCmd func(s *SessionInfo) string
+}
+
+func claudeProvider(root string) provider {
+	return provider{
+		runtime:   "claude",
+		root:      root,
+		matches:   func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
+		extract:   extractClaudeSession,
+		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
+	}
+}
+
+func codexProvider(root string) provider {
+	return provider{
+		runtime: "codex",
+		root:    root,
+		matches: func(name string) bool {
+			return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
+		},
+		extract:   extractCodexSession,
+		resumeCmd: func(s *SessionInfo) string { return "codex resume " + s.ID },
+	}
+}
+
+// scanProvider returns up to limit sessions from one provider's root, newest-first. It reads
+// content only for the newest candidates, just enough to fill limit valid sessions.
+func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 	var cutoff time.Time
 	if windowDays > 0 {
 		cutoff = time.Now().AddDate(0, 0, -windowDays-1)
 	}
 	type candidate struct {
 		path  string
-		name  string
+		stem  string
 		mtime time.Time
 	}
 	var cands []candidate
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+	_ = filepath.WalkDir(p.root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !p.matches(d.Name()) {
 			return nil
 		}
 		info, infoErr := d.Info()
@@ -154,30 +239,30 @@ func scanRoot(root string, windowDays, limit int) []SessionInfo {
 		if !cutoff.IsZero() && info.ModTime().Before(cutoff) {
 			return nil
 		}
-		cands = append(cands, candidate{path: path, name: d.Name(), mtime: info.ModTime()})
+		cands = append(cands, candidate{path: path, stem: strings.TrimSuffix(d.Name(), ".jsonl"), mtime: info.ModTime()})
 		return nil
 	})
 	sort.Slice(cands, func(i, j int) bool { return cands[i].mtime.After(cands[j].mtime) })
 
-	// read newest-first, parsing only enough files to reach `limit` valid sessions (nil = a
-	// subagent/tool-only file with no human prompt, which we skip and read one more).
 	var out []SessionInfo
 	for _, c := range cands {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		s := extractClaudeSession(strings.TrimSuffix(c.name, ".jsonl"), readLines(c.path))
+		s := p.extract(c.stem, readLines(c.path))
 		if s == nil {
 			continue
 		}
+		s.Runtime = p.runtime
 		s.LastActiveTs = c.mtime.UnixMilli()
+		s.ResumeCommand = p.resumeCmd(s)
 		out = append(out, *s)
 	}
 	return out
 }
 
-// ScanSessions lists recent resumable Claude sessions from ~/.claude/projects. windowDays<=0 and
-// limit<=0 fall back to the package defaults.
+// ScanSessions lists recent resumable sessions across runtime providers, newest-first.
+// windowDays<=0 and limit<=0 fall back to the package defaults.
 func ScanSessions(windowDays, limit int) ([]SessionInfo, error) {
 	if windowDays <= 0 {
 		windowDays = defaultWindowDays
@@ -185,6 +270,18 @@ func ScanSessions(windowDays, limit int) ([]SessionInfo, error) {
 	if limit <= 0 {
 		limit = defaultLimit
 	}
-	root := filepath.Join(wavebase.GetHomeDir(), ".claude", "projects")
-	return scanRoot(root, windowDays, limit), nil
+	home := wavebase.GetHomeDir()
+	providers := []provider{
+		claudeProvider(filepath.Join(home, ".claude", "projects")),
+		codexProvider(filepath.Join(home, ".codex", "sessions")),
+	}
+	var all []SessionInfo
+	for _, p := range providers {
+		all = append(all, scanProvider(p, windowDays, limit)...)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].LastActiveTs > all[j].LastActiveTs })
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
 }

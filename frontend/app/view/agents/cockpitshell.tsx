@@ -12,6 +12,7 @@ import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { NavRail } from "./navrail";
 import { PlaceholderSurface } from "./placeholdersurface";
+import { SessionsSurface } from "./sessionssurface";
 import { UsageSurface } from "./usagesurface";
 
 // Clears a pending launch once it's no longer "booting": its real roster row arrived (tabId in the
@@ -54,6 +55,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                     <ActivitySurface model={model} />
                 ) : surface === "files" ? (
                     <FilesSurface model={model} />
+                ) : surface === "sessions" ? (
+                    <SessionsSurface model={model} />
                 ) : surface === "usage" ? (
                     <UsageSurface model={model} />
                 ) : (

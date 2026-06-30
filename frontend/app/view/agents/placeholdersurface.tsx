@@ -3,7 +3,6 @@
 
 const TITLES: Record<string, string> = {
     channels: "Channels",
-    sessions: "Sessions",
     files: "Files",
     memory: "Memory",
 };

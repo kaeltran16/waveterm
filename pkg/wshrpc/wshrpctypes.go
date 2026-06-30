@@ -652,15 +652,16 @@ type CommandGetUsageStatsRtnData struct {
 }
 
 type SessionInfo struct {
-	ID           string `json:"id"`
-	Runtime      string `json:"runtime"`
-	ProjectPath  string `json:"projectpath"`
-	ProjectName  string `json:"projectname"`
-	Branch       string `json:"branch"`
-	Task         string `json:"task"`
-	Model        string `json:"model"`
-	TokensTotal  int    `json:"tokenstotal"`
-	LastActiveTs int64  `json:"lastactivets"`
+	ID            string `json:"id"`
+	Runtime       string `json:"runtime"`
+	ProjectPath   string `json:"projectpath"`
+	ProjectName   string `json:"projectname"`
+	Branch        string `json:"branch"`
+	Task          string `json:"task"`
+	Model         string `json:"model"`
+	TokensTotal   int    `json:"tokenstotal"`
+	LastActiveTs  int64  `json:"lastactivets"`
+	ResumeCommand string `json:"resumecommand"`
 }
 
 type CommandGetRecentSessionsData struct {

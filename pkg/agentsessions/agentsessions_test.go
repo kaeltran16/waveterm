@@ -34,7 +34,7 @@ func TestScanRoot_parsesAndSortsNewestFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := scanRoot(dir, 0, 10)
+	got := scanProvider(claudeProvider(dir), 0, 10)
 	if len(got) != 2 {
 		t.Fatalf("want 2 sessions, got %d", len(got))
 	}
@@ -59,6 +59,9 @@ func TestScanRoot_parsesAndSortsNewestFirst(t *testing.T) {
 	if got[0].Runtime != "claude" {
 		t.Errorf("runtime = %q", got[0].Runtime)
 	}
+	if got[0].ResumeCommand != "claude --resume sess-a" {
+		t.Errorf("resumeCommand = %q", got[0].ResumeCommand)
+	}
 }
 
 func TestScanRoot_skipsFilesWithoutHumanPrompt(t *testing.T) {
@@ -68,7 +71,7 @@ func TestScanRoot_skipsFilesWithoutHumanPrompt(t *testing.T) {
 		`{"type":"user","cwd":"/x","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}`,
 		`{"type":"assistant","message":{"model":"claude-opus-4-8"}}`,
 	)
-	if got := scanRoot(dir, 0, 10); len(got) != 0 {
+	if got := scanProvider(claudeProvider(dir), 0, 10); len(got) != 0 {
 		t.Fatalf("want 0 (no human prompt), got %d", len(got))
 	}
 }
@@ -78,7 +81,7 @@ func TestScanRoot_capsToLimit(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		writeJSONL(t, dir, n+".jsonl", `{"type":"user","cwd":"/x","message":{"content":"hi `+n+`"}}`)
 	}
-	if got := scanRoot(dir, 0, 2); len(got) != 2 {
+	if got := scanProvider(claudeProvider(dir), 0, 2); len(got) != 2 {
 		t.Fatalf("cap: want 2, got %d", len(got))
 	}
 }
@@ -105,7 +108,7 @@ func TestScanRoot_readsOnlyNewestUpToLimit(t *testing.T) {
 	}
 	defer func() { readLines = orig }()
 
-	got := scanRoot(dir, 0, 2)
+	got := scanProvider(claudeProvider(dir), 0, 2)
 	if len(got) != 2 || got[0].ID != "new" || got[1].ID != "mid" {
 		t.Fatalf("want newest [new mid], got %+v", got)
 	}
@@ -115,7 +118,57 @@ func TestScanRoot_readsOnlyNewestUpToLimit(t *testing.T) {
 }
 
 func TestScanRoot_missingRootYieldsNothing(t *testing.T) {
-	if got := scanRoot(filepath.Join(t.TempDir(), "does-not-exist"), 0, 10); len(got) != 0 {
+	if got := scanProvider(claudeProvider(filepath.Join(t.TempDir(), "does-not-exist")), 0, 10); len(got) != 0 {
 		t.Fatalf("missing root: want 0, got %d", len(got))
+	}
+}
+
+func TestScanProvider_codexExtractsResumeKeyAndMeta(t *testing.T) {
+	dir := t.TempDir()
+	// matcher requires the rollout- prefix; the filename stem is NOT the resume key for codex.
+	writeJSONL(t, dir, "rollout-2026-06-30T08-45-09-019f1633.jsonl",
+		`{"type":"session_meta","payload":{"session_id":"019f1633-9e5d-7791","cwd":"/home/me/waveterm","git":{"branch":"main"}}}`,
+		`{"type":"event_msg","payload":{"type":"task_started"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions"}]}}`,
+		`{"type":"turn_context","payload":{"model":"gpt-5-codex"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"check the handoff"}}`,
+	)
+
+	got := scanProvider(codexProvider(dir), 0, 10)
+	if len(got) != 1 {
+		t.Fatalf("want 1 codex session, got %d", len(got))
+	}
+	s := got[0]
+	if s.ID != "019f1633-9e5d-7791" {
+		t.Errorf("ID (resume key) = %q, want the session_meta session_id", s.ID)
+	}
+	if s.Runtime != "codex" {
+		t.Errorf("runtime = %q", s.Runtime)
+	}
+	if s.ProjectName != "waveterm" {
+		t.Errorf("projectName = %q", s.ProjectName)
+	}
+	if s.Branch != "main" {
+		t.Errorf("branch = %q", s.Branch)
+	}
+	if s.Model != "gpt-5-codex" {
+		t.Errorf("model = %q", s.Model)
+	}
+	if s.Task != "check the handoff" {
+		t.Errorf("task = %q (must be the user_message, not the AGENTS.md injection)", s.Task)
+	}
+	if s.ResumeCommand != "codex resume 019f1633-9e5d-7791" {
+		t.Errorf("resumeCommand = %q", s.ResumeCommand)
+	}
+}
+
+func TestScanProvider_codexSkipsFileWithoutUserMessage(t *testing.T) {
+	dir := t.TempDir()
+	writeJSONL(t, dir, "rollout-x.jsonl",
+		`{"type":"session_meta","payload":{"session_id":"abc","cwd":"/x"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"env"}]}}`,
+	)
+	if got := scanProvider(codexProvider(dir), 0, 10); len(got) != 0 {
+		t.Fatalf("want 0 (no human user_message), got %d", len(got))
 	}
 }

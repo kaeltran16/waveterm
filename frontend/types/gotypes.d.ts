@@ -1587,6 +1587,7 @@ declare global {
         model: string;
         tokenstotal: number;
         lastactivets: number;
+        resumecommand: string;
     };
 
     // wconfig.SettingsType

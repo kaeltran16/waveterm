@@ -1496,7 +1496,8 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 	for i, s := range sessions {
 		out[i] = wshrpc.SessionInfo{
 			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
-			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal, LastActiveTs: s.LastActiveTs,
+			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
+			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand,
 		}
 	}
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil

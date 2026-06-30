@@ -14,6 +14,7 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAge, formatTokens } from "./agentsviewmodel";
+import type { Runtime } from "./launch";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 
 export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
@@ -29,8 +30,8 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
     const resume = (s: SessionInfo) =>
         fireAndForget(() =>
             launchAgent(model, {
-                runtime: "claude",
-                startupCommand: `claude --resume ${s.id}`,
+                runtime: s.runtime as Runtime,
+                startupCommand: s.resumecommand,
                 task: "",
                 projectPath: s.projectpath,
                 projectName: s.projectname || "agent",
