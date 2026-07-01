@@ -16,7 +16,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import { planDelegate, planMessage, tierFromMeta, type RosterEntry } from "./channelmessages";
 import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
 import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
-import { runtimeStartupCommand } from "./launch";
+import { deriveBranch, runtimeStartupCommand } from "./launch";
 
 // A consult runs a headless CLI that can take up to the backend's 120s consultTimeout. The RPC layer
 // otherwise applies a 5s default handler timeout (DefaultTimeoutMs), which would kill the stream long
@@ -56,6 +56,36 @@ export async function sendChannelMessage(args: {
             | "fanout") ?? "report";
         const del = planDelegate({ tier, defaultMode, override: plan.mode, goal: plan.text });
         if (del.action === "dispatch") {
+            if (del.mode === "fanout") {
+                const { subtasks } = await RpcApi.JarvisDecomposeCommand(
+                    TabRpcClient,
+                    { channelid: channelId, goal: plan.text },
+                    { timeout: CONSULT_RPC_TIMEOUT_MS }
+                );
+                let existing: string[] = [];
+                try {
+                    const br = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: projectPath });
+                    existing = (br.branches ?? []).map((b) => b.name);
+                } catch {
+                    // no git / listing failed — deriveBranch still yields unique names off an empty set
+                }
+                const base = projectName || "agent";
+                for (let i = 0; i < subtasks.length; i++) {
+                    const branch = deriveBranch(`${base}-${i + 1}`, existing);
+                    existing.push(branch);
+                    const task = `/goal ${subtasks[i]}`;
+                    const tabId = await launchAgent(model, {
+                        runtime: "claude",
+                        startupCommand: runtimeStartupCommand("claude"),
+                        task,
+                        projectPath,
+                        projectName: `${base}-${i + 1}`,
+                        branch,
+                    });
+                    await post(channelId, "dispatch", "claude", task, `tab:${tabId}`);
+                }
+                return;
+            }
             const tabId = await launchAgent(model, {
                 runtime: "claude",
                 startupCommand: runtimeStartupCommand("claude"),

@@ -643,6 +643,17 @@ declare global {
         requestid: string;
     };
 
+    // wshrpc.CommandJarvisDecomposeData
+    type CommandJarvisDecomposeData = {
+        channelid: string;
+        goal: string;
+    };
+
+    // wshrpc.CommandJarvisDecomposeRtnData
+    type CommandJarvisDecomposeRtnData = {
+        subtasks: string[];
+    };
+
     // wshrpc.CommandJobCmdExitedData
     type CommandJobCmdExitedData = {
         jobid: string;

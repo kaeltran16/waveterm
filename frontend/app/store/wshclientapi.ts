@@ -606,6 +606,12 @@ export class RpcApiType {
         return client.wshRpcStream("jarvis", data, opts);
     }
 
+    // command "jarvisdecompose" [call]
+    JarvisDecomposeCommand(client: WshClient, data: CommandJarvisDecomposeData, opts?: RpcOpts): Promise<CommandJarvisDecomposeRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisdecompose", data, opts);
+        return client.wshRpcCall("jarvisdecompose", data, opts);
+    }
+
     // command "jobcmdexited" [call]
     JobCmdExitedCommand(client: WshClient, data: CommandJobCmdExitedData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jobcmdexited", data, opts);

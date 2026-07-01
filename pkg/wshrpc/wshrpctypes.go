@@ -113,6 +113,7 @@ type WshRpcInterface interface {
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
+	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error) // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
@@ -711,6 +712,15 @@ type CommandSetChannelTierData struct {
 	ChannelId string `json:"channelid"`
 	Tier      string `json:"tier"`           // concierge | gatekeeper | delegator
 	Mode      string `json:"mode,omitempty"` // default dispatch mode: report | manage | fanout
+}
+
+type CommandJarvisDecomposeData struct {
+	ChannelId string `json:"channelid"`
+	Goal      string `json:"goal"`
+}
+
+type CommandJarvisDecomposeRtnData struct {
+	Subtasks []string `json:"subtasks"`
 }
 
 type CommandConsultData struct {
