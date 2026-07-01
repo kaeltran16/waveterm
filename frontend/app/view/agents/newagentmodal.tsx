@@ -64,15 +64,18 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     // The field shows the project's current branch until the user types/picks their own.
     const effectiveBranch = branchEdited ? branch : currentBranch;
     // Flags: the selected runtime's catalog, the enabled subset (as chips), the search-filtered menu,
-    // and the resolved command that launch will actually run (base field + enabled flags).
+    // and the resolved command that launch will actually run (base field + enabled flags). Flag state
+    // is scoped per runtime, so read/write only the selected runtime's subrecord.
     const flagCatalog = RUNTIME_FLAGS[runtime];
-    const enabledFlags = flagCatalog.filter((f) => naFlags[f.id]);
+    const runtimeFlags = naFlags[runtime] ?? {};
+    const enabledFlags = flagCatalog.filter((f) => runtimeFlags[f.id]);
     const flagQ = flagQuery.trim().toLowerCase();
     const menuFlags = flagCatalog.filter(
         (f) => !flagQ || f.flag.toLowerCase().includes(flagQ) || f.desc.toLowerCase().includes(flagQ)
     );
-    const commandPreview = composeStartupCommand(startup, runtime, naFlags);
-    const setFlag = (id: string, on: boolean) => globalStore.set(naFlagsAtom, (prev) => ({ ...prev, [id]: on }));
+    const commandPreview = composeStartupCommand(startup, runtime, runtimeFlags);
+    const setFlag = (id: string, on: boolean) =>
+        globalStore.set(naFlagsAtom, (prev) => ({ ...prev, [runtime]: { ...prev[runtime], [id]: on } }));
     const toggleFlagMenu = () => {
         setFlagQuery("");
         setFlagMenuOpen((v) => !v);
@@ -215,7 +218,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             }
             await launchAgent(model, {
                 runtime,
-                startupCommand: composeStartupCommand(startup, runtime, naFlags),
+                startupCommand: composeStartupCommand(startup, runtime, runtimeFlags),
                 task,
                 projectPath: path,
                 projectName: c.name,
@@ -414,7 +417,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                             </div>
                                         ) : (
                                             menuFlags.map((f) => {
-                                                const on = !!naFlags[f.id];
+                                                const on = !!runtimeFlags[f.id];
                                                 return (
                                                     <button
                                                         key={f.id}

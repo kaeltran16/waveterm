@@ -6,17 +6,69 @@
 // agent's worktree; right = the selected file's diff (or plain view for untracked). Read-only.
 
 import { getApi } from "@/app/store/global";
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { statusColor, type GitChange } from "./gitstatus";
 import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, selectFile } from "./filesstore";
 
+// Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
+const STATE_DOT: Record<AgentState, string> = { asking: "bg-warning", working: "bg-success", idle: "bg-muted" };
+
 function baseName(p: string): string {
     const parts = p.split(/[/\\]/);
     return parts[parts.length - 1] || p;
+}
+
+// In-tab agent selector: picks whose worktree the Files surface shows, writing the shared focusIdAtom
+// so a diff can be inspected without bouncing back to the Agent tab to change focus.
+function AgentPicker({ agents, focusId, onPick }: { agents: AgentVM[]; focusId?: string; onPick: (id: string) => void }) {
+    const [open, setOpen] = useState(false);
+    const current = agents.find((a) => a.id === focusId);
+    return (
+        <div className="relative">
+            <button
+                onClick={() => setOpen((v) => !v)}
+                disabled={agents.length === 0}
+                className="flex w-full items-center gap-[8px] rounded-[8px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
+            >
+                {current ? (
+                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[current.state])} />
+                ) : null}
+                <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">
+                    {current?.name ?? (agents.length ? "Select an agent" : "No agents")}
+                </span>
+                {agents.length > 0 ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
+            </button>
+            {open && agents.length > 0 ? (
+                <>
+                    <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] overflow-y-auto rounded-[8px] border border-border bg-modalbg py-1 shadow-popover">
+                        {agents.map((a) => (
+                            <button
+                                key={a.id}
+                                onClick={() => {
+                                    onPick(a.id);
+                                    setOpen(false);
+                                }}
+                                className={cn(
+                                    "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
+                                    a.id === focusId ? "text-foreground" : "text-ink-mid"
+                                )}
+                            >
+                                <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[a.state])} />
+                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                </>
+            ) : null}
+        </div>
+    );
 }
 
 function EmptyCenter({ msg }: { msg: string }) {
@@ -109,14 +161,22 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     const agent = agents.find((a) => a.id === focusId);
 
+    // Default to the first agent when nothing is focused, so opening Files is immediately useful
+    // instead of a dead "focus an agent" screen.
+    useEffect(() => {
+        if (!focusId && agents.length > 0) {
+            globalStore.set(model.focusIdAtom, agents[0].id);
+        }
+    }, [focusId, agents]);
+
     useEffect(() => {
         if (focusId) {
             fireAndForget(() => loadFilesForAgent(focusId, agent?.transcriptPath, agent?.blockId));
         }
     }, [focusId, agent?.transcriptPath, agent?.blockId]);
 
-    if (!focusId) {
-        return <EmptyCenter msg="Focus an agent to see its changed files" />;
+    if (agents.length === 0) {
+        return <EmptyCenter msg="No agents yet — start one to see its changed files" />;
     }
     const dirLabel = state?.cwd ? baseName(state.cwd) : "—";
     const changes = state?.changes;
@@ -129,9 +189,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                         <h1 className="text-[16px] font-bold">Files</h1>
                         <span className="font-mono text-[10.5px] text-ink-mid">read-only</span>
                     </div>
-                    <div className="flex w-full items-center gap-[8px] rounded-[8px] border border-border px-[10px] py-[7px]">
-                        <span className="flex-1 truncate font-mono text-[12px] text-ink-mid">{dirLabel}</span>
-                    </div>
+                    <AgentPicker
+                        agents={agents}
+                        focusId={focusId}
+                        onPick={(id) => globalStore.set(model.focusIdAtom, id)}
+                    />
+                    {state?.cwd && <div className="mt-[7px] truncate px-[2px] font-mono text-[11px] text-ink-faint">{dirLabel}</div>}
                     {state?.isRepo && (
                         <div className="mt-[10px] flex items-center gap-[13px] font-mono text-[11px] font-semibold">
                             <span className="text-ink-mid">{state.branch || "—"}</span>

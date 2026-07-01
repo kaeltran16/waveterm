@@ -40,6 +40,7 @@ import {
     stopTranscriptStream,
 } from "./livetranscript";
 import { ProjectSwitcher } from "./projectswitcher";
+import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 
@@ -69,6 +70,7 @@ const CHIP_NUM: Record<ChipFilter, string> = {
 // Provider identity dots for the plan strip. Not theme tokens — Claude clay / Codex periwinkle are
 // brand colors, kept here as the single source.
 const PROVIDER_DOT: Record<string, string> = { claude: "bg-[#d97757]", codex: "bg-[#96aacd]" };
+const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
 
 // recent-activity dot color by agent state (matches the in-view StatusDot palette)
 const RECENT_DOT: Record<string, string> = {
@@ -169,12 +171,14 @@ function useModelAtom<T>(a: PrimitiveAtom<T>): [T, (v: T | ((p: T) => T)) => voi
 export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const { asking, working, idle } = groupAgents(agents);
-    // one plan-limit row per agent carrying rate data (no per-provider collapse), so multiple
-    // concurrent agents each show a row; labeled by agent name when there's more than one.
-    const usageRows = providerPlanUsage([...asking, ...working, ...idle]);
 
     // 1s tick so the liveness cue (age / quiet) stays current; drives the model's nowAtom
     const now = useAtomValue(model.nowAtom);
+    // Rate-limit windows are account-scoped, not per-agent: collapse every agent's live reading to one
+    // block per provider (last live wins), merged over the saved snapshot so it survives idle — the
+    // same aggregation the full Usage surface uses.
+    const savedRateLimits = useAtomValue(savedRateLimitsAtom);
+    const usageDonuts = mergeRateLimitWindows(providerPlanUsage([...asking, ...working, ...idle]), savedRateLimits, now);
     useEffect(() => {
         const t = setInterval(() => globalStore.set(model.nowAtom, Date.now()), 1000);
         return () => clearInterval(t);
@@ -644,26 +648,26 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             </button>
                         </div>
                         <div className="flex flex-col gap-4">
-                            {usageRows.map(({ agentId, name, provider, usage }) => (
-                                <div key={agentId} className="flex flex-col gap-4">
-                                    {usageRows.length > 1 ? (
+                            {usageDonuts.map((d) => (
+                                <div key={d.provider} className="flex flex-col gap-4">
+                                    {usageDonuts.length > 1 ? (
                                         <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
                                             <span
                                                 className={cn(
                                                     "h-[7px] w-[7px] rounded-full",
-                                                    PROVIDER_DOT[provider] ?? "bg-muted"
+                                                    PROVIDER_DOT[d.provider] ?? "bg-muted"
                                                 )}
                                             />
-                                            {name}
+                                            {PROVIDER_LABEL[d.provider] ?? d.provider}
                                         </div>
                                     ) : null}
                                     <UsageBar
                                         label="5-hour window"
-                                        pct={usage.fivehourpct}
-                                        reset={usage.fivehourreset}
+                                        pct={d.fivehour.pct}
+                                        reset={d.fivehour.reset}
                                         now={now}
                                     />
-                                    <UsageBar label="Weekly" pct={usage.weekpct} reset={usage.weekreset} now={now} />
+                                    <UsageBar label="Weekly" pct={d.week.pct} reset={d.week.reset} now={now} />
                                 </div>
                             ))}
                         </div>
