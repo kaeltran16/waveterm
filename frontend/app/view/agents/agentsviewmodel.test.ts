@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -103,12 +103,12 @@ describe("agentVMFromInput", () => {
         });
     });
 
-    it("maps a waiting row to the asking state with blockedMs", () => {
+    it("maps a waiting row to working, not asking (asking comes only from agent:ask via withAsk)", () => {
         const input: LiveAgentInput = { id: "tab-2", name: "loom", status: "waiting", model: "claude-opus-4-8", ts: NOW - 240_000 };
         const vm = agentVMFromInput(input, NOW);
-        expect(vm.state).toBe("asking");
-        expect(vm.blockedMs).toBe(240_000);
-        expect(vm.activeMs).toBeUndefined();
+        expect(vm.state).toBe("working");
+        expect(vm.activeMs).toBe(240_000);
+        expect(vm.blockedMs).toBeUndefined();
         expect(vm.model).toBe("opus");
     });
 
@@ -135,6 +135,19 @@ describe("agentVMFromInput", () => {
     it("carries the terminal blockId", () => {
         const vm = agentVMFromInput({ id: "tab-1", name: "x", status: "working", blockId: "uuid-1" }, NOW);
         expect(vm.blockId).toBe("uuid-1");
+    });
+});
+
+describe("agentVMFromInput status mapping", () => {
+    it("maps backend 'waiting' to working, not asking (asking comes only from agent:ask)", () => {
+        const vm = agentVMFromInput({ id: "t1", name: "a", status: "waiting", ts: 1000 }, 5000);
+        expect(vm.state).toBe("working");
+        expect(vm.activeMs).toBe(4000);
+        expect(vm.blockedMs).toBeUndefined();
+    });
+    it("maps 'working' to working and 'idle' to idle", () => {
+        expect(agentVMFromInput({ id: "t", name: "a", status: "working", ts: 1000 }, 2000).state).toBe("working");
+        expect(agentVMFromInput({ id: "t", name: "a", status: "idle", ts: 1000 }, 2000).state).toBe("idle");
     });
 });
 
@@ -397,10 +410,10 @@ describe("providerPlanUsage", () => {
         expect(rows[1].usage.weekpct).toBe(57);
     });
 
-    it("keeps the freshest (first) agent per provider", () => {
-        const stale = mk("c2", "idle", { agent: "claude", usage: { fivehourpct: 5, weekpct: 5 } });
-        const rows = providerPlanUsage([claude, stale]);
-        expect(rows).toHaveLength(1);
+    it("returns a row per same-provider agent (no dedup), preserving input order", () => {
+        const other = mk("c2", "idle", { agent: "claude", usage: { fivehourpct: 5, weekpct: 5 } });
+        const rows = providerPlanUsage([claude, other]);
+        expect(rows.map((r) => r.agentId)).toEqual(["c", "c2"]);
         expect(rows[0].usage.fivehourpct).toBe(42);
     });
 
@@ -413,6 +426,22 @@ describe("providerPlanUsage", () => {
     it("defaults a missing provider label to claude", () => {
         const rows = providerPlanUsage([mk("u", "working", { usage: { weekpct: 30 } })]);
         expect(rows[0].provider).toBe("claude");
+    });
+});
+
+describe("providerPlanUsage (no dedup)", () => {
+    const mk = (id: string, agent: string, five: number): AgentVM => ({
+        id, name: id, task: "", state: "working", agent, usage: { fivehourpct: five },
+    });
+    it("returns a row per agent with rate data (does not collapse same-provider agents)", () => {
+        const rows = providerPlanUsage([mk("a", "claude", 10), mk("b", "claude", 20), mk("c", "codex", 30)]);
+        expect(rows.map((r) => r.agentId)).toEqual(["a", "b", "c"]);
+        expect(rows.map((r) => r.provider)).toEqual(["claude", "claude", "codex"]);
+    });
+    it("skips agents without rate data and sorts claude before codex", () => {
+        const noRate: AgentVM = { id: "z", name: "z", task: "", state: "idle", agent: "claude" };
+        const rows = providerPlanUsage([mk("c", "codex", 30), noRate, mk("a", "claude", 10)]);
+        expect(rows.map((r) => r.agentId)).toEqual(["a", "c"]);
     });
 });
 
@@ -474,6 +503,18 @@ describe("moveCursor", () => {
     });
     it("is undefined for an empty list", () => {
         expect(moveCursor([], "a", 1)).toBeUndefined();
+    });
+});
+
+describe("cycleId", () => {
+    it("wraps forward past the end and starts at 0 when current is unknown", () => {
+        expect(cycleId(["a", "b", "c"], "c", 1)).toBe("a");
+        expect(cycleId(["a", "b", "c"], undefined, 1)).toBe("a");
+        expect(cycleId(["a", "b", "c"], "a", 1)).toBe("b");
+    });
+    it("wraps backward and returns undefined for empty", () => {
+        expect(cycleId(["a", "b", "c"], "a", -1)).toBe("c");
+        expect(cycleId([], "a", 1)).toBeUndefined();
     });
 });
 

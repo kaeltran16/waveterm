@@ -83,6 +83,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         } else if (e.key === "d") {
             e.preventDefault();
             globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom));
+        } else if (e.key === "f") {
+            e.preventDefault();
+            globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom));
         }
     };
 

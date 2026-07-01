@@ -236,25 +236,22 @@ export function formatReset(resetSec: number, now: number): string {
 
 const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1 };
 
-/** Pure: the freshest plan-limit usage snapshot per provider. Claude (Claude.ai) and Codex (ChatGPT)
- *  bill separate 5h/weekly quotas, so the strip shows one row per provider instead of a single global
- *  figure. Input order is the priority (active-first): the first agent of each provider carrying
- *  rate-limit data wins. Rows come back claude-first, then codex, then any others in first-seen order. */
-export function providerPlanUsage(agents: AgentVM[]): { provider: string; usage: AgentUsage }[] {
-    const byProvider = new Map<string, AgentUsage>();
+/** Pure: one plan-limit usage row per agent that carries rate data (no per-provider collapse), so
+ *  multiple concurrent agents each show a row. Sorted claude-first, then codex, then others in
+ *  first-seen order. */
+export function providerPlanUsage(
+    agents: AgentVM[]
+): { agentId: string; name: string; provider: string; usage: AgentUsage }[] {
+    const rows: { agentId: string; name: string; provider: string; usage: AgentUsage }[] = [];
     for (const a of agents) {
         const u = a.usage;
         if (!u || (u.fivehourpct == null && u.weekpct == null)) {
             continue;
         }
-        const provider = a.agent || "claude";
-        if (!byProvider.has(provider)) {
-            byProvider.set(provider, u);
-        }
+        rows.push({ agentId: a.id, name: a.name, provider: a.agent || "claude", usage: u });
     }
-    return [...byProvider.entries()]
-        .map(([provider, usage]) => ({ provider, usage }))
-        .sort((a, b) => (PROVIDER_RANK[a.provider] ?? 99) - (PROVIDER_RANK[b.provider] ?? 99));
+    // stable sort keeps active-first input order within a provider; claude before codex across providers
+    return rows.sort((x, y) => (PROVIDER_RANK[x.provider] ?? 99) - (PROVIDER_RANK[y.provider] ?? 99));
 }
 
 /** Minimal per-agent inputs the live roster feeds the pure mapping. `status` is the sidebar's
@@ -271,10 +268,10 @@ export interface LiveAgentInput {
     blockId?: string;
 }
 
-/** Pure: one live row -> an AgentVM. `waiting` becomes `asking`; age is derived from `now - ts`
- *  (asking -> blockedMs, working -> activeMs). previousInfo/ask/task are filled later (async). */
+/** Pure: one live row -> an AgentVM. `working` and `waiting` both map to working (asking is applied
+ *  later by withAsk, only from a live agent:ask); working age -> activeMs. task/ask filled later (async). */
 export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
-    const state: AgentState = input.status === "waiting" ? "asking" : input.status === "working" ? "working" : "idle";
+    const state: AgentState = input.status === "working" || input.status === "waiting" ? "working" : "idle";
     const age = input.ts != null ? Math.max(0, now - input.ts) : undefined;
     const vm: AgentVM = {
         id: input.id,
@@ -287,9 +284,7 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         transcriptPath: input.transcriptPath,
         blockId: input.blockId,
     };
-    if (state === "asking") {
-        vm.blockedMs = age;
-    } else if (state === "working") {
+    if (state === "working") {
         vm.activeMs = age;
     } else if (input.ts != null) {
         vm.idleSince = input.ts;
@@ -363,6 +358,15 @@ export function moveCursor(ids: string[], current: string | undefined, delta: nu
         return ids[0];
     }
     return ids[Math.max(0, Math.min(ids.length - 1, idx + delta))];
+}
+
+/** Pure: like moveCursor but wraps around the ends (for cycling shortcuts). Unknown current -> first. */
+export function cycleId(ids: string[], current: string | undefined, delta: number): string | undefined {
+    if (ids.length === 0) {
+        return undefined;
+    }
+    const idx = current != null ? ids.indexOf(current) : -1;
+    return ids[(idx + delta + ids.length) % ids.length];
 }
 
 /** Pure: one AgentAnswerItem per question, carrying that question's selected option indexes (ascending). */

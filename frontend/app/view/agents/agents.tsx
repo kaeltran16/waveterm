@@ -11,6 +11,7 @@ import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import {
     buildAskAnswers,
     canSubmitAsk,
+    cycleId,
     mergePendingLaunches,
     type AgentVM,
     type CardPref,
@@ -30,6 +31,18 @@ export type SurfaceKey =
     | "files"
     | "memory"
     | "usage";
+
+// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees.
+export const SURFACE_ORDER: SurfaceKey[] = [
+    "cockpit",
+    "agent",
+    "activity",
+    "channels",
+    "sessions",
+    "files",
+    "memory",
+    "usage",
+];
 
 export type ChipFilter = "all" | "asking" | "working" | "idle";
 
@@ -104,6 +117,21 @@ export class AgentsViewModel implements ViewModel {
         globalStore.set(this.terminalTargetAtom, agent?.blockId);
         globalStore.set(this.focusIdAtom, agentId);
         globalStore.set(this.surfaceAtom, "agent");
+    }
+
+    // Cycle the focused agent (Ctrl+Tab). askingOnly restricts to asking agents (Ctrl+Shift+Tab).
+    cycleFocus(askingOnly: boolean) {
+        const agents = globalStore.get(this.agentsAtom);
+        const byId = new Map(agents.map((a) => [a.id, a]));
+        const ordered = globalStore.get(this.orderAtom).filter((id) => byId.has(id));
+        let ids = ordered.length ? ordered : agents.map((a) => a.id);
+        if (askingOnly) {
+            ids = ids.filter((id) => byId.get(id)?.state === "asking");
+        }
+        const next = cycleId(ids, globalStore.get(this.focusIdAtom), 1);
+        if (next != null) {
+            globalStore.set(this.focusIdAtom, next);
+        }
     }
 
     // Shared by the cockpit grid and the Agent surface. Validates against the model atoms, fires the RPC

@@ -567,6 +567,15 @@ export class TermWrap {
     }
 
     handleResize() {
+        // skip while hidden/detached (display:none -> offsetParent null, 0 size) so we don't fit to a
+        // 0-size box and shrink the PTY; the ResizeObserver fires again with real dims on re-show.
+        if (
+            this.connectElem.offsetParent == null ||
+            this.connectElem.clientWidth === 0 ||
+            this.connectElem.clientHeight === 0
+        ) {
+            return;
+        }
         const oldRows = this.terminal.rows;
         const oldCols = this.terminal.cols;
         this.fitAddon.fit();

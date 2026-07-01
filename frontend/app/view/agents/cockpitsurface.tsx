@@ -169,9 +169,9 @@ function useModelAtom<T>(a: PrimitiveAtom<T>): [T, (v: T | ((p: T) => T)) => voi
 export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const { asking, working, idle } = groupAgents(agents);
-    // plan limits are per-provider: Claude (Claude.ai) and Codex (ChatGPT) bill separate 5h/weekly
-    // quotas, so we surface one snapshot per provider rather than a single global figure.
-    const planByProvider = providerPlanUsage([...asking, ...working, ...idle]);
+    // one plan-limit row per agent carrying rate data (no per-provider collapse), so multiple
+    // concurrent agents each show a row; labeled by agent name when there's more than one.
+    const usageRows = providerPlanUsage([...asking, ...working, ...idle]);
 
     // 1s tick so the liveness cue (age / quiet) stays current; drives the model's nowAtom
     const now = useAtomValue(model.nowAtom);
@@ -644,9 +644,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             </button>
                         </div>
                         <div className="flex flex-col gap-4">
-                            {planByProvider.map(({ provider, usage }) => (
-                                <div key={provider} className="flex flex-col gap-4">
-                                    {planByProvider.length > 1 ? (
+                            {usageRows.map(({ agentId, name, provider, usage }) => (
+                                <div key={agentId} className="flex flex-col gap-4">
+                                    {usageRows.length > 1 ? (
                                         <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
                                             <span
                                                 className={cn(
@@ -654,7 +654,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                                     PROVIDER_DOT[provider] ?? "bg-muted"
                                                 )}
                                             />
-                                            {provider.charAt(0).toUpperCase() + provider.slice(1)}
+                                            {name}
                                         </div>
                                     ) : null}
                                     <UsageBar

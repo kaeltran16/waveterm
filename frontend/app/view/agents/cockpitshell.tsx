@@ -3,6 +3,7 @@
 
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
 import { ActivitySurface } from "./activitysurface";
@@ -48,23 +49,31 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
         <div className="flex h-full w-full">
             <NavRail model={model} />
             <div className="relative min-w-0 flex-1 bg-background">
-                {surface === "cockpit" ? (
-                    <CockpitSurface model={model} />
-                ) : surface === "agent" ? (
+                {/* Agent surface stays mounted so its live terminal is never torn down on tab switch
+                    (destroy+remount re-fits xterm at a stale size and mangles the TUI). Hidden via
+                    display:none when off-surface; the termwrap resize guard skips the 0-size fit. */}
+                <div className={cn("absolute inset-0", surface === "agent" ? "" : "hidden")}>
                     <AgentSurface model={model} tabId={tabId} />
-                ) : surface === "channels" ? (
-                    <ChannelsSurface model={model} />
-                ) : surface === "activity" ? (
-                    <ActivitySurface model={model} />
-                ) : surface === "files" ? (
-                    <FilesSurface model={model} />
-                ) : surface === "sessions" ? (
-                    <SessionsSurface model={model} />
-                ) : surface === "usage" ? (
-                    <UsageSurface model={model} />
-                ) : (
-                    <PlaceholderSurface surface={surface} />
-                )}
+                </div>
+                {surface !== "agent" ? (
+                    <div className="absolute inset-0">
+                        {surface === "cockpit" ? (
+                            <CockpitSurface model={model} />
+                        ) : surface === "channels" ? (
+                            <ChannelsSurface model={model} />
+                        ) : surface === "activity" ? (
+                            <ActivitySurface model={model} />
+                        ) : surface === "files" ? (
+                            <FilesSurface model={model} />
+                        ) : surface === "sessions" ? (
+                            <SessionsSurface model={model} />
+                        ) : surface === "usage" ? (
+                            <UsageSurface model={model} />
+                        ) : (
+                            <PlaceholderSurface surface={surface} />
+                        )}
+                    </div>
+                ) : null}
             </div>
         </div>
     );

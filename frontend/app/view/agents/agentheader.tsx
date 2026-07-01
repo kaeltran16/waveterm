@@ -5,14 +5,13 @@
 // Extracted from the former AgentTranscript header (now removed): the real Claude Code TUI has no
 // chrome of its own, so this keeps name/status/model/context% + the details-rail toggle visible.
 
-import { atoms } from "@/app/store/global-atoms";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
-import { modalsModel } from "@/app/store/modalmodel";
-import { WorkspaceService } from "@/app/store/services";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { confirmCloseAgent } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { StatusDot } from "./statusdot";
@@ -50,25 +49,37 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
         );
     };
 
-    // Close the whole agent session (a tab, per launchAgent) — not just the term block. agent.id is
-    // the tabId; CloseTab -> wcore.DeleteTab tears down the block, reassigns the active tab, and
-    // emits updates (the old getApi().closeTab is a dead Electron stub in the Tauri shim).
-    const closeTerminal = () => {
-        const ws = globalStore.get(atoms.workspace);
-        if (ws?.oid == null) {
-            return;
+    // Close the whole agent session (a tab, per launchAgent) — shared with the double-Ctrl+C handler.
+    const closeTerminal = () => confirmCloseAgent(agent.id, agent.name);
+
+    // Right-click the header for the same controls as the button row (plus the details toggle).
+    const onContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const items: ContextMenuItem[] = [];
+        if (blockId != null) {
+            items.push({ label: "Interrupt turn", click: interrupt });
+            items.push({
+                label: fullscreen ? "Exit fullscreen" : "Fullscreen terminal",
+                click: () => globalStore.set(terminalFullscreenAtom, !fullscreen),
+            });
         }
-        modalsModel.pushModal("ConfirmModal", {
-            title: "Close terminal",
-            message: `End the session for "${agent.name}"? This stops the agent and can't be undone.`,
-            confirmLabel: "Close terminal",
-            destructive: true,
-            onConfirm: () => fireAndForget(() => WorkspaceService.CloseTab(ws.oid, agent.id, false)),
+        items.push({
+            label: railVisible ? "Hide details" : "Show details",
+            click: () => globalStore.set(railVisibleAtom, !railVisible),
         });
+        if (blockId != null) {
+            items.push({ type: "separator" });
+            items.push({ label: "Close agent", click: closeTerminal });
+        }
+        ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
     return (
-        <div className="flex shrink-0 items-center gap-[13px] border-b border-[#1a1f26] bg-background px-[22px] py-[14px]">
+        <div
+            onContextMenu={onContextMenu}
+            className="flex shrink-0 items-center gap-[13px] border-b border-[#1a1f26] bg-background px-[22px] py-[14px]"
+        >
             <StatusDot state={agent.state} className="!h-[9px] !w-[9px]" />
             <div className="min-w-0">
                 <div className="flex items-center gap-[9px]">
