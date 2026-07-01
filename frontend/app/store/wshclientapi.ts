@@ -600,6 +600,12 @@ export class RpcApiType {
         return client.wshRpcCall("gitdiff", data, opts);
     }
 
+    // command "jarvis" [responsestream]
+	JarvisCommand(client: WshClient, data: CommandJarvisData, opts?: RpcOpts): AsyncGenerator<JarvisChunk, void, boolean> {
+        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "jarvis", data, opts);
+        return client.wshRpcStream("jarvis", data, opts);
+    }
+
     // command "jobcmdexited" [call]
     JobCmdExitedCommand(client: WshClient, data: CommandJobCmdExitedData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jobcmdexited", data, opts);

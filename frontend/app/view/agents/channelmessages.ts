@@ -33,10 +33,18 @@ export type MessagePlan =
     | { kind: "dispatch"; runtime: Runtime; text: string }
     | { kind: "steer"; targetId: string; blockId?: string; text: string }
     | { kind: "consult"; runtimes: Runtime[]; text: string }
+    | { kind: "jarvis"; text: string }
     | { kind: "post"; text: string };
 
 export function planMessage(text: string, roster: RosterEntry[]): MessagePlan {
     const trimmed = text.trimStart();
+    // @jarvis (reserved manager handle): observe-only fleet summary. Matched with a dedicated regex so a
+    // bare "@jarvis" is caught (parseMentions requires a trailing space) and so it always beats a roster
+    // worker that happens to be named "jarvis".
+    const jarvisMatch = /^@jarvis\b\s*([\s\S]*)$/i.exec(trimmed);
+    if (jarvisMatch) {
+        return { kind: "jarvis", text: jarvisMatch[1].trim() };
+    }
     const askMatch = /^ask\s+/i.exec(trimmed);
     if (askMatch) {
         const { mentions, body } = parseMentions(trimmed.slice(askMatch[0].length));

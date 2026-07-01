@@ -597,6 +597,11 @@ func GitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDiffData, opts *wsh
 	return resp, err
 }
 
+// command "jarvis", wshserver.JarvisCommand
+func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk] {
+	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
+}
+
 // command "jobcmdexited", wshserver.JobCmdExitedCommand
 func JobCmdExitedCommand(w *wshutil.WshRpc, data wshrpc.CommandJobCmdExitedData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "jobcmdexited", data, opts)

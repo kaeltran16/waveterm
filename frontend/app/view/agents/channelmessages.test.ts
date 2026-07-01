@@ -73,3 +73,15 @@ describe("planMessage", () => {
         expect(planMessage("@claude build it", roster)).toEqual({ kind: "dispatch", runtime: "claude", text: "build it" });
     });
 });
+
+describe("planMessage @jarvis", () => {
+    it("routes @jarvis with a focus body to a jarvis plan", () => {
+        expect(planMessage("@jarvis what's blocked?", [])).toEqual({ kind: "jarvis", text: "what's blocked?" });
+    });
+    it("routes a bare @jarvis to a jarvis plan with empty text", () => {
+        expect(planMessage("@jarvis", [])).toEqual({ kind: "jarvis", text: "" });
+    });
+    it("treats jarvis as reserved even if a roster worker is named jarvis", () => {
+        expect(planMessage("@jarvis go", [{ id: "t1", name: "jarvis" }]).kind).toBe("jarvis");
+    });
+});

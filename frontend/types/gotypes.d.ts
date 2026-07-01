@@ -636,6 +636,13 @@ declare global {
         untracked: boolean;
     };
 
+    // wshrpc.CommandJarvisData
+    type CommandJarvisData = {
+        channelid: string;
+        prompt: string;
+        requestid: string;
+    };
+
     // wshrpc.CommandJobCmdExitedData
     type CommandJobCmdExitedData = {
         jobid: string;
@@ -1354,6 +1361,11 @@ declare global {
         configerrors: ConfigError[];
         version: string;
         buildtime: string;
+    };
+
+    // wshrpc.JarvisChunk
+    type JarvisChunk = {
+        text: string;
     };
 
     // waveobj.Job

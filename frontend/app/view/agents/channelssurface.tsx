@@ -58,6 +58,10 @@ function consultIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
 }
 
+function jarvisReqIdOf(refORef?: string): string | undefined {
+    return refORef?.startsWith("jarvis:") ? refORef.slice("jarvis:".length) : undefined;
+}
+
 function timeLabel(ts: number, now: number): string {
     return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
 }
@@ -170,6 +174,54 @@ function ConsultRow({
     );
 }
 
+// A @jarvis query + its single grouped reply: the persisted jarvis-reply if present, else the live
+// streaming text (keyed `${reqId}:jarvis` in the shared consultStreamsAtom).
+function JarvisRow({
+    msg,
+    allMessages,
+    streams,
+    now,
+}: {
+    msg: ChannelMessage;
+    allMessages: ChannelMessage[];
+    streams: Record<string, ConsultStream>;
+    now: number;
+}) {
+    const reqId = jarvisReqIdOf(msg.reforef);
+    const reply = reqId
+        ? allMessages.find((m) => m.kind === "jarvis-reply" && jarvisReqIdOf(m.reforef) === reqId)
+        : undefined;
+    const live = reqId && !reply ? streams[`${reqId}:jarvis`] : undefined;
+    return (
+        <div className="flex items-start gap-3">
+            <Avatar name={msg.author} />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">{msg.author}</span>
+                    <Tag label="jarvis" tone="muted" />
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
+                </div>
+                <p className="mb-2.5 text-[14px] leading-[1.6] text-secondary">{msg.text || "(empty)"}</p>
+                {reply ? (
+                    <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5">
+                        <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">jarvis</div>
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{reply.text}</div>
+                    </div>
+                ) : (
+                    <div className="rounded-[9px] border border-accent/40 bg-accentbg/30 px-3 py-2.5">
+                        <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">
+                            jarvis {!live || live.status === "streaming" ? "· thinking…" : ""}
+                        </div>
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">
+                            {live?.text || "…"}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // A dispatch / directive / human message row: avatar + author + optional tag + body, plus (for a
 // dispatch) the live worker status pill, open link, and — when asking — the inline AnswerBar.
 function MessageRow({
@@ -262,6 +314,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                 projectPath: active?.projectpath ?? "",
                 projectName: active?.name ?? "agent",
                 roster,
+                agents,
                 text,
             })
         );
@@ -321,10 +374,18 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             </div>
                         ) : (
                             messages
-                                .filter((m) => m.kind !== "consult-reply")
+                                .filter((m) => m.kind !== "consult-reply" && m.kind !== "jarvis-reply")
                                 .map((m) =>
                                     m.kind === "consult" ? (
                                         <ConsultRow
+                                            key={m.id}
+                                            msg={m}
+                                            allMessages={messages}
+                                            streams={consultStreams}
+                                            now={now}
+                                        />
+                                    ) : m.kind === "jarvis" ? (
+                                        <JarvisRow
                                             key={m.id}
                                             msg={m}
                                             allMessages={messages}
@@ -352,7 +413,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                 }
                             }}
                             rows={1}
-                            placeholder={`Message #${active?.name ?? "channel"}…${askHint}`}
+                            placeholder={`Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`}
                             disabled={!activeId}
                             className="min-h-[22px] w-full resize-none bg-transparent text-[14px] text-primary placeholder:text-muted focus:outline-none disabled:opacity-50"
                         />

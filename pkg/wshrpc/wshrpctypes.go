@@ -110,6 +110,7 @@ type WshRpcInterface interface {
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
+	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
@@ -707,6 +708,16 @@ type CommandConsultData struct {
 }
 
 type ConsultChunk struct {
+	Text string `json:"text"`
+}
+
+type CommandJarvisData struct {
+	ChannelId string `json:"channelid"`
+	Prompt    string `json:"prompt"`
+	RequestId string `json:"requestid"`
+}
+
+type JarvisChunk struct {
 	Text string `json:"text"`
 }
 

@@ -12,8 +12,10 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
+import type { AgentVM } from "./agentsviewmodel";
 import { planMessage, type RosterEntry } from "./channelmessages";
-import { consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
+import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
+import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
 import { runtimeStartupCommand } from "./launch";
 
 // A consult runs a headless CLI that can take up to the backend's 120s consultTimeout. The RPC layer
@@ -37,10 +39,51 @@ export async function sendChannelMessage(args: {
     projectPath: string;
     projectName: string;
     roster: RosterEntry[];
+    agents: AgentVM[];
     text: string;
 }): Promise<void> {
-    const { model, channelId, projectPath, projectName, roster, text } = args;
+    const { model, channelId, projectPath, projectName, roster, agents, text } = args;
     const plan = planMessage(text, roster);
+    if (plan.kind === "jarvis") {
+        const reqId = crypto.randomUUID();
+        // anchor: the user's request, grouped to its reply by requestId (mirrors the consult grouping)
+        await RpcApi.PostChannelMessageCommand(TabRpcClient, {
+            channelid: channelId,
+            kind: "jarvis",
+            author: "you",
+            text: plan.text || "summarize the fleet",
+            reforef: `jarvis:${reqId}`,
+        });
+        const channel = globalStore.get(activeChannelAtom);
+        const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
+        if (snapshot.length === 0) {
+            // nothing dispatched here — answer without spending a model call
+            await post(channelId, "jarvis-reply", "jarvis", "No workers dispatched in this channel yet.", `jarvis:${reqId}`);
+            return;
+        }
+        const prompt = buildJarvisPrompt(snapshot, channel!, plan.text);
+        setConsultStream(reqId, "jarvis", { text: "", status: "streaming" });
+        try {
+            const gen = RpcApi.JarvisCommand(
+                TabRpcClient,
+                { channelid: channelId, prompt, requestid: reqId },
+                { timeout: CONSULT_RPC_TIMEOUT_MS }
+            );
+            let acc = "";
+            for await (const chunk of gen) {
+                acc += chunk?.text ?? "";
+                setConsultStream(reqId, "jarvis", { text: acc, status: "streaming" });
+            }
+            setConsultStream(reqId, "jarvis", { text: acc, status: "done" });
+        } catch {
+            // the backend still posts a jarvis-reply with the error; mark the live row done
+            setConsultStream(reqId, "jarvis", {
+                text: globalStore.get(consultStreamsAtom)[consultStreamKey(reqId, "jarvis")]?.text ?? "",
+                status: "error",
+            });
+        }
+        return;
+    }
     if (plan.kind === "consult") {
         const consultId = crypto.randomUUID();
         // one question row (author "you"), grouped to its replies by the shared consultId

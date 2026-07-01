@@ -1678,6 +1678,57 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 	return rtn
 }
 
+// postJarvisReply persists the jarvis-reply message and live-updates the pinned channel atom. Mirrors
+// postConsultReply (fresh context, not the RPC request ctx, since a slow summary routinely outlives it).
+func postJarvisReply(data wshrpc.CommandJarvisData, text string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	msg := wstore.NewChannelMessage("jarvis-reply", "jarvis", text, "jarvis:"+data.RequestId, time.Now().UnixMilli())
+	if _, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg); err != nil {
+		log.Printf("jarvis: failed to post reply: %v", err)
+		return
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+}
+
+func (ws *WshServer) JarvisCommand(ctx context.Context, data wshrpc.CommandJarvisData) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk] {
+	rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk])
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("JarvisCommand", recover())
+		}()
+		defer close(rtn)
+		ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
+		if err != nil {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Error: fmt.Errorf("channel not found: %w", err)}
+			return
+		}
+		spec, ok := consult.SpecFor("claude")
+		if !ok {
+			postJarvisReply(data, "jarvis requires the claude CLI, which is not available")
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Error: fmt.Errorf("claude runtime unavailable")}
+			return
+		}
+		runCtx, cancel := context.WithTimeout(ctx, consultTimeout)
+		defer cancel()
+		full, runErr := consult.Run(runCtx, spec, ch.ProjectPath, data.Prompt, func(chunk string) {
+			select {
+			case rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Response: wshrpc.JarvisChunk{Text: chunk}}:
+			case <-runCtx.Done():
+			}
+		})
+		reply := strings.TrimSpace(full)
+		if runErr != nil {
+			if reply != "" {
+				reply += "\n\n"
+			}
+			reply += "jarvis failed: " + runErr.Error()
+		}
+		postJarvisReply(data, reply)
+	}()
+	return rtn
+}
+
 func (ws *WshServer) ListConsultRuntimesCommand(ctx context.Context) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
 	var infos []wshrpc.ConsultRuntimeInfo
 	for _, rt := range consult.SupportedRuntimes() {
