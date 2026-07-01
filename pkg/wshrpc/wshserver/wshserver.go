@@ -1637,6 +1637,30 @@ func (ws *WshServer) SetChannelGatekeeperCommand(ctx context.Context, data wshrp
 	return nil
 }
 
+func (ws *WshServer) SetChannelTierCommand(ctx context.Context, data wshrpc.CommandSetChannelTierData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	gk, del := jarvis.TierMeta(data.Tier)
+	mode := data.Mode
+	if mode == "" {
+		mode = "report"
+	}
+	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+		if ch.Meta == nil {
+			ch.Meta = make(waveobj.MetaMapType)
+		}
+		ch.Meta[jarvis.MetaKey_GatekeeperEnabled] = gk
+		ch.Meta[jarvis.MetaKey_DelegatorEnabled] = del
+		ch.Meta[jarvis.MetaKey_DelegatorMode] = mode
+	})
+	if err != nil {
+		return fmt.Errorf("updating channel tier: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 const consultTimeout = 120 * time.Second
 
 // postConsultReply persists a consult-reply message and live-updates the pinned channel atom. Mirrors

@@ -961,6 +961,13 @@ declare global {
         enabled: boolean;
     };
 
+    // wshrpc.CommandSetChannelTierData
+    type CommandSetChannelTierData = {
+        channelid: string;
+        tier: string;
+        mode?: string;
+    };
+
     // wshrpc.CommandSetMetaData
     type CommandSetMetaData = {
         oref: ORef;

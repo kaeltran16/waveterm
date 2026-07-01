@@ -25,7 +25,7 @@ import {
     mentionCandidates,
     type MentionCandidate,
 } from "./channelderive";
-import type { RosterEntry } from "./channelmessages";
+import { tierFromMeta, type RosterEntry } from "./channelmessages";
 import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
 import {
@@ -582,7 +582,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     const projects = useAtomValue(projectsAtom); // Record<string, { path?: string }>
     const consultStreams = useAtomValue(consultStreamsAtom);
-    const gatekeeperOn = Boolean((active?.meta as Record<string, unknown> | undefined)?.["gatekeeper:enabled"]);
+    const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
     const [draft, setDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
@@ -655,25 +655,36 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                     <div className="flex-1" />
                     {active ? (
-                        <button
-                            type="button"
-                            onClick={() =>
-                                fireAndForget(() =>
-                                    RpcApi.SetChannelGatekeeperCommand(TabRpcClient, {
-                                        channelid: active.oid,
-                                        enabled: !gatekeeperOn,
-                                    })
-                                )
-                            }
-                            title="Jarvis auto-answers routine asks in this channel; escalates genuine forks"
-                            className={
-                                gatekeeperOn
-                                    ? "flex-none rounded-[7px] border border-accent/50 bg-accentbg/40 px-2 py-1 font-mono text-[11px] text-accent-soft"
-                                    : "flex-none rounded-[7px] border border-edge-mid px-2 py-1 font-mono text-[11px] text-muted"
-                            }
+                        <div
+                            className="flex flex-none items-center gap-0.5 rounded-[7px] border border-edge-mid p-0.5"
+                            title="Jarvis autonomy for this channel: Concierge observes; Gatekeeper auto-answers routine asks; Delegator spawns and runs workers toward a goal"
                         >
-                            gatekeeper {gatekeeperOn ? "on" : "off"}
-                        </button>
+                            {(["concierge", "gatekeeper", "delegator"] as const).map((t) => (
+                                <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() =>
+                                        fireAndForget(() =>
+                                            RpcApi.SetChannelTierCommand(TabRpcClient, {
+                                                channelid: active.oid,
+                                                tier: t,
+                                                mode:
+                                                    ((active.meta as Record<string, unknown> | undefined)?.[
+                                                        "delegator:mode"
+                                                    ] as string) ?? "report",
+                                            })
+                                        )
+                                    }
+                                    className={
+                                        tier === t
+                                            ? "rounded-[5px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[11px] text-accent-soft"
+                                            : "rounded-[5px] px-2 py-0.5 font-mono text-[11px] text-muted hover:text-secondary"
+                                    }
+                                >
+                                    {t}
+                                </button>
+                            ))}
+                        </div>
                     ) : null}
                 </div>
 

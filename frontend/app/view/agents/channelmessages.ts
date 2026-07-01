@@ -5,6 +5,8 @@ import type { Runtime } from "./launch";
 
 const RUNTIMES: Runtime[] = ["claude", "codex", "antigravity", "terminal"];
 
+export type DispatchMode = "report" | "manage" | "fanout";
+
 export interface ParsedMentions {
     mentions: string[];
     body: string;
@@ -33,7 +35,7 @@ export type MessagePlan =
     | { kind: "dispatch"; runtime: Runtime; text: string }
     | { kind: "steer"; targetId: string; blockId?: string; text: string }
     | { kind: "consult"; runtimes: Runtime[]; text: string }
-    | { kind: "jarvis"; text: string }
+    | { kind: "jarvis"; text: string; mode?: DispatchMode }
     | { kind: "post"; text: string };
 
 export function planMessage(text: string, roster: RosterEntry[]): MessagePlan {
@@ -41,9 +43,10 @@ export function planMessage(text: string, roster: RosterEntry[]): MessagePlan {
     // @jarvis (reserved manager handle): observe-only fleet summary. Matched with a dedicated regex so a
     // bare "@jarvis" is caught (parseMentions requires a trailing space) and so it always beats a roster
     // worker that happens to be named "jarvis".
-    const jarvisMatch = /^@jarvis\b\s*([\s\S]*)$/i.exec(trimmed);
+    const jarvisMatch = /^@jarvis(?::(report|manage|fanout))?\b\s*([\s\S]*)$/i.exec(trimmed);
     if (jarvisMatch) {
-        return { kind: "jarvis", text: jarvisMatch[1].trim() };
+        const mode = jarvisMatch[1] ? (jarvisMatch[1].toLowerCase() as DispatchMode) : undefined;
+        return { kind: "jarvis", text: jarvisMatch[2].trim(), mode };
     }
     const askMatch = /^ask\s+/i.exec(trimmed);
     if (askMatch) {
@@ -66,4 +69,38 @@ export function planMessage(text: string, roster: RosterEntry[]): MessagePlan {
         }
     }
     return { kind: "post", text };
+}
+
+export type JarvisTier = "concierge" | "gatekeeper" | "delegator";
+
+// tierFromMeta reads the nested autonomy tier from a channel's meta booleans (delegator ⇒ gatekeeper).
+export function tierFromMeta(meta: Record<string, unknown> | undefined): JarvisTier {
+    if (meta?.["delegator:enabled"]) {
+        return "delegator";
+    }
+    if (meta?.["gatekeeper:enabled"]) {
+        return "gatekeeper";
+    }
+    return "concierge";
+}
+
+export type DelegatePlan = { action: "summary" } | { action: "dispatch"; task: string; mode: DispatchMode };
+
+// planDelegate decides whether an @jarvis message in this channel is an observe-only summary or a
+// worker dispatch. Only a delegator-tier channel with a non-empty goal dispatches. Report launches the
+// plain goal (one bounded pass); Manage/Fan-out wrap it in /goal (loop to completion). Fan-out has no
+// decompose backend yet (v1), so it degrades to a single /goal dispatch.
+export function planDelegate(args: {
+    tier: JarvisTier;
+    defaultMode: DispatchMode;
+    override?: DispatchMode;
+    goal: string;
+}): DelegatePlan {
+    const goal = args.goal.trim();
+    if (args.tier !== "delegator" || goal === "") {
+        return { action: "summary" };
+    }
+    const mode = args.override ?? args.defaultMode;
+    const task = mode === "report" ? goal : `/goal ${goal}`;
+    return { action: "dispatch", task, mode };
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { parseMentions, planMessage } from "./channelmessages";
+import { parseMentions, planDelegate, planMessage, tierFromMeta } from "./channelmessages";
 
 describe("parseMentions", () => {
     it("returns no mentions for plain text", () => {
@@ -83,5 +83,55 @@ describe("planMessage @jarvis", () => {
     });
     it("treats jarvis as reserved even if a roster worker is named jarvis", () => {
         expect(planMessage("@jarvis go", [{ id: "t1", name: "jarvis" }]).kind).toBe("jarvis");
+    });
+});
+
+describe("planMessage @jarvis mode override", () => {
+    it("parses a bare @jarvis with no mode", () => {
+        const p = planMessage("@jarvis what's the fleet doing?", []);
+        expect(p).toEqual({ kind: "jarvis", text: "what's the fleet doing?", mode: undefined });
+    });
+    it("parses @jarvis:manage <goal>", () => {
+        const p = planMessage("@jarvis:manage add rate limiting", []);
+        expect(p).toEqual({ kind: "jarvis", text: "add rate limiting", mode: "manage" });
+    });
+    it("parses @jarvis:report and @jarvis:fanout", () => {
+        expect(planMessage("@jarvis:report do x", [])).toMatchObject({ kind: "jarvis", mode: "report" });
+        expect(planMessage("@jarvis:fanout do y", [])).toMatchObject({ kind: "jarvis", mode: "fanout" });
+    });
+});
+
+describe("tierFromMeta", () => {
+    it("reads the nested tier from meta booleans", () => {
+        expect(tierFromMeta({})).toBe("concierge");
+        expect(tierFromMeta({ "gatekeeper:enabled": true })).toBe("gatekeeper");
+        expect(tierFromMeta({ "gatekeeper:enabled": true, "delegator:enabled": true })).toBe("delegator");
+    });
+});
+
+describe("planDelegate", () => {
+    it("returns summary when not a delegator channel", () => {
+        expect(planDelegate({ tier: "gatekeeper", defaultMode: "report", goal: "do x" }))
+            .toEqual({ action: "summary" });
+    });
+    it("returns summary for a delegator channel with an empty goal (bare @jarvis)", () => {
+        expect(planDelegate({ tier: "delegator", defaultMode: "manage", goal: "" }))
+            .toEqual({ action: "summary" });
+    });
+    it("Report dispatches the plain goal (no /goal wrapper)", () => {
+        expect(planDelegate({ tier: "delegator", defaultMode: "report", goal: "add x" }))
+            .toEqual({ action: "dispatch", task: "add x", mode: "report" });
+    });
+    it("Manage wraps the goal in /goal", () => {
+        expect(planDelegate({ tier: "delegator", defaultMode: "manage", goal: "add x" }))
+            .toEqual({ action: "dispatch", task: "/goal add x", mode: "manage" });
+    });
+    it("a per-message override beats the channel default", () => {
+        expect(planDelegate({ tier: "delegator", defaultMode: "report", override: "manage", goal: "add x" }))
+            .toEqual({ action: "dispatch", task: "/goal add x", mode: "manage" });
+    });
+    it("Fan-out degrades to a single /goal dispatch in v1", () => {
+        expect(planDelegate({ tier: "delegator", defaultMode: "fanout", goal: "add x" }))
+            .toEqual({ action: "dispatch", task: "/goal add x", mode: "fanout" });
     });
 });

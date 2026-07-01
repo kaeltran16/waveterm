@@ -46,6 +46,26 @@ func TestResolve_NoOwner(t *testing.T) {
 	}
 }
 
+func TestTierMeta(t *testing.T) {
+	cases := []struct {
+		tier           string
+		wantGatekeeper bool
+		wantDelegator  bool
+	}{
+		{"delegator", true, true},
+		{"gatekeeper", true, false},
+		{"concierge", false, false},
+		{"", false, false},
+		{"bogus", false, false},
+	}
+	for _, c := range cases {
+		gk, del := TierMeta(c.tier)
+		if gk != c.wantGatekeeper || del != c.wantDelegator {
+			t.Errorf("TierMeta(%q) = (%v,%v), want (%v,%v)", c.tier, gk, del, c.wantGatekeeper, c.wantDelegator)
+		}
+	}
+}
+
 // A tab oref (what a dispatch records) and an unparseable oref pass through channelOwnerORef
 // unchanged — only a block oref triggers the DB block→tab walk (covered by the live E2E).
 func TestChannelOwnerORef_Passthrough(t *testing.T) {

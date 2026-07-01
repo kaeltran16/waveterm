@@ -11,6 +11,26 @@ import "github.com/wavetermdev/waveterm/pkg/waveobj"
 // MetaKey_GatekeeperEnabled is the per-channel bool flag toggling Gatekeeper for that channel.
 const MetaKey_GatekeeperEnabled = "gatekeeper:enabled"
 
+// MetaKey_DelegatorEnabled toggles the Delegator (act) tier for a channel; nested above Gatekeeper.
+// MetaKey_DelegatorMode is the channel's default dispatch mode ("report" | "manage" | "fanout").
+const (
+	MetaKey_DelegatorEnabled = "delegator:enabled"
+	MetaKey_DelegatorMode    = "delegator:mode"
+)
+
+// TierMeta derives the two per-channel autonomy booleans from a tier name. The ladder is nested:
+// delegator implies gatekeeper. Any unknown/empty tier falls to the floor (both off = concierge).
+func TierMeta(tier string) (gatekeeper bool, delegator bool) {
+	switch tier {
+	case "delegator":
+		return true, true
+	case "gatekeeper":
+		return true, false
+	default:
+		return false, false
+	}
+}
+
 // ResolveGatekeeperChannel returns the gatekeeper-enabled channel that dispatched the worker at
 // askingORef ("tab:<id>"), or nil. A channel owns a worker if it has a dispatch/directive message
 // whose RefORef equals askingORef. First enabled owner wins (a worker in one channel is the norm).

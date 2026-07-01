@@ -13,7 +13,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { planMessage, type RosterEntry } from "./channelmessages";
+import { planDelegate, planMessage, tierFromMeta, type RosterEntry } from "./channelmessages";
 import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
 import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
 import { runtimeStartupCommand } from "./launch";
@@ -45,6 +45,27 @@ export async function sendChannelMessage(args: {
     const { model, channelId, projectPath, projectName, roster, agents, text } = args;
     const plan = planMessage(text, roster);
     if (plan.kind === "jarvis") {
+        const channel = globalStore.get(activeChannelAtom);
+        // delegator-tier channels turn an @jarvis goal into a real worker dispatch; other tiers fall
+        // through to the observe-only summary below. The "dispatch" message's tab: oref is what the
+        // Gatekeeper watcher matches to auto-answer this worker's routine asks (Manage mode).
+        const tier = tierFromMeta(channel?.meta as Record<string, unknown> | undefined);
+        const defaultMode = ((channel?.meta as Record<string, unknown>)?.["delegator:mode"] as
+            | "report"
+            | "manage"
+            | "fanout") ?? "report";
+        const del = planDelegate({ tier, defaultMode, override: plan.mode, goal: plan.text });
+        if (del.action === "dispatch") {
+            const tabId = await launchAgent(model, {
+                runtime: "claude",
+                startupCommand: runtimeStartupCommand("claude"),
+                task: del.task,
+                projectPath,
+                projectName: projectName || "agent",
+            });
+            await post(channelId, "dispatch", "claude", del.task, `tab:${tabId}`);
+            return;
+        }
         const reqId = crypto.randomUUID();
         // anchor: the user's request, grouped to its reply by requestId (mirrors the consult grouping)
         await RpcApi.PostChannelMessageCommand(TabRpcClient, {
@@ -54,7 +75,6 @@ export async function sendChannelMessage(args: {
             text: plan.text || "summarize the fleet",
             reforef: `jarvis:${reqId}`,
         });
-        const channel = globalStore.get(activeChannelAtom);
         const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
         if (snapshot.length === 0) {
             // nothing dispatched here — answer without spending a model call
