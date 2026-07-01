@@ -71,7 +71,7 @@ func TestScanVaultRoots(t *testing.T) {
 		}
 	}
 	write("vault/a.md", "---\nname: a\nmetadata:\n  type: project\n---\n# A\nlinks [[b]] and [[ghost]]")
-	write("claude/proj-x/b.md", "---\nname: b\nmetadata:\n  type: fact\n---\n# B")
+	write("claude/C--Users-k-projx/b.md", "---\nname: b\nmetadata:\n  type: fact\n---\n# B")
 	write("vault/notes.txt", "not markdown, ignored")
 
 	roots := []Root{
@@ -85,15 +85,15 @@ func TestScanVaultRoots(t *testing.T) {
 	if len(g.Notes) != 2 {
 		t.Fatalf("got %d notes, want 2 (.txt ignored)", len(g.Notes))
 	}
-	// scope of b derives from its containing folder (proj-x) since it has no metadata.scope
+	// scope of b derives from its Claude encoded-hash folder, decoded to a readable leaf label
 	var b *Note
 	for i := range g.Notes {
 		if g.Notes[i].ID == "b" {
 			b = &g.Notes[i]
 		}
 	}
-	if b == nil || b.Scope != "proj-x" {
-		t.Fatalf("b.Scope = %v, want proj-x", b)
+	if b == nil || b.Scope != "projx" {
+		t.Fatalf("b.Scope = %v, want projx", b)
 	}
 	// only a->b resolves (ghost has no target note); a->ghost is dropped
 	if len(g.Edges) != 1 || g.Edges[0].From != "a" || g.Edges[0].To != "b" {
@@ -174,5 +174,19 @@ func TestCreateNoteWritesToVault(t *testing.T) {
 	if !strings.Contains(s, "name: my-note") || !strings.Contains(s, "type: project") ||
 		!strings.Contains(s, "scope: shared") || !strings.Contains(s, "the body") {
 		t.Fatalf("frontmatter/body wrong:\n%s", s)
+	}
+}
+
+func TestDeriveScopeReadableForClaude(t *testing.T) {
+	r := Root{Path: `/home/k/.claude/projects`, Source: "claude"}
+	// note lives under the encoded-hash project dir
+	path := `/home/k/.claude/projects/-home-k-code-krypton/memory/note.md`
+	if got := deriveScope(r, path); got != "krypton" {
+		t.Fatalf("claude scope = %q, want readable leaf 'krypton'", got)
+	}
+	// vault-source notes keep the raw folder name
+	rv := Root{Path: `/vault`, Source: "vault"}
+	if got := deriveScope(rv, `/vault/teamx/note.md`); got != "teamx" {
+		t.Fatalf("vault scope = %q, want 'teamx'", got)
 	}
 }

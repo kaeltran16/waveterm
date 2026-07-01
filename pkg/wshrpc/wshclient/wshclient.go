@@ -735,6 +735,18 @@ func MemoryDeleteCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryDeleteData,
 	return err
 }
 
+// command "memoryproject", wshserver.MemoryProjectCommand
+func MemoryProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryProjectData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "memoryproject", data, opts)
+	return err
+}
+
+// command "memoryprojectionstatus", wshserver.MemoryProjectionStatusCommand
+func MemoryProjectionStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryProjectionStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryProjectionStatusRtnData](w, "memoryprojectionstatus", nil, opts)
+	return resp, err
+}
+
 // command "memoryread", wshserver.MemoryReadCommand
 func MemoryReadCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryReadRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryReadRtnData](w, "memoryread", data, opts)

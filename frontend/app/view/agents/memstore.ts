@@ -71,8 +71,8 @@ export async function saveNote(path: string, content: string, baseMtime: number)
     return { conflict: r.conflict };
 }
 
-export async function createNote(name: string, type: string, scope: string, body: string): Promise<void> {
-    await RpcApi.MemoryCreateCommand(TabRpcClient, { name, type, scope, body });
+export async function createNote(name: string, type: string, scope: string, body: string, cwd?: string): Promise<void> {
+    await RpcApi.MemoryCreateCommand(TabRpcClient, { name, type, scope, body, cwd });
     await loadMemory();
 }
 

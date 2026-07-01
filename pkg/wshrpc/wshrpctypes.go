@@ -102,6 +102,8 @@ type WshRpcInterface interface {
 	MemoryWriteCommand(ctx context.Context, data CommandMemoryWriteData) (*CommandMemoryWriteRtnData, error)
 	MemoryCreateCommand(ctx context.Context, data CommandMemoryCreateData) (*CommandMemoryCreateRtnData, error)
 	MemoryDeleteCommand(ctx context.Context, data CommandMemoryDeleteData) error
+	MemoryProjectCommand(ctx context.Context, data CommandMemoryProjectData) error
+	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
@@ -769,6 +771,7 @@ type CommandMemoryCreateData struct {
 	Type  string `json:"type,omitempty"`
 	Scope string `json:"scope,omitempty"`
 	Body  string `json:"body,omitempty"`
+	Cwd   string `json:"cwd,omitempty"` // write into this project's Claude hub; empty -> dedicated vault
 }
 
 type CommandMemoryCreateRtnData struct {
@@ -777,6 +780,16 @@ type CommandMemoryCreateRtnData struct {
 
 type CommandMemoryDeleteData struct {
 	Path string `json:"path"`
+}
+
+type CommandMemoryProjectData struct {
+	Cwd string `json:"cwd"`
+}
+
+type CommandMemoryProjectionStatusRtnData struct {
+	// Runtimes maps a lackey runtime ("codex" | "antigravity") to the project label its steering
+	// file currently reflects. A runtime missing from the map has no projection yet.
+	Runtimes map[string]string `json:"runtimes"`
 }
 
 type CommandStreamAgentTranscriptData struct {

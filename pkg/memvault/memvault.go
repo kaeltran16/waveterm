@@ -161,7 +161,12 @@ func deriveScope(r Root, path string) string {
 		return "shared"
 	}
 	parts := strings.Split(filepath.ToSlash(dir), "/")
-	return parts[0]
+	first := parts[0]
+	if r.Source == "claude" {
+		// first is Claude's encoded project-hash dir; show a readable label instead.
+		return labelFromHash(first, registryProjects())
+	}
+	return first
 }
 
 const defaultVaultSubpath = ".waveterm/memory"

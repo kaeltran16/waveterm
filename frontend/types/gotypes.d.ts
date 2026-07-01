@@ -734,6 +734,7 @@ declare global {
         type?: string;
         scope?: string;
         body?: string;
+        cwd?: string;
     };
 
     // wshrpc.CommandMemoryCreateRtnData
@@ -744,6 +745,16 @@ declare global {
     // wshrpc.CommandMemoryDeleteData
     type CommandMemoryDeleteData = {
         path: string;
+    };
+
+    // wshrpc.CommandMemoryProjectData
+    type CommandMemoryProjectData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandMemoryProjectionStatusRtnData
+    type CommandMemoryProjectionStatusRtnData = {
+        runtimes: {[key: string]: string};
     };
 
     // wshrpc.CommandMemoryReadData
