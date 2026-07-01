@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, placeholderDiffStats, placeholderTasks, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -659,37 +659,7 @@ describe("toggleSelection", () => {
     });
 });
 
-describe("placeholder card data", () => {
-    const vm = (id: string, state: AgentState = "working"): AgentVM => ({ id, name: "x", task: "", state });
-
-    it("placeholderDiffStats is deterministic per id", () => {
-        expect(placeholderDiffStats(vm("agent-7"))).toEqual(placeholderDiffStats(vm("agent-7")));
-    });
-
-    it("placeholderDiffStats is undefined for idle", () => {
-        expect(placeholderDiffStats(vm("agent-7", "idle"))).toBeUndefined();
-    });
-
-    it("placeholderDiffStats varies across ids (some have changes, some do not)", () => {
-        const out = Array.from({ length: 30 }, (_, i) => placeholderDiffStats(vm(`agent-${i}`)));
-        expect(out.some((r) => r === undefined)).toBe(true);
-        expect(out.some((r) => r !== undefined)).toBe(true);
-    });
-
-    it("placeholderTasks is deterministic and sized 3-5 when present", () => {
-        const t1 = placeholderTasks(vm("agent-3"));
-        const t2 = placeholderTasks(vm("agent-3"));
-        expect(t1).toEqual(t2);
-        if (t1) {
-            expect(t1.length).toBeGreaterThanOrEqual(3);
-            expect(t1.length).toBeLessThanOrEqual(5);
-        }
-    });
-
-    it("placeholderTasks is undefined for idle", () => {
-        expect(placeholderTasks(vm("agent-3", "idle"))).toBeUndefined();
-    });
-
+describe("taskProgress", () => {
     it("taskProgress computes done/total/pct", () => {
         expect(taskProgress([])).toEqual({ done: 0, total: 0, pct: 0 });
         const all: CardTask[] = [
@@ -746,5 +716,31 @@ describe("mergePendingLaunches", () => {
 
     it("returns the base unchanged when there are no pending launches", () => {
         expect(mergePendingLaunches(base, [], 1000)).toHaveLength(1);
+    });
+});
+
+describe("deriveTerminalVMs", () => {
+    type Row = { tabId: string; label: string; termBlockOref?: string; isAgentsTab?: boolean };
+    const none = () => false;
+
+    it("maps a plain terminal session (term block, no agent status) to a terminal VM", () => {
+        const rows: Row[] = [{ tabId: "t1", label: "SIEM", termBlockOref: "block:b1" }];
+        const out = deriveTerminalVMs(rows, none);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ id: "t1", name: "SIEM", blockId: "b1", kind: "terminal", agent: "terminal", state: "idle" });
+    });
+
+    it("skips rows that have an agent status (those are real agents)", () => {
+        const rows: Row[] = [{ tabId: "t1", label: "loom", termBlockOref: "block:b1" }];
+        const out = deriveTerminalVMs(rows, (oref) => oref === "block:b1");
+        expect(out).toHaveLength(0);
+    });
+
+    it("skips the Agents tab and rows with no term block", () => {
+        const rows: Row[] = [
+            { tabId: "agents", label: "Agents", termBlockOref: "block:ba", isAgentsTab: true },
+            { tabId: "t2", label: "no-term" },
+        ];
+        expect(deriveTerminalVMs(rows, none)).toHaveLength(0);
     });
 });

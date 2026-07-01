@@ -31,6 +31,7 @@ import {
     type AgentVM,
 } from "./agentsviewmodel";
 import { BackgroundedSection } from "./backgroundedsection";
+import { dropCardGit, refreshCardGit, scheduleCardGit } from "./cardgitstore";
 import { IdleSection } from "./idlesection";
 import { ensurePreviousInfo } from "./liveagents";
 import {
@@ -211,22 +212,31 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // open a live transcript stream per rendered active agent; keep recently-idle streams during
     // the grace window so final transcript writes cannot race the stop event.
+    // per-card git tracking rides the same rendered set as the transcript stream: refreshCardGit on
+    // enter, dropCardGit on leave, and a debounced re-load on transcript activity (effect below).
     const streamedRef = useRef<Set<string>>(new Set());
+    const gitTrackedRef = useRef<Map<string, { path?: string; blockId?: string }>>(new Map());
+    const gitSeenActivityRef = useRef<Map<string, number>>(new Map());
     useEffect(() => {
-        const wantedById = new Map<string, { path: string; agent?: string }>();
+        const wantedById = new Map<string, { path: string; agent?: string; blockId?: string }>();
         for (const a of streamableTranscriptAgents([...asking, ...working, ...recentlyIdle], now)) {
-            wantedById.set(a.id, { path: a.transcriptPath!, agent: a.agent });
+            wantedById.set(a.id, { path: a.transcriptPath!, agent: a.agent, blockId: a.blockId });
         }
-        for (const [id, { path, agent }] of wantedById) {
+        for (const [id, { path, agent, blockId }] of wantedById) {
             if (!streamedRef.current.has(id)) {
                 startTranscriptStream(id, path, agent);
                 streamedRef.current.add(id);
+                gitTrackedRef.current.set(id, { path, blockId });
+                void refreshCardGit(id, path, blockId);
             }
         }
         for (const id of [...streamedRef.current]) {
             if (!wantedById.has(id)) {
                 stopTranscriptStream(id);
                 streamedRef.current.delete(id);
+                gitTrackedRef.current.delete(id);
+                gitSeenActivityRef.current.delete(id);
+                dropCardGit(id);
             }
         }
     }, [asking, working, recentlyIdle, now]);
@@ -235,8 +245,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         return () => {
             for (const id of streamedRef.current) {
                 stopTranscriptStream(id);
+                dropCardGit(id);
             }
             streamedRef.current.clear();
+            gitTrackedRef.current.clear();
+            gitSeenActivityRef.current.clear();
         };
     }, []);
 
@@ -268,6 +281,27 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const recentEntriesById = useAtomValue(liveEntriesByIdAtom);
     const recentLastActivityById = useAtomValue(lastActivityByIdAtom);
     const recent = buildRecentActivity(agents, recentEntriesById, recentLastActivityById, RECENT_ACTIVITY_LIMIT, now);
+
+    // debounced git re-load when a tracked card narrates. First sighting of an id adopts its current
+    // activity stamp as the baseline (the enter-time refresh already covered that state) so only
+    // subsequent advances schedule a reload.
+    useEffect(() => {
+        for (const [id, meta] of gitTrackedRef.current) {
+            const ts = recentLastActivityById[id];
+            if (ts == null) {
+                continue;
+            }
+            const seen = gitSeenActivityRef.current.get(id);
+            if (seen == null) {
+                gitSeenActivityRef.current.set(id, ts);
+                continue;
+            }
+            if (ts > seen) {
+                gitSeenActivityRef.current.set(id, ts);
+                scheduleCardGit(id, meta.path, meta.blockId);
+            }
+        }
+    }, [recentLastActivityById]);
     const [showHelp, setShowHelp] = useState(false);
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);

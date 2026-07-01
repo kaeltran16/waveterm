@@ -32,20 +32,23 @@ instance the dev app reads. The supersede + prune logic itself is unit-tested (`
 `mergePendingLaunches`). To see the handoff live, run a packaged build (where dev/prod wavesrv coincide),
 or point the dev terminal's `wsh` at the dev wavesrv.
 
-## Cockpit card — fabricated data (2026-06-26)
+## Cockpit card — fabricated data (2026-06-26) — RESOLVED 2026-07-01
 
-The Cockpit live-agent card renders two affordances from **deterministic placeholder
-data**, because the live `AgentVM` carries no source for them yet. Live agents
-currently show fabricated numbers. Both have a single replacement seam in
-`frontend/app/view/agents/agentsviewmodel.ts`.
+> **Resolved 2026-07-01 (cockpit-card-real-data):** both card affordances now render real
+> data; the `placeholderDiffStats` / `placeholderTasks` fabricators are deleted.
+> - **Card diff stats** are loaded per card by `cardgitstore.ts` (`GitChangesCommand` +
+>   `diffStatsFromChanges`), driven off the same rendered set as the transcript stream in
+>   `cockpitsurface.tsx`: refreshed on enter, debounced 4s on transcript activity, dropped on
+>   leave. A clean/non-repo/unresolvable-cwd worktree drops the id (button hides).
+> - **Card task list** is the agent's latest TodoWrite, projected by
+>   `transcriptprojection.extractTasks` and streamed into `livetranscript.tasksByIdAtom` from the
+>   already-open transcript stream (no new RPC). Claude-only in v1.
+> - **Follow-on (Codex tasks):** Codex has no TodoWrite; its `update_plan` tool could feed the same
+>   chip via a `codextranscriptprojection` `extractTasks`. Not built — Codex cards stay task-less.
 
-- **Card diff stats** (`+adds / −dels` button in the card header) — fabricated by
-  `placeholderDiffStats(agent)`. Wire real `files/adds/dels` from the Files-surface
-  `gitinfo` RPCs for the agent's worktree, then delete `placeholderDiffStats`.
-- **Card task list** (the `done/total` chip + task popover) — fabricated by
-  `placeholderTasks(agent)`. Project the agent's latest TodoWrite tool state from the
-  transcript into `AgentVM`, then delete `placeholderTasks`. `taskProgress` is real and
-  stays.
+Original entry: the card rendered two affordances (diff stats button, `done/total` task chip +
+popover) from deterministic placeholder data seeded off the agent id, because the live `AgentVM`
+carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-real-data-design.md`.
 
 ## Usage surface — deferred (2026-06-26)
 

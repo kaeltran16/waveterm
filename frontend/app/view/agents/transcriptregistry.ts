@@ -5,18 +5,20 @@
 // format. AgentEntry[] is the shared, format-neutral contract every consumer renders, so adding a
 // new agent (e.g. opencode) is a new projector file + one entry here + its tests — nothing else.
 
-import type { AgentEntry } from "./agentsviewmodel";
+import type { AgentEntry, CardTask } from "./agentsviewmodel";
 import { projectCodexTranscript } from "./codextranscriptprojection";
-import { extractAiTitle, projectTranscript } from "./transcriptprojection";
+import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
 
 export interface TranscriptProjector {
     project(lines: string[]): AgentEntry[];
     // optional because title derivation is format-specific and not yet implemented for every agent
     extractTitle?(lines: string[]): string | undefined;
+    // optional because a card task list needs a TodoWrite-equivalent; Codex's update_plan is v-next
+    extractTasks?(lines: string[]): CardTask[] | undefined;
 }
 
 const PROJECTORS: Record<string, TranscriptProjector> = {
-    claude: { project: projectTranscript, extractTitle: extractAiTitle },
+    claude: { project: projectTranscript, extractTitle: extractAiTitle, extractTasks },
     codex: { project: projectCodexTranscript },
 };
 

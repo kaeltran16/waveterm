@@ -11,7 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { AgentEntry } from "./agentsviewmodel";
+import type { AgentEntry, CardTask } from "./agentsviewmodel";
 import { projectorFor } from "./transcriptregistry";
 
 const STREAM_TAIL_LINES = 300;
@@ -23,6 +23,8 @@ const STREAM_TIMEOUT_MS = 31536000000;
 
 export const liveEntriesByIdAtom = atom<Record<string, AgentEntry[]>>({}) as PrimitiveAtom<Record<string, AgentEntry[]>>;
 export const lastActivityByIdAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
+// latest TodoWrite task list per agent, projected from the same open stream (card task chip)
+export const tasksByIdAtom = atom<Record<string, CardTask[]>>({}) as PrimitiveAtom<Record<string, CardTask[]>>;
 
 interface StreamHandle {
     stop: () => void;
@@ -33,7 +35,8 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
     if (!path || streams.has(id)) {
         return;
     }
-    const project = projectorFor(agent, path).project;
+    const projector = projectorFor(agent, path);
+    const project = projector.project;
     const gen = RpcApi.StreamAgentTranscriptCommand(TabRpcClient, { path, taillines: STREAM_TAIL_LINES }, { timeout: STREAM_TIMEOUT_MS });
     let cancelled = false;
     streams.set(id, {
@@ -56,6 +59,10 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
                 const entries = project(lines);
                 globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
                 globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });
+                const tasks = projector.extractTasks?.(lines);
+                if (tasks != null) {
+                    globalStore.set(tasksByIdAtom, { ...globalStore.get(tasksByIdAtom), [id]: tasks });
+                }
             }
         } catch {
             // stream ended or errored — keep the last entries, just stop updating

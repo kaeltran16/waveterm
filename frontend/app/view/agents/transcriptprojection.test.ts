@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractAiTitle, projectTranscript } from "./transcriptprojection";
+import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
 
 const LINES: string[] = [
     JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "fix the race" }] } }), // human prompt -> user entry
@@ -97,6 +97,64 @@ describe("extractAiTitle", () => {
     it("returns undefined when there is no ai-title, and skips unparseable lines", () => {
         expect(extractAiTitle([JSON.stringify({ type: "assistant", message: { content: [] } }), "{bad"])).toBeUndefined();
         expect(extractAiTitle([])).toBeUndefined();
+    });
+});
+
+describe("extractTasks", () => {
+    const todoUse = (todos: unknown[]) =>
+        JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "tool_use", id: "tw1", name: "TodoWrite", input: { todos } }] },
+        });
+
+    it("returns undefined when the transcript has no TodoWrite", () => {
+        expect(extractTasks([])).toBeUndefined();
+        expect(
+            extractTasks([
+                JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "e", name: "Edit", input: {} }] } }),
+            ])
+        ).toBeUndefined();
+    });
+
+    it("maps content to text and completed status to done:true, others to false", () => {
+        const out = extractTasks([
+            todoUse([
+                { content: "Read the failing test", status: "completed", activeForm: "Reading the failing test" },
+                { content: "Patch the handler", status: "in_progress", activeForm: "Patching the handler" },
+                { content: "Add a regression test", status: "pending", activeForm: "Adding a regression test" },
+            ]),
+        ]);
+        expect(out).toEqual([
+            { text: "Read the failing test", done: true },
+            { text: "Patch the handler", done: false },
+            { text: "Add a regression test", done: false },
+        ]);
+    });
+
+    it("uses the LAST TodoWrite when several are present", () => {
+        const out = extractTasks([
+            todoUse([{ content: "old task", status: "pending" }]),
+            todoUse([
+                { content: "new a", status: "completed" },
+                { content: "new b", status: "pending" },
+            ]),
+        ]);
+        expect(out).toEqual([
+            { text: "new a", done: true },
+            { text: "new b", done: false },
+        ]);
+    });
+
+    it("returns [] for an empty todos list", () => {
+        expect(extractTasks([todoUse([])])).toEqual([]);
+    });
+
+    it("skips unparseable lines and malformed todo entries", () => {
+        const out = extractTasks([
+            "{ not json",
+            todoUse([{ content: "kept", status: "completed" }, { status: "pending" }, { content: 42, status: "pending" }]),
+        ]);
+        expect(out).toEqual([{ text: "kept", done: true }]);
     });
 });
 

@@ -4,7 +4,7 @@
 // Pure projection of a Claude Code transcript (JSONL lines) into AgentEntry[].
 // No React, no Wave runtime imports. Deterministic; no LLM (spec §5.3).
 
-import type { AgentEntry } from "./agentsviewmodel";
+import type { AgentEntry, CardTask } from "./agentsviewmodel";
 
 const VERB_BY_TOOL: Record<string, string> = {
     Read: "read",
@@ -115,6 +115,41 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
         }
     }
     return entries;
+}
+
+/** Pure: the task list from the LATEST TodoWrite tool_use in the transcript, or undefined if the
+ *  agent never wrote a todo list. `completed` -> done; every other status is not-done. Malformed
+ *  todo entries (missing/non-string content) are skipped; an empty todo list yields []. */
+export function extractTasks(lines: string[]): CardTask[] | undefined {
+    let latest: unknown[] | undefined;
+    for (const line of lines) {
+        let rec: any;
+        try {
+            rec = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (rec?.type !== "assistant" || !Array.isArray(rec?.message?.content)) {
+            continue;
+        }
+        for (const block of rec.message.content) {
+            if (block?.type === "tool_use" && block.name === "TodoWrite" && Array.isArray(block.input?.todos)) {
+                latest = block.input.todos;
+            }
+        }
+    }
+    if (latest == null) {
+        return undefined;
+    }
+    const tasks: CardTask[] = [];
+    for (const todo of latest) {
+        const t = todo as any;
+        if (typeof t?.content !== "string") {
+            continue;
+        }
+        tasks.push({ text: t.content, done: t.status === "completed" });
+    }
+    return tasks;
 }
 
 /** Pure: the most recent ai-title in the transcript, or undefined. Claude Code emits multiple

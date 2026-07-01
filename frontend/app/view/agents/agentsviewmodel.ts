@@ -47,6 +47,7 @@ export interface AgentVM {
     blockId?: string; // terminal block OID — target for ControllerInputCommand
     idleSince?: number; // idle: when it went idle (UnixMilli) — drives the keep-as-panel grace window
     usage?: AgentUsage; // latest context %, cost, and plan rate-limit snapshot (from the statusLine reporter)
+    kind?: "agent" | "terminal"; // undefined = agent (roster); "terminal" = plain shell session (no agent status)
 }
 
 // Per-card ephemeral layout prefs (widen span + dragged height). Not persisted this pass.
@@ -290,6 +291,40 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         vm.idleSince = input.ts;
     }
     return vm;
+}
+
+/** A session-sidebar row, narrowed to the fields terminal-derivation needs. */
+export interface TerminalRowInput {
+    tabId: string;
+    label: string;
+    termBlockOref?: string;
+    isAgentsTab?: boolean;
+}
+
+/** Pure: the plain-terminal sessions — rows that own a term block but never emitted an agent status
+ *  (so they're not in the agent roster) and aren't the Agents tab itself. These are the "background"
+ *  terminals launched via New Agent; the Agent surface lists + renders them separately from agents.
+ *  `hasAgentStatus(oref)` reports whether that block has a live agent:status (i.e. it's a real agent). */
+export function deriveTerminalVMs(
+    rows: TerminalRowInput[],
+    hasAgentStatus: (termBlockOref: string) => boolean
+): AgentVM[] {
+    const out: AgentVM[] = [];
+    for (const row of rows) {
+        if (row.isAgentsTab || !row.termBlockOref || hasAgentStatus(row.termBlockOref)) {
+            continue;
+        }
+        out.push({
+            id: row.tabId,
+            name: row.label,
+            task: "",
+            state: "idle",
+            kind: "terminal",
+            agent: "terminal", // selects the "Terminal" pill in the header (runtimeMeta)
+            blockId: row.termBlockOref.split(":")[1],
+        });
+    }
+    return out;
 }
 
 /** Pure: reconcile a stable order list against the current id set. Kept ids retain their existing
@@ -571,11 +606,10 @@ export function cardSpanStyle(pref?: CardPref): { gridColumn?: string; height?: 
     return style;
 }
 
-// --- PLACEHOLDER card data (docs/deferred.md) -------------------------------
-// The live AgentVM carries no git diff stats and no TodoWrite task list yet.
-// These deterministic helpers fabricate believable values (seeded from the id,
-// stable across renders) so the handoff card bands render. Delete and replace
-// with real data when the deferred wiring lands; this is the only seam.
+// --- card data types --------------------------------------------------------
+// Real sources: diff stats from cardgitstore.ts (GitChangesCommand per card); task list from the
+// transcript's latest TodoWrite (transcriptprojection.extractTasks, streamed via
+// livetranscript.tasksByIdAtom).
 
 export interface DiffStats {
     files: number;
@@ -588,55 +622,7 @@ export interface CardTask {
     done: boolean;
 }
 
-const PLACEHOLDER_TASK_POOL = [
-    "Read the failing test",
-    "Reproduce the bug",
-    "Patch the handler",
-    "Add a regression test",
-    "Update the docs",
-    "Run the suite",
-];
-
-function hashId(id: string): number {
-    let h = 0;
-    for (let i = 0; i < id.length; i++) {
-        h = (h * 31 + id.charCodeAt(i)) | 0;
-    }
-    return Math.abs(h);
-}
-
-/** PLACEHOLDER: deterministic pseudo git stats; undefined for idle and ~1/3 of ids
- *  (so `hasChanges` varies). Replace with real git-diff data (deferred). */
-export function placeholderDiffStats(agent: AgentVM): DiffStats | undefined {
-    if (agent.state === "idle") {
-        return undefined;
-    }
-    const h = hashId(agent.id);
-    if (h % 3 === 0) {
-        return undefined;
-    }
-    return { files: 1 + (h % 6), adds: 4 + (h % 180), dels: h % 60 };
-}
-
-/** PLACEHOLDER: deterministic pseudo task list; undefined for idle and ~1/4 of ids.
- *  Replace with the agent's real TodoWrite state from the transcript (deferred). */
-export function placeholderTasks(agent: AgentVM): CardTask[] | undefined {
-    if (agent.state === "idle") {
-        return undefined;
-    }
-    const h = hashId(agent.id);
-    if (h % 4 === 0) {
-        return undefined;
-    }
-    const total = 3 + (h % 3); // 3..5
-    const done = h % (total + 1); // 0..total
-    return Array.from({ length: total }, (_, i) => ({
-        text: PLACEHOLDER_TASK_POOL[(h + i) % PLACEHOLDER_TASK_POOL.length],
-        done: i < done,
-    }));
-}
-
-/** Pure: done/total/percent for a task list. Real once the task data is wired. */
+/** Pure: done/total/percent for a task list. */
 export function taskProgress(tasks: CardTask[]): { done: number; total: number; pct: number } {
     const total = tasks.length;
     const done = tasks.filter((t) => t.done).length;

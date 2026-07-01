@@ -10,15 +10,14 @@ import {
     cardSpanStyle,
     hasAnswerableAsk,
     isQuiet,
-    placeholderDiffStats,
-    placeholderTasks,
     projectOf,
     taskProgress,
     type AgentVM,
     type CardTask,
 } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
-import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
+import { diffStatsByIdAtom } from "./cardgitstore";
+import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -187,9 +186,9 @@ export function AgentRow({
     const idle = agent.state === "idle";
     const hasQuestions = hasAnswerableAsk(agent);
     const question = agent.ask?.questions?.[0]?.question;
-    const diff = placeholderDiffStats(agent);
-    const tasks = placeholderTasks(agent);
-    const prog = tasks ? taskProgress(tasks) : undefined;
+    const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
+    const tasks = useAtomValue(tasksByIdAtom)[agent.id];
+    const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen || asking;
     const muteAction = idle ? onDismiss : onBackground;
 
