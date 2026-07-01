@@ -13,6 +13,7 @@
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { globalStore } from "@/app/store/jotaiStore";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -94,13 +95,26 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             {!fullscreen ? <AgentTree model={model} /> : null}
             <div className="flex min-w-0 flex-1 flex-col">
                 <AgentHeader agent={agent} />
-                {agent.blockId != null ? (
-                    <CockpitFocusPane blockId={agent.blockId} tabId={tabId} />
-                ) : (
+                {/* Keep every live agent's terminal mounted and toggle display:none, mirroring the
+                    surface-level keep-alive (cockpitshell.tsx). Swapping one pane's blockId on focus
+                    change disposes+recreates the term, whose restore replays a serialized snapshot and
+                    then resumes the live Claude Code TUI's differential stream on top of it — the frames
+                    stack (the "distortion"). A visibility toggle avoids the remount entirely. */}
+                {agents
+                    .filter((a) => a.blockId != null)
+                    .map((a) => (
+                        <div
+                            key={a.id}
+                            className={cn("min-h-0 flex-1", a.id === agent.id ? "flex flex-col" : "hidden")}
+                        >
+                            <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                        </div>
+                    ))}
+                {agent.blockId == null ? (
                     <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                         No live terminal for this agent.
                     </div>
-                )}
+                ) : null}
             </div>
             {railVisible && !fullscreen ? <AgentDetailsRail model={model} agent={agent} /> : null}
         </div>
