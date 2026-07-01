@@ -204,6 +204,12 @@ export class RpcApiType {
         return client.wshRpcCall("createblock", data, opts);
     }
 
+    // command "createchannel" [call]
+    CreateChannelCommand(client: WshClient, data: CommandCreateChannelData, opts?: RpcOpts): Promise<Channel> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createchannel", data, opts);
+        return client.wshRpcCall("createchannel", data, opts);
+    }
+
     // command "createproject" [call]
     CreateProjectCommand(client: WshClient, data: CommandCreateProjectData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createproject", data, opts);
@@ -454,6 +460,12 @@ export class RpcApiType {
     GetBuilderStatusCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<BuilderStatusData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getbuilderstatus", data, opts);
         return client.wshRpcCall("getbuilderstatus", data, opts);
+    }
+
+    // command "getchannels" [call]
+    GetChannelsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandGetChannelsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannels", null, opts);
+        return client.wshRpcCall("getchannels", null, opts);
     }
 
     // command "getfocusedblockdata" [call]
@@ -730,6 +742,12 @@ export class RpcApiType {
     PathCommand(client: WshClient, data: PathCommandData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "path", data, opts);
         return client.wshRpcCall("path", data, opts);
+    }
+
+    // command "postchannelmessage" [call]
+    PostChannelMessageCommand(client: WshClient, data: CommandPostChannelMessageData, opts?: RpcOpts): Promise<ChannelMessage> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "postchannelmessage", data, opts);
+        return client.wshRpcCall("postchannelmessage", data, opts);
     }
 
     // command "publishapp" [call]

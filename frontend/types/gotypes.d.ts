@@ -289,6 +289,24 @@ declare global {
         secretbindingscomplete: boolean;
     };
 
+    // waveobj.Channel
+    type Channel = WaveObj & {
+        name: string;
+        projectpath?: string;
+        createdts: number;
+        messages?: ChannelMessage[];
+    };
+
+    // waveobj.ChannelMessage
+    type ChannelMessage = {
+        id: string;
+        kind: string;
+        author: string;
+        text: string;
+        reforef?: string;
+        ts: number;
+    };
+
     // waveobj.Client
     type Client = WaveObj & {
         windowids: string[];
@@ -397,6 +415,12 @@ declare global {
         focused?: boolean;
         targetblockid?: string;
         targetaction?: string;
+    };
+
+    // wshrpc.CommandCreateChannelData
+    type CommandCreateChannelData = {
+        name: string;
+        projectpath?: string;
     };
 
     // wshrpc.CommandCreateProjectData
@@ -514,6 +538,11 @@ declare global {
     // wshrpc.CommandGetAgentTranscriptRtnData
     type CommandGetAgentTranscriptRtnData = {
         lines: string[];
+    };
+
+    // wshrpc.CommandGetChannelsRtnData
+    type CommandGetChannelsRtnData = {
+        channels: Channel[];
     };
 
     // wshrpc.CommandGetMetaData
@@ -689,6 +718,15 @@ declare global {
     // wshrpc.CommandMessageData
     type CommandMessageData = {
         message: string;
+    };
+
+    // wshrpc.CommandPostChannelMessageData
+    type CommandPostChannelMessageData = {
+        channelid: string;
+        kind: string;
+        author: string;
+        text: string;
+        reforef?: string;
     };
 
     // wshrpc.CommandPublishAppData

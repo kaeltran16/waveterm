@@ -24,7 +24,7 @@ export interface LaunchAgentOpts {
 // Agents tab; the agent's process starts when its terminal mounts in the focus pane. The new tab's
 // default term block is reconfigured via SetMeta before it renders, so meta is honored at controller
 // start (the backend starts controllers lazily on the first terminal-view resync).
-export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<void> {
+export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string> {
     let cwd = opts.projectPath;
     if (opts.runtime !== "terminal" && opts.branch?.trim()) {
         const rtn = await RpcApi.CreateWorktreeCommand(TabRpcClient, {
@@ -66,4 +66,5 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
     globalStore.set(model.focusIdAtom, tabId);
     globalStore.set(model.surfaceAtom, "agent");
+    return tabId;
 }

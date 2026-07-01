@@ -26,6 +26,7 @@ const (
 	OType_Window      = "window"
 	OType_Workspace   = "workspace"
 	OType_Tab         = "tab"
+	OType_Channel     = "channel"
 	OType_LayoutState = "layout"
 	OType_Block       = "block"
 	OType_MainServer  = "mainserver"
@@ -39,6 +40,7 @@ var ValidOTypes = map[string]bool{
 	OType_Window:      true,
 	OType_Workspace:   true,
 	OType_Tab:         true,
+	OType_Channel:     true,
 	OType_LayoutState: true,
 	OType_Block:       true,
 	OType_MainServer:  true,
@@ -197,6 +199,29 @@ type Tab struct {
 
 func (*Tab) GetOType() string {
 	return OType_Tab
+}
+
+type ChannelMessage struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Author  string `json:"author"`
+	Text    string `json:"text"`
+	RefORef string `json:"reforef,omitempty"`
+	Ts      int64  `json:"ts"`
+}
+
+type Channel struct {
+	OID         string           `json:"oid"`
+	Version     int              `json:"version"`
+	Name        string           `json:"name"`
+	ProjectPath string           `json:"projectpath,omitempty"`
+	CreatedTs   int64            `json:"createdts"`
+	Messages    []ChannelMessage `json:"messages,omitempty"`
+	Meta        MetaMapType      `json:"meta"`
+}
+
+func (*Channel) GetOType() string {
+	return OType_Channel
 }
 
 func (t *Tab) GetBlockORefs() []ORef {
@@ -360,6 +385,7 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&Window{}),
 		reflect.TypeOf(&Workspace{}),
 		reflect.TypeOf(&Tab{}),
+		reflect.TypeOf(&Channel{}),
 		reflect.TypeOf(&Block{}),
 		reflect.TypeOf(&LayoutState{}),
 		reflect.TypeOf(&MainServer{}),

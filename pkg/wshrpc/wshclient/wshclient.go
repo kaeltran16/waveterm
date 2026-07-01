@@ -203,6 +203,12 @@ func CreateBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateBlockData, o
 	return resp, err
 }
 
+// command "createchannel", wshserver.CreateChannelCommand
+func CreateChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateChannelData, opts *wshrpc.RpcOpts) (*waveobj.Channel, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.Channel](w, "createchannel", data, opts)
+	return resp, err
+}
+
 // command "createproject", wshserver.CreateProjectCommand
 func CreateProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateProjectData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "createproject", data, opts)
@@ -451,6 +457,12 @@ func GetBuilderOutputCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpt
 // command "getbuilderstatus", wshserver.GetBuilderStatusCommand
 func GetBuilderStatusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*wshrpc.BuilderStatusData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.BuilderStatusData](w, "getbuilderstatus", data, opts)
+	return resp, err
+}
+
+// command "getchannels", wshserver.GetChannelsCommand
+func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelsRtnData](w, "getchannels", nil, opts)
 	return resp, err
 }
 
@@ -727,6 +739,12 @@ func NotifySystemResumeCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 // command "path", wshserver.PathCommand
 func PathCommand(w *wshutil.WshRpc, data wshrpc.PathCommandData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "path", data, opts)
+	return resp, err
+}
+
+// command "postchannelmessage", wshserver.PostChannelMessageCommand
+func PostChannelMessageCommand(w *wshutil.WshRpc, data wshrpc.CommandPostChannelMessageData, opts *wshrpc.RpcOpts) (*waveobj.ChannelMessage, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.ChannelMessage](w, "postchannelmessage", data, opts)
 	return resp, err
 }
 

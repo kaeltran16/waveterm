@@ -97,6 +97,9 @@ type WshRpcInterface interface {
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
+	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
+	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
+	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
@@ -662,6 +665,23 @@ type SessionInfo struct {
 	TokensTotal   int    `json:"tokenstotal"`
 	LastActiveTs  int64  `json:"lastactivets"`
 	ResumeCommand string `json:"resumecommand"`
+}
+
+type CommandCreateChannelData struct {
+	Name        string `json:"name"`
+	ProjectPath string `json:"projectpath,omitempty"`
+}
+
+type CommandGetChannelsRtnData struct {
+	Channels []*waveobj.Channel `json:"channels"`
+}
+
+type CommandPostChannelMessageData struct {
+	ChannelId string `json:"channelid"`
+	Kind      string `json:"kind"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+	RefORef   string `json:"reforef,omitempty"`
 }
 
 type CommandGetRecentSessionsData struct {

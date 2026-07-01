@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 const TITLES: Record<string, string> = {
-    channels: "Channels",
     files: "Files",
     memory: "Memory",
 };

@@ -1503,6 +1503,31 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
 }
 
+func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.CommandCreateChannelData) (*waveobj.Channel, error) {
+	ch, err := wstore.CreateChannel(ctx, data.Name, data.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("creating channel: %w", err)
+	}
+	return ch, nil
+}
+
+func (ws *WshServer) GetChannelsCommand(ctx context.Context) (*wshrpc.CommandGetChannelsRtnData, error) {
+	chans, err := wstore.GetChannels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing channels: %w", err)
+	}
+	return &wshrpc.CommandGetChannelsRtnData{Channels: chans}, nil
+}
+
+func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.CommandPostChannelMessageData) (*waveobj.ChannelMessage, error) {
+	msg := wstore.NewChannelMessage(data.Kind, data.Author, data.Text, data.RefORef, time.Now().UnixMilli())
+	stored, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg)
+	if err != nil {
+		return nil, fmt.Errorf("posting channel message: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return stored, nil
+}
 func (ws *WshServer) StreamAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandStreamAgentTranscriptData) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {
 	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 16)
 	go func() {
