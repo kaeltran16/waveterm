@@ -4,6 +4,7 @@
 package jarvis
 
 import (
+	"context"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -42,5 +43,16 @@ func TestResolve_NoOwner(t *testing.T) {
 	c := ch("c1", true, dispatch("tab:t1", "x"))
 	if got := ResolveGatekeeperChannel([]*waveobj.Channel{c}, "tab:t2"); got != nil {
 		t.Fatalf("want nil for unowned oref, got %v", got)
+	}
+}
+
+// A tab oref (what a dispatch records) and an unparseable oref pass through channelOwnerORef
+// unchanged — only a block oref triggers the DB block→tab walk (covered by the live E2E).
+func TestChannelOwnerORef_Passthrough(t *testing.T) {
+	if got := channelOwnerORef(context.Background(), "tab:t1"); got != "tab:t1" {
+		t.Fatalf("tab oref should pass through, got %q", got)
+	}
+	if got := channelOwnerORef(context.Background(), "not-an-oref"); got != "not-an-oref" {
+		t.Fatalf("unparseable oref should pass through, got %q", got)
 	}
 }

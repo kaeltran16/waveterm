@@ -59,12 +59,30 @@ func cancelInflight(askId string) {
 	}
 }
 
+// channelOwnerORef maps an asking oref to the oref a channel dispatch would reference for that
+// worker. Asks fire from the worker's terminal block ("block:<id>"), but a channel dispatch records
+// the worker's TAB oref ("tab:<id>"), so a block-scoped ask must be walked up to its tab before
+// ownership resolution. Non-block orefs (or any lookup failure) pass through unchanged — fail-safe:
+// a bad mapping just means no channel matches, never a wrong one.
+func channelOwnerORef(ctx context.Context, askingORef string) string {
+	oref, err := waveobj.ParseORef(askingORef)
+	if err != nil || oref.OType != waveobj.OType_Block {
+		return askingORef
+	}
+	tabId, err := wstore.DBFindTabForBlockId(ctx, oref.OID)
+	if err != nil || tabId == "" {
+		return askingORef
+	}
+	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
+}
+
 func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	channels, err := wstore.GetChannels(ctx)
 	if err != nil {
 		return
 	}
-	ch := ResolveGatekeeperChannel(channels, data.ORef)
+	ownerORef := channelOwnerORef(ctx, data.ORef)
+	ch := ResolveGatekeeperChannel(channels, ownerORef)
 	if ch == nil {
 		return // not owned by any gatekeeper-enabled channel
 	}
@@ -74,7 +92,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		return
 	}
 	q := data.Questions[0]
-	decision := Classify(ctx, ch, q, workerTaskFor(ch, data.ORef))
+	decision := Classify(ctx, ch, q, workerTaskFor(ch, ownerORef))
 	if ctx.Err() != nil {
 		return // cleared / cancelled mid-classification
 	}
