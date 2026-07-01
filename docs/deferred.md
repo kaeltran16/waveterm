@@ -141,7 +141,15 @@ carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-
   `docs/superpowers/specs/2026-06-25-cockpit-phase1b-agent-surface-design.md` §8.
 - **Deferred:** 2026-06-25, during the cockpit Phase 1b Agent-surface build.
 
-## Command palette (⌘K)
+## Command palette (⌘K) — RESOLVED 2026-07-01
+
+> **Resolved 2026-07-01 (command-palette):** shipped as a working `Ctrl+P` overlay
+> (`frontend/app/cockpit/command-palette.tsx` + pure matcher `palette-match.ts`). Fuzzy-searches
+> live agents (focus), resumable sessions (resume), and commands (surface nav + New agent/project);
+> grouped results, arrow/Enter/Esc nav; opened by the app-bar box or global `Ctrl+P` (replaces the
+> terminal's readline Ctrl+P, per user). **v1 exclusions:** read-only sessions (no `resumecommand`)
+> are hidden so every row is actionable; results are grouped-by-kind, not one global score-sorted
+> list. Both are reversible v2 tweaks. Original entry below.
 
 - **What:** the centered search box in the cockpit top app bar — `Search agents, sessions,
   commands…` with a `⌘K` hint badge. Shipped as a **render-only stub**: the box is drawn to

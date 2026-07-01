@@ -83,7 +83,7 @@ const ICON: Record<SurfaceKey, ReactNode> = {
     ),
 };
 
-const ITEMS: { key: SurfaceKey; label: string }[] = [
+export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
     { key: "agent", label: "Agent" },
     { key: "activity", label: "Activity" },

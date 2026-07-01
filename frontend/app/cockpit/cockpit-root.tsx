@@ -14,6 +14,7 @@ import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
 import { Provider } from "jotai";
 import { useEffect, useRef } from "react";
 import { CockpitAppBar } from "./app-bar";
+import { CommandPalette } from "./command-palette";
 import "./cockpit.scss";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
 
@@ -71,6 +72,14 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
                 globalStore.set(model.surfaceAtom, SURFACE_ORDER[parseInt(e.key, 10) - 1]);
                 return;
             }
+            // Ctrl+P -> toggle the command palette. Global (preempts the terminal's readline
+            // Ctrl+P history-back) — intentional, matches the Ctrl+1..8 capture behavior above.
+            if ((e.key === "p" || e.key === "P") && !e.shiftKey) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                globalStore.set(model.paletteOpenAtom, (v) => !v);
+                return;
+            }
             const surface = globalStore.get(model.surfaceAtom);
             // Ctrl+Tab / Ctrl+Shift+Tab -> cycle agents (Agent surface only)
             if (e.key === "Tab" && surface === "agent") {
@@ -114,6 +123,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             </div>
             <NewProjectModal model={model} />
             <NewAgentModal model={model} />
+            <CommandPalette model={model} />
             <ModalsRenderer />
         </div>
     );

@@ -39,10 +39,9 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <ProjectSwitcher model={model} variant="bar" />
             </div>
 
-            {/* DEFERRED: command palette — render-only stub (docs/deferred.md) */}
             <button
                 type="button"
-                onClick={() => {}}
+                onClick={() => globalStore.set(model.paletteOpenAtom, true)}
                 className="mx-auto flex w-[min(520px,42%)] cursor-text items-center gap-2.5 rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-muted hover:border-edge-strong hover:bg-surface-hover"
             >
                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -50,7 +49,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                     <path d="M9 9l3 3" strokeLinecap="round" />
                 </svg>
                 <span className="flex-1 text-left text-[13px]">Search agents, sessions, commands…</span>
-                <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">⌘K</span>
+                <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">⌘P</span>
             </button>
 
             <button
