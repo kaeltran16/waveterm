@@ -509,17 +509,17 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 type="button"
                                 onClick={() => setChip(key)}
                                 className={cn(
-                                    "flex cursor-pointer items-center gap-2 rounded-[8px] border px-3 py-1.5 text-[12.5px]",
+                                    "grid cursor-pointer grid-cols-[minmax(0,auto)_1.25rem] items-center rounded-[8px] border px-3 py-1.5 text-[12.5px]",
                                     chip === key
                                         ? cn(CHIP_ACTIVE[key], "text-primary")
                                         : "border-border text-muted hover:border-edge-mid"
                                 )}
                             >
-                                {label}
+                                <span className="leading-none">{label}</span>
                                 <RollingCount
                                     value={count}
                                     className={cn(
-                                        "font-mono text-[11px] font-semibold",
+                                        "justify-self-end text-center font-mono text-[11px] font-semibold leading-none",
                                         chip === key ? CHIP_NUM[key] : "text-secondary"
                                     )}
                                 />

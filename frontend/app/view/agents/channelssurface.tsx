@@ -13,13 +13,20 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AnswerBar } from "./answerbar";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage } from "./channelactions";
-import { avatarColor } from "./channelderive";
+import {
+    activeMentionQuery,
+    avatarColor,
+    highlightSegments,
+    mentionCandidates,
+    type MentionCandidate,
+} from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
+import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
 import {
     activeChannelAtom,
@@ -37,6 +44,7 @@ const STATE_DOT: Record<string, string> = {
     working: "var(--color-success)",
     asking: "var(--color-asking)",
     idle: "var(--color-muted)",
+    gone: "var(--color-edge-strong)",
 };
 
 // resolve a dispatch/directive RefORef ("tab:<id>") to the live roster row, if still present
@@ -303,6 +311,269 @@ function MessageRow({
     );
 }
 
+// The message composer: a plain-text draft with a scroll-synced backdrop that highlights @mentions and a
+// caret-aware suggestion dropdown. Highlight + suggestions are driven by the pure channelderive helpers;
+// the draft itself stays plain text, so sendChannelMessage/planMessage are unchanged.
+function Composer({
+    value,
+    onChange,
+    onSend,
+    disabled,
+    placeholder,
+    candidates,
+}: {
+    value: string;
+    onChange: (next: string) => void;
+    onSend: () => void;
+    disabled: boolean;
+    placeholder: string;
+    candidates: MentionCandidate[];
+}) {
+    const taRef = useRef<HTMLTextAreaElement>(null);
+    const pendingCaret = useRef<number | null>(null);
+    const [sugg, setSugg] = useState<{ query: string; start: number } | null>(null);
+    const [sel, setSel] = useState(0);
+
+    const known = new Set(candidates.map((c) => c.name.toLowerCase()));
+    const segments = highlightSegments(value, known);
+    const q = sugg?.query.toLowerCase() ?? "";
+    const matches = sugg ? candidates.filter((c) => c.name.toLowerCase().startsWith(q)).slice(0, 6) : [];
+    const open = matches.length > 0;
+
+    // reset the highlighted row whenever the active query changes
+    useEffect(() => setSel(0), [sugg?.query, sugg?.start]);
+
+    // apply a caret position requested by accept()/insertAt() after the controlled value has committed
+    useLayoutEffect(() => {
+        if (pendingCaret.current != null && taRef.current) {
+            const p = pendingCaret.current;
+            pendingCaret.current = null;
+            taRef.current.setSelectionRange(p, p);
+        }
+    }, [value]);
+
+    const syncSuggest = () => {
+        const ta = taRef.current;
+        if (ta) {
+            setSugg(activeMentionQuery(ta.value, ta.selectionStart ?? ta.value.length));
+        }
+    };
+
+    const accept = (cand: MentionCandidate) => {
+        const ta = taRef.current;
+        if (!ta || !sugg) {
+            return;
+        }
+        const caret = ta.selectionStart ?? value.length;
+        const before = value.slice(0, sugg.start);
+        const insert = `@${cand.name} `;
+        pendingCaret.current = before.length + insert.length;
+        setSugg(null);
+        onChange(before + insert + value.slice(caret));
+    };
+
+    const insertAt = () => {
+        const ta = taRef.current;
+        const caret = ta?.selectionStart ?? value.length;
+        pendingCaret.current = caret + 1;
+        setSugg({ query: "", start: caret });
+        onChange(value.slice(0, caret) + "@" + value.slice(caret));
+        ta?.focus();
+    };
+
+    const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (open) {
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSel((s) => (s + 1) % matches.length);
+                return;
+            }
+            if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSel((s) => (s - 1 + matches.length) % matches.length);
+                return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                accept(matches[Math.min(sel, matches.length - 1)]);
+                return;
+            }
+            if (e.key === "Escape") {
+                e.preventDefault();
+                setSugg(null);
+                return;
+            }
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            onSend();
+        }
+    };
+
+    return (
+        <div className="flex-none px-6 pb-[18px] pt-2">
+            <div className="relative max-w-[760px]">
+                {open ? (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-[240px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-lg">
+                        {matches.map((c, i) => (
+                            <button
+                                key={c.name}
+                                type="button"
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    accept(c);
+                                }}
+                                onMouseEnter={() => setSel(i)}
+                                className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left ${
+                                    i === sel ? "bg-accentbg" : ""
+                                }`}
+                            >
+                                <span className="font-mono text-[12.5px] text-primary">@{c.name}</span>
+                                <span className="ml-auto font-mono text-[9px] uppercase tracking-[.06em] text-muted">
+                                    {c.kind}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
+                <div className="rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
+                    <div className="relative">
+                        <div
+                            aria-hidden
+                            className="pointer-events-none min-h-[22px] whitespace-pre-wrap break-words text-[14px] leading-[1.5] text-primary"
+                        >
+                            {segments.map((s, i) =>
+                                s.mention ? (
+                                    <span key={i} className="rounded-[3px] bg-accentbg text-accent-soft">
+                                        {s.text}
+                                    </span>
+                                ) : (
+                                    <span key={i}>{s.text}</span>
+                                )
+                            )}
+                            {"​"}
+                        </div>
+                        <textarea
+                            ref={taRef}
+                            value={value}
+                            onChange={(e) => {
+                                onChange(e.target.value);
+                                syncSuggest();
+                            }}
+                            onKeyDown={onKeyDown}
+                            onKeyUp={syncSuggest}
+                            onClick={syncSuggest}
+                            onBlur={() => setSugg(null)}
+                            rows={1}
+                            placeholder={placeholder}
+                            disabled={disabled}
+                            className="absolute inset-0 h-full w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-[14px] leading-[1.5] text-transparent placeholder:text-muted focus:outline-none disabled:opacity-50"
+                            style={{ caretColor: "var(--color-primary)" }}
+                        />
+                    </div>
+                    <div className="mt-2.5 flex items-center gap-2.5">
+                        <button
+                            type="button"
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                insertAt();
+                            }}
+                            disabled={disabled}
+                            className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11.5px] text-ink-mid hover:border-edge-strong disabled:opacity-50"
+                        >
+                            @ mention agent
+                        </button>
+                        <div className="flex-1" />
+                        <button
+                            type="button"
+                            onClick={onSend}
+                            disabled={disabled}
+                            className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
+                        >
+                            Send ⏎
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// One worker row in the context panel: state dot + name, an "open ↗" jump for a live worker (or a muted
+// "gone" label for an exited one), and the worker's task beneath.
+function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
+    return (
+        <div className="mb-2.5">
+            <div className="flex items-center gap-2">
+                <span
+                    className="h-2 w-2 flex-none rounded-full"
+                    style={{ backgroundColor: STATE_DOT[w.state] ?? "var(--color-muted)" }}
+                />
+                <span className="font-mono text-[12.5px] text-primary">{w.name}</span>
+                {w.state === "gone" ? (
+                    <span className="ml-auto font-mono text-[10px] text-muted">gone</span>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => jumpToAgent(model, w.oref.slice("tab:".length))}
+                        className="ml-auto cursor-pointer font-mono text-[10px] text-accent-soft hover:text-accent"
+                    >
+                        open ↗
+                    </button>
+                )}
+            </div>
+            {w.task ? <div className="mt-0.5 truncate pl-4 text-[11px] text-muted">{w.task}</div> : null}
+        </div>
+    );
+}
+
+// The right context panel: the workers this channel dispatched (via buildFleetSnapshot — the same
+// derivation Jarvis uses), the ones currently blocked on you, and the bound project. Auto-hides below a
+// ~1040px pane width (@container query) so it never steals from the 760px message column.
+function ContextPanel({
+    model,
+    channel,
+    agents,
+}: {
+    model: AgentsViewModel;
+    channel: Channel | null;
+    agents: AgentVM[];
+}) {
+    const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
+    const asking = snapshot.filter((w) => w.state === "asking");
+    const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
+    return (
+        <aside className="hidden w-[248px] flex-none flex-col overflow-y-auto border-l border-border bg-background px-4 py-4 @[1040px]:flex">
+            <div className={label}>Workers · dispatched here</div>
+            {snapshot.length === 0 ? (
+                <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
+            ) : (
+                snapshot.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
+            )}
+
+            {asking.length > 0 ? (
+                <>
+                    <div className={`${label} mt-5`}>Needs you · {asking.length}</div>
+                    <div className="flex flex-col gap-2">
+                        {asking.map((w) => (
+                            <div
+                                key={w.oref}
+                                className="rounded-[7px] border border-asking/40 bg-lane-asking px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
+                            >
+                                <span className="font-mono text-accent-soft">{w.name}</span>
+                                {w.askText ? ` — ${w.askText}` : ""}
+                            </div>
+                        ))}
+                    </div>
+                </>
+            ) : null}
+
+            <div className={`${label} mt-5`}>Project</div>
+            <div className="break-all font-mono text-[11px] text-muted">{channel?.projectpath || "—"}</div>
+        </aside>
+    );
+}
+
 export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
     const activeId = useAtomValue(activeChannelIdAtom);
@@ -315,7 +586,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const [draft, setDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     useEffect(() => {
         fireAndForget(loadChannels);
@@ -350,11 +620,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
-    const insertMention = () => {
-        setDraft((d) => (d.length > 0 && !d.endsWith(" ") ? d + " @" : d + "@"));
-        textareaRef.current?.focus();
-    };
-
     // A channel is bound to a project at creation, so every dispatch has a valid cwd (no unbound state).
     const pickProject = (name: string, path: string) => {
         setPicking(false);
@@ -376,7 +641,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                 onPickProject={pickProject}
             />
 
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="@container flex min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col">
                 <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-[22px] py-3.5">
                     <span className="font-mono text-[17px] font-bold text-muted">#</span>
                     <div className="min-w-0">
@@ -454,44 +720,16 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                <div className="flex-none px-6 pb-[18px] pt-2">
-                    <div className="max-w-[760px] rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
-                        <textarea
-                            ref={textareaRef}
-                            value={draft}
-                            onChange={(e) => setDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault();
-                                    send();
-                                }
-                            }}
-                            rows={1}
-                            placeholder={`Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`}
-                            disabled={!activeId}
-                            className="min-h-[22px] w-full resize-none bg-transparent text-[14px] text-primary placeholder:text-muted focus:outline-none disabled:opacity-50"
-                        />
-                        <div className="mt-2.5 flex items-center gap-2.5">
-                            <button
-                                type="button"
-                                onClick={insertMention}
-                                disabled={!activeId}
-                                className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11.5px] text-ink-mid hover:border-edge-strong disabled:opacity-50"
-                            >
-                                @ mention agent
-                            </button>
-                            <div className="flex-1" />
-                            <button
-                                type="button"
-                                onClick={send}
-                                disabled={!activeId}
-                                className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
-                            >
-                                Send ⏎
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <Composer
+                    value={draft}
+                    onChange={setDraft}
+                    onSend={send}
+                    disabled={!activeId}
+                    placeholder={`Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`}
+                    candidates={mentionCandidates(installedRuntimes, roster)}
+                />
+              </div>
+              <ContextPanel model={model} channel={active} agents={agents} />
             </div>
         </div>
     );

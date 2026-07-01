@@ -8,6 +8,7 @@ import {
     deriveBranch,
     RUNTIME_FLAGS,
     runtimeLaunchLabel,
+    runtimeCreatesAgentPanel,
     runtimeShowsTask,
     runtimeStartupCommand,
     runtimeSupportsWorktree,
@@ -27,6 +28,12 @@ describe("runtime helpers", () => {
     it("hides the task field for terminal", () => {
         expect(runtimeShowsTask("claude")).toBe(true);
         expect(runtimeShowsTask("terminal")).toBe(false);
+    });
+    it("creates pending agent panels for agent runtimes only", () => {
+        expect(runtimeCreatesAgentPanel("claude")).toBe(true);
+        expect(runtimeCreatesAgentPanel("codex")).toBe(true);
+        expect(runtimeCreatesAgentPanel("antigravity")).toBe(true);
+        expect(runtimeCreatesAgentPanel("terminal")).toBe(false);
     });
     it("supports worktrees for every runtime except terminal", () => {
         expect(runtimeSupportsWorktree("claude")).toBe(true);

@@ -8,7 +8,7 @@ import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import type { PendingLaunch } from "@/app/view/agents/agentsviewmodel";
-import { buildLaunchMeta, type Runtime } from "@/app/view/agents/launch";
+import { buildLaunchMeta, runtimeCreatesAgentPanel, type Runtime } from "@/app/view/agents/launch";
 
 export interface LaunchAgentOpts {
     runtime: Runtime;
@@ -19,8 +19,8 @@ export interface LaunchAgentOpts {
     branch?: string;
 }
 
-// Launch a runtime as its OWN session tab (so it's a first-class roster row), focus it in the Agent
-// surface, and register it as a pending launch. We do NOT setActiveTab — the cockpit stays on the
+// Launch a runtime as its OWN session tab. Agent runtimes get a pending roster row; terminals only
+// open in the Agent surface focus pane. We do NOT setActiveTab — the cockpit stays on the
 // Agents tab; the agent's process starts when its terminal mounts in the focus pane. The new tab's
 // default term block is reconfigured via SetMeta before it renders, so meta is honored at controller
 // start (the backend starts controllers lazily on the first terminal-view resync).
@@ -71,18 +71,23 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
             }
         })();
     }
+    const agentPanel = runtimeCreatesAgentPanel(opts.runtime);
     await RpcApi.SetMetaCommand(TabRpcClient, {
         oref: WOS.makeORef("tab", tabId),
-        meta: { "session:agent": opts.runtime, "session:label": opts.projectName },
+        meta: agentPanel
+            ? { "session:agent": opts.runtime, "session:label": opts.projectName }
+            : { "session:label": opts.projectName },
     });
-    const pending: PendingLaunch = {
-        tabId,
-        blockId,
-        name: opts.projectName,
-        project: opts.projectName,
-        ts: Date.now(),
-    };
-    globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
+    if (agentPanel) {
+        const pending: PendingLaunch = {
+            tabId,
+            blockId,
+            name: opts.projectName,
+            project: opts.projectName,
+            ts: Date.now(),
+        };
+        globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
+    }
     globalStore.set(model.focusIdAtom, tabId);
     globalStore.set(model.surfaceAtom, "agent");
     return tabId;

@@ -66,6 +66,10 @@ export function runtimeShowsTask(runtime: Runtime): boolean {
     return runtime !== "terminal";
 }
 
+export function runtimeCreatesAgentPanel(runtime: Runtime): boolean {
+    return runtime !== "terminal";
+}
+
 // Worktrees only make sense for the agent runtimes; a terminal launches in the project dir.
 export function runtimeSupportsWorktree(runtime: Runtime): boolean {
     return runtime !== "terminal";
