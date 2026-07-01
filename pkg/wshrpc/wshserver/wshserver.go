@@ -1514,6 +1514,30 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
 }
 
+func cutoffFromEpoch(sec int64) time.Time {
+	if sec <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(sec, 0)
+}
+
+func (ws *WshServer) GetTranscriptTokensCommand(ctx context.Context, data wshrpc.CommandGetTranscriptTokensData) (*wshrpc.CommandGetTranscriptTokensRtnData, error) {
+	total, err := usagestats.SumTranscript(data.Path)
+	if err != nil {
+		return nil, fmt.Errorf("summing transcript tokens: %w", err)
+	}
+	return &wshrpc.CommandGetTranscriptTokensRtnData{Tokens: total}, nil
+}
+
+func (ws *WshServer) GetWindowTokensCommand(ctx context.Context, data wshrpc.CommandGetWindowTokensData) (*wshrpc.CommandGetWindowTokensRtnData, error) {
+	cutoffs := []time.Time{cutoffFromEpoch(data.FiveHourCutoff), cutoffFromEpoch(data.WeekCutoff)}
+	sums, err := usagestats.WindowTokens(cutoffs)
+	if err != nil {
+		return nil, fmt.Errorf("summing window tokens: %w", err)
+	}
+	return &wshrpc.CommandGetWindowTokensRtnData{FiveHourTokens: sums[0], WeekTokens: sums[1]}, nil
+}
+
 func (ws *WshServer) MemoryScanCommand(ctx context.Context) (*wshrpc.CommandMemoryScanRtnData, error) {
 	g, err := memvault.ScanVault(memvault.VaultRoots())
 	if err != nil {

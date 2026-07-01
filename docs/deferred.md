@@ -3,15 +3,19 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
-## Agent rail "Tokens" — context occupancy, not cumulative (2026-06-26)
+## Agent rail "Tokens" — context occupancy, not cumulative (2026-06-26) — RESOLVED 2026-07-01
 
-- **What:** the Agent details rail's "Tokens" row shows live *context-window occupancy*
-  (`round(contextpct% × contextmax)`), not cumulative tokens spent this session.
-- **Why:** `AgentUsage` (the statusLine reporter) carries no token-total field. A true cumulative
-  figure needs a per-agent transcript scan (the Usage surface does this in aggregate, not per agent).
-- **Where it plugs in:** the "Tokens" `DetailRow` in `frontend/app/view/agents/agentdetailsrail.tsx`.
-- **To resume:** add a per-agent cumulative-token source (extend the reporter, or a per-agent
-  transcript scan reusing the Usage surface's extractor) and feed it into the row.
+> **Resolved 2026-07-01 (deferred-token-truth-usage-polish):** the rail's "Tokens" row now shows a
+> real whole-file cumulative total for the focused agent, not context occupancy. A thin
+> `GetTranscriptTokensCommand` (wshserver) calls `usagestats.SumTranscript`, which reuses the Usage
+> surface's Claude/Codex parser + dedupe so the accounting matches. The value loads via
+> `tokenstore.ts` (`agentTokensAtom` + `loadTokensForAgent`, with a stale-load guard) from the rail
+> effect in `agentdetailsrail.tsx`; a missing/unresolved transcript renders "—". The
+> `contextpct × contextmax` occupancy calc and its `DefaultContextMax` fallback are deleted.
+
+Original entry: the Agent details rail's "Tokens" row showed live *context-window occupancy*
+(`round(contextpct% × contextmax)`), not cumulative tokens spent, because `AgentUsage` (the
+statusLine reporter) carries no token-total field.
 
 ## New Agent → Agent tab: dev-mock handoff (2026-06-26)
 
@@ -52,18 +56,30 @@ carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-
 
 ## Usage surface — deferred (2026-06-26)
 
-- **Rate-limit window token cap** (handoff "1.34M / 2.2M tok"): no faithful source — the 5h/weekly %
-  is Anthropic's opaque server-side number; transcript token sums are a different accounting. The
-  donut shows % + reset only. Revisit if a real cap / used-token source appears.
-- **Plan-tier badge** (handoff "Max 20×" / "Tier 4"): not carried by the statusLine; provider label
-  is shown without a tier badge.
-- **Codex/OpenAI token breakdown**: `extractUsage` only parses Claude `type:"assistant"` lines, and
-  OpenAI has no 5h/weekly window. A Codex provider row appears only when real data exists for it.
-- **Model-id prettifying**: the per-model bar shows the raw model id (e.g. "claude-opus-4-20250514")
-  rather than a friendly label.
-- **Pricing table** (`usagestats.ts` PRICING) is a hardcoded estimate; refresh as plans change.
-- **Scan bound**: `usagestore.ts` reads the newest `SESSION_READ_CAP` (150) sessions, up to
-  `USAGE_READ_MAXLINES` (20000) lines each. Pathologically large fleets/sessions could under-count.
+**Permanent limitations (no honest source — not open TODOs):**
+- **Rate-limit window token cap** (handoff "1.34M / 2.2M tok"): there is no faithful *limit* — the
+  5h/weekly `%` is Anthropic's opaque server-side number, unrelated to any transcript token sum. The
+  cockpit now shows a real *used*-token count with **no denominator** (see the resolved usage-bar
+  entry); a "used / limit" ratio would require a cap Anthropic does not publish.
+- **Plan-tier badge** (handoff "Max 20×" / "Tier 4"): not carried by the statusLine; the provider
+  label is shown without a tier badge. No source to derive it from.
+
+**Resolved 2026-07-01 (deferred-token-truth-usage-polish):**
+- **Model-id prettifying** — DONE. `prettyModel` (`modellabel.ts`) turns raw ids into friendly labels
+  (e.g. "claude-opus-4-8" → "Opus 4.8"); used in the Usage per-model bar and the rail Model row, with
+  the raw id kept as a `title` tooltip. Unknown ids fall through unchanged.
+- **Pricing table** — REFRESHED to current-generation rates (`usagepricing.ts`): Fable $10/$50, Opus
+  $5/$25, Sonnet $3/$15, Haiku $1/$5, plus the new `fable` family. Caveat: family-substring matching
+  loses the version, so a historical Opus-4.0 transcript (billed $15/$75) is priced at the current
+  Opus tier — acceptable for an estimate; documented in the code.
+- **Scan bound** — OBSOLETE. The `SESSION_READ_CAP`/`USAGE_READ_MAXLINES` text described the old
+  frontend scan; the usage scan now runs in the Go backend (`GetUsageStatsCommand` → `usagestats`)
+  which walks the transcript roots with no file/line cap.
+
+**Still open:**
+- **Codex/OpenAI token breakdown**: the parser handles Codex rollout token totals, but OpenAI has no
+  5h/weekly window, so the window bars stay Claude-only and a Codex provider row appears only when
+  real data exists for it.
 
 ## Files surface — deferred (v1)
 
@@ -82,19 +98,19 @@ carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-
   home; do the visual pass when that port is free, focusing a real agent (mock roster resolves to
   "Not a git repository").
 
-## Usage-bar token counts (fabricated)
+## Usage-bar token counts (fabricated) — RESOLVED 2026-07-01
 
-- **What:** the cockpit right-rail usage bars (5-hour window / Weekly) render a `used / limit tok` line
-  (handoff lines 326/331), but the figure is **fabricated** — `used = pct% × FAKE_TOKEN_LIMIT`, where the
-  ceilings (2.2M / 44M) are hardcoded handoff values, not telemetry.
-- **Why fabricated, not real:** `AgentUsage` (`baseds.AgentUsage`) carries no token totals — only
-  `fivehourpct`, `fivehourreset`, `weekpct`, `weekreset`. The fake number makes the bar layout judgeable
-  during the visual pass; it must not be read as real usage.
-- **Where it plugs in:** `FAKE_TOKEN_LIMIT` + `UsageBar` in `frontend/app/view/agents/cockpitsurface.tsx`
-  (marked `PLACEHOLDER`).
-- **To resume:** extend `AgentUsage` (and the statusLine reporter that fills it) with per-window token
-  used/limit fields, then feed real values into `UsageBar` and delete `FAKE_TOKEN_LIMIT`.
-- **Deferred:** 2026-06-25, during the cockpit handoff-parity pass.
+> **Resolved 2026-07-01 (deferred-token-truth-usage-polish):** `FAKE_TOKEN_LIMIT` is deleted. The
+> 5-hour / Weekly bars now show a **real Claude-only window-used token count** (no denominator — no
+> honest ceiling exists) via `GetWindowTokensCommand` + `usagestats.WindowTokens`, summed over the
+> Claude transcript root. Each window is anchored to its rate-limit reset: the frontend
+> (`windowtokenstore.ts`) computes `windowStart = reset - duration` and falls back to `now - duration`
+> when a reset is absent (API-key auth, or not yet reported). Codex bars carry no `used` line (rate
+> limits are Claude.ai-specific). The `%` still comes from Anthropic's opaque server number.
+
+Original entry: the usage bars rendered a `used / limit tok` line where `used = pct% × FAKE_TOKEN_LIMIT`
+and the ceilings (2.2M / 44M) were hardcoded handoff values, not telemetry — `AgentUsage` carries no
+token totals, only `fivehourpct`/`fivehourreset`/`weekpct`/`weekreset`.
 
 ## Agent (Focus) surface placeholders (Phase 1b)
 
@@ -109,11 +125,12 @@ carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-
 > removed. The details rail is now toggleable (default off, `d` key / header button, persisted
 > via `atomWithStorage("agent.rail.visible")`).
 >
-> Still data-gated: **Model**, **Tokens**, and **Cost** read the reporter-supplied `AgentVM.model`
-> / `AgentUsage`. A freshly-launched agent has no `transcriptPath` and no reporter enrichment yet,
-> so those rows show "—" until the external status reporter registers it (the dev wsh-routing gap
-> — see the New-Agent dev-mock-handoff entry). cwd was recoverable from Wave-owned block meta;
-> model/usage are not. **Tokens (total)** remains deferred regardless — see the entry below.
+> Still data-gated: **Model** and **Cost** read the reporter-supplied `AgentVM.model` / `AgentUsage`.
+> A freshly-launched agent has no `transcriptPath` and no reporter enrichment yet, so those rows show
+> "—" until the external status reporter registers it (the dev wsh-routing gap — see the New-Agent
+> dev-mock-handoff entry). cwd was recoverable from Wave-owned block meta; model/cost are not.
+> **Tokens (total)** is now real regardless of the reporter — a whole-file transcript scan; see the
+> resolved "Agent rail Tokens" entry above.
 
 - **What:** the Agent 3-pane focus surface (`frontend/app/view/agents/agentsurface.tsx` +
   `agenttree.tsx` / `agenttranscript.tsx` / `agentdetailsrail.tsx`) renders to full handoff
@@ -121,8 +138,9 @@ carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-
   disabled affordances:
   - **git Branch** — left-tree parent subtitle + Details "Branch" row (static `main`).
   - **Files touched + per-file git status (M / + / −)** — static placeholder list in the rail.
-  - **Tokens (total)** — the Details "Tokens" row derives input tokens from context
-    (`contextpct × contextmax`); there is no cumulative total-token figure.
+  - **Tokens (total)** — RESOLVED 2026-07-01: the Details "Tokens" row now shows a real whole-file
+    cumulative total (`GetTranscriptTokensCommand` / `tokenstore.ts`); see the resolved rail-Tokens
+    entry above. (Was: derived input tokens from `contextpct × contextmax`.)
   - **Pause / Resume / Stop** — rendered disabled ("coming soon"); `Open terminal` is the only
     live lifecycle action.
   - **Suggestion chips** — footer chips above the composer are static/disabled (no generator).

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { cn } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
 import { Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -44,6 +44,7 @@ import { ProjectSwitcher } from "./projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
+import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 
 function RollingCount({ value, className }: { value: number; className?: string }) {
     return <span className={cn("tabular-nums", className)}>{value}</span>;
@@ -80,20 +81,26 @@ const RECENT_DOT: Record<string, string> = {
     idle: "var(--color-muted)",
 };
 
-// PLACEHOLDER (docs/deferred.md): AgentUsage has no real token totals. These per-window ceilings (handoff
-// values) let UsageBar render a believable "used / limit tok" figure derived from pct so the layout is
-// judgeable. NOT real telemetry — replace when per-window token data exists.
-const FAKE_TOKEN_LIMIT: Record<string, number> = { "5-hour window": 2_200_000, Weekly: 44_000_000 };
-
-// One plan window as a full-width handoff bar: label + pct + bar + (fabricated token count) + reset
-// countdown. A null pct (API-key auth, or a window not yet reported) renders nothing.
-function UsageBar({ label, pct, reset, now }: { label: string; pct?: number; reset?: number; now: number }) {
+// One plan window as a full-width handoff bar: label + pct + bar + (real used tokens) + reset
+// countdown. A null pct (API-key auth, or a window not yet reported) renders nothing. `used` is
+// the real Claude-only token sum for the window (windowtokenstore); absent -> no token line.
+function UsageBar({
+    label,
+    pct,
+    reset,
+    used,
+    now,
+}: {
+    label: string;
+    pct?: number;
+    reset?: number;
+    used?: number;
+    now: number;
+}) {
     if (pct == null) {
         return null;
     }
     const lvl = usageLevel(pct);
-    const limit = FAKE_TOKEN_LIMIT[label];
-    const used = limit != null ? (pct / 100) * limit : undefined;
     return (
         <div>
             <div className="mb-[7px] flex items-baseline justify-between">
@@ -108,7 +115,7 @@ function UsageBar({ label, pct, reset, now }: { label: string; pct?: number; res
             </div>
             {used != null || reset ? (
                 <div className="mt-[6px] flex justify-between font-mono text-[10.5px] text-muted">
-                    <span>{used != null ? `${formatTokens(used)} / ${formatTokens(limit!)} tok` : ""}</span>
+                    <span>{used != null ? `${formatTokens(used)} tok` : ""}</span>
                     {reset ? <span>resets {formatReset(reset, now)}</span> : null}
                 </div>
             ) : null}
@@ -180,10 +187,18 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // same aggregation the full Usage surface uses.
     const savedRateLimits = useAtomValue(savedRateLimitsAtom);
     const usageDonuts = mergeRateLimitWindows(providerPlanUsage([...asking, ...working, ...idle]), savedRateLimits, now);
+    const windowTokens = useAtomValue(windowTokensAtom);
+    const claudeDonut = usageDonuts.find((d) => d.provider === "claude");
     useEffect(() => {
         const t = setInterval(() => globalStore.set(model.nowAtom, Date.now()), 1000);
         return () => clearInterval(t);
     }, []);
+    useEffect(() => {
+        if (claudeDonut == null) {
+            return;
+        }
+        fireAndForget(() => loadWindowTokens(claudeDonut.fivehour.reset, claudeDonut.week.reset));
+    }, [claudeDonut?.fivehour.reset, claudeDonut?.week.reset]);
 
     // A just-finished agent keeps its full row (so you can reply) for the grace window, then collapses
     // into the Idle list. Dismissals are keyed by idle episode (id:idleSince).
@@ -699,9 +714,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                         label="5-hour window"
                                         pct={d.fivehour.pct}
                                         reset={d.fivehour.reset}
+                                        used={d.provider === "claude" ? windowTokens?.fivehour : undefined}
                                         now={now}
                                     />
-                                    <UsageBar label="Weekly" pct={d.week.pct} reset={d.week.reset} now={now} />
+                                    <UsageBar
+                                        label="Weekly"
+                                        pct={d.week.pct}
+                                        reset={d.week.reset}
+                                        used={d.provider === "claude" ? windowTokens?.week : undefined}
+                                        now={now}
+                                    />
                                 </div>
                             ))}
                         </div>

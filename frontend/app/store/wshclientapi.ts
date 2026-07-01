@@ -552,6 +552,12 @@ export class RpcApiType {
         return client.wshRpcCall("gettempdir", data, opts);
     }
 
+    // command "gettranscripttokens" [call]
+    GetTranscriptTokensCommand(client: WshClient, data: CommandGetTranscriptTokensData, opts?: RpcOpts): Promise<CommandGetTranscriptTokensRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettranscripttokens", data, opts);
+        return client.wshRpcCall("gettranscripttokens", data, opts);
+    }
+
     // command "getupdatechannel" [call]
     GetUpdateChannelCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getupdatechannel", null, opts);
@@ -586,6 +592,12 @@ export class RpcApiType {
     GetWaveAIRateLimitCommand(client: WshClient, opts?: RpcOpts): Promise<RateLimitInfo> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getwaveairatelimit", null, opts);
         return client.wshRpcCall("getwaveairatelimit", null, opts);
+    }
+
+    // command "getwindowtokens" [call]
+    GetWindowTokensCommand(client: WshClient, data: CommandGetWindowTokensData, opts?: RpcOpts): Promise<CommandGetWindowTokensRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getwindowtokens", data, opts);
+        return client.wshRpcCall("getwindowtokens", data, opts);
     }
 
     // command "gitchanges" [call]

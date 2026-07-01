@@ -279,3 +279,77 @@ func ScanUsage(windowDays int) ([]Bucket, error) {
 	home := wavebase.GetHomeDir()
 	return scanRoots(filepath.Join(home, ".claude", "projects"), filepath.Join(home, ".codex", "sessions"), windowDays), nil
 }
+
+// sumRecords totals the four token classes across deduped records.
+func sumRecords(records []Record) int {
+	total := 0
+	for _, r := range dedupe(records) {
+		total += r.Input + r.Output + r.CacheRead + r.CacheCreate
+	}
+	return total
+}
+
+// SumTranscript reads one transcript file and returns its deduped cumulative token
+// total (Input+Output+CacheRead+CacheCreate), matching the Usage surface's accounting.
+// Runs the Claude parser first and falls back to the Codex parser only when the Claude
+// parse yields no records (a rollout produces no Claude records and vice versa, so this
+// is unambiguous). Empty/unreadable/unknown-shape files return 0.
+func SumTranscript(path string) (int, error) {
+	lines := readLines(path)
+	if len(lines) == 0 {
+		return 0, nil
+	}
+	recs := extractClaude(lines)
+	if len(recs) == 0 {
+		recs = extractCodex(lines)
+	}
+	return sumRecords(recs), nil
+}
+
+// sumRecordsSinceCutoffs returns, per cutoff (positionally), the summed token total of
+// records at/after that cutoff. A zero cutoff means all-time (every record counts).
+func sumRecordsSinceCutoffs(records []Record, cutoffs []time.Time) []int {
+	out := make([]int, len(cutoffs))
+	for _, r := range records {
+		tokens := r.Input + r.Output + r.CacheRead + r.CacheCreate
+		for i, c := range cutoffs {
+			if c.IsZero() || !r.TS.Before(c) {
+				out[i] += tokens
+			}
+		}
+	}
+	return out
+}
+
+// WindowTokens sums Claude-only deduped token totals for records at/after each cutoff,
+// across the Claude transcript root. Codex is excluded — rate-limit windows are
+// Claude.ai-specific. Returns one total per cutoff, positionally.
+func WindowTokens(cutoffs []time.Time) ([]int, error) {
+	home := wavebase.GetHomeDir()
+	claudeRoot := filepath.Join(home, ".claude", "projects")
+
+	var earliest time.Time
+	for _, c := range cutoffs {
+		if !c.IsZero() && (earliest.IsZero() || c.Before(earliest)) {
+			earliest = c
+		}
+	}
+	// prune files by modtime against the earliest cutoff (with the existing 1-day margin)
+	var prune time.Time
+	if !earliest.IsZero() {
+		prune = earliest.AddDate(0, 0, -1)
+	}
+
+	var records []Record
+	_ = filepath.WalkDir(claudeRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		if !inWindow(path, prune) {
+			return nil
+		}
+		records = append(records, extractClaude(readLines(path))...)
+		return nil
+	})
+	return sumRecordsSinceCutoffs(dedupe(records), cutoffs), nil
+}

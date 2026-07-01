@@ -156,3 +156,59 @@ func TestScanRootsPrunesByModtime(t *testing.T) {
 		t.Fatalf("want 1 bucket msgs=2 with no prune, got %+v", all)
 	}
 }
+
+func TestSumTranscript(t *testing.T) {
+	dir := t.TempDir()
+
+	// Claude file: two assistant lines, second is a streaming re-emit of the first
+	// (same message.id + requestId) so dedupe must keep only the larger-output copy.
+	claude := filepath.Join(dir, "claude.jsonl")
+	lines := "" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:00:01.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}` + "\n"
+	if err := os.WriteFile(claude, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// deduped to the output:50 copy → 100+50+1000+200 = 1350
+	got, err := SumTranscript(claude)
+	if err != nil || got != 1350 {
+		t.Fatalf("claude sum = %d, err = %v; want 1350", got, err)
+	}
+
+	// Codex file: one token_count with a cumulative total; Input = input - cached.
+	codex := filepath.Join(dir, "rollout-x.jsonl")
+	codexLines := "" +
+		`{"timestamp":"2026-06-26T03:07:50.000Z","type":"turn_context","payload":{"model":"gpt-5.5"}}` + "\n" +
+		`{"timestamp":"2026-06-26T03:08:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":9458,"cached_input_tokens":7040,"output_tokens":89,"total_tokens":9547}}}}` + "\n"
+	if err := os.WriteFile(codex, []byte(codexLines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Input = 9458-7040 = 2418; Output = 89; CacheRead = 7040; CacheCreate = 0 → 9547
+	gotCodex, err := SumTranscript(codex)
+	if err != nil || gotCodex != 9547 {
+		t.Fatalf("codex sum = %d, err = %v; want 9547", gotCodex, err)
+	}
+
+	// Missing/unreadable file → 0, no error.
+	gotMissing, err := SumTranscript(filepath.Join(dir, "does-not-exist.jsonl"))
+	if err != nil || gotMissing != 0 {
+		t.Fatalf("missing sum = %d, err = %v; want 0", gotMissing, err)
+	}
+}
+
+func TestWindowTokens(t *testing.T) {
+	// Two records straddling a cutoff. WindowTokens sums records with TS >= cutoff.
+	older := Record{TS: time.Date(2026, 6, 26, 8, 0, 0, 0, time.UTC), Provider: "claude", Model: "claude-opus-4-8", Input: 100, Output: 10}
+	newer := Record{TS: time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC), Provider: "claude", Model: "claude-opus-4-8", Input: 200, Output: 20, CacheRead: 5}
+	recs := []Record{older, newer}
+
+	cutoffs := []time.Time{
+		time.Date(2026, 6, 26, 10, 0, 0, 0, time.UTC), // excludes older, includes newer
+		time.Time{},                                   // all-time: includes both
+	}
+	got := sumRecordsSinceCutoffs(recs, cutoffs)
+	// cutoff[0]: only newer → 200+20+5 = 225 ; cutoff[1]: both → 110 + 225 = 335
+	if got[0] != 225 || got[1] != 335 {
+		t.Fatalf("window sums = %v; want [225 335]", got)
+	}
+}

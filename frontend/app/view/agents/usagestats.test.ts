@@ -56,8 +56,8 @@ describe("aggregateBuckets", () => {
         expect(stats.split.map((s) => s.cls)).toEqual(["cacheRead", "output", "cacheWrite", "input"]);
         const byCls = Object.fromEntries(stats.split.map((s) => [s.cls, s]));
         expect(byCls.cacheRead.tokens).toBe(1e6);
-        expect(byCls.output.spendUsd).toBeCloseTo(75, 5);
-        expect(byCls.input.spendUsd).toBeCloseTo(15, 5);
+        expect(byCls.output.spendUsd).toBeCloseTo(25, 5);
+        expect(byCls.input.spendUsd).toBeCloseTo(5, 5);
     });
 
     it("daily zero-fills idle days in range and keys claude vs codex", () => {

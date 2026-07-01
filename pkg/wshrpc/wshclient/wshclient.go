@@ -549,6 +549,12 @@ func GetTempDirCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTempDirData, opt
 	return resp, err
 }
 
+// command "gettranscripttokens", wshserver.GetTranscriptTokensCommand
+func GetTranscriptTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscriptTokensData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTranscriptTokensRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTranscriptTokensRtnData](w, "gettranscripttokens", data, opts)
+	return resp, err
+}
+
 // command "getupdatechannel", wshserver.GetUpdateChannelCommand
 func GetUpdateChannelCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "getupdatechannel", nil, opts)
@@ -582,6 +588,12 @@ func GetWaveAIModeConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfi
 // command "getwaveairatelimit", wshserver.GetWaveAIRateLimitCommand
 func GetWaveAIRateLimitCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*uctypes.RateLimitInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*uctypes.RateLimitInfo](w, "getwaveairatelimit", nil, opts)
+	return resp, err
+}
+
+// command "getwindowtokens", wshserver.GetWindowTokensCommand
+func GetWindowTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWindowTokensData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetWindowTokensRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetWindowTokensRtnData](w, "getwindowtokens", data, opts)
 	return resp, err
 }
 

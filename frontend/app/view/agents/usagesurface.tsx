@@ -13,6 +13,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatReset, groupAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
+import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
 import { loadUsage, usageErrorAtom, usageStatsAtom } from "./usagestore";
@@ -312,7 +313,7 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
             {p.models.map((m, i) => (
                 <div key={m.model} className="mb-[13px]">
                     <div className="mb-[6px] flex items-baseline justify-between">
-                        <span className="font-mono text-[12px] text-secondary">{m.model}</span>
+                        <span className="font-mono text-[12px] text-secondary" title={m.model}>{prettyModel(m.model)}</span>
                         <span className="font-mono text-[11px] text-muted">
                             {fmt(m.tokens)} · <span className="font-semibold text-secondary">{pctStr(m.pct)}</span>
                         </span>

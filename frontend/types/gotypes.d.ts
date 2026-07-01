@@ -595,6 +595,16 @@ declare global {
         filename?: string;
     };
 
+    // wshrpc.CommandGetTranscriptTokensData
+    type CommandGetTranscriptTokensData = {
+        path: string;
+    };
+
+    // wshrpc.CommandGetTranscriptTokensRtnData
+    type CommandGetTranscriptTokensRtnData = {
+        tokens: number;
+    };
+
     // wshrpc.CommandGetUsageStatsData
     type CommandGetUsageStatsData = {
         windowdays?: number;
@@ -608,6 +618,18 @@ declare global {
     // wshrpc.CommandGetWaveAIChatData
     type CommandGetWaveAIChatData = {
         chatid: string;
+    };
+
+    // wshrpc.CommandGetWindowTokensData
+    type CommandGetWindowTokensData = {
+        fivehourcutoff?: number;
+        weekcutoff?: number;
+    };
+
+    // wshrpc.CommandGetWindowTokensRtnData
+    type CommandGetWindowTokensRtnData = {
+        fivehourtokens: number;
+        weektokens: number;
     };
 
     // wshrpc.CommandGitChangesData

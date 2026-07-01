@@ -98,6 +98,8 @@ type WshRpcInterface interface {
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
+	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
+	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	MemoryScanCommand(ctx context.Context) (*CommandMemoryScanRtnData, error)
 	MemoryReadCommand(ctx context.Context, data CommandMemoryReadData) (*CommandMemoryReadRtnData, error)
 	MemoryWriteCommand(ctx context.Context, data CommandMemoryWriteData) (*CommandMemoryWriteRtnData, error)
@@ -761,6 +763,24 @@ type CommandGetRecentSessionsData struct {
 
 type CommandGetRecentSessionsRtnData struct {
 	Sessions []SessionInfo `json:"sessions"`
+}
+
+type CommandGetTranscriptTokensData struct {
+	Path string `json:"path"`
+}
+
+type CommandGetTranscriptTokensRtnData struct {
+	Tokens int `json:"tokens"`
+}
+
+type CommandGetWindowTokensData struct {
+	FiveHourCutoff int64 `json:"fivehourcutoff,omitempty"` // epoch seconds; 0 = all-time
+	WeekCutoff     int64 `json:"weekcutoff,omitempty"`     // epoch seconds; 0 = all-time
+}
+
+type CommandGetWindowTokensRtnData struct {
+	FiveHourTokens int `json:"fivehourtokens"`
+	WeekTokens     int `json:"weektokens"`
 }
 
 type MemoryNote struct {

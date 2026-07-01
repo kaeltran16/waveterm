@@ -20,9 +20,10 @@ import { capFiles, statusColor } from "./gitstatus";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { loadRailForAgent, railStateAtom } from "./railstore";
 import { runtimeMeta } from "./runtimemeta";
+import { prettyModel } from "./modellabel";
 import { getSubagentsAtom } from "./session-models/agentstatusstore";
+import { agentTokensAtom, loadTokensForAgent } from "./tokenstore";
 
-const DefaultContextMax = 200000; // fallback when the reporter omits contextmax (mirrors focusview)
 const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
     ok: "bg-accent",
     warn: "bg-warning",
@@ -56,9 +57,11 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const ctxPct = usage?.contextpct;
     const tools = summarizeActions(recentActions(entries, 0)).byVerb;
     const railState = useAtomValue(railStateAtom);
+    const tokensTotal = useAtomValue(agentTokensAtom);
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
+        fireAndForget(() => loadTokensForAgent(agent.id, agent.transcriptPath));
     }, [agent.id, agent.transcriptPath, agent.blockId]);
 
     const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
@@ -77,8 +80,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     };
 
     const running = agent.state === "idle" ? `${formatAge(undefined)} idle` : formatAge(agent.activeMs);
-    const tokens =
-        ctxPct != null ? formatTokens(Math.round((ctxPct / 100) * (usage?.contextmax || DefaultContextMax))) : "—";
+    const tokens = tokensTotal != null ? formatTokens(tokensTotal) : "—";
     const cost = usage?.costusd ? `$${usage.costusd.toFixed(2)}` : "—";
 
     return (
@@ -99,7 +101,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                     />
                     <DetailRow label="Project" value={project || "—"} />
                     <DetailRow label="Branch" value={railState?.branch || "—"} />
-                    <DetailRow label="Model" value={agent.model ?? "—"} />
+                    <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
                     <DetailRow label="Running" value={running} />
                     <DetailRow label="Tokens" value={tokens} />
                     <DetailRow label="Cost" value={cost} />
