@@ -27,15 +27,18 @@ import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const agents = useAtomValue(model.agentsAtom);
+    const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
-    // handoff (dc.html:1790): focusAgent = …find(fid) || list[0] — the Focus surface always shows an
-    // agent, defaulting to the first in order; it never falls back to the cockpit grid. focusId is then
-    // kept "always real" like the handoff's state model (initialized to a default, never left empty).
-    const focused = focusId != null ? agents.find((a) => a.id === focusId) : undefined;
-    const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0];
+    // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
+    // list[0] — the Focus surface always shows something, defaulting to the first agent in order (never
+    // a terminal, so background terminals stay backgrounded); it falls back to the first terminal only
+    // when there are no agents. focusId is kept "always real" (initialized to a default, never empty).
+    const mountable = [...agents, ...terminals];
+    const focused = focusId != null ? mountable.find((a) => a.id === focusId) : undefined;
+    const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
     useEffect(() => {
@@ -100,7 +103,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     change disposes+recreates the term, whose restore replays a serialized snapshot and
                     then resumes the live Claude Code TUI's differential stream on top of it — the frames
                     stack (the "distortion"). A visibility toggle avoids the remount entirely. */}
-                {agents
+                {mountable
                     .filter((a) => a.blockId != null)
                     .map((a) => (
                         <div
@@ -116,7 +119,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </div>
                 ) : null}
             </div>
-            {railVisible && !fullscreen ? <AgentDetailsRail model={model} agent={agent} /> : null}
+            {railVisible && !fullscreen && agent.kind !== "terminal" ? (
+                <AgentDetailsRail model={model} agent={agent} />
+            ) : null}
         </div>
     );
 }

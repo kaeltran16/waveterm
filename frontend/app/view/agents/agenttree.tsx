@@ -105,8 +105,35 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
     );
 }
 
+// A background terminal row: no agent chrome (no status dot / model / subagents) — just a glyph +
+// name that focuses the terminal's block in the surface's focus pane.
+function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: AgentVM }) {
+    const focusId = useAtomValue(model.focusIdAtom);
+    const selected = focusId === terminal.id;
+    const select = () => {
+        globalStore.set(model.focusIdAtom, terminal.id);
+        globalStore.set(model.focusReplyAtom, false);
+    };
+    return (
+        <div
+            onClick={select}
+            className={cn(
+                "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] hover:bg-surface-hover",
+                selected && "bg-accentbg"
+            )}
+        >
+            <span className="w-[7px] shrink-0 text-center font-mono text-[11px] leading-none text-muted">›_</span>
+            <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[12px] font-semibold text-[#dfe4ea]">{terminal.name}</div>
+            </div>
+            <span className="font-mono text-[10px] font-medium text-muted">terminal</span>
+        </div>
+    );
+}
+
 export function AgentTree({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
+    const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
     const rows = buildAgentTree(agents, order);
     return (
@@ -136,6 +163,20 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                         <ParentRow key={r.agent.id} model={model} agent={r.agent} />
                     )
                 )}
+                {terminals.length > 0 ? (
+                    <>
+                        <div className="flex items-center gap-[8px] px-[11px] pb-[6px] pt-[14px]">
+                            <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
+                                Terminals
+                            </span>
+                            <div className="h-px flex-1 bg-[#181d23]" />
+                            <span className="font-mono text-[10px] font-semibold text-[#4d545d]">{terminals.length}</span>
+                        </div>
+                        {terminals.map((t) => (
+                            <TerminalRow key={t.id} model={model} terminal={t} />
+                        ))}
+                    </>
+                ) : null}
             </div>
         </div>
     );

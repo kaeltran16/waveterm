@@ -11,7 +11,7 @@ import { getAgentStatusAtom, getAgentUsageAtom } from "@/app/view/agents/session
 import { sessionSidebarViewModelAtom } from "@/app/view/agents/session-models/sessionsidebarmodel";
 import { flattenVisualOrder } from "@/app/view/agents/session-models/sessionviewmodel";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
-import { agentVMFromInput, askingCount, isAskStale, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
+import { agentVMFromInput, askingCount, deriveTerminalVMs, isAskStale, withAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { getAgentAskAtom } from "./agentaskstore";
 import { fetchPreviousInfo } from "./previousinfo";
 
@@ -61,6 +61,14 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
         agents.push(withAsk(vm, effectiveAsk, now));
     }
     return agents;
+});
+
+// The plain-terminal sessions (background terminals launched via New Agent): rows that own a term
+// block but never emitted an agent status. Rendered by the Agent surface separately from the roster
+// (own tree group + focus pane), so they never pollute agentsAtom / the cockpit grid counts.
+export const liveTerminalsAtom: Atom<AgentVM[]> = atom((get) => {
+    const vm = get(sessionSidebarViewModelAtom);
+    return deriveTerminalVMs(flattenVisualOrder(vm), (oref) => !!get(getAgentStatusAtom(oref))?.state);
 });
 
 // The rendered roster: base agents with fetched previous-info + task merged onto asking agents.

@@ -25,13 +25,19 @@ export interface LaunchAgentOpts {
 // default term block is reconfigured via SetMeta before it renders, so meta is honored at controller
 // start (the backend starts controllers lazily on the first terminal-view resync).
 export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string> {
+    const isTerminal = opts.runtime === "terminal";
     let cwd = opts.projectPath;
-    if (opts.runtime !== "terminal" && opts.branch?.trim()) {
+    if (!isTerminal && opts.branch?.trim()) {
         const rtn = await RpcApi.CreateWorktreeCommand(TabRpcClient, {
             projectpath: opts.projectPath,
             branch: opts.branch.trim(),
         });
         cwd = rtn.worktreepath;
+    }
+    // A terminal needs a cmd:cwd so the session sidebar detects it as a term session (buildLaunchMeta
+    // only sets cmd:cwd when cwd is truthy); "~" falls back to the home dir on the backend.
+    if (isTerminal && !cwd) {
+        cwd = "~";
     }
     const ws = globalStore.get(atoms.workspace);
     if (ws?.oid == null) {
@@ -88,7 +94,12 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         };
         globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
     }
-    globalStore.set(model.focusIdAtom, tabId);
-    globalStore.set(model.surfaceAtom, "agent");
+    // Terminals launch in the background: leave the user where they are (no focus/surface change). The
+    // terminal appears under the Agent tree's "Terminals" group and starts when first opened. Agents
+    // foreground into the Agent surface so their booting terminal mounts (which starts the process).
+    if (!isTerminal) {
+        globalStore.set(model.focusIdAtom, tabId);
+        globalStore.set(model.surfaceAtom, "agent");
+    }
     return tabId;
 }

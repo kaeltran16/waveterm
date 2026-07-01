@@ -20,7 +20,7 @@ import {
 import { CockpitSurface } from "./cockpitsurface";
 import type { ActivityType } from "./activityevents";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
-import { liveAgentsAtom } from "./liveagents";
+import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
 
 export type SurfaceKey =
     | "cockpit"
@@ -56,6 +56,9 @@ export class AgentsViewModel implements ViewModel {
     noPadding = atom(true);
     agentsAtom: Atom<AgentVM[]>; // base roster overlaid with pending launches
     baseRosterAtom: Atom<AgentVM[]>; // un-overlaid roster (dev mock or live) — read by the prune effect
+    // Background terminals launched via New Agent: kept separate from the agent roster (own tree group
+    // + focus pane). Always live (reads the workspace session sidebar), independent of the dev mock roster.
+    terminalsAtom: Atom<AgentVM[]> = liveTerminalsAtom;
     pendingLaunchesAtom = atom<PendingLaunch[]>([]) as PrimitiveAtom<PendingLaunch[]>;
     // the term blockId the Agent surface renders; undefined = no terminal open
     terminalTargetAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
