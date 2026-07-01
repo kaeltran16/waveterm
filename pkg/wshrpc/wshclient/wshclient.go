@@ -723,6 +723,36 @@ func MakeDraftFromLocalCommand(w *wshutil.WshRpc, data wshrpc.CommandMakeDraftFr
 	return resp, err
 }
 
+// command "memorycreate", wshserver.MemoryCreateCommand
+func MemoryCreateCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryCreateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryCreateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryCreateRtnData](w, "memorycreate", data, opts)
+	return resp, err
+}
+
+// command "memorydelete", wshserver.MemoryDeleteCommand
+func MemoryDeleteCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryDeleteData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "memorydelete", data, opts)
+	return err
+}
+
+// command "memoryread", wshserver.MemoryReadCommand
+func MemoryReadCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryReadRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryReadRtnData](w, "memoryread", data, opts)
+	return resp, err
+}
+
+// command "memoryscan", wshserver.MemoryScanCommand
+func MemoryScanCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryScanRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryScanRtnData](w, "memoryscan", nil, opts)
+	return resp, err
+}
+
+// command "memorywrite", wshserver.MemoryWriteCommand
+func MemoryWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryWriteRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryWriteRtnData](w, "memorywrite", data, opts)
+	return resp, err
+}
+
 // command "message", wshserver.MessageCommand
 func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "message", data, opts)

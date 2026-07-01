@@ -22,6 +22,7 @@
     --color-primary: #e6e9ed;
     --color-secondary: #cfd5db;
     --color-muted-foreground: #c3cad1;
+    --color-ink-hi: #dfe4ea; /* high-emphasis body/content text (handoff memory surface content) */
     --color-ink-mid: #9aa3ad; /* mid grey — handoff tool badges + secondary button text */
     --color-muted: #6b7178;
     --color-ink-faint: #3a424c;
@@ -75,6 +76,12 @@
     --color-rt-terminal: #9aa3ad;
     --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
     --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+
+    /* Memory note types (Claude schema; colors from handoff node legend Wave-cockpit-live.dc.html:1104-1107) */
+    --color-mem-project: #8aa0ff; /* decision-blue */
+    --color-mem-reference: #54c79a; /* fact-green */
+    --color-mem-feedback: #e6b450; /* convention-amber */
+    --color-mem-user: #a78bfa; /* preference-purple */
 
     /* Neutral overlays (theme-agnostic, preserved) */
     --color-hover: rgba(255, 255, 255, 0.1);

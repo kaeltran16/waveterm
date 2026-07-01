@@ -37,6 +37,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/genconn"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
+	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
@@ -1502,6 +1503,63 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 		}
 	}
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
+}
+
+func (ws *WshServer) MemoryScanCommand(ctx context.Context) (*wshrpc.CommandMemoryScanRtnData, error) {
+	g, err := memvault.ScanVault(memvault.VaultRoots())
+	if err != nil {
+		return nil, fmt.Errorf("scanning memory vault: %w", err)
+	}
+	notes := make([]wshrpc.MemoryNote, len(g.Notes))
+	for i, n := range g.Notes {
+		notes[i] = wshrpc.MemoryNote{
+			ID: n.ID, Title: n.Title, Description: n.Description, Type: n.Type,
+			Scope: n.Scope, Source: n.Source, Path: n.Path, Links: n.Links, UpdatedTs: n.UpdatedTs,
+		}
+	}
+	edges := make([]wshrpc.MemoryEdge, len(g.Edges))
+	for i, e := range g.Edges {
+		edges[i] = wshrpc.MemoryEdge{From: e.From, To: e.To}
+	}
+	return &wshrpc.CommandMemoryScanRtnData{Notes: notes, Edges: edges}, nil
+}
+
+func (ws *WshServer) MemoryReadCommand(ctx context.Context, data wshrpc.CommandMemoryReadData) (*wshrpc.CommandMemoryReadRtnData, error) {
+	nb, err := memvault.ReadNote(data.Path, data.Source)
+	if err != nil {
+		return nil, fmt.Errorf("reading note: %w", err)
+	}
+	n := nb.Note
+	return &wshrpc.CommandMemoryReadRtnData{
+		Note: wshrpc.MemoryNote{
+			ID: n.ID, Title: n.Title, Description: n.Description, Type: n.Type,
+			Scope: n.Scope, Source: n.Source, Path: n.Path, Links: n.Links, UpdatedTs: n.UpdatedTs,
+		},
+		Body: nb.Body,
+	}, nil
+}
+
+func (ws *WshServer) MemoryWriteCommand(ctx context.Context, data wshrpc.CommandMemoryWriteData) (*wshrpc.CommandMemoryWriteRtnData, error) {
+	res, err := memvault.WriteNote(data.Path, data.Content, data.BaseMtime)
+	if err != nil {
+		return nil, fmt.Errorf("writing note: %w", err)
+	}
+	return &wshrpc.CommandMemoryWriteRtnData{Mtime: res.Mtime, Conflict: res.Conflict}, nil
+}
+
+func (ws *WshServer) MemoryCreateCommand(ctx context.Context, data wshrpc.CommandMemoryCreateData) (*wshrpc.CommandMemoryCreateRtnData, error) {
+	path, err := memvault.CreateNote(memvault.DefaultVaultPath(), data.Name, data.Type, data.Scope, data.Body)
+	if err != nil {
+		return nil, fmt.Errorf("creating note: %w", err)
+	}
+	return &wshrpc.CommandMemoryCreateRtnData{Path: path}, nil
+}
+
+func (ws *WshServer) MemoryDeleteCommand(ctx context.Context, data wshrpc.CommandMemoryDeleteData) error {
+	if err := memvault.DeleteNote(data.Path); err != nil {
+		return fmt.Errorf("deleting note: %w", err)
+	}
+	return nil
 }
 
 func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.CommandCreateChannelData) (*waveobj.Channel, error) {

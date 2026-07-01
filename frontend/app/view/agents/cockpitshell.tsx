@@ -12,6 +12,7 @@ import { AgentSurface } from "./agentsurface";
 import { ChannelsSurface } from "./channelssurface";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
+import { MemorySurface } from "./memorysurface";
 import { NavRail } from "./navrail";
 import { PlaceholderSurface } from "./placeholdersurface";
 import { SessionsSurface } from "./sessionssurface";
@@ -69,6 +70,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <SessionsSurface model={model} />
                         ) : surface === "usage" ? (
                             <UsageSurface model={model} />
+                        ) : surface === "memory" ? (
+                            <MemorySurface model={model} />
                         ) : (
                             <PlaceholderSurface surface={surface} />
                         )}

@@ -97,6 +97,11 @@ type WshRpcInterface interface {
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
+	MemoryScanCommand(ctx context.Context) (*CommandMemoryScanRtnData, error)
+	MemoryReadCommand(ctx context.Context, data CommandMemoryReadData) (*CommandMemoryReadRtnData, error)
+	MemoryWriteCommand(ctx context.Context, data CommandMemoryWriteData) (*CommandMemoryWriteRtnData, error)
+	MemoryCreateCommand(ctx context.Context, data CommandMemoryCreateData) (*CommandMemoryCreateRtnData, error)
+	MemoryDeleteCommand(ctx context.Context, data CommandMemoryDeleteData) error
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
@@ -714,6 +719,64 @@ type CommandGetRecentSessionsData struct {
 
 type CommandGetRecentSessionsRtnData struct {
 	Sessions []SessionInfo `json:"sessions"`
+}
+
+type MemoryNote struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Type        string   `json:"type"`
+	Scope       string   `json:"scope"`
+	Source      string   `json:"source"`
+	Path        string   `json:"path"`
+	Links       []string `json:"links"`
+	UpdatedTs   int64    `json:"updatedts"`
+}
+
+type MemoryEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type CommandMemoryScanRtnData struct {
+	Notes []MemoryNote `json:"notes"`
+	Edges []MemoryEdge `json:"edges"`
+}
+
+type CommandMemoryReadData struct {
+	Path   string `json:"path"`
+	Source string `json:"source"`
+}
+
+type CommandMemoryReadRtnData struct {
+	Note MemoryNote `json:"note"`
+	Body string     `json:"body"`
+}
+
+type CommandMemoryWriteData struct {
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	BaseMtime int64  `json:"basemtime,omitempty"`
+}
+
+type CommandMemoryWriteRtnData struct {
+	Mtime    int64 `json:"mtime"`
+	Conflict bool  `json:"conflict"`
+}
+
+type CommandMemoryCreateData struct {
+	Name  string `json:"name"`
+	Type  string `json:"type,omitempty"`
+	Scope string `json:"scope,omitempty"`
+	Body  string `json:"body,omitempty"`
+}
+
+type CommandMemoryCreateRtnData struct {
+	Path string `json:"path"`
+}
+
+type CommandMemoryDeleteData struct {
+	Path string `json:"path"`
 }
 
 type CommandStreamAgentTranscriptData struct {

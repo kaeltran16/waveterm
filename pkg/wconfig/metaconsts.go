@@ -63,6 +63,8 @@ const (
 	ConfigKey_TermShowSplitButtons           = "term:showsplitbuttons"
 	ConfigKey_TermTrimTrailingWhitespace     = "term:trimtrailingwhitespace"
 
+	ConfigKey_MemoryVaultPath                = "memory:vaultpath"
+
 	ConfigKey_EditorMinimapEnabled           = "editor:minimapenabled"
 	ConfigKey_EditorStickyScrollEnabled      = "editor:stickyscrollenabled"
 	ConfigKey_EditorWordWrap                 = "editor:wordwrap"

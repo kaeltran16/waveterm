@@ -728,6 +728,55 @@ declare global {
         draftappid: string;
     };
 
+    // wshrpc.CommandMemoryCreateData
+    type CommandMemoryCreateData = {
+        name: string;
+        type?: string;
+        scope?: string;
+        body?: string;
+    };
+
+    // wshrpc.CommandMemoryCreateRtnData
+    type CommandMemoryCreateRtnData = {
+        path: string;
+    };
+
+    // wshrpc.CommandMemoryDeleteData
+    type CommandMemoryDeleteData = {
+        path: string;
+    };
+
+    // wshrpc.CommandMemoryReadData
+    type CommandMemoryReadData = {
+        path: string;
+        source: string;
+    };
+
+    // wshrpc.CommandMemoryReadRtnData
+    type CommandMemoryReadRtnData = {
+        note: MemoryNote;
+        body: string;
+    };
+
+    // wshrpc.CommandMemoryScanRtnData
+    type CommandMemoryScanRtnData = {
+        notes: MemoryNote[];
+        edges: MemoryEdge[];
+    };
+
+    // wshrpc.CommandMemoryWriteData
+    type CommandMemoryWriteData = {
+        path: string;
+        content: string;
+        basemtime?: number;
+    };
+
+    // wshrpc.CommandMemoryWriteRtnData
+    type CommandMemoryWriteRtnData = {
+        mtime: number;
+        conflict: boolean;
+    };
+
     // wshrpc.CommandMessageData
     type CommandMessageData = {
         message: string;
@@ -1342,6 +1391,25 @@ declare global {
         blockid: string;
     };
 
+    // wshrpc.MemoryEdge
+    type MemoryEdge = {
+        from: string;
+        to: string;
+    };
+
+    // wshrpc.MemoryNote
+    type MemoryNote = {
+        id: string;
+        title: string;
+        description: string;
+        type: string;
+        scope: string;
+        source: string;
+        path: string;
+        links: string[];
+        updatedts: number;
+    };
+
     // waveobj.MetaTSType
     type MetaType = {
         view?: string;
@@ -1707,6 +1775,7 @@ declare global {
         "term:durable"?: boolean;
         "term:showsplitbuttons"?: boolean;
         "term:trimtrailingwhitespace"?: boolean;
+        "memory:vaultpath"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;
         "editor:wordwrap"?: boolean;

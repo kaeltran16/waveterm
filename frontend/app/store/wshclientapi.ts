@@ -726,6 +726,36 @@ export class RpcApiType {
         return client.wshRpcCall("makedraftfromlocal", data, opts);
     }
 
+    // command "memorycreate" [call]
+    MemoryCreateCommand(client: WshClient, data: CommandMemoryCreateData, opts?: RpcOpts): Promise<CommandMemoryCreateRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memorycreate", data, opts);
+        return client.wshRpcCall("memorycreate", data, opts);
+    }
+
+    // command "memorydelete" [call]
+    MemoryDeleteCommand(client: WshClient, data: CommandMemoryDeleteData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memorydelete", data, opts);
+        return client.wshRpcCall("memorydelete", data, opts);
+    }
+
+    // command "memoryread" [call]
+    MemoryReadCommand(client: WshClient, data: CommandMemoryReadData, opts?: RpcOpts): Promise<CommandMemoryReadRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryread", data, opts);
+        return client.wshRpcCall("memoryread", data, opts);
+    }
+
+    // command "memoryscan" [call]
+    MemoryScanCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryScanRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryscan", null, opts);
+        return client.wshRpcCall("memoryscan", null, opts);
+    }
+
+    // command "memorywrite" [call]
+    MemoryWriteCommand(client: WshClient, data: CommandMemoryWriteData, opts?: RpcOpts): Promise<CommandMemoryWriteRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memorywrite", data, opts);
+        return client.wshRpcCall("memorywrite", data, opts);
+    }
+
     // command "message" [call]
     MessageCommand(client: WshClient, data: CommandMessageData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "message", data, opts);

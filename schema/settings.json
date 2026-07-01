@@ -177,6 +177,9 @@
         "term:trimtrailingwhitespace": {
           "type": "boolean"
         },
+        "memory:vaultpath": {
+          "type": "string"
+        },
         "editor:minimapenabled": {
           "type": "boolean"
         },
