@@ -32,9 +32,20 @@ export interface RosterEntry {
 export type MessagePlan =
     | { kind: "dispatch"; runtime: Runtime; text: string }
     | { kind: "steer"; targetId: string; blockId?: string; text: string }
+    | { kind: "consult"; runtimes: Runtime[]; text: string }
     | { kind: "post"; text: string };
 
 export function planMessage(text: string, roster: RosterEntry[]): MessagePlan {
+    const trimmed = text.trimStart();
+    const askMatch = /^ask\s+/i.exec(trimmed);
+    if (askMatch) {
+        const { mentions, body } = parseMentions(trimmed.slice(askMatch[0].length));
+        const runtimes = mentions.filter((m): m is Runtime => (RUNTIMES as string[]).includes(m));
+        if (runtimes.length > 0) {
+            return { kind: "consult", runtimes, text: body };
+        }
+        // "ask" with no known runtime -> not a consult; fall through to a plain post of the original text
+    }
     const { mentions, body } = parseMentions(text);
     const first = mentions[0];
     if (first && (RUNTIMES as string[]).includes(first)) {

@@ -168,6 +168,12 @@ export class RpcApiType {
         return client.wshRpcCall("connupdatewsh", data, opts);
     }
 
+    // command "consult" [responsestream]
+	ConsultCommand(client: WshClient, data: CommandConsultData, opts?: RpcOpts): AsyncGenerator<ConsultChunk, void, boolean> {
+        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "consult", data, opts);
+        return client.wshRpcStream("consult", data, opts);
+    }
+
     // command "controlgetrouteid" [call]
     ControlGetRouteIdCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "controlgetrouteid", null, opts);
@@ -700,6 +706,12 @@ export class RpcApiType {
     ListBranchesCommand(client: WshClient, data: CommandListBranchesData, opts?: RpcOpts): Promise<CommandListBranchesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listbranches", data, opts);
         return client.wshRpcCall("listbranches", data, opts);
+    }
+
+    // command "listconsultruntimes" [call]
+    ListConsultRuntimesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListConsultRuntimesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listconsultruntimes", null, opts);
+        return client.wshRpcCall("listconsultruntimes", null, opts);
     }
 
     // command "macosversion" [call]

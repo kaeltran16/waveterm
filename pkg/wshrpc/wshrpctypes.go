@@ -100,6 +100,8 @@ type WshRpcInterface interface {
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
+	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
+	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
@@ -682,6 +684,27 @@ type CommandPostChannelMessageData struct {
 	Author    string `json:"author"`
 	Text      string `json:"text"`
 	RefORef   string `json:"reforef,omitempty"`
+}
+
+type CommandConsultData struct {
+	ChannelId string `json:"channelid"`
+	Runtime   string `json:"runtime"`
+	Prompt    string `json:"prompt"`
+	ConsultId string `json:"consultid"`
+}
+
+type ConsultChunk struct {
+	Text string `json:"text"`
+}
+
+type ConsultRuntimeInfo struct {
+	Runtime   string `json:"runtime"`
+	Installed bool   `json:"installed"`
+	Version   string `json:"version,omitempty"`
+}
+
+type CommandListConsultRuntimesRtnData struct {
+	Runtimes []ConsultRuntimeInfo `json:"runtimes"`
 }
 
 type CommandGetRecentSessionsData struct {

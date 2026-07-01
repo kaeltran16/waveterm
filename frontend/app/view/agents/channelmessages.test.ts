@@ -51,4 +51,25 @@ describe("planMessage", () => {
     it("treats an unknown mention as a plain post", () => {
         expect(planMessage("@nobody hi", roster)).toEqual({ kind: "post", text: "@nobody hi" });
     });
+
+    it("plans a consult when prefixed with ask + a runtime", () => {
+        expect(planMessage("ask @claude does this have races?", roster)).toEqual({
+            kind: "consult",
+            runtimes: ["claude"],
+            text: "does this have races?",
+        });
+    });
+    it("fans a consult out across multiple runtimes", () => {
+        expect(planMessage("ask @codex @claude review this", roster)).toEqual({
+            kind: "consult",
+            runtimes: ["codex", "claude"],
+            text: "review this",
+        });
+    });
+    it("treats ask with no known runtime as a plain post (kept verbatim)", () => {
+        expect(planMessage("ask @nobody anything", roster)).toEqual({ kind: "post", text: "ask @nobody anything" });
+    });
+    it("does not consult without the ask keyword (leading @runtime still dispatches)", () => {
+        expect(planMessage("@claude build it", roster)).toEqual({ kind: "dispatch", runtime: "claude", text: "build it" });
+    });
 });

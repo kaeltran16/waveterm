@@ -31,6 +31,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/buildercontroller"
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
@@ -1528,6 +1529,65 @@ func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return stored, nil
 }
+
+const consultTimeout = 120 * time.Second
+
+// postConsultReply persists a consult-reply message and live-updates the pinned channel atom. Mirrors
+// PostChannelMessageCommand's post+update pattern for the fire-and-forget consult goroutine.
+func postConsultReply(ctx context.Context, data wshrpc.CommandConsultData, text string) {
+	msg := wstore.NewChannelMessage("consult-reply", data.Runtime, text, "consult:"+data.ConsultId, time.Now().UnixMilli())
+	if _, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg); err != nil {
+		log.Printf("consult: failed to post reply: %v", err)
+		return
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+}
+
+func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandConsultData) chan wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk] {
+	rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk])
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("ConsultCommand", recover())
+		}()
+		defer close(rtn)
+		ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
+		if err != nil {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: fmt.Errorf("channel not found: %w", err)}
+			return
+		}
+		spec, ok := consult.SpecFor(data.Runtime)
+		if !ok {
+			postConsultReply(ctx, data, "consult is not supported for @"+data.Runtime)
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: fmt.Errorf("unsupported runtime: %s", data.Runtime)}
+			return
+		}
+		prompt := consult.BuildPrompt(ch.Messages, data.Prompt)
+		runCtx, cancel := context.WithTimeout(ctx, consultTimeout)
+		defer cancel()
+		full, runErr := consult.Run(runCtx, spec, ch.ProjectPath, prompt, func(chunk string) {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Response: wshrpc.ConsultChunk{Text: chunk}}
+		})
+		reply := strings.TrimSpace(full)
+		if runErr != nil {
+			if reply != "" {
+				reply += "\n\n"
+			}
+			reply += "consult failed: " + runErr.Error()
+		}
+		postConsultReply(ctx, data, reply)
+	}()
+	return rtn
+}
+
+func (ws *WshServer) ListConsultRuntimesCommand(ctx context.Context) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
+	var infos []wshrpc.ConsultRuntimeInfo
+	for _, rt := range consult.SupportedRuntimes() {
+		installed, version := consult.ProbeInstalled(ctx, rt)
+		infos = append(infos, wshrpc.ConsultRuntimeInfo{Runtime: rt, Installed: installed, Version: version})
+	}
+	return &wshrpc.CommandListConsultRuntimesRtnData{Runtimes: infos}, nil
+}
+
 func (ws *WshServer) StreamAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandStreamAgentTranscriptData) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {
 	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 16)
 	go func() {

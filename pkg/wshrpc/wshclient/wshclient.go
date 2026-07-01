@@ -167,6 +167,11 @@ func ConnUpdateWshCommand(w *wshutil.WshRpc, data wshrpc.RemoteInfo, opts *wshrp
 	return resp, err
 }
 
+// command "consult", wshserver.ConsultCommand
+func ConsultCommand(w *wshutil.WshRpc, data wshrpc.CommandConsultData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk] {
+	return sendRpcRequestResponseStreamHelper[wshrpc.ConsultChunk](w, "consult", data, opts)
+}
+
 // command "controlgetrouteid", wshserver.ControlGetRouteIdCommand
 func ControlGetRouteIdCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "controlgetrouteid", nil, opts)
@@ -697,6 +702,12 @@ func ListAllEditableAppsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]wshr
 // command "listbranches", wshserver.ListBranchesCommand
 func ListBranchesCommand(w *wshutil.WshRpc, data wshrpc.CommandListBranchesData, opts *wshrpc.RpcOpts) (wshrpc.CommandListBranchesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandListBranchesRtnData](w, "listbranches", data, opts)
+	return resp, err
+}
+
+// command "listconsultruntimes", wshserver.ListConsultRuntimesCommand
+func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListConsultRuntimesRtnData](w, "listconsultruntimes", nil, opts)
 	return resp, err
 }
 

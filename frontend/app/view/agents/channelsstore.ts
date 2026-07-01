@@ -52,3 +52,22 @@ export async function createChannel(name: string, projectPath: string): Promise<
     await selectChannel(ch.oid);
     return ch.oid;
 }
+
+// Ephemeral live consult streams, keyed `${consultId}:${runtime}`. Not persisted — superseded by the
+// consult-reply message (matched by RefORef `consult:<consultId>` + author) once it arrives via WOS.
+export interface ConsultStream {
+    text: string;
+    status: "streaming" | "done" | "error";
+}
+export const consultStreamsAtom = atom<Record<string, ConsultStream>>({}) as PrimitiveAtom<
+    Record<string, ConsultStream>
+>;
+
+export function consultStreamKey(consultId: string, runtime: string): string {
+    return `${consultId}:${runtime}`;
+}
+
+export function setConsultStream(consultId: string, runtime: string, stream: ConsultStream): void {
+    const key = consultStreamKey(consultId, runtime);
+    globalStore.set(consultStreamsAtom, { ...globalStore.get(consultStreamsAtom), [key]: stream });
+}

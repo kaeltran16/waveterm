@@ -7,6 +7,8 @@
 // monitoring; this surface only carries the dialogue and links out (↗).
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useState } from "react";
@@ -15,7 +17,16 @@ import { AnswerBar } from "./answerbar";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage } from "./channelactions";
 import type { RosterEntry } from "./channelmessages";
-import { activeChannelAtom, activeChannelIdAtom, channelsAtom, createChannel, loadChannels, selectChannel } from "./channelsstore";
+import {
+    activeChannelAtom,
+    activeChannelIdAtom,
+    channelsAtom,
+    consultStreamsAtom,
+    createChannel,
+    loadChannels,
+    selectChannel,
+    type ConsultStream,
+} from "./channelsstore";
 import { projectsAtom } from "./projectsstore";
 
 const STATE_DOT: Record<string, string> = {
@@ -37,6 +48,68 @@ function jumpToAgent(model: AgentsViewModel, id: string) {
     globalStore.set(model.focusIdAtom, id);
     globalStore.set(model.terminalTargetAtom, undefined);
     globalStore.set(model.surfaceAtom, "agent");
+}
+
+function consultIdOf(refORef?: string): string | undefined {
+    return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
+}
+
+// A consult question row with its replies grouped underneath by consultId. Each runtime shows either
+// its persisted consult-reply (preferred) or, until that arrives, the live streaming text.
+function ConsultRow({
+    msg,
+    allMessages,
+    streams,
+    now,
+}: {
+    msg: ChannelMessage;
+    allMessages: ChannelMessage[];
+    streams: Record<string, ConsultStream>;
+    now: number;
+}) {
+    const consultId = consultIdOf(msg.reforef);
+    const replies = consultId
+        ? allMessages.filter((m) => m.kind === "consult-reply" && consultIdOf(m.reforef) === consultId)
+        : [];
+    const repliedRuntimes = new Set(replies.map((r) => r.author));
+    // live streams for this consultId whose persisted reply has not yet arrived
+    const liveKeys = consultId
+        ? Object.keys(streams).filter((k) => k.startsWith(`${consultId}:`) && !repliedRuntimes.has(k.split(":")[1]))
+        : [];
+    return (
+        <div className="border-b border-edge-faint px-1 py-3 last:border-b-0">
+            <div className="flex items-baseline gap-2">
+                <span className="font-mono text-[12px] font-semibold text-primary">{msg.author}</span>
+                <span className="rounded-[5px] border border-border px-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[.08em] text-muted">
+                    ask
+                </span>
+                <span className="ml-auto font-mono text-[10.5px] text-muted">
+                    {now - msg.ts < 60_000 ? "now" : new Date(msg.ts).toLocaleTimeString()}
+                </span>
+            </div>
+            <div className="mt-1 text-[13.5px] leading-[1.5] text-secondary">{msg.text || "(empty)"}</div>
+            {replies.map((r) => (
+                <div key={r.id} className="mt-2 rounded-[8px] border border-border bg-surface-hover/40 p-2.5">
+                    <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">{r.author}</div>
+                    <div className="whitespace-pre-wrap text-[13px] leading-[1.5] text-secondary">{r.text}</div>
+                </div>
+            ))}
+            {liveKeys.map((k) => {
+                const runtime = k.split(":")[1];
+                const s = streams[k];
+                return (
+                    <div key={k} className="mt-2 rounded-[8px] border border-accent/40 bg-accentbg/30 p-2.5">
+                        <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">
+                            {runtime} {s.status === "streaming" ? "· consulting…" : ""}
+                        </div>
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.5] text-secondary">
+                            {s.text || "…"}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
 }
 
 // An asking worker's answer row, reusing the cockpit's AnswerBar + model answer state.
@@ -105,14 +178,24 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const now = useAtomValue(model.nowAtom);
     const projects = useAtomValue(projectsAtom); // Record<string, { path?: string }>
+    const consultStreams = useAtomValue(consultStreamsAtom);
     const [draft, setDraft] = useState("");
     const [picking, setPicking] = useState(false);
+    const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
     useEffect(() => {
         fireAndForget(loadChannels);
+    }, []);
+    useEffect(() => {
+        fireAndForget(async () => {
+            const rtn = await RpcApi.ListConsultRuntimesCommand(TabRpcClient);
+            setInstalledRuntimes((rtn.runtimes ?? []).filter((r) => r.installed).map((r) => r.runtime));
+        });
     }, []);
 
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const messages = active?.messages ?? [];
+    // gate the consult hint to runtimes actually installed on this machine
+    const askHint = installedRuntimes.length > 0 ? ` · ask @${installedRuntimes.join(" / @")} for a one-shot review` : "";
 
     const send = () => {
         const text = draft.trim();
@@ -202,7 +285,21 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             Empty channel. Try <span className="font-mono text-secondary">@claude do something</span>.
                         </div>
                     ) : (
-                        messages.map((m) => <Row key={m.id} model={model} agents={agents} msg={m} now={now} />)
+                        messages
+                            .filter((m) => m.kind !== "consult-reply")
+                            .map((m) =>
+                                m.kind === "consult" ? (
+                                    <ConsultRow
+                                        key={m.id}
+                                        msg={m}
+                                        allMessages={messages}
+                                        streams={consultStreams}
+                                        now={now}
+                                    />
+                                ) : (
+                                    <Row key={m.id} model={model} agents={agents} msg={m} now={now} />
+                                )
+                            )
                     )}
                 </div>
             </div>
@@ -219,7 +316,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             }
                         }}
                         rows={1}
-                        placeholder="Message, or @claude / @codex to dispatch, @worker to steer…"
+                        placeholder={`Message, or @claude / @codex to dispatch, @worker to steer${askHint}`}
                         disabled={!activeId}
                         className="min-h-[38px] flex-1 resize-none rounded-[9px] border border-border bg-surface px-[13px] py-[9px] text-[13px] text-primary placeholder:text-muted focus:border-accent focus:outline-none disabled:opacity-50"
                     />

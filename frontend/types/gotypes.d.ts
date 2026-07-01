@@ -391,6 +391,14 @@ declare global {
         clientid: string;
     };
 
+    // wshrpc.CommandConsultData
+    type CommandConsultData = {
+        channelid: string;
+        runtime: string;
+        prompt: string;
+        consultid: string;
+    };
+
     // wshrpc.CommandControllerAppendOutputData
     type CommandControllerAppendOutputData = {
         blockid: string;
@@ -703,6 +711,11 @@ declare global {
     // wshrpc.CommandListBranchesRtnData
     type CommandListBranchesRtnData = {
         branches: BranchInfo[];
+    };
+
+    // wshrpc.CommandListConsultRuntimesRtnData
+    type CommandListConsultRuntimesRtnData = {
+        runtimes: ConsultRuntimeInfo[];
     };
 
     // wshrpc.CommandMakeDraftFromLocalData
@@ -1108,6 +1121,18 @@ declare global {
         wshversion?: string;
         lastactivitybeforestalledtime?: number;
         keepalivesenttime?: number;
+    };
+
+    // wshrpc.ConsultChunk
+    type ConsultChunk = {
+        text: string;
+    };
+
+    // wshrpc.ConsultRuntimeInfo
+    type ConsultRuntimeInfo = {
+        runtime: string;
+        installed: boolean;
+        version?: string;
     };
 
     // wshrpc.CpuDataRequest
