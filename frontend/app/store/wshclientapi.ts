@@ -744,6 +744,18 @@ export class RpcApiType {
         return client.wshRpcCall("memorydelete", data, opts);
     }
 
+    // command "memoryproject" [call]
+    MemoryProjectCommand(client: WshClient, data: CommandMemoryProjectData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryproject", data, opts);
+        return client.wshRpcCall("memoryproject", data, opts);
+    }
+
+    // command "memoryprojectionstatus" [call]
+    MemoryProjectionStatusCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryProjectionStatusRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryprojectionstatus", null, opts);
+        return client.wshRpcCall("memoryprojectionstatus", null, opts);
+    }
+
     // command "memoryread" [call]
     MemoryReadCommand(client: WshClient, data: CommandMemoryReadData, opts?: RpcOpts): Promise<CommandMemoryReadRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryread", data, opts);

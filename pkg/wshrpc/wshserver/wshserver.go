@@ -1556,7 +1556,11 @@ func (ws *WshServer) MemoryWriteCommand(ctx context.Context, data wshrpc.Command
 }
 
 func (ws *WshServer) MemoryCreateCommand(ctx context.Context, data wshrpc.CommandMemoryCreateData) (*wshrpc.CommandMemoryCreateRtnData, error) {
-	path, err := memvault.CreateNote(memvault.DefaultVaultPath(), data.Name, data.Type, data.Scope, data.Body)
+	vaultDir := memvault.DefaultVaultPath()
+	if hub := memvault.HubDirForCwd(data.Cwd); hub != "" {
+		vaultDir = hub
+	}
+	path, err := memvault.CreateNote(vaultDir, data.Name, data.Type, data.Scope, data.Body)
 	if err != nil {
 		return nil, fmt.Errorf("creating note: %w", err)
 	}
@@ -1568,6 +1572,17 @@ func (ws *WshServer) MemoryDeleteCommand(ctx context.Context, data wshrpc.Comman
 		return fmt.Errorf("deleting note: %w", err)
 	}
 	return nil
+}
+
+func (ws *WshServer) MemoryProjectCommand(ctx context.Context, data wshrpc.CommandMemoryProjectData) error {
+	if err := memvault.Project(data.Cwd); err != nil {
+		return fmt.Errorf("projecting memory: %w", err)
+	}
+	return nil
+}
+
+func (ws *WshServer) MemoryProjectionStatusCommand(ctx context.Context) (*wshrpc.CommandMemoryProjectionStatusRtnData, error) {
+	return &wshrpc.CommandMemoryProjectionStatusRtnData{Runtimes: memvault.ProjectionStatus()}, nil
 }
 
 func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.CommandCreateChannelData) (*waveobj.Channel, error) {

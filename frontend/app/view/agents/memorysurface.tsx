@@ -10,8 +10,10 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { resolveCwd } from "./agentcwdresolve";
 import { layoutGraph } from "./memgraphlayout";
 import { NewMemoryModal } from "./newmemorymodal";
+import { SyncStrip } from "./syncstrip";
 import {
     deleteNote,
     loadMemory,
@@ -357,13 +359,29 @@ function GraphView({ notes, selectedId }: { notes: MemNote[]; selectedId: string
     );
 }
 
-export function MemorySurface({ model: _model }: { model: AgentsViewModel }) {
+export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const notes = useAtomValue(memNotesAtom);
     const loaded = useAtomValue(memLoadedAtom);
     const view = useAtomValue(memViewAtom);
     const selectedId = useAtomValue(memSelectedIdAtom);
     const search = useAtomValue(memSearchAtom);
     const [newOpen, setNewOpen] = useState(false);
+
+    // Resolve the focused agent's cwd so new notes land in that project's Claude hub (mirrors
+    // FilesSurface). Null when no agent is focused -> authoring falls back to the dedicated vault.
+    const focusId = useAtomValue(model.focusIdAtom);
+    const agents = useAtomValue(model.agentsAtom);
+    const agent = agents.find((a) => a.id === focusId);
+    const [focusedCwd, setFocusedCwd] = useState<string | null>(null);
+    useEffect(() => {
+        let live = true;
+        void resolveCwd(agent?.transcriptPath, agent?.blockId).then((c) => {
+            if (live) setFocusedCwd(c);
+        });
+        return () => {
+            live = false;
+        };
+    }, [agent?.transcriptPath, agent?.blockId]);
 
     useEffect(() => {
         fireAndForget(() => loadMemory());
@@ -377,6 +395,7 @@ export function MemorySurface({ model: _model }: { model: AgentsViewModel }) {
     return (
         <div className="absolute inset-0 flex flex-col">
             <Header count={notes.length} onNew={() => setNewOpen(true)} />
+            <SyncStrip focusedCwd={focusedCwd} />
             <div className="flex min-h-0 flex-1">
                 <div className="relative min-w-0 flex-1 overflow-auto">
                     {!loaded ? (
@@ -394,7 +413,7 @@ export function MemorySurface({ model: _model }: { model: AgentsViewModel }) {
                 </div>
                 <DetailRail notes={notes} />
             </div>
-            {newOpen && <NewMemoryModal onClose={() => setNewOpen(false)} />}
+            {newOpen && <NewMemoryModal onClose={() => setNewOpen(false)} cwd={focusedCwd ?? undefined} />}
         </div>
     );
 }

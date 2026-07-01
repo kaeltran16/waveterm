@@ -52,6 +52,12 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
             cwd,
         }),
     });
+    // Project the launch project's Claude memory into the lackey steering files so a Codex/agy
+    // agent boots with the primary agent's brain. Fire-and-forget: a projection failure must not
+    // block the launch. Terminals have no memory; claude IS the hub, so neither needs projection.
+    if (opts.runtime === "codex" || opts.runtime === "antigravity") {
+        void RpcApi.MemoryProjectCommand(TabRpcClient, { cwd }).catch(() => {});
+    }
     await RpcApi.SetMetaCommand(TabRpcClient, {
         oref: WOS.makeORef("tab", tabId),
         meta: { "session:agent": opts.runtime, "session:label": opts.projectName },

@@ -1,8 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// New-memory modal (Wave-cockpit-live.dc.html:1364-1402): name + type + scope + body. Creates a note
-// in the dedicated vault via memstore.createNote, then closes. Esc / backdrop click cancels.
+// New-memory modal: name + type + scope + body. Creates a note in the focused project's Claude
+// hub (via memstore.createNote with the focused agent's cwd), falling back to the dedicated vault
+// when no agent is focused. Esc / backdrop click cancels.
 
 import { cn, fireAndForget } from "@/util/util";
 import { useEffect, useState } from "react";
@@ -11,7 +12,7 @@ import { typeMeta } from "./memtypes";
 
 const TYPES = ["project", "reference", "feedback", "user"] as const;
 
-export function NewMemoryModal({ onClose }: { onClose: () => void }) {
+export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: string }) {
     const [name, setName] = useState("");
     const [type, setType] = useState<string>("project");
     const [scope, setScope] = useState("shared");
@@ -32,7 +33,7 @@ export function NewMemoryModal({ onClose }: { onClose: () => void }) {
     const save = () => {
         if (!canSave) return;
         fireAndForget(async () => {
-            await createNote(name.trim(), type, scope.trim(), body.trim());
+            await createNote(name.trim(), type, scope.trim(), body.trim(), cwd);
             onClose();
         });
     };
