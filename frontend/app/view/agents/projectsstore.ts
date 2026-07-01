@@ -11,18 +11,22 @@ export interface SwitcherProject {
     name: string;
     askingCount: number;
     agentCount: number;
+    registered?: boolean; // present in projects.json (so removable)
 }
 
 // Switcher list = live-derived projects (with counts) ∪ registry-only projects (count 0).
+// `registered` marks rows backed by projects.json; only those get a remove control.
 export function mergeSwitcherProjects(
     live: SwitcherProject[],
     registry: Record<string, ProjectKeywords>
 ): SwitcherProject[] {
+    const registryNames = new Set(Object.keys(registry ?? {}));
+    const merged = live.map((p) => ({ ...p, registered: registryNames.has(p.name) }));
     const liveNames = new Set(live.map((p) => p.name));
-    const extra = Object.keys(registry ?? {})
+    const extra = [...registryNames]
         .filter((n) => !liveNames.has(n))
-        .map((n) => ({ name: n, askingCount: 0, agentCount: 0 }));
-    return [...live, ...extra];
+        .map((n) => ({ name: n, askingCount: 0, agentCount: 0, registered: true }));
+    return [...merged, ...extra];
 }
 
 export interface LaunchCandidate {

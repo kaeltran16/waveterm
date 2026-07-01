@@ -5,17 +5,23 @@ import { describe, expect, it } from "vitest";
 import { launchCandidates, mergeSwitcherProjects, type SwitcherProject } from "./projectsstore";
 
 describe("mergeSwitcherProjects", () => {
-    it("appends registry-only projects with zero counts", () => {
-        const live: SwitcherProject[] = [{ name: "payments-api", askingCount: 1, agentCount: 3 }];
+    it("appends registry-only projects with zero counts and flags registered rows", () => {
+        const live: SwitcherProject[] = [
+            { name: "payments-api", askingCount: 1, agentCount: 3 },
+            { name: "live-only", askingCount: 0, agentCount: 2 },
+        ];
         const registry = { "payments-api": { path: "/a" }, "fresh-proj": { path: "/b" } };
         expect(mergeSwitcherProjects(live, registry as any)).toEqual([
-            { name: "payments-api", askingCount: 1, agentCount: 3 },
-            { name: "fresh-proj", askingCount: 0, agentCount: 0 },
+            { name: "payments-api", askingCount: 1, agentCount: 3, registered: true },
+            { name: "live-only", askingCount: 0, agentCount: 2, registered: false },
+            { name: "fresh-proj", askingCount: 0, agentCount: 0, registered: true },
         ]);
     });
-    it("is a no-op when the registry is empty", () => {
+    it("flags all rows as unregistered when the registry is empty", () => {
         const live: SwitcherProject[] = [{ name: "x", askingCount: 0, agentCount: 1 }];
-        expect(mergeSwitcherProjects(live, {} as any)).toEqual(live);
+        expect(mergeSwitcherProjects(live, {} as any)).toEqual([
+            { name: "x", askingCount: 0, agentCount: 1, registered: false },
+        ]);
     });
 });
 

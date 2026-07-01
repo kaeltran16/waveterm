@@ -256,6 +256,12 @@ func DeleteBuilderCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 	return err
 }
 
+// command "deleteproject", wshserver.DeleteProjectCommand
+func DeleteProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteProjectData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "deleteproject", data, opts)
+	return err
+}
+
 // command "deletesubblock", wshserver.DeleteSubBlockCommand
 func DeleteSubBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "deletesubblock", data, opts)

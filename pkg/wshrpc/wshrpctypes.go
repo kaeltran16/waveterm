@@ -77,6 +77,7 @@ type WshRpcInterface interface {
 	SetConfigCommand(ctx context.Context, data MetaSettingsType) error
 	SetConnectionsConfigCommand(ctx context.Context, data ConnConfigRequest) error
 	CreateProjectCommand(ctx context.Context, data CommandCreateProjectData) error
+	DeleteProjectCommand(ctx context.Context, data CommandDeleteProjectData) error
 	CreateWorktreeCommand(ctx context.Context, data CommandCreateWorktreeData) (CommandCreateWorktreeRtnData, error)
 	ListBranchesCommand(ctx context.Context, data CommandListBranchesData) (CommandListBranchesRtnData, error)
 	GetFullConfigCommand(ctx context.Context) (wconfig.FullConfigType, error)
@@ -440,6 +441,10 @@ type ConnConfigRequest struct {
 type CommandCreateProjectData struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+type CommandDeleteProjectData struct {
+	Name string `json:"name"`
 }
 
 type CommandCreateWorktreeData struct {

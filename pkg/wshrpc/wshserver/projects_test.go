@@ -40,3 +40,11 @@ func TestCreateProjectCommandWritesValid(t *testing.T) {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
+
+func TestDeleteProjectCommandRejectsEmptyName(t *testing.T) {
+	ws := &WshServer{}
+	err := ws.DeleteProjectCommand(context.Background(), wshrpc.CommandDeleteProjectData{Name: "  "})
+	if err == nil {
+		t.Fatal("expected error for an empty name")
+	}
+}

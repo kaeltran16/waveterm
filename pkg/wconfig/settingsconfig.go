@@ -927,6 +927,18 @@ func SetProjectConfigValue(projName string, toMerge waveobj.MetaMapType) error {
 	return WriteWaveHomeConfigFile(ProjectsFile, m)
 }
 
+func DeleteProjectConfigValue(projName string) error {
+	m, cerrs := ReadWaveHomeConfigFile(ProjectsFile)
+	if len(cerrs) > 0 {
+		return fmt.Errorf("error reading config file: %v", cerrs[0])
+	}
+	if m == nil {
+		return nil // nothing registered, deleting is a no-op
+	}
+	delete(m, projName)
+	return WriteWaveHomeConfigFile(ProjectsFile, m)
+}
+
 func MigratePresetsBackgrounds() {
 	configDirAbsPath := wavebase.GetWaveConfigDir()
 	backgroundsFile := filepath.Join(configDirAbsPath, "backgrounds.json")

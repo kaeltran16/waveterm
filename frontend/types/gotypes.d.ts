@@ -483,6 +483,11 @@ declare global {
         recursive: boolean;
     };
 
+    // wshrpc.CommandDeleteProjectData
+    type CommandDeleteProjectData = {
+        name: string;
+    };
+
     // wshrpc.CommandDisposeData
     type CommandDisposeData = {
         routeid: string;

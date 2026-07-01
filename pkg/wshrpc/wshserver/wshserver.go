@@ -592,6 +592,14 @@ func (ws *WshServer) CreateProjectCommand(ctx context.Context, data wshrpc.Comma
 	return wconfig.SetProjectConfigValue(name, waveobj.MetaMapType{"path": path})
 }
 
+func (ws *WshServer) DeleteProjectCommand(ctx context.Context, data wshrpc.CommandDeleteProjectData) error {
+	name := strings.TrimSpace(data.Name)
+	if name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	return wconfig.DeleteProjectConfigValue(name)
+}
+
 func (ws *WshServer) CreateWorktreeCommand(ctx context.Context, data wshrpc.CommandCreateWorktreeData) (wshrpc.CommandCreateWorktreeRtnData, error) {
 	wt, err := gitinfo.CreateWorktree(ctx, data.ProjectPath, data.Branch)
 	if err != nil {
