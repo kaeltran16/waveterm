@@ -11,14 +11,21 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useState } from "react";
+import { harvestMemory } from "./memstore";
 import { projectLabel } from "./projectlabel";
 
 const RUNTIME_LABEL: Record<string, string> = { codex: "Codex", antigravity: "Antigravity" };
+
+// Codex rewrites MEMORY.md rarely (on session summarization); a low-frequency sweep with the
+// backend mtime-guard means most ticks are no-ops. Frontend-hosted so it can scope to focusedCwd.
+const HARVEST_CADENCE_MS = 3 * 60 * 1000;
 
 export function SyncStrip({ focusedCwd }: { focusedCwd: string | null }) {
     const config = useAtomValue(atoms.fullConfigAtom);
     const [status, setStatus] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState(false);
+    const [harvest, setHarvest] = useState<{ ingested: number; skipped: number } | null>(null);
+    const [pulling, setPulling] = useState(false);
 
     const refresh = useCallback(() => {
         void RpcApi.MemoryProjectionStatusCommand(TabRpcClient)
@@ -41,6 +48,30 @@ export function SyncStrip({ focusedCwd }: { focusedCwd: string | null }) {
         });
     };
 
+    const pullNow = useCallback(
+        (manual: boolean) => {
+            if (!focusedCwd) return;
+            if (manual) setPulling(true);
+            fireAndForget(async () => {
+                try {
+                    const r = await harvestMemory(focusedCwd);
+                    setHarvest(r);
+                } finally {
+                    if (manual) setPulling(false);
+                }
+            });
+        },
+        [focusedCwd]
+    );
+
+    // Cadence: harvest the focused project on mount and every HARVEST_CADENCE_MS while mounted.
+    useEffect(() => {
+        if (!focusedCwd) return;
+        pullNow(false);
+        const id = setInterval(() => pullNow(false), HARVEST_CADENCE_MS);
+        return () => clearInterval(id);
+    }, [focusedCwd, pullNow]);
+
     const label = projectLabel(focusedCwd ?? "", config?.projects ?? {});
     const runtimes = ["codex", "antigravity"];
 
@@ -59,7 +90,25 @@ export function SyncStrip({ focusedCwd }: { focusedCwd: string | null }) {
                     </span>
                 );
             })}
+            {harvest ? (
+                <span className="flex items-center gap-[6px] text-ink-mid">
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
+                        Harvest
+                    </span>
+                    <span className="text-accent-soft">
+                        +{harvest.ingested} new · {harvest.skipped} known
+                    </span>
+                </span>
+            ) : null}
             <div className="flex-1" />
+            <button
+                onClick={() => pullNow(true)}
+                disabled={!focusedCwd || pulling}
+                title={focusedCwd ? "Pull Codex facts into this project's memory" : "Focus an agent to pull its Codex facts"}
+                className="rounded-[7px] border border-border px-[11px] py-[5px] text-[11.5px] font-semibold text-ink-mid hover:text-foreground disabled:opacity-40"
+            >
+                {pulling ? "Pulling…" : "Pull from agents"}
+            </button>
             <button
                 onClick={projectNow}
                 disabled={!focusedCwd || busy}

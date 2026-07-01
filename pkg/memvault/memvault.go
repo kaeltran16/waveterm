@@ -26,7 +26,8 @@ type Note struct {
 	Description string   `json:"description"` // frontmatter description
 	Type        string   `json:"type"`        // metadata.type (verbatim)
 	Scope       string   `json:"scope"`       // cluster: metadata.scope, else project dir, else "shared"
-	Source      string   `json:"source"`      // "vault" | "claude" | "codex"
+	Source      string   `json:"source"`      // "vault" | "claude" | "codex" (frontmatter overrides root)
+	SourceHash  string   `json:"sourcehash"`  // metadata.source_hash for harvested notes (dedup key)
 	Path        string   `json:"path"`        // absolute file path
 	Links       []string `json:"links"`       // [[targets]] from the body, in order, deduped
 	UpdatedTs   int64    `json:"updatedts"`   // file mtime, UnixMilli
@@ -46,8 +47,10 @@ type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Metadata    struct {
-		Type  string `yaml:"type"`
-		Scope string `yaml:"scope"`
+		Type       string `yaml:"type"`
+		Scope      string `yaml:"scope"`
+		Source     string `yaml:"source"`
+		SourceHash string `yaml:"source_hash"`
 	} `yaml:"metadata"`
 }
 
@@ -72,6 +75,10 @@ func parseNote(path string, data []byte, source string) (Note, string) {
 				n.Description = fm.Description
 				n.Type = fm.Metadata.Type
 				n.Scope = fm.Metadata.Scope
+				n.SourceHash = fm.Metadata.SourceHash
+				if fm.Metadata.Source != "" {
+					n.Source = fm.Metadata.Source // frontmatter provenance overrides the root tag
+				}
 			}
 			body = rest
 		}

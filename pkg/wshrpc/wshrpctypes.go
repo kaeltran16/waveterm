@@ -105,6 +105,7 @@ type WshRpcInterface interface {
 	MemoryDeleteCommand(ctx context.Context, data CommandMemoryDeleteData) error
 	MemoryProjectCommand(ctx context.Context, data CommandMemoryProjectData) error
 	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
+	MemoryHarvestCommand(ctx context.Context, data CommandMemoryHarvestData) (*CommandMemoryHarvestRtnData, error)
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
@@ -795,6 +796,15 @@ type CommandMemoryProjectionStatusRtnData struct {
 	// Runtimes maps a lackey runtime ("codex" | "antigravity") to the project label its steering
 	// file currently reflects. A runtime missing from the map has no projection yet.
 	Runtimes map[string]string `json:"runtimes"`
+}
+
+type CommandMemoryHarvestData struct {
+	Cwd string `json:"cwd"`
+}
+
+type CommandMemoryHarvestRtnData struct {
+	Ingested int `json:"ingested"`
+	Skipped  int `json:"skipped"`
 }
 
 type CommandStreamAgentTranscriptData struct {

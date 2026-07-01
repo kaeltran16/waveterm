@@ -52,11 +52,24 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
             cwd,
         }),
     });
-    // Project the launch project's Claude memory into the lackey steering files so a Codex/agy
-    // agent boots with the primary agent's brain. Fire-and-forget: a projection failure must not
-    // block the launch. Terminals have no memory; claude IS the hub, so neither needs projection.
+    // Sync the shared brain at launch: pull the launch project's Codex facts into the Claude hub,
+    // THEN project the (now-updated) hub into the lackey steering files so the agent boots with the
+    // current brain and any just-harvested facts also reach the other lackeys. One fire-and-forget
+    // chain — never blocks the launch; each step is independently guarded. Terminals have no memory
+    // and claude IS the hub, so neither is synced here.
     if (opts.runtime === "codex" || opts.runtime === "antigravity") {
-        void RpcApi.MemoryProjectCommand(TabRpcClient, { cwd }).catch(() => {});
+        void (async () => {
+            try {
+                await RpcApi.MemoryHarvestCommand(TabRpcClient, { cwd });
+            } catch {
+                // harvest failure must not prevent projection
+            }
+            try {
+                await RpcApi.MemoryProjectCommand(TabRpcClient, { cwd });
+            } catch {
+                // projection failure must not block the launch
+            }
+        })();
     }
     await RpcApi.SetMetaCommand(TabRpcClient, {
         oref: WOS.makeORef("tab", tabId),
