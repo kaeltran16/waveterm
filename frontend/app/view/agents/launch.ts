@@ -6,12 +6,56 @@ export type Runtime = "claude" | "codex" | "antigravity" | "terminal";
 const RUNTIME_CMD: Record<Runtime, string> = {
     claude: "claude",
     codex: "codex",
-    antigravity: "antigravity",
+    antigravity: "agy",
     terminal: "",
 };
 
 export function runtimeStartupCommand(runtime: Runtime): string {
     return RUNTIME_CMD[runtime] ?? "";
+}
+
+export interface FlagDef {
+    id: string; // stable key (shared across runtimes, e.g. "skip-permissions")
+    flag: string; // the CLI token appended to the startup command
+    desc: string; // one-line explanation shown in the flag menu
+}
+
+// Per-runtime launch-flag catalog (ports flagDefs from Wave-cockpit-live.dc.html). Terminal takes
+// no flags. Ids are intentionally shared where the concept matches (e.g. "skip-permissions" maps to
+// --dangerously-skip-permissions on claude and --dangerously-bypass-approvals on codex).
+export const RUNTIME_FLAGS: Record<Runtime, FlagDef[]> = {
+    claude: [
+        { id: "skip-permissions", flag: "--dangerously-skip-permissions", desc: "Bypass all permission prompts" },
+        { id: "verbose", flag: "--verbose", desc: "Stream every tool call" },
+        { id: "continue", flag: "--continue", desc: "Resume the last session" },
+        { id: "print", flag: "--print", desc: "Non-interactive: print and exit" },
+        { id: "ide", flag: "--ide", desc: "Auto-connect to the IDE extension" },
+        { id: "debug", flag: "--debug", desc: "Emit debug diagnostics" },
+        { id: "no-color", flag: "--no-color", desc: "Disable ANSI colors" },
+    ],
+    codex: [
+        { id: "full-auto", flag: "--full-auto", desc: "Run without approval gates" },
+        { id: "skip-permissions", flag: "--dangerously-bypass-approvals", desc: "Skip approval prompts" },
+        { id: "quiet", flag: "--quiet", desc: "Hide reasoning logs" },
+        { id: "search", flag: "--search", desc: "Enable web search" },
+        { id: "json", flag: "--json", desc: "Machine-readable output" },
+    ],
+    antigravity: [
+        { id: "yolo", flag: "--yolo", desc: "Auto-approve file edits" },
+        { id: "verbose", flag: "--verbose", desc: "Stream every tool call" },
+        { id: "no-telemetry", flag: "--no-telemetry", desc: "Disable usage reporting" },
+    ],
+    terminal: [],
+};
+
+// Append the runtime's enabled flags to the base startup command, skipping any flag the user already
+// typed into the base (so toggling a flag that's also hand-written doesn't duplicate it). Preserves
+// catalog order. buildLaunchMeta then tokenizes the result into cmd + args.
+export function composeStartupCommand(base: string, runtime: Runtime, enabled: Record<string, boolean>): string {
+    const trimmed = base.trim();
+    const present = new Set(trimmed.split(/\s+/).filter(Boolean));
+    const flags = RUNTIME_FLAGS[runtime].filter((f) => enabled[f.id] && !present.has(f.flag)).map((f) => f.flag);
+    return [trimmed, ...flags].join(" ").trim();
 }
 
 export function runtimeLaunchLabel(runtime: Runtime): string {

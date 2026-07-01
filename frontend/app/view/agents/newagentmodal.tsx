@@ -12,7 +12,9 @@ import type { AgentsViewModel } from "./agents";
 import { agentCwd } from "./agentcwd";
 import { liveProjectsForLaunch } from "./agentsviewmodel";
 import {
+    composeStartupCommand,
     deriveBranch,
+    RUNTIME_FLAGS,
     runtimeLaunchLabel,
     runtimeShowsTask,
     runtimeStartupCommand,
@@ -20,6 +22,7 @@ import {
     worktreeOutcome,
     type Runtime,
 } from "./launch";
+import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
 
 const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
@@ -35,10 +38,14 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newAgentOpenAtom);
     const registry = useAtomValue(projectsAtom);
     const agents = useAtomValue(model.agentsAtom);
+    const naFlags = useAtomValue(naFlagsAtom);
+    const remember = useAtomValue(naRememberFlagsAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
     const [task, setTask] = useState("");
     const [startup, setStartup] = useState("claude");
+    const [flagMenuOpen, setFlagMenuOpen] = useState(false);
+    const [flagQuery, setFlagQuery] = useState("");
     const [useWorktree, setUseWorktree] = useState(false);
     const [branch, setBranch] = useState("");
     const [branchEdited, setBranchEdited] = useState(false);
@@ -56,6 +63,20 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const branchNames = branches.map((b) => b.name);
     // The field shows the project's current branch until the user types/picks their own.
     const effectiveBranch = branchEdited ? branch : currentBranch;
+    // Flags: the selected runtime's catalog, the enabled subset (as chips), the search-filtered menu,
+    // and the resolved command that launch will actually run (base field + enabled flags).
+    const flagCatalog = RUNTIME_FLAGS[runtime];
+    const enabledFlags = flagCatalog.filter((f) => naFlags[f.id]);
+    const flagQ = flagQuery.trim().toLowerCase();
+    const menuFlags = flagCatalog.filter(
+        (f) => !flagQ || f.flag.toLowerCase().includes(flagQ) || f.desc.toLowerCase().includes(flagQ)
+    );
+    const commandPreview = composeStartupCommand(startup, runtime, naFlags);
+    const setFlag = (id: string, on: boolean) => globalStore.set(naFlagsAtom, (prev) => ({ ...prev, [id]: on }));
+    const toggleFlagMenu = () => {
+        setFlagQuery("");
+        setFlagMenuOpen((v) => !v);
+    };
     const close = () => {
         globalStore.set(model.newAgentOpenAtom, false);
         setError(null);
@@ -194,12 +215,16 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             }
             await launchAgent(model, {
                 runtime,
-                startupCommand: startup,
+                startupCommand: composeStartupCommand(startup, runtime, naFlags),
                 task,
                 projectPath: path,
                 projectName: c.name,
                 branch: branchArg,
             });
+            // "Remember" off: flags are single-use, cleared for the next agent.
+            if (!globalStore.get(naRememberFlagsAtom)) {
+                globalStore.set(naFlagsAtom, {});
+            }
             close();
         } catch (e) {
             setError(String(e));
@@ -310,6 +335,124 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                     </Section>
+                    {flagCatalog.length > 0 ? (
+                        <div>
+                            <div className="mb-[9px] flex items-center gap-2">
+                                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                    Flags
+                                </span>
+                                <div className="flex-1" />
+                                <button
+                                    type="button"
+                                    onClick={() => globalStore.set(naRememberFlagsAtom, (v) => !v)}
+                                    title="Reuse the enabled flags for every new agent"
+                                    className="flex cursor-pointer items-center gap-[6px]"
+                                >
+                                    <span
+                                        className={cn(
+                                            "flex h-[12px] w-[12px] items-center justify-center rounded-[3px] border font-mono text-[8px] font-bold text-background",
+                                            remember ? "border-accent bg-accent" : "border-edge-strong"
+                                        )}
+                                    >
+                                        {remember ? "✓" : ""}
+                                    </span>
+                                    <span
+                                        className={cn(
+                                            "text-[10.5px] font-medium",
+                                            remember ? "text-accent-soft" : "text-muted"
+                                        )}
+                                    >
+                                        Remember
+                                    </span>
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-[6px]">
+                                {enabledFlags.map((f) => (
+                                    <button
+                                        key={f.id}
+                                        type="button"
+                                        onClick={() => setFlag(f.id, false)}
+                                        title={`${f.desc} — click to remove`}
+                                        className="flex cursor-pointer items-center gap-[7px] rounded-[7px] border border-accent-700 bg-accentbg py-[5px] pl-[9px] pr-[8px] hover:border-accent-600"
+                                    >
+                                        <span className="font-mono text-[11.5px] font-semibold text-accent-soft">
+                                            {f.flag}
+                                        </span>
+                                        <span className="font-mono text-[13px] leading-none text-muted">×</span>
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={toggleFlagMenu}
+                                    className={cn(
+                                        "flex cursor-pointer items-center gap-[5px] rounded-[7px] border border-dashed bg-surface px-[10px] py-[5px] hover:border-edge-strong",
+                                        flagMenuOpen ? "border-accent-700 text-accent-soft" : "border-edge-strong text-muted"
+                                    )}
+                                >
+                                    <span className="font-mono text-[13px] leading-none">+</span>
+                                    <span className="text-[11.5px] font-medium">Add flag</span>
+                                </button>
+                            </div>
+                            {flagMenuOpen ? (
+                                <div className="mt-2 overflow-hidden rounded-[10px] border border-edge-mid bg-surface">
+                                    <div className="flex items-center gap-2 border-b border-edge-faint px-[11px] py-2">
+                                        <span className="font-mono text-[12px] font-semibold text-success">/</span>
+                                        <input
+                                            value={flagQuery}
+                                            onChange={(e) => setFlagQuery(e.target.value)}
+                                            placeholder="Search flags…"
+                                            className="flex-1 bg-transparent font-mono text-[12px] text-secondary outline-none"
+                                        />
+                                        <span className="whitespace-nowrap font-mono text-[10px] text-muted">
+                                            {flagCatalog.length} for {RUNTIMES.find((r) => r.id === runtime)?.name}
+                                        </span>
+                                    </div>
+                                    <div className="max-h-[158px] overflow-y-auto p-[5px]">
+                                        {menuFlags.length === 0 ? (
+                                            <div className="p-[14px] text-center text-[11.5px] text-muted">
+                                                No matching flags
+                                            </div>
+                                        ) : (
+                                            menuFlags.map((f) => {
+                                                const on = !!naFlags[f.id];
+                                                return (
+                                                    <button
+                                                        key={f.id}
+                                                        type="button"
+                                                        onClick={() => setFlag(f.id, !on)}
+                                                        className={cn(
+                                                            "flex w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-[9px] py-[7px] text-left hover:bg-surface-hover",
+                                                            on ? "bg-accentbg" : ""
+                                                        )}
+                                                    >
+                                                        <span
+                                                            className={cn(
+                                                                "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[9px] font-bold text-background",
+                                                                on ? "border-accent bg-accent" : "border-edge-strong"
+                                                            )}
+                                                        >
+                                                            {on ? "✓" : ""}
+                                                        </span>
+                                                        <span
+                                                            className={cn(
+                                                                "shrink-0 font-mono text-[11.5px] font-semibold",
+                                                                on ? "text-accent-soft" : "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            {f.flag}
+                                                        </span>
+                                                        <span className="flex-1 truncate text-right text-[11px] text-muted">
+                                                            {f.desc}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
                     {runtimeSupportsWorktree(runtime) ? (
                         <Section label="Worktree">
                             <div className="flex items-center gap-[10px]">
@@ -402,9 +545,16 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                     {error ? <div className="text-[12px] text-error">{error}</div> : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-3 border-t border-border px-[18px] py-[13px]">
-                    <span className="font-mono text-[11px] text-muted">
-                        Starting in <span className="text-accent-soft">{selectedProject || "—"}</span>
-                    </span>
+                    <div className="flex min-w-0 flex-col gap-[3px] overflow-hidden">
+                        <span className="font-mono text-[10px] text-muted">
+                            Starting in <span className="text-accent-soft">{selectedProject || "—"}</span>
+                        </span>
+                        {commandPreview ? (
+                            <span className="truncate font-mono text-[11px] font-semibold text-ink-mid">
+                                {commandPreview}
+                            </span>
+                        ) : null}
+                    </div>
                     <div className="flex-1" />
                     <button
                         onClick={close}

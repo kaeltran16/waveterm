@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import {
     buildLaunchMeta,
+    composeStartupCommand,
     deriveBranch,
+    RUNTIME_FLAGS,
     runtimeLaunchLabel,
     runtimeShowsTask,
     runtimeStartupCommand,
@@ -65,6 +67,32 @@ describe("worktreeOutcome", () => {
         expect(worktreeOutcome({ branch: "feat/new", currentBranch: "main", branchNames: ["main"] })).toBe(
             "Creates new branch feat/new off current HEAD"
         );
+    });
+});
+
+describe("composeStartupCommand", () => {
+    it("returns the base untouched when no flags are enabled", () => {
+        expect(composeStartupCommand("claude", "claude", {})).toBe("claude");
+    });
+    it("appends enabled flags in catalog order", () => {
+        expect(composeStartupCommand("claude", "claude", { verbose: true, "skip-permissions": true })).toBe(
+            "claude --dangerously-skip-permissions --verbose"
+        );
+    });
+    it("maps a shared flag id to the runtime's own flag string", () => {
+        expect(composeStartupCommand("codex", "codex", { "skip-permissions": true })).toBe(
+            "codex --dangerously-bypass-approvals"
+        );
+    });
+    it("does not duplicate a flag already typed into the base", () => {
+        expect(composeStartupCommand("claude --verbose", "claude", { verbose: true })).toBe("claude --verbose");
+    });
+    it("ignores flags outside the runtime's catalog", () => {
+        expect(composeStartupCommand("codex", "codex", { verbose: true })).toBe("codex");
+    });
+    it("terminal has no flags", () => {
+        expect(RUNTIME_FLAGS.terminal).toEqual([]);
+        expect(composeStartupCommand("", "terminal", { verbose: true })).toBe("");
     });
 });
 
