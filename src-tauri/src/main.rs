@@ -75,11 +75,24 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
 }
 
 fn main() {
-    // dev-only: expose WebView2's Chrome DevTools Protocol on :9222 for visual verification.
-    // WebView2 reads extra Chromium args from this env var before the webview is created.
+    let context = tauri::generate_context!();
+    // WebView2 reads these env vars before the webview is created, so they must be set here in
+    // main (before the Tauri builder), not in the setup hook. Dev-only: compiled out of packaged.
     #[cfg(debug_assertions)]
-    if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
-        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
+    {
+        // expose WebView2's Chrome DevTools Protocol on :9222 for visual verification.
+        if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
+            std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--remote-debugging-port=9222");
+        }
+        // Isolate dev's WebView2 profile from a co-installed packaged build (same identifier =>
+        // same default EBWebView profile). Sharing it lets a dev launch kill the running packaged
+        // app's window+wavesrv. See paths::dev_webview_data_dir.
+        if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                let app_local_data = PathBuf::from(local).join(&context.config().identifier);
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", paths::dev_webview_data_dir(&app_local_data));
+            }
+        }
     }
     let auth_key = Uuid::new_v4().to_string();
     tauri::Builder::default()
@@ -116,7 +129,7 @@ fn main() {
             app.state::<WavesrvChild>().0.lock().unwrap().replace(child);
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Kill wavesrv when the app exits so it doesn't orphan and hold wave.lock + its exe.

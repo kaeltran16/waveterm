@@ -480,7 +480,7 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
                   <div onClick="{{ a.select }}" style="position:relative;display:flex;align-items:center;gap:9px;padding:10px 11px;border-radius:9px;cursor:pointer;background:{{ a.rowBg }}" style-hover="background:#171c22">
                     <div style="width:7px;height:7px;border-radius:50%;flex:none;background:{{ a.color }}"></div>
                     <div style="flex:1;min-width:0">
-                      <div style="font:600 12px 'JetBrains Mono';color:#dfe4ea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.name }}</div>
+                      <div style="display:flex;align-items:center;gap:6px"><span style="flex:none;font-size:10px;color:{{ a.rtColor }}">{{ a.rtGlyph }}</span><div style="font:600 12px 'JetBrains Mono';color:#dfe4ea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.name }}</div></div>
                       <div style="font-size:10.5px;color:#6b7178;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.branch }}</div>
                     </div>
                     <sc-if value="{{ a.hasSubs }}" hint-placeholder-val="{{ false }}">
@@ -508,7 +508,7 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
             <div style="flex:none;display:flex;align-items:center;gap:13px;padding:14px 22px;border-bottom:1px solid #1a1f26;background:#0d1014">
               <div style="width:9px;height:9px;border-radius:50%;background:{{ focusAgent.color }}"></div>
               <div>
-                <div style="display:flex;align-items:center;gap:9px"><span style="font:600 15px 'JetBrains Mono';color:#eef1f4;white-space:nowrap">{{ focusAgent.name }}</span><span style="font:500 10.5px 'JetBrains Mono';color:{{ focusAgent.color }};border:1px solid {{ focusAgent.color }};border-radius:5px;padding:1px 7px;opacity:.85">{{ focusAgent.statusLabel }}</span></div>
+                <div style="display:flex;align-items:center;gap:9px"><span style="font:600 15px 'JetBrains Mono';color:#eef1f4;white-space:nowrap">{{ focusAgent.name }}</span><span style="display:inline-flex;align-items:center;gap:5px;font:600 10.5px 'JetBrains Mono';color:{{ focusAgent.rtColor }};background:{{ focusAgent.rtSoft }};border:1px solid {{ focusAgent.rtLine }};border-radius:5px;padding:2px 8px;white-space:nowrap"><span style="font-size:11px;line-height:1">{{ focusAgent.rtGlyph }}</span>{{ focusAgent.rtLabel }}</span><span style="font:500 10.5px 'JetBrains Mono';color:{{ focusAgent.color }};border:1px solid {{ focusAgent.color }};border-radius:5px;padding:1px 7px;opacity:.85">{{ focusAgent.statusLabel }}</span></div>
                 <div style="font:500 11px 'JetBrains Mono';color:#6b7178;margin-top:2px">{{ focusAgent.project }} · {{ focusAgent.branch }}</div>
                 <sc-if value="{{ focusIsChild }}" hint-placeholder-val="{{ false }}"><div style="display:inline-flex;align-items:center;gap:5px;font:600 10px 'JetBrains Mono';color:#8aa0ff;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.22);border-radius:5px;padding:2px 8px;margin-top:5px">↳ subagent · spawned by {{ focusParentName }}</div></sc-if>
               </div>
@@ -522,16 +522,17 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
 
             <sc-if value="{{ tui.launched }}" hint-placeholder-val="{{ true }}">
             <div style="flex:1;overflow-y:auto;overflow-x:hidden;background:#07090a;padding:18px 26px 12px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c2c9d0">
-              <div style="border:1px solid #20262e;border-radius:8px;padding:11px 15px;margin-bottom:20px;background:#0c0f13">
-                <div style="display:flex;align-items:center;gap:9px"><span style="color:#7c95ff;font-size:15px;line-height:1">✻</span><span style="color:#dfe4ea;font-weight:600">{{ tui.welcome }}</span></div>
+              <div style="border:1px solid #20262e;border-left:2px solid {{ tui.accent }};border-radius:8px;padding:11px 15px;margin-bottom:20px;background:#0c0f13">
+                <div style="display:flex;align-items:center;gap:9px"><span style="color:{{ tui.accent }};font-size:15px;line-height:1">{{ tui.rtGlyph }}</span><span style="color:#dfe4ea;font-weight:600">{{ tui.welcome }}</span><span style="margin-left:auto;font:600 9.5px 'JetBrains Mono';letter-spacing:.09em;color:{{ tui.accent }};background:{{ tui.accentSoft }};border:1px solid {{ tui.accentLine }};border-radius:5px;padding:2px 7px">{{ tui.rtKind }}</span></div>
                 <div style="color:#5b626b;font-size:11.5px;margin-top:5px;padding-left:24px;white-space:pre-wrap;overflow-wrap:anywhere">{{ tui.sub }}</div>
               </div>
+              <sc-if value="{{ tui.isChat }}" hint-placeholder-val="{{ true }}">
               <sc-for list="{{ tui.lines }}" as="l" hint-placeholder-count="8">
                 <sc-if value="{{ l.isUser }}" hint-placeholder-val="{{ false }}">
                   <div style="display:flex;gap:10px;margin:15px 0"><span style="color:#5b6675;flex:none">&gt;</span><span style="color:#9aa3ad;white-space:pre-wrap;flex:1;min-width:0;overflow-wrap:anywhere" hint-placeholder-chars="70">{{ l.text }}</span></div>
                 </sc-if>
                 <sc-if value="{{ l.isAgent }}" hint-placeholder-val="{{ true }}">
-                  <div style="display:flex;gap:10px;margin:11px 0"><span style="color:#7c95ff;flex:none">⏺</span><span style="color:#cdd3da;white-space:pre-wrap;flex:1;min-width:0;overflow-wrap:anywhere" hint-placeholder-chars="120">{{ l.text }}</span></div>
+                  <div style="display:flex;gap:10px;margin:11px 0"><span style="color:{{ tui.accent }};flex:none">⏺</span><span style="color:#cdd3da;white-space:pre-wrap;flex:1;min-width:0;overflow-wrap:anywhere" hint-placeholder-chars="120">{{ l.text }}</span></div>
                 </sc-if>
                 <sc-if value="{{ l.isTool }}" hint-placeholder-val="{{ false }}">
                   <div style="margin:9px 0">
@@ -551,19 +552,44 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
                   <div style="margin-top:9px;padding-top:9px;border-top:1px solid #221f12;color:#5b626b;font-size:11px">↑↓ to select · ⏎ to confirm · esc to type a reply</div>
                 </div>
               </sc-if>
+              </sc-if>
+              <sc-if value="{{ tui.isShell }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ tui.shellLines }}" as="l" hint-placeholder-count="6">
+                  <sc-if value="{{ l.isCmd }}" hint-placeholder-val="{{ true }}">
+                    <div style="margin:9px 0 2px;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal"><span style="color:#54c79a">{{ l.cwd }}&gt; </span><span style="color:#e6ebf1">{{ l.text }}</span></div>
+                  </sc-if>
+                  <sc-if value="{{ l.isOut }}" hint-placeholder-val="{{ false }}">
+                    <div style="color:#8b939d;white-space:pre-wrap;overflow-wrap:break-word;padding-left:2px">{{ l.text }}</div>
+                  </sc-if>
+                </sc-for>
+              </sc-if>
             </div>
 
+            <sc-if value="{{ tui.isChat }}" hint-placeholder-val="{{ true }}">
             <div style="flex:none;background:#07090a;padding:4px 26px 16px">
               <div style="border:1px solid #2a313a;border-radius:9px;padding:12px 15px;display:flex;align-items:center;gap:10px;background:#0c0f13">
-                <span style="color:#7c95ff;font:600 13px 'JetBrains Mono'">&gt;</span>
+                <span style="color:{{ tui.accent }};font:600 13px 'JetBrains Mono'">&gt;</span>
                 <span style="font:13px 'JetBrains Mono';color:#5b626b">{{ tui.prompt }}</span>
-                <span style="display:inline-block;width:7px;height:15px;background:#7c95ff;animation:caret 1s step-end infinite"></span>
+                <span style="display:inline-block;width:7px;height:15px;background:{{ tui.accent }};animation:caret 1s step-end infinite"></span>
               </div>
               <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 4px;font:11px 'JetBrains Mono';color:#4d545d">
                 <span>? for shortcuts</span>
                 <span style="display:flex;gap:16px"><span>{{ tui.model }}</span><span>⏎ send · ⇧⏎ newline</span></span>
               </div>
             </div>
+            </sc-if>
+            <sc-if value="{{ tui.isShell }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:none;background:#07090a;padding:4px 26px 16px">
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 4px 4px">
+                <span style="color:#54c79a;font:600 13px 'JetBrains Mono';white-space:nowrap">{{ tui.shellCwd }}</span>
+                <span style="display:inline-block;width:9px;height:16px;background:#9aa3ad;animation:caret 1s step-end infinite"></span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;padding:0 4px;font:11px 'JetBrains Mono';color:#4d545d">
+                <span>interactive shell · keys go straight through</span>
+                <span>{{ tui.model }}</span>
+              </div>
+            </div>
+            </sc-if>
             </sc-if>
 
             <sc-if value="{{ tui.notLaunched }}" hint-placeholder-val="{{ false }}">
@@ -573,7 +599,7 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
                   <svg width="24" height="24" viewBox="0 0 16 16" fill="none" stroke="#7c95ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 4 6.5 8 3 12"/><line x1="8.5" y1="12" x2="13" y2="12"/></svg>
                 </div>
                 <div style="font:600 16px 'Hanken Grotesk';color:#e6ebf1;letter-spacing:-.01em">No terminal running</div>
-                <p style="font:400 13px 'Hanken Grotesk';color:#7a828c;line-height:1.55;margin:8px 0 0;max-width:350px">Launch the Claude Code agent for <span style="color:#aebfff;font-family:'JetBrains Mono';font-size:12px">{{ focusAgent.name }}</span> — the full TUI runs live right here, your keyboard, your shortcuts.</p>
+                <p style="font:400 13px 'Hanken Grotesk';color:#7a828c;line-height:1.55;margin:8px 0 0;max-width:350px">Launch <span style="color:{{ focusAgent.rtColor }};font-family:'JetBrains Mono';font-size:12px">{{ focusAgent.rtLabel }}</span> for <span style="color:#aebfff;font-family:'JetBrains Mono';font-size:12px">{{ focusAgent.name }}</span> — the full TUI runs live right here, your keyboard, your shortcuts.</p>
                 <button onClick="{{ tui.launch }}" style="display:flex;align-items:center;gap:8px;margin-top:22px;background:#7c95ff;color:#0b0e14;border:0;border-radius:9px;padding:10px 18px;font:600 13px 'Hanken Grotesk';cursor:pointer" style-hover="background:#8da3ff"><svg width="12" height="12" viewBox="0 0 16 16" fill="#0b0e14"><path d="M4 3v10l8-5z"/></svg>Launch new terminal</button>
                 <div style="margin-top:24px;width:100%;border:1px solid #161b22;border-radius:12px;background:#0b0e12;overflow:hidden;text-align:left">
                   <div style="display:flex;align-items:center;gap:8px;padding:11px 14px 9px"><span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">Recent sessions</span><span style="font:600 9.5px 'JetBrains Mono';color:#4d545d">{{ tui.sessionCount }}</span><div style="flex:1"></div><span style="font:500 9.5px 'JetBrains Mono';color:#4d545d">click to resume</span></div>
@@ -601,6 +627,7 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
             <div>
               <h3 style="font:600 11px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#8b939d;margin-bottom:13px">Details</h3>
               <div style="display:flex;flex-direction:column;gap:0">
+                <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #161a20"><span style="font-size:12.5px;color:#6b7178">Runtime</span><span style="display:inline-flex;align-items:center;gap:5px;font:600 12px 'JetBrains Mono';color:{{ focusAgent.rtColor }}"><span style="font-size:11px">{{ focusAgent.rtGlyph }}</span>{{ focusAgent.rtLabel }}</span></div>
                 <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #161a20"><span style="font-size:12.5px;color:#6b7178">Project</span><span style="font:500 12px 'JetBrains Mono';color:#cfd5db">{{ focusAgent.project }}</span></div>
                 <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #161a20"><span style="font-size:12.5px;color:#6b7178">Branch</span><span style="font:500 12px 'JetBrains Mono';color:#cfd5db">{{ focusAgent.branch }}</span></div>
                 <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #161a20"><span style="font-size:12.5px;color:#6b7178">Model</span><span style="font:500 12px 'JetBrains Mono';color:#cfd5db">{{ focusAgent.model }}</span></div>
@@ -1219,6 +1246,51 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
               <input key="{{ naRuntime }}" value="{{ naStartup }}" placeholder="{{ naStartupPlaceholder }}" style="flex:1;background:transparent;border:0;color:#cfd5db;font:500 12.5px 'JetBrains Mono';outline:none">
             </div>
           </div>
+          <sc-if value="{{ naShowFlags }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+                <div style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Flags</div>
+                <div style="flex:1"></div>
+                <button onClick="{{ toggleRememberFlags }}" title="Reuse the enabled flags for every new agent" style="display:flex;align-items:center;gap:6px;background:transparent;border:0;cursor:pointer;padding:0">
+                  <span style="width:12px;height:12px;border-radius:3px;border:1.5px solid {{ naRememberBorder }};background:{{ naRememberBg }};display:flex;align-items:center;justify-content:center;font:700 8px 'JetBrains Mono';color:#0b0e14">{{ naRememberCheck }}</span>
+                  <span style="font:500 10.5px 'Hanken Grotesk';color:{{ naRememberColor }}">Remember</span>
+                </button>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                <sc-for list="{{ naEnabledFlags }}" as="f" hint-placeholder-count="1">
+                  <button onClick="{{ f.toggle }}" title="{{ f.desc }} — click to remove" style="display:flex;align-items:center;gap:7px;background:rgba(124,149,255,.1);border:1px solid #3a4a8a;border-radius:7px;padding:5px 8px 5px 9px;cursor:pointer" style-hover="border-color:#4a5a9a">
+                    <span style="font:600 11.5px 'JetBrains Mono';color:#cbd3ff">{{ f.flag }}</span>
+                    <span style="font:600 13px 'JetBrains Mono';color:#7c86b8;line-height:1">×</span>
+                  </button>
+                </sc-for>
+                <button onClick="{{ toggleFlagMenu }}" style="display:flex;align-items:center;gap:5px;background:#0f1217;border:1px dashed {{ naFlagMenuBorder }};border-radius:7px;padding:5px 10px;cursor:pointer;color:{{ naFlagMenuColor }}" style-hover="border-color:#3a424c">
+                  <span style="font:600 13px 'JetBrains Mono';line-height:1">+</span>
+                  <span style="font:500 11.5px 'Hanken Grotesk'">Add flag</span>
+                </button>
+              </div>
+              <sc-if value="{{ naFlagMenuOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:8px;background:#0f1217;border:1px solid #262c34;border-radius:10px;overflow:hidden">
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border-bottom:1px solid #1c222a">
+                    <span style="color:#54c79a;font:600 12px 'JetBrains Mono'">/</span>
+                    <input value="{{ naFlagQuery }}" onChange="{{ onFlagQuery }}" placeholder="Search flags…" style="flex:1;background:transparent;border:0;color:#cfd5db;font:500 12px 'JetBrains Mono';outline:none">
+                    <span style="font:500 10px 'JetBrains Mono';color:#5b626b;white-space:nowrap">{{ naSupportedLabel }}</span>
+                  </div>
+                  <div style="max-height:158px;overflow-y:auto;padding:5px">
+                    <sc-for list="{{ naFlagMenu }}" as="f" hint-placeholder-count="5">
+                      <button onClick="{{ f.toggle }}" style="width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:{{ f.rowBg }};border:0;border-radius:7px;padding:7px 9px;cursor:pointer" style-hover="background:#161b22">
+                        <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid {{ f.checkBorder }};background:{{ f.checkBg }};display:flex;align-items:center;justify-content:center;flex:none;font:700 9px 'JetBrains Mono';color:#0b0e14">{{ f.check }}</span>
+                        <span style="flex:none;font:600 11.5px 'JetBrains Mono';color:{{ f.color }}">{{ f.flag }}</span>
+                        <span style="flex:1;font:400 11px 'Hanken Grotesk';color:#5b626b;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.desc }}</span>
+                      </button>
+                    </sc-for>
+                    <sc-if value="{{ naFlagMenuEmpty }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:14px;text-align:center;font:400 11.5px 'Hanken Grotesk';color:#5b626b">No matching flags</div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
           <div style="display:flex;gap:12px">
             <div style="flex:1">
               <div style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b;margin-bottom:9px">Worktree branch</div>
@@ -1227,7 +1299,10 @@ body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webki
           </div>
         </div>
         <div style="flex:none;display:flex;align-items:center;gap:12px;padding:13px 18px;border-top:1px solid #1f252c">
-          <span style="font:500 11px 'JetBrains Mono';color:#5b626b">Starting in <span style="color:#aebfff">{{ naProject }}</span></span>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden">
+            <span style="font:500 10px 'JetBrains Mono';color:#5b626b">Starting in <span style="color:#aebfff">{{ naProject }}</span></span>
+            <span style="font:600 11px 'JetBrains Mono';color:#8b939d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ naCommandPreview }}</span>
+          </div>
           <div style="flex:1"></div>
           <button onClick="{{ closeNewAgent }}" style="background:transparent;border:1px solid #262c34;border-radius:8px;padding:8px 15px;cursor:pointer;font:600 12.5px 'Hanken Grotesk';color:#9aa3ad" style-hover="border-color:#3a424c;color:#e6e9ed">Cancel</button>
           <button onClick="{{ launchAgent }}" style="display:flex;align-items:center;gap:7px;background:#7c95ff;color:#0b0e14;border:0;border-radius:8px;padding:8px 16px;cursor:pointer;font:600 12.5px 'Hanken Grotesk'" style-hover="background:#8da3ff">{{ naLaunchLabel }}<span style="font:600 10.5px 'JetBrains Mono';opacity:.7">⌘↵</span></button>
@@ -1335,6 +1410,7 @@ class Component extends DCLogic {
   state = { view: 'cockpit', paletteOpen: false, projectsOpen: false, newAgentOpen: false, newProjectOpen: false,
     terminalOpen: false, terminalAgentId: null, newMemoryOpen: false, nmType: 'decision', nmScope: 'Global',
     currentProject: 'All projects', naProject: 'payments-api', naModel: 'Opus 4.6', naRuntime: 'claude',
+    naFlags: { 'skip-permissions': true }, naRememberFlags: true, naFlagMenuOpen: false, naFlagQuery: '',
     focusId: 'auth-refactor', channelId: 'payments-api', cockpitSelId: null, launched: {}, closed: {},
     memoryId: 'p1', memView: 'graph', expanded: { 'auth-refactor': true, 'schema-migration': true, 'perf-audit': false },
     muted: {}, bgOpen: false, toolsOpen: {}, toolGroupsOpen: {}, stepsOpen: false, tasksOpen: {}, composerOpen: {},
@@ -1342,6 +1418,31 @@ class Component extends DCLogic {
     usageMetric: 'tokens', usageWindow: '7d',
     liveOrder: [], paneSpan: {}, paneH: {}, draggingId: null, dragOverId: null, reviewOpen: {},
     extraProjects: [], npName: '', npRemote: '' };
+
+  flagDefs = {
+    claude: [
+      ['skip-permissions','--dangerously-skip-permissions','Bypass all permission prompts'],
+      ['verbose','--verbose','Stream every tool call'],
+      ['continue','--continue','Resume the last session'],
+      ['print','--print','Non-interactive: print and exit'],
+      ['ide','--ide','Auto-connect to the IDE extension'],
+      ['debug','--debug','Emit debug diagnostics'],
+      ['no-color','--no-color','Disable ANSI colors'],
+    ],
+    codex: [
+      ['full-auto','--full-auto','Run without approval gates'],
+      ['skip-permissions','--dangerously-bypass-approvals','Skip approval prompts'],
+      ['quiet','--quiet','Hide reasoning logs'],
+      ['search','--search','Enable web search'],
+      ['json','--json','Machine-readable output'],
+    ],
+    antigravity: [
+      ['yolo','--yolo','Auto-approve file edits'],
+      ['verbose','--verbose','Stream every tool call'],
+      ['no-telemetry','--no-telemetry','Disable usage reporting'],
+    ],
+  };
+  flagBase = { claude:'claude', codex:'codex', antigravity:'antigravity', terminal:'bash' };
 
   cockpitOrder() {
     const order = ['asking', 'error', 'working', 'idle'];
@@ -1478,7 +1579,7 @@ class Component extends DCLogic {
           { t:'Add idempotency keys', s:'pending' },
           { t:'Write integration tests', s:'pending' },
         ] },
-      { id:'e2e-runner', name:'e2e-runner', project:'web-dashboard', branch:'ci/e2e', model:'Sonnet 4.6', status:'error',
+      { id:'e2e-runner', name:'e2e-runner', runtime:'codex', project:'web-dashboard', branch:'ci/e2e', model:'Sonnet 4.6', status:'error',
         question:'Playwright crashed with exit code 1 while booting the browser. Retry, or read the trace first?',
         questions:[
           { tab:'Recover', prompt:'Playwright crashed with exit 1 while booting the browser. How should I recover?', multi:false, options:[
@@ -1503,7 +1604,7 @@ class Component extends DCLogic {
           { id:'index-checker', name:'index-checker', type:'analyzer', status:'working', activity:'Validating index coverage', model:'Haiku 4.6', tokens:'42K', usagePct:3, cost:'$0.05', waiting:'2m' },
           { id:'data-backfill', name:'data-backfill', type:'worker', status:'failed', activity:'Backfill hit a NOT NULL constraint', model:'Sonnet 4.6', tokens:'120K', usagePct:8, cost:'$0.31', waiting:'failed 3m ago' },
         ] },
-      { id:'perf-audit', name:'perf-audit', project:'web-dashboard', branch:'perf/dashboard', model:'Sonnet 4.6', status:'working',
+      { id:'perf-audit', name:'perf-audit', runtime:'codex', project:'web-dashboard', branch:'perf/dashboard', model:'Sonnet 4.6', status:'working',
         activity:'Profiling /dashboard · trace 3 of 8', step:'profiling', waiting:'6m', tokens:'540K', usagePct:31, cost:'$1.90',
         tasks:[
           { t:'Set up profiling harness', s:'done' },
@@ -1526,6 +1627,8 @@ class Component extends DCLogic {
         activity:'Done · waiting for review', waiting:'1h', tokens:'90K', usagePct:0, cost:'$0.12' },
       { id:'infra-plan', name:'infra-plan', project:'infra', branch:'plan/scale', model:'Opus 4.6', status:'idle',
         activity:'Paused by you', waiting:'2h', tokens:'70K', usagePct:0, cost:'$0.45' },
+      { id:'dev-server', name:'dev-server', runtime:'terminal', project:'web-dashboard', branch:'perf/dashboard', model:'—', status:'working',
+        activity:'vite dev server on :5173', step:'serving', waiting:'22m', tokens:'—', usagePct:0, cost:'—' },
     ];
   }
 
@@ -2090,9 +2193,37 @@ class Component extends DCLogic {
     });
   }
 
+  // Per-runtime chrome. An "agent" runtime (Claude Code / Codex) renders a chat-style
+  // coding-agent TUI; a "terminal" runtime renders a plain interactive shell. The accent,
+  // glyph and prompt symbol are what let you tell them apart at a glance in the Agent tab.
+  RUNTIME(id) {
+    const M = {
+      claude:   { id:'claude',   label:'Claude Code', kind:'AGENT', glyph:'✳', accent:'#8aa0ff', accentSoft:'rgba(138,160,255,.13)', accentLine:'rgba(138,160,255,.34)', prompt:'>',   isShell:false },
+      codex:    { id:'codex',    label:'Codex',       kind:'AGENT', glyph:'◆', accent:'#5bd6a4', accentSoft:'rgba(91,214,164,.13)',  accentLine:'rgba(91,214,164,.32)',  prompt:'>',   isShell:false },
+      terminal: { id:'terminal', label:'PowerShell',  kind:'SHELL', glyph:'▮', accent:'#9aa3ad', accentSoft:'rgba(154,163,173,.1)',  accentLine:'rgba(154,163,173,.28)', prompt:'PS>', isShell:true  },
+    };
+    return M[id] || M.claude;
+  }
+
+  // Synthetic scrollback for a plain shell session (PowerShell / bash): prompt-prefixed
+  // command lines and raw stdout, no chat turns or tool cards.
+  shellLinesFor(a) {
+    const cwd = 'PS C:\\dev\\' + a.project;
+    return [
+      { isCmd:true, cwd, text:'git checkout ' + a.branch },
+      { isOut:true, text:"Switched to branch '" + a.branch + "'" },
+      { isCmd:true, cwd, text:'npm run dev' },
+      { isOut:true, text:'> ' + a.project + '@1.0.0 dev\n> vite' },
+      { isOut:true, text:'  VITE v5.4.2  ready in 412 ms', ok:true },
+      { isOut:true, text:'  ➜  Local:   http://localhost:5173/' },
+      { isOut:true, text:'  ➜  press h + enter to show help' },
+    ];
+  }
+
   // Render the focus agent's transcript as a real terminal-coding-agent (Claude Code / Codex)
   // TUI scrollback: flat monospace, `>` user turns, `⏺` agent/tool markers, `⎿` results.
   buildTui(a) {
+    const rt = this.RUNTIME(a.runtime || 'claude');
     const raw = this.transcriptFor(a);
     const TC = { grep:'Grep', read:'Read', edit:'Update', write:'Write', bash:'Bash' };
     const lines = [];
@@ -2106,7 +2237,7 @@ class Component extends DCLogic {
         lines.push({ isTool:true,
           name:(TC[t.tool] || (t.tool.charAt(0).toUpperCase() + t.tool.slice(1))), arg,
           result:(failed ? '✗ ' : (running ? '' : '')) + t.out,
-          markerColor: running ? '#e6b450' : (failed ? '#e06c6c' : '#7c95ff'),
+          markerColor: running ? '#e6b450' : (failed ? '#e06c6c' : rt.accent),
           resultColor: failed ? '#e06c6c' : (running ? '#e6b450' : '#6b7178'),
           time:t.time });
       }
@@ -2127,12 +2258,20 @@ class Component extends DCLogic {
       statusLabel:s.status === 'paused' ? 'resumable' : s.status === 'review' ? 'in review' : s.status === 'failed' ? 'failed' : 'ended' }));
     return { lines, working, asking, opts,
       launched, notLaunched:!launched,
+      isShell:rt.isShell, isChat:!rt.isShell, shellLines:rt.isShell ? this.shellLinesFor(a) : [],
+      rtLabel:rt.label, rtGlyph:rt.glyph, rtKind:rt.kind,
+      accent:rt.accent, accentSoft:rt.accentSoft, accentLine:rt.accentLine, promptSym:rt.prompt,
+      shellCwd:'PS C:\\dev\\' + a.project + '>',
       launch:() => this.setState(s => { const c = { ...s.closed }; delete c[a.id]; return { launched:{ ...s.launched, [a.id]:true }, closed:c }; }),
       close:() => this.setState(s => { const l = { ...s.launched }; delete l[a.id]; return { launched:l, closed:{ ...s.closed, [a.id]:true } }; }),
       sessions, sessionCount:sessions.length,
-      welcome:a.name, sub:'cwd ~/' + a.project + '   branch ' + a.branch + '   model ' + a.model,
-      workingLabel:'Cogitating… (' + (last && last.time ? last.time + ' · ' : '') + 'esc to interrupt)',
-      prompt:'Reply to ' + a.name + '…  (/ for commands)', model:a.model };
+      welcome:rt.isShell ? ('Windows PowerShell · ' + a.project) : a.name,
+      sub:rt.isShell
+        ? ('PS C:\\dev\\' + a.project + '   ' + a.branch + '   type `exit` to close')
+        : ('cwd ~/' + a.project + '   branch ' + a.branch + '   model ' + a.model),
+      workingLabel:rt.isShell ? 'running…' : ('Cogitating… (' + (last && last.time ? last.time + ' · ' : '') + 'esc to interrupt)'),
+      prompt:rt.isShell ? '' : ('Reply to ' + a.name + '…  (/ for commands)'),
+      model:rt.isShell ? (rt.label + ' · pwsh 7.4') : a.model };
   }
 
   suggestionsFor(a) {
@@ -2361,6 +2500,14 @@ class Component extends DCLogic {
       const ch = this.changesFor(a);
       return {
         ...a, color:meta[a.status].c, statusLabel:meta[a.status].l,
+        rtMeta:this.RUNTIME(a.runtime || 'claude'),
+        rtLabel:this.RUNTIME(a.runtime || 'claude').label,
+        rtGlyph:this.RUNTIME(a.runtime || 'claude').glyph,
+        rtKind:this.RUNTIME(a.runtime || 'claude').kind,
+        rtColor:this.RUNTIME(a.runtime || 'claude').accent,
+        rtSoft:this.RUNTIME(a.runtime || 'claude').accentSoft,
+        rtLine:this.RUNTIME(a.runtime || 'claude').accentLine,
+        isShellAgent:this.RUNTIME(a.runtime || 'claude').isShell,
         isAsking:a.status === 'asking', isWorking:a.status === 'working',
         laneBorder:a.status === 'asking' ? 'rgba(230,180,80,.4)' : '#20262e',
         laneBg:a.status === 'asking' ? '#14130e' : '#12161b',
@@ -2538,7 +2685,7 @@ class Component extends DCLogic {
       openNewAgent:() => this.setState({ newAgentOpen:true, projectsOpen:false,
         naProject:this.state.currentProject !== 'All projects' ? this.state.currentProject : 'payments-api' }),
       closeNewAgent:() => this.setState({ newAgentOpen:false }),
-      launchAgent:() => this.setState({ newAgentOpen:false }),
+      launchAgent:() => this.setState(s => ({ newAgentOpen:false, naFlags: s.naRememberFlags ? s.naFlags : {} })),
       naProject:this.state.naProject,
       naProjects:(() => {
         const names = []; this.ALL().forEach(a => { if (!names.includes(a.project)) names.push(a.project); });
@@ -2574,6 +2721,50 @@ class Component extends DCLogic {
             bg:sel ? 'rgba(124,149,255,.1)' : '#0f1217', border:sel ? '#3a4a8a' : '#20262e',
             color:sel ? '#eef1f4' : '#aeb6bf', select:() => this.setState({ naRuntime:id }) };
         });
+      })(),
+      naShowFlags:this.state.naRuntime !== 'terminal',
+      naSupportedLabel:(() => { const n = (this.flagDefs[this.state.naRuntime]||[]).length;
+        const nm = ({ claude:'Claude Code', codex:'Codex', antigravity:'Antigravity' })[this.state.naRuntime] || '';
+        return n + ' for ' + nm; })(),
+      naEnabledFlags:(() => {
+        const cat = this.flagDefs[this.state.naRuntime] || [];
+        return cat.filter(([id]) => this.state.naFlags[id]).map(([id,flag,desc]) => ({ id, flag, desc,
+          toggle:() => this.setState(s => ({ naFlags: { ...s.naFlags, [id]: false } })) }));
+      })(),
+      naFlagMenuOpen:this.state.naFlagMenuOpen,
+      naFlagMenuBorder:this.state.naFlagMenuOpen ? '#3a4a8a' : '#2a313a',
+      naFlagMenuColor:this.state.naFlagMenuOpen ? '#aebfff' : '#8b939d',
+      toggleFlagMenu:() => this.setState(s => ({ naFlagMenuOpen:!s.naFlagMenuOpen, naFlagQuery:'' })),
+      naFlagQuery:this.state.naFlagQuery,
+      onFlagQuery:(e) => this.setState({ naFlagQuery:e.target.value }),
+      naFlagMenu:(() => {
+        const cat = this.flagDefs[this.state.naRuntime] || [];
+        const q = this.state.naFlagQuery.toLowerCase();
+        return cat.filter(([id,flag,desc]) => !q || flag.toLowerCase().includes(q) || desc.toLowerCase().includes(q))
+          .map(([id,flag,desc]) => { const on = !!this.state.naFlags[id];
+            return { id, flag, desc, check: on ? '\u2713' : '',
+              checkBg: on ? '#7c95ff' : 'transparent', checkBorder: on ? '#7c95ff' : '#3a424c',
+              color: on ? '#cbd3ff' : '#aeb6bf', rowBg: on ? 'rgba(124,149,255,.06)' : 'transparent',
+              toggle:() => this.setState(s => ({ naFlags: { ...s.naFlags, [id]: !s.naFlags[id] } })) };
+          });
+      })(),
+      naFlagMenuEmpty:(() => {
+        const cat = this.flagDefs[this.state.naRuntime] || [];
+        const q = this.state.naFlagQuery.toLowerCase();
+        return !!q && !cat.some(([id,flag,desc]) => flag.toLowerCase().includes(q) || desc.toLowerCase().includes(q));
+      })(),
+      naRememberFlags:this.state.naRememberFlags,
+      naRememberBg:this.state.naRememberFlags ? '#7c95ff' : 'transparent',
+      naRememberBorder:this.state.naRememberFlags ? '#7c95ff' : '#3a424c',
+      naRememberCheck:this.state.naRememberFlags ? '\u2713' : '',
+      naRememberColor:this.state.naRememberFlags ? '#aebfff' : '#6b7178',
+      toggleRememberFlags:() => this.setState(s => ({ naRememberFlags:!s.naRememberFlags })),
+      naCommandPreview:(() => {
+        const rt = this.state.naRuntime;
+        const base = this.flagBase[rt] || '';
+        const cat = this.flagDefs[rt] || [];
+        const on = cat.filter(([id]) => this.state.naFlags[id]).map(([,f]) => f);
+        return [base, ...on].join(' ').trim();
       })(),
       terminalOpen:this.state.terminalOpen,
       newMemoryOpen:this.state.newMemoryOpen,

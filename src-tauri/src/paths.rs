@@ -30,6 +30,16 @@ pub fn data_home_dirs(base: &Path) -> (PathBuf, PathBuf) {
     (base.join("data"), base.join("config"))
 }
 
+// Dev-only WebView2 profile dir. app_local_data_dir is %LOCALAPPDATA%/<identifier>; Tauri would
+// otherwise default the WebView2 profile to <that>/EBWebView, which a co-installed packaged build
+// (same identifier) also uses. WebView2 runs one browser process per profile, so a dev launch
+// opening a profile the running packaged app holds destabilizes it — killing the packaged window
+// and, via our RunEvent::Exit handler, its wavesrv. Isolate dev onto the same -dev base the data
+// store already uses so the two never share a WebView2 browser process.
+pub fn dev_webview_data_dir(app_local_data_dir: &Path) -> PathBuf {
+    data_base_for(app_local_data_dir, true).join("EBWebView")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,6 +68,15 @@ mod tests {
         assert_eq!(
             data_base_for(base, true),
             PathBuf::from("C:/u/AppData/Local/dev.arc.app-dev")
+        );
+    }
+
+    #[test]
+    fn dev_webview_profile_is_isolated_under_dev_base() {
+        let base = Path::new("C:/u/AppData/Local/dev.arc.app");
+        assert_eq!(
+            dev_webview_data_dir(base),
+            PathBuf::from("C:/u/AppData/Local/dev.arc.app-dev/EBWebView")
         );
     }
 

@@ -10,6 +10,25 @@ import { recordRateLimit } from "../ratelimitstore";
 // a completed subagent is noise after a minute; drop it this long after it stops
 const COMPLETED_SUBAGENT_TTL_MS = 60_000;
 
+function invertPct(pct: number | undefined): number | undefined {
+    if (pct == null) {
+        return undefined;
+    }
+    return Math.max(0, Math.min(100, 100 - pct));
+}
+
+export function normalizeAgentUsage(provider: string, usage: AgentUsage): AgentUsage {
+    if (provider.toLowerCase() !== "codex") {
+        return usage;
+    }
+    return {
+        ...usage,
+        contextpct: invertPct(usage.contextpct),
+        fivehourpct: invertPct(usage.fivehourpct),
+        weekpct: invertPct(usage.weekpct),
+    };
+}
+
 // keyed by block ORef string ("block:<uuid>")
 const agentStatusAtoms = new Map<string, PrimitiveAtom<AgentStatusData>>();
 
@@ -117,10 +136,11 @@ export function setupAgentStatusSubscription() {
                 }
             }
             if (data.usage != null) {
-                globalStore.set(getAgentUsageAtom(data.oref), data.usage);
-                // persist account-level windows so the Usage donuts survive idle (no-op if none present)
                 const provider = data.agent ?? globalStore.get(getAgentStatusAtom(data.oref))?.agent ?? "claude";
-                recordRateLimit(provider, data.usage);
+                const usage = normalizeAgentUsage(provider, data.usage);
+                globalStore.set(getAgentUsageAtom(data.oref), usage);
+                // persist account-level windows so the Usage donuts survive idle (no-op if none present)
+                recordRateLimit(provider, usage);
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
