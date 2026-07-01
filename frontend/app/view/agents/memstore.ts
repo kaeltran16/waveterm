@@ -76,6 +76,18 @@ export async function createNote(name: string, type: string, scope: string, body
     await loadMemory();
 }
 
+// Harvest Codex's reusable-knowledge facts for a project into its Claude hub. Reloads the graph only
+// when new facts landed (the mtime-guarded no-op case returns 0/0 and must not trigger a rescan).
+export async function harvestMemory(cwd: string): Promise<{ ingested: number; skipped: number }> {
+    const r = await RpcApi.MemoryHarvestCommand(TabRpcClient, { cwd });
+    const ingested = r.ingested ?? 0;
+    const skipped = r.skipped ?? 0;
+    if (ingested > 0) {
+        await loadMemory();
+    }
+    return { ingested, skipped };
+}
+
 export async function deleteNote(path: string): Promise<void> {
     await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
     globalStore.set(memSelectedIdAtom, null);

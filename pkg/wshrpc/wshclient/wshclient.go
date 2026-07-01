@@ -741,6 +741,12 @@ func MemoryDeleteCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryDeleteData,
 	return err
 }
 
+// command "memoryharvest", wshserver.MemoryHarvestCommand
+func MemoryHarvestCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryHarvestData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryHarvestRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryHarvestRtnData](w, "memoryharvest", data, opts)
+	return resp, err
+}
+
 // command "memoryproject", wshserver.MemoryProjectCommand
 func MemoryProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryProjectData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "memoryproject", data, opts)

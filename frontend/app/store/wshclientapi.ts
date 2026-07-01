@@ -744,6 +744,12 @@ export class RpcApiType {
         return client.wshRpcCall("memorydelete", data, opts);
     }
 
+    // command "memoryharvest" [call]
+    MemoryHarvestCommand(client: WshClient, data: CommandMemoryHarvestData, opts?: RpcOpts): Promise<CommandMemoryHarvestRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryharvest", data, opts);
+        return client.wshRpcCall("memoryharvest", data, opts);
+    }
+
     // command "memoryproject" [call]
     MemoryProjectCommand(client: WshClient, data: CommandMemoryProjectData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryproject", data, opts);

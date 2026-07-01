@@ -190,3 +190,28 @@ func TestDeriveScopeReadableForClaude(t *testing.T) {
 		t.Fatalf("vault scope = %q, want 'teamx'", got)
 	}
 }
+
+func TestParseNoteFrontmatterSourceOverride(t *testing.T) {
+	// A note physically in the claude hub (root source "claude") but tagged source: codex
+	// must report Source "codex" and expose its source_hash.
+	data := []byte("---\nname: from-codex\ndescription: a codex fact\nmetadata:\n  type: reference\n  source: codex\n  source_hash: abc123\n---\n\nUse Postgres.\n")
+	n, body := parseNote("/home/k/.claude/projects/x/memory/from-codex.md", data, "claude")
+	if n.Source != "codex" {
+		t.Fatalf("Source = %q, want codex (frontmatter overrides root)", n.Source)
+	}
+	if n.SourceHash != "abc123" {
+		t.Fatalf("SourceHash = %q, want abc123", n.SourceHash)
+	}
+	if strings.TrimSpace(body) != "Use Postgres." {
+		t.Fatalf("body = %q", body)
+	}
+	// A note with no frontmatter source keeps the root-derived source.
+	plain := []byte("---\nname: plain\nmetadata:\n  type: project\n---\n\nx\n")
+	p, _ := parseNote("/vault/plain.md", plain, "vault")
+	if p.Source != "vault" {
+		t.Fatalf("plain Source = %q, want vault", p.Source)
+	}
+	if p.SourceHash != "" {
+		t.Fatalf("plain SourceHash = %q, want empty", p.SourceHash)
+	}
+}

@@ -1585,6 +1585,14 @@ func (ws *WshServer) MemoryProjectionStatusCommand(ctx context.Context) (*wshrpc
 	return &wshrpc.CommandMemoryProjectionStatusRtnData{Runtimes: memvault.ProjectionStatus()}, nil
 }
 
+func (ws *WshServer) MemoryHarvestCommand(ctx context.Context, data wshrpc.CommandMemoryHarvestData) (*wshrpc.CommandMemoryHarvestRtnData, error) {
+	ingested, skipped, err := memvault.Harvest(data.Cwd)
+	if err != nil {
+		return nil, fmt.Errorf("harvesting memory: %w", err)
+	}
+	return &wshrpc.CommandMemoryHarvestRtnData{Ingested: ingested, Skipped: skipped}, nil
+}
+
 func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.CommandCreateChannelData) (*waveobj.Channel, error) {
 	ch, err := wstore.CreateChannel(ctx, data.Name, data.ProjectPath)
 	if err != nil {

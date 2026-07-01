@@ -752,6 +752,17 @@ declare global {
         path: string;
     };
 
+    // wshrpc.CommandMemoryHarvestData
+    type CommandMemoryHarvestData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandMemoryHarvestRtnData
+    type CommandMemoryHarvestRtnData = {
+        ingested: number;
+        skipped: number;
+    };
+
     // wshrpc.CommandMemoryProjectData
     type CommandMemoryProjectData = {
         cwd: string;
