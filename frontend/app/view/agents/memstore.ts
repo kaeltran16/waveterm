@@ -13,6 +13,10 @@ import type { MemEdge, MemNote } from "./memtypes";
 
 export type MemView = "graph" | "list";
 
+// vault scan/read are local FS ops (fast); bound them so a dead/stalled backend rejects into the
+// catch below instead of leaving the pane on "Loading…" forever (the wshrpc call has no default timeout).
+const MEM_RPC_TIMEOUT_MS = 5000;
+
 export const memNotesAtom = atom<MemNote[]>([]) as PrimitiveAtom<MemNote[]>;
 export const memEdgesAtom = atom<MemEdge[]>([]) as PrimitiveAtom<MemEdge[]>;
 export const memLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
@@ -26,7 +30,7 @@ export const memSearchAtom = atom<string>("") as PrimitiveAtom<string>;
 
 export async function loadMemory(): Promise<void> {
     try {
-        const g = await RpcApi.MemoryScanCommand(TabRpcClient);
+        const g = await RpcApi.MemoryScanCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
         globalStore.set(memNotesAtom, g.notes ?? []);
         globalStore.set(memEdgesAtom, g.edges ?? []);
         globalStore.set(memLoadedAtom, true);
@@ -52,7 +56,7 @@ export async function selectNote(id: string): Promise<void> {
     const n = noteById(id);
     if (!n) return;
     try {
-        const r = await RpcApi.MemoryReadCommand(TabRpcClient, { path: n.path, source: n.source });
+        const r = await RpcApi.MemoryReadCommand(TabRpcClient, { path: n.path, source: n.source }, { timeout: MEM_RPC_TIMEOUT_MS });
         if (globalStore.get(memSelectedIdAtom) !== id) return; // selection moved on
         globalStore.set(memBodyAtom, { body: r.body, mtime: r.note.updatedts });
     } catch {

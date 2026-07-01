@@ -8,10 +8,11 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { resolveCwd } from "./agentcwdresolve";
-import { layoutGraph } from "./memgraphlayout";
+import { MarkdownMessage } from "./markdownmessage";
+import { MemGraph } from "./memgraph";
 import { NewMemoryModal } from "./newmemorymodal";
 import { SyncStrip } from "./syncstrip";
 import {
@@ -96,7 +97,7 @@ function ListView({ notes, selectedId }: { notes: MemNote[]; selectedId: string 
                                     key={n.id}
                                     onClick={() => fireAndForget(() => selectNote(n.id))}
                                     className={cn(
-                                        "flex items-center gap-[13px] rounded-[11px] border px-[15px] py-[12px] text-left hover:border-edge-strong",
+                                        "flex cursor-pointer items-center gap-[13px] rounded-[11px] border px-[15px] py-[12px] text-left hover:border-edge-strong",
                                         n.id === selectedId ? "border-edge-strong bg-surface" : "border-edge-faint bg-background"
                                     )}
                                 >
@@ -199,8 +200,12 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
                     className="mb-[10px] h-[220px] w-full resize-none rounded-[10px] border border-accent/40 bg-background px-[15px] py-[13px] font-mono text-[12.5px] leading-[1.6] text-ink-hi outline-none"
                 />
             ) : (
-                <div className="mb-[10px] whitespace-pre-wrap rounded-[10px] border border-edge-faint bg-background px-[15px] py-[13px] text-[13.5px] leading-[1.6] text-ink-hi">
-                    {body == null ? "Loading…" : body.body || sel.description}
+                <div className="mb-[10px] rounded-[10px] border border-edge-faint bg-background px-[15px] py-[13px] text-[13.5px] leading-[1.6] text-ink-hi">
+                    {body == null ? (
+                        "Loading…"
+                    ) : (
+                        <MarkdownMessage text={body.body || sel.description} />
+                    )}
                 </div>
             )}
             {conflict && (
@@ -263,7 +268,7 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
                                 <button
                                     key={r.id}
                                     onClick={() => fireAndForget(() => selectNote(r.id))}
-                                    className="flex items-center gap-[9px] rounded-[9px] border border-edge-faint bg-background px-[11px] py-[9px] hover:border-edge-strong"
+                                    className="flex cursor-pointer items-center gap-[9px] rounded-[9px] border border-edge-faint bg-background px-[11px] py-[9px] hover:border-edge-strong"
                                 >
                                     <div className={cn("h-[6px] w-[6px] flex-none rounded-full", rm.dotClass)} />
                                     <span className="min-w-0 flex-1 truncate text-left font-mono text-[11.5px] text-ink-hi">
@@ -277,85 +282,6 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
                 </>
             )}
         </aside>
-    );
-}
-
-const GRAPH_W = 880;
-const GRAPH_H = 560;
-
-function GraphView({ notes, selectedId }: { notes: MemNote[]; selectedId: string | null }) {
-    const edges = useAtomValue(memEdgesAtom);
-    const pos = useMemo(
-        () => layoutGraph(notes, edges, { width: GRAPH_W, height: GRAPH_H, iterations: 120 }),
-        [notes, edges]
-    );
-    const scopes = useMemo(() => [...new Set(notes.map((n) => n.scope || "shared"))], [notes]);
-    return (
-        <div className="relative mx-auto my-[6px]" style={{ width: GRAPH_W, height: GRAPH_H }}>
-            <svg width={GRAPH_W} height={GRAPH_H} className="pointer-events-none absolute left-0 top-0">
-                {edges.map((e, i) => {
-                    const a = pos.get(e.from);
-                    const b = pos.get(e.to);
-                    if (!a || !b) return null;
-                    const hot = e.from === selectedId || e.to === selectedId;
-                    return (
-                        <line
-                            key={i}
-                            x1={a.x}
-                            y1={a.y}
-                            x2={b.x}
-                            y2={b.y}
-                            stroke={hot ? "var(--color-accent-700)" : "var(--color-edge-faint)"}
-                            strokeWidth={hot ? 1.7 : 1}
-                        />
-                    );
-                })}
-            </svg>
-            {notes.map((n) => {
-                const p = pos.get(n.id);
-                if (!p) return null;
-                const m = typeMeta(n.type);
-                const sel = n.id === selectedId;
-                return (
-                    <button
-                        key={n.id}
-                        onClick={() => fireAndForget(() => selectNote(n.id))}
-                        style={{ left: p.x, top: p.y, transform: "translate(-50%,-50%)" }}
-                        className={cn(
-                            "absolute flex cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-[20px] border px-[12px] py-[6px] hover:border-edge-strong",
-                            sel ? "border-accent bg-surface ring-2 ring-accent/20" : "border-edge-faint bg-background"
-                        )}
-                    >
-                        <span className={cn("h-[7px] w-[7px] flex-none rounded-full", m.dotClass)} />
-                        <span className={cn("font-mono text-[11.5px] font-semibold", sel ? "text-foreground" : "text-ink-hi")}>
-                            {n.title}
-                        </span>
-                    </button>
-                );
-            })}
-            {/* legend */}
-            <div className="absolute bottom-[6px] left-[10px] flex gap-[15px] rounded-[9px] border border-edge-faint bg-surface/80 px-[13px] py-[8px]">
-                {(["project", "reference", "feedback", "user"] as const).map((t) => {
-                    const m = typeMeta(t);
-                    return (
-                        <div key={t} className="flex items-center gap-[6px]">
-                            <div className={cn("h-[8px] w-[8px] rounded-full", m.dotClass)} />
-                            <span className="font-mono text-[10.5px] text-ink-mid">{m.label}</span>
-                        </div>
-                    );
-                })}
-            </div>
-            {/* cluster labels: one per scope, near its seed column */}
-            {scopes.map((s, i) => (
-                <div
-                    key={s}
-                    className="pointer-events-none absolute -translate-x-1/2 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint"
-                    style={{ left: ((i + 1) / (scopes.length + 1)) * GRAPH_W, top: 4 }}
-                >
-                    {s}
-                </div>
-            ))}
-        </div>
     );
 }
 
@@ -397,7 +323,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
             <Header count={notes.length} onNew={() => setNewOpen(true)} />
             <SyncStrip focusedCwd={focusedCwd} />
             <div className="flex min-h-0 flex-1">
-                <div className="relative min-w-0 flex-1 overflow-auto">
+                <div className={cn("relative min-w-0 flex-1", view === "graph" ? "overflow-hidden" : "overflow-auto")}>
                     {!loaded ? (
                         <div className="p-[28px] text-[13px] text-ink-mid">Loading memory…</div>
                     ) : notes.length === 0 ? (
@@ -408,7 +334,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                     ) : view === "list" ? (
                         <ListView notes={filtered} selectedId={selectedId} />
                     ) : (
-                        <GraphView notes={filtered} selectedId={selectedId} />
+                        <MemGraph notes={filtered} selectedId={selectedId} />
                     )}
                 </div>
                 <DetailRail notes={notes} />
