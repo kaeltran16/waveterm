@@ -955,6 +955,12 @@ declare global {
         builderid: string;
     };
 
+    // wshrpc.CommandSetChannelGatekeeperData
+    type CommandSetChannelGatekeeperData = {
+        channelid: string;
+        enabled: boolean;
+    };
+
     // wshrpc.CommandSetMetaData
     type CommandSetMetaData = {
         oref: ORef;

@@ -36,6 +36,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
@@ -1619,6 +1620,23 @@ func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.
 	return stored, nil
 }
 
+func (ws *WshServer) SetChannelGatekeeperCommand(ctx context.Context, data wshrpc.CommandSetChannelGatekeeperData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+		if ch.Meta == nil {
+			ch.Meta = make(waveobj.MetaMapType)
+		}
+		ch.Meta[jarvis.MetaKey_GatekeeperEnabled] = data.Enabled
+	})
+	if err != nil {
+		return fmt.Errorf("updating channel gatekeeper flag: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 const consultTimeout = 120 * time.Second
 
 // postConsultReply persists a consult-reply message and live-updates the pinned channel atom. Mirrors
@@ -1965,27 +1983,8 @@ func (ws *WshServer) AnswerAgentCommand(ctx context.Context, data wshrpc.Command
 	if data.ORef == "" {
 		return fmt.Errorf("oref is required")
 	}
-	pending, ok := agentask.GlobalRegistry.Get(data.ORef)
-	if !ok {
-		// already answered in the terminal (or cleared): no-op. This also prevents
-		// injecting stray bytes into the shell after the picker is gone.
-		return nil
-	}
-	keys, err := agentask.EncodeAnswer(pending.Questions, data.Answers)
-	if err != nil {
-		return err
-	}
-	// deliver one keystroke per PTY write with a gap between; a single combined write races
-	// the picker's React state update and confirms the wrong option (see KeystrokeDelay).
-	for i, k := range keys {
-		if i > 0 {
-			time.Sleep(agentask.KeystrokeDelay)
-		}
-		if err := blockcontroller.SendInput(pending.BlockId, &blockcontroller.BlockInputUnion{InputData: k}); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := agentask.DeliverAnswer(data.ORef, data.Answers)
+	return err
 }
 
 func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) error {
@@ -2002,6 +2001,7 @@ func (ws *WshServer) AgentAskClearCommand(ctx context.Context, oref string) erro
 }
 
 func publishAgentAsk(data baseds.AgentAskData) {
+	jarvis.OnAgentAsk(data) // Gatekeeper (server-side, non-blocking): auto-answer/escalate on enabled channels
 	wps.Broker.Publish(wps.WaveEvent{
 		Event:   wps.Event_AgentAsk,
 		Scopes:  []string{data.ORef},

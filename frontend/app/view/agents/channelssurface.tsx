@@ -222,6 +222,35 @@ function JarvisRow({
     );
 }
 
+// A standalone Gatekeeper row for the two server-posted kinds. `jarvis-answered` is a muted/confirmed
+// card (Jarvis answered a routine ask on the human's behalf, on the record); `jarvis-escalation` is an
+// amber attention card addressing @you (a genuine fork the human must decide). Reuses the existing
+// amber "asking" @theme treatment — there is no separate "warning" token in this surface.
+function GatekeeperRow({ msg, now }: { msg: ChannelMessage; now: number }) {
+    const escalated = msg.kind === "jarvis-escalation";
+    return (
+        <div className="flex items-start gap-3">
+            <Avatar name="jarvis" />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">jarvis</span>
+                    <Tag label={escalated ? "escalation" : "answered"} tone={escalated ? "asking" : "muted"} />
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
+                </div>
+                <div
+                    className={
+                        escalated
+                            ? "rounded-[9px] border border-asking/40 bg-lane-asking px-3 py-2.5"
+                            : "rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5"
+                    }
+                >
+                    <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // A dispatch / directive / human message row: avatar + author + optional tag + body, plus (for a
 // dispatch) the live worker status pill, open link, and — when asking — the inline AnswerBar.
 function MessageRow({
@@ -282,6 +311,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     const projects = useAtomValue(projectsAtom); // Record<string, { path?: string }>
     const consultStreams = useAtomValue(consultStreamsAtom);
+    const gatekeeperOn = Boolean((active?.meta as Record<string, unknown> | undefined)?.["gatekeeper:enabled"]);
     const [draft, setDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
@@ -357,6 +387,28 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             <div className="truncate font-mono text-[11.5px] text-muted">{active.projectpath}</div>
                         ) : null}
                     </div>
+                    <div className="flex-1" />
+                    {active ? (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                fireAndForget(() =>
+                                    RpcApi.SetChannelGatekeeperCommand(TabRpcClient, {
+                                        channelid: active.oid,
+                                        enabled: !gatekeeperOn,
+                                    })
+                                )
+                            }
+                            title="Jarvis auto-answers routine asks in this channel; escalates genuine forks"
+                            className={
+                                gatekeeperOn
+                                    ? "flex-none rounded-[7px] border border-accent/50 bg-accentbg/40 px-2 py-1 font-mono text-[11px] text-accent-soft"
+                                    : "flex-none rounded-[7px] border border-edge-mid px-2 py-1 font-mono text-[11px] text-muted"
+                            }
+                        >
+                            gatekeeper {gatekeeperOn ? "on" : "off"}
+                        </button>
+                    ) : null}
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
@@ -392,6 +444,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                             streams={consultStreams}
                                             now={now}
                                         />
+                                    ) : m.kind === "jarvis-answered" || m.kind === "jarvis-escalation" ? (
+                                        <GatekeeperRow key={m.id} msg={m} now={now} />
                                     ) : (
                                         <MessageRow key={m.id} model={model} agents={agents} msg={m} now={now} />
                                     )

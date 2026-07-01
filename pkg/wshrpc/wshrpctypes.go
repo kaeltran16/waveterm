@@ -109,6 +109,7 @@ type WshRpcInterface interface {
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
+	SetChannelGatekeeperCommand(ctx context.Context, data CommandSetChannelGatekeeperData) error // toggles Jarvis Gatekeeper (auto-answer routine asks) for a channel
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
@@ -698,6 +699,11 @@ type CommandPostChannelMessageData struct {
 	Author    string `json:"author"`
 	Text      string `json:"text"`
 	RefORef   string `json:"reforef,omitempty"`
+}
+
+type CommandSetChannelGatekeeperData struct {
+	ChannelId string `json:"channelid"`
+	Enabled   bool   `json:"enabled"`
 }
 
 type CommandConsultData struct {

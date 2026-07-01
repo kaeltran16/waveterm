@@ -996,6 +996,12 @@ func SetBlockFocusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 	return err
 }
 
+// command "setchannelgatekeeper", wshserver.SetChannelGatekeeperCommand
+func SetChannelGatekeeperCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelGatekeeperData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setchannelgatekeeper", data, opts)
+	return err
+}
+
 // command "setconfig", wshserver.SetConfigCommand
 func SetConfigCommand(w *wshutil.WshRpc, data wshrpc.MetaSettingsType, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setconfig", data, opts)
