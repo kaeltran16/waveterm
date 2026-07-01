@@ -14,6 +14,7 @@ import { useAtomValue } from "jotai";
 import { confirmCloseAgent } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
@@ -37,6 +38,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const project = projectOf(agent);
+    const rt = runtimeMeta(agent.agent);
     const blockId = agent.blockId;
 
     // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
@@ -85,6 +87,17 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                 <div className="flex items-center gap-[9px]">
                     <span className="whitespace-nowrap font-mono text-[15px] font-semibold text-[#eef1f4]">
                         {agent.name}
+                    </span>
+                    <span
+                        className={cn(
+                            "inline-flex items-center gap-[5px] whitespace-nowrap rounded-[5px] border px-[8px] py-[2px] font-mono text-[10.5px] font-semibold",
+                            rt.text,
+                            rt.softBg,
+                            rt.line
+                        )}
+                    >
+                        <span className="text-[11px] leading-none">{rt.glyph}</span>
+                        {rt.label}
                     </span>
                     <span
                         className="rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85"

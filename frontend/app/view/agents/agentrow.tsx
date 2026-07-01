@@ -20,6 +20,7 @@ import {
 import { AnswerBar } from "./answerbar";
 import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
+import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 
 // handoff cards always carry an explicit height (feed is flex-1); resizable from here
@@ -180,6 +181,7 @@ export function AgentRow({
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
     const quiet = isQuiet(lastActivity[agent.id], now);
     const project = projectOf(agent);
+    const rt = runtimeMeta(agent.agent);
     const asking = agent.state === "asking";
     const working = agent.state === "working";
     const idle = agent.state === "idle";
@@ -239,6 +241,12 @@ export function AgentRow({
                     ∷∷
                 </span>
                 <StatusDot state={agent.state} quiet={quiet} pulse={!idle && !quiet} className="!h-2 !w-2" />
+                <span
+                    title={rt.label}
+                    className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}
+                >
+                    {rt.glyph}
+                </span>
                 <b className="min-w-[30px] flex-1 truncate font-mono text-[13.5px] font-semibold text-primary">
                     {agent.name}
                 </b>

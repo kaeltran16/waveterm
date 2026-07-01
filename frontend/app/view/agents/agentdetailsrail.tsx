@@ -19,6 +19,7 @@ import {
 import { capFiles, statusColor } from "./gitstatus";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { loadRailForAgent, railStateAtom } from "./railstore";
+import { runtimeMeta } from "./runtimemeta";
 import { getSubagentsAtom } from "./session-models/agentstatusstore";
 
 const DefaultContextMax = 200000; // fallback when the reporter omits contextmax (mirrors focusview)
@@ -30,7 +31,7 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
     return (
         <div className="flex items-baseline justify-between border-b border-[#161a20] py-[8px] last:border-b-0">
             <span className="text-[12.5px] text-muted">{label}</span>
@@ -50,6 +51,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const subs = useAtomValue(getSubagentsAtom(`block:${agent.blockId}`));
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
     const project = projectOf(agent);
+    const rt = runtimeMeta(agent.agent);
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
     const tools = summarizeActions(recentActions(entries, 0)).byVerb;
@@ -86,6 +88,15 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                     <SectionLabel>Details</SectionLabel>
                 </div>
                 <div className="flex flex-col">
+                    <DetailRow
+                        label="Runtime"
+                        value={
+                            <span className={cn("inline-flex items-center gap-[5px] font-semibold", rt.text)}>
+                                <span className="text-[11px]">{rt.glyph}</span>
+                                {rt.label}
+                            </span>
+                        }
+                    />
                     <DetailRow label="Project" value={project || "—"} />
                     <DetailRow label="Branch" value={railState?.branch || "—"} />
                     <DetailRow label="Model" value={agent.model ?? "—"} />

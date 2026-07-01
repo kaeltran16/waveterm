@@ -65,6 +65,17 @@
     --color-feed-glyph: #454c55; /* drag handle glyph */
     --color-working: #54c79a;
 
+    /* Runtime accents (roster/header/details badges — Wave-cockpit-live.dc.html RUNTIME map) */
+    --color-rt-claude: #8aa0ff;
+    --color-rt-claude-soft: rgba(138, 160, 255, 0.13);
+    --color-rt-claude-line: rgba(138, 160, 255, 0.34);
+    --color-rt-codex: #5bd6a4;
+    --color-rt-codex-soft: rgba(91, 214, 164, 0.13);
+    --color-rt-codex-line: rgba(91, 214, 164, 0.32);
+    --color-rt-terminal: #9aa3ad;
+    --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
+    --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
+
     /* Neutral overlays (theme-agnostic, preserved) */
     --color-hover: rgba(255, 255, 255, 0.1);
     --color-hoverbg: rgba(255, 255, 255, 0.2);
