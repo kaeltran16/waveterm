@@ -100,6 +100,79 @@ func TestRun_missingBinaryErrors(t *testing.T) {
 	}
 }
 
+func TestCodexParseLine_extractsAgentMessage(t *testing.T) {
+	// real codex `exec --json` events (captured 2026-07-01)
+	skip := []string{
+		`{"type":"thread.started","thread_id":"019f"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"turn.completed","usage":{"output_tokens":63}}`,
+		`{"type":"item.completed","item":{"type":"reasoning","text":"thinking..."}}`,
+	}
+	for _, line := range skip {
+		if txt, ok := codexParseLine([]byte(line)); ok || txt != "" {
+			t.Errorf("expected skip for %q, got %q", line, txt)
+		}
+	}
+	reply := `{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"pong"}}`
+	txt, ok := codexParseLine([]byte(reply))
+	if !ok || txt != "pong" {
+		t.Errorf("expected agent_message text 'pong', got %q ok=%v", txt, ok)
+	}
+	if _, ok := codexParseLine([]byte("not json")); ok {
+		t.Error("garbage line should not parse as a reply")
+	}
+}
+
+func TestClaudeParseLine_extractsAssistantText(t *testing.T) {
+	// real claude `-p --output-format stream-json --verbose` events (captured 2026-07-01)
+	skip := []string{
+		`{"type":"system","subtype":"init","session_id":"b16"}`,
+		`{"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup"}`,
+		`{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}`,
+		`{"type":"result","subtype":"success","result":"pong"}`, // final result is redundant with the assistant delta
+	}
+	for _, line := range skip {
+		if txt, ok := claudeParseLine([]byte(line)); ok || txt != "" {
+			t.Errorf("expected skip for %q, got %q", line, txt)
+		}
+	}
+	reply := `{"type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"pong"}]},"session_id":"b16"}`
+	txt, ok := claudeParseLine([]byte(reply))
+	if !ok || txt != "pong" {
+		t.Errorf("expected assistant text 'pong', got %q ok=%v", txt, ok)
+	}
+}
+
+func TestCleanTUI_stripsAnsiAndBoxDrawing(t *testing.T) {
+	// agy renders a repainting TUI over a pty: ANSI CSI, OSC, box-drawing, CR repaints.
+	raw := "\x1b[2J\x1b[H┌────────┐\r\n│ working…│\r\x1b[32mpong\x1b[0m\r\n└────────┘"
+	got := cleanTUI(raw)
+	if !strings.Contains(got, "pong") {
+		t.Errorf("expected 'pong' to survive cleaning, got %q", got)
+	}
+	if strings.ContainsRune(got, '\x1b') {
+		t.Errorf("ANSI escape leaked through: %q", got)
+	}
+	if strings.ContainsAny(got, "┌┐└┘│─") {
+		t.Errorf("box-drawing leaked through: %q", got)
+	}
+}
+
+func TestSpecFor_streamingModes(t *testing.T) {
+	codex, _ := SpecFor("codex")
+	if codex.ParseLine == nil {
+		t.Error("codex should use JSONL line parsing (--json)")
+	}
+	claude, _ := SpecFor("claude")
+	if claude.ParseLine == nil {
+		t.Error("claude should use JSONL line parsing (stream-json)")
+	}
+	agy, _ := SpecFor("antigravity")
+	if !agy.UsePty {
+		t.Error("agy must run under a pty (upstream non-TTY stdout bug antigravity-cli#76)")
+	}
+}
+
 func TestProbe_presentAndAbsent(t *testing.T) {
 	ok, ver := probe(context.Background(), "git")
 	if !ok {

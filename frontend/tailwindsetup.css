@@ -66,6 +66,14 @@
     --color-feed-glyph: #454c55; /* drag handle glyph */
     --color-working: #54c79a;
 
+    /* Channel avatar identity palette (deterministic per author; see channelderive.ts) */
+    --color-avatar-1: #7c95ff;
+    --color-avatar-2: #54c79a;
+    --color-avatar-3: #f0625a;
+    --color-avatar-4: #e6b450;
+    --color-avatar-5: #c98fe6;
+    --color-avatar-6: #9aa3ad;
+
     /* Runtime accents (roster/header/details badges — Wave-cockpit-live.dc.html RUNTIME map) */
     --color-rt-claude: #8aa0ff;
     --color-rt-claude-soft: rgba(138, 160, 255, 0.13);

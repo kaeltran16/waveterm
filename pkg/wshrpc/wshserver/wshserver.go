@@ -1622,8 +1622,13 @@ func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.
 const consultTimeout = 120 * time.Second
 
 // postConsultReply persists a consult-reply message and live-updates the pinned channel atom. Mirrors
-// PostChannelMessageCommand's post+update pattern for the fire-and-forget consult goroutine.
-func postConsultReply(ctx context.Context, data wshrpc.CommandConsultData, text string) {
+// PostChannelMessageCommand's post+update pattern for the fire-and-forget consult goroutine. It runs on
+// a fresh context, not the RPC request ctx: the request ctx is routinely already cancelled/expired by
+// the time a slow consult finishes, and the persisted reply is exactly what lets the FE card resolve,
+// so the write must not be tied to the request lifecycle.
+func postConsultReply(data wshrpc.CommandConsultData, text string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	msg := wstore.NewChannelMessage("consult-reply", data.Runtime, text, "consult:"+data.ConsultId, time.Now().UnixMilli())
 	if _, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg); err != nil {
 		log.Printf("consult: failed to post reply: %v", err)
@@ -1646,7 +1651,7 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 		}
 		spec, ok := consult.SpecFor(data.Runtime)
 		if !ok {
-			postConsultReply(ctx, data, "consult is not supported for @"+data.Runtime)
+			postConsultReply(data, "consult is not supported for @"+data.Runtime)
 			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: fmt.Errorf("unsupported runtime: %s", data.Runtime)}
 			return
 		}
@@ -1654,7 +1659,12 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 		runCtx, cancel := context.WithTimeout(ctx, consultTimeout)
 		defer cancel()
 		full, runErr := consult.Run(runCtx, spec, ch.ProjectPath, prompt, func(chunk string) {
-			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Response: wshrpc.ConsultChunk{Text: chunk}}
+			// live streaming is best-effort: never let a stalled/absent stream consumer wedge Run
+			// (the persisted consult-reply below is the reliable path the FE resolves on).
+			select {
+			case rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Response: wshrpc.ConsultChunk{Text: chunk}}:
+			case <-runCtx.Done():
+			}
 		})
 		reply := strings.TrimSpace(full)
 		if runErr != nil {
@@ -1663,7 +1673,7 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 			}
 			reply += "consult failed: " + runErr.Error()
 		}
-		postConsultReply(ctx, data, reply)
+		postConsultReply(data, reply)
 	}()
 	return rtn
 }

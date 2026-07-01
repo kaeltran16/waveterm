@@ -16,6 +16,11 @@ import { planMessage, type RosterEntry } from "./channelmessages";
 import { consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
 import { runtimeStartupCommand } from "./launch";
 
+// A consult runs a headless CLI that can take up to the backend's 120s consultTimeout. The RPC layer
+// otherwise applies a 5s default handler timeout (DefaultTimeoutMs), which would kill the stream long
+// before the reply lands (codex emits its first reply chunk only at ~6s). Give it headroom past 120s.
+const CONSULT_RPC_TIMEOUT_MS = 130_000;
+
 async function post(channelId: string, kind: string, author: string, text: string, refORef: string): Promise<void> {
     await RpcApi.PostChannelMessageCommand(TabRpcClient, {
         channelid: channelId,
@@ -51,12 +56,16 @@ export async function sendChannelMessage(args: {
             plan.runtimes.map(async (runtime) => {
                 setConsultStream(consultId, runtime, { text: "", status: "streaming" });
                 try {
-                    const gen = RpcApi.ConsultCommand(TabRpcClient, {
-                        channelid: channelId,
-                        runtime,
-                        prompt: plan.text,
-                        consultid: consultId,
-                    });
+                    const gen = RpcApi.ConsultCommand(
+                        TabRpcClient,
+                        {
+                            channelid: channelId,
+                            runtime,
+                            prompt: plan.text,
+                            consultid: consultId,
+                        },
+                        { timeout: CONSULT_RPC_TIMEOUT_MS }
+                    );
                     let acc = "";
                     for await (const chunk of gen) {
                         acc += chunk?.text ?? "";

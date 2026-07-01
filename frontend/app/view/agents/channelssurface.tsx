@@ -1,22 +1,26 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Channels surface: a conversational agent-dispatch surface. Type a message; @<runtime> spawns a new
-// worker, @<name> steers a live one, plain text posts a note. Dispatched workers become roster rows,
-// so a dispatch row shows a live status pill and an asking worker reuses AnswerBar — Cockpit still owns
-// monitoring; this surface only carries the dialogue and links out (↗).
+// Channels surface: a conversational agent-dispatch surface, in the handoff's 2-pane chat layout.
+// Left: the channel rail. Right: an avatar'd message stream + a card composer. Type a message;
+// @<runtime> spawns a worker, @<name> steers a live one, `ask @<runtime>` runs a one-shot consult,
+// plain text posts a note. Dispatched workers become roster rows, so a dispatch row shows a live
+// status pill and an asking worker reuses AnswerBar — Cockpit still owns monitoring; this surface
+// carries the dialogue and links out (↗).
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { cn, fireAndForget } from "@/util/util";
+import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AnswerBar } from "./answerbar";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage } from "./channelactions";
+import { avatarColor } from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
+import { ChannelRail } from "./channelrail";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
@@ -30,7 +34,7 @@ import {
 import { projectsAtom } from "./projectsstore";
 
 const STATE_DOT: Record<string, string> = {
-    working: "var(--color-accent)",
+    working: "var(--color-success)",
     asking: "var(--color-asking)",
     idle: "var(--color-muted)",
 };
@@ -54,8 +58,62 @@ function consultIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
 }
 
-// A consult question row with its replies grouped underneath by consultId. Each runtime shows either
-// its persisted consult-reply (preferred) or, until that arrives, the live streaming text.
+function timeLabel(ts: number, now: number): string {
+    return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
+}
+
+// 32px rounded avatar with the author's initial, colored deterministically by name.
+function Avatar({ name }: { name: string }) {
+    return (
+        <div
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] font-mono text-[13px] font-bold text-background"
+            style={{ backgroundColor: avatarColor(name) }}
+        >
+            {(name.charAt(0) || "?").toUpperCase()}
+        </div>
+    );
+}
+
+function Tag({ label, tone }: { label: string; tone: "muted" | "asking" }) {
+    if (tone === "asking") {
+        return (
+            <span className="rounded-[4px] bg-asking px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-background">
+                {label}
+            </span>
+        );
+    }
+    return (
+        <span className="rounded-[4px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-ink-mid">
+            {label}
+        </span>
+    );
+}
+
+// An asking worker's answer row, reusing the cockpit's AnswerBar + model answer state.
+function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+    const answerSel = useAtomValue(model.answerSelAtom);
+    const setAnswerSel = useSetAtom(model.answerSelAtom);
+    const sentIds = useAtomValue(model.sentIdsAtom);
+    const toggle = (qi: number, oi: number) => {
+        const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
+        setAnswerSel((prev) => ({ ...prev, [agent.id]: toggleSelection(prev[agent.id] ?? {}, qi, oi, multi) }));
+    };
+    return (
+        <div className="rounded-[9px] border border-asking/40 bg-lane-asking p-3">
+            <AnswerBar
+                agent={agent}
+                selections={answerSel[agent.id] ?? {}}
+                sent={sentIds.has(agent.id)}
+                numbered
+                onToggle={toggle}
+                onSubmit={() => model.submitAnswer(agent.id)}
+            />
+        </div>
+    );
+}
+
+// A consult question with its replies grouped underneath by consultId. Each runtime shows either its
+// persisted consult-reply (preferred) or, until that arrives, the live streaming text.
 function ConsultRow({
     msg,
     allMessages,
@@ -72,101 +130,94 @@ function ConsultRow({
         ? allMessages.filter((m) => m.kind === "consult-reply" && consultIdOf(m.reforef) === consultId)
         : [];
     const repliedRuntimes = new Set(replies.map((r) => r.author));
-    // live streams for this consultId whose persisted reply has not yet arrived
     const liveKeys = consultId
         ? Object.keys(streams).filter((k) => k.startsWith(`${consultId}:`) && !repliedRuntimes.has(k.split(":")[1]))
         : [];
     return (
-        <div className="border-b border-edge-faint px-1 py-3 last:border-b-0">
-            <div className="flex items-baseline gap-2">
-                <span className="font-mono text-[12px] font-semibold text-primary">{msg.author}</span>
-                <span className="rounded-[5px] border border-border px-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[.08em] text-muted">
-                    ask
-                </span>
-                <span className="ml-auto font-mono text-[10.5px] text-muted">
-                    {now - msg.ts < 60_000 ? "now" : new Date(msg.ts).toLocaleTimeString()}
-                </span>
-            </div>
-            <div className="mt-1 text-[13.5px] leading-[1.5] text-secondary">{msg.text || "(empty)"}</div>
-            {replies.map((r) => (
-                <div key={r.id} className="mt-2 rounded-[8px] border border-border bg-surface-hover/40 p-2.5">
-                    <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">{r.author}</div>
-                    <div className="whitespace-pre-wrap text-[13px] leading-[1.5] text-secondary">{r.text}</div>
+        <div className="flex items-start gap-3">
+            <Avatar name={msg.author} />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">{msg.author}</span>
+                    <Tag label="ask" tone="muted" />
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
-            ))}
-            {liveKeys.map((k) => {
-                const runtime = k.split(":")[1];
-                const s = streams[k];
-                return (
-                    <div key={k} className="mt-2 rounded-[8px] border border-accent/40 bg-accentbg/30 p-2.5">
-                        <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">
-                            {runtime} {s.status === "streaming" ? "· consulting…" : ""}
+                <p className="mb-2.5 text-[14px] leading-[1.6] text-secondary">{msg.text || "(empty)"}</p>
+                <div className="flex flex-col gap-2">
+                    {replies.map((r) => (
+                        <div key={r.id} className="rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5">
+                            <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">{r.author}</div>
+                            <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{r.text}</div>
                         </div>
-                        <div className="whitespace-pre-wrap text-[13px] leading-[1.5] text-secondary">
-                            {s.text || "…"}
-                        </div>
-                    </div>
-                );
-            })}
+                    ))}
+                    {liveKeys.map((k) => {
+                        const runtime = k.split(":")[1];
+                        const s = streams[k];
+                        return (
+                            <div key={k} className="rounded-[9px] border border-accent/40 bg-accentbg/30 px-3 py-2.5">
+                                <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">
+                                    {runtime} {s.status === "streaming" ? "· consulting…" : ""}
+                                </div>
+                                <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">
+                                    {s.text || "…"}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
         </div>
     );
 }
 
-// An asking worker's answer row, reusing the cockpit's AnswerBar + model answer state.
-function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
-    const answerSel = useAtomValue(model.answerSelAtom);
-    const setAnswerSel = useSetAtom(model.answerSelAtom);
-    const sentIds = useAtomValue(model.sentIdsAtom);
-    const toggle = (qi: number, oi: number) => {
-        const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
-        setAnswerSel((prev) => ({ ...prev, [agent.id]: toggleSelection(prev[agent.id] ?? {}, qi, oi, multi) }));
-    };
-    return (
-        <div className="mt-2 rounded-[8px] border border-asking/40 bg-accentbg/40 p-3">
-            <div className="mb-1.5 text-[12px] font-semibold text-asking">{agent.name} is asking</div>
-            <AnswerBar
-                agent={agent}
-                selections={answerSel[agent.id] ?? {}}
-                sent={sentIds.has(agent.id)}
-                numbered
-                onToggle={toggle}
-                onSubmit={() => model.submitAnswer(agent.id)}
-            />
-        </div>
-    );
-}
-
-function Row({ model, agents, msg, now }: { model: AgentsViewModel; agents: AgentVM[]; msg: ChannelMessage; now: number }) {
+// A dispatch / directive / human message row: avatar + author + optional tag + body, plus (for a
+// dispatch) the live worker status pill, open link, and — when asking — the inline AnswerBar.
+function MessageRow({
+    model,
+    agents,
+    msg,
+    now,
+}: {
+    model: AgentsViewModel;
+    agents: AgentVM[];
+    msg: ChannelMessage;
+    now: number;
+}) {
     const worker = msg.reforef ? workerFor(agents, msg.reforef) : undefined;
     const isDispatch = msg.kind === "dispatch";
     return (
-        <div className="border-b border-edge-faint px-1 py-3 last:border-b-0">
-            <div className="flex items-baseline gap-2">
-                <span className="font-mono text-[12px] font-semibold text-primary">{msg.author}</span>
-                {isDispatch ? (
-                    <span className="rounded-[5px] border border-border px-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[.08em] text-muted">
-                        dispatch
-                    </span>
-                ) : null}
-                <span className="ml-auto font-mono text-[10.5px] text-muted">
-                    {now - msg.ts < 60_000 ? "now" : new Date(msg.ts).toLocaleTimeString()}
-                </span>
-            </div>
-            <div className="mt-1 text-[13.5px] leading-[1.5] text-secondary">{msg.text || "(empty)"}</div>
-            {isDispatch && worker ? (
-                <div className="mt-1.5 flex items-center gap-2">
-                    <span className="h-[8px] w-[8px] rounded-full" style={{ backgroundColor: STATE_DOT[worker.state] ?? "var(--color-muted)" }} />
-                    <span className="font-mono text-[10.5px] text-muted">{worker.state}</span>
-                    <button
-                        type="button"
-                        onClick={() => jumpToAgent(model, worker.id)}
-                        className="cursor-pointer font-mono text-[10.5px] text-ink-mid hover:text-accent-soft"
-                    >
-                        open ↗
-                    </button>
+        <div className="flex items-start gap-3">
+            <Avatar name={msg.author} />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">{msg.author}</span>
+                    {isDispatch ? <Tag label="dispatch" tone="muted" /> : null}
+                    {isDispatch && worker?.state === "asking" ? <Tag label="asking" tone="asking" /> : null}
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
-            ) : null}
-            {isDispatch && worker && worker.state === "asking" ? <AskRow model={model} agent={worker} /> : null}
+                <p className="text-[14px] leading-[1.6] text-secondary">{msg.text || "(empty)"}</p>
+                {isDispatch && worker ? (
+                    <div className="mt-2 flex items-center gap-2.5">
+                        <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: STATE_DOT[worker.state] ?? "var(--color-muted)" }}
+                        />
+                        <span className="font-mono text-[10.5px] text-muted">{worker.state}</span>
+                        <button
+                            type="button"
+                            onClick={() => jumpToAgent(model, worker.id)}
+                            className="cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent"
+                        >
+                            open ↗
+                        </button>
+                    </div>
+                ) : null}
+                {isDispatch && worker && worker.state === "asking" ? (
+                    <div className="mt-2">
+                        <AskRow model={model} agent={worker} />
+                    </div>
+                ) : null}
+            </div>
         </div>
     );
 }
@@ -182,6 +233,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const [draft, setDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
     useEffect(() => {
         fireAndForget(loadChannels);
     }, []);
@@ -194,7 +247,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const messages = active?.messages ?? [];
-    // gate the consult hint to runtimes actually installed on this machine
     const askHint = installedRuntimes.length > 0 ? ` · ask @${installedRuntimes.join(" / @")} for a one-shot review` : "";
 
     const send = () => {
@@ -215,6 +267,11 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
+    const insertMention = () => {
+        setDraft((d) => (d.length > 0 && !d.endsWith(" ") ? d + " @" : d + "@"));
+        textareaRef.current?.focus();
+    };
+
     // A channel is bound to a project at creation, so every dispatch has a valid cwd (no unbound state).
     const pickProject = (name: string, path: string) => {
         setPicking(false);
@@ -224,110 +281,101 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     };
 
     return (
-        <div className="absolute inset-0 flex flex-col">
-            <div className="flex items-center gap-2 border-b border-border px-[30px] py-3">
-                <h1 className="text-[18px] font-bold tracking-[-0.02em] text-primary">Channels</h1>
-                <div className="ml-3 flex flex-wrap gap-1.5">
-                    {(channels ?? []).map((c) => (
-                        <button
-                            key={c.oid}
-                            type="button"
-                            onClick={() => fireAndForget(() => selectChannel(c.oid))}
-                            className={cn(
-                                "cursor-pointer rounded-[7px] border px-[11px] py-[5px] text-[12px] font-medium",
-                                c.oid === activeId
-                                    ? "border-accent bg-accentbg text-accent-soft"
-                                    : "border-border bg-surface text-ink-mid hover:border-edge-strong"
-                            )}
-                        >
-                            {c.name}
-                        </button>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={() => setPicking((p) => !p)}
-                        className="cursor-pointer rounded-[7px] border border-border bg-surface px-[11px] py-[5px] text-[12px] font-medium text-ink-mid hover:border-accent"
-                    >
-                        + New
-                    </button>
-                </div>
-            </div>
+        <div className="absolute inset-0 flex">
+            <ChannelRail
+                channels={channels}
+                activeId={activeId}
+                agents={agents}
+                projects={projects}
+                picking={picking}
+                onSelect={(id) => fireAndForget(() => selectChannel(id))}
+                onToggleNew={() => setPicking((p) => !p)}
+                onPickProject={pickProject}
+            />
 
-            {picking ? (
-                <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-[30px] py-2.5">
-                    <span className="text-[11px] text-muted">New channel in project:</span>
-                    {Object.entries(projects).map(([name, p]) => (
-                        <button
-                            key={name}
-                            type="button"
-                            onClick={() => pickProject(name, p?.path ?? "")}
-                            className="cursor-pointer rounded-[7px] border border-border bg-surface px-[11px] py-[5px] text-[12px] font-medium text-ink-mid hover:border-accent"
-                        >
-                            {name}
-                        </button>
-                    ))}
-                    {Object.keys(projects).length === 0 ? (
-                        <span className="text-[11px] text-muted">No projects registered — add one from the Cockpit “+ New project”.</span>
-                    ) : null}
+            <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-[22px] py-3.5">
+                    <span className="font-mono text-[17px] font-bold text-muted">#</span>
+                    <div className="min-w-0">
+                        <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
+                            {active?.name ?? "no channel"}
+                        </div>
+                        {active?.projectpath ? (
+                            <div className="truncate font-mono text-[11.5px] text-muted">{active.projectpath}</div>
+                        ) : null}
+                    </div>
                 </div>
-            ) : null}
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-[30px] py-4">
-                <div className="mx-auto max-w-[820px]">
-                    {channels == null ? (
-                        <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>
-                    ) : !activeId ? (
-                        <div className="mt-10 text-center text-[13px] text-muted">
-                            No channel yet — click <span className="text-secondary">+ New</span> to create one bound to a project.
-                        </div>
-                    ) : messages.length === 0 ? (
-                        <div className="mt-10 text-center text-[13px] text-muted">
-                            Empty channel. Try <span className="font-mono text-secondary">@claude do something</span>.
-                        </div>
-                    ) : (
-                        messages
-                            .filter((m) => m.kind !== "consult-reply")
-                            .map((m) =>
-                                m.kind === "consult" ? (
-                                    <ConsultRow
-                                        key={m.id}
-                                        msg={m}
-                                        allMessages={messages}
-                                        streams={consultStreams}
-                                        now={now}
-                                    />
-                                ) : (
-                                    <Row key={m.id} model={model} agents={agents} msg={m} now={now} />
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
+                    <div className="flex max-w-[760px] flex-col gap-5">
+                        {channels == null ? (
+                            <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>
+                        ) : !activeId ? (
+                            <div className="mt-10 text-center text-[13px] text-muted">
+                                No channel yet — click <span className="text-secondary">+ New channel</span> to create
+                                one bound to a project.
+                            </div>
+                        ) : messages.length === 0 ? (
+                            <div className="mt-10 text-center text-[13px] text-muted">
+                                Empty channel. Try <span className="font-mono text-secondary">@claude do something</span>.
+                            </div>
+                        ) : (
+                            messages
+                                .filter((m) => m.kind !== "consult-reply")
+                                .map((m) =>
+                                    m.kind === "consult" ? (
+                                        <ConsultRow
+                                            key={m.id}
+                                            msg={m}
+                                            allMessages={messages}
+                                            streams={consultStreams}
+                                            now={now}
+                                        />
+                                    ) : (
+                                        <MessageRow key={m.id} model={model} agents={agents} msg={m} now={now} />
+                                    )
                                 )
-                            )
-                    )}
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            <div className="border-t border-border px-[30px] py-3">
-                <div className="mx-auto flex max-w-[820px] items-end gap-2">
-                    <textarea
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                send();
-                            }
-                        }}
-                        rows={1}
-                        placeholder={`Message, or @claude / @codex to dispatch, @worker to steer${askHint}`}
-                        disabled={!activeId}
-                        className="min-h-[38px] flex-1 resize-none rounded-[9px] border border-border bg-surface px-[13px] py-[9px] text-[13px] text-primary placeholder:text-muted focus:border-accent focus:outline-none disabled:opacity-50"
-                    />
-                    <button
-                        type="button"
-                        onClick={send}
-                        disabled={!activeId}
-                        className="shrink-0 cursor-pointer rounded-[8px] border border-accent bg-accentbg px-[15px] py-[9px] text-[12.5px] font-semibold text-accent-soft hover:brightness-110 disabled:opacity-50"
-                    >
-                        Send
-                    </button>
+                <div className="flex-none px-6 pb-[18px] pt-2">
+                    <div className="max-w-[760px] rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
+                        <textarea
+                            ref={textareaRef}
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    send();
+                                }
+                            }}
+                            rows={1}
+                            placeholder={`Message #${active?.name ?? "channel"}…${askHint}`}
+                            disabled={!activeId}
+                            className="min-h-[22px] w-full resize-none bg-transparent text-[14px] text-primary placeholder:text-muted focus:outline-none disabled:opacity-50"
+                        />
+                        <div className="mt-2.5 flex items-center gap-2.5">
+                            <button
+                                type="button"
+                                onClick={insertMention}
+                                disabled={!activeId}
+                                className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11.5px] text-ink-mid hover:border-edge-strong disabled:opacity-50"
+                            >
+                                @ mention agent
+                            </button>
+                            <div className="flex-1" />
+                            <button
+                                type="button"
+                                onClick={send}
+                                disabled={!activeId}
+                                className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
+                            >
+                                Send ⏎
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
