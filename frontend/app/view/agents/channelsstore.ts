@@ -44,6 +44,8 @@ export async function loadChannels(): Promise<void> {
 export async function selectChannel(channelId: string): Promise<void> {
     await WOS.loadAndPinWaveObject<Channel>(WOS.makeORef("channel", channelId));
     globalStore.set(activeChannelIdAtom, channelId);
+    // stamp last-read so the rail unread badge clears (fire-and-forget; failure is non-fatal)
+    RpcApi.SetChannelReadCommand(TabRpcClient, { channelid: channelId, ts: Date.now() }).catch(() => {});
 }
 
 export async function createChannel(name: string, projectPath: string): Promise<string> {
