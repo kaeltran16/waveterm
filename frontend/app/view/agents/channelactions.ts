@@ -199,3 +199,28 @@ export async function sendChannelMessage(args: {
     }
     await post(channelId, "human", "you", plan.text, "");
 }
+
+// steerWorker injects a directive into a live worker's terminal (Override on an answered card) and
+// records a directive message, mirroring the composer's steer branch. workerORef is a "tab:<id>" oref;
+// the roster entry supplies the blockId to write to. No-ops (returns false) if the worker is gone.
+export async function steerWorker(args: {
+    channelId: string;
+    workerORef: string;
+    agents: AgentVM[];
+    text: string;
+}): Promise<boolean> {
+    const { channelId, workerORef, agents, text } = args;
+    if (!workerORef.startsWith("tab:")) {
+        return false;
+    }
+    const worker = agents.find((a) => a.id === workerORef.slice("tab:".length));
+    if (!worker?.blockId) {
+        return false;
+    }
+    await RpcApi.ControllerInputCommand(TabRpcClient, {
+        blockid: worker.blockId,
+        inputdata64: stringToBase64(text + "\r"),
+    });
+    await post(channelId, "directive", "you", text, workerORef);
+    return true;
+}
