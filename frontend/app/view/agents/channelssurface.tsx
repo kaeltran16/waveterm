@@ -272,29 +272,94 @@ function JarvisRow({
     );
 }
 
-// A standalone Gatekeeper row for the two server-posted kinds. `jarvis-answered` is a muted/confirmed
-// card (Jarvis answered a routine ask on the human's behalf, on the record); `jarvis-escalation` is an
-// amber attention card addressing @you (a genuine fork the human must decide). Reuses the existing
-// amber "asking" @theme treatment — there is no separate "warning" token in this surface.
-function GatekeeperRow({ msg, now }: { msg: ChannelMessage; now: number }) {
-    const escalated = msg.kind === "jarvis-escalation";
+// The Gatekeeper "answered for you" card: shows the worker's question, the option Jarvis chose, and its
+// reasoning, with an Override that reveals the options so you can steer the worker to a different one.
+// Legacy messages (no structured data) fall back to the flat muted text card.
+function GatekeeperRow({
+    model,
+    agents,
+    msg,
+    now,
+}: {
+    model: AgentsViewModel;
+    agents: AgentVM[];
+    msg: ChannelMessage;
+    now: number;
+}) {
+    const card = parseCardData(msg);
+    const [overriding, setOverriding] = useState(false);
+    const [steered, setSteered] = useState<number | null>(null);
+    const worker = card ? workerFor(agents, card.workerORef) : undefined;
+    const workerName = worker?.name ?? "worker";
+    const doOverride = (idx: number) => {
+        if (!card) {
+            return;
+        }
+        setSteered(idx);
+        setOverriding(false);
+        fireAndForget(async () => {
+            await steerWorker({
+                channelId: msg.reforef ? msg.reforef : (globalStore.get(activeChannelIdAtom) ?? ""),
+                workerORef: card.workerORef,
+                agents,
+                text: `reconsider — use ${card.options[idx]?.label}`,
+            });
+        });
+    };
     return (
         <div className="flex items-start gap-3">
             <Avatar name="jarvis" />
             <div className="min-w-0 flex-1">
                 <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-[13px] font-semibold text-primary">jarvis</span>
-                    <Tag label={escalated ? "escalation" : "answered"} tone={escalated ? "asking" : "muted"} />
+                    <Tag label="answered" tone="muted" />
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
-                <div
-                    className={
-                        escalated
-                            ? "rounded-[9px] border border-asking/40 bg-lane-asking px-3 py-2.5"
-                            : "rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5"
-                    }
-                >
-                    <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-3">
+                    {card && card.choice != null ? (
+                        <>
+                            <div className="mb-2.5 rounded-[8px] border border-edge-faint bg-background/40 px-3 py-2">
+                                <div className="mb-0.5 font-mono text-[11px] font-semibold text-ink-mid">
+                                    {workerName} asked
+                                </div>
+                                <div className="text-[13px] text-secondary">{card.question}</div>
+                            </div>
+                            <div className="mb-1 flex items-baseline gap-2">
+                                <span className="text-[12px] text-muted">Jarvis chose</span>
+                                <span className="text-[14px] font-semibold text-primary">
+                                    {card.options[card.choice]?.label}
+                                </span>
+                            </div>
+                            {card.reason ? (
+                                <p className="text-[13px] leading-[1.55] text-secondary">{card.reason}</p>
+                            ) : null}
+                            <div className="mt-3 flex items-center gap-2.5 border-t border-edge-faint pt-2.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                <span className="flex-1 text-[11.5px] text-muted">
+                                    {steered != null
+                                        ? `steered ${workerName} → ${card.options[steered]?.label}`
+                                        : `${workerName} resumed on its own`}
+                                </span>
+                                {steered == null && worker ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setOverriding((v) => !v)}
+                                        className="cursor-pointer rounded-[6px] border border-edge-mid px-2.5 py-1 font-mono text-[11px] text-ink-mid hover:border-edge-strong"
+                                    >
+                                        Override
+                                    </button>
+                                ) : null}
+                            </div>
+                            {overriding ? (
+                                <div className="mt-2.5">
+                                    <div className="mb-1.5 text-[11px] text-muted">Steer {workerName} to:</div>
+                                    <OptionList options={card.options} chosen={card.choice} onPick={doOverride} />
+                                </div>
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                    )}
                 </div>
             </div>
         </div>
@@ -825,7 +890,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                             now={now}
                                         />
                                     ) : m.kind === "jarvis-answered" ? (
-                                        <GatekeeperRow key={m.id} msg={m} now={now} />
+                                        <GatekeeperRow key={m.id} model={model} agents={agents} msg={m} now={now} />
                                     ) : m.kind === "jarvis-escalation" ? (
                                         <EscalationRow key={m.id} agents={agents} msg={m} now={now} />
                                     ) : (
