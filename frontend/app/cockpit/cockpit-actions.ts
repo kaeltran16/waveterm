@@ -49,8 +49,9 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     if (blockId == null) {
         throw new Error("new tab has no block");
     }
+    const blockORef = WOS.makeORef("block", blockId);
     await RpcApi.SetMetaCommand(TabRpcClient, {
-        oref: WOS.makeORef("block", blockId),
+        oref: blockORef,
         meta: buildLaunchMeta({
             runtime: opts.runtime,
             startupCommand: opts.startupCommand,
@@ -58,6 +59,11 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
             cwd,
         }),
     });
+    // Refresh the frontend's cached block object. getWaveObjectAtom does a one-time fetch and does
+    // NOT subscribe, so the session sidebar's read of this block stays pinned to the pre-SetMeta
+    // shell meta — leaving it without cmd:cwd, so the tab never enters the agent roster (the agent
+    // renders as a bare terminal and the cockpit panel stays empty). Reload so the roster sees cmd.
+    await WOS.reloadWaveObject(blockORef);
     // Sync the shared brain at launch: pull the launch project's Codex facts into the Claude hub,
     // THEN project the (now-updated) hub into the lackey steering files so the agent boots with the
     // current brain and any just-harvested facts also reach the other lackeys. One fire-and-forget

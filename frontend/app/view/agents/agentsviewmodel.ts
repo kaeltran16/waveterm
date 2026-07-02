@@ -299,6 +299,7 @@ export interface TerminalRowInput {
     label: string;
     termBlockOref?: string;
     isAgentsTab?: boolean;
+    agent?: string; // session:agent runtime, set at launch for agent tabs (never for terminals)
 }
 
 /** Pure: the plain-terminal sessions — rows that own a term block but never emitted an agent status
@@ -311,7 +312,10 @@ export function deriveTerminalVMs(
 ): AgentVM[] {
     const out: AgentVM[] = [];
     for (const row of rows) {
-        if (row.isAgentsTab || !row.termBlockOref || hasAgentStatus(row.termBlockOref)) {
+        // An agent tab (session:agent set) is never a terminal, even in the window before its status
+        // reporter fires — otherwise a just-launched agent renders as BOTH a pending agent and a terminal.
+        const isAgentSession = row.agent != null && row.agent !== "terminal";
+        if (row.isAgentsTab || isAgentSession || !row.termBlockOref || hasAgentStatus(row.termBlockOref)) {
             continue;
         }
         out.push({

@@ -74,6 +74,7 @@ export interface SessionRowVM {
     tabId: string;
     label: string;
     customLabel?: string;
+    agent?: string; // session:agent runtime (claude/codex/…); undefined for plain terminals
     status: SessionStatus;
     active: boolean;
     blocked: boolean;
@@ -112,6 +113,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         tabId: s.tabId,
         label: rowLabel(s, includeService),
         customLabel: s.customLabel,
+        agent: s.agent,
         status,
         active: s.active,
         blocked: status === "waiting",

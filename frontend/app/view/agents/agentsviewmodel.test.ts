@@ -720,7 +720,7 @@ describe("mergePendingLaunches", () => {
 });
 
 describe("deriveTerminalVMs", () => {
-    type Row = { tabId: string; label: string; termBlockOref?: string; isAgentsTab?: boolean };
+    type Row = { tabId: string; label: string; termBlockOref?: string; isAgentsTab?: boolean; agent?: string };
     const none = () => false;
 
     it("maps a plain terminal session (term block, no agent status) to a terminal VM", () => {
@@ -742,5 +742,15 @@ describe("deriveTerminalVMs", () => {
             { tabId: "t2", label: "no-term" },
         ];
         expect(deriveTerminalVMs(rows, none)).toHaveLength(0);
+    });
+
+    it("skips agent-runtime sessions whose reporter hasn't fired yet (session:agent set, no status)", () => {
+        const rows: Row[] = [{ tabId: "t1", label: "waveterm", termBlockOref: "block:b1", agent: "claude" }];
+        expect(deriveTerminalVMs(rows, none)).toHaveLength(0);
+    });
+
+    it("still maps a real terminal session (no session:agent) to a terminal VM", () => {
+        const rows: Row[] = [{ tabId: "t1", label: "waveterm", termBlockOref: "block:b1", agent: undefined }];
+        expect(deriveTerminalVMs(rows, none)).toHaveLength(1);
     });
 });
