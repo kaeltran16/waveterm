@@ -580,6 +580,38 @@ func StartRemoteShellJob(ctx context.Context, logCtx context.Context, termSize w
 	return jobId, nil
 }
 
+// ensureWshOnPath prepends WAVETERM_WSHBINDIR to the command's PATH so `wsh` is resolvable.
+// Interactive shells get this from the rc-file shell integration, but a forced-JWT agent runs as
+// `shell -c "..."` which skips that bootstrap — leaving wsh off PATH so hook-driven tools that shell
+// out to `wsh` (e.g. the external agent-status reporter) silently fail and the cockpit never
+// receives agent status. Idempotent: a no-op if the bin dir is already on PATH.
+func ensureWshOnPath(ecmd *exec.Cmd) {
+	var binDir string
+	for _, kv := range ecmd.Env {
+		if name, val, ok := strings.Cut(kv, "="); ok && name == "WAVETERM_WSHBINDIR" {
+			binDir = val
+			break
+		}
+	}
+	if binDir == "" {
+		return
+	}
+	sep := string(os.PathListSeparator)
+	for i, kv := range ecmd.Env {
+		name, val, _ := strings.Cut(kv, "=")
+		if strings.EqualFold(name, "PATH") {
+			for _, p := range strings.Split(val, sep) {
+				if strings.EqualFold(p, binDir) {
+					return
+				}
+			}
+			ecmd.Env[i] = name + "=" + binDir + sep + val
+			return
+		}
+	}
+	ecmd.Env = append(ecmd.Env, "PATH="+binDir)
+}
+
 func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdStr string, cmdOpts CommandOptsType, connName string) (*ShellProc, error) {
 	if cmdOpts.SwapToken == nil {
 		return nil, fmt.Errorf("SwapToken is required in CommandOptsType")
@@ -681,6 +713,11 @@ func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdS
 		envToAdd["LANG"] = wavebase.DetermineLang()
 	}
 	shellutil.UpdateCmdEnv(ecmd, envToAdd)
+	if cmdOpts.ForceJwt {
+		// Agents launch non-interactively (shell -c), skipping the rc integration that adds wsh to
+		// PATH; do it here so hook-driven tools can find wsh and report status to the cockpit.
+		ensureWshOnPath(ecmd)
+	}
 	if termSize.Rows == 0 || termSize.Cols == 0 {
 		termSize.Rows = shellutil.DefaultTermRows
 		termSize.Cols = shellutil.DefaultTermCols
