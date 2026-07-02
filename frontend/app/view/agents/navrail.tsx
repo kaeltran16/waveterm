@@ -81,6 +81,15 @@ const ICON: Record<SurfaceKey, ReactNode> = {
             <path d="M10 3a7 7 0 0 1 6.1 10.4" stroke="currentColor" strokeWidth="1.8" />
         </svg>
     ),
+    settings: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <circle cx="10" cy="10" r="2.6" />
+            <path
+                d="M10 1.5v2.2M10 16.3v2.2M18.5 10h-2.2M3.7 10H1.5M15.8 4.2l-1.6 1.6M5.8 14.2l-1.6 1.6M15.8 15.8l-1.6-1.6M5.8 5.8L4.2 4.2"
+                strokeLinecap="round"
+            />
+        </svg>
+    ),
 };
 
 export const ITEMS: { key: SurfaceKey; label: string }[] = [
@@ -96,31 +105,34 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
 
 export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
+    const renderItem = (key: SurfaceKey, label: string) => {
+        const isActive = active === key;
+        return (
+            <button
+                key={key}
+                type="button"
+                onClick={() => setActive(key)}
+                className={cn(
+                    "relative mx-2 flex cursor-pointer flex-col items-center gap-[5px] rounded-[10px] border-0 bg-transparent py-[11px] text-muted hover:text-muted-foreground",
+                    isActive && "text-accent-soft"
+                )}
+            >
+                {isActive ? (
+                    <>
+                        <span className="absolute inset-0 rounded-[10px] bg-accent/10" />
+                        <span className="absolute left-[-8px] top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-[3px] bg-accent" />
+                    </>
+                ) : null}
+                <span className="relative z-[1]">{ICON[key]}</span>
+                <span className="relative z-[1] text-[10px] font-semibold">{label}</span>
+            </button>
+        );
+    };
     return (
         <nav className="flex w-[78px] shrink-0 flex-col gap-[3px] border-r border-border bg-surface py-2.5">
-            {ITEMS.map(({ key, label }) => {
-                const isActive = active === key;
-                return (
-                    <button
-                        key={key}
-                        type="button"
-                        onClick={() => setActive(key)}
-                        className={cn(
-                            "relative mx-2 flex cursor-pointer flex-col items-center gap-[5px] rounded-[10px] border-0 bg-transparent py-[11px] text-muted hover:text-muted-foreground",
-                            isActive && "text-accent-soft"
-                        )}
-                    >
-                        {isActive ? (
-                            <>
-                                <span className="absolute inset-0 rounded-[10px] bg-accent/10" />
-                                <span className="absolute left-[-8px] top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-[3px] bg-accent" />
-                            </>
-                        ) : null}
-                        <span className="relative z-[1]">{ICON[key]}</span>
-                        <span className="relative z-[1] text-[10px] font-semibold">{label}</span>
-                    </button>
-                );
-            })}
+            {ITEMS.map(({ key, label }) => renderItem(key, label))}
+            <div className="flex-1" />
+            {renderItem("settings", "Settings")}
         </nav>
     );
 }

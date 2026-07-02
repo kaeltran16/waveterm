@@ -6,6 +6,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import { confirmCloseAgent } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER } from "@/app/view/agents/agents";
+import { startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
@@ -46,6 +47,8 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             tabModel: getTabModelByTabId(tabIdRef.current, waveEnv),
             waveEnv,
         });
+        // Open the user's chosen startup surface (defaults to "cockpit", matching prior behavior).
+        globalStore.set(model.surfaceAtom, globalStore.get(startupSurfaceAtom));
         agentsModelRef.current = model;
     }
     const model = agentsModelRef.current;

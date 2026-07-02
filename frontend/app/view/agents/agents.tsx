@@ -30,7 +30,8 @@ export type SurfaceKey =
     | "sessions"
     | "files"
     | "memory"
-    | "usage";
+    | "usage"
+    | "settings";
 
 // Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees.
 export const SURFACE_ORDER: SurfaceKey[] = [
