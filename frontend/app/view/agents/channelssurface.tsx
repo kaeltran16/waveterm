@@ -17,7 +17,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import type { AgentsViewModel } from "./agents";
 import { AnswerBar } from "./answerbar";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
-import { sendChannelMessage } from "./channelactions";
+import { sendChannelMessage, steerWorker } from "./channelactions";
 import {
     activeMentionQuery,
     avatarColor,
@@ -25,6 +25,7 @@ import {
     mentionCandidates,
     type MentionCandidate,
 } from "./channelderive";
+import { autonomyExplainer, fleetCounts, parseCardData } from "./jarviscards";
 import { tierFromMeta, type RosterEntry } from "./channelmessages";
 import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
@@ -98,6 +99,47 @@ function Tag({ label, tone }: { label: string; tone: "muted" | "asking" }) {
         <span className="rounded-[4px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-ink-mid">
             {label}
         </span>
+    );
+}
+
+// A radio-style option list used by the escalation card (deliver an answer) and Override (steer). When
+// `chosen` is set, that option is marked; clicking any option calls onPick with its index.
+function OptionList({
+    options,
+    chosen,
+    onPick,
+    disabled,
+}: {
+    options: { label: string; sub?: string }[];
+    chosen?: number;
+    onPick: (idx: number) => void;
+    disabled?: boolean;
+}) {
+    return (
+        <div className="flex flex-col gap-2">
+            {options.map((o, i) => (
+                <button
+                    key={i}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onPick(i)}
+                    className="flex items-start gap-2.5 rounded-[10px] border border-edge-mid bg-surface-raised px-3 py-2.5 text-left hover:border-edge-strong disabled:opacity-50"
+                >
+                    <span
+                        className={
+                            "mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded-full border " +
+                            (i === chosen ? "border-accent" : "border-edge-strong")
+                        }
+                    >
+                        {i === chosen ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+                    </span>
+                    <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-primary">{o.label}</span>
+                        {o.sub ? <span className="mt-0.5 block text-[11.5px] text-muted">{o.sub}</span> : null}
+                    </span>
+                </button>
+            ))}
+        </div>
     );
 }
 
@@ -253,6 +295,67 @@ function GatekeeperRow({ msg, now }: { msg: ChannelMessage; now: number }) {
                     }
                 >
                     <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// The escalation card: an amber attention card whose options are clickable. Selecting one delivers the
+// answer to the still-blocked worker via AnswerAgentCommand (the same path AnswerBar uses), then shows a
+// resolved footer. Falls back to the flat text for legacy messages with no structured data.
+function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: AgentVM[]; now: number }) {
+    const card = parseCardData(msg);
+    const [picked, setPicked] = useState<number | null>(null);
+    const worker = card ? workerFor(agents, card.workerORef) : undefined;
+    const workerName = worker?.name ?? "worker";
+    const deliver = (idx: number) => {
+        if (!card) {
+            return;
+        }
+        setPicked(idx);
+        fireAndForget(() =>
+            RpcApi.AnswerAgentCommand(TabRpcClient, {
+                oref: card.askORef,
+                answers: [{ selectedindexes: [idx] }],
+            })
+        );
+    };
+    return (
+        <div className="flex items-start gap-3">
+            <Avatar name="jarvis" />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">jarvis</span>
+                    <Tag label="escalation" tone="asking" />
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
+                </div>
+                <div className="rounded-[9px] border border-asking/40 bg-lane-asking px-3.5 py-3">
+                    {card ? (
+                        <>
+                            {card.reason ? (
+                                <p className="mb-2 text-[12.5px] leading-[1.55] text-ink-mid">
+                                    <span className="text-muted">Why I'm not deciding this: </span>
+                                    {card.reason}
+                                </p>
+                            ) : null}
+                            <p className="mb-3 text-[14px] font-semibold leading-[1.5] text-primary">{card.question}</p>
+                            {picked == null ? (
+                                <OptionList options={card.options} onPick={deliver} disabled={!worker} />
+                            ) : (
+                                <div className="flex items-center gap-2 text-[12px] text-secondary">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                    You chose <b className="text-primary">{card.options[picked]?.label}</b> — sent to{" "}
+                                    {workerName}, resuming.
+                                </div>
+                            )}
+                            {!worker && picked == null ? (
+                                <p className="mt-2 text-[11px] text-muted">{workerName} has exited — can't deliver.</p>
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                    )}
                 </div>
             </div>
         </div>
@@ -721,8 +824,10 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                             streams={consultStreams}
                                             now={now}
                                         />
-                                    ) : m.kind === "jarvis-answered" || m.kind === "jarvis-escalation" ? (
+                                    ) : m.kind === "jarvis-answered" ? (
                                         <GatekeeperRow key={m.id} msg={m} now={now} />
+                                    ) : m.kind === "jarvis-escalation" ? (
+                                        <EscalationRow key={m.id} agents={agents} msg={m} now={now} />
                                     ) : (
                                         <MessageRow key={m.id} model={model} agents={agents} msg={m} now={now} />
                                     )
