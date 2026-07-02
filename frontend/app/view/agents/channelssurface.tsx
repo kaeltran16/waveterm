@@ -75,8 +75,16 @@ function timeLabel(ts: number, now: number): string {
     return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
 }
 
-// 32px rounded avatar with the author's initial, colored deterministically by name.
+// 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; everyone else
+// gets their name's initial, colored deterministically.
 function Avatar({ name }: { name: string }) {
+    if (name.toLowerCase() === "jarvis") {
+        return (
+            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] bg-accent">
+                <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-background" />
+            </div>
+        );
+    }
     return (
         <div
             className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] font-mono text-[13px] font-bold text-background"
@@ -939,7 +947,13 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     onChange={setDraft}
                     onSend={send}
                     disabled={!activeId}
-                    placeholder={`Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`}
+                    placeholder={
+                        tier === "gatekeeper"
+                            ? `Message #${active?.name ?? "channel"} — Jarvis is handling routine questions`
+                            : tier === "delegator"
+                              ? `Message #${active?.name ?? "channel"} — @jarvis <goal> to dispatch workers`
+                              : `Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`
+                    }
                     candidates={mentionCandidates(installedRuntimes, roster)}
                 />
               </div>
