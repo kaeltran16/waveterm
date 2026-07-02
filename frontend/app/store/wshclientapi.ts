@@ -612,6 +612,12 @@ export class RpcApiType {
         return client.wshRpcCall("gitdiff", data, opts);
     }
 
+    // command "gitrevert" [call]
+    GitRevertCommand(client: WshClient, data: CommandGitRevertData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitrevert", data, opts);
+        return client.wshRpcCall("gitrevert", data, opts);
+    }
+
     // command "jarvis" [responsestream]
 	JarvisCommand(client: WshClient, data: CommandJarvisData, opts?: RpcOpts): AsyncGenerator<JarvisChunk, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "jarvis", data, opts);

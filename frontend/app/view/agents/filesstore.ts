@@ -58,6 +58,13 @@ async function loadChangesForCwd(token: string, cwd: string | null): Promise<voi
     }
 }
 
+// Re-fetch changes for the surface's active source, reusing the live guard token so the writes
+// aren't short-circuited (used after a Review apply mutates the tree). No-op if nothing is loaded.
+export async function reloadChanges(cwd: string | null): Promise<void> {
+    if (!current.token) return;
+    await loadChangesForCwd(current.token, cwd);
+}
+
 function beginLoad(token: string): void {
     current.token = token;
     globalStore.set(filesStateAtom, null);

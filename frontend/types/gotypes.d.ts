@@ -660,6 +660,14 @@ declare global {
         untracked: boolean;
     };
 
+    // wshrpc.CommandGitRevertData
+    type CommandGitRevertData = {
+        cwd: string;
+        path: string;
+        status: string;
+        patch?: string;
+    };
+
     // wshrpc.CommandJarvisData
     type CommandJarvisData = {
         channelid: string;

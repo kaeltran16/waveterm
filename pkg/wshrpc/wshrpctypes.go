@@ -96,6 +96,7 @@ type WshRpcInterface interface {
 	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
 	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
+	GitRevertCommand(ctx context.Context, data CommandGitRevertData) error
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
 	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
@@ -657,6 +658,13 @@ type CommandGitDiffRtnData struct {
 	Diff      string `json:"diff"`
 	Content   string `json:"content"`
 	Untracked bool   `json:"untracked"`
+}
+
+type CommandGitRevertData struct {
+	Cwd    string `json:"cwd"`
+	Path   string `json:"path"`
+	Status string `json:"status"`          // porcelain status; used for whole-file revert
+	Patch  string `json:"patch,omitempty"` // if set, reverse-apply this patch; else whole-file
 }
 
 type UsageBucket struct {

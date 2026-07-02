@@ -1486,6 +1486,13 @@ func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitD
 	return &wshrpc.CommandGitDiffRtnData{Diff: d.Diff, Content: d.Content, Untracked: d.Untracked}, nil
 }
 
+func (ws *WshServer) GitRevertCommand(ctx context.Context, data wshrpc.CommandGitRevertData) error {
+	if data.Patch != "" {
+		return gitinfo.RevertHunk(ctx, data.Cwd, data.Path, data.Patch)
+	}
+	return gitinfo.RevertFile(ctx, data.Cwd, data.Path, data.Status)
+}
+
 func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.CommandGetUsageStatsData) (*wshrpc.CommandGetUsageStatsRtnData, error) {
 	buckets, err := usagestats.ScanUsage(data.WindowDays)
 	if err != nil {

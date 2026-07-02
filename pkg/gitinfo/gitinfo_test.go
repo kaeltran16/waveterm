@@ -173,3 +173,112 @@ func TestListBranchesNotARepo(t *testing.T) {
 		t.Fatalf("expected no branches, got %+v", branches)
 	}
 }
+
+func initRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	ctx := context.Background()
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		// hermetic line endings: Git-for-Windows' system config defaults core.autocrlf=true,
+		// which would rewrite LF<->CRLF on checkout/apply and make these assertions nondeterministic.
+		{"config", "core.autocrlf", "false"},
+	} {
+		if _, err := run(ctx, dir, args...); err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+	}
+	return dir
+}
+
+func writeFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func commitAll(t *testing.T, dir string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := run(ctx, dir, "add", "-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(ctx, dir, "commit", "-m", "base"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRevertFileModified(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\nthree\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "a.txt", "one\nCHANGED\nthree\n")
+	if err := RevertFile(context.Background(), dir, "a.txt", " M"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "one\ntwo\nthree\n" {
+		t.Fatalf("not restored: %q", got)
+	}
+}
+
+func TestRevertFileUntracked(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "base\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "new.txt", "brand new\n")
+	if err := RevertFile(context.Background(), dir, "new.txt", "??"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("untracked file not removed")
+	}
+}
+
+func TestRevertHunkPartial(t *testing.T) {
+	dir := initRepo(t)
+	base := "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\n"
+	writeFile(t, dir, "a.txt", base)
+	commitAll(t, dir)
+	// two edits far enough apart (default 3-line context doesn't merge) -> two separate hunks
+	writeFile(t, dir, "a.txt", "l1\nX2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nX19\nl20\n")
+	full, err := run(context.Background(), dir, "diff", "HEAD", "--", "a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// craft a patch containing ONLY the first hunk: header lines + first @@ block
+	lines := strings.SplitAfter(full, "\n")
+	var header, hunk1 strings.Builder
+	seenHunk := 0
+	for _, ln := range lines {
+		if strings.HasPrefix(ln, "@@") {
+			seenHunk++
+		}
+		if seenHunk == 0 {
+			header.WriteString(ln)
+		} else if seenHunk == 1 {
+			hunk1.WriteString(ln)
+		}
+	}
+	patch := header.String() + hunk1.String()
+	if err := RevertHunk(context.Background(), dir, "a.txt", patch); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	// first hunk reverted (X2 -> l2), second still dirty (X19 stays)
+	if string(got) != "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nX19\nl20\n" {
+		t.Fatalf("partial revert wrong: %q", got)
+	}
+}
+
+func TestRevertHunkStaleFails(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "one\ntwo\n")
+	commitAll(t, dir)
+	// a patch that does not match the current tree should error, not silently no-op
+	bad := "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-nonexistent\n+whatever\n"
+	if err := RevertHunk(context.Background(), dir, "a.txt", bad); err == nil {
+		t.Fatal("expected stale patch to fail")
+	}
+}

@@ -16,6 +16,8 @@ import { type DiffLine, type FileView } from "./gitdiff";
 import { statusColor, type GitChange } from "./gitstatus";
 import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, selectFile } from "./filesstore";
 import { projectsAtom } from "./projectsstore";
+import { ReviewSurface } from "./reviewsurface";
+import { loadReview } from "./reviewstore";
 
 // Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
 const STATE_DOT: Record<AgentState, string> = { asking: "bg-warning", working: "bg-success", idle: "bg-muted" };
@@ -220,6 +222,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // A picked project overrides agent-focus scoping; null means "follow the focused agent".
     const [projectSel, setProjectSel] = useState<FilesProject | null>(null);
+    const [mode, setMode] = useState<"browse" | "review">("browse");
     const agent = agents.find((a) => a.id === focusId);
     const source: FilesSource | null = projectSel
         ? { kind: "project", name: projectSel.name }
@@ -243,6 +246,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [projectSel?.name, projectSel?.path, focusId, agent?.transcriptPath, agent?.blockId]);
 
+    useEffect(() => {
+        if (mode === "review" && state?.cwd) {
+            void loadReview(state.cwd);
+        }
+    }, [mode, state?.cwd]);
+
     if (agents.length === 0 && projects.length === 0) {
         return <EmptyCenter msg="No agents or projects yet — start an agent to see its changed files" />;
     }
@@ -255,7 +264,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 <div className="flex-none border-b border-edge-faint p-[15px]">
                     <div className="mb-[11px] flex items-center gap-[9px]">
                         <h1 className="text-[16px] font-bold">Files</h1>
-                        <span className="font-mono text-[10.5px] text-ink-mid">read-only</span>
+                        <div className="ml-auto flex gap-[2px] rounded-[7px] border border-border p-[2px]">
+                            <button onClick={() => setMode("browse")}
+                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-hover text-foreground" : "text-ink-mid")}>Browse</button>
+                            <button onClick={() => setMode("review")}
+                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "review" ? "bg-surface-hover text-foreground" : "text-ink-mid")}>Review</button>
+                        </div>
                     </div>
                     <SourcePicker
                         agents={agents}
@@ -296,7 +310,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 </div>
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-                <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />
+                {mode === "review" ? <ReviewSurface /> : <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />}
             </div>
         </div>
     );

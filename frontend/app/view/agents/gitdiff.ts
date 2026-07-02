@@ -15,12 +15,22 @@ export interface DiffLine {
     kind: DiffLineKind;
 }
 
+export interface Hunk {
+    id: string;
+    header: string; // the "@@ ... @@" line
+    adds: number;
+    dels: number;
+    body: string; // raw "@@" block incl. trailing newline — appended to diffHeader to form a patch
+}
+
 export interface FileView {
     isDiff: boolean;
     lines: DiffLine[];
     adds: number;
     dels: number;
     hunkLabel: string;
+    diffHeader: string; // raw diff/index/---/+++ lines before the first hunk (patch prefix)
+    hunks: Hunk[];
 }
 
 const HEADER_PREFIXES = ["diff ", "index ", "--- ", "+++ ", "new file", "deleted file", "similarity ", "rename ", "old mode", "new mode"];
@@ -32,7 +42,27 @@ export function parseUnifiedDiff(diff: string): FileView {
     let adds = 0;
     let dels = 0;
     let hunkLabel = "";
+    // raw patch reconstruction (parallel to the render model, off the untouched raw text)
+    const headerLines: string[] = [];
+    const hunks: Hunk[] = [];
+    let cur: Hunk | null = null;
+    let sawHunk = false;
+
     for (const raw of diff.split("\n")) {
+        // --- raw patch bookkeeping (keeps prefixes/headers, unlike the render model below) ---
+        if (raw.startsWith("@@")) {
+            cur = { id: `h${hunks.length}`, header: raw, adds: 0, dels: 0, body: raw + "\n" };
+            hunks.push(cur);
+            sawHunk = true;
+        } else if (!sawHunk) {
+            if (raw !== "") headerLines.push(raw);
+        } else if (cur) {
+            cur.body += raw + "\n";
+            if (raw.startsWith("+")) cur.adds++;
+            else if (raw.startsWith("-")) cur.dels++;
+        }
+
+        // --- render model (unchanged from before) ---
         if (HEADER_PREFIXES.some((p) => raw.startsWith(p))) {
             continue;
         }
@@ -67,7 +97,8 @@ export function parseUnifiedDiff(diff: string): FileView {
         oldN++;
         newN++;
     }
-    return { isDiff: true, lines, adds, dels, hunkLabel };
+    const diffHeader = headerLines.length ? headerLines.join("\n") + "\n" : "";
+    return { isDiff: true, lines, adds, dels, hunkLabel, diffHeader, hunks };
 }
 
 export function plainFileView(content: string): FileView {
@@ -78,5 +109,5 @@ export function plainFileView(content: string): FileView {
         text,
         kind: "ctx" as const,
     }));
-    return { isDiff: false, lines, adds: 0, dels: 0, hunkLabel: "" };
+    return { isDiff: false, lines, adds: 0, dels: 0, hunkLabel: "", diffHeader: "", hunks: [] };
 }

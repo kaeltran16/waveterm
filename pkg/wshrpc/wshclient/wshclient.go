@@ -609,6 +609,12 @@ func GitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDiffData, opts *wsh
 	return resp, err
 }
 
+// command "gitrevert", wshserver.GitRevertCommand
+func GitRevertCommand(w *wshutil.WshRpc, data wshrpc.CommandGitRevertData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "gitrevert", data, opts)
+	return err
+}
+
 // command "jarvis", wshserver.JarvisCommand
 func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
