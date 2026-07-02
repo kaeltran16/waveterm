@@ -25,32 +25,24 @@ export const filesStateAtom = atom<FilesState | null>(null) as PrimitiveAtom<Fil
 export const filesSelectedPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 
-// guards against a stale focus's load overwriting a newer one
-const current = { id: "" };
+// guards against a stale load overwriting a newer one; token distinguishes agent- vs project-scoped
+// loads (`agent:<id>` / `project:<name>`) so switching source cancels the in-flight load.
+const current = { token: "" };
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null };
 
-export async function loadFilesForAgent(
-    id: string,
-    transcriptPath: string | undefined,
-    blockId?: string
-): Promise<void> {
-    current.id = id;
-    globalStore.set(filesStateAtom, null);
-    globalStore.set(filesSelectedPathAtom, null);
-    globalStore.set(filesDiffAtom, null);
-
-    const cwd = await resolveCwd(transcriptPath, blockId);
-    if (current.id !== id) {
-        return;
-    }
+// Core: fetch branch + changes for a resolved cwd and select the first file. The caller owns the
+// guard token (set before any await) so a newer load short-circuits this one's writes.
+async function loadChangesForCwd(token: string, cwd: string | null): Promise<void> {
     if (!cwd) {
-        globalStore.set(filesStateAtom, EMPTY);
+        if (current.token === token) {
+            globalStore.set(filesStateAtom, EMPTY);
+        }
         return;
     }
     try {
         const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd });
-        if (current.id !== id) {
+        if (current.token !== token) {
             return;
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
@@ -60,10 +52,38 @@ export async function loadFilesForAgent(
             void selectFile(cwd, first);
         }
     } catch {
-        if (current.id === id) {
+        if (current.token === token) {
             globalStore.set(filesStateAtom, { ...EMPTY, cwd });
         }
     }
+}
+
+function beginLoad(token: string): void {
+    current.token = token;
+    globalStore.set(filesStateAtom, null);
+    globalStore.set(filesSelectedPathAtom, null);
+    globalStore.set(filesDiffAtom, null);
+}
+
+export async function loadFilesForAgent(
+    id: string,
+    transcriptPath: string | undefined,
+    blockId?: string
+): Promise<void> {
+    const token = `agent:${id}`;
+    beginLoad(token);
+    const cwd = await resolveCwd(transcriptPath, blockId);
+    if (current.token !== token) {
+        return;
+    }
+    await loadChangesForCwd(token, cwd);
+}
+
+// Project-scoped load: the registry path IS the cwd, so no transcript resolution is needed.
+export async function loadFilesForProject(name: string, path: string): Promise<void> {
+    const token = `project:${name}`;
+    beginLoad(token);
+    await loadChangesForCwd(token, path || null);
 }
 
 export async function selectFile(cwd: string, path: string): Promise<void> {

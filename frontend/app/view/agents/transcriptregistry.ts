@@ -6,20 +6,20 @@
 // new agent (e.g. opencode) is a new projector file + one entry here + its tests — nothing else.
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
-import { projectCodexTranscript } from "./codextranscriptprojection";
+import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
 import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
 
 export interface TranscriptProjector {
     project(lines: string[]): AgentEntry[];
     // optional because title derivation is format-specific and not yet implemented for every agent
     extractTitle?(lines: string[]): string | undefined;
-    // optional because a card task list needs a TodoWrite-equivalent; Codex's update_plan is v-next
+    // optional because a card task list needs a TodoWrite-equivalent; Codex maps its update_plan
     extractTasks?(lines: string[]): CardTask[] | undefined;
 }
 
 const PROJECTORS: Record<string, TranscriptProjector> = {
     claude: { project: projectTranscript, extractTitle: extractAiTitle, extractTasks },
-    codex: { project: projectCodexTranscript },
+    codex: { project: projectCodexTranscript, extractTasks: extractCodexTasks },
 };
 
 const DEFAULT_AGENT = "claude";

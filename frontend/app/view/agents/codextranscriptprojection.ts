@@ -9,7 +9,7 @@
 // `event_msg` holds guardian/auto-review noise plus a duplicate of every assistant turn, so it is
 // ignored wholesale. session_meta/turn_context/reasoning/ghost_snapshot are skipped too.
 
-import type { AgentEntry } from "./agentsviewmodel";
+import type { AgentEntry, CardTask } from "./agentsviewmodel";
 
 const VERB_BY_TOOL: Record<string, string> = {
     shell_command: "ran",
@@ -173,4 +173,47 @@ export function projectCodexTranscript(lines: string[]): AgentEntry[] {
         }
     }
     return entries;
+}
+
+/** Pure: the card task list from the LATEST update_plan tool call, or undefined if the agent never
+ *  wrote a plan (Codex's TodoWrite-equivalent). `completed` -> done; every other status not-done.
+ *  Steps with a non-string `step` are skipped; an empty plan yields []. Malformed arguments (JSON
+ *  parse failure) or an absent `plan` array are ignored — they don't count as "a plan seen". */
+export function extractCodexTasks(lines: string[]): CardTask[] | undefined {
+    let latest: unknown[] | undefined;
+    for (const line of lines) {
+        let rec: any;
+        try {
+            rec = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        if (rec?.type !== "response_item") {
+            continue;
+        }
+        const p = rec.payload;
+        if (p?.type !== "function_call" || p.name !== "update_plan" || typeof p.arguments !== "string") {
+            continue;
+        }
+        try {
+            const a = JSON.parse(p.arguments);
+            if (Array.isArray(a?.plan)) {
+                latest = a.plan;
+            }
+        } catch {
+            // malformed arguments — not a plan we can read
+        }
+    }
+    if (latest == null) {
+        return undefined;
+    }
+    const tasks: CardTask[] = [];
+    for (const s of latest) {
+        const step = s as any;
+        if (typeof step?.step !== "string") {
+            continue;
+        }
+        tasks.push({ text: step.step, done: step.status === "completed" });
+    }
+    return tasks;
 }

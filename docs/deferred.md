@@ -3,6 +3,58 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Backlog re-verification against the tree (2026-07-02)
+
+A sweep of tracked-but-unverified items (memory notes + `docs/superpowers` plans) against git log
+and the current tree. Several items believed "unbuilt/uncommitted" had in fact shipped; the list
+below is what remains **genuinely unbuilt** after verification. The working tree was clean at the
+time of the sweep, so nothing material is sitting uncommitted.
+
+**Still unbuilt:**
+
+- **Jarvis Gatekeeper v1.1 — make-a-rule + auto-answer countdown.** The Gatekeeper tier ships
+  (`6c05ac3f`), but the v1.1 "remember this decision as a rule" persistence and the pre-answer
+  countdown were never built — no `makeRule`/`countdown` symbols exist in `pkg/jarvis`. Plan:
+  `docs/superpowers/plans/2026-07-01-jarvis-gatekeeper.md`.
+- ~~**Agents tab auto-fit engine (fit-one-screen).**~~ **OBSOLETE 2026-07-02 — spec superseded by
+  the shipped layout.** The demotion/backgrounding half + asks-spotlight shipped
+  (`partitionBackgrounded`, `backgroundedsection.tsx`, the `b` key). The remaining density engine
+  (`expandedWorkingIds`/`MaxPanels`, the `MaxPanelsControl` control, the asks↔working region divider,
+  the flex-share expanded-set) is **un-executable as written**: the 2026-06-23 spec assumes a
+  single-column *asks-region → divider → working-region* layout, but the tab (`cockpitsurface.tsx`)
+  is now a **2-column card grid** with per-card wide/height prefs and asks interleaved in-place. The
+  region divider (§4) is meaningless in a unified grid; the per-row narration budget (§3) conflicts
+  with the shipped per-card sizing; §9's "remove the per-row resize grip" never happened (cards still
+  resize). The card grid already adapts to count (2-col) and supports demotion; a fresh density
+  design against the current grid would be new work, not a re-base. Spec/plan:
+  `docs/superpowers/{specs,plans}/2026-06-23-agents-tab-fit-one-screen*.md` (kept for history).
+- ~~**Usage daily-series view.**~~ **RESOLVED 2026-07-02 (stale entry — already shipped).** A
+  per-provider (claude/codex) daily bar chart with a tokens/spend toggle already renders in
+  `usagesurface.tsx` (`DailyChart`, off `stats.daily` / `DailyUsage[]`), shipped in `fdaada6e`
+  (2026-06-29) — *before* this sweep. The only per-day data still unsurfaced is a per-**model**
+  daily breakdown (the payload folds per-model only into window totals, not per-day); the "daily
+  sparkline/bar" this entry called for exists.
+- ~~**Codex card task chip.**~~ **RESOLVED 2026-07-02.** Added `extractCodexTasks` to
+  `codextranscriptprojection.ts` (latest `update_plan` → `CardTask[]`, `completed` → done) and
+  registered it on the `codex` projector in `transcriptregistry.ts`. The card consumer
+  (`livetranscript.ts`) already called `projector.extractTasks?.()` generically, so no consumer
+  change was needed. Covered by 4 new unit tests in `codextranscriptprojection.test.ts`.
+- **Multi-answer ask — server gate.** `pkg/agentask/encode.go` still hard-errors on anything but a
+  single single-select question with one selected index (`len(questions) != 1`, `q.MultiSelect`,
+  `len(sel) != 1`). The frontend builds the full multi-answer payload; relaxing this Go guard is the
+  remaining work.
+
+**Shipped since the memory notes were written (corrections, not open work):** Jarvis Delegator
+fan-out (`f43768d9`), the memory force-graph (`bb4da8a1`), the Agents cursor-row composer
+(`agentrow.tsx` — in place, tree clean), rate-limit donut persistence (`ratelimitstore.ts`), and the
+Usage token-type (cache-read) split (`usagesurface.tsx`).
+
+**Obsolete (not deferred — un-executable as written):** the Agents-tab motion Phase 2 plan
+(`docs/plans/2026-06-19-agents-tab-motion.md`) targets `askcard.tsx`/`outputpanel.tsx`/
+`sessionsidebar.tsx`/`sessionrow.tsx`/`frontend/app/tab/vtab.tsx`, all removed in the cockpit rebuild
++ Phase-5b teardown. The `motion` dep and animations landed via later work (`agentrow.tsx` uses
+Reorder/AnimatePresence/layout springs); this specific plan cannot be applied.
+
 ## Agent rail "Tokens" — context occupancy, not cumulative (2026-06-26) — RESOLVED 2026-07-01
 
 > **Resolved 2026-07-01 (deferred-token-truth-usage-polish):** the rail's "Tokens" row now shows a
@@ -83,14 +135,21 @@ carried no source for them. See `docs/superpowers/specs/2026-07-01-cockpit-card-
 
 ## Files surface — deferred (v1)
 
-- **Codex cwd via tail read:** `loadFilesForAgent` reads the transcript TAIL for cwd. Claude's
-  cwd recurs on most records (resolves), but Codex's cwd is only on the first-line `session_meta`,
-  so Codex resolves only for sessions short enough to fit the tail. To fix: add a head-read option
-  to `GetAgentTranscriptCommand` (or a tiny dedicated command) and use it for Codex.
+- ~~**Codex cwd via tail read:**~~ **RESOLVED 2026-07-02.** `GetAgentTranscriptCommand` gained a
+  `fromstart` flag (`readTranscriptHead` in `transcript.go`); `resolveCwd` (`agentcwdresolve.ts`)
+  now falls back to a head read when the tail yields no cwd. Agent-agnostic — the head read only
+  fires on a tail miss, so Claude keeps its `cd`-drift-correct tail resolution and long Codex
+  sessions resolve their first-line `session_meta` cwd. Go test `TestReadTranscriptHead`.
 - **Remote worktrees:** git runs on the wavesrv (local) host. SSH/WSL agent worktrees need the
   `GitChanges`/`GitDiff` commands routed to `wsh` on that host (same impl can live on `wsh`).
-- **Project picker:** the handoff's cross-project `toggleProjects` picker is a stub — Files is
-  focused-agent-scoped. The left header shows the cwd basename but does not switch projects.
+- ~~**Project picker:**~~ **RESOLVED 2026-07-02.** The Files header picker (`SourcePicker` in
+  `filessurface.tsx`) now lists registered projects (from `projectsAtom`) alongside agents; picking a
+  project scopes the surface to its registry `path` directly via `loadFilesForProject`
+  (`filesstore.ts`) — no agent/transcript needed. The git-load core was extracted to
+  `loadChangesForCwd` with a generalized `agent:`/`project:` guard token so switching source cancels
+  the in-flight load. Agent picks still write the shared `focusIdAtom` (Agent-tab sync preserved); a
+  project pick sets a local override. The empty state now yields only when there are no agents *and*
+  no projects.
 - **Agent-rail placeholders:** Branch + Files-touched in the Agent details rail (Phase 1b) can now
   be fed by `GitChangesCommand` + `gitstatus.ts`; wiring is a follow-on, not done here.
 - **Live visual verification (CDP) deferred:** Task 9 of the plan (CDP screenshot vs the handoff)

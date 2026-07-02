@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectCodexTranscript } from "./codextranscriptprojection";
+import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
 
 // codex rollout records are {timestamp, type, payload}; the meaningful conversation lives in
 // `response_item`. event_msg carries guardian/auto-review noise + a duplicate of each assistant turn.
@@ -99,5 +99,46 @@ describe("projectCodexTranscript", () => {
             }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "updated plan", target: "" }]);
+    });
+});
+
+const plan = (steps: Array<{ step?: unknown; status?: unknown }>) =>
+    ri({ type: "function_call", name: "update_plan", arguments: JSON.stringify({ plan: steps }), call_id: "p" });
+
+describe("extractCodexTasks", () => {
+    it("projects the latest update_plan into CardTask[] (completed -> done)", () => {
+        const out = extractCodexTasks([
+            plan([{ step: "Explore", status: "completed" }]),
+            plan([
+                { step: "Explore", status: "completed" },
+                { step: "Ask questions", status: "in_progress" },
+                { step: "Propose", status: "pending" },
+            ]),
+        ]);
+        expect(out).toEqual([
+            { text: "Explore", done: true },
+            { text: "Ask questions", done: false },
+            { text: "Propose", done: false },
+        ]);
+    });
+
+    it("returns undefined when the transcript has no update_plan", () => {
+        expect(
+            extractCodexTasks([ri({ type: "function_call", name: "shell_command", arguments: "{}", call_id: "c" })])
+        ).toBeUndefined();
+        expect(extractCodexTasks([])).toBeUndefined();
+    });
+
+    it("returns [] for an empty plan and skips malformed steps", () => {
+        expect(extractCodexTasks([plan([])])).toEqual([]);
+        expect(extractCodexTasks([plan([{ step: 42, status: "pending" }, { step: "real", status: "pending" }])])).toEqual([
+            { text: "real", done: false },
+        ]);
+    });
+
+    it("ignores malformed arguments (returns undefined if no valid plan seen)", () => {
+        expect(
+            extractCodexTasks([ri({ type: "function_call", name: "update_plan", arguments: "not json", call_id: "p" })])
+        ).toBeUndefined();
     });
 });

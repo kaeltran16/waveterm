@@ -18,10 +18,10 @@ import (
 
 const defaultTranscriptTailLines = 200
 
-// readTranscriptTail returns the last maxLines non-empty lines of the JSONL transcript at path.
-// The whole file is read then tailed in memory; session transcripts are MB-scale at most, so this
-// stays simple (KISS) — switch to a seek-from-end read only if a real file proves too large.
-func readTranscriptTail(path string, maxLines int) ([]string, error) {
+// readTranscriptLines returns all non-empty lines of the JSONL transcript at path. The whole file
+// is read into memory; session transcripts are MB-scale at most, so this stays simple (KISS) —
+// switch to a streamed read only if a real file proves too large.
+func readTranscriptLines(path string) ([]string, error) {
 	if path == "" {
 		return nil, fmt.Errorf("transcript path is required")
 	}
@@ -31,9 +31,6 @@ func readTranscriptTail(path string, maxLines int) ([]string, error) {
 	}
 	if info.IsDir() {
 		return nil, fmt.Errorf("transcript path is a directory: %s", path)
-	}
-	if maxLines <= 0 {
-		maxLines = defaultTranscriptTailLines
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -46,8 +43,37 @@ func readTranscriptTail(path string, maxLines int) ([]string, error) {
 		}
 		lines = append(lines, ln)
 	}
+	return lines, nil
+}
+
+// readTranscriptTail returns the last maxLines non-empty lines of the transcript at path.
+func readTranscriptTail(path string, maxLines int) ([]string, error) {
+	lines, err := readTranscriptLines(path)
+	if err != nil {
+		return nil, err
+	}
+	if maxLines <= 0 {
+		maxLines = defaultTranscriptTailLines
+	}
 	if len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
+	}
+	return lines, nil
+}
+
+// readTranscriptHead returns the first maxLines non-empty lines of the transcript at path. Codex's
+// cwd lives only on the first-line session_meta record, so the head read resolves cwd for Codex
+// sessions too long to fit the tail (see docs/deferred.md, Files surface).
+func readTranscriptHead(path string, maxLines int) ([]string, error) {
+	lines, err := readTranscriptLines(path)
+	if err != nil {
+		return nil, err
+	}
+	if maxLines <= 0 {
+		maxLines = defaultTranscriptTailLines
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
 	}
 	return lines, nil
 }

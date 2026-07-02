@@ -546,6 +546,7 @@ declare global {
     type CommandGetAgentTranscriptData = {
         path: string;
         maxlines?: number;
+        fromstart?: boolean;
     };
 
     // wshrpc.CommandGetAgentTranscriptRtnData

@@ -627,6 +627,9 @@ type CommandGetSessionGroupRtnData struct {
 type CommandGetAgentTranscriptData struct {
 	Path     string `json:"path"`
 	MaxLines int    `json:"maxlines,omitempty"`
+	// FromStart reads the first MaxLines lines (head) instead of the last (tail); used to resolve
+	// Codex cwd, which lives only on the first-line session_meta record.
+	FromStart bool `json:"fromstart,omitempty"`
 }
 
 type CommandGetAgentTranscriptRtnData struct {

@@ -14,7 +14,8 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { statusColor, type GitChange } from "./gitstatus";
-import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, selectFile } from "./filesstore";
+import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, selectFile } from "./filesstore";
+import { projectsAtom } from "./projectsstore";
 
 // Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
 const STATE_DOT: Record<AgentState, string> = { asking: "bg-warning", working: "bg-success", idle: "bg-muted" };
@@ -24,44 +25,95 @@ function baseName(p: string): string {
     return parts[parts.length - 1] || p;
 }
 
-// In-tab agent selector: picks whose worktree the Files surface shows, writing the shared focusIdAtom
-// so a diff can be inspected without bouncing back to the Agent tab to change focus.
-function AgentPicker({ agents, focusId, onPick }: { agents: AgentVM[]; focusId?: string; onPick: (id: string) => void }) {
+export interface FilesProject {
+    name: string;
+    path: string;
+}
+
+// The Files surface can be scoped either to a running agent's worktree or to a registered project.
+type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
+
+// In-tab source selector: picks whose worktree the Files surface shows. Agents (with a state dot)
+// write the shared focusIdAtom so a diff can be inspected without bouncing back to the Agent tab;
+// registered projects (folder glyph) resolve straight from their registry path — no agent needed.
+function SourcePicker({
+    agents,
+    projects,
+    source,
+    onPickAgent,
+    onPickProject,
+}: {
+    agents: AgentVM[];
+    projects: FilesProject[];
+    source: FilesSource | null;
+    onPickAgent: (id: string) => void;
+    onPickProject: (p: FilesProject) => void;
+}) {
     const [open, setOpen] = useState(false);
-    const current = agents.find((a) => a.id === focusId);
+    const currentAgent = source?.kind === "agent" ? agents.find((a) => a.id === source.id) : undefined;
+    const currentProject = source?.kind === "project" ? projects.find((p) => p.name === source.name) : undefined;
+    const hasAny = agents.length > 0 || projects.length > 0;
+    const label = currentAgent?.name ?? currentProject?.name ?? (hasAny ? "Select a source" : "No agents or projects");
     return (
         <div className="relative">
             <button
                 onClick={() => setOpen((v) => !v)}
-                disabled={agents.length === 0}
+                disabled={!hasAny}
                 className="flex w-full items-center gap-[8px] rounded-[8px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
             >
-                {current ? (
-                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[current.state])} />
+                {currentAgent ? (
+                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[currentAgent.state])} />
+                ) : currentProject ? (
+                    <span className="flex-none text-[11px] text-ink-faint">▪</span>
                 ) : null}
-                <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">
-                    {current?.name ?? (agents.length ? "Select an agent" : "No agents")}
-                </span>
-                {agents.length > 0 ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
+                <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">{label}</span>
+                {hasAny ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
             </button>
-            {open && agents.length > 0 ? (
+            {open && hasAny ? (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[240px] overflow-y-auto rounded-[8px] border border-border bg-modalbg py-1 shadow-popover">
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded-[8px] border border-border bg-modalbg py-1 shadow-popover">
+                        {agents.length > 0 ? (
+                            <div className="px-[10px] pb-[3px] pt-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
+                                Agents
+                            </div>
+                        ) : null}
                         {agents.map((a) => (
                             <button
                                 key={a.id}
                                 onClick={() => {
-                                    onPick(a.id);
+                                    onPickAgent(a.id);
                                     setOpen(false);
                                 }}
                                 className={cn(
                                     "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
-                                    a.id === focusId ? "text-foreground" : "text-ink-mid"
+                                    source?.kind === "agent" && a.id === source.id ? "text-foreground" : "text-ink-mid"
                                 )}
                             >
                                 <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[a.state])} />
                                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
+                            </button>
+                        ))}
+                        {projects.length > 0 ? (
+                            <div className="px-[10px] pb-[3px] pt-[7px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
+                                Projects
+                            </div>
+                        ) : null}
+                        {projects.map((p) => (
+                            <button
+                                key={p.name}
+                                title={p.path}
+                                onClick={() => {
+                                    onPickProject(p);
+                                    setOpen(false);
+                                }}
+                                className={cn(
+                                    "flex w-full items-center gap-[8px] px-[10px] py-[7px] text-left hover:bg-surface-hover",
+                                    source?.kind === "project" && p.name === source.name ? "text-foreground" : "text-ink-mid"
+                                )}
+                            >
+                                <span className="flex-none text-[11px] text-ink-faint">▪</span>
+                                <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
                             </button>
                         ))}
                     </div>
@@ -155,28 +207,44 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
 export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const agents = useAtomValue(model.agentsAtom);
+    const registry = useAtomValue(projectsAtom);
     const state = useAtomValue(filesStateAtom);
     const selected = useAtomValue(filesSelectedPathAtom);
     const diff = useAtomValue(filesDiffAtom);
 
-    const agent = agents.find((a) => a.id === focusId);
+    // registered projects (name -> path) as a sorted, path-bearing list for the picker
+    const projects: FilesProject[] = Object.entries(registry ?? {})
+        .filter(([, v]) => v?.path)
+        .map(([name, v]) => ({ name, path: v.path }))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
-    // Default to the first agent when nothing is focused, so opening Files is immediately useful
-    // instead of a dead "focus an agent" screen.
+    // A picked project overrides agent-focus scoping; null means "follow the focused agent".
+    const [projectSel, setProjectSel] = useState<FilesProject | null>(null);
+    const agent = agents.find((a) => a.id === focusId);
+    const source: FilesSource | null = projectSel
+        ? { kind: "project", name: projectSel.name }
+        : focusId
+          ? { kind: "agent", id: focusId }
+          : null;
+
+    // Default to the first agent when nothing is scoped, so opening Files is immediately useful
+    // instead of a dead "select a source" screen.
     useEffect(() => {
-        if (!focusId && agents.length > 0) {
+        if (!projectSel && !focusId && agents.length > 0) {
             globalStore.set(model.focusIdAtom, agents[0].id);
         }
-    }, [focusId, agents]);
+    }, [projectSel, focusId, agents]);
 
     useEffect(() => {
-        if (focusId) {
+        if (projectSel) {
+            fireAndForget(() => loadFilesForProject(projectSel.name, projectSel.path));
+        } else if (focusId) {
             fireAndForget(() => loadFilesForAgent(focusId, agent?.transcriptPath, agent?.blockId));
         }
-    }, [focusId, agent?.transcriptPath, agent?.blockId]);
+    }, [projectSel?.name, projectSel?.path, focusId, agent?.transcriptPath, agent?.blockId]);
 
-    if (agents.length === 0) {
-        return <EmptyCenter msg="No agents yet — start one to see its changed files" />;
+    if (agents.length === 0 && projects.length === 0) {
+        return <EmptyCenter msg="No agents or projects yet — start an agent to see its changed files" />;
     }
     const dirLabel = state?.cwd ? baseName(state.cwd) : "—";
     const changes = state?.changes;
@@ -189,10 +257,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                         <h1 className="text-[16px] font-bold">Files</h1>
                         <span className="font-mono text-[10.5px] text-ink-mid">read-only</span>
                     </div>
-                    <AgentPicker
+                    <SourcePicker
                         agents={agents}
-                        focusId={focusId}
-                        onPick={(id) => globalStore.set(model.focusIdAtom, id)}
+                        projects={projects}
+                        source={source}
+                        onPickAgent={(id) => {
+                            setProjectSel(null);
+                            globalStore.set(model.focusIdAtom, id);
+                        }}
+                        onPickProject={(p) => setProjectSel(p)}
                     />
                     {state?.cwd && <div className="mt-[7px] truncate px-[2px] font-mono text-[11px] text-ink-faint">{dirLabel}</div>}
                     {state?.isRepo && (

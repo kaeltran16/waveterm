@@ -49,6 +49,41 @@ func TestReadTranscriptTail(t *testing.T) {
 	}
 }
 
+func TestReadTranscriptHead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	// blank line in the middle must be skipped
+	if err := os.WriteFile(path, []byte("a\n\nb\nc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := readTranscriptHead(path, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("want 3 non-empty lines, got %d (%v)", len(all), all)
+	}
+
+	head, err := readTranscriptHead(path, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(head) != 2 || head[0] != "a" || head[1] != "b" {
+		t.Fatalf("want [a b], got %v", head)
+	}
+
+	if _, err := readTranscriptHead(filepath.Join(dir, "nope.jsonl"), 0); err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if _, err := readTranscriptHead("", 0); err == nil {
+		t.Fatal("expected error for empty path")
+	}
+	if _, err := readTranscriptHead(dir, 0); err == nil {
+		t.Fatal("expected error when path is a directory")
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {

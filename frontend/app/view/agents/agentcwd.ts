@@ -4,9 +4,8 @@
 
 // Pure: extract the agent's working directory from raw transcript JSONL lines. Claude records
 // carry a top-level "cwd"; Codex carries it on the session_meta record (payload.cwd). Returns the
-// first cwd found, or null. No React, no Wave imports. NOTE: callers pass the transcript TAIL —
-// Claude's cwd recurs on nearly every record (fine), but Codex's session_meta is the FIRST line, so
-// Codex cwd resolves only when that line is within the tail (see docs/deferred.md).
+// first cwd found, or null. No React, no Wave imports. Codex's session_meta is the FIRST line, so a
+// long session scrolls it off the tail — resolveCwd falls back to a head read for that case.
 
 export function agentCwd(lines: string[]): string | null {
     for (const line of lines) {

@@ -1459,7 +1459,11 @@ func (ws *WshServer) GetSessionGroupCommand(ctx context.Context, data wshrpc.Com
 }
 
 func (ws *WshServer) GetAgentTranscriptCommand(ctx context.Context, data wshrpc.CommandGetAgentTranscriptData) (*wshrpc.CommandGetAgentTranscriptRtnData, error) {
-	lines, err := readTranscriptTail(data.Path, data.MaxLines)
+	read := readTranscriptTail
+	if data.FromStart {
+		read = readTranscriptHead
+	}
+	lines, err := read(data.Path, data.MaxLines)
 	if err != nil {
 		return nil, fmt.Errorf("reading agent transcript: %w", err)
 	}
