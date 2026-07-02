@@ -695,9 +695,9 @@ function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
     );
 }
 
-// The right context panel: the workers this channel dispatched (via buildFleetSnapshot — the same
-// derivation Jarvis uses), the ones currently blocked on you, and the bound project. Auto-hides below a
-// ~1040px pane width (@container query) so it never steals from the 760px message column.
+// The right context panel: a Jarvis "fleet manager" header, the per-channel autonomy explainer keyed to
+// the active tier, and the fleet dispatched here with working/waiting counts, the ones blocked on you,
+// and the bound project. Auto-hides below ~1040px pane width so it never steals the message column.
 function ContextPanel({
     model,
     channel,
@@ -709,10 +709,43 @@ function ContextPanel({
 }) {
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
     const asking = snapshot.filter((w) => w.state === "asking");
+    const counts = fleetCounts(snapshot);
+    const tier = tierFromMeta(channel?.meta as Record<string, unknown> | undefined);
+    const explainer = autonomyExplainer(tier);
     const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
     return (
         <aside className="hidden w-[248px] flex-none flex-col overflow-y-auto border-l border-border bg-background px-4 py-4 @[1040px]:flex">
-            <div className={label}>Workers · dispatched here</div>
+            <div className="mb-4 flex items-center gap-2.5">
+                <Avatar name="jarvis" />
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold text-primary">Jarvis</div>
+                    <div className="font-mono text-[10.5px] text-muted">Fleet manager</div>
+                </div>
+                <span className="flex items-center gap-1 font-mono text-[10px] text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" /> live
+                </span>
+            </div>
+
+            <div className={label}>Autonomy in #{channel?.name ?? "channel"}</div>
+            <div className="mb-5 rounded-[9px] border border-accent/25 bg-accentbg/20 px-3 py-2.5">
+                <p className="mb-2.5 text-[11.5px] leading-[1.5] text-secondary">{explainer.blurb}</p>
+                <div className="flex flex-col gap-1.5">
+                    {explainer.checklist.map((c) => (
+                        <div key={c.label} className="flex items-center gap-2">
+                            <span className={c.active ? "text-success" : "text-edge-strong"}>
+                                {c.active ? "✓" : "–"}
+                            </span>
+                            <span className={c.active ? "text-[11.5px] text-secondary" : "text-[11.5px] text-muted"}>
+                                {c.label}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className={label}>
+                Fleet here · {counts.working} working · {counts.waiting} waiting
+            </div>
             {snapshot.length === 0 ? (
                 <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
             ) : (
