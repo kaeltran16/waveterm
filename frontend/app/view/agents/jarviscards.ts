@@ -53,3 +53,29 @@ export function unreadCount(messages: ChannelMessage[] | undefined, lastReadTs: 
     const since = lastReadTs ?? 0;
     return (messages ?? []).filter((m) => m.ts > since && m.author !== "you").length;
 }
+
+export interface AutonomyExplainer {
+    blurb: string;
+    checklist: { label: string; active: boolean }[];
+}
+
+const TIER_RANK: Record<JarvisTier, number> = { concierge: 0, gatekeeper: 1, delegator: 2 };
+const CAP_LABELS = ["Observe the fleet", "Answer routine questions", "Dispatch & steer workers"] as const;
+const TIER_BLURB: Record<JarvisTier, string> = {
+    concierge: "Observes the fleet and summarizes on request. It never answers or acts on its own.",
+    gatekeeper: "Answers routine worker questions itself; escalates real forks to you.",
+    delegator: "Spawns and steers workers toward a goal; still escalates real forks to you.",
+};
+
+// autonomyExplainer returns the per-tier blurb + a 3-item capability checklist, cumulative by rank.
+export function autonomyExplainer(tier: JarvisTier): AutonomyExplainer {
+    const rank = TIER_RANK[tier];
+    return {
+        blurb: TIER_BLURB[tier],
+        checklist: CAP_LABELS.map((label, i) => ({ label, active: i <= rank })),
+    };
+}
+
+export function tierChip(tier: JarvisTier): "C" | "G" | "D" {
+    return tier === "delegator" ? "D" : tier === "gatekeeper" ? "G" : "C";
+}

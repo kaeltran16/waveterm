@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCardData, unreadCount } from "./jarviscards";
+import { autonomyExplainer, parseCardData, tierChip, unreadCount } from "./jarviscards";
 
 const answered = JSON.stringify({
     askORef: "block:abc",
@@ -51,5 +51,31 @@ describe("unreadCount", () => {
     });
     it("no lastRead counts all non-you", () => {
         expect(unreadCount(msgs, undefined)).toBe(2);
+    });
+});
+
+describe("autonomyExplainer", () => {
+    it("marks capabilities cumulatively per tier", () => {
+        const c = autonomyExplainer("concierge");
+        expect(c.checklist.map((x) => x.active)).toEqual([true, false, false]);
+        const g = autonomyExplainer("gatekeeper");
+        expect(g.checklist.map((x) => x.active)).toEqual([true, true, false]);
+        const d = autonomyExplainer("delegator");
+        expect(d.checklist.map((x) => x.active)).toEqual([true, true, true]);
+    });
+    it("labels the three capabilities", () => {
+        expect(autonomyExplainer("concierge").checklist.map((x) => x.label)).toEqual([
+            "Observe the fleet",
+            "Answer routine questions",
+            "Dispatch & steer workers",
+        ]);
+    });
+});
+
+describe("tierChip", () => {
+    it("maps tier to its letter", () => {
+        expect(tierChip("concierge")).toBe("C");
+        expect(tierChip("gatekeeper")).toBe("G");
+        expect(tierChip("delegator")).toBe("D");
     });
 });
