@@ -305,6 +305,7 @@ declare global {
         text: string;
         reforef?: string;
         ts: number;
+        data?: string;
     };
 
     // waveobj.Client
