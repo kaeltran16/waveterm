@@ -208,6 +208,7 @@ type ChannelMessage struct {
 	Text    string `json:"text"`
 	RefORef string `json:"reforef,omitempty"`
 	Ts      int64  `json:"ts"`
+	Data    string `json:"data,omitempty"` // optional JSON payload for rich rendering (e.g. JarvisCardData)
 }
 
 type Channel struct {

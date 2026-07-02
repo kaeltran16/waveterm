@@ -113,6 +113,7 @@ type WshRpcInterface interface {
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	SetChannelGatekeeperCommand(ctx context.Context, data CommandSetChannelGatekeeperData) error // toggles Jarvis Gatekeeper (auto-answer routine asks) for a channel
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
+	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error // stamps a channel's last-read timestamp for unread counts
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error) // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
@@ -717,6 +718,11 @@ type CommandSetChannelTierData struct {
 	ChannelId string `json:"channelid"`
 	Tier      string `json:"tier"`           // concierge | gatekeeper | delegator
 	Mode      string `json:"mode,omitempty"` // default dispatch mode: report | manage | fanout
+}
+
+type CommandSetChannelReadData struct {
+	ChannelId string `json:"channelid"`
+	Ts        int64  `json:"ts"`
 }
 
 type CommandJarvisDecomposeData struct {

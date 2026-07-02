@@ -5,6 +5,7 @@ package jarvis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -88,7 +89,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	}
 	// deterministic pre-filter: only a single single-select question is auto-answerable.
 	if len(data.Questions) != 1 || data.Questions[0].MultiSelect {
-		postEscalation(ch.OID, data, "needs a human (multiple or multi-select questions)")
+		postEscalation(ch.OID, data, "needs a human (multiple or multi-select questions)", ownerORef)
 		return
 	}
 	q := data.Questions[0]
@@ -101,43 +102,52 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		if idx >= 0 && idx < len(q.Options) {
 			delivered, derr := agentask.DeliverAnswer(data.ORef, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
 			if derr == nil && delivered {
-				postAnswered(ch.OID, q.Options[idx].Label, decision.Reason)
+				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, ownerORef)
 			}
 			return
 		}
 	}
-	postEscalation(ch.OID, data, decision.Reason)
+	postEscalation(ch.OID, data, decision.Reason, ownerORef)
 }
 
-func postAnswered(channelId, optionLabel, reason string) {
-	text := fmt.Sprintf("Answered → %q", optionLabel)
+func postAnswered(channelId string, q baseds.AgentAskQuestion, choiceIdx int, reason, askORef, workerORef string) {
+	text := fmt.Sprintf("Answered → %q", q.Options[choiceIdx].Label)
 	if reason != "" {
 		text += " — " + reason
 	}
-	postJarvis(channelId, "jarvis-answered", text)
+	data, _ := json.Marshal(BuildCardData(q, &choiceIdx, reason, askORef, workerORef))
+	postJarvisData(channelId, "jarvis-answered", text, string(data))
 }
 
-func postEscalation(channelId string, data baseds.AgentAskData, reason string) {
+func postEscalation(channelId string, data baseds.AgentAskData, reason, workerORef string) {
 	var b strings.Builder
 	b.WriteString("@you — your call")
 	if reason != "" {
 		b.WriteString(" (" + reason + ")")
 	}
 	b.WriteString("\n")
+	var payload string
 	if len(data.Questions) > 0 {
 		q := data.Questions[0]
 		b.WriteString(q.Question + "\n")
 		for i, o := range q.Options {
 			b.WriteString(fmt.Sprintf("  %d) %s\n", i, o.Label))
 		}
+		j, _ := json.Marshal(BuildCardData(q, nil, reason, data.ORef, workerORef))
+		payload = string(j)
 	}
-	postJarvis(channelId, "jarvis-escalation", strings.TrimRight(b.String(), "\n"))
+	postJarvisData(channelId, "jarvis-escalation", strings.TrimRight(b.String(), "\n"), payload)
 }
 
 func postJarvis(channelId, kind, text string) {
+	postJarvisData(channelId, kind, text, "")
+}
+
+func postJarvisData(channelId, kind, text, data string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	msg := wstore.NewChannelMessage(kind, "jarvis", text, "", time.Now().UnixMilli())
+	msg.Data = data
 	if _, err := wstore.PostChannelMessage(ctx, channelId, msg); err != nil {
 		log.Printf("jarvis: post %s failed: %v", kind, err)
 		return

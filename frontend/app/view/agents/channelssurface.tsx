@@ -17,7 +17,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import type { AgentsViewModel } from "./agents";
 import { AnswerBar } from "./answerbar";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
-import { sendChannelMessage } from "./channelactions";
+import { sendChannelMessage, steerWorker } from "./channelactions";
 import {
     activeMentionQuery,
     avatarColor,
@@ -25,6 +25,7 @@ import {
     mentionCandidates,
     type MentionCandidate,
 } from "./channelderive";
+import { autonomyExplainer, fleetCounts, parseCardData } from "./jarviscards";
 import { tierFromMeta, type RosterEntry } from "./channelmessages";
 import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
@@ -75,8 +76,16 @@ function timeLabel(ts: number, now: number): string {
     return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
 }
 
-// 32px rounded avatar with the author's initial, colored deterministically by name.
+// 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; everyone else
+// gets their name's initial, colored deterministically.
 function Avatar({ name }: { name: string }) {
+    if (name.toLowerCase() === "jarvis") {
+        return (
+            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] bg-accent">
+                <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-background" />
+            </div>
+        );
+    }
     return (
         <div
             className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] font-mono text-[13px] font-bold text-background"
@@ -99,6 +108,47 @@ function Tag({ label, tone }: { label: string; tone: "muted" | "asking" }) {
         <span className="rounded-[4px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-ink-mid">
             {label}
         </span>
+    );
+}
+
+// A radio-style option list used by the escalation card (deliver an answer) and Override (steer). When
+// `chosen` is set, that option is marked; clicking any option calls onPick with its index.
+function OptionList({
+    options,
+    chosen,
+    onPick,
+    disabled,
+}: {
+    options: { label: string; sub?: string }[];
+    chosen?: number;
+    onPick: (idx: number) => void;
+    disabled?: boolean;
+}) {
+    return (
+        <div className="flex flex-col gap-2">
+            {options.map((o, i) => (
+                <button
+                    key={i}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onPick(i)}
+                    className="flex items-start gap-2.5 rounded-[10px] border border-edge-mid bg-surface-raised px-3 py-2.5 text-left hover:border-edge-strong disabled:opacity-50"
+                >
+                    <span
+                        className={
+                            "mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded-full border " +
+                            (i === chosen ? "border-accent" : "border-edge-strong")
+                        }
+                    >
+                        {i === chosen ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+                    </span>
+                    <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-primary">{o.label}</span>
+                        {o.sub ? <span className="mt-0.5 block text-[11.5px] text-muted">{o.sub}</span> : null}
+                    </span>
+                </button>
+            ))}
+        </div>
     );
 }
 
@@ -232,29 +282,155 @@ function JarvisRow({
     );
 }
 
-// A standalone Gatekeeper row for the two server-posted kinds. `jarvis-answered` is a muted/confirmed
-// card (Jarvis answered a routine ask on the human's behalf, on the record); `jarvis-escalation` is an
-// amber attention card addressing @you (a genuine fork the human must decide). Reuses the existing
-// amber "asking" @theme treatment — there is no separate "warning" token in this surface.
-function GatekeeperRow({ msg, now }: { msg: ChannelMessage; now: number }) {
-    const escalated = msg.kind === "jarvis-escalation";
+// The Gatekeeper "answered for you" card: shows the worker's question, the option Jarvis chose, and its
+// reasoning, with an Override that reveals the options so you can steer the worker to a different one.
+// Legacy messages (no structured data) fall back to the flat muted text card.
+function GatekeeperRow({
+    model,
+    agents,
+    msg,
+    now,
+}: {
+    model: AgentsViewModel;
+    agents: AgentVM[];
+    msg: ChannelMessage;
+    now: number;
+}) {
+    const card = parseCardData(msg);
+    const [overriding, setOverriding] = useState(false);
+    const [steered, setSteered] = useState<number | null>(null);
+    const worker = card ? workerFor(agents, card.workerORef) : undefined;
+    const workerName = worker?.name ?? "worker";
+    const doOverride = (idx: number) => {
+        if (!card) {
+            return;
+        }
+        setSteered(idx);
+        setOverriding(false);
+        fireAndForget(async () => {
+            await steerWorker({
+                channelId: msg.reforef ? msg.reforef : (globalStore.get(activeChannelIdAtom) ?? ""),
+                workerORef: card.workerORef,
+                agents,
+                text: `reconsider — use ${card.options[idx]?.label}`,
+            });
+        });
+    };
     return (
         <div className="flex items-start gap-3">
             <Avatar name="jarvis" />
             <div className="min-w-0 flex-1">
                 <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-[13px] font-semibold text-primary">jarvis</span>
-                    <Tag label={escalated ? "escalation" : "answered"} tone={escalated ? "asking" : "muted"} />
+                    <Tag label="answered" tone="muted" />
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
-                <div
-                    className={
-                        escalated
-                            ? "rounded-[9px] border border-asking/40 bg-lane-asking px-3 py-2.5"
-                            : "rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5"
-                    }
-                >
-                    <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-3">
+                    {card && card.choice != null ? (
+                        <>
+                            <div className="mb-2.5 rounded-[8px] border border-edge-faint bg-background/40 px-3 py-2">
+                                <div className="mb-0.5 font-mono text-[11px] font-semibold text-ink-mid">
+                                    {workerName} asked
+                                </div>
+                                <div className="text-[13px] text-secondary">{card.question}</div>
+                            </div>
+                            <div className="mb-1 flex items-baseline gap-2">
+                                <span className="text-[12px] text-muted">Jarvis chose</span>
+                                <span className="text-[14px] font-semibold text-primary">
+                                    {card.options[card.choice]?.label}
+                                </span>
+                            </div>
+                            {card.reason ? (
+                                <p className="text-[13px] leading-[1.55] text-secondary">{card.reason}</p>
+                            ) : null}
+                            <div className="mt-3 flex items-center gap-2.5 border-t border-edge-faint pt-2.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                <span className="flex-1 text-[11.5px] text-muted">
+                                    {steered != null
+                                        ? `steered ${workerName} → ${card.options[steered]?.label}`
+                                        : `${workerName} resumed on its own`}
+                                </span>
+                                {steered == null && worker ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setOverriding((v) => !v)}
+                                        className="cursor-pointer rounded-[6px] border border-edge-mid px-2.5 py-1 font-mono text-[11px] text-ink-mid hover:border-edge-strong"
+                                    >
+                                        Override
+                                    </button>
+                                ) : null}
+                            </div>
+                            {overriding ? (
+                                <div className="mt-2.5">
+                                    <div className="mb-1.5 text-[11px] text-muted">Steer {workerName} to:</div>
+                                    <OptionList options={card.options} chosen={card.choice} onPick={doOverride} />
+                                </div>
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// The escalation card: an amber attention card whose options are clickable. Selecting one delivers the
+// answer to the still-blocked worker via AnswerAgentCommand (the same path AnswerBar uses), then shows a
+// resolved footer. Falls back to the flat text for legacy messages with no structured data.
+function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: AgentVM[]; now: number }) {
+    const card = parseCardData(msg);
+    const [picked, setPicked] = useState<number | null>(null);
+    const worker = card ? workerFor(agents, card.workerORef) : undefined;
+    const workerName = worker?.name ?? "worker";
+    const deliver = (idx: number) => {
+        if (!card) {
+            return;
+        }
+        setPicked(idx);
+        fireAndForget(() =>
+            RpcApi.AnswerAgentCommand(TabRpcClient, {
+                oref: card.askORef,
+                answers: [{ selectedindexes: [idx] }],
+            })
+        );
+    };
+    return (
+        <div className="flex items-start gap-3">
+            <Avatar name="jarvis" />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">jarvis</span>
+                    <Tag label="escalation" tone="asking" />
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
+                </div>
+                <div className="rounded-[9px] border border-asking/40 bg-lane-asking px-3.5 py-3">
+                    {card ? (
+                        <>
+                            {card.reason ? (
+                                <p className="mb-2 text-[12.5px] leading-[1.55] text-ink-mid">
+                                    <span className="text-muted">Why I'm not deciding this: </span>
+                                    {card.reason}
+                                </p>
+                            ) : null}
+                            <p className="mb-3 text-[14px] font-semibold leading-[1.5] text-primary">{card.question}</p>
+                            {picked == null ? (
+                                <OptionList options={card.options} onPick={deliver} disabled={!worker} />
+                            ) : (
+                                <div className="flex items-center gap-2 text-[12px] text-secondary">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                    You chose <b className="text-primary">{card.options[picked]?.label}</b> — sent to{" "}
+                                    {workerName}, resuming.
+                                </div>
+                            )}
+                            {!worker && picked == null ? (
+                                <p className="mt-2 text-[11px] text-muted">{workerName} has exited — can't deliver.</p>
+                            ) : null}
+                        </>
+                    ) : (
+                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                    )}
                 </div>
             </div>
         </div>
@@ -529,9 +705,9 @@ function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
     );
 }
 
-// The right context panel: the workers this channel dispatched (via buildFleetSnapshot — the same
-// derivation Jarvis uses), the ones currently blocked on you, and the bound project. Auto-hides below a
-// ~1320px pane width (@container query) so the full-width message column keeps room on narrower panes.
+// The right context panel: a Jarvis "fleet manager" header, the per-channel autonomy explainer keyed to
+// the active tier, and the fleet dispatched here with working/waiting counts, the ones blocked on you,
+// and the bound project. Auto-hides below ~1320px pane width so the full-width message column keeps room.
 function ContextPanel({
     model,
     channel,
@@ -543,10 +719,43 @@ function ContextPanel({
 }) {
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
     const asking = snapshot.filter((w) => w.state === "asking");
+    const counts = fleetCounts(snapshot);
+    const tier = tierFromMeta(channel?.meta as Record<string, unknown> | undefined);
+    const explainer = autonomyExplainer(tier);
     const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
     return (
         <aside className="hidden w-[300px] flex-none flex-col overflow-y-auto border-l border-border bg-background px-4 py-4 @[1320px]:flex">
-            <div className={label}>Workers · dispatched here</div>
+            <div className="mb-4 flex items-center gap-2.5">
+                <Avatar name="jarvis" />
+                <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold text-primary">Jarvis</div>
+                    <div className="font-mono text-[10.5px] text-muted">Fleet manager</div>
+                </div>
+                <span className="flex items-center gap-1 font-mono text-[10px] text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" /> live
+                </span>
+            </div>
+
+            <div className={label}>Autonomy in #{channel?.name ?? "channel"}</div>
+            <div className="mb-5 rounded-[9px] border border-accent/25 bg-accentbg/20 px-3 py-2.5">
+                <p className="mb-2.5 text-[11.5px] leading-[1.5] text-secondary">{explainer.blurb}</p>
+                <div className="flex flex-col gap-1.5">
+                    {explainer.checklist.map((c) => (
+                        <div key={c.label} className="flex items-center gap-2">
+                            <span className={c.active ? "text-success" : "text-edge-strong"}>
+                                {c.active ? "✓" : "–"}
+                            </span>
+                            <span className={c.active ? "text-[11.5px] text-secondary" : "text-[11.5px] text-muted"}>
+                                {c.label}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className={label}>
+                Fleet here · {counts.working} working · {counts.waiting} waiting
+            </div>
             {snapshot.length === 0 ? (
                 <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
             ) : (
@@ -723,8 +932,10 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                             streams={consultStreams}
                                             now={now}
                                         />
-                                    ) : m.kind === "jarvis-answered" || m.kind === "jarvis-escalation" ? (
-                                        <GatekeeperRow key={m.id} msg={m} now={now} />
+                                    ) : m.kind === "jarvis-answered" ? (
+                                        <GatekeeperRow key={m.id} model={model} agents={agents} msg={m} now={now} />
+                                    ) : m.kind === "jarvis-escalation" ? (
+                                        <EscalationRow key={m.id} agents={agents} msg={m} now={now} />
                                     ) : (
                                         <MessageRow key={m.id} model={model} agents={agents} msg={m} now={now} />
                                     )
@@ -738,7 +949,13 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     onChange={setDraft}
                     onSend={send}
                     disabled={!activeId}
-                    placeholder={`Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`}
+                    placeholder={
+                        tier === "gatekeeper"
+                            ? `Message #${active?.name ?? "channel"} — Jarvis is handling routine questions`
+                            : tier === "delegator"
+                              ? `Message #${active?.name ?? "channel"} — @jarvis <goal> to dispatch workers`
+                              : `Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`
+                    }
                     candidates={mentionCandidates(installedRuntimes, roster)}
                 />
               </div>

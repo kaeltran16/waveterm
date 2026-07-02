@@ -305,6 +305,7 @@ declare global {
         text: string;
         reforef?: string;
         ts: number;
+        data?: string;
     };
 
     // waveobj.Client
@@ -993,6 +994,12 @@ declare global {
     type CommandSetChannelGatekeeperData = {
         channelid: string;
         enabled: boolean;
+    };
+
+    // wshrpc.CommandSetChannelReadData
+    type CommandSetChannelReadData = {
+        channelid: string;
+        ts: number;
     };
 
     // wshrpc.CommandSetChannelTierData
