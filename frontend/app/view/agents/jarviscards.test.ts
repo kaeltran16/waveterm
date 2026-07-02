@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autonomyExplainer, parseCardData, tierChip, unreadCount } from "./jarviscards";
+import { autonomyExplainer, fleetCounts, parseCardData, tierChip, unreadCount } from "./jarviscards";
 
 const answered = JSON.stringify({
     askORef: "block:abc",
@@ -77,5 +77,18 @@ describe("tierChip", () => {
         expect(tierChip("concierge")).toBe("C");
         expect(tierChip("gatekeeper")).toBe("G");
         expect(tierChip("delegator")).toBe("D");
+    });
+});
+
+describe("fleetCounts", () => {
+    it("tallies working and waiting(=asking), ignoring idle/gone", () => {
+        const snap = [
+            { state: "working" }, { state: "working" }, { state: "asking" },
+            { state: "idle" }, { state: "gone" },
+        ] as { state: string }[];
+        expect(fleetCounts(snap)).toEqual({ working: 2, waiting: 1 });
+    });
+    it("empty snapshot is zero", () => {
+        expect(fleetCounts([])).toEqual({ working: 0, waiting: 0 });
     });
 });

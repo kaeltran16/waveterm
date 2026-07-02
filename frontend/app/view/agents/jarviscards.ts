@@ -79,3 +79,17 @@ export function autonomyExplainer(tier: JarvisTier): AutonomyExplainer {
 export function tierChip(tier: JarvisTier): "C" | "G" | "D" {
     return tier === "delegator" ? "D" : tier === "gatekeeper" ? "G" : "C";
 }
+
+// fleetCounts tallies working + waiting(=asking) from a fleet snapshot; idle/gone are excluded.
+export function fleetCounts(snapshot: { state: string }[]): { working: number; waiting: number } {
+    let working = 0;
+    let waiting = 0;
+    for (const w of snapshot) {
+        if (w.state === "working") {
+            working++;
+        } else if (w.state === "asking") {
+            waiting++;
+        }
+    }
+    return { working, waiting };
+}
