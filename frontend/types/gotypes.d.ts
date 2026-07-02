@@ -995,6 +995,12 @@ declare global {
         enabled: boolean;
     };
 
+    // wshrpc.CommandSetChannelReadData
+    type CommandSetChannelReadData = {
+        channelid: string;
+        ts: number;
+    };
+
     // wshrpc.CommandSetChannelTierData
     type CommandSetChannelTierData = {
         channelid: string;

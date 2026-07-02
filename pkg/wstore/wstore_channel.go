@@ -62,3 +62,16 @@ func PostChannelMessage(ctx context.Context, channelId string, msg waveobj.Chann
 	}
 	return &msg, nil
 }
+
+// MetaKey_ReadTs stores the per-channel last-read timestamp (ms) used to derive unread counts.
+const MetaKey_ReadTs = "read:ts"
+
+// SetChannelRead stamps the channel's last-read timestamp.
+func SetChannelRead(ctx context.Context, channelId string, ts int64) error {
+	return DBUpdateFn(ctx, channelId, func(ch *waveobj.Channel) {
+		if ch.Meta == nil {
+			ch.Meta = make(waveobj.MetaMapType)
+		}
+		ch.Meta[MetaKey_ReadTs] = float64(ts)
+	})
+}

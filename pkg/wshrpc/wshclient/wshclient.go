@@ -1020,6 +1020,12 @@ func SetChannelGatekeeperCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChanne
 	return err
 }
 
+// command "setchannelread", wshserver.SetChannelReadCommand
+func SetChannelReadCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelReadData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setchannelread", data, opts)
+	return err
+}
+
 // command "setchanneltier", wshserver.SetChannelTierCommand
 func SetChannelTierCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelTierData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchanneltier", data, opts)

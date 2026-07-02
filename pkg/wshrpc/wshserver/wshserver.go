@@ -1685,6 +1685,17 @@ func (ws *WshServer) SetChannelTierCommand(ctx context.Context, data wshrpc.Comm
 	return nil
 }
 
+func (ws *WshServer) SetChannelReadCommand(ctx context.Context, data wshrpc.CommandSetChannelReadData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	if err := wstore.SetChannelRead(ctx, data.ChannelId, data.Ts); err != nil {
+		return fmt.Errorf("updating channel read ts: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.CommandJarvisDecomposeData) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	if strings.TrimSpace(data.Goal) == "" {
 		return nil, fmt.Errorf("goal is required")
