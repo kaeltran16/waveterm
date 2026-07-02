@@ -47,3 +47,9 @@ export function parseCardData(msg: ChannelMessage): JarvisCardData | null {
         return null;
     }
 }
+
+// unreadCount = channel messages strictly after lastReadTs, excluding the human's own posts.
+export function unreadCount(messages: ChannelMessage[] | undefined, lastReadTs: number | undefined): number {
+    const since = lastReadTs ?? 0;
+    return (messages ?? []).filter((m) => m.ts > since && m.author !== "you").length;
+}

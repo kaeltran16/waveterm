@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCardData } from "./jarviscards";
+import { parseCardData, unreadCount } from "./jarviscards";
 
 const answered = JSON.stringify({
     askORef: "block:abc",
@@ -31,5 +31,25 @@ describe("parseCardData", () => {
     });
     it("returns null when required fields are missing", () => {
         expect(parseCardData({ id: "5", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: "{}" })).toBeNull();
+    });
+});
+
+describe("unreadCount", () => {
+    const msgs = [
+        { id: "a", kind: "human", author: "you", text: "", ts: 100 },
+        { id: "b", kind: "dispatch", author: "claude", text: "", ts: 200 },
+        { id: "c", kind: "jarvis-answered", author: "jarvis", text: "", ts: 300 },
+    ] as ChannelMessage[];
+    it("counts messages after lastRead, excluding your own", () => {
+        expect(unreadCount(msgs, 150)).toBe(2); // b, c
+    });
+    it("excludes your own messages", () => {
+        expect(unreadCount(msgs, 0)).toBe(2); // a is author 'you'
+    });
+    it("boundary ts === lastRead is read", () => {
+        expect(unreadCount(msgs, 300)).toBe(0);
+    });
+    it("no lastRead counts all non-you", () => {
+        expect(unreadCount(msgs, undefined)).toBe(2);
     });
 });
