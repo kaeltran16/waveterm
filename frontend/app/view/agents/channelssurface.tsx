@@ -28,6 +28,7 @@ import {
 import { tierFromMeta, type RosterEntry } from "./channelmessages";
 import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
+import { MarkdownMessage } from "./markdownmessage";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
@@ -213,16 +214,17 @@ function JarvisRow({
                 {reply ? (
                     <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5">
                         <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">jarvis</div>
-                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{reply.text}</div>
+                        <MarkdownMessage text={reply.text} className="text-[13px] leading-[1.55] text-secondary" />
                     </div>
                 ) : (
                     <div className="rounded-[9px] border border-accent/40 bg-accentbg/30 px-3 py-2.5">
                         <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">
                             jarvis {!live || live.status === "streaming" ? "· thinking…" : ""}
                         </div>
-                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">
-                            {live?.text || "…"}
-                        </div>
+                        <MarkdownMessage
+                            text={live?.text || "…"}
+                            className="text-[13px] leading-[1.55] text-secondary"
+                        />
                     </div>
                 )}
             </div>
@@ -412,7 +414,7 @@ function Composer({
 
     return (
         <div className="flex-none px-6 pb-[18px] pt-2">
-            <div className="relative max-w-[760px]">
+            <div className="relative">
                 {open ? (
                     <div className="absolute bottom-full left-0 mb-1.5 w-[240px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-lg">
                         {matches.map((c, i) => (
@@ -529,7 +531,7 @@ function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
 
 // The right context panel: the workers this channel dispatched (via buildFleetSnapshot — the same
 // derivation Jarvis uses), the ones currently blocked on you, and the bound project. Auto-hides below a
-// ~1040px pane width (@container query) so it never steals from the 760px message column.
+// ~1320px pane width (@container query) so the full-width message column keeps room on narrower panes.
 function ContextPanel({
     model,
     channel,
@@ -543,7 +545,7 @@ function ContextPanel({
     const asking = snapshot.filter((w) => w.state === "asking");
     const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
     return (
-        <aside className="hidden w-[248px] flex-none flex-col overflow-y-auto border-l border-border bg-background px-4 py-4 @[1040px]:flex">
+        <aside className="hidden w-[300px] flex-none flex-col overflow-y-auto border-l border-border bg-background px-4 py-4 @[1320px]:flex">
             <div className={label}>Workers · dispatched here</div>
             {snapshot.length === 0 ? (
                 <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
@@ -689,7 +691,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
-                    <div className="flex max-w-[760px] flex-col gap-5">
+                    <div className="flex flex-col gap-5">
                         {channels == null ? (
                             <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>
                         ) : !activeId ? (
