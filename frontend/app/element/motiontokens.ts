@@ -32,6 +32,11 @@ export const modalBackdrop: Variants = {
 // Panel reuses moment 1's opacity+scale signature — one source of feel for cards and modals.
 export const modalPanel = cardVariants;
 
+// Corner-resize follow. The drag sets the target height instantly; this spring is what the eye tracks,
+// so it eases without lag and settles on release instead of snapping. Stiff + well-damped = responsive,
+// no wobble. Bound to style.height via useSpring, so it runs off React (no per-frame re-render).
+export const resizeSpring = { stiffness: 700, damping: 46, mass: 1 } as const;
+
 // Lift on grab (moment 8). Drop-settle is the Reorder.Item dragTransition already in place.
 // Black shadow alpha (not a brand color) — matches the existing shadow-[...rgba(0,0,0,...)] usage.
 export const reorderLift = { scale: 1.02, boxShadow: "0 12px 30px rgba(0,0,0,0.45)" };

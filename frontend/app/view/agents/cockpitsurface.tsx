@@ -4,7 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, MotionConfig } from "motion/react";
+import { AnimatePresence, MotionConfig, motionValue, type MotionValue } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
@@ -333,6 +333,20 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const resizeSnapRef = useRef<
         { kind: "fw"; startPx: number } | { kind: "col"; ids: string[]; weights: number[]; avail: number } | null
     >(null);
+    // corner-drag writes card heights straight to bound motion values (no per-frame React re-render); the
+    // ratio-scale weights are committed to cardPrefs once on pointer-up. isResizing suspends the layout
+    // spring + the render-time MV sync so a background re-render can't snap a card back mid-drag.
+    const [isResizing, setIsResizing] = useState(false);
+    const resizeMoveRef = useRef<{ cardId: string; dyPx: number } | null>(null);
+    const heightMVs = useRef(new Map<string, MotionValue<number>>());
+    const getHeightMV = (id: string, initial: number) => {
+        let mv = heightMVs.current.get(id);
+        if (!mv) {
+            mv = motionValue(initial);
+            heightMVs.current.set(id, mv);
+        }
+        return mv;
+    };
     const [gridViewportPx, setGridViewportPx] = useState(0);
     useEffect(() => {
         const el = gridScrollRef.current;
@@ -375,6 +389,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         rowHeightsPx(cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1), colAvail(cards.length));
 
     const beginCardResize = (cardId: string) => {
+        setIsResizing(true);
         if (cardPrefs[cardId]?.fullWidth) {
             const idx = fullWidthCards.findIndex((c) => c.id === cardId);
             resizeSnapRef.current = { kind: "fw", startPx: fwHeights[idx] ?? pageRowPx };
@@ -414,6 +429,35 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             snap.ids.forEach((id, i) => (out[id] = { ...out[id], heightWeight: next[i] }));
             return out;
         });
+    };
+    // live drag: write heights straight to the bound motion values (DOM-only, no re-render). resizeRowWeights
+    // already returns actual pixel heights, so they bind directly; the fw branch clamps its single card.
+    const dragResizeMV = (cardId: string, dyPx: number) => {
+        const snap = resizeSnapRef.current;
+        if (!snap) {
+            return;
+        }
+        resizeMoveRef.current = { cardId, dyPx };
+        if (snap.kind === "fw") {
+            heightMVs.current.get(cardId)?.set(Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, snap.startPx + dyPx)));
+            return;
+        }
+        const index = snap.ids.indexOf(cardId);
+        if (index === -1 || snap.ids.length < 2) {
+            return; // a lone card in its column has no neighbour to shift against
+        }
+        const last = index === snap.ids.length - 1;
+        const px = resizeRowWeights(snap.weights, last ? index - 1 : index, last ? -dyPx : dyPx, snap.avail);
+        snap.ids.forEach((id, i) => heightMVs.current.get(id)?.set(px[i]));
+    };
+    const endCardResize = () => {
+        const m = resizeMoveRef.current;
+        if (m) {
+            resizeCardHeight(m.cardId, m.dyPx); // persist the final drag as ratio-scale weights
+        }
+        resizeMoveRef.current = null;
+        resizeSnapRef.current = null;
+        setIsResizing(false);
     };
     const toggleCardFullWidth = (cardId: string) =>
         setCardPrefs((p) => ({ ...p, [cardId]: { ...p[cardId], fullWidth: !p[cardId]?.fullWidth } }));
@@ -597,12 +641,18 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     };
 
     // one AgentRow with every callback wired — shared by the full-width stack and the two columns
-    const renderCard = (a: AgentVM, cardHeight: number, isFull: boolean) => (
+    const renderCard = (a: AgentVM, cardHeight: number, isFull: boolean) => {
+        const mv = getHeightMV(a.id, cardHeight);
+        if (!isResizing) {
+            mv.set(cardHeight); // keep the bound value tracking the computed layout when not dragging
+        }
+        return (
         <AgentRow
             key={a.id}
             agent={a}
             now={now}
             heightPx={cardHeight}
+            heightMV={mv}
             fullWidth={isFull}
             isCursor={cursorId === a.id}
             pulse={pulseId === a.id}
@@ -625,10 +675,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
             onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
             onResizeStart={() => beginCardResize(a.id)}
-            onResizeHeight={(dy) => resizeCardHeight(a.id, dy)}
+            onResizeHeight={(dy) => dragResizeMV(a.id, dy)}
+            onResizeEnd={endCardResize}
             onToggleFullWidth={() => toggleCardFullWidth(a.id)}
+            resizing={isResizing}
         />
-    );
+        );
+    };
 
     const renderColumn = (cards: AgentVM[], colKey: string) => {
         if (cards.length === 0) {

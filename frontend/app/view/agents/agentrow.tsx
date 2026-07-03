@@ -3,9 +3,9 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { motion } from "motion/react";
-import { cardVariants, composerReveal } from "@/app/element/motiontokens";
-import { useEffect, useRef, useState } from "react";
+import { motion, useMotionValue, useSpring, type MotionValue } from "motion/react";
+import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     hasAnswerableAsk,
@@ -127,10 +127,13 @@ export function AgentRow({
     onDismiss,
     pulse,
     heightPx,
+    heightMV,
     fullWidth,
     onResizeStart,
     onResizeHeight,
+    onResizeEnd,
     onToggleFullWidth,
+    resizing,
 }: {
     agent: AgentVM;
     now: number;
@@ -152,13 +155,28 @@ export function AgentRow({
     onDismiss?: () => void;
     pulse?: boolean;
     heightPx?: number;
+    heightMV?: MotionValue<number>; // bound to style.height so the corner drag writes DOM-only (no re-render)
     fullWidth?: boolean; // current full-width state — seeds the corner-drag hysteresis
     onResizeStart?: () => void; // corner pointer-down: snapshot the column's heights
     onResizeHeight?: (dyPx: number) => void; // corner vertical drag: absolute dy from pointer-down
+    onResizeEnd?: () => void; // corner pointer-up: flush + re-enable the layout spring
     onToggleFullWidth?: () => void; // corner horizontal drag crossed the ± threshold
+    resizing?: boolean; // a corner drag is live anywhere in the grid — suspend the layout spring
 }) {
     const composerRef = useRef<AgentComposerHandle>(null);
     const cardRef = useRef<HTMLDivElement>(null);
+    // height eases toward the parent-driven target motion value (set instantly by the corner drag). The
+    // spring is what the eye follows — smooth during drag, settles on release. jump() past the 0->first
+    // -measure ease so cards don't grow in on load; structural re-layouts after that ease naturally.
+    const fallbackMV = useMotionValue(heightPx ?? 0);
+    const springHeight = useSpring(heightMV ?? fallbackMV, resizeSpring);
+    const springSeeded = useRef(false);
+    useLayoutEffect(() => {
+        if (!springSeeded.current && (heightPx ?? 0) > 0) {
+            springHeight.jump((heightMV ?? fallbackMV).get());
+            springSeeded.current = true;
+        }
+    });
     const scrollRef = useRef<HTMLDivElement>(null);
     const stickRef = useRef(true);
     const [tasksOpen, setTasksOpen] = useState(false);
@@ -224,14 +242,15 @@ export function AgentRow({
 
     return (
         <motion.div
-            layout="position"
+            layout={resizing ? false : "position"}
             variants={cardVariants}
             initial="initial"
             animate="animate"
             exit="exit"
             ref={cardRef}
             style={{
-                height: heightPx && heightPx > 0 ? heightPx : undefined,
+                // heightPx until the spring is seeded (avoids a mount flicker), springHeight thereafter
+                height: heightPx && heightPx > 0 ? (springSeeded.current ? springHeight : heightPx) : undefined,
                 flex: heightPx && heightPx > 0 ? undefined : "1 1 0",
                 minHeight: 0,
             }}
@@ -482,6 +501,7 @@ export function AgentRow({
                         const up = () => {
                             window.removeEventListener("pointermove", move);
                             window.removeEventListener("pointerup", up);
+                            onResizeEnd?.();
                         };
                         window.addEventListener("pointermove", move);
                         window.addEventListener("pointerup", up);
