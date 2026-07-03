@@ -3,6 +3,47 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Feature-triage residue — prioritization + scoping corrections (2026-07-03)
+
+Reconciled `docs/feature-triage.md` (2026-06-23) against the current tree. Most of that ~13-item
+"Add" pile shipped (Channels, Jarvis @agent, Memory + graph, Command Palette, Activity, Sessions &
+Resume, Usage, New-Agent launchers, Files accept/reject, **Git Worktrees** inside the New-Agent
+launcher). The residual **not-built** items, ranked by leverage:
+
+1. **Multi-answer ask** — **multi-SELECT SHIPPED 2026-07-03; multi-QUESTION still gated.** Chose the
+   live-keystroke-spike path (option (a)). Drove a real CC v2.1.199 multi-select `AskUserQuestion`
+   picker under a `node-pty` harness and verified the protocol *by outcome* (CC echoed back exactly the
+   toggled labels), including at the real 60ms `KeystrokeDelay`. Protocol (now encoded + commented in
+   `encode.go` `encodeMultiSelect`, and TDD'd in `encode_test.go`): unlike single-select (Enter
+   confirms immediately), multi-select **Enter toggles** the highlighted checkbox; `ESC[B/[A` navigate;
+   after the N options CC appends a "Type something" row (idx N) then a **"Submit"** row (idx N+1);
+   Enter on Submit opens a "Ready to submit your answers?" review whose default confirms with **one
+   more Enter**. `DeliverAnswer` (panel answers) and the Jarvis actuator are unaffected (the actuator
+   only sends single indices). FE was already multi-capable (`toggleSelection`/`buildAskAnswers`/
+   `canSubmitAsk`), so single-question multi-select now works end-to-end.
+   **Remaining:** `EncodeAnswer` still errors on `len(questions) != 1` (multi-*question* batches).
+   The picker renders each question as a top-bar tab (`←  ☐ Q1  …  ✔ Submit  →`); driving the `←/→`
+   tab navigation + per-tab submit is a separate spike (harness: `scratchpad/pty-spike/harness.mjs`).
+2. **Sub-agent tree in the cockpit** (M→H) — the one residual item that advances the orchestration
+   thesis and undoes a regression (old session sidebar had `SubagentStart`/`SubagentStop` lifecycle;
+   the cockpit has zero subagent code). Best "real feature" investment.
+3. **Cheap-polish bundle** — smaller and less "cheap" than the triage implied under Tauri:
+   - **Open in External Editor:** the `launch-editor` npm dep is a **dead end in Tauri** (Node /
+     main-process module; the cockpit is a WebView with no Node). Must ride the existing
+     `open_external` Tauri command (`getApi().openExternal` — opens a path in the OS *default*
+     handler, i.e. a folder opens in the file explorer, not an editor) or spawn `code`/`$EDITOR` via
+     a terminal/`wsh` command. Needs an open-semantics decision before it's buildable.
+   - **Jump-to-bottom pill:** the Agent *focus* surface center pane is a **live Claude Code TUI
+     terminal** (`CockpitFocusPane`), not a narrated transcript, so the pill target is either xterm
+     scrollback (shared `view/term`) or the cockpit **narration card** (`agentrow.tsx`, which already
+     has a scroll container + `scrollToBottom`). The narration-card pill is the most self-contained,
+     TDD-able piece of the whole residue.
+   - Remaining T-items (send-file, terminal path-insert, hover preview) are a later second pass.
+
+**Deferred / skip now:** Light/System theme + editor (cosmetic M, off-thesis — Settings surface
+shipped with no theme control), project-wide ripgrep search (generic IDE M), Menu-bar tray (needs a
+Tauri-native rewrite).
+
 ## Backlog re-verification against the tree (2026-07-02)
 
 A sweep of tracked-but-unverified items (memory notes + `docs/superpowers` plans) against git log
@@ -39,10 +80,10 @@ time of the sweep, so nothing material is sitting uncommitted.
   registered it on the `codex` projector in `transcriptregistry.ts`. The card consumer
   (`livetranscript.ts`) already called `projector.extractTasks?.()` generically, so no consumer
   change was needed. Covered by 4 new unit tests in `codextranscriptprojection.test.ts`.
-- **Multi-answer ask — server gate.** `pkg/agentask/encode.go` still hard-errors on anything but a
-  single single-select question with one selected index (`len(questions) != 1`, `q.MultiSelect`,
-  `len(sel) != 1`). The frontend builds the full multi-answer payload; relaxing this Go guard is the
-  remaining work.
+- **Multi-answer ask — server gate.** ~~single single-select only~~ **PARTIALLY RESOLVED 2026-07-03:**
+  `encode.go` now supports single-question **multi-select** (verified live vs CC v2.1.199 — see the
+  2026-07-03 entry at the top). The `q.MultiSelect` and `len(sel) != 1` guards are gone; the
+  `len(questions) != 1` guard (multi-question batches) remains, pending a tab-navigation spike.
 
 **Shipped since the memory notes were written (corrections, not open work):** Jarvis Delegator
 fan-out (`f43768d9`), the memory force-graph (`bb4da8a1`), the Agents cursor-row composer
