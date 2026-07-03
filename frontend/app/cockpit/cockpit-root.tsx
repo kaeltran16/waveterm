@@ -7,6 +7,7 @@ import { getTabModelByTabId } from "@/app/store/tab-model";
 import { confirmCloseAgent } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER } from "@/app/view/agents/agents";
 import { startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
+import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
@@ -52,6 +53,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
         agentsModelRef.current = model;
     }
     const model = agentsModelRef.current;
+    useApplyCockpitTheme();
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N")) {
