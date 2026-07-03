@@ -13,6 +13,8 @@ import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
 import { railVisibleAtom } from "./railstore";
+import { ACCENT_SWATCHES, activePalette, colorOf, PICKER_THEMES, type OverrideRole } from "./themes";
+import { themeOverridesAtom, themePresetAtom } from "./themestore";
 
 const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i.key, i.label])) as Record<
     SurfaceKey,
@@ -26,43 +28,35 @@ const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
     { id: "antigravity", name: "Antigravity" },
 ];
 
-export function SettingsSurface({ model }: { model: AgentsViewModel }) {
+export function SettingsSurface(_props: { model: AgentsViewModel }) {
     return (
-        <div className="flex h-full flex-col overflow-y-auto bg-background px-8 py-6">
-            <div className="mb-6">
-                <h1 className="text-[19px] font-bold text-primary">Settings</h1>
-                <p className="mt-1 text-[12.5px] text-muted">Cockpit preferences and New Agent defaults.</p>
-            </div>
-            <div className="flex max-w-[640px] flex-col gap-7">
+        <div className="flex h-full flex-col overflow-y-auto bg-background px-10 py-9">
+            <div className="mx-auto w-full max-w-[720px]">
+                <h1 className="text-[26px] font-extrabold tracking-[-0.025em] text-primary">Settings</h1>
+                <p className="mb-9 mt-1.5 text-[13.5px] text-muted">
+                    Cockpit preferences, appearance, and New Agent defaults.
+                </p>
+                <AppearanceSection />
+                <SectionGap />
                 <GeneralSection />
+                <SectionGap />
                 <NewAgentDefaultsSection />
+                <SectionGap />
                 <TerminalSection />
+                <SectionGap />
                 <MemorySection />
             </div>
         </div>
     );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-    return (
-        <div>
-            <div className="mb-[11px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                {label}
-            </div>
-            <div className="flex flex-col gap-[14px]">{children}</div>
-        </div>
-    );
+function SectionGap() {
+    return <div className="h-[34px]" />;
 }
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function SectionLabel({ children }: { children: React.ReactNode }) {
     return (
-        <div className="flex items-center gap-4">
-            <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-secondary">{label}</div>
-                {hint ? <div className="mt-0.5 text-[11.5px] text-muted">{hint}</div> : null}
-            </div>
-            <div className="shrink-0">{children}</div>
-        </div>
+        <div className="mb-4 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted">{children}</div>
     );
 }
 
@@ -74,17 +68,179 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
             aria-checked={on}
             onClick={onToggle}
             className={cn(
-                "relative h-[20px] w-[34px] shrink-0 cursor-pointer rounded-full transition-colors",
-                on ? "bg-accent" : "bg-edge-strong"
+                "relative mt-0.5 h-[23px] w-[42px] shrink-0 cursor-pointer rounded-full transition-colors",
+                on ? "bg-accent" : "bg-surface-selected"
             )}
         >
             <span
                 className={cn(
-                    "absolute top-[3px] h-[14px] w-[14px] rounded-full bg-background transition-all",
-                    on ? "left-[18px]" : "left-[2px]"
+                    "absolute top-[2px] h-[19px] w-[19px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-all",
+                    on ? "left-[21px]" : "left-[2px]"
                 )}
             />
         </button>
+    );
+}
+
+function CheckIcon() {
+    return (
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.4">
+            <path d="M3.5 8.5 7 12l6-7.5" />
+        </svg>
+    );
+}
+
+function Swatch({ color }: { color: string }) {
+    return <span className="h-[13px] w-[13px] rounded-[4px]" style={{ background: color }} />;
+}
+
+function AppearanceSection() {
+    const [preset, setPreset] = useAtom(themePresetAtom);
+    const [overrides, setOverrides] = useAtom(themeOverridesAtom);
+    const palette = activePalette(preset);
+    const isCustom = Object.keys(overrides).length > 0;
+    const activeName = PICKER_THEMES.find((t) => t.id === preset)?.name ?? "Midnight";
+    const setOverride = (role: OverrideRole, hex: string) => setOverrides((prev) => ({ ...prev, [role]: hex }));
+    const selectPreset = (id: string) => {
+        setPreset(id);
+        setOverrides({});
+    };
+    const accent = colorOf(palette, overrides, "accent");
+    const statusRoles: { role: OverrideRole; label: string; desc: string }[] = [
+        { role: "success", label: "Working / accept", desc: "Live agents, accepted diffs" },
+        { role: "warning", label: "Asking / attention", desc: "Awaiting your reply" },
+        { role: "error", label: "Blocked / reject", desc: "Errors, discarded changes" },
+    ];
+    return (
+        <div>
+            <SectionLabel>Appearance</SectionLabel>
+            <div className="mb-[22px]">
+                <div className="text-[14px] font-semibold text-primary">Theme</div>
+                <div className="mb-3.5 mt-0.5 text-[12.5px] text-muted">
+                    Base palette for every surface.{" "}
+                    <span className="font-semibold text-accent">
+                        {isCustom ? `Custom · based on ${activeName}` : activeName}
+                    </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2.5">
+                    {PICKER_THEMES.map((t) => {
+                        const on = t.id === preset;
+                        return (
+                            <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => selectPreset(t.id)}
+                                className={cn(
+                                    "flex cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
+                                    on ? "border-accent-700 bg-surface-hover" : "border-border hover:border-edge-strong"
+                                )}
+                            >
+                                <div className="flex flex-none flex-col gap-[3px]">
+                                    <div className="flex gap-[3px]">
+                                        <Swatch color={t.palette.bg} />
+                                        <Swatch color={t.palette.surface} />
+                                    </div>
+                                    <div className="flex gap-[3px]">
+                                        <Swatch color={t.palette.accent} />
+                                        <Swatch color={t.palette.success} />
+                                    </div>
+                                </div>
+                                <span
+                                    className={cn(
+                                        "min-w-0 flex-1 truncate text-[12px] font-semibold",
+                                        on ? "text-primary" : "text-secondary"
+                                    )}
+                                >
+                                    {t.name}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            <div className="rounded-[14px] border border-border bg-surface p-[18px]">
+                <div className="mb-4 flex items-center justify-between">
+                    <div>
+                        <div className="text-[13.5px] font-semibold text-primary">Custom colors</div>
+                        <div className="text-[12px] text-muted">
+                            Override any role. Tints and gradients recompute automatically.
+                        </div>
+                    </div>
+                    {isCustom ? (
+                        <button
+                            type="button"
+                            onClick={() => setOverrides({})}
+                            className="cursor-pointer rounded-[8px] border border-edge-mid px-[11px] py-1.5 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
+                        >
+                            Reset to preset
+                        </button>
+                    ) : null}
+                </div>
+
+                <div className="flex items-center gap-3.5 border-t border-edge-faint py-[11px]">
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[12.5px] font-semibold text-primary">Accent</div>
+                        <div className="text-[11.5px] text-muted">Primary actions, active nav, links</div>
+                    </div>
+                    <div className="flex flex-none items-center gap-[7px]">
+                        {ACCENT_SWATCHES.map((hex) => (
+                            <button
+                                key={hex}
+                                type="button"
+                                title={hex}
+                                onClick={() => setOverride("accent", hex)}
+                                className="h-[22px] w-[22px] cursor-pointer rounded-[6px] border-2 p-0"
+                                style={{
+                                    background: hex,
+                                    borderColor:
+                                        hex.toLowerCase() === accent.toLowerCase()
+                                            ? "var(--color-primary)"
+                                            : "transparent",
+                                }}
+                            />
+                        ))}
+                        <label
+                            title="Custom hex"
+                            className="relative flex h-[22px] w-[22px] flex-none cursor-pointer items-center justify-center overflow-hidden rounded-[6px] border border-edge-mid"
+                        >
+                            <span className="pointer-events-none absolute font-mono text-[12px] font-bold text-muted">
+                                +
+                            </span>
+                            <input
+                                type="color"
+                                value={accent}
+                                onChange={(e) => setOverride("accent", e.target.value)}
+                                className="h-[36px] w-[36px] cursor-pointer opacity-0"
+                            />
+                        </label>
+                    </div>
+                </div>
+
+                {statusRoles.map((r) => {
+                    const hex = colorOf(palette, overrides, r.role);
+                    return (
+                        <div key={r.role} className="flex items-center gap-3.5 border-t border-edge-faint py-[11px]">
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[12.5px] font-semibold text-primary">{r.label}</div>
+                                <div className="text-[11.5px] text-muted">{r.desc}</div>
+                            </div>
+                            <div className="flex flex-none items-center gap-[9px]">
+                                <span className="font-mono text-[11px] text-muted">{hex}</span>
+                                <label className="block h-[24px] w-[34px] cursor-pointer overflow-hidden rounded-[7px] border border-edge-mid">
+                                    <input
+                                        type="color"
+                                        value={hex}
+                                        onChange={(e) => setOverride(r.role, e.target.value)}
+                                        className="m-[-5px] h-[34px] w-[44px] cursor-pointer"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
     );
 }
 
@@ -93,30 +249,41 @@ function GeneralSection() {
     const [railVisible, setRailVisible] = useAtom(railVisibleAtom);
     const options = startupSurfaceOptions();
     return (
-        <Section label="General">
-            <Row label="Startup surface" hint="Which surface opens when the app launches.">
-                <div className="flex flex-wrap justify-end gap-[6px]">
-                    {options.map((k) => (
+        <div>
+            <SectionLabel>General</SectionLabel>
+            <div className="mb-5 border-b border-edge-faint pb-5">
+                <div className="mb-3">
+                    <div className="text-[14px] font-semibold text-primary">Startup surface</div>
+                    <div className="mt-0.5 text-[12.5px] text-muted">Which surface opens when the app launches.</div>
+                </div>
+                <div
+                    className="grid overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised"
+                    style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}
+                >
+                    {options.map((k, i) => (
                         <button
                             key={k}
                             type="button"
                             onClick={() => setStartup(k)}
                             className={cn(
-                                "cursor-pointer rounded-[7px] border px-[10px] py-[5px] text-[12px] font-medium",
-                                startup === k
-                                    ? "border-accent-700 bg-accentbg text-primary"
-                                    : "border-edge-mid bg-surface text-muted-foreground hover:border-edge-strong"
+                                "cursor-pointer whitespace-nowrap px-2 py-[9px] text-[12.5px] font-semibold transition-colors",
+                                i > 0 && "border-l border-border",
+                                startup === k ? "bg-accentbg text-accent" : "text-secondary hover:text-primary"
                             )}
                         >
                             {LABEL[k] ?? k}
                         </button>
                     ))}
                 </div>
-            </Row>
-            <Row label="Show details rail by default" hint="The per-agent git/details rail on the Agent surface.">
+            </div>
+            <div className="flex items-start justify-between gap-5">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-semibold text-primary">Show details rail by default</div>
+                    <div className="text-[12.5px] text-muted">The per-agent git/details rail on the Agent surface.</div>
+                </div>
                 <Toggle on={railVisible} onToggle={() => setRailVisible((v) => !v)} />
-            </Row>
-        </Section>
+            </div>
+        </div>
     );
 }
 
@@ -129,97 +296,118 @@ function NewAgentDefaultsSection() {
     const setFlag = (id: string, on: boolean) =>
         setFlags((prev) => ({ ...prev, [runtime]: { ...prev[runtime], [id]: on } }));
     return (
-        <Section label="New Agent defaults">
-            <Row
-                label="Remember flags"
-                hint="Reuse the enabled flags for every new agent (instead of clearing after launch)."
-            >
+        <div>
+            <SectionLabel>New Agent Defaults</SectionLabel>
+            <div className="mb-[18px] flex items-start justify-between gap-5">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-semibold text-primary">Remember flags</div>
+                    <div className="text-[12.5px] text-muted">
+                        Reuse the enabled flags for every new agent (instead of clearing after launch).
+                    </div>
+                </div>
                 <Toggle on={remember} onToggle={() => setRemember((v) => !v)} />
-            </Row>
-            <div className="flex gap-[6px]">
+            </div>
+            <div className="mb-4 flex gap-[7px]">
                 {FLAG_RUNTIMES.map((r) => (
                     <button
                         key={r.id}
                         type="button"
                         onClick={() => setRuntime(r.id)}
                         className={cn(
-                            "cursor-pointer rounded-[7px] border px-[11px] py-[6px] text-[12px] font-medium",
+                            "cursor-pointer rounded-[8px] border px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors",
                             runtime === r.id
-                                ? "border-accent-700 bg-accentbg text-primary"
-                                : "border-edge-mid bg-surface text-muted-foreground hover:border-edge-strong"
+                                ? "border-accent-700 bg-accentbg text-accent"
+                                : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
                         )}
                     >
                         {r.name}
                     </button>
                 ))}
             </div>
-            <div className="flex flex-col gap-[7px] rounded-[10px] border border-edge-mid bg-surface p-[11px]">
-                {catalog.map((f) => {
+            <div className="rounded-[14px] border border-border bg-surface px-4 py-1.5">
+                {catalog.map((f, i) => {
                     const on = !!runtimeFlags[f.id];
                     return (
                         <button
                             key={f.id}
                             type="button"
                             onClick={() => setFlag(f.id, !on)}
-                            className="flex w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-[8px] py-[6px] text-left hover:bg-surface-hover"
+                            className={cn(
+                                "flex w-full cursor-pointer items-center gap-3 py-3 text-left",
+                                i > 0 && "border-t border-edge-faint"
+                            )}
                         >
                             <span
                                 className={cn(
-                                    "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[9px] font-bold text-background",
+                                    "flex h-[17px] w-[17px] flex-none items-center justify-center rounded-[5px] border-[1.5px] text-background",
                                     on ? "border-accent bg-accent" : "border-edge-strong"
                                 )}
                             >
-                                {on ? "✓" : ""}
+                                {on ? <CheckIcon /> : null}
                             </span>
                             <span
                                 className={cn(
-                                    "shrink-0 font-mono text-[11.5px] font-semibold",
-                                    on ? "text-accent-soft" : "text-muted-foreground"
+                                    "flex-none font-mono text-[12.5px] font-semibold",
+                                    on ? "text-accent" : "text-primary"
                                 )}
                             >
                                 {f.flag}
                             </span>
-                            <span className="flex-1 truncate text-right text-[11px] text-muted">{f.desc}</span>
+                            <span className="flex-1" />
+                            <span
+                                className={cn(
+                                    "text-right text-[12px] font-medium",
+                                    on ? "text-accent-soft" : "text-muted"
+                                )}
+                            >
+                                {f.desc}
+                            </span>
                         </button>
                     );
                 })}
             </div>
-        </Section>
+        </div>
     );
 }
 
 function TerminalSection() {
     const stored = useAtomValue(getSettingsKeyAtom("term:fontsize"));
-    const [draft, setDraft] = useState<string>(stored != null ? String(stored) : "");
-    const commit = () => {
-        const n = coerceFontSize(draft);
-        if (n == null) {
-            setDraft(stored != null ? String(stored) : "");
-            return;
+    const current = typeof stored === "number" ? stored : 12;
+    const step = (delta: number) => {
+        const next = coerceFontSize(String(current + delta));
+        if (next != null && next !== current) {
+            void RpcApi.SetConfigCommand(TabRpcClient, { "term:fontsize": next });
         }
-        setDraft(String(n));
-        void RpcApi.SetConfigCommand(TabRpcClient, { "term:fontsize": n });
     };
     return (
-        <Section label="Terminal">
-            <Row label="Font size" hint="Default font size for agent terminals (px).">
-                <input
-                    type="number"
-                    min={6}
-                    max={48}
-                    value={draft}
-                    placeholder="12"
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={commit}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                            (e.target as HTMLInputElement).blur();
-                        }
-                    }}
-                    className="w-[72px] rounded-[8px] border border-edge-mid bg-surface px-3 py-[7px] text-right font-mono text-[13px] text-primary outline-none focus:border-accent-700"
-                />
-            </Row>
-        </Section>
+        <div>
+            <SectionLabel>Terminal</SectionLabel>
+            <div className="flex items-center justify-between gap-5">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-semibold text-primary">Font size</div>
+                    <div className="text-[12.5px] text-muted">Default font size for agent terminals (px).</div>
+                </div>
+                <div className="flex flex-none items-center overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised">
+                    <button
+                        type="button"
+                        aria-label="Decrease font size"
+                        onClick={() => step(-1)}
+                        className="h-[34px] w-[34px] cursor-pointer border-r border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
+                    >
+                        −
+                    </button>
+                    <div className="w-[48px] text-center font-mono text-[13px] text-primary">{current}</div>
+                    <button
+                        type="button"
+                        aria-label="Increase font size"
+                        onClick={() => step(1)}
+                        className="h-[34px] w-[34px] cursor-pointer border-l border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
+                    >
+                        +
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -228,42 +416,39 @@ function MemorySection() {
     const [draft, setDraft] = useState<string>(stored ?? "");
     const [saved, setSaved] = useState(false);
     const dirty = draft !== (stored ?? "");
+    const showSaved = saved && !dirty;
     const commit = () => {
-        void RpcApi.SetConfigCommand(TabRpcClient, { "memory:vaultpath": draft.trim() }).then(() => {
-            setSaved(true);
-        });
+        void RpcApi.SetConfigCommand(TabRpcClient, { "memory:vaultpath": draft.trim() }).then(() => setSaved(true));
     };
     return (
-        <Section label="Memory">
-            <div>
-                <div className="text-[13px] font-medium text-secondary">Vault path</div>
-                <div className="mt-0.5 text-[11.5px] text-muted">Folder the Memory surface reads and writes.</div>
-                <div className="mt-[9px] flex items-center gap-2">
-                    <input
-                        type="text"
-                        value={draft}
-                        placeholder="~/vault"
-                        onChange={(e) => {
-                            setDraft(e.target.value);
-                            setSaved(false);
-                        }}
-                        className="min-w-0 flex-1 rounded-[8px] border border-edge-mid bg-surface px-3 py-[7px] font-mono text-[12.5px] text-primary outline-none focus:border-accent-700"
-                    />
-                    <button
-                        type="button"
-                        onClick={commit}
-                        disabled={!dirty}
-                        className={cn(
-                            "shrink-0 rounded-[8px] px-[15px] py-[7px] text-[12.5px] font-semibold",
-                            dirty
-                                ? "cursor-pointer bg-accent text-background hover:bg-accenthover"
-                                : "cursor-not-allowed bg-surface text-muted"
-                        )}
-                    >
-                        {saved && !dirty ? "Saved" : "Save"}
-                    </button>
-                </div>
+        <div>
+            <SectionLabel>Memory</SectionLabel>
+            <div className="text-[14px] font-semibold text-primary">Vault path</div>
+            <div className="mb-3 mt-0.5 text-[12.5px] text-muted">Folder the Memory surface reads and writes.</div>
+            <div className="flex gap-2.5">
+                <input
+                    type="text"
+                    value={draft}
+                    placeholder="~/vault"
+                    onChange={(e) => {
+                        setDraft(e.target.value);
+                        setSaved(false);
+                    }}
+                    className="min-w-0 flex-1 rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-2.5 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
+                />
+                <button
+                    type="button"
+                    onClick={commit}
+                    className={cn(
+                        "shrink-0 rounded-[9px] border px-[18px] text-[13px] font-semibold transition-colors",
+                        showSaved
+                            ? "border-success/40 bg-success/[0.14] text-success-soft"
+                            : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
+                    )}
+                >
+                    {showSaved ? "Saved ✓" : "Save"}
+                </button>
             </div>
-        </Section>
+        </div>
     );
 }

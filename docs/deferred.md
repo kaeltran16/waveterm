@@ -283,3 +283,13 @@ token totals, only `fivehourpct`/`fivehourreset`/`weekpct`/`weekreset`.
   `Ctrl+K` keybinding to open it, and feed it the roster (`model.agentsAtom`), sessions, and a
   command registry.
 - **Deferred:** 2026-06-25, during the cockpit handoff-parity pass.
+
+## Cockpit light mode (Paper theme) — 2026-07-03
+
+The theming engine (`themes.ts`) is light-capable and the `paper` palette exists in `THEMES`, but it is
+omitted from the v1 picker (`PICKER_THEMES` = dark only). A faithful light mode needs a cockpit-wide
+audit of dark-assumed hardcoded colors: inline `rgba(255,255,255,α)` overlays (hover states, `.agent-md`
+dividers/code fills in `tailwindsetup.css`), the hardcoded scrollbar hexes (`tailwindsetup.css`
+`::-webkit-scrollbar-thumb`), `cockpit.scss` fallbacks, and the greys left fixed by `buildThemeVars`
+(`muted-foreground`, `ink-mid`, `lane`, `lane-asking`, `cacheread`, `feed-*`). Convert those to themed
+tokens, then set `paper.dark = true`-equivalent exposure in the picker.
