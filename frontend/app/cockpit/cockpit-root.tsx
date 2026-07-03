@@ -10,6 +10,7 @@ import { getTabModelByTabId } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
 import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
+import { useApplyCockpitFonts } from "@/app/view/agents/fontstore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
@@ -57,6 +58,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     }
     const model = agentsModelRef.current;
     useApplyCockpitTheme();
+    useApplyCockpitFonts();
     useEffect(() => initKeybindingDispatcher(model), [model]);
     const globalBindings = useMemo(() => buildGlobalBindings(model), [model]);
     useKeybindings(globalBindings);

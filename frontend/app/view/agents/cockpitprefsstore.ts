@@ -28,3 +28,24 @@ export function coerceFontSize(raw: string): number | null {
     }
     return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.floor(n)));
 }
+
+const SCROLLBACK_MIN = 0;
+const SCROLLBACK_MAX = 100000;
+
+// Parse a scrollback input to an integer within range, or null when unusable (so the caller can skip
+// the config write instead of persisting garbage). Mirrors coerceFontSize.
+export function coerceScrollback(raw: string): number | null {
+    const n = Number(raw);
+    if (raw.trim() === "" || Number.isNaN(n)) {
+        return null;
+    }
+    return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, Math.floor(n)));
+}
+
+// Clamp a transparency value to [0, 1]. Non-finite input coerces to 0 (fully opaque).
+export function coerceTransparency(n: number): number {
+    if (!Number.isFinite(n)) {
+        return 0;
+    }
+    return Math.min(1, Math.max(0, n));
+}
