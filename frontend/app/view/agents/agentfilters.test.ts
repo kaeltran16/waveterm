@@ -6,6 +6,7 @@ import {
     distributeColumns,
     filterAgents,
     matchesProjectFilter,
+    nextFullWidth,
     normalizeWeights,
     projectOf,
     projectsFromAgents,
@@ -175,6 +176,17 @@ describe("resizeRowWeights", () => {
     it("returns the weights unchanged for an out-of-range boundary", () => {
         expect(resizeRowWeights([1, 1], 1, 30, 300)).toEqual([1, 1]);
         expect(resizeRowWeights([1, 1], -1, 30, 300)).toEqual([1, 1]);
+    });
+});
+
+describe("nextFullWidth", () => {
+    it("turns on past the positive threshold and off past the negative", () => {
+        expect(nextFullWidth(false, 60, 48)).toBe(true);
+        expect(nextFullWidth(true, -60, 48)).toBe(false);
+    });
+    it("holds within the deadzone", () => {
+        expect(nextFullWidth(false, 10, 48)).toBe(false);
+        expect(nextFullWidth(true, 10, 48)).toBe(true);
     });
 });
 

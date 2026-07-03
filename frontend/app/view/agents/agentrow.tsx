@@ -11,6 +11,7 @@ import {
     hasAnswerableAsk,
     isNearBottom,
     isQuiet,
+    nextFullWidth,
     projectOf,
     taskProgress,
     type AgentVM,
@@ -126,6 +127,10 @@ export function AgentRow({
     onDismiss,
     pulse,
     heightPx,
+    fullWidth,
+    onResizeStart,
+    onResizeHeight,
+    onToggleFullWidth,
 }: {
     agent: AgentVM;
     now: number;
@@ -147,6 +152,10 @@ export function AgentRow({
     onDismiss?: () => void;
     pulse?: boolean;
     heightPx?: number;
+    fullWidth?: boolean; // current full-width state — seeds the corner-drag hysteresis
+    onResizeStart?: () => void; // corner pointer-down: snapshot the column's heights
+    onResizeHeight?: (dyPx: number) => void; // corner vertical drag: absolute dy from pointer-down
+    onToggleFullWidth?: () => void; // corner horizontal drag crossed the ± threshold
 }) {
     const composerRef = useRef<AgentComposerHandle>(null);
     const cardRef = useRef<HTMLDivElement>(null);
@@ -451,6 +460,39 @@ export function AgentRow({
                     </button>
                 ) : null}
             </div>
+
+            {/* bottom-right corner grip: drag down = taller, drag out (±48px) = full-width span */}
+            {onResizeHeight || onToggleFullWidth ? (
+                <div
+                    onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const startX = e.clientX;
+                        const startY = e.clientY;
+                        let applied = !!fullWidth; // seed hysteresis with the current state
+                        onResizeStart?.();
+                        const move = (ev: PointerEvent) => {
+                            onResizeHeight?.(ev.clientY - startY);
+                            const target = nextFullWidth(applied, ev.clientX - startX);
+                            if (target !== applied) {
+                                applied = target;
+                                onToggleFullWidth?.();
+                            }
+                        };
+                        const up = () => {
+                            window.removeEventListener("pointermove", move);
+                            window.removeEventListener("pointerup", up);
+                        };
+                        window.addEventListener("pointermove", move);
+                        window.addEventListener("pointerup", up);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    title={fullWidth ? "Drag in to un-span · down to resize" : "Drag out to span · down to resize"}
+                    className="group/grip absolute bottom-[2px] right-[2px] z-20 flex h-[18px] w-[18px] cursor-nwse-resize items-end justify-end p-[3px] opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                    <div className="h-[8px] w-[8px] rounded-br-[3px] border-b-2 border-r-2 border-edge-strong group-hover/grip:border-accent" />
+                </div>
+            ) : null}
         </motion.div>
     );
 }

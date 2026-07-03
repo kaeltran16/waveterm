@@ -50,14 +50,17 @@ export interface AgentVM {
     kind?: "agent" | "terminal"; // undefined = agent (roster); "terminal" = plain shell session (no agent status)
 }
 
-// Per-card ephemeral layout pref (dragged column height). Not persisted this pass.
+// Per-card ephemeral layout prefs (full-width span + dragged height). Not persisted this pass.
 export interface CardPref {
-    heightWeight?: number; // relative height within its column; default 1 (even fill). Set by dragging a divider.
+    fullWidth?: boolean; // card spans both columns (floats to the top full-width stack)
+    heightWeight?: number; // relative height within its column; default 1 (even fill). Set by dragging the corner.
 }
 
 export const GRID_PAGE_ROWS = 3; // 2 columns × 3 rows = 6 rich cards fill one screen
 export const GRID_MIN_ROW_PX = 96; // a row cannot be dragged smaller than this
 export const GRID_ROW_GAP_PX = 14; // matches the grid's Tailwind gap-3.5
+export const FULLWIDTH_DRAG_THRESHOLD_PX = 48; // corner drag past this (±) toggles full-width
+export const FULLWIDTH_MAX_VIEWPORT_FRAC = 0.6; // a full-width card can't exceed this fraction of the viewport
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
 
@@ -689,6 +692,18 @@ export function resizeRowWeights(
     next[i] = above;
     next[i + 1] = pair - above;
     return next;
+}
+
+/** Pure: corner-drag hysteresis for the full-width toggle. Past +threshold -> true, past -threshold ->
+ *  false; within the dead-zone the current state holds (so a vertical resize drag never flips it). */
+export function nextFullWidth(current: boolean, dragDeltaPx: number, threshold = FULLWIDTH_DRAG_THRESHOLD_PX): boolean {
+    if (dragDeltaPx > threshold) {
+        return true;
+    }
+    if (dragDeltaPx < -threshold) {
+        return false;
+    }
+    return current;
 }
 
 /** Pure: rescale weights to mean 1 so stored card weights stay ratio-scale. `resizeRowWeights`

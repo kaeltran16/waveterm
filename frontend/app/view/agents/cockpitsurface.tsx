@@ -23,6 +23,9 @@ import {
     rowHeightsPx,
     resizeRowWeights,
     GRID_ROW_GAP_PX,
+    GRID_PAGE_ROWS,
+    GRID_MIN_ROW_PX,
+    FULLWIDTH_MAX_VIEWPORT_FRAC,
     streamableTranscriptAgents,
     matchesProjectFilter,
     mergeOrder,
@@ -168,55 +171,6 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
                     </div>
                 ))}
             </div>
-        </div>
-    );
-}
-
-// One draggable handle per interior row boundary, positioned in the gap between rows. Sits in an
-// absolute overlay above the grid; only the handles capture pointer events. `heights` are the row
-// pixel heights (Task 4); the handle at boundary i lives between row i and row i+1.
-function RowDividers({
-    heights,
-    gap,
-    onResize,
-}: {
-    heights: number[];
-    gap: number;
-    onResize: (boundary: number, deltaPx: number) => void;
-}) {
-    if (heights.length < 2) {
-        return null;
-    }
-    const tops: number[] = [];
-    let acc = 0;
-    for (let i = 0; i < heights.length - 1; i++) {
-        acc += heights[i];
-        tops.push(acc + gap * i + gap / 2); // centre of the gap after row i
-    }
-    return (
-        <div className="pointer-events-none absolute inset-0 z-10">
-            {tops.map((top, i) => (
-                <div
-                    key={i}
-                    onPointerDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const startY = e.clientY;
-                        const move = (ev: PointerEvent) => onResize(i, ev.clientY - startY);
-                        const up = () => {
-                            window.removeEventListener("pointermove", move);
-                            window.removeEventListener("pointerup", up);
-                        };
-                        window.addEventListener("pointermove", move);
-                        window.addEventListener("pointerup", up);
-                    }}
-                    title="Drag to resize rows"
-                    className="group pointer-events-auto absolute inset-x-3 flex h-[11px] -translate-y-1/2 cursor-ns-resize items-center justify-center"
-                    style={{ top }}
-                >
-                    <div className="h-[3px] w-[46px] rounded-[3px] bg-edge-strong opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-            ))}
         </div>
     );
 }
@@ -374,6 +328,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
     const gridScrollRef = useRef<HTMLDivElement>(null);
+    // snapshot of the card group being corner-resized, captured on pointer-down so the drag applies an
+    // absolute delta to a stable baseline (no drift as pointermove reads updated prefs)
+    const resizeSnapRef = useRef<
+        { kind: "fw"; startPx: number } | { kind: "col"; ids: string[]; weights: number[]; avail: number } | null
+    >(null);
     const [gridViewportPx, setGridViewportPx] = useState(0);
     useEffect(() => {
         const el = gridScrollRef.current;
@@ -398,26 +357,66 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // project scope + live-only first; the chip narrows what the grid renders (counts ignore the chip)
     const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
     const shownAgents = chip === "all" ? visibleOrdered : visibleOrdered.filter((a) => a.state === chip);
-    const { colA, colB } = distributeColumns(shownAgents);
-    const columnHeights = (cards: AgentVM[]) => {
-        const weights = cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1);
-        const avail = Math.max(0, gridViewportPx - GRID_ROW_GAP_PX * Math.max(0, cards.length - 1));
-        return rowHeightsPx(weights, avail);
+    // full-width cards float to a top stack; the rest fill two independent columns below
+    const fullWidthCards = shownAgents.filter((a) => cardPrefs[a.id]?.fullWidth);
+    const columnCards = shownAgents.filter((a) => !cardPrefs[a.id]?.fullWidth);
+    const { colA, colB } = distributeColumns(columnCards);
+
+    const pageRowPx = gridViewportPx / GRID_PAGE_ROWS;
+    const fwMaxPx = FULLWIDTH_MAX_VIEWPORT_FRAC * gridViewportPx; // Bug-2 guard: a full-width card can't take over
+    const fwHeights = fullWidthCards.map((c) =>
+        Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, pageRowPx * (cardPrefs[c.id]?.heightWeight ?? 1)))
+    );
+    const fwStackPx = fwHeights.reduce((s, h) => s + h, 0) + GRID_ROW_GAP_PX * Math.max(0, fullWidthCards.length - 1);
+    // the two columns fill the height left over after the full-width stack
+    const columnsAvail = Math.max(0, gridViewportPx - fwStackPx - (fullWidthCards.length > 0 ? GRID_ROW_GAP_PX : 0));
+    const colAvail = (n: number) => Math.max(0, columnsAvail - GRID_ROW_GAP_PX * Math.max(0, n - 1));
+    const columnHeights = (cards: AgentVM[]) =>
+        rowHeightsPx(cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1), colAvail(cards.length));
+
+    const beginCardResize = (cardId: string) => {
+        if (cardPrefs[cardId]?.fullWidth) {
+            const idx = fullWidthCards.findIndex((c) => c.id === cardId);
+            resizeSnapRef.current = { kind: "fw", startPx: fwHeights[idx] ?? pageRowPx };
+            return;
+        }
+        const col = colA.some((c) => c.id === cardId) ? colA : colB;
+        resizeSnapRef.current = {
+            kind: "col",
+            ids: col.map((c) => c.id),
+            weights: col.map((c) => cardPrefs[c.id]?.heightWeight ?? 1),
+            avail: colAvail(col.length),
+        };
     };
-    const resizeColumn = (cards: AgentVM[], boundary: number, deltaPx: number) => {
-        const weights = cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1);
-        const avail = Math.max(0, gridViewportPx - GRID_ROW_GAP_PX * Math.max(0, cards.length - 1));
-        // normalise back to ratio scale: resizeRowWeights returns pixel-scale values, and rowHeightsPx
-        // only re-normalises in its fit branch — persisting pixels would explode once a column overflows
-        const next = normalizeWeights(resizeRowWeights(weights, boundary, deltaPx, avail));
+    const resizeCardHeight = (cardId: string, dyPx: number) => {
+        const snap = resizeSnapRef.current;
+        if (!snap) {
+            return;
+        }
+        if (snap.kind === "fw") {
+            const px = Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, snap.startPx + dyPx));
+            setCardPrefs((p) => ({ ...p, [cardId]: { ...p[cardId], heightWeight: pageRowPx > 0 ? px / pageRowPx : 1 } }));
+            return;
+        }
+        const index = snap.ids.indexOf(cardId);
+        if (index === -1 || snap.ids.length < 2) {
+            return; // a lone card in its column has no neighbour to shift against
+        }
+        // last card in the column shifts against the neighbour ABOVE (inverted delta); others against below
+        const last = index === snap.ids.length - 1;
+        const boundary = last ? index - 1 : index;
+        const delta = last ? -dyPx : dyPx;
+        // normalise back to ratio scale (resizeRowWeights returns pixel-scale; rowHeightsPx only
+        // re-normalises in its fit branch, so raw pixels would explode once a column overflows)
+        const next = normalizeWeights(resizeRowWeights(snap.weights, boundary, delta, snap.avail));
         setCardPrefs((p) => {
             const out = { ...p };
-            cards.forEach((c, idx) => {
-                out[c.id] = { ...out[c.id], heightWeight: next[idx] };
-            });
+            snap.ids.forEach((id, i) => (out[id] = { ...out[id], heightWeight: next[i] }));
             return out;
         });
     };
+    const toggleCardFullWidth = (cardId: string) =>
+        setCardPrefs((p) => ({ ...p, [cardId]: { ...p[cardId], fullWidth: !p[cardId]?.fullWidth } }));
     const liveCount = visibleOrdered.length;
     const liveAsking = visibleOrdered.filter((a) => a.state === "asking").length;
     const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
@@ -597,6 +596,40 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     };
 
+    // one AgentRow with every callback wired — shared by the full-width stack and the two columns
+    const renderCard = (a: AgentVM, cardHeight: number, isFull: boolean) => (
+        <AgentRow
+            key={a.id}
+            agent={a}
+            now={now}
+            heightPx={cardHeight}
+            fullWidth={isFull}
+            isCursor={cursorId === a.id}
+            pulse={pulseId === a.id}
+            selections={answerSel[a.id] ?? {}}
+            sent={sentIds.has(a.id)}
+            activeQuestion={answerTab[a.id] ?? 0}
+            composerOpen={openComposerId === a.id}
+            onCursor={() => setCursorId(a.id)}
+            onOpen={() => openFocus(a.id, false)}
+            onOpenTerminal={() => model.openTerminal(a.id)}
+            onOpenDiff={() => openDiff(a.id)}
+            onOpenComposer={() => setOpenComposerId(a.id)}
+            onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+            onSubmitAnswer={() => submitAnswer(a.id)}
+            onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+            onComposerEscape={() => {
+                setOpenComposerId(undefined);
+                containerRef.current?.focus();
+            }}
+            onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
+            onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+            onResizeStart={() => beginCardResize(a.id)}
+            onResizeHeight={(dy) => resizeCardHeight(a.id, dy)}
+            onToggleFullWidth={() => toggleCardFullWidth(a.id)}
+        />
+    );
+
     const renderColumn = (cards: AgentVM[], colKey: string) => {
         if (cards.length === 0) {
             return null;
@@ -607,45 +640,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             <div key={colKey} className="relative flex-1" style={{ height: contentPx || "100%" }}>
                 <div className="flex h-full flex-col gap-3.5">
                     <AnimatePresence mode="popLayout" initial={false}>
-                        {cards.map((a, i) => (
-                            <AgentRow
-                                key={a.id}
-                                agent={a}
-                                now={now}
-                                heightPx={heights[i]}
-                                isCursor={cursorId === a.id}
-                                pulse={pulseId === a.id}
-                                selections={answerSel[a.id] ?? {}}
-                                sent={sentIds.has(a.id)}
-                                activeQuestion={answerTab[a.id] ?? 0}
-                                composerOpen={openComposerId === a.id}
-                                onCursor={() => setCursorId(a.id)}
-                                onOpen={() => openFocus(a.id, false)}
-                                onOpenTerminal={() => model.openTerminal(a.id)}
-                                onOpenDiff={() => openDiff(a.id)}
-                                onOpenComposer={() => setOpenComposerId(a.id)}
-                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                onSubmitAnswer={() => submitAnswer(a.id)}
-                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                onComposerEscape={() => {
-                                    setOpenComposerId(undefined);
-                                    containerRef.current?.focus();
-                                }}
-                                onBackground={
-                                    a.state === "working" || a.state === "asking"
-                                        ? () => toggleBackground(a.id)
-                                        : undefined
-                                }
-                                onDismiss={
-                                    a.state === "idle"
-                                        ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
-                                        : undefined
-                                }
-                            />
-                        ))}
+                        {cards.map((a, i) => renderCard(a, heights[i], false))}
                     </AnimatePresence>
                 </div>
-                <RowDividers heights={heights} gap={GRID_ROW_GAP_PX} onResize={(b, d) => resizeColumn(cards, b, d)} />
             </div>
         );
     };
@@ -692,7 +689,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
                                 Live only
                             </button>
-                            {Object.values(cardPrefs).some((p) => p.heightWeight != null) ? (
+                            {Object.values(cardPrefs).some((p) => p.fullWidth || p.heightWeight != null) ? (
                                 <button
                                     type="button"
                                     onClick={() => setCardPrefs({})}
@@ -774,9 +771,18 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     ) : null}
 
                     <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
-                        <div className="flex gap-3.5">
-                            {renderColumn(colA, "colA")}
-                            {renderColumn(colB, "colB")}
+                        <div className="flex flex-col gap-3.5">
+                            {fullWidthCards.length > 0 ? (
+                                <AnimatePresence mode="popLayout" initial={false}>
+                                    {fullWidthCards.map((a, i) => renderCard(a, fwHeights[i], true))}
+                                </AnimatePresence>
+                            ) : null}
+                            {columnCards.length > 0 ? (
+                                <div className="flex gap-3.5">
+                                    {renderColumn(colA, "colA")}
+                                    {renderColumn(colB, "colB")}
+                                </div>
+                            ) : null}
                         </div>
                     </div>
 
