@@ -1,14 +1,16 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { getSettingsKeyAtom } from "@/app/store/global";
+import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { coerceFontSize, startupSurfaceAtom, startupSurfaceOptions } from "./cockpitprefsstore";
+import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceAtom, startupSurfaceOptions } from "./cockpitprefsstore";
+import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
+import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
@@ -37,6 +39,8 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     Cockpit preferences, appearance, and New Agent defaults.
                 </p>
                 <AppearanceSection />
+                <SectionGap />
+                <FontsSection />
                 <SectionGap />
                 <GeneralSection />
                 <SectionGap />
@@ -92,6 +96,108 @@ function CheckIcon() {
 
 function Swatch({ color }: { color: string }) {
     return <span className="h-[13px] w-[13px] rounded-[4px]" style={{ background: color }} />;
+}
+
+// mirror termutil.ts DefaultTermTheme (inlined to avoid pulling xterm into the settings bundle)
+const DEFAULT_TERM_THEME = "default-dark";
+
+// Labeled settings row: title + description left, control right. Rows stack directly on the page
+// (flat, no card — matching the design); the first row drops its top divider.
+function Row({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
+    return (
+        <div className="flex items-center justify-between gap-5 border-t border-edge-faint py-3 first:border-t-0">
+            <div className="min-w-0 flex-1">
+                <div className="mb-0.5 text-[14px] font-semibold text-primary">{title}</div>
+                <div className="text-[12.5px] text-muted">{desc}</div>
+            </div>
+            <div className="flex flex-none items-center">{children}</div>
+        </div>
+    );
+}
+
+// Segmented pill group. Labels render in the UI font (matching the design).
+function Segmented<T extends string>({
+    options,
+    value,
+    onChange,
+}: {
+    options: { id: T; label: string }[];
+    value: T;
+    onChange: (id: T) => void;
+}) {
+    return (
+        <div className="flex overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised">
+            {options.map((o, i) => (
+                <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => onChange(o.id)}
+                    className={cn(
+                        "cursor-pointer whitespace-nowrap px-3 py-[7px] text-[12.5px] font-semibold transition-colors",
+                        i > 0 && "border-l border-border",
+                        value === o.id ? "bg-accentbg text-accent" : "text-secondary hover:text-primary"
+                    )}
+                >
+                    {o.label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+// +/- stepper. onStep receives -1 or 1; the caller applies its own step size.
+function Stepper({ value, onStep, ariaLabel }: { value: number; onStep: (dir: -1 | 1) => void; ariaLabel: string }) {
+    return (
+        <div className="flex items-center overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised">
+            <button
+                type="button"
+                aria-label={`Decrease ${ariaLabel}`}
+                onClick={() => onStep(-1)}
+                className="h-[34px] w-[34px] cursor-pointer border-r border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
+            >
+                −
+            </button>
+            <div className="min-w-[56px] px-2 text-center font-mono text-[13px] text-primary">{value}</div>
+            <button
+                type="button"
+                aria-label={`Increase ${ariaLabel}`}
+                onClick={() => onStep(1)}
+                className="h-[34px] w-[34px] cursor-pointer border-l border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
+            >
+                +
+            </button>
+        </div>
+    );
+}
+
+// Fonts section: Interface (--font-sans) and Code (--font-mono) are cockpit CSS-var overrides; Terminal
+// is the backend term:fontfamily config key. Flat rows with dividers (no card), matching the design.
+function FontsSection() {
+    const [sans, setSans] = useAtom(fontSansAtom);
+    const [mono, setMono] = useAtom(fontMonoAtom);
+    const termFontStack = (useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "";
+    // terminal font is stored as the full stack string; match it back to a catalog id for the control.
+    const termFontId = MONO_FONTS.find((f) => f.stack === termFontStack)?.id ?? DEFAULT_TERM_FONT;
+    const setTermFont = (id: string) =>
+        void RpcApi.SetConfigCommand(TabRpcClient, { "term:fontfamily": stackOf(MONO_FONTS, id) });
+    const sansOpts = SANS_FONTS.map((f) => ({ id: f.id, label: f.label }));
+    const monoOpts = MONO_FONTS.map((f) => ({ id: f.id, label: f.label }));
+    return (
+        <div>
+            <SectionLabel>Fonts</SectionLabel>
+            <div>
+                <Row title="Interface font" desc="App-wide UI text — nav, panels, labels.">
+                    <Segmented options={sansOpts} value={sans} onChange={setSans} />
+                </Row>
+                <Row title="Code font" desc="Inline code, diffs, and file trees.">
+                    <Segmented options={monoOpts} value={mono} onChange={setMono} />
+                </Row>
+                <Row title="Terminal font" desc="Monospace face inside agent terminals.">
+                    <Segmented options={monoOpts} value={termFontId} onChange={setTermFont} />
+                </Row>
+            </div>
+        </div>
+    );
 }
 
 function AppearanceSection() {
@@ -370,42 +476,175 @@ function NewAgentDefaultsSection() {
     );
 }
 
+// Custom color-scheme dropdown (matches the design): a trigger showing a 3-swatch preview + name +
+// chevron, and a popover of themes with swatches + a check on the active one. A full-viewport backdrop
+// button closes it on outside click (no document listeners).
+type TermThemeOption = { value: string; label: string; swatch: [string, string, string] };
+
+function TermThemeDropdown({
+    options,
+    value,
+    onChange,
+}: {
+    options: TermThemeOption[];
+    value: string;
+    onChange: (v: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const active = options.find((o) => o.value === value);
+    return (
+        <div className="relative flex-none">
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className={cn(
+                    "flex min-w-[180px] cursor-pointer items-center gap-2.5 rounded-[9px] border bg-surface-raised px-[11px] py-2 transition-colors",
+                    open ? "border-accent-700" : "border-edge-mid hover:border-edge-strong"
+                )}
+            >
+                <span className="flex flex-none gap-0.5">
+                    {(active?.swatch ?? ["transparent", "transparent", "transparent"]).map((c, i) => (
+                        <span key={i} className="h-2.5 w-2.5 rounded-[3px]" style={{ background: c }} />
+                    ))}
+                </span>
+                <span className="flex-1 whitespace-nowrap text-left text-[12.5px] font-semibold text-primary">
+                    {active?.label ?? value}
+                </span>
+                <span className={cn("font-mono text-[10px] text-muted transition-transform", open && "rotate-180")}>▾</span>
+            </button>
+            {open ? (
+                <>
+                    <button
+                        type="button"
+                        aria-hidden
+                        tabIndex={-1}
+                        onClick={() => setOpen(false)}
+                        className="fixed inset-0 z-10 cursor-default"
+                    />
+                    <div className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[220px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]">
+                        {options.map((o) => {
+                            const sel = o.value === value;
+                            return (
+                                <button
+                                    key={o.value}
+                                    type="button"
+                                    onClick={() => {
+                                        onChange(o.value);
+                                        setOpen(false);
+                                    }}
+                                    className={cn(
+                                        "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-[9px] py-2 text-left transition-colors hover:bg-surface-hover",
+                                        sel ? "bg-surface-raised" : "bg-transparent"
+                                    )}
+                                >
+                                    <span className="flex flex-none gap-0.5">
+                                        {o.swatch.map((c, i) => (
+                                            <span key={i} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
+                                        ))}
+                                    </span>
+                                    <span className="flex-1 whitespace-nowrap text-[12.5px] font-semibold text-primary">
+                                        {o.label}
+                                    </span>
+                                    {sel ? (
+                                        <span className="flex-none text-accent">
+                                            <CheckIcon />
+                                        </span>
+                                    ) : null}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </>
+            ) : null}
+        </div>
+    );
+}
+
 function TerminalSection() {
-    const stored = useAtomValue(getSettingsKeyAtom("term:fontsize"));
-    const current = typeof stored === "number" ? stored : 12;
-    const step = (delta: number) => {
-        const next = coerceFontSize(String(current + delta));
-        if (next != null && next !== current) {
-            void RpcApi.SetConfigCommand(TabRpcClient, { "term:fontsize": next });
-        }
+    const fontSize = (useAtomValue(getSettingsKeyAtom("term:fontsize")) as number) ?? 12;
+    const scrollback = (useAtomValue(getSettingsKeyAtom("term:scrollback")) as number) ?? 1000;
+    const cursorRaw = (useAtomValue(getSettingsKeyAtom("term:cursor")) as string) ?? "block";
+    const cursorBlink = (useAtomValue(getSettingsKeyAtom("term:cursorblink")) as boolean) ?? false;
+    const copyOnSelect = (useAtomValue(getSettingsKeyAtom("term:copyonselect")) as boolean) ?? false;
+    const transparency = (useAtomValue(getSettingsKeyAtom("term:transparency")) as number) ?? 0.5;
+    const themeName = (useAtomValue(getSettingsKeyAtom("term:theme")) as string) ?? DEFAULT_TERM_THEME;
+    const fullConfig = useAtomValue(atoms.fullConfigAtom);
+
+    // SetConfigCommand's data param is a typed settings map; a dynamic-key patch needs the cast.
+    const write = (patch: Record<string, unknown>) =>
+        void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
+
+    const cursor = cursorRaw === "bar" || cursorRaw === "underline" ? cursorRaw : "block";
+
+    // real backend term themes, sorted by display order; 3-swatch preview from bg / blue / green.
+    const termthemes = fullConfig?.termthemes ?? {};
+    const themeOptions: TermThemeOption[] = Object.keys(termthemes)
+        .sort((a, b) => (termthemes[a]["display:order"] ?? 0) - (termthemes[b]["display:order"] ?? 0))
+        .map((k) => {
+            const t = termthemes[k];
+            return { value: k, label: t["display:name"] ?? k, swatch: [t.background, t.blue, t.green] };
+        });
+
+    const stepFontSize = (dir: -1 | 1) => {
+        const next = coerceFontSize(String(fontSize + dir));
+        if (next != null && next !== fontSize) write({ "term:fontsize": next });
     };
+    const stepScrollback = (dir: -1 | 1) => {
+        const next = coerceScrollback(String(Math.max(100, scrollback + dir * 250)));
+        if (next != null && next !== scrollback) write({ "term:scrollback": next });
+    };
+
     return (
         <div>
             <SectionLabel>Terminal</SectionLabel>
-            <div className="flex items-center justify-between gap-5">
-                <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-semibold text-primary">Font size</div>
-                    <div className="text-[12.5px] text-muted">Default font size for agent terminals (px).</div>
-                </div>
-                <div className="flex flex-none items-center overflow-hidden rounded-[9px] border border-edge-mid bg-surface-raised">
-                    <button
-                        type="button"
-                        aria-label="Decrease font size"
-                        onClick={() => step(-1)}
-                        className="h-[34px] w-[34px] cursor-pointer border-r border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
-                    >
-                        −
-                    </button>
-                    <div className="w-[48px] text-center font-mono text-[13px] text-primary">{current}</div>
-                    <button
-                        type="button"
-                        aria-label="Increase font size"
-                        onClick={() => step(1)}
-                        className="h-[34px] w-[34px] cursor-pointer border-l border-border text-[17px] font-semibold text-secondary hover:bg-surface-hover"
-                    >
-                        +
-                    </button>
-                </div>
+            <div>
+                <Row title="Font size" desc="Default font size for agent terminals (px).">
+                    <Stepper value={fontSize} onStep={stepFontSize} ariaLabel="font size" />
+                </Row>
+                <Row title="Cursor style" desc="Shape of the terminal caret.">
+                    <Segmented
+                        options={[
+                            { id: "block", label: "Block" },
+                            { id: "bar", label: "Bar" },
+                            { id: "underline", label: "Underline" },
+                        ]}
+                        value={cursor}
+                        onChange={(v) => write({ "term:cursor": v })}
+                    />
+                </Row>
+                <Row title="Cursor blink" desc="Pulse the caret when the terminal is focused.">
+                    <Toggle on={cursorBlink} onToggle={() => write({ "term:cursorblink": !cursorBlink })} />
+                </Row>
+                <Row title="Scrollback" desc="Lines of history kept per terminal.">
+                    <Stepper value={scrollback} onStep={stepScrollback} ariaLabel="scrollback" />
+                </Row>
+                <Row title="Copy on select" desc="Copy highlighted text to the clipboard automatically.">
+                    <Toggle on={copyOnSelect} onToggle={() => write({ "term:copyonselect": !copyOnSelect })} />
+                </Row>
+                <Row title="Transparency" desc="Terminal background opacity — higher is more see-through.">
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={transparency}
+                            onChange={(e) => write({ "term:transparency": coerceTransparency(Number(e.target.value)) })}
+                            style={{ accentColor: "var(--color-accent)" }}
+                            className="w-[160px] cursor-pointer"
+                        />
+                        <span className="w-10 flex-none text-right font-mono text-[12.5px] text-primary">
+                            {transparency.toFixed(2)}
+                        </span>
+                    </div>
+                </Row>
+                <Row title="Color scheme" desc="ANSI palette used inside agent terminals.">
+                    <TermThemeDropdown
+                        options={themeOptions}
+                        value={themeName}
+                        onChange={(v) => write({ "term:theme": v })}
+                    />
+                </Row>
             </div>
         </div>
     );

@@ -6,6 +6,7 @@ let isHackFontLoaded = false;
 let isHackNerdFontLoaded = false;
 let isInterFontLoaded = false;
 let isHankenGroteskLoaded = false;
+let isFiraCodeLoaded = false;
 
 function addToFontFaceSet(fontFaceSet: FontFaceSet, fontFace: FontFace) {
     // any cast to work around typing issue
@@ -95,11 +96,26 @@ function loadHankenGroteskFont() {
     hankenFont.load();
 }
 
+function loadFiraCodeFont() {
+    if (isFiraCodeLoaded) {
+        return;
+    }
+    isFiraCodeLoaded = true;
+    // variable font: a single woff2 covers the whole weight axis (same as Inter / Hanken)
+    const firaFont = new FontFace("Fira Code", "url('fonts/fira-code-variable.woff2')", {
+        style: "normal",
+        weight: "300 700",
+    });
+    addToFontFaceSet(document.fonts, firaFont);
+    firaFont.load();
+}
+
 function loadFonts() {
     loadHankenGroteskFont();
     loadInterFont();
     loadJetBrainsMonoFont();
     loadHackNerdFont();
+    loadFiraCodeFont();
 }
 
 export { loadFonts };
