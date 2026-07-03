@@ -18,6 +18,10 @@ import {
     hasAnswerableAsk,
     isRecentlyIdle,
     applyAgentOrder,
+    computeGridLayout,
+    rowHeightsPx,
+    resizeRowWeights,
+    GRID_ROW_GAP_PX,
     streamableTranscriptAgents,
     matchesProjectFilter,
     mergeOrder,
@@ -167,6 +171,55 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     );
 }
 
+// One draggable handle per interior row boundary, positioned in the gap between rows. Sits in an
+// absolute overlay above the grid; only the handles capture pointer events. `heights` are the row
+// pixel heights (Task 4); the handle at boundary i lives between row i and row i+1.
+function RowDividers({
+    heights,
+    gap,
+    onResize,
+}: {
+    heights: number[];
+    gap: number;
+    onResize: (boundary: number, deltaPx: number) => void;
+}) {
+    if (heights.length < 2) {
+        return null;
+    }
+    const tops: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < heights.length - 1; i++) {
+        acc += heights[i];
+        tops.push(acc + gap * i + gap / 2); // centre of the gap after row i
+    }
+    return (
+        <div className="pointer-events-none absolute inset-0 z-10">
+            {tops.map((top, i) => (
+                <div
+                    key={i}
+                    onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const startY = e.clientY;
+                        const move = (ev: PointerEvent) => onResize(i, ev.clientY - startY);
+                        const up = () => {
+                            window.removeEventListener("pointermove", move);
+                            window.removeEventListener("pointerup", up);
+                        };
+                        window.addEventListener("pointermove", move);
+                        window.addEventListener("pointerup", up);
+                    }}
+                    title="Drag to resize rows"
+                    className="group pointer-events-auto absolute inset-x-3 flex h-[11px] -translate-y-1/2 cursor-ns-resize items-center justify-center"
+                    style={{ top }}
+                >
+                    <div className="h-[3px] w-[46px] rounded-[3px] bg-edge-strong opacity-0 transition-opacity group-hover:opacity-100" />
+                </div>
+            ))}
+        </div>
+    );
+}
+
 // Bridges a model PrimitiveAtom to a useState-shaped [value, setter] pair so the lifted orchestration
 // state reads/writes through the model while the existing call sites (incl. functional updaters) work.
 function useModelAtom<T>(a: PrimitiveAtom<T>): [T, (v: T | ((p: T) => T)) => void] {
@@ -285,8 +338,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [answerSel, setAnswerSel] = useModelAtom(model.answerSelAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
     const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
-    const toggleWide = (id: string) => setCardPrefs((p) => ({ ...p, [id]: { ...p[id], wide: !p[id]?.wide } }));
-    const setCardHeight = (id: string, h: number) => setCardPrefs((p) => ({ ...p, [id]: { ...p[id], height: h } }));
     const openComposerId = useAtomValue(model.openComposerIdAtom);
     const setOpenComposerId = useSetAtom(model.openComposerIdAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
@@ -321,6 +372,18 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
+    const gridScrollRef = useRef<HTMLDivElement>(null);
+    const [gridViewportPx, setGridViewportPx] = useState(0);
+    useEffect(() => {
+        const el = gridScrollRef.current;
+        if (!el) {
+            return;
+        }
+        const ro = new ResizeObserver(() => setGridViewportPx(el.clientHeight));
+        ro.observe(el);
+        setGridViewportPx(el.clientHeight);
+        return () => ro.disconnect();
+    }, []);
 
     // status chips narrow what the grid renders; cursor/order still operate over the full set
     const projectFilter = useAtomValue(model.projectFilterAtom);
@@ -328,6 +391,43 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // project scope + live-only first; the chip narrows what the grid renders (counts ignore the chip)
     const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
     const shownAgents = chip === "all" ? visibleOrdered : visibleOrdered.filter((a) => a.state === chip);
+    const gridRows = computeGridLayout(shownAgents, cardPrefs);
+    const rowGaps = GRID_ROW_GAP_PX * Math.max(0, gridRows.length - 1);
+    const availablePx = Math.max(0, gridViewportPx - rowGaps);
+    const gridRowHeights = rowHeightsPx(
+        gridRows.map((r) => r.heightWeight),
+        availablePx
+    );
+    const gridContentPx = gridRowHeights.reduce((s, h) => s + h, 0) + rowGaps;
+    const resizeGridRow = (boundary: number, deltaPx: number) => {
+        const weights = gridRows.map((r) => r.heightWeight);
+        const next = resizeRowWeights(weights, boundary, deltaPx, availablePx);
+        setCardPrefs((p) => {
+            const out = { ...p };
+            gridRows.forEach((r, idx) => {
+                out[r.key] = { ...out[r.key], heightWeight: next[idx] };
+            });
+            return out;
+        });
+    };
+    // when the visible membership changes, drop height overrides so rows re-fit evenly (fullWidth kept)
+    const shownKey = shownAgents.map((a) => a.id).join(",");
+    useEffect(() => {
+        setCardPrefs((p) => {
+            let changed = false;
+            const out: typeof p = {};
+            for (const [id, pref] of Object.entries(p)) {
+                if (pref.heightWeight != null) {
+                    changed = true;
+                    const { heightWeight, ...rest } = pref;
+                    out[id] = rest;
+                } else {
+                    out[id] = pref;
+                }
+            }
+            return changed ? out : p;
+        });
+    }, [shownKey]);
     const liveCount = visibleOrdered.length;
     const liveAsking = visibleOrdered.filter((a) => a.state === "asking").length;
     const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
@@ -548,6 +648,15 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
                                 Live only
                             </button>
+                            {Object.values(cardPrefs).some((p) => p.fullWidth || p.heightWeight != null) ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setCardPrefs({})}
+                                    className="cursor-pointer rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
+                                >
+                                    Reset layout
+                                </button>
+                            ) : null}
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -620,53 +729,66 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         </div>
                     ) : null}
 
-                    <Reorder.Group
-                        as="div"
-                        axis="y"
-                        values={orderedIds}
-                        onReorder={setOrder}
-                        className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3.5 overflow-y-auto px-5 pb-5 pt-2.5"
-                    >
-                        {shownAgents.map((a) => (
-                            <AgentRow
-                                key={a.id}
-                                agent={a}
-                                now={now}
-                                isCursor={cursorId === a.id}
-                                pulse={pulseId === a.id}
-                                wide={cardPrefs[a.id]?.wide}
-                                height={cardPrefs[a.id]?.height}
-                                onToggleWide={() => toggleWide(a.id)}
-                                onResize={(h) => setCardHeight(a.id, h)}
-                                selections={answerSel[a.id] ?? {}}
-                                sent={sentIds.has(a.id)}
-                                activeQuestion={answerTab[a.id] ?? 0}
-                                composerOpen={openComposerId === a.id}
-                                onCursor={() => setCursorId(a.id)}
-                                onOpen={() => openFocus(a.id, false)}
-                                onOpenTerminal={() => model.openTerminal(a.id)}
-                                onOpenDiff={() => openDiff(a.id)}
-                                onOpenComposer={() => setOpenComposerId(a.id)}
-                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                onSubmitAnswer={() => submitAnswer(a.id)}
-                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                onComposerEscape={() => {
-                                    setOpenComposerId(undefined);
-                                    containerRef.current?.focus();
+                    <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
+                        <div className="relative w-full" style={{ height: gridContentPx || "100%" }}>
+                            <Reorder.Group
+                                as="div"
+                                axis="y"
+                                values={orderedIds}
+                                onReorder={setOrder}
+                                className="grid h-full grid-cols-2 gap-3.5"
+                                style={{
+                                    // fall back to even 1fr rows until the ResizeObserver has a height
+                                    // (avoids a one-frame collapse to 0px on first paint)
+                                    gridTemplateRows: gridRowHeights.map((h) => (h > 0 ? `${h}px` : "1fr")).join(" "),
                                 }}
-                                onBackground={
-                                    a.state === "working" || a.state === "asking"
-                                        ? () => toggleBackground(a.id)
-                                        : undefined
-                                }
-                                onDismiss={
-                                    a.state === "idle"
-                                        ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
-                                        : undefined
-                                }
-                            />
-                        ))}
-                    </Reorder.Group>
+                            >
+                                {shownAgents.map((a) => (
+                                    <AgentRow
+                                        key={a.id}
+                                        agent={a}
+                                        now={now}
+                                        isCursor={cursorId === a.id}
+                                        pulse={pulseId === a.id}
+                                        spanFull={cardPrefs[a.id]?.fullWidth}
+                                        onToggleFullWidth={() =>
+                                            setCardPrefs((p) => ({
+                                                ...p,
+                                                [a.id]: { ...p[a.id], fullWidth: !p[a.id]?.fullWidth },
+                                            }))
+                                        }
+                                        selections={answerSel[a.id] ?? {}}
+                                        sent={sentIds.has(a.id)}
+                                        activeQuestion={answerTab[a.id] ?? 0}
+                                        composerOpen={openComposerId === a.id}
+                                        onCursor={() => setCursorId(a.id)}
+                                        onOpen={() => openFocus(a.id, false)}
+                                        onOpenTerminal={() => model.openTerminal(a.id)}
+                                        onOpenDiff={() => openDiff(a.id)}
+                                        onOpenComposer={() => setOpenComposerId(a.id)}
+                                        onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                        onSubmitAnswer={() => submitAnswer(a.id)}
+                                        onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                        onComposerEscape={() => {
+                                            setOpenComposerId(undefined);
+                                            containerRef.current?.focus();
+                                        }}
+                                        onBackground={
+                                            a.state === "working" || a.state === "asking"
+                                                ? () => toggleBackground(a.id)
+                                                : undefined
+                                        }
+                                        onDismiss={
+                                            a.state === "idle"
+                                                ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
+                                                : undefined
+                                        }
+                                    />
+                                ))}
+                            </Reorder.Group>
+                            <RowDividers heights={gridRowHeights} gap={GRID_ROW_GAP_PX} onResize={resizeGridRow} />
+                        </div>
+                    </div>
 
                     <div className="shrink-0 px-[18px]">
                         <BackgroundedSection agents={shownBackgrounded} onRestore={(id) => toggleBackground(id)} />

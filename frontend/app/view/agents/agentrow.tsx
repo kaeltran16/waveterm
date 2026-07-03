@@ -7,10 +7,10 @@ import { Reorder, useDragControls } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
-    cardSpanStyle,
     hasAnswerableAsk,
     isNearBottom,
     isQuiet,
+    nextFullWidth,
     projectOf,
     taskProgress,
     type AgentVM,
@@ -22,11 +22,6 @@ import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./live
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
-
-// handoff cards always carry an explicit height (feed is flex-1); resizable from here
-const DEFAULT_CARD_HEIGHT = 280;
-const MIN_CARD_HEIGHT = 120; // content-fit floor when a card hasn't been manually resized
-const MAX_CARD_HEIGHT = 420; // content-fit cap; the feed scrolls past this
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
@@ -130,10 +125,8 @@ export function AgentRow({
     onBackground,
     onDismiss,
     pulse,
-    wide,
-    height,
-    onToggleWide,
-    onResize,
+    spanFull,
+    onToggleFullWidth,
 }: {
     agent: AgentVM;
     now: number;
@@ -154,10 +147,8 @@ export function AgentRow({
     onBackground?: () => void;
     onDismiss?: () => void;
     pulse?: boolean;
-    wide?: boolean;
-    height?: number;
-    onToggleWide: () => void;
-    onResize: (height: number) => void;
+    spanFull?: boolean;
+    onToggleFullWidth?: () => void;
 }) {
     const controls = useDragControls();
     const composerRef = useRef<AgentComposerHandle>(null);
@@ -166,20 +157,6 @@ export function AgentRow({
     const stickRef = useRef(true);
     const [tasksOpen, setTasksOpen] = useState(false);
     const [atBottom, setAtBottom] = useState(true);
-
-    const onResizeStart = (e: React.PointerEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const startY = e.clientY;
-        const startH = height ?? cardRef.current?.offsetHeight ?? DEFAULT_CARD_HEIGHT;
-        const move = (ev: PointerEvent) => onResize(Math.max(140, startH + (ev.clientY - startY)));
-        const up = () => {
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-    };
 
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
@@ -236,19 +213,13 @@ export function AgentRow({
             dragTransition={{ bounceStiffness: 600, bounceDamping: 30 }}
             layout="position"
             ref={cardRef}
-            style={{
-                ...cardSpanStyle({ wide }),
-                ...(height != null
-                    ? { height: `${height}px` }
-                    : { minHeight: MIN_CARD_HEIGHT, maxHeight: MAX_CARD_HEIGHT }),
-            }}
+            style={{ gridColumn: spanFull ? "1 / -1" : undefined, minHeight: 0 }}
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
             className={cn(
-                // self-start so a short card fits its content instead of stretching to the grid row's
-                // tallest sibling (align-items resolves to stretch on grid items) — the content-fit goal
-                "group relative flex cursor-pointer flex-col self-start overflow-hidden rounded-[13px] border",
+                // cards stretch to fill their grid row (align-items: stretch) — the fit-to-viewport goal
+                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
                 asking ? "border-warning/40 bg-lane-asking" : "border-edge-mid bg-lane",
                 isCursor &&
                     (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
@@ -299,17 +270,6 @@ export function AgentRow({
                         needs you
                     </span>
                 ) : null}
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleWide();
-                    }}
-                    title={wide ? "Narrow" : "Widen"}
-                    className={cn(CTL_BOX, "font-mono text-[10px]")}
-                >
-                    {wide ? "⤡" : "⤢"}
-                </button>
                 <button
                     type="button"
                     onClick={(e) => {
@@ -482,14 +442,37 @@ export function AgentRow({
                 ) : null}
             </div>
 
-            {/* resize */}
-            <div
-                onPointerDown={onResizeStart}
-                title="Drag to resize"
-                className="absolute inset-x-0 bottom-0 flex h-[9px] cursor-ns-resize items-center justify-center"
-            >
-                <div className="h-[3px] w-[34px] rounded-[3px] bg-edge-strong" />
-            </div>
+            {/* right edge: drag outward to make the card full-width, back to restore */}
+            {onToggleFullWidth ? (
+                <div
+                    onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const startX = e.clientX;
+                        // track the running applied state so the toggle fires once per threshold
+                        // crossing (nextFullWidth's deadzone holds it between crossings), not on
+                        // every move event past the threshold
+                        let applied = !!spanFull;
+                        const move = (ev: PointerEvent) => {
+                            const target = nextFullWidth(applied, ev.clientX - startX);
+                            if (target !== applied) {
+                                applied = target;
+                                onToggleFullWidth();
+                            }
+                        };
+                        const up = () => {
+                            window.removeEventListener("pointermove", move);
+                            window.removeEventListener("pointerup", up);
+                        };
+                        window.addEventListener("pointermove", move);
+                        window.addEventListener("pointerup", up);
+                    }}
+                    title={spanFull ? "Drag in to un-widen" : "Drag out to widen"}
+                    className="group absolute inset-y-0 right-0 flex w-[9px] cursor-ew-resize items-center justify-center"
+                >
+                    <div className="h-[34px] w-[3px] rounded-[3px] bg-edge-strong opacity-0 transition-opacity group-hover:opacity-100" />
+                </div>
+            ) : null}
         </Reorder.Item>
     );
 }
