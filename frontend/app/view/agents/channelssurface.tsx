@@ -11,7 +11,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { cn, fireAndForget, makeIconClass } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -27,6 +27,7 @@ import {
     type MentionCandidate,
 } from "./channelderive";
 import { autonomyExplainer, fleetCounts, parseCardData } from "./jarviscards";
+import { RAIL_ICON } from "./railicons";
 import {
     describePlan,
     planMessage,
@@ -792,7 +793,7 @@ function ContextPanel({
         {
             id: "jarvis",
             label: `Autonomy in #${channel?.name ?? "channel"}`,
-            icon: <i className={makeIconClass("diamond", true)} />,
+            icon: RAIL_ICON.autonomy,
             content: (
                 <div>
                     <div className="mb-4 flex items-center gap-2.5">
@@ -832,7 +833,7 @@ function ContextPanel({
         {
             id: "fleet",
             label: "Fleet here",
-            icon: <i className={makeIconClass("users", true)} />,
+            icon: RAIL_ICON.fleet,
             content: (
                 <div>
                     <div className={label}>
@@ -851,7 +852,7 @@ function ContextPanel({
                   {
                       id: "needs-you",
                       label: `Needs you · ${asking.length}`,
-                      icon: <i className={makeIconClass("bell", true)} />,
+                      icon: RAIL_ICON.bell,
                       content: (
                           <div>
                               <div className={label}>Needs you · {asking.length}</div>
@@ -874,7 +875,7 @@ function ContextPanel({
         {
             id: "project",
             label: "Project",
-            icon: <i className={makeIconClass("folder", true)} />,
+            icon: RAIL_ICON.folder,
             content: (
                 <div>
                     <div className={label}>Project</div>

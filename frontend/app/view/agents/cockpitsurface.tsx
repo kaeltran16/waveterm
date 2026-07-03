@@ -3,7 +3,7 @@
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { globalStore } from "@/app/store/jotaiStore";
-import { cn, fireAndForget, makeIconClass } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
 import { AnimatePresence, MotionConfig, motion, motionValue, type MotionValue } from "motion/react";
 import { MOTION, cardVariants } from "@/app/element/motiontokens";
@@ -46,6 +46,7 @@ import { BackgroundedSection } from "./backgroundedsection";
 import { dropCardGit, refreshCardGit, scheduleCardGit } from "./cardgitstore";
 import { IdleSection } from "./idlesection";
 import { ensurePreviousInfo } from "./liveagents";
+import { ICON } from "./navrail";
 import {
     lastActivityByIdAtom,
     liveEntriesByIdAtom,
@@ -935,7 +936,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     {
                         id: "usage",
                         label: "Usage",
-                        icon: <i className={makeIconClass("gauge", true)} />,
+                        icon: ICON.usage,
                         content: (
                             <div>
                                 <div className="mb-3.5 flex items-center justify-between">
@@ -989,7 +990,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                               {
                                   id: "activity",
                                   label: "Recent activity",
-                                  icon: <i className={makeIconClass("clock-rotate-left", true)} />,
+                                  icon: ICON.activity,
                                   content: (
                                       <div>
                                           <div className="mb-3 flex items-center justify-between">

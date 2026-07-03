@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { cn, fireAndForget, makeIconClass, stringToBase64 } from "@/util/util";
+import { cn, fireAndForget, stringToBase64 } from "@/util/util";
+import { RAIL_ICON } from "./railicons";
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -88,7 +89,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         {
             id: "details",
             label: "Details",
-            icon: <i className={makeIconClass("circle-info", true)} />,
+            icon: RAIL_ICON.info,
             content: (
                 <div>
                     <div className="mb-[13px]">
@@ -119,7 +120,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "context",
                       label: "Context window",
-                      icon: <i className={makeIconClass("chart-simple", true)} />,
+                      icon: RAIL_ICON.context,
                       content: (
                           <div>
                               <div className="mb-[8px] flex items-baseline justify-between">
@@ -144,7 +145,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "subagents",
                       label: "Subagents",
-                      icon: <i className={makeIconClass("diagram-project", true)} />,
+                      icon: RAIL_ICON.subagents,
                       content: (
                           <div>
                               <div className="mb-[11px] flex items-center justify-between">
@@ -192,7 +193,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   {
                       id: "tools",
                       label: "Tools used",
-                      icon: <i className={makeIconClass("wrench", true)} />,
+                      icon: RAIL_ICON.tools,
                       content: (
                           <div>
                               <div className="mb-[11px]">
@@ -216,7 +217,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         {
             id: "files",
             label: "Files touched",
-            icon: <i className={makeIconClass("file-lines", true)} />,
+            icon: RAIL_ICON.files,
             content: (
                 <div>
                     <div className="mb-[11px]">

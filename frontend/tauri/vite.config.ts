@@ -9,6 +9,9 @@ const fe = resolve(__dirname, ".."); // frontend/
 // A flat "@" -> frontend alias would mis-resolve @/store, @/view, @/element, @/shadcn.
 export default defineConfig({
     root: resolve(__dirname),
+    // serve the workspace-root public/ (Font Awesome + other static assets Electron used to serve).
+    // without this, publicDir defaults to frontend/tauri/public and /fontawesome/* 404s to the SPA fallback.
+    publicDir: resolve(fe, "../public"),
     plugins: [react(), tailwindcss()],
     resolve: {
         alias: {

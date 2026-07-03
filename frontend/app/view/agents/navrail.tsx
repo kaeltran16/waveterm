@@ -7,7 +7,8 @@ import type { ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 
 // Handoff NavRail glyphs (lines 86-125). Icons inherit currentColor; the active label sets text-accent-soft.
-const ICON: Record<SurfaceKey, ReactNode> = {
+// Exported so rail section strips reuse the same line-art set (one icon language, not FontAwesome next to SVG).
+export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
             <rect x="2" y="2" width="7" height="7" rx="1.6" />
