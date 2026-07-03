@@ -19,6 +19,7 @@ import {
     isRecentlyIdle,
     applyAgentOrder,
     distributeColumns,
+    normalizeWeights,
     rowHeightsPx,
     resizeRowWeights,
     GRID_ROW_GAP_PX,
@@ -406,7 +407,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const resizeColumn = (cards: AgentVM[], boundary: number, deltaPx: number) => {
         const weights = cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1);
         const avail = Math.max(0, gridViewportPx - GRID_ROW_GAP_PX * Math.max(0, cards.length - 1));
-        const next = resizeRowWeights(weights, boundary, deltaPx, avail);
+        // normalise back to ratio scale: resizeRowWeights returns pixel-scale values, and rowHeightsPx
+        // only re-normalises in its fit branch — persisting pixels would explode once a column overflows
+        const next = normalizeWeights(resizeRowWeights(weights, boundary, deltaPx, avail));
         setCardPrefs((p) => {
             const out = { ...p };
             cards.forEach((c, idx) => {

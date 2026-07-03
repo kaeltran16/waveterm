@@ -691,6 +691,21 @@ export function resizeRowWeights(
     return next;
 }
 
+/** Pure: rescale weights to mean 1 so stored card weights stay ratio-scale. `resizeRowWeights`
+ *  returns pixel-scale values; `rowHeightsPx` only re-normalises them in its fit branch (<= pageRows),
+ *  so persisting pixel-scale weights would explode in the overflow branch (`base * w`). Callers must
+ *  normalise before writing a resized weight back. Empty -> empty; a zero/negative mean -> all 1. */
+export function normalizeWeights(weights: number[]): number[] {
+    if (weights.length === 0) {
+        return [];
+    }
+    const mean = weights.reduce((s, w) => s + w, 0) / weights.length;
+    if (!(mean > 0)) {
+        return weights.map(() => 1);
+    }
+    return weights.map((w) => w / mean);
+}
+
 // --- card data types --------------------------------------------------------
 // Real sources: diff stats from cardgitstore.ts (GitChangesCommand per card); task list from the
 // transcript's latest TodoWrite (transcriptprojection.extractTasks, streamed via

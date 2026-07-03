@@ -6,6 +6,7 @@ import {
     distributeColumns,
     filterAgents,
     matchesProjectFilter,
+    normalizeWeights,
     projectOf,
     projectsFromAgents,
     resizeRowWeights,
@@ -174,5 +175,21 @@ describe("resizeRowWeights", () => {
     it("returns the weights unchanged for an out-of-range boundary", () => {
         expect(resizeRowWeights([1, 1], 1, 30, 300)).toEqual([1, 1]);
         expect(resizeRowWeights([1, 1], -1, 30, 300)).toEqual([1, 1]);
+    });
+});
+
+describe("normalizeWeights", () => {
+    it("rescales pixel-scale weights to mean 1, preserving ratios", () => {
+        // resizeRowWeights output (px) -> ratios centred on 1; keeps the overflow branch (base*w) sane
+        expect(normalizeWeights([230, 170, 200])).toEqual([1.15, 0.85, 1]);
+    });
+    it("leaves equal weights at 1", () => {
+        expect(normalizeWeights([5, 5, 5])).toEqual([1, 1, 1]);
+    });
+    it("falls back to 1 when the mean is not positive", () => {
+        expect(normalizeWeights([0, 0])).toEqual([1, 1]);
+    });
+    it("is empty for an empty list", () => {
+        expect(normalizeWeights([])).toEqual([]);
     });
 });
