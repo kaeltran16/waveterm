@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { AnimatePresence, motion } from "motion/react";
+import { shouldFadeEntry } from "@/app/element/motiontokens";
 import { Fragment, useState } from "react";
 import { groupTimeline, summarizeActions, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
@@ -74,10 +76,17 @@ export function NarrationTimeline({
 
     return (
         <div className={cn("leading-relaxed", className)}>
+            <AnimatePresence initial={false}>
             {items.map((item, idx) => {
                 if (item.kind === "message") {
                     return (
-                        <div key={item.index} className="mt-2 flex gap-2.5">
+                        <motion.div
+                            key={item.index}
+                            className="mt-2 flex gap-2.5"
+                            initial={shouldFadeEntry("message") ? { opacity: 0 } : false}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.15 }}
+                        >
                             <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border border-accent/30 bg-accent/[0.13]">
                                 <span className="h-[7px] w-[7px] rounded-full bg-accent-soft" />
                             </span>
@@ -89,19 +98,25 @@ export function NarrationTimeline({
                             >
                                 <MarkdownMessage text={item.text} />
                             </div>
-                        </div>
+                        </motion.div>
                     );
                 }
                 if (item.kind === "user") {
                     return (
-                        <div key={item.index} className="mt-2 flex justify-end pl-[30px]">
+                        <motion.div
+                            key={item.index}
+                            className="mt-2 flex justify-end pl-[30px]"
+                            initial={shouldFadeEntry("user") ? { opacity: 0 } : false}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.15 }}
+                        >
                             <div className="max-w-[90%] rounded-[11px_11px_4px_11px] border border-accent/25 bg-accent/10 px-2.5 py-1.5">
                                 <div className="mb-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.08em] text-accent-soft">
                                     You
                                 </div>
                                 <p className="text-[12.5px] leading-[1.5] text-primary">{item.text}</p>
                             </div>
-                        </div>
+                        </motion.div>
                     );
                 }
                 if (item.kind === "action") {
@@ -139,6 +154,7 @@ export function NarrationTimeline({
                     </button>
                 );
             })}
+            </AnimatePresence>
         </div>
     );
 }

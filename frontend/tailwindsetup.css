@@ -222,6 +222,32 @@ svg [aria-label="tip"] g path {
     }
 }
 
+/* Asking attention (moment 3): a slow, persistent amber breathing glow. drop-shadow
+   (not box-shadow) so it never clashes with the card's cursor-ring box-shadow, and
+   is not clipped by the card's overflow-hidden. Amber comes from the status token. */
+@keyframes breatheGlow {
+    0%,
+    100% {
+        filter: drop-shadow(0 0 2px color-mix(in oklab, var(--color-warning) 30%, transparent));
+    }
+    50% {
+        filter: drop-shadow(0 0 10px color-mix(in oklab, var(--color-warning) 55%, transparent));
+    }
+}
+
+/* Finished settle (moment 4): a single soft scale acknowledgement on working -> idle. */
+@keyframes settle {
+    0% {
+        transform: scale(1);
+    }
+    45% {
+        transform: scale(1.012);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
 /* Agents-view narration markdown (see markdownmessage.tsx). Neutral overlays, not palette hex. */
 .agent-md p {
     margin: 0 0 0.4em;

@@ -4,7 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { Reorder } from "motion/react";
+import { AnimatePresence, MotionConfig, Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
@@ -610,6 +610,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
 
     return (
+        <MotionConfig reducedMotion="user">
         <div
             ref={containerRef}
             tabIndex={0}
@@ -743,6 +744,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                     gridTemplateRows: gridRowHeights.map((h) => (h > 0 ? `${h}px` : "1fr")).join(" "),
                                 }}
                             >
+                                <AnimatePresence mode="popLayout" initial={false}>
                                 {shownAgents.map((a) => (
                                     <AgentRow
                                         key={a.id}
@@ -785,6 +787,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                         }
                                     />
                                 ))}
+                                </AnimatePresence>
                             </Reorder.Group>
                             <RowDividers heights={gridRowHeights} gap={GRID_ROW_GAP_PX} onResize={resizeGridRow} />
                         </div>
@@ -904,5 +907,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             ) : null}
             {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
+        </MotionConfig>
     );
 }

@@ -26,9 +26,9 @@ export function StatusDot({
     return (
         <span
             className={cn(
-                "h-2 w-2 shrink-0 rounded-full",
+                "h-2 w-2 shrink-0 rounded-full transition-colors duration-200",
                 hollow ? "border border-muted bg-transparent" : "",
-                pulse && !hollow ? "animate-[pulseDot_1.6s_infinite]" : "",
+                pulse && !hollow ? "animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" : "",
                 className
             )}
             style={hollow ? undefined : { backgroundColor: COLOR[state] }}

@@ -3,7 +3,8 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Reorder, useDragControls } from "motion/react";
+import { Reorder, useDragControls, motion } from "motion/react";
+import { cardVariants, composerReveal, reorderLift } from "@/app/element/motiontokens";
 import { useEffect, useRef, useState } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
@@ -203,6 +204,19 @@ export function AgentRow({
         setAtBottom(true);
     };
 
+    // one-shot "settle" when this agent finishes (working -> idle); cleared after it plays
+    const prevStateRef = useRef(agent.state);
+    const [justFinished, setJustFinished] = useState(false);
+    useEffect(() => {
+        if (prevStateRef.current === "working" && agent.state === "idle") {
+            setJustFinished(true);
+            const t = setTimeout(() => setJustFinished(false), 520); // matches @keyframes settle .5s
+            prevStateRef.current = agent.state;
+            return () => clearTimeout(t);
+        }
+        prevStateRef.current = agent.state;
+    }, [agent.state]);
+
     return (
         <Reorder.Item
             as="div"
@@ -212,6 +226,11 @@ export function AgentRow({
             dragMomentum={false}
             dragTransition={{ bounceStiffness: 600, bounceDamping: 30 }}
             layout="position"
+            variants={cardVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            whileDrag={reorderLift}
             ref={cardRef}
             style={{ gridColumn: spanFull ? "1 / -1" : undefined, minHeight: 0 }}
             data-agent-id={agent.id}
@@ -220,10 +239,13 @@ export function AgentRow({
             className={cn(
                 // cards stretch to fill their grid row (align-items: stretch) — the fit-to-viewport goal
                 "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
-                asking ? "border-warning/40 bg-lane-asking" : "border-edge-mid bg-lane",
+                asking
+                    ? "border-warning/40 bg-lane-asking animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
+                    : "border-edge-mid bg-lane",
                 isCursor &&
                     (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
-                pulse && "ring-2 ring-warning ring-inset"
+                pulse && "ring-2 ring-warning ring-inset",
+                justFinished && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
             )}
         >
             {/* header bar */}
@@ -338,7 +360,7 @@ export function AgentRow({
                 <div className="shrink-0 grow px-3 py-1.5">
                     {working && agent.activity ? (
                         <div className="mb-1.5 flex items-center gap-2 border-b border-edge-mid pb-1.5">
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.4s_infinite]" />
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
                             <span
                                 title={agent.activity}
                                 className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"
@@ -395,8 +417,11 @@ export function AgentRow({
                         </div>
                     ) : null}
                     {showComposer ? (
-                        <div
-                            className="flex flex-col gap-1.5 px-3 py-2"
+                        <motion.div
+                            variants={composerReveal}
+                            initial="initial"
+                            animate="animate"
+                            className="flex flex-col gap-1.5 overflow-hidden px-3 py-2"
                             onClick={(e) => e.stopPropagation()}
                             onDoubleClick={(e) => e.stopPropagation()}
                         >
@@ -407,7 +432,7 @@ export function AgentRow({
                                 onEscape={onComposerEscape}
                                 className="border-t-0 px-0 py-0"
                             />
-                        </div>
+                        </motion.div>
                     ) : (
                         <div
                             onClick={(e) => {
