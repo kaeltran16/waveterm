@@ -50,16 +50,14 @@ export interface AgentVM {
     kind?: "agent" | "terminal"; // undefined = agent (roster); "terminal" = plain shell session (no agent status)
 }
 
-// Per-card ephemeral layout prefs (full-width span + dragged row height). Not persisted this pass.
+// Per-card ephemeral layout pref (dragged column height). Not persisted this pass.
 export interface CardPref {
-    fullWidth?: boolean; // card spans both columns
-    heightWeight?: number; // relative row height; default 1 (even). Set by dragging a row divider.
+    heightWeight?: number; // relative height within its column; default 1 (even fill). Set by dragging a divider.
 }
 
 export const GRID_PAGE_ROWS = 3; // 2 columns × 3 rows = 6 rich cards fill one screen
 export const GRID_MIN_ROW_PX = 96; // a row cannot be dragged smaller than this
 export const GRID_ROW_GAP_PX = 14; // matches the grid's Tailwind gap-3.5
-export const FULLWIDTH_DRAG_THRESHOLD_PX = 48; // right-edge drag past this toggles full-width
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
 
@@ -645,40 +643,12 @@ export function topFiveHourPct(agents: AgentVM[]): number | undefined {
     return top;
 }
 
-export interface GridCell {
-    id: string;
-}
-export interface GridRow {
-    key: string; // the row's first cell id — the source of the row's height weight
-    heightWeight: number; // > 0
-    cells: GridCell[]; // 1 or 2 cells; a 1-cell row renders full-width
-}
-
-function rowWeight(prefs: Record<string, CardPref>, id: string): number {
-    const w = prefs[id]?.heightWeight;
-    return typeof w === "number" && w > 0 ? w : 1;
-}
-
-/** Pure: pack ordered live agents into rows of two. A `fullWidth` card takes its own row; a lone
- *  trailing card (odd count, or the card before a full-width one) also gets a 1-cell row and renders
- *  full-width, so the grid never has a gap. */
-export function computeGridLayout(ordered: AgentVM[], prefs: Record<string, CardPref>): GridRow[] {
-    const rows: GridRow[] = [];
-    let i = 0;
-    while (i < ordered.length) {
-        const a = ordered[i];
-        const aFull = prefs[a.id]?.fullWidth === true;
-        const b = ordered[i + 1];
-        const bFull = b != null && prefs[b.id]?.fullWidth === true;
-        if (!aFull && b != null && !bFull) {
-            rows.push({ key: a.id, heightWeight: rowWeight(prefs, a.id), cells: [{ id: a.id }, { id: b.id }] });
-            i += 2;
-        } else {
-            rows.push({ key: a.id, heightWeight: rowWeight(prefs, a.id), cells: [{ id: a.id }] });
-            i += 1;
-        }
-    }
-    return rows;
+/** Pure: split an ordered list round-robin into two columns (even index -> A, odd -> B). */
+export function distributeColumns<T>(ordered: T[]): { colA: T[]; colB: T[] } {
+    const colA: T[] = [];
+    const colB: T[] = [];
+    ordered.forEach((item, i) => (i % 2 === 0 ? colA : colB).push(item));
+    return { colA, colB };
 }
 
 /** Pure: pixel height per row. When rows fit the page they divide `viewportPx` by weight (fills
@@ -719,17 +689,6 @@ export function resizeRowWeights(
     next[i] = above;
     next[i + 1] = pair - above;
     return next;
-}
-
-/** Pure: right-edge drag hysteresis for the full-width toggle. */
-export function nextFullWidth(current: boolean, dragDeltaPx: number, threshold = FULLWIDTH_DRAG_THRESHOLD_PX): boolean {
-    if (dragDeltaPx > threshold) {
-        return true;
-    }
-    if (dragDeltaPx < -threshold) {
-        return false;
-    }
-    return current;
 }
 
 // --- card data types --------------------------------------------------------

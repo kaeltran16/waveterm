@@ -3,15 +3,14 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Reorder, useDragControls, motion } from "motion/react";
-import { cardVariants, composerReveal, reorderLift } from "@/app/element/motiontokens";
+import { motion } from "motion/react";
+import { cardVariants, composerReveal } from "@/app/element/motiontokens";
 import { useEffect, useRef, useState } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     hasAnswerableAsk,
     isNearBottom,
     isQuiet,
-    nextFullWidth,
     projectOf,
     taskProgress,
     type AgentVM,
@@ -126,8 +125,7 @@ export function AgentRow({
     onBackground,
     onDismiss,
     pulse,
-    spanFull,
-    onToggleFullWidth,
+    heightPx,
 }: {
     agent: AgentVM;
     now: number;
@@ -148,10 +146,8 @@ export function AgentRow({
     onBackground?: () => void;
     onDismiss?: () => void;
     pulse?: boolean;
-    spanFull?: boolean;
-    onToggleFullWidth?: () => void;
+    heightPx?: number;
 }) {
-    const controls = useDragControls();
     const composerRef = useRef<AgentComposerHandle>(null);
     const cardRef = useRef<HTMLDivElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -218,26 +214,23 @@ export function AgentRow({
     }, [agent.state]);
 
     return (
-        <Reorder.Item
-            as="div"
-            value={agent.id}
-            dragListener={false}
-            dragControls={controls}
-            dragMomentum={false}
-            dragTransition={{ bounceStiffness: 600, bounceDamping: 30 }}
+        <motion.div
             layout="position"
             variants={cardVariants}
             initial="initial"
             animate="animate"
             exit="exit"
-            whileDrag={reorderLift}
             ref={cardRef}
-            style={{ gridColumn: spanFull ? "1 / -1" : undefined, minHeight: 0 }}
+            style={{
+                height: heightPx && heightPx > 0 ? heightPx : undefined,
+                flex: heightPx && heightPx > 0 ? undefined : "1 1 0",
+                minHeight: 0,
+            }}
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
             className={cn(
-                // cards stretch to fill their grid row (align-items: stretch) — the fit-to-viewport goal
+                // each card fills the height its column allotted (heightPx); overflow clipped
                 "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
                 asking
                     ? "border-warning/40 bg-lane-asking animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
@@ -250,14 +243,6 @@ export function AgentRow({
         >
             {/* header bar */}
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
-                <span
-                    onPointerDown={(e) => controls.start(e)}
-                    onClick={(e) => e.stopPropagation()}
-                    title="Drag to reorder"
-                    className="shrink-0 cursor-grab select-none font-mono text-[12px] leading-none tracking-[-1px] text-feed-glyph active:cursor-grabbing"
-                >
-                    ∷∷
-                </span>
                 <StatusDot state={agent.state} quiet={quiet} pulse={!idle && !quiet} className="!h-2 !w-2" />
                 <span
                     title={rt.label}
@@ -466,38 +451,6 @@ export function AgentRow({
                     </button>
                 ) : null}
             </div>
-
-            {/* right edge: drag outward to make the card full-width, back to restore */}
-            {onToggleFullWidth ? (
-                <div
-                    onPointerDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const startX = e.clientX;
-                        // track the running applied state so the toggle fires once per threshold
-                        // crossing (nextFullWidth's deadzone holds it between crossings), not on
-                        // every move event past the threshold
-                        let applied = !!spanFull;
-                        const move = (ev: PointerEvent) => {
-                            const target = nextFullWidth(applied, ev.clientX - startX);
-                            if (target !== applied) {
-                                applied = target;
-                                onToggleFullWidth();
-                            }
-                        };
-                        const up = () => {
-                            window.removeEventListener("pointermove", move);
-                            window.removeEventListener("pointerup", up);
-                        };
-                        window.addEventListener("pointermove", move);
-                        window.addEventListener("pointerup", up);
-                    }}
-                    title={spanFull ? "Drag in to un-widen" : "Drag out to widen"}
-                    className="group absolute inset-y-0 right-0 flex w-[9px] cursor-ew-resize items-center justify-center"
-                >
-                    <div className="h-[34px] w-[3px] rounded-[3px] bg-edge-strong opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-            ) : null}
-        </Reorder.Item>
+        </motion.div>
     );
 }

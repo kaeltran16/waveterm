@@ -4,7 +4,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, MotionConfig, Reorder } from "motion/react";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
@@ -18,7 +18,7 @@ import {
     hasAnswerableAsk,
     isRecentlyIdle,
     applyAgentOrder,
-    computeGridLayout,
+    distributeColumns,
     rowHeightsPx,
     resizeRowWeights,
     GRID_ROW_GAP_PX,
@@ -379,9 +379,15 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         if (!el) {
             return;
         }
-        const ro = new ResizeObserver(() => setGridViewportPx(el.clientHeight));
+        // fill against the content box (clientHeight includes pt/pb padding — sizing a column to the
+        // full clientHeight overflows by exactly that padding and shows a spurious scrollbar)
+        const measure = () => {
+            const cs = getComputedStyle(el);
+            setGridViewportPx(el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+        };
+        const ro = new ResizeObserver(measure);
         ro.observe(el);
-        setGridViewportPx(el.clientHeight);
+        measure();
         return () => ro.disconnect();
     }, []);
 
@@ -391,43 +397,24 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // project scope + live-only first; the chip narrows what the grid renders (counts ignore the chip)
     const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
     const shownAgents = chip === "all" ? visibleOrdered : visibleOrdered.filter((a) => a.state === chip);
-    const gridRows = computeGridLayout(shownAgents, cardPrefs);
-    const rowGaps = GRID_ROW_GAP_PX * Math.max(0, gridRows.length - 1);
-    const availablePx = Math.max(0, gridViewportPx - rowGaps);
-    const gridRowHeights = rowHeightsPx(
-        gridRows.map((r) => r.heightWeight),
-        availablePx
-    );
-    const gridContentPx = gridRowHeights.reduce((s, h) => s + h, 0) + rowGaps;
-    const resizeGridRow = (boundary: number, deltaPx: number) => {
-        const weights = gridRows.map((r) => r.heightWeight);
-        const next = resizeRowWeights(weights, boundary, deltaPx, availablePx);
+    const { colA, colB } = distributeColumns(shownAgents);
+    const columnHeights = (cards: AgentVM[]) => {
+        const weights = cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1);
+        const avail = Math.max(0, gridViewportPx - GRID_ROW_GAP_PX * Math.max(0, cards.length - 1));
+        return rowHeightsPx(weights, avail);
+    };
+    const resizeColumn = (cards: AgentVM[], boundary: number, deltaPx: number) => {
+        const weights = cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1);
+        const avail = Math.max(0, gridViewportPx - GRID_ROW_GAP_PX * Math.max(0, cards.length - 1));
+        const next = resizeRowWeights(weights, boundary, deltaPx, avail);
         setCardPrefs((p) => {
             const out = { ...p };
-            gridRows.forEach((r, idx) => {
-                out[r.key] = { ...out[r.key], heightWeight: next[idx] };
+            cards.forEach((c, idx) => {
+                out[c.id] = { ...out[c.id], heightWeight: next[idx] };
             });
             return out;
         });
     };
-    // when the visible membership changes, drop height overrides so rows re-fit evenly (fullWidth kept)
-    const shownKey = shownAgents.map((a) => a.id).join(",");
-    useEffect(() => {
-        setCardPrefs((p) => {
-            let changed = false;
-            const out: typeof p = {};
-            for (const [id, pref] of Object.entries(p)) {
-                if (pref.heightWeight != null) {
-                    changed = true;
-                    const { heightWeight, ...rest } = pref;
-                    out[id] = rest;
-                } else {
-                    out[id] = pref;
-                }
-            }
-            return changed ? out : p;
-        });
-    }, [shownKey]);
     const liveCount = visibleOrdered.length;
     const liveAsking = visibleOrdered.filter((a) => a.state === "asking").length;
     const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
@@ -607,6 +594,59 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     };
 
+    const renderColumn = (cards: AgentVM[], colKey: string) => {
+        if (cards.length === 0) {
+            return null;
+        }
+        const heights = columnHeights(cards);
+        const contentPx = heights.reduce((s, h) => s + h, 0) + GRID_ROW_GAP_PX * Math.max(0, cards.length - 1);
+        return (
+            <div key={colKey} className="relative flex-1" style={{ height: contentPx || "100%" }}>
+                <div className="flex h-full flex-col gap-3.5">
+                    <AnimatePresence mode="popLayout" initial={false}>
+                        {cards.map((a, i) => (
+                            <AgentRow
+                                key={a.id}
+                                agent={a}
+                                now={now}
+                                heightPx={heights[i]}
+                                isCursor={cursorId === a.id}
+                                pulse={pulseId === a.id}
+                                selections={answerSel[a.id] ?? {}}
+                                sent={sentIds.has(a.id)}
+                                activeQuestion={answerTab[a.id] ?? 0}
+                                composerOpen={openComposerId === a.id}
+                                onCursor={() => setCursorId(a.id)}
+                                onOpen={() => openFocus(a.id, false)}
+                                onOpenTerminal={() => model.openTerminal(a.id)}
+                                onOpenDiff={() => openDiff(a.id)}
+                                onOpenComposer={() => setOpenComposerId(a.id)}
+                                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                                onSubmitAnswer={() => submitAnswer(a.id)}
+                                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                                onComposerEscape={() => {
+                                    setOpenComposerId(undefined);
+                                    containerRef.current?.focus();
+                                }}
+                                onBackground={
+                                    a.state === "working" || a.state === "asking"
+                                        ? () => toggleBackground(a.id)
+                                        : undefined
+                                }
+                                onDismiss={
+                                    a.state === "idle"
+                                        ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
+                                        : undefined
+                                }
+                            />
+                        ))}
+                    </AnimatePresence>
+                </div>
+                <RowDividers heights={heights} gap={GRID_ROW_GAP_PX} onResize={(b, d) => resizeColumn(cards, b, d)} />
+            </div>
+        );
+    };
+
     const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
 
     return (
@@ -649,7 +689,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
                                 Live only
                             </button>
-                            {Object.values(cardPrefs).some((p) => p.fullWidth || p.heightWeight != null) ? (
+                            {Object.values(cardPrefs).some((p) => p.heightWeight != null) ? (
                                 <button
                                     type="button"
                                     onClick={() => setCardPrefs({})}
@@ -731,65 +771,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     ) : null}
 
                     <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
-                        <div className="relative w-full" style={{ height: gridContentPx || "100%" }}>
-                            <Reorder.Group
-                                as="div"
-                                axis="y"
-                                values={orderedIds}
-                                onReorder={setOrder}
-                                className="grid h-full grid-cols-2 gap-3.5"
-                                style={{
-                                    // fall back to even 1fr rows until the ResizeObserver has a height
-                                    // (avoids a one-frame collapse to 0px on first paint)
-                                    gridTemplateRows: gridRowHeights.map((h) => (h > 0 ? `${h}px` : "1fr")).join(" "),
-                                }}
-                            >
-                                <AnimatePresence mode="popLayout" initial={false}>
-                                {shownAgents.map((a) => (
-                                    <AgentRow
-                                        key={a.id}
-                                        agent={a}
-                                        now={now}
-                                        isCursor={cursorId === a.id}
-                                        pulse={pulseId === a.id}
-                                        spanFull={cardPrefs[a.id]?.fullWidth}
-                                        onToggleFullWidth={() =>
-                                            setCardPrefs((p) => ({
-                                                ...p,
-                                                [a.id]: { ...p[a.id], fullWidth: !p[a.id]?.fullWidth },
-                                            }))
-                                        }
-                                        selections={answerSel[a.id] ?? {}}
-                                        sent={sentIds.has(a.id)}
-                                        activeQuestion={answerTab[a.id] ?? 0}
-                                        composerOpen={openComposerId === a.id}
-                                        onCursor={() => setCursorId(a.id)}
-                                        onOpen={() => openFocus(a.id, false)}
-                                        onOpenTerminal={() => model.openTerminal(a.id)}
-                                        onOpenDiff={() => openDiff(a.id)}
-                                        onOpenComposer={() => setOpenComposerId(a.id)}
-                                        onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-                                        onSubmitAnswer={() => submitAnswer(a.id)}
-                                        onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-                                        onComposerEscape={() => {
-                                            setOpenComposerId(undefined);
-                                            containerRef.current?.focus();
-                                        }}
-                                        onBackground={
-                                            a.state === "working" || a.state === "asking"
-                                                ? () => toggleBackground(a.id)
-                                                : undefined
-                                        }
-                                        onDismiss={
-                                            a.state === "idle"
-                                                ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a)))
-                                                : undefined
-                                        }
-                                    />
-                                ))}
-                                </AnimatePresence>
-                            </Reorder.Group>
-                            <RowDividers heights={gridRowHeights} gap={GRID_ROW_GAP_PX} onResize={resizeGridRow} />
+                        <div className="flex gap-3.5">
+                            {renderColumn(colA, "colA")}
+                            {renderColumn(colB, "colB")}
                         </div>
                     </div>
 

@@ -3,10 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
-    computeGridLayout,
+    distributeColumns,
     filterAgents,
     matchesProjectFilter,
-    nextFullWidth,
     projectOf,
     projectsFromAgents,
     resizeRowWeights,
@@ -116,37 +115,31 @@ describe("topFiveHourPct", () => {
     });
 });
 
-describe("computeGridLayout", () => {
-    const ids = (n: number) => Array.from({ length: n }, (_, i) => mk(`a${i}`, "working"));
-
-    it("packs an even count into rows of two", () => {
-        const rows = computeGridLayout(ids(4), {});
-        expect(rows.map((r) => r.cells.map((c) => c.id))).toEqual([
-            ["a0", "a1"],
-            ["a2", "a3"],
-        ]);
+describe("distributeColumns", () => {
+    it("splits round-robin: even index -> A, odd -> B", () => {
+        expect(distributeColumns(["a0", "a1", "a2", "a3"])).toEqual({
+            colA: ["a0", "a2"],
+            colB: ["a1", "a3"],
+        });
     });
 
-    it("leaves the odd trailing card alone in its own row", () => {
-        const rows = computeGridLayout(ids(5), {});
-        expect(rows.map((r) => r.cells.length)).toEqual([2, 2, 1]);
-        expect(rows[2].cells[0].id).toBe("a4");
+    it("puts a lone card in A with an empty B", () => {
+        expect(distributeColumns(["a0"])).toEqual({ colA: ["a0"], colB: [] });
     });
 
-    it("gives a full-width card its own row and does not pair across it", () => {
-        const rows = computeGridLayout(ids(4), { a2: { fullWidth: true } });
-        expect(rows.map((r) => r.cells.map((c) => c.id))).toEqual([["a0", "a1"], ["a2"], ["a3"]]);
+    it("gives A the extra card on an odd count", () => {
+        expect(distributeColumns(["a0", "a1", "a2"])).toEqual({ colA: ["a0", "a2"], colB: ["a1"] });
     });
 
-    it("uses the row's first card for the row height weight (default 1)", () => {
-        const rows = computeGridLayout(ids(2), { a0: { heightWeight: 2.5 } });
-        expect(rows[0].heightWeight).toBe(2.5);
-        expect(rows[0].key).toBe("a0");
-        expect(computeGridLayout(ids(2), {})[0].heightWeight).toBe(1);
+    it("fills 2x3 for six cards", () => {
+        expect(distributeColumns(["a0", "a1", "a2", "a3", "a4", "a5"])).toEqual({
+            colA: ["a0", "a2", "a4"],
+            colB: ["a1", "a3", "a5"],
+        });
     });
 
-    it("returns no rows for an empty list", () => {
-        expect(computeGridLayout([], {})).toEqual([]);
+    it("is empty for an empty list", () => {
+        expect(distributeColumns([])).toEqual({ colA: [], colB: [] });
     });
 });
 
@@ -181,16 +174,5 @@ describe("resizeRowWeights", () => {
     it("returns the weights unchanged for an out-of-range boundary", () => {
         expect(resizeRowWeights([1, 1], 1, 30, 300)).toEqual([1, 1]);
         expect(resizeRowWeights([1, 1], -1, 30, 300)).toEqual([1, 1]);
-    });
-});
-
-describe("nextFullWidth", () => {
-    it("turns on past the positive threshold and off past the negative", () => {
-        expect(nextFullWidth(false, 60, 48)).toBe(true);
-        expect(nextFullWidth(true, -60, 48)).toBe(false);
-    });
-    it("holds within the deadzone", () => {
-        expect(nextFullWidth(false, 10, 48)).toBe(false);
-        expect(nextFullWidth(true, 10, 48)).toBe(true);
     });
 });
