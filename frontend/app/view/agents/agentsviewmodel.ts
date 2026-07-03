@@ -654,6 +654,76 @@ export function distributeColumns<T>(ordered: T[]): { colA: T[]; colB: T[] } {
     return { colA, colB };
 }
 
+export interface CardRect {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+export interface GridLayout {
+    rects: Map<string, CardRect>;
+    totalHeight: number;
+    columnsAvail: number;
+    colA: AgentVM[];
+    colB: AgentVM[];
+    fullWidth: AgentVM[];
+}
+
+/** Pure: ordered visible cards + prefs + container size -> absolute pixel rect per card id, plus the
+ *  column partition (for the resize handlers) and the total content height (for the scroll canvas).
+ *  Full-width cards float to a top stack spanning the width; the rest fill two independent columns
+ *  below. Mirrors the render math this replaced in cockpitsurface.tsx. */
+export function computeGridLayout(
+    cards: AgentVM[],
+    cardPrefs: Record<string, CardPref>,
+    containerW: number,
+    containerH: number
+): GridLayout {
+    const gap = GRID_ROW_GAP_PX;
+    const rects = new Map<string, CardRect>();
+    const weightOf = (id: string) => cardPrefs[id]?.heightWeight ?? 1;
+
+    const fullWidth = cards.filter((c) => cardPrefs[c.id]?.fullWidth);
+    const columnCards = cards.filter((c) => !cardPrefs[c.id]?.fullWidth);
+
+    // full-width stack
+    const pageRowPx = containerH / GRID_PAGE_ROWS;
+    const fwMaxPx = FULLWIDTH_MAX_VIEWPORT_FRAC * containerH;
+    let fwY = 0;
+    for (const c of fullWidth) {
+        const h = Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, pageRowPx * weightOf(c.id)));
+        rects.set(c.id, { x: 0, y: fwY, w: containerW, h });
+        fwY += h + gap;
+    }
+    const fwStackPx = fullWidth.length > 0 ? fwY - gap : 0; // drop trailing gap
+
+    // two columns below the stack
+    const colStartY = fwStackPx + (fullWidth.length > 0 ? gap : 0);
+    const columnsAvail = Math.max(0, containerH - fwStackPx - (fullWidth.length > 0 ? gap : 0));
+    const { colA, colB } = distributeColumns(columnCards);
+    const colW = (containerW - gap) / 2;
+
+    const layoutColumn = (col: AgentVM[], x: number): number => {
+        const avail = Math.max(0, columnsAvail - gap * Math.max(0, col.length - 1));
+        const heights = rowHeightsPx(
+            col.map((c) => weightOf(c.id)),
+            avail
+        );
+        let y = colStartY;
+        col.forEach((c, i) => {
+            rects.set(c.id, { x, y, w: colW, h: heights[i] });
+            y += heights[i] + gap;
+        });
+        return col.length > 0 ? y - gap : colStartY; // column bottom, no trailing gap
+    };
+    const bottomA = layoutColumn(colA, 0);
+    const bottomB = layoutColumn(colB, colW + gap);
+
+    const totalHeight = Math.max(containerH, bottomA, bottomB);
+    return { rects, totalHeight, columnsAvail, colA, colB, fullWidth };
+}
+
 /** Pure: pixel height per row. When rows fit the page they divide `viewportPx` by weight (fills
  *  exactly). Beyond the page, each row keeps the page row-height (`viewportPx / pageRows`) scaled by
  *  its weight, so the total overflows and the container scrolls. `viewportPx` should already exclude

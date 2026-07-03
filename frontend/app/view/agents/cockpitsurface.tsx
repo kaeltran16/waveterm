@@ -20,14 +20,14 @@ import {
     hasAnswerableAsk,
     isRecentlyIdle,
     applyAgentOrder,
-    distributeColumns,
+    computeGridLayout,
     normalizeWeights,
-    rowHeightsPx,
     resizeRowWeights,
     GRID_ROW_GAP_PX,
     GRID_PAGE_ROWS,
     GRID_MIN_ROW_PX,
     FULLWIDTH_MAX_VIEWPORT_FRAC,
+    FULLWIDTH_DRAG_THRESHOLD_PX,
     streamableTranscriptAgents,
     matchesProjectFilter,
     mergeOrder,
@@ -39,6 +39,8 @@ import {
     toggleSelection,
     usageLevel,
     type AgentVM,
+    type CardRect,
+    type GridLayout,
 } from "./agentsviewmodel";
 import { BackgroundedSection } from "./backgroundedsection";
 import { dropCardGit, refreshCardGit, scheduleCardGit } from "./cardgitstore";
@@ -349,33 +351,47 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // snapshot of the card group being corner-resized, captured on pointer-down so the drag applies an
     // absolute delta to a stable baseline (no drift as pointermove reads updated prefs)
     const resizeSnapRef = useRef<
-        { kind: "fw"; startPx: number } | { kind: "col"; ids: string[]; weights: number[]; avail: number } | null
+        | { kind: "fw"; startPx: number }
+        | { kind: "col"; ids: string[]; weights: number[]; avail: number; colStartY: number }
+        | null
     >(null);
     // corner-drag writes card heights straight to bound motion values (no per-frame React re-render); the
     // ratio-scale weights are committed to cardPrefs once on pointer-up. isResizing suspends the layout
     // spring + the render-time MV sync so a background re-render can't snap a card back mid-drag.
     const [isResizing, setIsResizing] = useState(false);
+    // the card currently being corner-dragged; it renders elevated so an in-place width grow overlaps
+    // its neighbours instead of clipping behind them
+    const [activeResizeId, setActiveResizeId] = useState<string | undefined>(undefined);
     const resizeMoveRef = useRef<{ cardId: string; dyPx: number } | null>(null);
-    const heightMVs = useRef(new Map<string, MotionValue<number>>());
-    const getHeightMV = (id: string, initial: number) => {
-        let mv = heightMVs.current.get(id);
-        if (!mv) {
-            mv = motionValue(initial);
-            heightMVs.current.set(id, mv);
+    // snapshot for the live width grow: the dragged card's rect at pointer-down + which side to anchor
+    // (left column grows its right edge, right column grows its left edge; a full card shrinks from full)
+    const widthSnapRef = useRef<{ startRect: CardRect; isFull: boolean; inColA: boolean } | null>(null);
+    // per-id geometry motion values, persisted across renders (a move retargets these; it never
+    // remounts the card). The corner drag writes h/y directly; every other change is retargeted in
+    // renderCard below.
+    type GeomMV = { x: MotionValue<number>; y: MotionValue<number>; w: MotionValue<number>; h: MotionValue<number> };
+    const geomMVs = useRef(new Map<string, GeomMV>());
+    const getGeom = (id: string, r: CardRect): GeomMV => {
+        let g = geomMVs.current.get(id);
+        if (!g) {
+            g = { x: motionValue(r.x), y: motionValue(r.y), w: motionValue(r.w), h: motionValue(r.h) };
+            geomMVs.current.set(id, g);
         }
-        return mv;
+        return g;
     };
     const [gridViewportPx, setGridViewportPx] = useState(0);
+    const [gridViewportW, setGridViewportW] = useState(0);
     useEffect(() => {
         const el = gridScrollRef.current;
         if (!el) {
             return;
         }
-        // fill against the content box (clientHeight includes pt/pb padding — sizing a column to the
-        // full clientHeight overflows by exactly that padding and shows a spurious scrollbar)
+        // fill against the content box (clientHeight/Width include padding — sizing to the full client
+        // box overflows by exactly that padding and shows a spurious scrollbar)
         const measure = () => {
             const cs = getComputedStyle(el);
             setGridViewportPx(el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+            setGridViewportW(el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
         };
         const ro = new ResizeObserver(measure);
         ro.observe(el);
@@ -389,28 +405,22 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // project scope + live-only first; the chip narrows what the grid renders (counts ignore the chip)
     const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
     const shownAgents = chip === "all" ? visibleOrdered : visibleOrdered.filter((a) => a.state === chip);
-    // full-width cards float to a top stack; the rest fill two independent columns below
-    const fullWidthCards = shownAgents.filter((a) => cardPrefs[a.id]?.fullWidth);
-    const columnCards = shownAgents.filter((a) => !cardPrefs[a.id]?.fullWidth);
-    const { colA, colB } = distributeColumns(columnCards);
-
+    // full-width cards float to a top stack; the rest fill two independent columns below. One pure pass
+    // computes every card's absolute rect (px) + the column partition the resize handlers read.
+    const layout: GridLayout = computeGridLayout(shownAgents, cardPrefs, gridViewportW, gridViewportPx);
+    const { rects, totalHeight, columnsAvail, colA, colB } = layout;
     const pageRowPx = gridViewportPx / GRID_PAGE_ROWS;
-    const fwMaxPx = FULLWIDTH_MAX_VIEWPORT_FRAC * gridViewportPx; // Bug-2 guard: a full-width card can't take over
-    const fwHeights = fullWidthCards.map((c) =>
-        Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, pageRowPx * (cardPrefs[c.id]?.heightWeight ?? 1)))
-    );
-    const fwStackPx = fwHeights.reduce((s, h) => s + h, 0) + GRID_ROW_GAP_PX * Math.max(0, fullWidthCards.length - 1);
-    // the two columns fill the height left over after the full-width stack
-    const columnsAvail = Math.max(0, gridViewportPx - fwStackPx - (fullWidthCards.length > 0 ? GRID_ROW_GAP_PX : 0));
+    const fwMaxPx = FULLWIDTH_MAX_VIEWPORT_FRAC * gridViewportPx;
     const colAvail = (n: number) => Math.max(0, columnsAvail - GRID_ROW_GAP_PX * Math.max(0, n - 1));
-    const columnHeights = (cards: AgentVM[]) =>
-        rowHeightsPx(cards.map((c) => cardPrefs[c.id]?.heightWeight ?? 1), colAvail(cards.length));
 
     const beginCardResize = (cardId: string) => {
         setIsResizing(true);
-        if (cardPrefs[cardId]?.fullWidth) {
-            const idx = fullWidthCards.findIndex((c) => c.id === cardId);
-            resizeSnapRef.current = { kind: "fw", startPx: fwHeights[idx] ?? pageRowPx };
+        setActiveResizeId(cardId);
+        const startRect = rects.get(cardId) ?? { x: 0, y: 0, w: 0, h: pageRowPx };
+        const isFull = !!cardPrefs[cardId]?.fullWidth;
+        widthSnapRef.current = { startRect, isFull, inColA: colA.some((c) => c.id === cardId) };
+        if (isFull) {
+            resizeSnapRef.current = { kind: "fw", startPx: startRect.h };
             return;
         }
         const col = colA.some((c) => c.id === cardId) ? colA : colB;
@@ -419,8 +429,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             ids: col.map((c) => c.id),
             weights: col.map((c) => cardPrefs[c.id]?.heightWeight ?? 1),
             avail: colAvail(col.length),
+            colStartY: rects.get(col[0].id)?.y ?? 0,
         };
     };
+    // commit the drag's height as ratio-scale weights (pointer-up)
     const resizeCardHeight = (cardId: string, dyPx: number) => {
         const snap = resizeSnapRef.current;
         if (!snap) {
@@ -435,12 +447,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         if (index === -1 || snap.ids.length < 2) {
             return; // a lone card in its column has no neighbour to shift against
         }
-        // last card in the column shifts against the neighbour ABOVE (inverted delta); others against below
         const last = index === snap.ids.length - 1;
         const boundary = last ? index - 1 : index;
         const delta = last ? -dyPx : dyPx;
-        // normalise back to ratio scale (resizeRowWeights returns pixel-scale; rowHeightsPx only
-        // re-normalises in its fit branch, so raw pixels would explode once a column overflows)
         const next = normalizeWeights(resizeRowWeights(snap.weights, boundary, delta, snap.avail));
         setCardPrefs((p) => {
             const out = { ...p };
@@ -448,16 +457,37 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             return out;
         });
     };
-    // live drag: write heights straight to the bound motion values (DOM-only, no re-render). resizeRowWeights
-    // already returns actual pixel heights, so they bind directly; the fw branch clamps its single card.
-    const dragResizeMV = (cardId: string, dyPx: number) => {
+    // live drag (DOM-only, no re-render): grow the dragged card's width in place from the horizontal
+    // drag, and redistribute column height from the vertical drag. Full-width is NOT committed here — the
+    // card stays in its row, widening over its neighbours, until pointer-up snaps it to the top slot.
+    const dragResizeMove = (cardId: string, dxPx: number, dyPx: number) => {
+        // width grow: interpolate colW->fullW over the same distance as the commit threshold, so the card
+        // is exactly full at the moment it commits (no width jump on release — only the position snaps).
+        const ws = widthSnapRef.current;
+        const g = geomMVs.current.get(cardId);
+        if (ws && g) {
+            const fullW = gridViewportW;
+            const colW = (gridViewportW - GRID_ROW_GAP_PX) / 2;
+            const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+            if (ws.isFull) {
+                const t = clamp01(-dxPx / FULLWIDTH_DRAG_THRESHOLD_PX); // drag in shrinks toward a column
+                g.w.set(fullW - (fullW - colW) * t);
+                g.x.set(0);
+            } else {
+                const t = clamp01(dxPx / FULLWIDTH_DRAG_THRESHOLD_PX); // drag out grows toward full
+                const w = colW + (fullW - colW) * t;
+                g.w.set(w);
+                g.x.set(ws.inColA ? 0 : ws.startRect.x + ws.startRect.w - w); // anchor the outer edge
+            }
+        }
+        // height: redistribute within the column (or clamp the lone full card) from the vertical drag
         const snap = resizeSnapRef.current;
         if (!snap) {
             return;
         }
         resizeMoveRef.current = { cardId, dyPx };
         if (snap.kind === "fw") {
-            heightMVs.current.get(cardId)?.set(Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, snap.startPx + dyPx)));
+            g?.h.set(Math.min(fwMaxPx, Math.max(GRID_MIN_ROW_PX, snap.startPx + dyPx)));
             return;
         }
         const index = snap.ids.indexOf(cardId);
@@ -466,19 +496,31 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
         const last = index === snap.ids.length - 1;
         const px = resizeRowWeights(snap.weights, last ? index - 1 : index, last ? -dyPx : dyPx, snap.avail);
-        snap.ids.forEach((id, i) => heightMVs.current.get(id)?.set(px[i]));
+        // only the dragged boundary moves, but recompute the column's y from the live heights so the
+        // lower card's top tracks the drag
+        let y = snap.colStartY;
+        snap.ids.forEach((id, i) => {
+            const gc = geomMVs.current.get(id);
+            gc?.h.set(px[i]);
+            gc?.y.set(y);
+            y += px[i] + GRID_ROW_GAP_PX;
+        });
     };
-    const endCardResize = () => {
+    // pointer-up: commit the drag's height, then commit full-width to the pending state. Dropping
+    // isResizing lets the retarget run, easing the card into (or out of) the top full-width slot — the
+    // "snap to position" after the in-place grow.
+    const endCardResize = (cardId: string, full: boolean) => {
         const m = resizeMoveRef.current;
         if (m) {
-            resizeCardHeight(m.cardId, m.dyPx); // persist the final drag as ratio-scale weights
+            resizeCardHeight(m.cardId, m.dyPx);
         }
+        setCardPrefs((p) => ({ ...p, [cardId]: { ...p[cardId], fullWidth: full } }));
         resizeMoveRef.current = null;
         resizeSnapRef.current = null;
+        widthSnapRef.current = null;
+        setActiveResizeId(undefined);
         setIsResizing(false);
     };
-    const toggleCardFullWidth = (cardId: string) =>
-        setCardPrefs((p) => ({ ...p, [cardId]: { ...p[cardId], fullWidth: !p[cardId]?.fullWidth } }));
     const liveCount = visibleOrdered.length;
     const liveAsking = visibleOrdered.filter((a) => a.state === "asking").length;
     const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
@@ -658,63 +700,53 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     };
 
-    // one AgentRow with every callback wired — shared by the full-width stack and the two columns
-    const renderCard = (a: AgentVM, cardHeight: number, isFull: boolean) => {
-        const mv = getHeightMV(a.id, cardHeight);
+    // one AgentRow with every callback wired — shared by all cards in the single absolute tree
+    const renderCard = (a: AgentVM, rect: CardRect) => {
+        const g = getGeom(a.id, rect);
+        // keep the bound values tracking the computed layout when not dragging; during a drag the
+        // resize handlers own h/y for the affected column, so leave them alone
         if (!isResizing) {
-            mv.set(cardHeight); // keep the bound value tracking the computed layout when not dragging
+            g.x.set(rect.x);
+            g.y.set(rect.y);
+            g.w.set(rect.w);
+            g.h.set(rect.h);
         }
         return (
-        <AgentRow
-            key={a.id}
-            agent={a}
-            now={now}
-            heightPx={cardHeight}
-            heightMV={mv}
-            fullWidth={isFull}
-            isCursor={cursorId === a.id}
-            pulse={pulseId === a.id}
-            selections={answerSel[a.id] ?? {}}
-            sent={sentIds.has(a.id)}
-            activeQuestion={answerTab[a.id] ?? 0}
-            composerOpen={openComposerId === a.id}
-            onCursor={() => setCursorId(a.id)}
-            onOpen={() => openFocus(a.id, false)}
-            onOpenTerminal={() => model.openTerminal(a.id)}
-            onOpenDiff={() => openDiff(a.id)}
-            onOpenComposer={() => setOpenComposerId(a.id)}
-            onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
-            onSubmitAnswer={() => submitAnswer(a.id)}
-            onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
-            onComposerEscape={() => {
-                setOpenComposerId(undefined);
-                containerRef.current?.focus();
-            }}
-            onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
-            onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
-            onResizeStart={() => beginCardResize(a.id)}
-            onResizeHeight={(dy) => dragResizeMV(a.id, dy)}
-            onResizeEnd={endCardResize}
-            onToggleFullWidth={() => toggleCardFullWidth(a.id)}
-            resizing={isResizing}
-        />
-        );
-    };
-
-    const renderColumn = (cards: AgentVM[], colKey: string) => {
-        if (cards.length === 0) {
-            return null;
-        }
-        const heights = columnHeights(cards);
-        const contentPx = heights.reduce((s, h) => s + h, 0) + GRID_ROW_GAP_PX * Math.max(0, cards.length - 1);
-        return (
-            <div key={colKey} className="relative flex-1" style={{ height: contentPx || "100%" }}>
-                <div className="flex h-full flex-col gap-3.5">
-                    <AnimatePresence mode="popLayout" initial={false}>
-                        {cards.map((a, i) => renderCard(a, heights[i], false))}
-                    </AnimatePresence>
-                </div>
-            </div>
+            <AgentRow
+                key={a.id}
+                agent={a}
+                now={now}
+                rect={rect}
+                xMV={g.x}
+                yMV={g.y}
+                wMV={g.w}
+                hMV={g.h}
+                fullWidth={!!cardPrefs[a.id]?.fullWidth}
+                elevated={activeResizeId === a.id}
+                isCursor={cursorId === a.id}
+                pulse={pulseId === a.id}
+                selections={answerSel[a.id] ?? {}}
+                sent={sentIds.has(a.id)}
+                activeQuestion={answerTab[a.id] ?? 0}
+                composerOpen={openComposerId === a.id}
+                onCursor={() => setCursorId(a.id)}
+                onOpen={() => openFocus(a.id, false)}
+                onOpenTerminal={() => model.openTerminal(a.id)}
+                onOpenDiff={() => openDiff(a.id)}
+                onOpenComposer={() => setOpenComposerId(a.id)}
+                onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                onSubmitAnswer={() => submitAnswer(a.id)}
+                onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
+                onComposerEscape={() => {
+                    setOpenComposerId(undefined);
+                    containerRef.current?.focus();
+                }}
+                onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
+                onDismiss={a.state === "idle" ? () => setDismissed((prev) => new Set(prev).add(dismissKey(a))) : undefined}
+                onResizeStart={() => beginCardResize(a.id)}
+                onResizeMove={(dx, dy) => dragResizeMove(a.id, dx, dy)}
+                onResizeEnd={(full) => endCardResize(a.id, full)}
+            />
         );
     };
 
@@ -856,18 +888,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </AnimatePresence>
 
                     <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
-                        <div className="flex flex-col gap-3.5">
-                            {fullWidthCards.length > 0 ? (
-                                <AnimatePresence mode="popLayout" initial={false}>
-                                    {fullWidthCards.map((a, i) => renderCard(a, fwHeights[i], true))}
-                                </AnimatePresence>
-                            ) : null}
-                            {columnCards.length > 0 ? (
-                                <div className="flex gap-3.5">
-                                    {renderColumn(colA, "colA")}
-                                    {renderColumn(colB, "colB")}
-                                </div>
-                            ) : null}
+                        {/* one absolute canvas; every card is a sibling in one AnimatePresence, positioned
+                            by its spring-driven rect. A move retargets springs (no remount, no crossfade);
+                            only genuine add/remove runs the opacity+scale variants. */}
+                        <div style={{ position: "relative", height: totalHeight }}>
+                            <AnimatePresence initial={false}>
+                                {shownAgents.map((a) => {
+                                    const rect = rects.get(a.id);
+                                    return rect ? renderCard(a, rect) : null;
+                                })}
+                            </AnimatePresence>
                         </div>
                     </div>
 

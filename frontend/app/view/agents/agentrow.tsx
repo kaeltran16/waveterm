@@ -3,7 +3,7 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { motion, useMotionValue, useSpring, type MotionValue } from "motion/react";
+import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
@@ -15,6 +15,7 @@ import {
     projectOf,
     taskProgress,
     type AgentVM,
+    type CardRect,
     type CardTask,
 } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
@@ -126,14 +127,16 @@ export function AgentRow({
     onBackground,
     onDismiss,
     pulse,
-    heightPx,
-    heightMV,
+    rect,
+    xMV,
+    yMV,
+    wMV,
+    hMV,
     fullWidth,
+    elevated,
     onResizeStart,
-    onResizeHeight,
+    onResizeMove,
     onResizeEnd,
-    onToggleFullWidth,
-    resizing,
 }: {
     agent: AgentVM;
     now: number;
@@ -154,26 +157,39 @@ export function AgentRow({
     onBackground?: () => void;
     onDismiss?: () => void;
     pulse?: boolean;
-    heightPx?: number;
-    heightMV?: MotionValue<number>; // bound to style.height so the corner drag writes DOM-only (no re-render)
+    rect: CardRect; // current target geometry — seeds the springs and is the pre-measure fallback
+    xMV: MotionValue<number>; // parent-held; springs below ease toward these on layout change
+    yMV: MotionValue<number>;
+    wMV: MotionValue<number>;
+    hMV: MotionValue<number>; // the corner drag writes this directly (DOM-only, no re-render)
     fullWidth?: boolean; // current full-width state — seeds the corner-drag hysteresis
+    elevated?: boolean; // render above siblings (mid-drag the card grows in place over its neighbours)
     onResizeStart?: () => void; // corner pointer-down: snapshot the column's heights
-    onResizeHeight?: (dyPx: number) => void; // corner vertical drag: absolute dy from pointer-down
-    onResizeEnd?: () => void; // corner pointer-up: flush + re-enable the layout spring
-    onToggleFullWidth?: () => void; // corner horizontal drag crossed the ± threshold
-    resizing?: boolean; // a corner drag is live anywhere in the grid — suspend the layout spring
+    onResizeMove?: (dxPx: number, dyPx: number, pendingFull: boolean) => void; // corner drag: dx/dy + pending full-width
+    onResizeEnd?: (full: boolean) => void; // corner pointer-up: commit height + the pending full-width state
 }) {
     const composerRef = useRef<AgentComposerHandle>(null);
     const cardRef = useRef<HTMLDivElement>(null);
-    // height eases toward the parent-driven target motion value (set instantly by the corner drag). The
-    // spring is what the eye follows — smooth during drag, settles on release. jump() past the 0->first
-    // -measure ease so cards don't grow in on load; structural re-layouts after that ease naturally.
-    const fallbackMV = useMotionValue(heightPx ?? 0);
-    const springHeight = useSpring(heightMV ?? fallbackMV, resizeSpring);
+    // Geometry eases toward parent-driven target motion values (the corner drag writes hMV directly).
+    // Springs run off React (no per-frame re-render). Under reduced motion the raw MV drives style so
+    // nothing animates. jump() past the 0->first-measure ease so cards don't fly in from the origin on
+    // load; structural re-layouts after that ease naturally.
+    const reduce = useReducedMotion();
+    const springX = useSpring(xMV, resizeSpring);
+    const springY = useSpring(yMV, resizeSpring);
+    const springW = useSpring(wMV, resizeSpring);
+    const springH = useSpring(hMV, resizeSpring);
+    const x = reduce ? xMV : springX;
+    const y = reduce ? yMV : springY;
+    const w = reduce ? wMV : springW;
+    const h = reduce ? hMV : springH;
     const springSeeded = useRef(false);
     useLayoutEffect(() => {
-        if (!springSeeded.current && (heightPx ?? 0) > 0) {
-            springHeight.jump((heightMV ?? fallbackMV).get());
+        if (!springSeeded.current && rect.w > 0) {
+            springX.jump(xMV.get());
+            springY.jump(yMV.get());
+            springW.jump(wMV.get());
+            springH.jump(hMV.get());
             springSeeded.current = true;
         }
     });
@@ -242,23 +258,33 @@ export function AgentRow({
 
     return (
         <motion.div
-            layout={resizing ? false : "position"}
+            // All cards are absolute siblings in one container; x/y/w/h are spring-driven motion values
+            // (real dimensions, never transform:scale), so width/height/position change without any
+            // content distortion and a move never remounts (no crossfade). variants animate opacity+scale
+            // for genuine mount/unmount only.
             variants={cardVariants}
             initial="initial"
             animate="animate"
             exit="exit"
             ref={cardRef}
             style={{
-                // heightPx until the spring is seeded (avoids a mount flicker), springHeight thereafter
-                height: heightPx && heightPx > 0 ? (springSeeded.current ? springHeight : heightPx) : undefined,
-                flex: heightPx && heightPx > 0 ? undefined : "1 1 0",
+                position: "absolute",
+                left: 0,
+                top: 0,
+                x,
+                y,
+                width: w,
+                height: h,
                 minHeight: 0,
+                // full-width cards sit above the columns; a card mid-resize grows in place over its
+                // neighbours and must stay on top through the drag and the settle that follows
+                zIndex: fullWidth || elevated ? 30 : undefined,
             }}
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
             className={cn(
-                // each card fills the height its column allotted (heightPx); overflow clipped
+                // card fills its spring-driven height (h); overflow clipped
                 "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
                 asking
                     ? "border-warning/40 bg-lane-asking animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
@@ -481,27 +507,26 @@ export function AgentRow({
             </div>
 
             {/* bottom-right corner grip: drag down = taller, drag out (±48px) = full-width span */}
-            {onResizeHeight || onToggleFullWidth ? (
+            {onResizeMove ? (
                 <div
                     onPointerDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         const startX = e.clientX;
                         const startY = e.clientY;
-                        let applied = !!fullWidth; // seed hysteresis with the current state
+                        // pending full-width via hysteresis; committed on release, not mid-drag — the card
+                        // grows in place during the drag and snaps to its slot only on pointer-up
+                        let pendingFull = !!fullWidth;
                         onResizeStart?.();
                         const move = (ev: PointerEvent) => {
-                            onResizeHeight?.(ev.clientY - startY);
-                            const target = nextFullWidth(applied, ev.clientX - startX);
-                            if (target !== applied) {
-                                applied = target;
-                                onToggleFullWidth?.();
-                            }
+                            const dx = ev.clientX - startX;
+                            pendingFull = nextFullWidth(pendingFull, dx);
+                            onResizeMove?.(dx, ev.clientY - startY, pendingFull);
                         };
                         const up = () => {
                             window.removeEventListener("pointermove", move);
                             window.removeEventListener("pointerup", up);
-                            onResizeEnd?.();
+                            onResizeEnd?.(pendingFull);
                         };
                         window.addEventListener("pointermove", move);
                         window.addEventListener("pointerup", up);
