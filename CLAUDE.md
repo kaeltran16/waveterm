@@ -32,7 +32,7 @@ Other useful commands:
 - **Clear dev data/config:** `task dev:cleardata`, `task dev:clearconfig` (dev app uses `waveterm-dev` data dirs, isolated from a packaged install).
 
 ### Gotchas
-- **`npx tsc` stack-overflows on this repo.** Run the typechecker as `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit` instead. The baseline has ~3 pre-existing errors in `frontend/tauri/api.test.ts`.
+- **`npx tsc` stack-overflows on this repo.** Run the typechecker as `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit` instead. The baseline is clean (exit 0) — any error it reports is yours.
 - **Never hand-edit generated files.** Go is the source of truth for the wire protocol and object types; `task generate` produces `frontend/app/store/wshclientapi.ts` and the generated Go/TS type files. Edit the Go definitions, then regenerate.
 - CGO backend builds use the **zig** compiler for cross/static linking (required dependency, see `Taskfile.yml` `build:server:*`).
 

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const invokeMock = vi.fn(() => Promise.resolve());
-const listenMock = vi.fn(() => Promise.resolve(() => {}));
+// rest-param signatures so the mock accepts spread args (`invokeMock(...a)`) and a 2-arg listen impl
+const invokeMock = vi.fn((..._a: any[]) => Promise.resolve());
+const listenMock = vi.fn((..._a: any[]) => Promise.resolve(() => {}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: any[]) => invokeMock(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: any[]) => listenMock(...a) }));
 vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ setZoom: () => Promise.resolve() }) }));
@@ -79,8 +80,9 @@ describe("invoke-backed methods", () => {
 describe("onWaveInit", () => {
     it("registers a wave-init listener and forwards the payload", () => {
         let captured: any = null;
-        listenMock.mockImplementationOnce((_evt: string, cb: any) => {
-            cb({ payload: { tabId: "t1" } });
+        // optional params (0 required) so this impl is assignable to the variadic listenMock type
+        listenMock.mockImplementationOnce((_evt?: string, cb?: (e: any) => void) => {
+            cb?.({ payload: { tabId: "t1" } });
             return Promise.resolve(() => {});
         });
         installTauriApi(INIT);
