@@ -67,7 +67,7 @@ cross-surface transitions and shared modals.
 | Agent | ◐ Rail only | DETAILS rail now `CollapsibleRail` (alignment fixed, "just now idle" text fixed). Remaining: narration/composer/status motion (m5/m6/m7). |
 | Activity | ☐ Not started | Cross-project feed. Candidates: line entrance (m1/m5), no-cascade guard. |
 | Channels | ◐ Rail only | Context rail now `CollapsibleRail`. Remaining: message entrance (m1/m5), rail selection micro (m7). |
-| Sessions | ☐ Not started | Resume hero + list. Candidates: list entrance/exit (m1/m2). |
+| Sessions | ✅ Shipped (2026-07-03) | Chip-filter reflow (m2 popLayout), instant search, one-shot load reveal, empty-state fade. No hero (surface is header+search+chips+list). |
 | Files / Diff | ☐ Not started | Candidates: list entrance (m1), reveal (m6). |
 | Memory | ☐ Not started | Vault viewer + force-graph. Candidates: detail reveal (m6); graph has its own physics — audit for conflicts. |
 | Usage | ☐ Not started | Bars/donuts. Candidates: value/bar transitions (m7 micro); avoid decorative-only motion. |
