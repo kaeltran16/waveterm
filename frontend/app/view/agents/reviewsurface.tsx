@@ -100,7 +100,7 @@ export function ReviewSurface() {
                         return (
                             <button key={f.path} onClick={() => globalStore.set(reviewSelectedAtom, f.path)}
                                 className={cn("flex w-full items-center gap-[8px] rounded-[8px] px-[9px] py-[7px] text-left hover:bg-surface-hover",
-                                    f.path === sel.path && "bg-surface-hover")}>
+                                    f.path === sel.path && "bg-surface-selected")}>
                                 <span className={cn("font-mono text-[11px]", ring)}>●</span>
                                 <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-mid">{f.path}</span>
                                 <span className="flex-none font-mono text-[10px] text-ink-faint">{dec}/{f.hunks.length}</span>
@@ -197,7 +197,7 @@ function HunkBlock({ f, h, d }: { f: ReviewFile; h: ReviewFile["hunks"][number];
                 )}
             </div>
             {view && (
-                <div className="overflow-x-auto py-[6px] font-mono text-[12px] leading-[1.7]">
+                <div className="overflow-x-auto bg-surface-code py-[6px] font-mono text-[12px] leading-[1.7]">
                     {view.lines.filter((l) => l.kind !== "hunk").map((l, i) => (
                         <div key={i} className="flex min-w-max"
                             style={{ background: l.kind === "add" ? "color-mix(in srgb, var(--color-success) 10%, transparent)" : l.kind === "del" ? "color-mix(in srgb, var(--color-error) 10%, transparent)" : undefined }}>

@@ -11,6 +11,8 @@
     --color-surface: #0e1116;
     --color-surface-raised: #13171d;
     --color-surface-hover: #171c22;
+    --color-surface-code: #0b0d10; /* diff / terminal body (design-system "Code") */
+    --color-surface-selected: #1a222c; /* persistent selected row (design-system "Selected"); distinct from transient surface-hover */
     --color-panel: rgba(19, 23, 29, 0.6);
     --color-modalbg: #13171d;
     --color-lane: #12161b; /* agent-card lane fill (handoff laneBg) */
@@ -47,10 +49,10 @@
     --color-accent: #7c95ff;
     --color-accenthover: #8da3ff;
     --color-accent-soft: #aebfff;
-    --color-accentbg: rgba(124, 149, 255, 0.1);
+    --color-accentbg: rgba(124, 149, 255, 0.12);
 
     /* Status: amber = asking, green = working */
-    --color-error: #f0625a;
+    --color-error: #e0726c;
     --color-warning: #e6b450;
     --color-asking: #e6b450;
     --color-success: #54c79a;
@@ -69,7 +71,7 @@
     /* Channel avatar identity palette (deterministic per author; see channelderive.ts) */
     --color-avatar-1: #7c95ff;
     --color-avatar-2: #54c79a;
-    --color-avatar-3: #f0625a;
+    --color-avatar-3: #e0726c;
     --color-avatar-4: #e6b450;
     --color-avatar-5: #c98fe6;
     --color-avatar-6: #9aa3ad;

@@ -135,7 +135,7 @@ function FileRow({ change, selected, onSelect }: { change: GitChange; selected: 
             onClick={onSelect}
             className={cn(
                 "flex w-full items-center gap-[7px] rounded-[7px] px-[8px] py-[5px] text-left hover:bg-surface-hover",
-                selected && "bg-surface-hover"
+                selected && "bg-surface-selected"
             )}
         >
             <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink-mid">{change.path}</span>
@@ -266,9 +266,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                         <h1 className="text-[16px] font-bold">Files</h1>
                         <div className="ml-auto flex gap-[2px] rounded-[7px] border border-border p-[2px]">
                             <button onClick={() => setMode("browse")}
-                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-hover text-foreground" : "text-ink-mid")}>Browse</button>
+                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Browse</button>
                             <button onClick={() => setMode("review")}
-                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "review" ? "bg-surface-hover text-foreground" : "text-ink-mid")}>Review</button>
+                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "review" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Review</button>
                         </div>
                     </div>
                     <SourcePicker
