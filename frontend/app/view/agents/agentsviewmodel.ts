@@ -457,6 +457,34 @@ export function canSubmitAsk(questions: AgentAskQuestion[], selections: Record<n
     return questions.length > 0 && questions.every((_, qi) => (selections[qi]?.size ?? 0) >= 1);
 }
 
+/** Pure: the single muted footer hint for an ask, so one consistent line always renders.
+ *  - one single-select question: prompt to answer (mentions 1–9 only when the picker is numbered)
+ *  - one multi-select question: "press Enter to submit" (multi-select needs a confirm)
+ *  - multiple questions: "N/M answered", plus "press Enter to submit" if any is multi-select */
+export function answerHint(
+    questions: AgentAskQuestion[],
+    selections: Record<number, Set<number>>,
+    numbered: boolean
+): string {
+    if (questions.length === 0) {
+        return "";
+    }
+    const total = questions.length;
+    const needsConfirm = questions.some((q) => q.multiSelect);
+    if (total === 1 && !needsConfirm) {
+        return numbered ? "Press 1–9 or click to answer" : "Click to answer";
+    }
+    const parts: string[] = [];
+    if (total > 1) {
+        const answered = questions.filter((_, qi) => (selections[qi]?.size ?? 0) > 0).length;
+        parts.push(`${answered}/${total} answered`);
+    }
+    if (needsConfirm) {
+        parts.push("press Enter to submit");
+    }
+    return parts.join(" · ");
+}
+
 /** Pure: whether the agent has a structured ask (with options) to answer. The amber "asking" status and
  *  a structured ask are decoupled — the reporter can mark an agent "waiting" for a plain-text question
  *  (e.g. "Proceed? (yes/no)") that never produced an AskUserQuestion payload. Drives the choice between

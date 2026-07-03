@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -782,5 +782,31 @@ describe("deriveTerminalVMs", () => {
     it("still maps a real terminal session (no session:agent) to a terminal VM", () => {
         const rows: Row[] = [{ tabId: "t1", label: "waveterm", termBlockOref: "block:b1", agent: undefined }];
         expect(deriveTerminalVMs(rows, none)).toHaveLength(1);
+    });
+});
+
+describe("answerHint", () => {
+    const q = (multiSelect = false): AgentAskQuestion => ({
+        question: "Q?",
+        options: [{ label: "a" }, { label: "b" }],
+        multiSelect,
+    });
+    it("empty when no questions", () => {
+        expect(answerHint([], {}, true)).toBe("");
+    });
+    it("single single-select, numbered: prompts 1–9 or click", () => {
+        expect(answerHint([q()], {}, true)).toBe("Press 1–9 or click to answer");
+    });
+    it("single single-select, not numbered: prompts click only", () => {
+        expect(answerHint([q()], {}, false)).toBe("Click to answer");
+    });
+    it("single multi-select: press Enter to submit", () => {
+        expect(answerHint([q(true)], {}, true)).toBe("press Enter to submit");
+    });
+    it("multi question single-select: shows answered progress", () => {
+        expect(answerHint([q(), q()], { 0: new Set([1]) }, true)).toBe("1/2 answered");
+    });
+    it("multi question with a multi-select: progress + Enter", () => {
+        expect(answerHint([q(), q(true)], { 0: new Set([0]) }, true)).toBe("1/2 answered · press Enter to submit");
     });
 });

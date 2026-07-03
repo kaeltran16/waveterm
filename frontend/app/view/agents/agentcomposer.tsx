@@ -70,7 +70,7 @@ export const AgentComposer = forwardRef<
                     }
                 }}
                 placeholder={placeholder}
-                className="min-w-0 flex-1 resize-none overflow-y-auto rounded-[6px] border border-border bg-transparent px-2.5 py-1.5 text-[12px] leading-[1.4] text-primary outline-none placeholder:text-muted"
+                className="min-w-0 flex-1 resize-none overflow-y-auto rounded-[6px] border border-border bg-transparent px-2.5 py-1.5 text-[12px] leading-[1.4] text-primary outline-none placeholder:text-secondary"
             />
             <button
                 type="button"

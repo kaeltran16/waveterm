@@ -58,9 +58,12 @@
     --color-success: #54c79a;
     --color-cacheread: #5b6675; /* usage split: cache-read segment (low-value, high-volume) */
     /* handoff card-body colors (Wave-cockpit-live.dc.html) */
-    --color-ask-question: #eddcb8; /* asking-band question prose */
+    --color-ask-question: #fcf7ec; /* asking-band question prose (bright warm-white for readability) */
     --color-ask-label: #c79a3f; /* "waiting on you" label */
     --color-on-warning: #1a1306; /* text on the filled needs-you badge */
+    /* Provider brand identity (not theme-derived; single source for the plan-strip dots) */
+    --color-provider-claude: #d97757;
+    --color-provider-codex: #96aacd;
     --color-success-soft: #bfe6d6; /* working activity line */
     --color-feed-label: #777f89; /* tool-line uppercase tool name */
     --color-feed-summary: #9aa3ad; /* tool-line summary text */

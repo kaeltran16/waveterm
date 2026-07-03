@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
-import { type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
+import { answerHint, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
 // cockpit passes accent = stateColor — asking → amber, else → periwinkle). So an asking agent's
@@ -45,12 +45,14 @@ function QuestionGroup({
     question,
     accent,
     numbered,
+    hideQuestion,
     selections,
     onClickOption,
 }: {
     question: AgentAskQuestion;
     accent: Accent;
     numbered?: boolean;
+    hideQuestion?: boolean;
     selections: Set<number>;
     onClickOption: (oi: number) => void;
 }) {
@@ -60,13 +62,15 @@ function QuestionGroup({
     // renders only the keyboard-target question, so badges always belong to the rendered group.
     const stacked = options.some((o) => o.description);
     return (
-        <div className="mt-3">
-            {question.header ? (
+        <div className={hideQuestion ? "" : "mt-3"}>
+            {!hideQuestion && question.header ? (
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
                     {question.header}
                 </div>
             ) : null}
-            <div className="text-[13px] font-semibold text-primary">{question.question}</div>
+            {!hideQuestion ? (
+                <div className="text-[13px] font-semibold text-primary">{question.question}</div>
+            ) : null}
             {options.length === 0 ? null : stacked ? (
                 <div className="mt-2.5 flex flex-col gap-1.5">
                     {options.map((opt, oi) => {
@@ -99,12 +103,7 @@ function QuestionGroup({
                                 ) : null}
                                 <span className="min-w-0 flex-1">
                                     <span className="flex items-center gap-2">
-                                        <span
-                                            className={cn(
-                                                "text-[12.5px] font-semibold",
-                                                isSelected ? "text-primary" : "text-secondary"
-                                            )}
-                                        >
+                                        <span className="text-[12.5px] font-semibold text-primary">
                                             {cleanLabel(opt.label)}
                                         </span>
                                         {isRecommended ? (
@@ -122,7 +121,7 @@ function QuestionGroup({
                                         <span
                                             className={cn(
                                                 "mt-0.5 block text-[11px] leading-[1.45]",
-                                                isSelected ? "text-primary/75" : "text-muted"
+                                                isSelected ? "text-primary/75" : "text-secondary"
                                             )}
                                         >
                                             {opt.description}
@@ -154,8 +153,8 @@ function QuestionGroup({
                                     isSelected
                                         ? cn(accent.selected, "font-semibold text-primary")
                                         : isRecommended
-                                          ? cn(accent.rec, "font-semibold text-secondary")
-                                          : "border-border text-secondary hover:bg-white/[0.04]"
+                                          ? cn(accent.rec, "font-semibold text-primary")
+                                          : "border-border text-primary hover:bg-white/[0.04]"
                                 )}
                             >
                                 {showNum ? (
@@ -186,6 +185,7 @@ export function AnswerBar({
     selections,
     sent,
     numbered,
+    hideQuestion,
     activeQuestion,
     onToggle,
     onSubmit,
@@ -196,6 +196,7 @@ export function AnswerBar({
     selections: Record<number, Set<number>>;
     sent?: boolean;
     numbered?: boolean;
+    hideQuestion?: boolean;
     activeQuestion?: number;
     onToggle: (qi: number, oi: number) => void;
     onSubmit: () => void;
@@ -217,12 +218,12 @@ export function AnswerBar({
             </div>
         );
     }
-    const needsConfirm = questions.some((q) => q.multiSelect);
     const renderGroup = (qi: number) => (
         <QuestionGroup
             question={questions[qi]}
             accent={accent}
             numbered={numbered}
+            hideQuestion={hideQuestion}
             selections={selections[qi] ?? new Set()}
             onClickOption={(oi) => {
                 onToggle(qi, oi);
@@ -242,16 +243,17 @@ export function AnswerBar({
 
     // one ask renders inline; multiple asks become tabs so they don't stack into a tall wall
     if (questions.length === 1) {
+        const hint = answerHint(questions, selections, !!numbered);
         return (
             <div className={className}>
                 {renderGroup(0)}
-                {needsConfirm ? <div className="mt-2 text-[11px] text-muted">press Enter to submit</div> : null}
+                {hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
             </div>
         );
     }
 
     const idx = Math.max(0, Math.min(activeQuestion ?? 0, questions.length - 1));
-    const answeredCount = questions.filter((_, qi) => (selections[qi]?.size ?? 0) > 0).length;
+    const hint = answerHint(questions, selections, !!numbered);
     return (
         <div className={className}>
             <div className="flex flex-wrap gap-1.5">
@@ -275,10 +277,7 @@ export function AnswerBar({
                 })}
             </div>
             {renderGroup(idx)}
-            <div className="mt-2 text-[11px] text-muted">
-                {answeredCount}/{questions.length} answered ·{" "}
-                {needsConfirm ? "press Enter to submit" : "answer all to submit"}
-            </div>
+            {hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
         </div>
     );
 }

@@ -25,6 +25,8 @@ import { StatusDot } from "./statusdot";
 
 // handoff cards always carry an explicit height (feed is flex-1); resizable from here
 const DEFAULT_CARD_HEIGHT = 280;
+const MIN_CARD_HEIGHT = 120; // content-fit floor when a card hasn't been manually resized
+const MAX_CARD_HEIGHT = 420; // content-fit cap; the feed scrolls past this
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
@@ -189,11 +191,13 @@ export function AgentRow({
     const working = agent.state === "working";
     const idle = agent.state === "idle";
     const hasQuestions = hasAnswerableAsk(agent);
-    const question = agent.ask?.questions?.[0]?.question;
+    const qs = agent.ask?.questions ?? [];
+    const qIdx = Math.min(activeQuestion ?? 0, Math.max(0, qs.length - 1));
+    const question = qs[qIdx]?.question;
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
     const tasks = useAtomValue(tasksByIdAtom)[agent.id];
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
-    const showComposer = composerOpen || asking;
+    const showComposer = composerOpen;
     const muteAction = idle ? onDismiss : onBackground;
 
     // in-row narration sticks to the latest line unless the user scrolls up to read history
@@ -230,14 +234,21 @@ export function AgentRow({
             dragControls={controls}
             dragMomentum={false}
             dragTransition={{ bounceStiffness: 600, bounceDamping: 30 }}
-            layout
+            layout="position"
             ref={cardRef}
-            style={{ ...cardSpanStyle({ wide }), height: `${height ?? DEFAULT_CARD_HEIGHT}px` }}
+            style={{
+                ...cardSpanStyle({ wide }),
+                ...(height != null
+                    ? { height: `${height}px` }
+                    : { minHeight: MIN_CARD_HEIGHT, maxHeight: MAX_CARD_HEIGHT }),
+            }}
             data-agent-id={agent.id}
             onClick={onCursor}
             onDoubleClick={onOpen}
             className={cn(
-                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
+                // self-start so a short card fits its content instead of stretching to the grid row's
+                // tallest sibling (align-items resolves to stretch on grid items) — the content-fit goal
+                "group relative flex cursor-pointer flex-col self-start overflow-hidden rounded-[13px] border",
                 asking ? "border-warning/40 bg-lane-asking" : "border-edge-mid bg-lane",
                 isCursor &&
                     (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
@@ -336,7 +347,7 @@ export function AgentRow({
                         {prog ? <TaskChip done={prog.done} total={prog.total} onClick={() => setTasksOpen((v) => !v)} /> : null}
                     </div>
                     {question ? (
-                        <p className="text-[13px] font-medium leading-[1.5] text-ask-question">{question}</p>
+                        <p className="text-[14px] font-semibold leading-[1.5] text-ask-question">{question}</p>
                     ) : null}
                 </div>
             ) : null}
@@ -389,6 +400,7 @@ export function AgentRow({
                         selections={selections}
                         sent={sent}
                         numbered
+                        hideQuestion
                         activeQuestion={activeQuestion}
                         onToggle={onToggleAnswer}
                         onSubmit={onSubmitAnswer}
@@ -397,52 +409,63 @@ export function AgentRow({
                     />
                 ) : null}
 
-                {/* composer */}
-                {showComposer ? (
-                    <div
-                        className="flex shrink-0 flex-col gap-1.5 border-t border-edge-mid px-3 py-2"
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                    >
-                        {asking && agent.ask?.replySuggestions?.length ? (
-                            <div className="flex flex-wrap gap-1.5">
-                                {agent.ask.replySuggestions.map((s, i) => (
-                                    <button
-                                        key={i}
-                                        type="button"
-                                        onClick={() => composerRef.current?.fill(s)}
-                                        className="cursor-pointer whitespace-nowrap rounded-[7px] border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:border-warning/55 hover:bg-warning/20"
-                                    >
-                                        {s}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : null}
-                        <AgentComposer
-                            ref={composerRef}
-                            blockId={agent.blockId}
-                            placeholder={`message ${agent.name}…`}
-                            onEscape={onComposerEscape}
-                            className="border-t-0 px-0 py-0"
-                        />
-                    </div>
-                ) : (
-                    <div
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenComposer();
-                        }}
-                        className="flex shrink-0 cursor-text items-center gap-2 border-t border-edge-mid px-3 py-1.5 hover:bg-surface-hover"
-                    >
-                        <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
-                            +
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{`message ${agent.name}…`}</span>
-                        <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
-                            R
-                        </span>
-                    </div>
-                )}
+                {/* footer: reply chips (asking, always visible) above the composer, which collapses
+                    to a slim "+ message… R" row by default and expands on R / click */}
+                <div className="shrink-0 border-t border-edge-mid">
+                    {asking && agent.ask?.replySuggestions?.length ? (
+                        <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+                            {agent.ask.replySuggestions.map((s, i) => (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (composerOpen) {
+                                            composerRef.current?.fill(s);
+                                        } else {
+                                            onOpenComposer();
+                                            requestAnimationFrame(() => composerRef.current?.fill(s));
+                                        }
+                                    }}
+                                    className="cursor-pointer whitespace-nowrap rounded-[7px] border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:border-warning/55 hover:bg-warning/20"
+                                >
+                                    {s}
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+                    {showComposer ? (
+                        <div
+                            className="flex flex-col gap-1.5 px-3 py-2"
+                            onClick={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                        >
+                            <AgentComposer
+                                ref={composerRef}
+                                blockId={agent.blockId}
+                                placeholder={`message ${agent.name}…`}
+                                onEscape={onComposerEscape}
+                                className="border-t-0 px-0 py-0"
+                            />
+                        </div>
+                    ) : (
+                        <div
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenComposer();
+                            }}
+                            className="flex cursor-text items-center gap-2 px-3 py-1.5 hover:bg-surface-hover"
+                        >
+                            <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
+                                +
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{`message ${agent.name}…`}</span>
+                            <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
+                                R
+                            </span>
+                        </div>
+                    )}
+                </div>
             </div>
                 {!atBottom ? (
                     <button

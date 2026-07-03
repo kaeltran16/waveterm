@@ -71,7 +71,7 @@ const CHIP_NUM: Record<ChipFilter, string> = {
 
 // Provider identity dots for the plan strip. Not theme tokens — Claude clay / Codex periwinkle are
 // brand colors, kept here as the single source.
-const PROVIDER_DOT: Record<string, string> = { claude: "bg-[#d97757]", codex: "bg-[#96aacd]" };
+const PROVIDER_DOT: Record<string, string> = { claude: "bg-provider-claude", codex: "bg-provider-codex" };
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
 
 // recent-activity dot color by agent state (matches the in-view StatusDot palette)
@@ -585,12 +585,19 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
                 <div className="flex min-h-0 flex-1 flex-col">
                     {empty ? (
-                        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-[18px] text-center">
+                        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-[18px] text-center">
                             <div className="text-[18px] opacity-40">🤖</div>
                             <div className="text-[13px] font-semibold text-secondary">No active agents</div>
-                            <div className="text-[11px] text-muted">
+                            <div className="max-w-[280px] text-[11px] text-muted">
                                 Agents appear here the moment one starts working or asks a question.
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
+                                className="mt-1 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/10 px-3 py-1.5 text-[12px] font-medium text-accent hover:border-accent hover:bg-accent/15"
+                            >
+                                + New agent
+                            </button>
                         </div>
                     ) : null}
 
