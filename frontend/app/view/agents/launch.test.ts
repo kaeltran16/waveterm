@@ -127,4 +127,17 @@ describe("buildLaunchMeta", () => {
         const m = buildLaunchMeta({ runtime: "terminal", startupCommand: "", task: "", cwd: "/x" });
         expect(m).toEqual({ view: "term", controller: "shell", "cmd:cwd": "/x" });
     });
+    it("passes the antigravity task via -i (agy ignores a bare positional prompt)", () => {
+        const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "do the thing", cwd: "/x" });
+        expect(m["cmd"]).toBe("agy");
+        expect(m["cmd:args"]).toEqual(["-i", "do the thing"]);
+    });
+    it("keeps antigravity flags before the -i task", () => {
+        const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy --yolo", task: "go", cwd: "/x" });
+        expect(m["cmd:args"]).toEqual(["--yolo", "-i", "go"]);
+    });
+    it("omits -i for a no-task antigravity launch (stays a bare interactive agy)", () => {
+        const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "  ", cwd: "/x" });
+        expect(m["cmd:args"]).toEqual([]);
+    });
 });

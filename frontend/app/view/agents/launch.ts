@@ -127,7 +127,13 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
     const args = tokens.slice(1);
     const task = spec.task.trim();
     if (task) {
-        args.push(task);
+        // agy ignores a bare positional prompt (unlike claude/codex); -i runs the initial prompt and
+        // keeps the session alive so the worker stays steerable via ControllerInput.
+        if (spec.runtime === "antigravity") {
+            args.push("-i", task);
+        } else {
+            args.push(task);
+        }
     }
     const meta: Record<string, unknown> = {
         view: "term",
