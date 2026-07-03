@@ -5,7 +5,7 @@
 // channel currently has a dispatched worker waiting on you (drives the rail's attention dot).
 
 import type { AgentVM } from "./agentsviewmodel";
-import type { RosterEntry } from "./channelmessages";
+import { parseMentions, type RosterEntry } from "./channelmessages";
 
 // identity palette tokens (defined in tailwindsetup.css @theme). "you" is pinned to the accent.
 const AVATAR_TOKENS = [
@@ -97,38 +97,62 @@ export function activeMentionQuery(text: string, caret: number): { query: string
     return { query: text.slice(i + 1, caret), start: i };
 }
 
-// A highlighted-composer segment: a run of plain text, or a resolved @mention token.
+// A highlighted-composer segment: a run of plain text, a resolved @mention token, or a command keyword
+// (currently the leading "ask" of a consult).
+export type SegmentKind = "text" | "mention" | "command";
+
 export interface HighlightSegment {
     text: string;
-    mention: boolean;
+    kind: SegmentKind;
 }
 
 const MENTION_TOKEN = /@[\w./-]+/g;
+// The leading "ask" consult keyword: "ask" at the start (after optional whitespace) followed by a space.
+const ASK_COMMAND = /^(\s*)(ask)(\s)/i;
 
-// Split composer text into plain + mention runs for the backdrop overlay. An "@token" is a mention only
-// when it starts the string or follows whitespace AND its name (case-insensitively) is a known target —
-// so a typo or an email's "@" stays plain, giving the user real "this resolves" feedback.
-export function highlightSegments(text: string, known: Set<string>): HighlightSegment[] {
+// Whether the text after "ask " routes as a consult: a known runtime is named among its leading mentions.
+// Mirrors planMessage exactly (parseMentions requires a trailing space, so a bare "ask @claude" is a post).
+function isConsultTail(tail: string, runtimes: Set<string>): boolean {
+    return parseMentions(tail).mentions.some((m) => runtimes.has(m));
+}
+
+// Split composer text into plain / mention / command runs for the backdrop overlay. An "@token" is a
+// mention only when it starts the string or follows whitespace AND its name (case-insensitively) is a
+// known target — so a typo or an email's "@" stays plain, giving the user real "this resolves" feedback.
+// A leading "ask" is a command only when it forms a real consult (a known runtime follows), so highlight
+// tracks routing, not just the literal word.
+export function highlightSegments(text: string, known: Set<string>, runtimes: Set<string>): HighlightSegment[] {
     if (text === "") {
         return [];
     }
     const segs: HighlightSegment[] = [];
     let last = 0;
-    MENTION_TOKEN.lastIndex = 0;
+
+    const askM = ASK_COMMAND.exec(text);
+    if (askM && isConsultTail(text.slice(askM[0].length), runtimes)) {
+        const askStart = askM[1].length; // after any leading whitespace
+        if (askStart > 0) {
+            segs.push({ text: text.slice(0, askStart), kind: "text" });
+        }
+        segs.push({ text: askM[2], kind: "command" });
+        last = askStart + askM[2].length; // leave the trailing space for the mention/plain pass
+    }
+
+    MENTION_TOKEN.lastIndex = last;
     let m: RegExpExecArray | null;
     while ((m = MENTION_TOKEN.exec(text)) !== null) {
         const i = m.index;
         const boundary = i === 0 || /\s/.test(text[i - 1]);
         if (boundary && known.has(m[0].slice(1).toLowerCase())) {
             if (i > last) {
-                segs.push({ text: text.slice(last, i), mention: false });
+                segs.push({ text: text.slice(last, i), kind: "text" });
             }
-            segs.push({ text: m[0], mention: true });
+            segs.push({ text: m[0], kind: "mention" });
             last = i + m[0].length;
         }
     }
     if (last < text.length) {
-        segs.push({ text: text.slice(last), mention: false });
+        segs.push({ text: text.slice(last), kind: "text" });
     }
     return segs;
 }

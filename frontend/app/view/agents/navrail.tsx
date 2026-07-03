@@ -53,16 +53,21 @@ const ICON: Record<SurfaceKey, ReactNode> = {
         </svg>
     ),
     files: (
+        // diff glyph: an added row (+) over a removed row (−)
         <svg
             width="20"
             height="20"
             viewBox="0 0 20 20"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.5"
+            strokeWidth="1.6"
+            strokeLinecap="round"
             strokeLinejoin="round"
         >
-            <path d="M3 5.5C3 4.7 3.6 4 4.4 4h3.3c.4 0 .7.2 1 .5L13 6h2.6c.8 0 1.4.7 1.4 1.5V14c0 .8-.6 1.5-1.4 1.5H4.4C3.6 15.5 3 14.8 3 14z" />
+            <path d="M3.8 6.8h2.4M5 5.6v2.4" />
+            <path d="M9 6.8h7.2" />
+            <path d="M3.8 13.2h2.4" />
+            <path d="M9 13.2h7.2" />
         </svg>
     ),
     memory: (
@@ -82,12 +87,19 @@ const ICON: Record<SurfaceKey, ReactNode> = {
         </svg>
     ),
     settings: (
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <circle cx="10" cy="10" r="2.6" />
-            <path
-                d="M10 1.5v2.2M10 16.3v2.2M18.5 10h-2.2M3.7 10H1.5M15.8 4.2l-1.6 1.6M5.8 14.2l-1.6 1.6M15.8 15.8l-1.6-1.6M5.8 5.8L4.2 4.2"
-                strokeLinecap="round"
-            />
+        // cog: teeth fused to a ring (the old free-floating rays read as a sun, not a gear)
+        <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
         </svg>
     ),
 };
@@ -98,7 +110,7 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "activity", label: "Activity" },
     { key: "channels", label: "Channels" },
     { key: "sessions", label: "Sessions" },
-    { key: "files", label: "Files" },
+    { key: "files", label: "Diff" },
     { key: "memory", label: "Memory" },
     { key: "usage", label: "Usage" },
 ];

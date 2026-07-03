@@ -6,12 +6,14 @@ import {
     buildLaunchMeta,
     composeStartupCommand,
     deriveBranch,
+    resumeArgsForClaude,
     RUNTIME_FLAGS,
     runtimeLaunchLabel,
     runtimeCreatesAgentPanel,
     runtimeShowsTask,
     runtimeStartupCommand,
     runtimeSupportsWorktree,
+    sessionIdFromTranscript,
     worktreeOutcome,
 } from "./launch";
 
@@ -139,5 +141,47 @@ describe("buildLaunchMeta", () => {
     it("omits -i for a no-task antigravity launch (stays a bare interactive agy)", () => {
         const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "  ", cwd: "/x" });
         expect(m["cmd:args"]).toEqual([]);
+    });
+    it("stores agent:baseargs (launch flags before the task) for resume-on-reopen", () => {
+        const m = buildLaunchMeta({ runtime: "claude", startupCommand: "claude --model opus", task: "go", cwd: "/x" });
+        expect(m["agent:baseargs"]).toEqual(["--model", "opus"]);
+        expect(m["cmd:args"]).toEqual(["--model", "opus", "go"]);
+    });
+    it("stores empty agent:baseargs for a bare launch", () => {
+        const m = buildLaunchMeta({ runtime: "claude", startupCommand: "claude", task: "go", cwd: "/x" });
+        expect(m["agent:baseargs"]).toEqual([]);
+    });
+});
+
+describe("sessionIdFromTranscript", () => {
+    it("takes the .jsonl stem as the resume id (posix + windows paths)", () => {
+        expect(sessionIdFromTranscript("/home/u/.claude/projects/x/abc-123.jsonl")).toBe("abc-123");
+        expect(sessionIdFromTranscript("C:\\Users\\u\\.claude\\projects\\x\\def456.jsonl")).toBe("def456");
+    });
+    it("returns undefined for empty/absent input", () => {
+        expect(sessionIdFromTranscript(undefined)).toBeUndefined();
+        expect(sessionIdFromTranscript("")).toBeUndefined();
+    });
+});
+
+describe("resumeArgsForClaude", () => {
+    it("prepends --resume <id> and keeps launch flags", () => {
+        expect(resumeArgsForClaude("s1", ["--dangerously-skip-permissions"])).toEqual([
+            "--resume",
+            "s1",
+            "--dangerously-skip-permissions",
+        ]);
+    });
+    it("preserves value-taking options (does not mistake the value for a prompt)", () => {
+        expect(resumeArgsForClaude("s1", ["--model", "opus"])).toEqual(["--resume", "s1", "--model", "opus"]);
+    });
+    it("drops a prior --resume <id> so resuming twice never stacks", () => {
+        expect(resumeArgsForClaude("s2", ["--resume", "s1", "--verbose"])).toEqual(["--resume", "s2", "--verbose"]);
+    });
+    it("drops --continue to avoid a conflicting double-resume", () => {
+        expect(resumeArgsForClaude("s1", ["--continue"])).toEqual(["--resume", "s1"]);
+    });
+    it("handles empty base args", () => {
+        expect(resumeArgsForClaude("s1", [])).toEqual(["--resume", "s1"]);
     });
 });

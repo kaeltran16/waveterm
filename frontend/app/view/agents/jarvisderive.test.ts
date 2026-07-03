@@ -17,13 +17,30 @@ describe("buildFleetSnapshot", () => {
         const c = chan([{ kind: "dispatch", author: "claude", text: "harden webhooks", reforef: "tab:t1" }]);
         const agents = [agent({ id: "t1", name: "claude", state: "asking", task: "harden webhooks", ask: { questions: [{ question: "A or B?" }] } })];
         expect(buildFleetSnapshot(c, agents)).toEqual([
-            { oref: "tab:t1", name: "claude", state: "asking", task: "harden webhooks", askText: "A or B?" },
+            { oref: "tab:t1", name: "claude", state: "asking", task: "harden webhooks", dispatchTask: "harden webhooks", askText: "A or B?" },
         ]);
     });
 
     it("marks a dispatched worker with no live row as gone, falling back to the dispatch runtime + task", () => {
         const c = chan([{ kind: "dispatch", author: "codex", text: "build auth", reforef: "tab:t2" }]);
-        expect(buildFleetSnapshot(c, [])).toEqual([{ oref: "tab:t2", name: "codex", state: "gone", task: "build auth" }]);
+        expect(buildFleetSnapshot(c, [])).toEqual([
+            { oref: "tab:t2", name: "codex", state: "gone", task: "build auth", dispatchTask: "build auth" },
+        ]);
+    });
+
+    it("surfaces the literal dispatch task for a live worker even when live.task is empty", () => {
+        const c = chan([{ kind: "dispatch", author: "claude", text: "reply with token DELEG8", reforef: "tab:t1" }]);
+        const agents = [agent({ id: "t1", name: "Provide delegation token", state: "working", task: "" })];
+        expect(buildFleetSnapshot(c, agents)).toEqual([
+            { oref: "tab:t1", name: "Provide delegation token", state: "working", dispatchTask: "reply with token DELEG8" },
+        ]);
+    });
+
+    it("leaves dispatchTask undefined for a worker present only via a directive", () => {
+        const c = chan([{ kind: "directive", author: "you", text: "do the thing", reforef: "tab:t9" }]);
+        const snap = buildFleetSnapshot(c, [agent({ id: "t9", name: "web", state: "working", task: "live task" })]);
+        expect(snap[0].dispatchTask).toBeUndefined();
+        expect(snap[0].task).toBe("live task");
     });
 
     it("dedups a worker that was dispatched then steered into one entry", () => {

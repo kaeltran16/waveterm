@@ -16,12 +16,20 @@ import type { AgentVM } from "./agentsviewmodel";
 import { planDelegate, planMessage, tierFromMeta, type RosterEntry } from "./channelmessages";
 import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
 import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
-import { deriveBranch, runtimeStartupCommand } from "./launch";
+import { composeStartupCommand, deriveBranch, runtimeStartupCommand, type Runtime } from "./launch";
+import { naFlagsAtom } from "./naflagsstore";
 
 // A consult runs a headless CLI that can take up to the backend's 120s consultTimeout. The RPC layer
 // otherwise applies a 5s default handler timeout (DefaultTimeoutMs), which would kill the stream long
 // before the reply lands (codex emits its first reply chunk only at ~6s). Give it headroom past 120s.
 const CONSULT_RPC_TIMEOUT_MS = 130_000;
+
+// Apply the user's persisted per-runtime launch flags (New Agent modal / Settings) so a channel
+// dispatch honors the same flags as a manual launch, instead of a bare startup command.
+function flaggedStartup(runtime: Runtime): string {
+    const flags = globalStore.get(naFlagsAtom)[runtime] ?? {};
+    return composeStartupCommand(runtimeStartupCommand(runtime), runtime, flags);
+}
 
 async function post(channelId: string, kind: string, author: string, text: string, refORef: string): Promise<void> {
     await RpcApi.PostChannelMessageCommand(TabRpcClient, {
@@ -76,7 +84,7 @@ export async function sendChannelMessage(args: {
                     const task = `/goal ${subtasks[i]}`;
                     const tabId = await launchAgent(model, {
                         runtime: "claude",
-                        startupCommand: runtimeStartupCommand("claude"),
+                        startupCommand: flaggedStartup("claude"),
                         task,
                         projectPath,
                         projectName: `${base}-${i + 1}`,
@@ -88,7 +96,7 @@ export async function sendChannelMessage(args: {
             }
             const tabId = await launchAgent(model, {
                 runtime: "claude",
-                startupCommand: runtimeStartupCommand("claude"),
+                startupCommand: flaggedStartup("claude"),
                 task: del.task,
                 projectPath,
                 projectName: projectName || "agent",
@@ -179,7 +187,7 @@ export async function sendChannelMessage(args: {
     if (plan.kind === "dispatch") {
         const tabId = await launchAgent(model, {
             runtime: plan.runtime,
-            startupCommand: runtimeStartupCommand(plan.runtime),
+            startupCommand: flaggedStartup(plan.runtime),
             task: plan.text,
             projectPath,
             projectName: projectName || "agent",

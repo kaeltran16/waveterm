@@ -258,6 +258,12 @@ export class RpcApiType {
         return client.wshRpcCall("deletebuilder", data, opts);
     }
 
+    // command "deletechannel" [call]
+    DeleteChannelCommand(client: WshClient, data: CommandDeleteChannelData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletechannel", data, opts);
+        return client.wshRpcCall("deletechannel", data, opts);
+    }
+
     // command "deleteproject" [call]
     DeleteProjectCommand(client: WshClient, data: CommandDeleteProjectData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deleteproject", data, opts);

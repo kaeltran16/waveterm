@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { parseMentions, planDelegate, planMessage, tierFromMeta } from "./channelmessages";
+import { describePlan, parseMentions, planDelegate, planMessage, tierFromMeta } from "./channelmessages";
 
 describe("parseMentions", () => {
     it("returns no mentions for plain text", () => {
@@ -106,6 +106,58 @@ describe("tierFromMeta", () => {
         expect(tierFromMeta({})).toBe("concierge");
         expect(tierFromMeta({ "gatekeeper:enabled": true })).toBe("gatekeeper");
         expect(tierFromMeta({ "gatekeeper:enabled": true, "delegator:enabled": true })).toBe("delegator");
+    });
+});
+
+describe("describePlan", () => {
+    const ctx = { tier: "concierge" as const, projectName: "payments-api", roster, delegatorMode: "report" as const };
+
+    it("flags a dispatch as spawning a worker in the channel's project (warn tone)", () => {
+        expect(describePlan(planMessage("@claude build it", roster), ctx)).toEqual({
+            label: "→ spawns a worker in payments-api",
+            tone: "warn",
+        });
+    });
+
+    it("describes a consult as a one-shot review naming its runtimes (neutral)", () => {
+        expect(describePlan(planMessage("ask @codex @claude review this", roster), ctx)).toEqual({
+            label: "→ one-shot review · codex, claude",
+            tone: "neutral",
+        });
+    });
+
+    it("names the steered worker resolved from the roster", () => {
+        expect(describePlan(planMessage("@api-auth run the tests", roster), ctx)).toEqual({
+            label: "→ steers api-auth",
+            tone: "neutral",
+        });
+    });
+
+    it("describes @jarvis as an observe-only ask on a non-delegator channel", () => {
+        expect(describePlan(planMessage("@jarvis what's blocked?", roster), ctx)).toEqual({
+            label: "→ asks Jarvis",
+            tone: "neutral",
+        });
+    });
+
+    it("flags @jarvis <goal> as dispatching a worker on a delegator channel (warn)", () => {
+        const delegatorCtx = { ...ctx, tier: "delegator" as const };
+        expect(describePlan(planMessage("@jarvis add caching", roster), delegatorCtx)).toEqual({
+            label: "→ Jarvis dispatches a worker",
+            tone: "warn",
+        });
+    });
+
+    it("keeps a bare @jarvis on a delegator channel an observe-only ask (empty goal)", () => {
+        const delegatorCtx = { ...ctx, tier: "delegator" as const };
+        expect(describePlan(planMessage("@jarvis", roster), delegatorCtx)).toEqual({
+            label: "→ asks Jarvis",
+            tone: "neutral",
+        });
+    });
+
+    it("returns null for a plain post (no chip)", () => {
+        expect(describePlan(planMessage("just a note", roster), ctx)).toBeNull();
     });
 });
 

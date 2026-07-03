@@ -1637,6 +1637,13 @@ func (ws *WshServer) CreateChannelCommand(ctx context.Context, data wshrpc.Comma
 	return ch, nil
 }
 
+func (ws *WshServer) DeleteChannelCommand(ctx context.Context, data wshrpc.CommandDeleteChannelData) error {
+	if err := wstore.DeleteChannel(ctx, data.ChannelId); err != nil {
+		return fmt.Errorf("deleting channel: %w", err)
+	}
+	return nil
+}
+
 func (ws *WshServer) GetChannelsCommand(ctx context.Context) (*wshrpc.CommandGetChannelsRtnData, error) {
 	chans, err := wstore.GetChannels(ctx)
 	if err != nil {

@@ -125,6 +125,10 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
     const tokens = spec.startupCommand.trim().split(/\s+/).filter(Boolean);
     const cmd = tokens[0] ?? "claude";
     const args = tokens.slice(1);
+    // the launch flags/options before the task prompt, kept verbatim so resume-on-reopen can recompose
+    // the command as `<cmd> --resume <id> <baseArgs>` without having to guess which arg was the prompt
+    // (users can type value-taking options like `--model opus`, so parsing it back out is unsafe).
+    const baseArgs = [...args];
     const task = spec.task.trim();
     if (task) {
         // agy ignores a bare positional prompt (unlike claude/codex); -i runs the initial prompt and
@@ -140,6 +144,7 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
         controller: "cmd",
         cmd,
         "cmd:args": args,
+        "agent:baseargs": baseArgs,
         "cmd:shell": false,
         // force WAVETERM_JWT into the agent's env. cmd/shell:false runs the agent non-interactively,
         // so Wave's shell-integration bootstrap (which exchanges the swap token for the real JWT)
@@ -152,4 +157,35 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
         meta["cmd:cwd"] = spec.cwd;
     }
     return meta;
+}
+
+// The transcript filename stem is Claude's --resume session id
+// (e.g. ~/.claude/projects/x/abc-123.jsonl -> "abc-123"). Undefined for empty/pathless input.
+export function sessionIdFromTranscript(path: string | undefined): string | undefined {
+    if (!path) {
+        return undefined;
+    }
+    const base = path.split(/[/\\]/).pop() ?? "";
+    const stem = base.endsWith(".jsonl") ? base.slice(0, -".jsonl".length) : base;
+    return stem || undefined;
+}
+
+// Recompose a Claude launch as a resume: `claude --resume <id> <baseArgs>`. baseArgs are the original
+// launch flags only (never the task prompt — resume reattaches, it must not replay the prompt). Any
+// prior --resume/--continue in baseArgs is stripped so resuming repeatedly can't stack conflicting
+// resume directives.
+export function resumeArgsForClaude(sessionId: string, baseArgs: string[]): string[] {
+    const kept: string[] = [];
+    for (let i = 0; i < baseArgs.length; i++) {
+        const a = baseArgs[i];
+        if (a === "--resume") {
+            i++; // also skip its id value
+            continue;
+        }
+        if (a === "--continue") {
+            continue;
+        }
+        kept.push(a);
+    }
+    return ["--resume", sessionId, ...kept];
 }

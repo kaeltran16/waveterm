@@ -478,6 +478,11 @@ declare global {
         blockid: string;
     };
 
+    // wshrpc.CommandDeleteChannelData
+    type CommandDeleteChannelData = {
+        channelid: string;
+    };
+
     // wshrpc.CommandDeleteFileData
     type CommandDeleteFileData = {
         path: string;

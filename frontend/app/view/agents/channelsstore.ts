@@ -55,6 +55,16 @@ export async function createChannel(name: string, projectPath: string): Promise<
     return ch.oid;
 }
 
+export async function deleteChannel(channelId: string): Promise<void> {
+    const wasActive = globalStore.get(activeChannelIdAtom) === channelId;
+    await RpcApi.DeleteChannelCommand(TabRpcClient, { channelid: channelId });
+    // clear the active id first so loadChannels reselects the first surviving channel
+    if (wasActive) {
+        globalStore.set(activeChannelIdAtom, undefined);
+    }
+    await loadChannels();
+}
+
 // Ephemeral live consult streams, keyed `${consultId}:${runtime}`. Not persisted — superseded by the
 // consult-reply message (matched by RefORef `consult:<consultId>` + author) once it arrives via WOS.
 export interface ConsultStream {

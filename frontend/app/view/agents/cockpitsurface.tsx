@@ -404,6 +404,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(model.surfaceAtom, "agent");
     };
 
+    // open this agent's changed files in the Diff surface (which scopes to focusIdAtom)
+    const openDiff = (id: string) => {
+        globalStore.set(model.focusIdAtom, id);
+        globalStore.set(model.surfaceAtom, "files");
+    };
+
     const onKeyDown = (e: React.KeyboardEvent) => {
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
@@ -632,6 +638,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 onCursor={() => setCursorId(a.id)}
                                 onOpen={() => openFocus(a.id, false)}
                                 onOpenTerminal={() => model.openTerminal(a.id)}
+                                onOpenDiff={() => openDiff(a.id)}
                                 onOpenComposer={() => setOpenComposerId(a.id)}
                                 onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
                                 onSubmitAnswer={() => submitAnswer(a.id)}

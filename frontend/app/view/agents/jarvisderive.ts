@@ -9,9 +9,10 @@ import type { AgentVM } from "./agentsviewmodel";
 
 export interface WorkerState {
     oref: string; // "tab:<id>"
-    name: string; // live roster name, else the dispatch runtime
+    name: string; // live roster name (an AI paraphrase), else the dispatch runtime
     state: "working" | "asking" | "idle" | "gone";
-    task?: string; // live task, else the dispatch text
+    task?: string; // live task (async-filled, may be empty), else the dispatch text
+    dispatchTask?: string; // the literal task typed into this channel's dispatch message (ground truth)
     askText?: string; // first pending question, when asking
 }
 
@@ -37,6 +38,7 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
     }
     return orefs.map((oref) => {
         const id = oref.slice(OREF_PREFIX.length);
+        const dispatchTask = dispatchInfo.get(oref)?.task;
         const live = agents.find((a) => a.id === id);
         if (live) {
             return {
@@ -44,11 +46,12 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
                 name: live.name,
                 state: live.state,
                 task: live.task || undefined,
+                dispatchTask,
                 askText: live.state === "asking" ? live.ask?.questions?.[0]?.question : undefined,
             };
         }
         const info = dispatchInfo.get(oref);
-        return { oref, name: info?.name ?? "worker", state: "gone" as const, task: info?.task };
+        return { oref, name: info?.name ?? "worker", state: "gone" as const, task: info?.task, dispatchTask };
     });
 }
 
@@ -75,7 +78,7 @@ export function buildJarvisPrompt(snapshot: WorkerState[], channel: Channel, foc
         .join("\n");
     const task = focus.trim() || "Summarize the current state of this channel's workers.";
     return [
-        `You are Jarvis, a concise engineering concierge watching a fleet of coding agents in the "${channel.name}" channel.`,
+        `You are Jarvis, a concise engineering assistant watching a fleet of coding agents in the "${channel.name}" channel.`,
         `Task: ${task}`,
         `Answer in 2-4 short lines: which workers are up, which are blocked (and on what), which are done. Be specific and terse. Do not invent workers not listed.`,
         ``,

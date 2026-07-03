@@ -118,42 +118,67 @@ describe("activeMentionQuery", () => {
 
 describe("highlightSegments", () => {
     const known = new Set(["claude", "codex", "jarvis"]);
+    const runtimes = new Set(["claude", "codex"]);
 
     it("returns an empty array for empty text", () => {
-        expect(highlightSegments("", known)).toEqual([]);
+        expect(highlightSegments("", known, runtimes)).toEqual([]);
     });
 
     it("returns a single plain segment when there is no mention", () => {
-        expect(highlightSegments("just text", known)).toEqual([{ text: "just text", mention: false }]);
+        expect(highlightSegments("just text", known, runtimes)).toEqual([{ text: "just text", kind: "text" }]);
     });
 
     it("marks a leading known @token as a mention", () => {
-        expect(highlightSegments("@claude fix it", known)).toEqual([
-            { text: "@claude", mention: true },
-            { text: " fix it", mention: false },
-        ]);
-    });
-
-    it("marks a mid-string known @token preceded by whitespace", () => {
-        expect(highlightSegments("ask @codex now", known)).toEqual([
-            { text: "ask ", mention: false },
-            { text: "@codex", mention: true },
-            { text: " now", mention: false },
+        expect(highlightSegments("@claude fix it", known, runtimes)).toEqual([
+            { text: "@claude", kind: "mention" },
+            { text: " fix it", kind: "text" },
         ]);
     });
 
     it("does not highlight an unknown @token", () => {
-        expect(highlightSegments("@nope hi", known)).toEqual([{ text: "@nope hi", mention: false }]);
+        expect(highlightSegments("@nope hi", known, runtimes)).toEqual([{ text: "@nope hi", kind: "text" }]);
     });
 
     it("does not highlight an @ glued to a preceding non-space", () => {
-        expect(highlightSegments("a@claude", known)).toEqual([{ text: "a@claude", mention: false }]);
+        expect(highlightSegments("a@claude", known, runtimes)).toEqual([{ text: "a@claude", kind: "text" }]);
     });
 
     it("matches the known target case-insensitively", () => {
-        expect(highlightSegments("@Claude go", known)).toEqual([
-            { text: "@Claude", mention: true },
-            { text: " go", mention: false },
+        expect(highlightSegments("@Claude go", known, runtimes)).toEqual([
+            { text: "@Claude", kind: "mention" },
+            { text: " go", kind: "text" },
+        ]);
+    });
+
+    it("highlights a leading 'ask' as a command when a runtime consult follows", () => {
+        expect(highlightSegments("ask @codex now", known, runtimes)).toEqual([
+            { text: "ask", kind: "command" },
+            { text: " ", kind: "text" },
+            { text: "@codex", kind: "mention" },
+            { text: " now", kind: "text" },
+        ]);
+    });
+
+    it("does not treat 'ask' as a command without a runtime consult", () => {
+        expect(highlightSegments("ask me anything", known, runtimes)).toEqual([
+            { text: "ask me anything", kind: "text" },
+        ]);
+    });
+
+    it("does not treat 'ask' as a command when the target is not a runtime", () => {
+        // jarvis is known but is the manager handle, not a dispatch runtime -> not a consult
+        expect(highlightSegments("ask @jarvis hey", known, runtimes)).toEqual([
+            { text: "ask ", kind: "text" },
+            { text: "@jarvis", kind: "mention" },
+            { text: " hey", kind: "text" },
+        ]);
+    });
+
+    it("does not mistake 'asking' for the ask command", () => {
+        expect(highlightSegments("asking @codex politely", known, runtimes)).toEqual([
+            { text: "asking ", kind: "text" },
+            { text: "@codex", kind: "mention" },
+            { text: " politely", kind: "text" },
         ]);
     });
 });

@@ -104,3 +104,40 @@ export function planDelegate(args: {
     const task = mode === "report" ? goal : `/goal ${goal}`;
     return { action: "dispatch", task, mode };
 }
+
+export interface PlanChip {
+    label: string;
+    tone: "warn" | "neutral";
+}
+
+// describePlan renders a MessagePlan as a pre-send chip so the composer can show what Send will do
+// before it does it. warn marks the side-effectful verbs (spawning a worker); plain posts get no chip.
+// Pure composition of planMessage's output + planDelegate — no routing logic is duplicated here.
+export function describePlan(
+    plan: MessagePlan,
+    ctx: { tier: JarvisTier; projectName: string; roster: RosterEntry[]; delegatorMode: DispatchMode }
+): PlanChip | null {
+    switch (plan.kind) {
+        case "dispatch":
+            return { label: `→ spawns a worker in ${ctx.projectName}`, tone: "warn" };
+        case "consult":
+            return { label: `→ one-shot review · ${plan.runtimes.join(", ")}`, tone: "neutral" };
+        case "steer": {
+            const name = ctx.roster.find((r) => r.id === plan.targetId)?.name ?? "worker";
+            return { label: `→ steers ${name}`, tone: "neutral" };
+        }
+        case "jarvis": {
+            const del = planDelegate({
+                tier: ctx.tier,
+                defaultMode: ctx.delegatorMode,
+                override: plan.mode,
+                goal: plan.text,
+            });
+            return del.action === "dispatch"
+                ? { label: "→ Jarvis dispatches a worker", tone: "warn" }
+                : { label: "→ asks Jarvis", tone: "neutral" };
+        }
+        default:
+            return null;
+    }
+}

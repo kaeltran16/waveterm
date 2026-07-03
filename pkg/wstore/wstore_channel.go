@@ -41,6 +41,10 @@ func CreateChannel(ctx context.Context, name, projectPath string) (*waveobj.Chan
 	return ch, nil
 }
 
+func DeleteChannel(ctx context.Context, channelId string) error {
+	return DBDelete(ctx, waveobj.OType_Channel, channelId)
+}
+
 func GetChannels(ctx context.Context) ([]*waveobj.Channel, error) {
 	chans, err := DBGetAllObjsByType[*waveobj.Channel](ctx, waveobj.OType_Channel)
 	if err != nil {

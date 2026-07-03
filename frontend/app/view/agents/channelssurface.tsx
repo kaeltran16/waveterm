@@ -11,7 +11,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { fireAndForget } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -26,7 +26,15 @@ import {
     type MentionCandidate,
 } from "./channelderive";
 import { autonomyExplainer, fleetCounts, parseCardData } from "./jarviscards";
-import { tierFromMeta, type RosterEntry } from "./channelmessages";
+import {
+    describePlan,
+    planMessage,
+    tierFromMeta,
+    type DispatchMode,
+    type PlanChip,
+    type RosterEntry,
+} from "./channelmessages";
+import { runtimeLogo } from "./runtimelogo";
 import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
 import { MarkdownMessage } from "./markdownmessage";
@@ -36,6 +44,7 @@ import {
     channelsAtom,
     consultStreamsAtom,
     createChannel,
+    deleteChannel,
     loadChannels,
     selectChannel,
     type ConsultStream,
@@ -76,14 +85,26 @@ function timeLabel(ts: number, now: number): string {
     return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
 }
 
-// 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; everyone else
-// gets their name's initial, colored deterministically.
+// 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; a runtime
+// author (claude/codex/antigravity) gets its real brand mark on a white logo-tile (initials are
+// ambiguous — claude and codex both start with "C"); everyone else gets a deterministically-colored initial.
 function Avatar({ name }: { name: string }) {
     if (name.toLowerCase() === "jarvis") {
         return (
             <div className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] bg-accent">
                 <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-background" />
             </div>
+        );
+    }
+    const logo = runtimeLogo(name);
+    if (logo) {
+        return (
+            <img
+                src={logo}
+                alt={name}
+                title={name}
+                className="h-8 w-8 flex-none rounded-[9px] border border-edge-mid bg-white object-contain p-1.5"
+            />
         );
     }
     return (
@@ -492,10 +513,31 @@ function MessageRow({
 // The message composer: a plain-text draft with a scroll-synced backdrop that highlights @mentions and a
 // caret-aware suggestion dropdown. Highlight + suggestions are driven by the pure channelderive helpers;
 // the draft itself stays plain text, so sendChannelMessage/planMessage are unchanged.
+// Always-visible legend of the channel commands, so dispatch/consult/jarvis/steer are discoverable
+// (mirrors planMessage's routing). Static/informational — complements the live pre-send PlanChip.
+function CommandHint() {
+    const items: { cmd: string; label: string }[] = [
+        { cmd: "@agent", label: "dispatch" },
+        { cmd: "ask @agent", label: "consult" },
+        { cmd: "@jarvis", label: "summarize" },
+        { cmd: "@name", label: "steer" },
+    ];
+    return (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 font-mono text-[10.5px] text-muted">
+            {items.map((it) => (
+                <span key={it.cmd} className="whitespace-nowrap">
+                    <span className="text-accent-soft">{it.cmd}</span> {it.label}
+                </span>
+            ))}
+        </div>
+    );
+}
+
 function Composer({
     value,
     onChange,
     onSend,
+    chip,
     disabled,
     placeholder,
     candidates,
@@ -503,6 +545,7 @@ function Composer({
     value: string;
     onChange: (next: string) => void;
     onSend: () => void;
+    chip?: PlanChip | null;
     disabled: boolean;
     placeholder: string;
     candidates: MentionCandidate[];
@@ -513,7 +556,8 @@ function Composer({
     const [sel, setSel] = useState(0);
 
     const known = new Set(candidates.map((c) => c.name.toLowerCase()));
-    const segments = highlightSegments(value, known);
+    const runtimes = new Set(candidates.filter((c) => c.kind === "runtime").map((c) => c.name.toLowerCase()));
+    const segments = highlightSegments(value, known, runtimes);
     const q = sugg?.query.toLowerCase() ?? "";
     const matches = sugg ? candidates.filter((c) => c.name.toLowerCase().startsWith(q)).slice(0, 6) : [];
     const open = matches.length > 0;
@@ -621,8 +665,12 @@ function Composer({
                             className="pointer-events-none min-h-[22px] whitespace-pre-wrap break-words text-[14px] leading-[1.5] text-primary"
                         >
                             {segments.map((s, i) =>
-                                s.mention ? (
+                                s.kind === "mention" ? (
                                     <span key={i} className="rounded-[3px] bg-accentbg text-accent-soft">
+                                        {s.text}
+                                    </span>
+                                ) : s.kind === "command" ? (
+                                    <span key={i} className="font-semibold text-accent">
                                         {s.text}
                                     </span>
                                 ) : (
@@ -662,6 +710,16 @@ function Composer({
                             @ mention agent
                         </button>
                         <div className="flex-1" />
+                        {chip ? (
+                            <span
+                                className={cn(
+                                    "shrink-0 truncate font-mono text-[11px]",
+                                    chip.tone === "warn" ? "text-asking" : "text-muted"
+                                )}
+                            >
+                                {chip.label}
+                            </span>
+                        ) : null}
                         <button
                             type="button"
                             onClick={onSend}
@@ -673,6 +731,7 @@ function Composer({
                     </div>
                 </div>
             </div>
+            <CommandHint />
         </div>
     );
 }
@@ -700,7 +759,11 @@ function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
                     </button>
                 )}
             </div>
-            {w.task ? <div className="mt-0.5 truncate pl-4 text-[11px] text-muted">{w.task}</div> : null}
+            {(w.dispatchTask ?? w.task) ? (
+                <div title={w.dispatchTask ?? w.task} className="mt-0.5 truncate pl-4 text-[11px] text-muted">
+                    {w.dispatchTask ?? w.task}
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -810,8 +873,19 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const messages = active?.messages ?? [];
-    const askHint = installedRuntimes.length > 0 ? ` · ask @${installedRuntimes.join(" / @")} for a one-shot review` : "";
-
+    // pre-send chip: render what Send will do (spawn a worker, consult, steer, …) before it happens.
+    // projectName mirrors send()'s choice so the "spawns a worker in <x>" preview matches the dispatch.
+    const chip: PlanChip | null =
+        draft.trim() && activeId
+            ? describePlan(planMessage(draft, roster), {
+                  tier,
+                  projectName: active?.name ?? "agent",
+                  roster,
+                  delegatorMode:
+                      ((active?.meta as Record<string, unknown> | undefined)?.["delegator:mode"] as DispatchMode) ??
+                      "report",
+              })
+            : null;
     const send = () => {
         const text = draft.trim();
         if (!text || !activeId) {
@@ -850,6 +924,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                 onSelect={(id) => fireAndForget(() => selectChannel(id))}
                 onToggleNew={() => setPicking((p) => !p)}
                 onPickProject={pickProject}
+                onDeleteChannel={(id) => fireAndForget(() => deleteChannel(id))}
             />
 
             <div className="@container flex min-w-0 flex-1">
@@ -948,13 +1023,14 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     value={draft}
                     onChange={setDraft}
                     onSend={send}
+                    chip={chip}
                     disabled={!activeId}
                     placeholder={
                         tier === "gatekeeper"
-                            ? `Message #${active?.name ?? "channel"} — Jarvis is handling routine questions`
+                            ? `Message #${active?.name ?? "channel"} — Jarvis is auto-answering routine asks`
                             : tier === "delegator"
-                              ? `Message #${active?.name ?? "channel"} — @jarvis <goal> to dispatch workers`
-                              : `Message #${active?.name ?? "channel"}…${askHint} · @jarvis to summarize`
+                              ? `Message #${active?.name ?? "channel"} — Jarvis is managing this channel`
+                              : `Message #${active?.name ?? "channel"}`
                     }
                     candidates={mentionCandidates(installedRuntimes, roster)}
                 />

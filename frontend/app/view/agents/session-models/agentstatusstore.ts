@@ -6,6 +6,7 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { atom, type PrimitiveAtom } from "jotai";
 import { reduceSubagents, type SubagentDelta, type SubagentVM } from "./sessionviewmodel";
 import { recordRateLimit } from "../ratelimitstore";
+import { persistClaudeResume } from "./agentresumestore";
 
 // a completed subagent is noise after a minute; drop it this long after it stops
 const COMPLETED_SUBAGENT_TTL_MS = 60_000;
@@ -145,6 +146,8 @@ export function setupAgentStatusSubscription() {
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
                 globalStore.set(getAgentStatusAtom(data.oref), data);
+                // resume-on-reopen: bake this Claude session's --resume key into the block's launch command
+                void persistClaudeResume(data.oref, data.agent, data.transcriptpath);
                 if (data.state === "idle") {
                     // turn ended: subagent state is ephemeral — clear the list and the manual expand override
                     globalStore.set(getSubagentsAtom(data.oref), []);

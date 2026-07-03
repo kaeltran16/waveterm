@@ -110,6 +110,7 @@ type WshRpcInterface interface {
 	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
 	MemoryHarvestCommand(ctx context.Context, data CommandMemoryHarvestData) (*CommandMemoryHarvestRtnData, error)
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
+	DeleteChannelCommand(ctx context.Context, data CommandDeleteChannelData) error
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	SetChannelGatekeeperCommand(ctx context.Context, data CommandSetChannelGatekeeperData) error // toggles Jarvis Gatekeeper (auto-answer routine asks) for a channel
@@ -703,6 +704,10 @@ type SessionInfo struct {
 type CommandCreateChannelData struct {
 	Name        string `json:"name"`
 	ProjectPath string `json:"projectpath,omitempty"`
+}
+
+type CommandDeleteChannelData struct {
+	ChannelId string `json:"channelid"`
 }
 
 type CommandGetChannelsRtnData struct {

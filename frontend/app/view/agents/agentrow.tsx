@@ -119,6 +119,7 @@ export function AgentRow({
     onCursor,
     onOpen,
     onOpenTerminal,
+    onOpenDiff,
     onOpenComposer,
     onToggleAnswer,
     onSubmitAnswer,
@@ -142,6 +143,7 @@ export function AgentRow({
     onCursor: () => void;
     onOpen: () => void;
     onOpenTerminal: () => void;
+    onOpenDiff: () => void;
     onOpenComposer: () => void;
     onToggleAnswer: (qi: number, oi: number) => void;
     onSubmitAnswer: () => void;
@@ -268,13 +270,18 @@ export function AgentRow({
                     </span>
                 ) : null}
                 {diff ? (
-                    <span
-                        title="Pending changes (placeholder data)"
-                        className="flex shrink-0 items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold"
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenDiff();
+                        }}
+                        title="Review changes in Diff"
+                        className="flex shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold hover:border-accent hover:bg-accent/10"
                     >
                         <span className="text-success">+{diff.adds}</span>
                         <span className="text-error">−{diff.dels}</span>
-                    </span>
+                    </button>
                 ) : null}
                 {asking ? (
                     <span className="shrink-0 rounded-[4px] bg-warning px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.05em] text-on-warning">

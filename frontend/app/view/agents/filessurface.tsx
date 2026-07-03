@@ -263,7 +263,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             <div className="flex w-[292px] flex-none flex-col border-r border-border bg-surface">
                 <div className="flex-none border-b border-edge-faint p-[15px]">
                     <div className="mb-[11px] flex items-center gap-[9px]">
-                        <h1 className="text-[16px] font-bold">Files</h1>
+                        <h1 className="text-[16px] font-bold">Diff</h1>
                         <div className="ml-auto flex gap-[2px] rounded-[7px] border border-border p-[2px]">
                             <button onClick={() => setMode("browse")}
                                 className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Browse</button>
