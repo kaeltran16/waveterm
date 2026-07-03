@@ -8,6 +8,7 @@
 
 import { modalsModel } from "@/app/store/modalmodel";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import type { ComponentType } from "react";
 import { ConfirmModal } from "./confirmmodal";
 import { MessageModal } from "./messagemodal";
@@ -22,11 +23,13 @@ const REGISTRY: Record<string, ComponentType<any>> = {
 export function ModalsRenderer() {
     const modals = useAtomValue(modalsModel.modalsAtom);
     return (
-        <>
-            {modals.map((m, i) => {
-                const Comp = REGISTRY[m.displayName];
-                return Comp ? <Comp key={i} {...m.props} /> : null;
-            })}
-        </>
+        <MotionConfig reducedMotion="user">
+            <AnimatePresence initial={false}>
+                {modals.map((m, i) => {
+                    const Comp = REGISTRY[m.displayName];
+                    return Comp ? <Comp key={`${m.displayName}-${i}`} {...m.props} /> : null;
+                })}
+            </AnimatePresence>
+        </MotionConfig>
     );
 }

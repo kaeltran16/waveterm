@@ -4,6 +4,7 @@
 // Centered modal listing every registered binding, grouped by `group`, generated from bindingsAtom.
 // Opens on `?` (navigate posture) or via the command palette "Keyboard shortcuts" entry.
 
+import { ModalShell } from "@/app/modals/modalshell";
 import { bindingsAtom } from "@/app/store/keybindings/store";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -40,16 +41,10 @@ export function ShortcutsCheatSheet({ model }: { model: AgentsViewModel }) {
         return [...byGroup.entries()].sort(([a], [b]) => (a === surface ? -1 : b === surface ? 1 : a.localeCompare(b)));
     }, [bindings, query, surface]);
 
-    if (!open) {
-        return null;
-    }
     return (
-        <div
-            className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[10vh] backdrop-blur-sm"
-            onMouseDown={(e) => e.target === e.currentTarget && close()}
-            onKeyDown={(e) => e.key === "Escape" && close()}
-        >
-            <div className="flex max-h-[74vh] w-[min(680px,93vw)] flex-col overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover">
+        <ModalShell open={open} onClose={close} className="flex flex-col w-[min(680px,93vw)] max-h-[74vh]" topClass="pt-[10vh]">
+            {open ? (
+                <>
                 <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-[13px]">
                     <input
                         autoFocus
@@ -88,7 +83,8 @@ export function ShortcutsCheatSheet({ model }: { model: AgentsViewModel }) {
                         </div>
                     ))}
                 </div>
-            </div>
-        </div>
+                </>
+            ) : null}
+        </ModalShell>
     );
 }

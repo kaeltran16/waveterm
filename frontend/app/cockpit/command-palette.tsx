@@ -6,6 +6,7 @@
 // the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
@@ -167,25 +168,13 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         } else if (e.key === "Enter") {
             e.preventDefault();
             flat[selClamped]?.run();
-        } else if (e.key === "Escape") {
-            e.preventDefault();
-            close();
         }
     };
 
-    if (!open) {
-        return null;
-    }
     return (
-        <div
-            className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[11vh] backdrop-blur-sm"
-            onMouseDown={(e) => {
-                if (e.target === e.currentTarget) {
-                    close();
-                }
-            }}
-        >
-            <div className="flex max-h-[70vh] w-[min(640px,93vw)] flex-col overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover">
+        <ModalShell open={open} onClose={close} className="flex flex-col w-[min(640px,93vw)] max-h-[70vh]">
+            {open ? (
+                <>
                 <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-4 py-[13px]">
                     <svg
                         width="15"
@@ -267,7 +256,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                         ))
                     )}
                 </div>
-            </div>
-        </div>
+                </>
+            ) : null}
+        </ModalShell>
     );
 }

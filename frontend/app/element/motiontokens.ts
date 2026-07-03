@@ -21,6 +21,17 @@ export const cardVariants: Variants = {
     exit: { opacity: 0, scale: 0.96, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
 };
 
+// Modal open/close (shared-modals surface). Scrim cross-fades; blur is static (animating
+// backdrop-filter is a perf trap). Panel reuses the card entrance signature (moment 1).
+export const modalBackdrop: Variants = {
+    initial: { opacity: 0 },
+    animate: { opacity: 1, transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
+// Panel reuses moment 1's opacity+scale signature — one source of feel for cards and modals.
+export const modalPanel = cardVariants;
+
 // Lift on grab (moment 8). Drop-settle is the Reorder.Item dragTransition already in place.
 // Black shadow alpha (not a brand color) — matches the existing shadow-[...rgba(0,0,0,...)] usage.
 export const reorderLift = { scale: 1.02, boxShadow: "0 12px 30px rgba(0,0,0,0.45)" };

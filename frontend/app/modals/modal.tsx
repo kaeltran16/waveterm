@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Button } from "@/app/element/button";
+import { modalBackdrop, modalPanel } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
 import clsx from "clsx";
+import { motion } from "motion/react";
 import { forwardRef } from "react";
 import ReactDOM from "react-dom";
 
@@ -38,7 +40,16 @@ const Modal = forwardRef<HTMLDivElement, ModalProps>(
         }: ModalProps,
         ref
     ) => {
-        const renderBackdrop = (onClick) => <div className="modal-backdrop" onClick={onClick}></div>;
+        const renderBackdrop = (onClick) => (
+            <motion.div
+                className="modal-backdrop"
+                onClick={onClick}
+                variants={modalBackdrop}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+            />
+        );
 
         const renderFooter = () => {
             return onOk || onCancel;
@@ -47,7 +58,14 @@ const Modal = forwardRef<HTMLDivElement, ModalProps>(
         const renderModal = () => (
             <div className="modal-wrapper">
                 {renderBackdrop(onClickBackdrop)}
-                <div ref={ref} className={clsx(`modal`, className)}>
+                <motion.div
+                    ref={ref}
+                    className={clsx(`modal`, className)}
+                    variants={modalPanel}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                >
                     <Button className="grey ghost modal-close-btn" onClick={onClose} title="Close (ESC)">
                         <i className="fa-sharp fa-solid fa-xmark"></i>
                     </Button>
@@ -64,7 +82,7 @@ const Modal = forwardRef<HTMLDivElement, ModalProps>(
                             cancelDisabled={cancelDisabled}
                         />
                     )}
-                </div>
+                </motion.div>
             </div>
         );
 
@@ -128,14 +146,30 @@ interface FlexiModalComponent extends React.ForwardRefExoticComponent<
 
 const FlexiModal = forwardRef<HTMLDivElement, FlexiModalProps>(
     ({ children, className, onClickBackdrop }: FlexiModalProps, ref) => {
-        const renderBackdrop = (onClick: () => void) => <div className="modal-backdrop" onClick={onClick}></div>;
+        const renderBackdrop = (onClick: () => void) => (
+            <motion.div
+                className="modal-backdrop"
+                onClick={onClick}
+                variants={modalBackdrop}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+            />
+        );
 
         const renderModal = () => (
             <div className="modal-wrapper">
                 {renderBackdrop(onClickBackdrop)}
-                <div className={cn("modal pt-6 px-4 pb-4", className)} ref={ref}>
+                <motion.div
+                    className={cn("modal pt-6 px-4 pb-4", className)}
+                    ref={ref}
+                    variants={modalPanel}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                >
                     {children}
-                </div>
+                </motion.div>
             </div>
         );
 

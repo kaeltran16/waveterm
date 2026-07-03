@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MOTION, cardVariants, shouldFadeEntry } from "./motiontokens";
+import { MOTION, cardVariants, modalBackdrop, modalPanel, shouldFadeEntry } from "./motiontokens";
 
 describe("motiontokens", () => {
     it("uses the Fluid feel: macro ~360ms on the chosen ease curve", () => {
@@ -24,5 +24,17 @@ describe("motiontokens", () => {
         expect(shouldFadeEntry("message")).toBe(true);
         expect(shouldFadeEntry("user")).toBe(true);
         expect(shouldFadeEntry("action")).toBe(false);
+    });
+
+    it("modal backdrop cross-fades: micro in, exit out, fluid ease", () => {
+        expect((modalBackdrop.initial as { opacity: number }).opacity).toBe(0);
+        expect((modalBackdrop.animate as any).opacity).toBe(1);
+        expect((modalBackdrop.animate as any).transition.duration).toBeCloseTo(MOTION.durMicro);
+        expect((modalBackdrop.exit as any).transition.duration).toBeCloseTo(MOTION.durExit);
+        expect((modalBackdrop.animate as any).transition.ease).toEqual(MOTION.easeFluid);
+    });
+
+    it("modal panel reuses the card entrance signature (single source of feel)", () => {
+        expect(modalPanel).toBe(cardVariants);
     });
 });

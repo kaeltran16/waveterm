@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -174,22 +175,6 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         setBranchEdited(false);
     }, [selectedPath]);
-    // Esc closes the modal (the "esc" badge); outside-click no longer dismisses (see backdrop below).
-    useEffect(() => {
-        if (!open) {
-            return;
-        }
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                close();
-            }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [open]);
-    if (!open) {
-        return null;
-    }
     const pickRuntime = (r: Runtime) => {
         setRuntime(r);
         setStartup(runtimeStartupCommand(r));
@@ -234,8 +219,9 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         }
     };
     return (
-        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[11vh] backdrop-blur-sm">
-            <div className="flex max-h-[86vh] w-[min(640px,93vw)] flex-col overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover">
+        <ModalShell open={open} onClose={close} className="flex flex-col w-[min(640px,93vw)] max-h-[86vh]" dismissOnBackdrop={false}>
+            {open ? (
+                <>
                 <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
                     <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-accent-300 to-accent-500">
                         <div className="h-[7px] w-[7px] rounded-full bg-surface" />
@@ -573,8 +559,9 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         <span className="font-mono text-[10.5px] opacity-70">⌘↵</span>
                     </button>
                 </div>
-            </div>
-        </div>
+                </>
+            ) : null}
+        </ModalShell>
     );
 }
 

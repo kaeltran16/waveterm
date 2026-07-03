@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 
 export function NewProjectModal({ model }: { model: AgentsViewModel }) {
@@ -19,22 +20,6 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
         setPath("");
         setError(null);
     };
-    // Esc closes the modal (the "esc" badge); outside-click no longer dismisses (see backdrop below).
-    useEffect(() => {
-        if (!open) {
-            return;
-        }
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                close();
-            }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [open]);
-    if (!open) {
-        return null;
-    }
     const canCreate = name.trim().length > 0 && path.trim().length > 0;
     const create = async () => {
         if (!canCreate) {
@@ -69,8 +54,9 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
         }
     };
     return (
-        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 pt-[14vh] backdrop-blur-sm">
-            <div className="w-[min(480px,92vw)] overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover">
+        <ModalShell open={open} onClose={close} className="w-[min(480px,92vw)]" topClass="pt-[14vh]" dismissOnBackdrop={false}>
+            {open ? (
+                <>
                 <div className="flex items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
                     <span className="flex-1 text-[15px] font-semibold text-primary">New project</span>
                     <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
@@ -128,7 +114,8 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                         Create project
                     </button>
                 </div>
-            </div>
-        </div>
+                </>
+            ) : null}
+        </ModalShell>
     );
 }
