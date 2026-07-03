@@ -13,9 +13,11 @@
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { globalStore } from "@/app/store/jotaiStore";
+import { useKeybindings } from "@/app/store/keybindings/store";
+import type { Binding } from "@/app/store/keybindings/types";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentHeader } from "./agentheader";
@@ -57,44 +59,66 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         }
     }, [agent?.id]);
 
+    // null-safe: the roster can be empty (agent == null -> AgentLaunchHero below). Defined before the
+    // early return so the binding hooks stay above it (Rules of Hooks).
+    const step = (delta: number) => {
+        if (agent == null) {
+            return;
+        }
+        globalStore.set(model.focusIdAtom, moveCursor(order, agent.id, delta) ?? agent.id);
+        globalStore.set(model.focusReplyAtom, false);
+    };
+
+    // Agent-surface keys migrated into the registry (spec §; discoverable in the cheat sheet, governed
+    // by the shared posture rules). Rebuilt when the roster/focus changes so step() sees current order.
+    const agentBindings = useMemo<Binding[]>(() => {
+        const nav = (ctx: { editable: boolean; modalOpen: boolean; surface: string }) =>
+            !ctx.editable && !ctx.modalOpen && ctx.surface === "agent";
+        return [
+            {
+                id: "agent:back",
+                keys: "Escape",
+                group: "Agent",
+                label: "Back to Cockpit (or exit fullscreen)",
+                when: nav,
+                run: () => {
+                    if (globalStore.get(terminalFullscreenAtom)) {
+                        globalStore.set(terminalFullscreenAtom, false);
+                    } else {
+                        globalStore.set(model.surfaceAtom, "cockpit");
+                    }
+                },
+            },
+            { id: "agent:prev", keys: "ArrowLeft", group: "Agent", label: "Previous agent", when: nav, run: () => step(-1) },
+            { id: "agent:next", keys: "ArrowRight", group: "Agent", label: "Next agent", when: nav, run: () => step(1) },
+            { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: nav, run: () => step(-1) },
+            { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: nav, run: () => step(1) },
+            {
+                id: "agent:toggle-rail",
+                keys: "d",
+                group: "Agent",
+                label: "Toggle agent rail",
+                when: nav,
+                run: () => globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom)),
+            },
+            {
+                id: "agent:fullscreen",
+                keys: "f",
+                group: "Agent",
+                label: "Toggle terminal fullscreen",
+                when: nav,
+                run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
+            },
+        ];
+    }, [model, order, agent?.id]);
+    useKeybindings(agentBindings);
+
     if (!agent) {
         return <AgentLaunchHero model={model} />;
     }
 
-    const step = (delta: number) => {
-        globalStore.set(model.focusIdAtom, moveCursor(order, agent.id, delta) ?? agent.id);
-        globalStore.set(model.focusReplyAtom, false);
-    };
-    const onKeyDown = (e: React.KeyboardEvent) => {
-        const el = e.target as HTMLElement;
-        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable) {
-            return;
-        }
-        if (e.key === "Escape") {
-            e.preventDefault();
-            // exit fullscreen first; only then leave the surface for the cockpit grid
-            if (globalStore.get(terminalFullscreenAtom)) {
-                globalStore.set(terminalFullscreenAtom, false);
-            } else {
-                globalStore.set(model.surfaceAtom, "cockpit");
-            }
-        } else if (e.key === "ArrowLeft") {
-            e.preventDefault();
-            step(-1);
-        } else if (e.key === "ArrowRight") {
-            e.preventDefault();
-            step(1);
-        } else if (e.key === "d") {
-            e.preventDefault();
-            globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom));
-        } else if (e.key === "f") {
-            e.preventDefault();
-            globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom));
-        }
-    };
-
     return (
-        <div ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown} className="flex h-full w-full outline-none">
+        <div ref={wrapRef} tabIndex={0} className="flex h-full w-full outline-none">
             {!fullscreen ? <AgentTree model={model} /> : null}
             <div className="flex min-w-0 flex-1 flex-col">
                 <AgentHeader agent={agent} />

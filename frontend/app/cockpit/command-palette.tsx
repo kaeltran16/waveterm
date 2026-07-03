@@ -16,6 +16,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rankPaletteItems } from "./palette-match";
+import { cheatsheetOpenAtom } from "./shortcuts-cheatsheet";
 
 type PaletteKind = "command" | "agent" | "session";
 
@@ -96,6 +97,16 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 title: "New project",
                 run: () => {
                     globalStore.set(model.newProjectOpenAtom, true);
+                    close();
+                },
+            },
+            {
+                key: "cmd:shortcuts",
+                kind: "command",
+                search: "Keyboard shortcuts help cheat sheet",
+                title: "Keyboard shortcuts",
+                run: () => {
+                    globalStore.set(cheatsheetOpenAtom, true);
                     close();
                 },
             },
