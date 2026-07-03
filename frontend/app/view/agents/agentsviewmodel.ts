@@ -81,6 +81,18 @@ export function askingCount(agents: AgentVM[]): number {
     return agents.filter((a) => a.state === "asking").length;
 }
 
+// within this many px of the end, a scroll region counts as "stuck to bottom": new lines
+// auto-scroll and the jump-to-latest pill hides. Past it, the user is reading history.
+export const STICK_THRESHOLD_PX = 24;
+
+/** Pure: is a scroll region within `threshold` px of its bottom edge? */
+export function isNearBottom(
+    m: { scrollTop: number; scrollHeight: number; clientHeight: number },
+    threshold = STICK_THRESHOLD_PX
+): boolean {
+    return m.scrollHeight - m.scrollTop - m.clientHeight < threshold;
+}
+
 export interface AgentSections {
     asking: AgentVM[];
     working: AgentVM[];

@@ -9,6 +9,7 @@ import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     cardSpanStyle,
     hasAnswerableAsk,
+    isNearBottom,
     isQuiet,
     projectOf,
     taskProgress,
@@ -160,6 +161,7 @@ export function AgentRow({
     const scrollRef = useRef<HTMLDivElement>(null);
     const stickRef = useRef(true);
     const [tasksOpen, setTasksOpen] = useState(false);
+    const [atBottom, setAtBottom] = useState(true);
 
     const onResizeStart = (e: React.PointerEvent) => {
         e.preventDefault();
@@ -204,7 +206,18 @@ export function AgentRow({
         if (!el) {
             return;
         }
-        stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        const near = isNearBottom(el);
+        stickRef.current = near;
+        setAtBottom(near);
+    };
+    const jumpToBottom = () => {
+        const el = scrollRef.current;
+        if (!el) {
+            return;
+        }
+        el.scrollTop = el.scrollHeight;
+        stickRef.current = true;
+        setAtBottom(true);
     };
 
     return (
@@ -335,7 +348,9 @@ export function AgentRow({
             {/* scrollable body: feed + answer + composer scroll together as one region, so nothing
                 clips at small card heights and the whole card reads as vertically scrollable. The feed
                 grows to keep the composer pinned to the bottom when content is short; the region scrolls
-                when it overflows. Header + asking band stay pinned above. */}
+                when it overflows. Header + asking band stay pinned above. The relative wrapper anchors
+                the jump-to-latest pill to the viewport bottom (it must not scroll with the feed). */}
+            <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scrollRef}
                 onScroll={onNarrationScroll}
@@ -421,6 +436,20 @@ export function AgentRow({
                         </span>
                     </div>
                 )}
+            </div>
+                {!atBottom ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            jumpToBottom();
+                        }}
+                        title="Jump to latest"
+                        className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-edge-strong bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-secondary shadow-[0_10px_28px_rgba(0,0,0,0.5)] hover:border-accent hover:text-primary animate-[fadeUp_.14s_both]"
+                    >
+                        <span className="text-[12px] leading-none">↓</span> Latest
+                    </button>
+                ) : null}
             </div>
 
             {/* resize */}

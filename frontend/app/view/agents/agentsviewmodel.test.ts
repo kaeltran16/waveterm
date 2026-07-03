@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -22,6 +22,31 @@ describe("sortAgents", () => {
         const input = [mk("a", "idle"), mk("b", "asking")];
         sortAgents(input);
         expect(input.map((a) => a.id)).toEqual(["a", "b"]);
+    });
+});
+
+describe("isNearBottom", () => {
+    it("true at the exact bottom", () => {
+        expect(isNearBottom({ scrollTop: 800, scrollHeight: 1000, clientHeight: 200 })).toBe(true);
+    });
+    it("false when scrolled up beyond the threshold", () => {
+        expect(isNearBottom({ scrollTop: 500, scrollHeight: 1000, clientHeight: 200 })).toBe(false);
+    });
+    it("true within the threshold of the bottom", () => {
+        // distance = 1000 - 790 - 200 = 10 < 24
+        expect(isNearBottom({ scrollTop: 790, scrollHeight: 1000, clientHeight: 200 })).toBe(true);
+    });
+    it("false exactly at the threshold distance (check is strict <)", () => {
+        // distance = 1000 - 776 - 200 = 24, not < 24
+        expect(isNearBottom({ scrollTop: 776, scrollHeight: 1000, clientHeight: 200 })).toBe(false);
+    });
+    it("respects an explicit threshold override", () => {
+        // distance = 100; near at threshold 200, not near at threshold 50
+        expect(isNearBottom({ scrollTop: 700, scrollHeight: 1000, clientHeight: 200 }, 200)).toBe(true);
+        expect(isNearBottom({ scrollTop: 700, scrollHeight: 1000, clientHeight: 200 }, 50)).toBe(false);
+    });
+    it("exposes the default threshold used by the narration card", () => {
+        expect(STICK_THRESHOLD_PX).toBe(24);
     });
 });
 
