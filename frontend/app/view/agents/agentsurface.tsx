@@ -31,7 +31,6 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const agents = useAtomValue(model.agentsAtom);
     const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
-    const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
@@ -143,9 +142,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </div>
                 ) : null}
             </div>
-            {railVisible && !fullscreen && agent.kind !== "terminal" ? (
-                <AgentDetailsRail model={model} agent={agent} />
-            ) : null}
+            {!fullscreen && agent.kind !== "terminal" ? <AgentDetailsRail model={model} agent={agent} /> : null}
         </div>
     );
 }

@@ -11,7 +11,8 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { cn, fireAndForget } from "@/util/util";
+import { cn, fireAndForget, makeIconClass } from "@/util/util";
+import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -37,6 +38,7 @@ import {
 import { runtimeLogo } from "./runtimelogo";
 import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
+import { channelRailOpenAtom } from "./railstore";
 import { MarkdownMessage } from "./markdownmessage";
 import {
     activeChannelAtom,
@@ -786,66 +788,103 @@ function ContextPanel({
     const tier = tierFromMeta(channel?.meta as Record<string, unknown> | undefined);
     const explainer = autonomyExplainer(tier);
     const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
-    return (
-        <aside className="hidden w-[300px] flex-none flex-col overflow-y-auto border-l border-border bg-background px-4 py-4 @[1320px]:flex">
-            <div className="mb-4 flex items-center gap-2.5">
-                <Avatar name="jarvis" />
-                <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-bold text-primary">Jarvis</div>
-                    <div className="font-mono text-[10.5px] text-muted">Fleet manager</div>
-                </div>
-                <span className="flex items-center gap-1 font-mono text-[10px] text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" /> live
-                </span>
-            </div>
-
-            <div className={label}>Autonomy in #{channel?.name ?? "channel"}</div>
-            <div className="mb-5 rounded-[9px] border border-accent/25 bg-accentbg/20 px-3 py-2.5">
-                <p className="mb-2.5 text-[11.5px] leading-[1.5] text-secondary">{explainer.blurb}</p>
-                <div className="flex flex-col gap-1.5">
-                    {explainer.checklist.map((c) => (
-                        <div key={c.label} className="flex items-center gap-2">
-                            <span className={c.active ? "text-success" : "text-edge-strong"}>
-                                {c.active ? "✓" : "–"}
-                            </span>
-                            <span className={c.active ? "text-[11.5px] text-secondary" : "text-[11.5px] text-muted"}>
-                                {c.label}
-                            </span>
+    const sections: RailSection[] = [
+        {
+            id: "jarvis",
+            label: `Autonomy in #${channel?.name ?? "channel"}`,
+            icon: <i className={makeIconClass("diamond", true)} />,
+            content: (
+                <div>
+                    <div className="mb-4 flex items-center gap-2.5">
+                        <Avatar name="jarvis" />
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-bold text-primary">Jarvis</div>
+                            <div className="font-mono text-[10.5px] text-muted">Fleet manager</div>
                         </div>
-                    ))}
-                </div>
-            </div>
-
-            <div className={label}>
-                Fleet here · {counts.working} working · {counts.waiting} waiting
-            </div>
-            {snapshot.length === 0 ? (
-                <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
-            ) : (
-                snapshot.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
-            )}
-
-            {asking.length > 0 ? (
-                <>
-                    <div className={`${label} mt-5`}>Needs you · {asking.length}</div>
-                    <div className="flex flex-col gap-2">
-                        {asking.map((w) => (
-                            <div
-                                key={w.oref}
-                                className="rounded-[7px] border border-asking/40 bg-lane-asking px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
-                            >
-                                <span className="font-mono text-accent-soft">{w.name}</span>
-                                {w.askText ? ` — ${w.askText}` : ""}
-                            </div>
-                        ))}
+                        <span className="flex items-center gap-1 font-mono text-[10px] text-success">
+                            <span className="h-1.5 w-1.5 rounded-full bg-success" /> live
+                        </span>
                     </div>
-                </>
-            ) : null}
 
-            <div className={`${label} mt-5`}>Project</div>
-            <div className="break-all font-mono text-[11px] text-muted">{channel?.projectpath || "—"}</div>
-        </aside>
-    );
+                    <div className={label}>Autonomy in #{channel?.name ?? "channel"}</div>
+                    <div className="rounded-[9px] border border-accent/25 bg-accentbg/20 px-3 py-2.5">
+                        <p className="mb-2.5 text-[11.5px] leading-[1.5] text-secondary">{explainer.blurb}</p>
+                        <div className="flex flex-col gap-1.5">
+                            {explainer.checklist.map((c) => (
+                                <div key={c.label} className="flex items-center gap-2">
+                                    <span className={c.active ? "text-success" : "text-edge-strong"}>
+                                        {c.active ? "✓" : "–"}
+                                    </span>
+                                    <span
+                                        className={
+                                            c.active ? "text-[11.5px] text-secondary" : "text-[11.5px] text-muted"
+                                        }
+                                    >
+                                        {c.label}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            ),
+        },
+        {
+            id: "fleet",
+            label: "Fleet here",
+            icon: <i className={makeIconClass("users", true)} />,
+            content: (
+                <div>
+                    <div className={label}>
+                        Fleet here · {counts.working} working · {counts.waiting} waiting
+                    </div>
+                    {snapshot.length === 0 ? (
+                        <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
+                    ) : (
+                        snapshot.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
+                    )}
+                </div>
+            ),
+        },
+        ...(asking.length > 0
+            ? [
+                  {
+                      id: "needs-you",
+                      label: `Needs you · ${asking.length}`,
+                      icon: <i className={makeIconClass("bell", true)} />,
+                      content: (
+                          <div>
+                              <div className={label}>Needs you · {asking.length}</div>
+                              <div className="flex flex-col gap-2">
+                                  {asking.map((w) => (
+                                      <div
+                                          key={w.oref}
+                                          className="rounded-[7px] border border-asking/40 bg-lane-asking px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
+                                      >
+                                          <span className="font-mono text-accent-soft">{w.name}</span>
+                                          {w.askText ? ` — ${w.askText}` : ""}
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+                      ),
+                  } as RailSection,
+              ]
+            : []),
+        {
+            id: "project",
+            label: "Project",
+            icon: <i className={makeIconClass("folder", true)} />,
+            content: (
+                <div>
+                    <div className={label}>Project</div>
+                    <div className="break-all font-mono text-[11px] text-muted">{channel?.projectpath || "—"}</div>
+                </div>
+            ),
+        },
+    ];
+
+    return <CollapsibleRail openAtom={channelRailOpenAtom} ariaLabel="Channel context" sections={sections} />;
 }
 
 export function ChannelsSurface({ model }: { model: AgentsViewModel }) {

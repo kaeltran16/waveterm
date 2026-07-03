@@ -2,9 +2,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Agent details-rail state: the rail visibility toggle (global, persisted) + a thin git load
-// (branch + changed-file list, no per-file diff). Mirrors filesstore.ts but lighter — the rail
-// shows the list, not the diff. cwd resolution is shared via agentcwdresolve.ts.
+// Cockpit rail state: the agent details-rail toggle + the channels context-rail toggle (both
+// global, persisted) plus a thin git load for the agent rail (branch + changed-file list, no
+// per-file diff). Mirrors filesstore.ts but lighter — the rail shows the list, not the diff.
+// cwd resolution is shared via agentcwdresolve.ts.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -24,6 +25,10 @@ export interface RailGitState {
 // First persisted FE pref in frontend/app: rail is global + off by default (localStorage key
 // "agent.rail.visible"). Keep persisted prefs to this one atom for now.
 export const railVisibleAtom = atomWithStorage("agent.rail.visible", false);
+
+// Channels context-rail expanded state (localStorage "channel.rail.open", default collapsed so
+// narrow panes keep maximum message width; replaces the old @[1320px] container-query auto-show).
+export const channelRailOpenAtom = atomWithStorage("channel.rail.open", false);
 
 // Terminal-fullscreen toggle for the Agent surface: when on, the AgentTree (and the rail) are
 // hidden so the focused agent's live terminal fills the surface. Session-scoped UI, not persisted.

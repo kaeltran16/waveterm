@@ -1,10 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { globalStore } from "@/app/store/jotaiStore";
-import { cn, fireAndForget } from "@/util/util";
+import { cn, fireAndForget, makeIconClass } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, MotionConfig, motionValue, type MotionValue } from "motion/react";
+import { AnimatePresence, MotionConfig, motion, motionValue, type MotionValue } from "motion/react";
+import { MOTION, cardVariants } from "@/app/element/motiontokens";
 import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter, SurfaceKey } from "./agents";
@@ -54,8 +56,25 @@ import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 
+// A count that slide-swaps its digits when the value changes (moment: a count ticking is a state
+// change worth making legible). Under reduced motion, MotionConfig drops the y transform → crossfade.
 function RollingCount({ value, className }: { value: number; className?: string }) {
-    return <span className={cn("tabular-nums", className)}>{value}</span>;
+    return (
+        <span className={cn("relative inline-flex justify-center overflow-hidden tabular-nums", className)}>
+            <AnimatePresence mode="popLayout" initial={false}>
+                <motion.span
+                    key={value}
+                    initial={{ y: "-70%", opacity: 0 }}
+                    animate={{ y: "0%", opacity: 1 }}
+                    exit={{ y: "70%", opacity: 0 }}
+                    transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                    className="inline-block"
+                >
+                    {value}
+                </motion.span>
+            </AnimatePresence>
+        </span>
+    );
 }
 
 const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
@@ -296,7 +315,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const openComposerId = useAtomValue(model.openComposerIdAtom);
     const setOpenComposerId = useSetAtom(model.openComposerIdAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
-    const railOpen = useAtomValue(model.railOpenAtom);
     const chip = useAtomValue(model.chipFilterAtom);
     const setChip = (c: ChipFilter) => globalStore.set(model.chipFilterAtom, c);
     const recentEntriesById = useAtomValue(liveEntriesByIdAtom);
@@ -721,13 +739,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                             </span>
                         </p>
                         <div className="ml-auto flex shrink-0 items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => globalStore.set(model.railOpenAtom, !railOpen)}
-                                className="cursor-pointer rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
-                            >
-                                {railOpen ? "Hide panel ›" : "‹ Usage"}
-                            </button>
                             <ProjectSwitcher model={model} variant="header" />
                             <button
                                 type="button"
@@ -787,41 +798,62 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 </div>
 
                 <div className="flex min-h-0 flex-1 flex-col">
-                    {empty ? (
-                        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-[18px] text-center">
-                            <div className="text-[18px] opacity-40">🤖</div>
-                            <div className="text-[13px] font-semibold text-secondary">No active agents</div>
-                            <div className="max-w-[280px] text-[11px] text-muted">
-                                Agents appear here the moment one starts working or asks a question.
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
-                                className="mt-1 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/10 px-3 py-1.5 text-[12px] font-medium text-accent hover:border-accent hover:bg-accent/15"
+                    <AnimatePresence initial={false}>
+                        {empty ? (
+                            <motion.div
+                                key="empty"
+                                variants={cardVariants}
+                                initial="initial"
+                                animate="animate"
+                                exit="exit"
+                                className="flex flex-1 flex-col items-center justify-center gap-2 p-[18px] text-center"
                             >
-                                + New agent
-                            </button>
-                        </div>
-                    ) : null}
+                                <div className="text-[18px] opacity-40">🤖</div>
+                                <div className="text-[13px] font-semibold text-secondary">No active agents</div>
+                                <div className="max-w-[280px] text-[11px] text-muted">
+                                    Agents appear here the moment one starts working or asks a question.
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
+                                    className="mt-1 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/10 px-3 py-1.5 text-[12px] font-medium text-accent hover:border-accent hover:bg-accent/15"
+                                >
+                                    + New agent
+                                </button>
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
 
-                    {liveCount > 0 ? (
-                        <div className="shrink-0 px-5 pt-4">
-                            <SectionHeader
-                                label="Live agents"
-                                labelClassName="text-accent-soft"
-                                count={liveCount}
-                                dotClassName="bg-accent-soft"
-                                countPillClassName="bg-accent/10 text-accent-soft"
-                                dividerClassName="bg-gradient-to-r from-accent/20 to-transparent"
-                                right={
-                                    <span className="text-[11.5px] text-muted">
-                                        <span className="font-semibold text-warning">{liveAsking} need you</span> ·{" "}
-                                        {liveWorking} working
-                                    </span>
-                                }
-                            />
-                        </div>
-                    ) : null}
+                    <AnimatePresence initial={false}>
+                        {liveCount > 0 ? (
+                            <motion.div
+                                key="live-header"
+                                variants={cardVariants}
+                                initial="initial"
+                                animate="animate"
+                                exit="exit"
+                                className="shrink-0 px-5 pt-4"
+                            >
+                                <SectionHeader
+                                    label="Live agents"
+                                    labelClassName="text-accent-soft"
+                                    count={liveCount}
+                                    dotClassName="bg-accent-soft"
+                                    countPillClassName="bg-accent/10 text-accent-soft"
+                                    dividerClassName="bg-gradient-to-r from-accent/20 to-transparent"
+                                    right={
+                                        <span className="text-[11.5px] text-muted">
+                                            <span className="font-semibold text-warning">
+                                                <RollingCount value={liveAsking} /> need you
+                                            </span>{" "}
+                                            ·{" "}
+                                            {liveWorking} working
+                                        </span>
+                                    }
+                                />
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
 
                     <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
                         <div className="flex flex-col gap-3.5">
@@ -866,91 +898,116 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 ) : null}
             </div>
 
-            {railOpen ? (
-                <aside className="flex w-[300px] shrink-0 flex-col gap-6 overflow-y-auto border-l border-border bg-surface px-5 py-5">
-                    <div>
-                        <div className="mb-3.5 flex items-center justify-between">
-                            <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                Usage
-                            </h3>
-                            <button
-                                type="button"
-                                onClick={() => globalStore.set(model.surfaceAtom, "usage")}
-                                className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
-                            >
-                                Details →
-                            </button>
-                        </div>
-                        <div className="flex flex-col gap-4">
-                            {usageDonuts.map((d) => (
-                                <div key={d.provider} className="flex flex-col gap-4">
-                                    {usageDonuts.length > 1 ? (
-                                        <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
-                                            <span
-                                                className={cn(
-                                                    "h-[7px] w-[7px] rounded-full",
-                                                    PROVIDER_DOT[d.provider] ?? "bg-muted"
-                                                )}
-                                            />
-                                            {PROVIDER_LABEL[d.provider] ?? d.provider}
-                                        </div>
-                                    ) : null}
-                                    <UsageBar
-                                        label="5-hour window"
-                                        pct={d.fivehour.pct}
-                                        reset={d.fivehour.reset}
-                                        used={d.provider === "claude" ? windowTokens?.fivehour : undefined}
-                                        now={now}
-                                    />
-                                    <UsageBar
-                                        label="Weekly"
-                                        pct={d.week.pct}
-                                        reset={d.week.reset}
-                                        used={d.provider === "claude" ? windowTokens?.week : undefined}
-                                        now={now}
-                                    />
+            <CollapsibleRail
+                openAtom={model.railOpenAtom}
+                ariaLabel="Usage and recent activity"
+                sections={[
+                    {
+                        id: "usage",
+                        label: "Usage",
+                        icon: <i className={makeIconClass("gauge", true)} />,
+                        content: (
+                            <div>
+                                <div className="mb-3.5 flex items-center justify-between">
+                                    <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                        Usage
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => globalStore.set(model.surfaceAtom, "usage")}
+                                        className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
+                                    >
+                                        Details →
+                                    </button>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-                    {recent.length > 0 ? (
-                        <div>
-                            <div className="mb-3 flex items-center justify-between">
-                                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                    Recent activity
-                                </h3>
-                                <button
-                                    type="button"
-                                    onClick={() => globalStore.set(model.surfaceAtom, "activity")}
-                                    className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
-                                >
-                                    View all →
-                                </button>
-                            </div>
-                            <div className="flex flex-col">
-                                {recent.map((e) => (
-                                    <div key={e.id} className="flex gap-[11px] border-b border-border py-[9px]">
-                                        <span
-                                            className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
-                                            style={{ backgroundColor: RECENT_DOT[e.state] }}
-                                        />
-                                        <div className="min-w-0 flex-1">
-                                            <div className="text-[12px] leading-[1.4] text-secondary">
-                                                <span className="font-mono font-semibold text-primary">{e.agent}</span>{" "}
-                                                {e.text}
-                                            </div>
-                                            <div className="mt-[3px] font-mono text-[10px] text-muted">
-                                                {e.typeLabel} ·{" "}
-                                                {now - e.ts < 60_000 ? "just now" : `${formatAge(now - e.ts)} ago`}
-                                            </div>
+                                <div className="flex flex-col gap-4">
+                                    {usageDonuts.map((d) => (
+                                        <div key={d.provider} className="flex flex-col gap-4">
+                                            {usageDonuts.length > 1 ? (
+                                                <div className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-primary">
+                                                    <span
+                                                        className={cn(
+                                                            "h-[7px] w-[7px] rounded-full",
+                                                            PROVIDER_DOT[d.provider] ?? "bg-muted"
+                                                        )}
+                                                    />
+                                                    {PROVIDER_LABEL[d.provider] ?? d.provider}
+                                                </div>
+                                            ) : null}
+                                            <UsageBar
+                                                label="5-hour window"
+                                                pct={d.fivehour.pct}
+                                                reset={d.fivehour.reset}
+                                                used={d.provider === "claude" ? windowTokens?.fivehour : undefined}
+                                                now={now}
+                                            />
+                                            <UsageBar
+                                                label="Weekly"
+                                                pct={d.week.pct}
+                                                reset={d.week.reset}
+                                                used={d.provider === "claude" ? windowTokens?.week : undefined}
+                                                now={now}
+                                            />
                                         </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
-                        </div>
-                    ) : null}
-                </aside>
-            ) : null}
+                        ),
+                    },
+                    ...(recent.length > 0
+                        ? [
+                              {
+                                  id: "activity",
+                                  label: "Recent activity",
+                                  icon: <i className={makeIconClass("clock-rotate-left", true)} />,
+                                  content: (
+                                      <div>
+                                          <div className="mb-3 flex items-center justify-between">
+                                              <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                                                  Recent activity
+                                              </h3>
+                                              <button
+                                                  type="button"
+                                                  onClick={() => globalStore.set(model.surfaceAtom, "activity")}
+                                                  className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
+                                              >
+                                                  View all →
+                                              </button>
+                                          </div>
+                                          <div className="flex flex-col">
+                                              {recent.map((e) => (
+                                                  <div
+                                                      key={e.id}
+                                                      className="flex gap-[11px] border-b border-border py-[9px]"
+                                                  >
+                                                      <span
+                                                          className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
+                                                          style={{ backgroundColor: RECENT_DOT[e.state] }}
+                                                      />
+                                                      <div className="min-w-0 flex-1">
+                                                          <div className="text-[12px] leading-[1.4] text-secondary">
+                                                              <span className="font-mono font-semibold text-primary">
+                                                                  {e.agent}
+                                                              </span>{" "}
+                                                              {e.text}
+                                                          </div>
+                                                          <div className="mt-[3px] font-mono text-[10px] text-muted">
+                                                              {e.typeLabel} ·{" "}
+                                                              {now - e.ts < 60_000
+                                                                  ? "just now"
+                                                                  : `${formatAge(now - e.ts)} ago`}
+                                                          </div>
+                                                      </div>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  ),
+                              } as RailSection,
+                          ]
+                        : []),
+                ]}
+            />
             {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
         </MotionConfig>

@@ -35,6 +35,7 @@ drag + `pulseDot`) was explicit prep for exactly this — one revamp, not scatte
 | `frontend/app/element/motiontokens.ts` | Durations (`durMacro`/`durMicro`/`durExit`), `easeFluid`, and variant presets (`cardVariants`, `reorderLift`, `composerReveal`) + the `shouldFadeEntry` burst guard. **Import from here; do not inline motion values.** |
 | `frontend/tailwindsetup.css` | CSS-only ambient loops: `@keyframes pulseDot`, `breatheGlow`, `settle`. Token-colored via `color-mix(... var(--color-*) ...)` — no raw hex. |
 | `frontend/app/element/motiontokens.test.ts` | Guards token values + the burst-guard helper. |
+| `frontend/app/element/collapsiblerail.tsx` | Reusable right-rail (icon strip ↔ 300px scroll panel) shared by Cockpit/Agent/Channels; owns the rail-reveal moment + fixes titlebar/rail divider alignment by construction. |
 
 Framer (`motion/react`, v12) is the default tool; CSS is the fallback **only** for
 perpetual ambient loops (glow, pulse) and pre-existing hover/press micro-transitions.
@@ -62,10 +63,10 @@ cross-surface transitions and shared modals.
 
 | Surface | Status | Notes |
 |---|---|---|
-| **Cockpit** | ✅ Shipped `b3ccce07` (2026-07-03) | All 8 moments. Spec + plan below. |
-| Agent | ☐ Not started | Focus/transcript view. Candidates: narration fade (m5), composer reveal (m6), status pulse (m7). |
+| **Cockpit** | ✅ Shipped `b3ccce07`; chrome gaps + shared rail (2026-07-03) | 8 card moments + rolling counts, section-header entrance, grid→footer handoff, CollapsibleRail. |
+| Agent | ◐ Rail only | DETAILS rail now `CollapsibleRail` (alignment fixed, "just now idle" text fixed). Remaining: narration/composer/status motion (m5/m6/m7). |
 | Activity | ☐ Not started | Cross-project feed. Candidates: line entrance (m1/m5), no-cascade guard. |
-| Channels | ☐ Not started | 2-pane. Candidates: message entrance (m1/m5), rail selection micro (m7). |
+| Channels | ◐ Rail only | Context rail now `CollapsibleRail`. Remaining: message entrance (m1/m5), rail selection micro (m7). |
 | Sessions | ☐ Not started | Resume hero + list. Candidates: list entrance/exit (m1/m2). |
 | Files / Diff | ☐ Not started | Candidates: list entrance (m1), reveal (m6). |
 | Memory | ☐ Not started | Vault viewer + force-graph. Candidates: detail reveal (m6); graph has its own physics — audit for conflicts. |
@@ -93,3 +94,5 @@ Legend: ✅ shipped · ◐ in progress · ☐ not started
 - Cockpit implementation plan: `docs/superpowers/plans/2026-07-03-cockpit-motion-system.md`
 - Baseline strip that prepped this work: commit `a1a2889d`
 - Cockpit motion system shipped: commit `b3ccce07`
+- CollapsibleRail + cockpit motion-gap design: `docs/superpowers/specs/2026-07-03-collapsible-rail-and-cockpit-motion-gaps-design.md`
+- CollapsibleRail + cockpit motion-gap plan: `docs/superpowers/plans/2026-07-03-collapsible-rail-and-cockpit-motion-gaps.md`
