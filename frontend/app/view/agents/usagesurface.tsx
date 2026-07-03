@@ -387,7 +387,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                 <div className="mb-[10px] rounded-[14px] border border-border bg-background px-[18px] py-[15px]">
                     <div className="mb-[14px] flex flex-wrap items-center gap-[11px]">
                         <span className="flex items-center gap-2">
-                            <span className="h-[8px] w-[8px] flex-none animate-pulse rounded-full bg-success" />
+                            <span className="h-[8px] w-[8px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-success" />
                             <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-secondary">
                                 Live limits
                             </span>

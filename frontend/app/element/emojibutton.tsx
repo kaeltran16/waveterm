@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn, makeIconClass } from "@/util/util";
-import { useLayoutEffect, useRef, useState } from "react";
 
 export const EmojiButton = ({
     emoji,
@@ -10,30 +9,17 @@ export const EmojiButton = ({
     isClicked,
     onClick,
     className,
-    suppressFlyUp,
 }: {
     emoji?: string;
     icon?: string;
     isClicked: boolean;
     onClick: () => void;
     className?: string;
-    suppressFlyUp?: boolean;
 }) => {
-    const [showFloating, setShowFloating] = useState(false);
-    const prevClickedRef = useRef(isClicked);
-
-    useLayoutEffect(() => {
-        if (isClicked && !prevClickedRef.current && !suppressFlyUp) {
-            setShowFloating(true);
-            setTimeout(() => setShowFloating(false), 600);
-        }
-        prevClickedRef.current = isClicked;
-    }, [isClicked, suppressFlyUp]);
-
     const content = icon ? <i className={makeIconClass(icon, false)} /> : emoji;
 
     return (
-        <div className="relative inline-block">
+        <div className="inline-block">
             <button
                 onClick={onClick}
                 className={cn(
@@ -46,17 +32,6 @@ export const EmojiButton = ({
             >
                 {content}
             </button>
-            {showFloating && (
-                <span
-                    className="absolute pointer-events-none animate-[float-up_0.6s_ease-out_forwards]"
-                    style={{
-                        left: "50%",
-                        bottom: "100%",
-                    }}
-                >
-                    {content}
-                </span>
-            )}
         </div>
     );
 };
