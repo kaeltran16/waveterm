@@ -1637,6 +1637,7 @@ declare global {
         "session:pinned"?: boolean;
         "session:agent"?: string;
         "session:label"?: string;
+        "session:project"?: string;
         "session:collapsedgroups"?: string[];
         "app:loom"?: boolean;
         count?: number;

@@ -57,6 +57,7 @@ export interface SessionInput {
     agent?: string;
     customLabel?: string;
     title?: string; // agent ai-title (task summary): auto label between customLabel and agent
+    projectLabel?: string; // launch-time project name: a non-sticky default below title, above the agent name
     pinned: boolean;
     isAgentsTab?: boolean;
     cwd?: string;
@@ -74,6 +75,7 @@ export interface SessionRowVM {
     tabId: string;
     label: string;
     customLabel?: string;
+    projectLabel?: string; // launch-time project name; the roster groups by this (not the lossy transcript-path derivation)
     agent?: string; // session:agent runtime (claude/codex/…); undefined for plain terminals
     status: SessionStatus;
     active: boolean;
@@ -101,8 +103,9 @@ export interface SidebarViewModel {
 function rowLabel(s: SessionInput, includeService: boolean): string {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const title = s.title && s.title.trim().length > 0 ? s.title.trim() : undefined;
+    const project = s.projectLabel && s.projectLabel.trim().length > 0 ? s.projectLabel.trim() : undefined;
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
-    const base = custom ?? title ?? (agent && agent.length > 0 ? agent : "session");
+    const base = custom ?? title ?? project ?? (agent && agent.length > 0 ? agent : "session");
     return includeService && !s.isAgentsTab ? `${base} · ${s.serviceLabel}` : base;
 }
 
@@ -113,6 +116,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         tabId: s.tabId,
         label: rowLabel(s, includeService),
         customLabel: s.customLabel,
+        projectLabel: s.projectLabel,
         agent: s.agent,
         status,
         active: s.active,

@@ -87,8 +87,8 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     await RpcApi.SetMetaCommand(TabRpcClient, {
         oref: WOS.makeORef("tab", tabId),
         meta: agentPanel
-            ? { "session:agent": opts.runtime, "session:label": opts.projectName }
-            : { "session:label": opts.projectName },
+            ? { "session:agent": opts.runtime, "session:project": opts.projectName }
+            : { "session:project": opts.projectName },
     });
     if (agentPanel) {
         const pending: PendingLaunch = {

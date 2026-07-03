@@ -162,6 +162,7 @@ type MetaTSType struct {
 	SessionPinned          bool     `json:"session:pinned,omitempty"`          // tab
 	SessionAgent           string   `json:"session:agent,omitempty"`           // tab
 	SessionLabel           string   `json:"session:label,omitempty"`           // tab (user-set custom name; overrides the agent-derived row label)
+	SessionProject         string   `json:"session:project,omitempty"`         // tab (launch-time project name; roster group + boot label below the ai-title)
 	SessionCollapsedGroups []string `json:"session:collapsedgroups,omitempty"` // workspace
 
 	// for loom git client (Wave Agent Sessions fork)

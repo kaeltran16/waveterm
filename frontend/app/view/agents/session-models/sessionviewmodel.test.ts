@@ -248,6 +248,33 @@ describe("buildSessionViewModel — title (task summary)", () => {
     });
 });
 
+describe("buildSessionViewModel — project label (launch default)", () => {
+    it("uses the project label over the agent name when there is no task summary", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("waveterm");
+    });
+    it("lets the task summary override the project label", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", title: "Fix duplicate-session race", cwd: "/src/X" }),
+        ]);
+        expect(vm.groups[0].sessions[0].label).toBe("Fix duplicate-session race");
+    });
+    it("lets a custom rename override the project label", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", customLabel: "my name", cwd: "/src/X" }),
+        ]);
+        expect(vm.groups[0].sessions[0].label).toBe("my name");
+    });
+    it("ignores a whitespace-only project label", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "   ", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].label).toBe("claude");
+    });
+    it("carries the project label onto the row so the roster can group by it", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", projectLabel: "waveterm", cwd: "/src/X" })]);
+        expect(vm.groups[0].sessions[0].projectLabel).toBe("waveterm");
+    });
+});
+
 describe("toggleCollapsed", () => {
     it("adds a label that is not present", () => {
         expect(toggleCollapsed([], "ServiceA")).toEqual(["ServiceA"]);

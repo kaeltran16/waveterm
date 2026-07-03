@@ -161,6 +161,11 @@ describe("agentVMFromInput", () => {
         const vm = agentVMFromInput({ id: "tab-1", name: "x", status: "working", blockId: "uuid-1" }, NOW);
         expect(vm.blockId).toBe("uuid-1");
     });
+
+    it("carries the launch project name through to the vm (so grouping uses it, not the lossy transcript-path derivation)", () => {
+        const vm = agentVMFromInput({ id: "tab-w", name: "waveterm", status: "working", project: "waveterm", ts: NOW }, NOW);
+        expect(vm.project).toBe("waveterm");
+    });
 });
 
 describe("agentVMFromInput status mapping", () => {

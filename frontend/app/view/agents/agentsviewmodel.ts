@@ -279,6 +279,7 @@ export interface LiveAgentInput {
     ts?: number; // last status change (UnixMilli)
     transcriptPath?: string;
     blockId?: string;
+    project?: string; // launch-time project name (session:project); groups the roster without the lossy path derivation
 }
 
 /** Pure: one live row -> an AgentVM. `working` and `waiting` both map to working (asking is applied
@@ -296,6 +297,7 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         activity: input.detail,
         transcriptPath: input.transcriptPath,
         blockId: input.blockId,
+        project: input.project,
     };
     if (state === "working") {
         vm.activeMs = age;
