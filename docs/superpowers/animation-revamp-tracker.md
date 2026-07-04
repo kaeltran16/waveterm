@@ -71,7 +71,7 @@ cross-surface transitions and shared modals.
 | Files / Diff | ✅ Shipped (2026-07-04) | Browse: file-list entrance/reflow (m1/m2) + no-cascade guard (shared, extracted to `motiontokens.ts`; source→key via `filesmotion.ts`), diff-pane crossfade (m5-style opacity), row selection micro (m7). Review: hunk/file completion settle (m4), progress-bar width transition, hunk-pane crossfade on file switch, applied-screen reveal (m1). One `<MotionConfig reducedMotion="user">` at the FilesSurface root. SHA `ff0286e4`. |
 | Memory | ☐ Not started | Vault viewer + force-graph. Candidates: detail reveal (m6); graph has its own physics — audit for conflicts. |
 | Usage | ✅ Shipped (2026-07-04) | Bars tween on recompute (m7, Files idiom): split/model/daily. Live donut rings sweep via `@property --usage-arc` (m7). Live-limit card entrance + one-shot Historical load reveal (m1, `useDidBecomeTrue`). Reduced motion: `MotionConfig` + `useReducedMotion` gate on inline transitions. No count-up, no cascade, no new motion module. SHA `29107756`. |
-| **Cross-surface tab transitions** | ☐ Not started | Switching surfaces (`[`/`]`, rail). Design decision pending: crossfade vs. none. Must not fight per-surface entrances. |
+| **Cross-surface tab transitions** | ✅ Shipped (2026-07-04) | Decision: **no container transition** — each surface's own entrance reveal IS the swap (only option that can't fight per-surface entrances; `CockpitShell` swaps by plain conditional render, no `AnimatePresence`/`layoutId`). Palette→surface hand-off is emergent (surface mounts under the fading `ModalShell`; set-surface-before-close at `command-palette.tsx:79`). Palette list stays an instant snap (verified: rows carry color-only transitions, no transform/reflow/cascade). Selection tint micro (m7 `transition-colors duration-[140ms]`): **shipped** — verified clean on held arrow-repeat (≤1 row mid-transition at any instant, no smear). No new tokens/primitives/shell changes. SHA `4f1ad5d5`. |
 | **Shared modals** (Settings, New Agent, Help) | ✅ Shipped (2026-07-03) | Backdrop fade + panel scale via `ModalShell`; generic `FlexiModal` stack animated; Settings excluded (surface); WhichKeyBar excluded. |
 
 Legend: ✅ shipped · ◐ in progress · ☐ not started
@@ -104,3 +104,5 @@ Legend: ✅ shipped · ◐ in progress · ☐ not started
 - Activity motion implementation plan: `docs/superpowers/plans/2026-07-04-activity-motion-system.md`
 - Usage motion design spec: `docs/superpowers/specs/2026-07-04-usage-motion-design.md`
 - Usage motion implementation plan: `docs/superpowers/plans/2026-07-04-usage-motion-system.md`
+- Cross-surface / Ctrl+P motion design spec: `docs/superpowers/specs/2026-07-04-cross-surface-ctrlp-motion-design.md`
+- Cross-surface / Ctrl+P motion implementation plan: `docs/superpowers/plans/2026-07-04-cross-surface-ctrlp-motion-system.md`
