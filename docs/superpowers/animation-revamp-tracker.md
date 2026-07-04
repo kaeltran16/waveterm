@@ -65,7 +65,7 @@ cross-surface transitions and shared modals.
 |---|---|---|
 | **Cockpit** | ✅ Shipped `b3ccce07`; chrome gaps + shared rail (2026-07-03) | 8 card moments + rolling counts, section-header entrance, grid→footer handoff, CollapsibleRail. |
 | Agent | ✅ Shipped (2026-07-04) | DETAILS rail = `CollapsibleRail`. AgentTree: roster entrance/reflow (m1 `cardVariants` + m2 `popLayout`/`layout="position"`) + no-cascade guard (`computeEntrances`, constant key), asking row tint + amber dot pulse (m3/m7), working→idle settle (m4, `useSettle`), selection micro (m7 `transition-colors`), animated subagent reveal (`composerReveal`). AgentHeader (calm): dot pulse + state-pill color transition + pill settle (m3/m4/m7). `<MotionConfig reducedMotion="user">` at the surface root. (m5 moot — center is the live TUI; m6 n/a — no composer.) No new tokens/helpers. |
-| Activity | ☐ Not started | Cross-project feed. Candidates: line entrance (m1/m5), no-cascade guard. |
+| Activity | ✅ Shipped (2026-07-04) | Snapshot feed: one-shot load reveal (container fade) + two-level filter reflow (m2 popLayout on project groups AND rows) via `reflowProps` promoted to `motiontokens.ts`. `<MotionConfig reducedMotion="user">` at root. No live-arrival entrance / attention glow (functional-first, no live feed). SHA `9424706b`. |
 | Channels | ✅ Shipped (2026-07-04) | Message entrance + no-cascade guard (`channelsmotion.ts`), streaming settle, escalation glow, rail selection micro + attention-dot pulse. |
 | Sessions | ✅ Shipped (2026-07-03) | Chip-filter reflow (m2 popLayout), instant search, one-shot load reveal, empty-state fade. No hero (surface is header+search+chips+list). |
 | Files / Diff | ✅ Shipped (2026-07-04) | Browse: file-list entrance/reflow (m1/m2) + no-cascade guard (shared, extracted to `motiontokens.ts`; source→key via `filesmotion.ts`), diff-pane crossfade (m5-style opacity), row selection micro (m7). Review: hunk/file completion settle (m4), progress-bar width transition, hunk-pane crossfade on file switch, applied-screen reveal (m1). One `<MotionConfig reducedMotion="user">` at the FilesSurface root. SHA `ff0286e4`. |
@@ -100,3 +100,5 @@ Legend: ✅ shipped · ◐ in progress · ☐ not started
 - Channels motion implementation plan: `docs/superpowers/plans/2026-07-04-channels-motion-system.md`
 - Files/Diff motion design spec: `docs/superpowers/specs/2026-07-04-files-diff-motion-design.md`
 - Files/Diff motion implementation plan: `docs/superpowers/plans/2026-07-04-files-diff-motion-system.md`
+- Activity motion design spec: `docs/superpowers/specs/2026-07-04-activity-motion-design.md`
+- Activity motion implementation plan: `docs/superpowers/plans/2026-07-04-activity-motion-system.md`
