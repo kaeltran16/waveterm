@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -158,6 +159,69 @@ func mergeAgentHooks(existing map[string]any, wshExe string) map[string]any {
 	return out
 }
 
+// isManagedStatusLine reports whether a statusLine command is Arc's wrapper: first token's
+// basename starts with "wsh" and the remainder begins with "statusline". Path/version-independent.
+func isManagedStatusLine(command string) bool {
+	exe, rest := splitFirstToken(command)
+	if exe == "" {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(filepath.Base(exe)), "wsh") {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(rest), "statusline")
+}
+
+func encodeInner(inner string) string {
+	return base64.StdEncoding.EncodeToString([]byte(inner))
+}
+
+func decodeInner(b64 string) string {
+	data, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// recoverInner extracts the base64 --inner= value from a managed statusLine command, decoded
+// back to the user's original command (empty string if none / unparseable).
+func recoverInner(command string) string {
+	_, rest := splitFirstToken(command)
+	for _, f := range strings.Fields(strings.TrimSpace(rest)) {
+		if strings.HasPrefix(f, "--inner=") {
+			return decodeInner(strings.TrimPrefix(f, "--inner="))
+		}
+	}
+	return ""
+}
+
+// mergeStatusLine returns a copy of existing with statusLine.command wrapped by Arc's
+// "wsh statusline --inner=<b64>", carrying the user's original command so their terminal
+// statusline display is unchanged. Idempotent: re-wrapping recovers the original instead of nesting.
+func mergeStatusLine(existing map[string]any, wshExe string) map[string]any {
+	out := map[string]any{}
+	if b, err := json.Marshal(existing); err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	sl, _ := out["statusLine"].(map[string]any)
+	if sl == nil {
+		sl = map[string]any{}
+	}
+	inner := ""
+	if cur, _ := sl["command"].(string); cur != "" {
+		if isManagedStatusLine(cur) {
+			inner = recoverInner(cur)
+		} else {
+			inner = cur
+		}
+	}
+	sl["type"] = "command"
+	sl["command"] = quotePath(wshExe) + " statusline --inner=" + encodeInner(inner)
+	out["statusLine"] = sl
+	return out
+}
+
 var installAgentHooksCmd = &cobra.Command{
 	Use:                   "install-agent-hooks",
 	Short:                 "install Arc's Claude Code hooks into ~/.claude/settings.json (idempotent)",
@@ -195,6 +259,7 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 	}
 
 	merged := mergeAgentHooks(existing, exe)
+	merged = mergeStatusLine(merged, exe)
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding settings: %w", err)

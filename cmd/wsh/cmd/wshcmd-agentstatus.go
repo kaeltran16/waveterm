@@ -156,21 +156,22 @@ func publishUsageDelta(cmd *cobra.Command, oref *waveobj.ORef) error {
 		}
 	}
 
+	if err := publishUsage(oref, usage); err != nil {
+		return fmt.Errorf("publishing agentstatus usage event: %v", err)
+	}
+	fmt.Printf("agentstatus usage set\n")
+	return nil
+}
+
+func publishUsage(oref *waveobj.ORef, usage *baseds.AgentUsage) error {
 	eventData := baseds.AgentStatusData{
 		ORef:  oref.String(),
 		Ts:    time.Now().UnixMilli(),
 		Usage: usage,
 	}
-
-	// Persist:0 — usage deltas are ephemeral, exactly like subagent deltas. The retained Persist:1
-	// parent-state event for this scope shares the same persistKey and must remain the one a late
-	// subscriber replays; a retained usage event would evict it.
-	err := publishAgentStatusData(oref, eventData, 0)
-	if err != nil {
-		return fmt.Errorf("publishing agentstatus usage event: %v", err)
-	}
-	fmt.Printf("agentstatus usage set\n")
-	return nil
+	// Persist:0 — usage deltas are ephemeral; a retained usage event would evict the
+	// retained Persist:1 parent-state event that a late subscriber must replay.
+	return publishAgentStatusData(oref, eventData, 0)
 }
 
 func publishSubagentDelta(oref *waveobj.ORef) error {

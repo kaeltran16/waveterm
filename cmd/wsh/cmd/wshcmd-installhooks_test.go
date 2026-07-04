@@ -133,3 +133,84 @@ func strings_Contains(s, sub string) bool {
 		return false
 	})()
 }
+
+func TestIsManagedStatusLine(t *testing.T) {
+	cases := map[string]bool{
+		`"C:\a\bin\wsh-0.14.5-windows.x64.exe" statusline --inner=YmFzaCB4`: true,
+		`"/usr/local/bin/wsh" statusline --inner=`:                         true,
+		`wsh statusline`:                                                   true,
+		`bash /c/Users/x/statusline-command.sh`:                           false,
+		`"C:\a\bin\wsh.exe" agent-hook`:                                    false,
+		``:                                                                 false,
+	}
+	for cmd, want := range cases {
+		if got := isManagedStatusLine(cmd); got != want {
+			t.Fatalf("isManagedStatusLine(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+func TestMergeStatusLineWrapsUnmanaged(t *testing.T) {
+	existing := map[string]any{
+		"statusLine": map[string]any{"type": "command", "command": `bash /c/Users/x/sl.sh`},
+	}
+	got := mergeStatusLine(existing, testWsh)
+	sl := got["statusLine"].(map[string]any)
+	cmd := sl["command"].(string)
+	if !isManagedStatusLine(cmd) {
+		t.Fatalf("command not managed after wrap: %q", cmd)
+	}
+	if inner := recoverInner(cmd); inner != `bash /c/Users/x/sl.sh` {
+		t.Fatalf("inner not preserved: %q", inner)
+	}
+	if sl["type"] != "command" {
+		t.Fatal("type not set to command")
+	}
+}
+
+func TestMergeStatusLineEmpty(t *testing.T) {
+	got := mergeStatusLine(map[string]any{}, testWsh)
+	sl := got["statusLine"].(map[string]any)
+	cmd := sl["command"].(string)
+	if !isManagedStatusLine(cmd) {
+		t.Fatalf("command not managed: %q", cmd)
+	}
+	if inner := recoverInner(cmd); inner != "" {
+		t.Fatalf("expected empty inner, got %q", inner)
+	}
+}
+
+func TestMergeStatusLineIdempotentNoNest(t *testing.T) {
+	existing := map[string]any{
+		"statusLine": map[string]any{"type": "command", "command": `bash /c/Users/x/sl.sh`},
+	}
+	once := mergeStatusLine(existing, testWsh)
+	twice := mergeStatusLine(once, testWsh)
+	inner := recoverInner(twice["statusLine"].(map[string]any)["command"].(string))
+	if inner != `bash /c/Users/x/sl.sh` {
+		t.Fatalf("re-wrap nested or lost inner: %q", inner)
+	}
+}
+
+func TestMergeStatusLineRefreshesPath(t *testing.T) {
+	existing := map[string]any{
+		"statusLine": map[string]any{"type": "command", "command": `bash /x/sl.sh`},
+	}
+	old := mergeStatusLine(existing, `C:\old\bin\wsh-0.14.4-windows.x64.exe`)
+	refreshed := mergeStatusLine(old, testWsh)
+	cmd := refreshed["statusLine"].(map[string]any)["command"].(string)
+	if strings_Contains(cmd, "0.14.4") {
+		t.Fatalf("stale path still present: %q", cmd)
+	}
+	if inner := recoverInner(cmd); inner != `bash /x/sl.sh` {
+		t.Fatalf("inner lost on refresh: %q", inner)
+	}
+}
+
+func TestMergeStatusLinePreservesOtherKeys(t *testing.T) {
+	existing := map[string]any{"theme": "dark", "statusLine": map[string]any{"command": `bash /x.sh`}}
+	got := mergeStatusLine(existing, testWsh)
+	if got["theme"] != "dark" {
+		t.Fatal("theme not preserved")
+	}
+}

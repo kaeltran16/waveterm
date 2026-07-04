@@ -24,7 +24,8 @@ Claude Code delivers context/rate-limit/cost numbers to exactly one place: the
 is no hook that sees this data. This is the gap that originally left the display dark:
 the Wave half (the `wsh agentstatus --usage` command and the FE rendering) shipped in
 `fa195bf1`, but nothing ever *called* `--usage`. The statusLine script computed the
-numbers only to print them to the terminal.
+numbers only to print them to the terminal. This is now bridged automatically by the
+Arc-managed `wsh statusline` wrapper (see Setup).
 
 ## Data flow
 
@@ -72,43 +73,22 @@ for API-key auth) — omit them rather than send `0`, or the gauge shows a misle
 | `.rate_limits.seven_day.used_percentage`  | `--week-pct`        | `weekpct`        | subscriber-only → "This week" gauge (key is `seven_day`, **not** `weekly`) |
 | `.rate_limits.seven_day.resets_at`        | `--week-reset`      | `weekreset`      | epoch seconds                  |
 
-## Setup
+## Setup (automatic)
 
-The bridge lives in your user-level `~/.claude/statusline-command.sh` (the
-`statusLine.command` in `~/.claude/settings.json`). After parsing the fields above,
-add — guarded so it never delays the printed status line and never publishes a
-misleading 0%:
+Provisioning is automatic — there is nothing to hand-edit. On every launch the Arc
+app runs `wsh install-agent-hooks`, which (besides the lifecycle hooks) wraps your
+`statusLine.command` in `~/.claude/settings.json`:
 
-```bash
-# Mirror usage into Wave's Agents tab. Detached + backgrounded so it never delays the
-# status line; the line re-fires often, so a dropped publish self-heals next render.
-# Gated on context data so a non-subscriber session reports nothing rather than 0%.
-if [ -n "$WAVETERM_BLOCKID" ] && [ -n "$used_pct" ] && command -v wsh >/dev/null 2>&1; then
-    usage_args=(--context-pct "$used_pct")
-    [ -n "$ctx_max" ]  && usage_args+=(--context-max "$ctx_max")
-    [ -n "$cost_usd" ] && usage_args+=(--cost-usd "$cost_usd")
-    [ -n "$rate_5h" ]  && usage_args+=(--five-hour-pct "$rate_5h")
-    [ -n "$reset_5h" ] && usage_args+=(--five-hour-reset "$reset_5h")
-    [ -n "$rate_7d" ]  && usage_args+=(--week-pct "$rate_7d")
-    [ -n "$reset_7d" ] && usage_args+=(--week-reset "$reset_7d")
-    ( wsh agentstatus --usage "${usage_args[@]}" >/dev/null 2>&1 & )
-fi
-```
+    statusLine.command  →  "<wsh>" statusline --inner=<base64 of your original command>
 
-with the matching field parsing (`jq -r '… // empty'`):
+`wsh statusline` reads the statusLine JSON on stdin, publishes the usage delta to
+Wave, and then runs your original command with the same stdin — so your terminal
+statusline display is unchanged. The wrap is idempotent: re-running decodes
+`--inner=` to recover your true original instead of nesting, and refreshes the `wsh`
+path so app updates self-heal. If you change your statusLine later, the next launch
+re-wraps the new value.
 
-```bash
-ctx_max=$(echo "$input"  | jq -r '.context_window.context_window_size // empty')
-cost_usd=$(echo "$input" | jq -r '.cost.total_cost_usd // empty')
-reset_5h=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
-rate_7d=$(echo "$input"  | jq -r '.rate_limits.seven_day.used_percentage // empty')
-reset_7d=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
-```
-
-`wsh agentstatus` takes no block argument — it resolves the current block from
-`$WAVETERM_BLOCKID` (set by Wave in the terminal env, inherited by the statusLine
-command), exactly like the reporter. `wsh agentstatus --usage` requires **wsh ≥
-v0.14.5** (where the `--usage` flags landed); older binaries reject `--usage`.
+To (re)provision manually from any Arc terminal: `wsh install-agent-hooks`.
 
 ## Verifying
 
