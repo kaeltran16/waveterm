@@ -222,7 +222,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                             onMouseMove={() => setSel(myIdx)}
                                             onClick={() => it.run()}
                                             className={cn(
-                                                "flex w-full cursor-pointer items-center gap-3 px-4 py-[7px] text-left",
+                                                "flex w-full cursor-pointer items-center gap-3 px-4 py-[7px] text-left transition-colors duration-[140ms]",
                                                 active ? "bg-accentbg" : "hover:bg-surface-hover"
                                             )}
                                         >
