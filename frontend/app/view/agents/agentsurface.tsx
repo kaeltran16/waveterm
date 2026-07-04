@@ -17,6 +17,7 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import type { Binding } from "@/app/store/keybindings/types";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentDetailsRail } from "./agentdetailsrail";
@@ -117,32 +118,34 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     }
 
     return (
-        <div ref={wrapRef} tabIndex={0} className="flex h-full w-full outline-none">
-            {!fullscreen ? <AgentTree model={model} /> : null}
-            <div className="flex min-w-0 flex-1 flex-col">
-                <AgentHeader agent={agent} />
-                {/* Keep every live agent's terminal mounted and toggle display:none, mirroring the
-                    surface-level keep-alive (cockpitshell.tsx). Swapping one pane's blockId on focus
-                    change disposes+recreates the term, whose restore replays a serialized snapshot and
-                    then resumes the live Claude Code TUI's differential stream on top of it — the frames
-                    stack (the "distortion"). A visibility toggle avoids the remount entirely. */}
-                {mountable
-                    .filter((a) => a.blockId != null)
-                    .map((a) => (
-                        <div
-                            key={a.id}
-                            className={cn("min-h-0 flex-1", a.id === agent.id ? "flex flex-col" : "hidden")}
-                        >
-                            <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+        <MotionConfig reducedMotion="user">
+            <div ref={wrapRef} tabIndex={0} className="flex h-full w-full outline-none">
+                {!fullscreen ? <AgentTree model={model} /> : null}
+                <div className="flex min-w-0 flex-1 flex-col">
+                    <AgentHeader agent={agent} />
+                    {/* Keep every live agent's terminal mounted and toggle display:none, mirroring the
+                        surface-level keep-alive (cockpitshell.tsx). Swapping one pane's blockId on focus
+                        change disposes+recreates the term, whose restore replays a serialized snapshot and
+                        then resumes the live Claude Code TUI's differential stream on top of it — the frames
+                        stack (the "distortion"). A visibility toggle avoids the remount entirely. */}
+                    {mountable
+                        .filter((a) => a.blockId != null)
+                        .map((a) => (
+                            <div
+                                key={a.id}
+                                className={cn("min-h-0 flex-1", a.id === agent.id ? "flex flex-col" : "hidden")}
+                            >
+                                <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                            </div>
+                        ))}
+                    {agent.blockId == null ? (
+                        <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
+                            No live terminal for this agent.
                         </div>
-                    ))}
-                {agent.blockId == null ? (
-                    <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
-                        No live terminal for this agent.
-                    </div>
-                ) : null}
+                    ) : null}
+                </div>
+                {!fullscreen && agent.kind !== "terminal" ? <AgentDetailsRail model={model} agent={agent} /> : null}
             </div>
-            {!fullscreen && agent.kind !== "terminal" ? <AgentDetailsRail model={model} agent={agent} /> : null}
-        </div>
+        </MotionConfig>
     );
 }

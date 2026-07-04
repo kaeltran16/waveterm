@@ -5,6 +5,7 @@
 // Extracted from the former AgentTranscript header (now removed): the real Claude Code TUI has no
 // chrome of its own, so this keeps name/status/model/context% + the details-rail toggle visible.
 
+import { useSettle } from "@/app/element/motionhooks";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -40,6 +41,8 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
     const blockId = agent.blockId;
+    // m4: one-shot settle on the state pill when the focused agent reaches idle
+    const settling = useSettle(agent.state === "idle");
 
     // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
     const interrupt = () => {
@@ -82,7 +85,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
             onContextMenu={onContextMenu}
             className="flex shrink-0 items-center gap-[13px] border-b border-[#1a1f26] bg-background px-[22px] py-[14px]"
         >
-            <StatusDot state={agent.state} className="!h-[9px] !w-[9px]" />
+            <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[9px] !w-[9px]" />
             <div className="min-w-0">
                 <div className="flex items-center gap-[9px]">
                     <span className="whitespace-nowrap font-mono text-[15px] font-semibold text-[#eef1f4]">
@@ -100,7 +103,10 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                         {rt.label}
                     </span>
                     <span
-                        className="rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85"
+                        className={cn(
+                            "rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
+                            settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                        )}
                         style={{ color: STATE_COLOR[agent.state], borderColor: STATE_COLOR[agent.state] }}
                     >
                         {STATE_LABEL[agent.state]}
