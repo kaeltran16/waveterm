@@ -5,10 +5,12 @@
 // feed, type-filterable, grouped by project. Loads on mount via loadActivity. Jump is live-only:
 // ended sessions render no Jump button (deferred to the Sessions surface).
 
+import { MOTION, cardVariants, reflowProps } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { useEffect, useState } from "react";
 import type { ActivityEvent, ActivityType } from "./activityevents";
 import { activityEventsAtom, applyFilter, groupByProject, loadActivity } from "./activitystore";
 import type { AgentsViewModel } from "./agents";
@@ -48,98 +50,137 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
     const events = useAtomValue(activityEventsAtom);
     const filter = useAtomValue(model.activityFilterAtom);
     const now = useAtomValue(model.nowAtom);
+    // Load reveal fires only on the first-ever visit: activityEventsAtom is module-level and persists
+    // across surface remounts, so it is empty only before the first load ever completes.
+    const [mountedEmpty] = useState(() => events.length === 0);
+    // Chips animate the two-level reflow; the first populate stays silent (the container fade covers it).
+    const [reflowAnimated, setReflowAnimated] = useState(false);
     useEffect(() => {
         void loadActivity(model);
     }, [model]);
     const groups = groupByProject(applyFilter(events, filter));
+    const rp = reflowProps(reflowAnimated);
     return (
-        <div className="absolute inset-0 overflow-y-auto">
-            <div className="mx-auto max-w-[820px] px-[30px] pb-[70px] pt-[30px]">
-                <div className="mb-5">
-                    <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">Activity</h1>
-                    <p className="text-[13.5px] text-secondary">Every agent event, grouped by project.</p>
-                </div>
-                <div className="mb-7 flex flex-wrap gap-2">
-                    {CHIPS.map((c) => {
-                        const active = filter === c.key;
-                        const dot = c.key !== "all" ? TYPE_META[c.key].color : undefined;
-                        return (
-                            <button
-                                key={c.key}
-                                type="button"
-                                onClick={() => globalStore.set(model.activityFilterAtom, c.key)}
-                                className={cn(
-                                    "cursor-pointer rounded-[8px] border px-[13px] py-[6px] text-[12px] font-medium",
-                                    active
-                                        ? "border-accent bg-accentbg text-accent-soft"
-                                        : "border-border bg-surface text-ink-mid hover:border-edge-strong"
-                                )}
-                            >
-                                {dot ? (
-                                    <span className="mr-1.5" style={{ color: dot }}>
-                                        ●
-                                    </span>
-                                ) : null}
-                                {c.label}
-                            </button>
-                        );
-                    })}
-                </div>
-                {groups.length === 0 ? (
-                    <div className="mt-10 text-center text-[13px] text-muted">No recent activity.</div>
-                ) : (
-                    groups.map((g) => (
-                        <div key={g.project} className="mb-[30px]">
-                            <div className="mb-1.5 flex items-center gap-2.5">
-                                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
-                                    {g.project}
-                                </span>
-                                <div className="h-px flex-1 bg-border" />
-                                {g.attn > 0 ? (
-                                    <span className="rounded-[5px] bg-accentbg px-1.5 font-mono text-[9.5px] font-semibold text-asking">
-                                        {g.attn} need you
-                                    </span>
-                                ) : null}
-                                <span className="font-mono text-[10.5px] font-semibold text-muted">{g.count}</span>
-                            </div>
-                            {g.events.map((e) => (
-                                <div key={e.id} className="flex gap-4 border-b border-edge-faint px-1 py-3.5 hover:bg-surface">
-                                    <span className="w-[42px] shrink-0 pt-0.5 text-right font-mono text-[11.5px] text-muted">
-                                        {now - e.ts < 60_000 ? "now" : formatAge(now - e.ts)}
-                                    </span>
-                                    <span
-                                        className="mt-1 h-[9px] w-[9px] shrink-0 rounded-full"
-                                        style={{ backgroundColor: TYPE_META[e.type].color }}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-[13.5px] leading-[1.5] text-secondary">
-                                            <span className="font-mono text-[13px] font-semibold text-primary">{e.agentName}</span> {e.text}
-                                        </div>
-                                        <div className="mt-[5px] flex items-center gap-2">
-                                            <span
-                                                className="font-mono text-[10px] font-medium uppercase tracking-[0.06em]"
-                                                style={{ color: TYPE_META[e.type].color }}
-                                            >
-                                                {TYPE_META[e.type].label}
-                                            </span>
-                                            <span className="font-mono text-[10.5px] text-muted">{ago(now, e.ts)}</span>
-                                        </div>
-                                    </div>
-                                    {e.live ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => jump(model, e)}
-                                            className="shrink-0 cursor-pointer self-center rounded-[7px] border border-border px-[11px] py-[5px] text-[11.5px] font-medium text-ink-mid hover:border-accent hover:text-accent-soft"
-                                        >
-                                            Jump →
-                                        </button>
+        <MotionConfig reducedMotion="user">
+            <div className="absolute inset-0 overflow-y-auto">
+                <div className="mx-auto max-w-[820px] px-[30px] pb-[70px] pt-[30px]">
+                    <div className="mb-5">
+                        <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">Activity</h1>
+                        <p className="text-[13.5px] text-secondary">Every agent event, grouped by project.</p>
+                    </div>
+                    <div className="mb-7 flex flex-wrap gap-2">
+                        {CHIPS.map((c) => {
+                            const active = filter === c.key;
+                            const dot = c.key !== "all" ? TYPE_META[c.key].color : undefined;
+                            return (
+                                <button
+                                    key={c.key}
+                                    type="button"
+                                    onClick={() => {
+                                        globalStore.set(model.activityFilterAtom, c.key);
+                                        setReflowAnimated(true);
+                                    }}
+                                    className={cn(
+                                        "cursor-pointer rounded-[8px] border px-[13px] py-[6px] text-[12px] font-medium",
+                                        active
+                                            ? "border-accent bg-accentbg text-accent-soft"
+                                            : "border-border bg-surface text-ink-mid hover:border-edge-strong"
+                                    )}
+                                >
+                                    {dot ? (
+                                        <span className="mr-1.5" style={{ color: dot }}>
+                                            ●
+                                        </span>
                                     ) : null}
-                                </div>
-                            ))}
-                        </div>
-                    ))
-                )}
+                                    {c.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {groups.length === 0 ? (
+                        <div className="mt-10 text-center text-[13px] text-muted">No recent activity.</div>
+                    ) : (
+                        <motion.div
+                            initial={mountedEmpty ? { opacity: 0 } : false}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                        >
+                            <AnimatePresence mode="popLayout" initial={false}>
+                                {groups.map((g) => (
+                                    <motion.div
+                                        key={g.project}
+                                        layout
+                                        variants={cardVariants}
+                                        initial={rp.initial}
+                                        animate="animate"
+                                        exit={rp.exit}
+                                        transition={rp.transition}
+                                        className="mb-[30px]"
+                                    >
+                                        <div className="mb-1.5 flex items-center gap-2.5">
+                                            <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
+                                                {g.project}
+                                            </span>
+                                            <div className="h-px flex-1 bg-border" />
+                                            {g.attn > 0 ? (
+                                                <span className="rounded-[5px] bg-accentbg px-1.5 font-mono text-[9.5px] font-semibold text-asking">
+                                                    {g.attn} need you
+                                                </span>
+                                            ) : null}
+                                            <span className="font-mono text-[10.5px] font-semibold text-muted">{g.count}</span>
+                                        </div>
+                                        <AnimatePresence mode="popLayout" initial={false}>
+                                            {g.events.map((e) => (
+                                                <motion.div
+                                                    key={e.id}
+                                                    layout
+                                                    variants={cardVariants}
+                                                    initial={rp.initial}
+                                                    animate="animate"
+                                                    exit={rp.exit}
+                                                    transition={rp.transition}
+                                                    className="flex gap-4 border-b border-edge-faint px-1 py-3.5 hover:bg-surface"
+                                                >
+                                                    <span className="w-[42px] shrink-0 pt-0.5 text-right font-mono text-[11.5px] text-muted">
+                                                        {now - e.ts < 60_000 ? "now" : formatAge(now - e.ts)}
+                                                    </span>
+                                                    <span
+                                                        className="mt-1 h-[9px] w-[9px] shrink-0 rounded-full"
+                                                        style={{ backgroundColor: TYPE_META[e.type].color }}
+                                                    />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-[13.5px] leading-[1.5] text-secondary">
+                                                            <span className="font-mono text-[13px] font-semibold text-primary">{e.agentName}</span> {e.text}
+                                                        </div>
+                                                        <div className="mt-[5px] flex items-center gap-2">
+                                                            <span
+                                                                className="font-mono text-[10px] font-medium uppercase tracking-[0.06em]"
+                                                                style={{ color: TYPE_META[e.type].color }}
+                                                            >
+                                                                {TYPE_META[e.type].label}
+                                                            </span>
+                                                            <span className="font-mono text-[10.5px] text-muted">{ago(now, e.ts)}</span>
+                                                        </div>
+                                                    </div>
+                                                    {e.live ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => jump(model, e)}
+                                                            className="shrink-0 cursor-pointer self-center rounded-[7px] border border-border px-[11px] py-[5px] text-[11.5px] font-medium text-ink-mid hover:border-accent hover:text-accent-soft"
+                                                        >
+                                                            Jump →
+                                                        </button>
+                                                    ) : null}
+                                                </motion.div>
+                                            ))}
+                                        </AnimatePresence>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+                        </motion.div>
+                    )}
+                </div>
             </div>
-        </div>
+        </MotionConfig>
     );
 }
