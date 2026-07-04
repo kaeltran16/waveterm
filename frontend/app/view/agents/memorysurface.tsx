@@ -5,9 +5,11 @@
 // List (grouped by scope, type pills) + detail rail (content, meta, related/backlinks, Edit/Delete).
 // Graph view added in a follow-up task; until then the toggle shows a calm placeholder.
 
+import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { resolveCwd } from "./agentcwdresolve";
@@ -22,6 +24,7 @@ import {
     memEdgesAtom,
     memLoadedAtom,
     memNotesAtom,
+    memReflowAnimatedAtom,
     memSearchAtom,
     memSelectedIdAtom,
     memViewAtom,
@@ -42,7 +45,10 @@ function Header({ count, onNew }: { count: number; onNew: () => void }) {
             <div className="flex-1" />
             <input
                 value={search}
-                onChange={(e) => globalStore.set(memSearchAtom, e.target.value)}
+                onChange={(e) => {
+                    globalStore.set(memSearchAtom, e.target.value);
+                    globalStore.set(memReflowAnimatedAtom, false); // search filters instantly, never reflow-animated
+                }}
                 placeholder="Search memory…"
                 className="w-[230px] rounded-[9px] border border-border bg-surface px-[12px] py-[8px] text-[13px] text-foreground outline-none placeholder:text-ink-mid"
             />
@@ -76,53 +82,87 @@ function Header({ count, onNew }: { count: number; onNew: () => void }) {
     );
 }
 
-function ListView({ notes, selectedId }: { notes: MemNote[]; selectedId: string | null }) {
+function ListView({
+    notes,
+    selectedId,
+    rp,
+    mountedEmpty,
+}: {
+    notes: MemNote[];
+    selectedId: string | null;
+    rp: ReflowProps;
+    mountedEmpty: boolean;
+}) {
     const groups = groupByScope(notes);
     return (
-        <div className="mx-auto max-w-[780px] px-[28px] pb-[60px] pt-[10px]">
-            {groups.map((g) => (
-                <div key={g.name} className="mb-[26px]">
-                    <div className="mb-[11px] flex items-center gap-[10px]">
-                        <h2 className="font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-mid">
-                            {g.name}
-                        </h2>
-                        <span className="font-mono text-[11px] font-semibold text-ink-faint">{g.count}</span>
-                        <div className="h-px flex-1 bg-gradient-to-r from-edge-faint to-transparent" />
-                    </div>
-                    <div className="flex flex-col gap-[8px]">
-                        {g.items.map((n) => {
-                            const m = typeMeta(n.type);
-                            return (
-                                <button
-                                    key={n.id}
-                                    onClick={() => fireAndForget(() => selectNote(n.id))}
-                                    className={cn(
-                                        "flex cursor-pointer items-center gap-[13px] rounded-[11px] border px-[15px] py-[12px] text-left hover:border-edge-strong",
-                                        n.id === selectedId ? "border-edge-strong bg-surface" : "border-edge-faint bg-background"
-                                    )}
-                                >
-                                    <span
+        <motion.div
+            initial={mountedEmpty ? { opacity: 0 } : false}
+            animate={{ opacity: 1 }}
+            transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+            className="mx-auto max-w-[780px] px-[28px] pb-[60px] pt-[10px]"
+        >
+            <AnimatePresence mode="popLayout" initial={false}>
+                {groups.map((g) => (
+                    <motion.div
+                        key={g.name}
+                        layout
+                        variants={cardVariants}
+                        initial={rp.initial}
+                        animate="animate"
+                        exit={rp.exit}
+                        transition={rp.transition}
+                        className="mb-[26px]"
+                    >
+                        <div className="mb-[11px] flex items-center gap-[10px]">
+                            <h2 className="font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-mid">
+                                {g.name}
+                            </h2>
+                            <span className="font-mono text-[11px] font-semibold text-ink-faint">{g.count}</span>
+                            <div className="h-px flex-1 bg-gradient-to-r from-edge-faint to-transparent" />
+                        </div>
+                        <AnimatePresence mode="popLayout" initial={false}>
+                            {g.items.map((n) => {
+                                const m = typeMeta(n.type);
+                                return (
+                                    <motion.button
+                                        key={n.id}
+                                        layout
+                                        variants={cardVariants}
+                                        initial={rp.initial}
+                                        animate="animate"
+                                        exit={rp.exit}
+                                        transition={rp.transition}
+                                        onClick={() => fireAndForget(() => selectNote(n.id))}
                                         className={cn(
-                                            "min-w-[78px] flex-none rounded-[5px] px-[8px] py-[3px] text-center font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em]",
-                                            m.pillClass
+                                            "mb-[8px] flex w-full cursor-pointer items-center gap-[13px] rounded-[11px] border px-[15px] py-[12px] text-left transition-colors duration-150 hover:border-edge-strong",
+                                            n.id === selectedId
+                                                ? "border-edge-strong bg-surface"
+                                                : "border-edge-faint bg-background"
                                         )}
-                                        style={{ background: "rgba(255,255,255,0.05)" }}
                                     >
-                                        {m.label}
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="truncate font-mono text-[13px] font-semibold text-foreground">
-                                            {n.title}
+                                        <span
+                                            className={cn(
+                                                "min-w-[78px] flex-none rounded-[5px] px-[8px] py-[3px] text-center font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em]",
+                                                m.pillClass
+                                            )}
+                                            style={{ background: "rgba(255,255,255,0.05)" }}
+                                        >
+                                            {m.label}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate font-mono text-[13px] font-semibold text-foreground">
+                                                {n.title}
+                                            </div>
+                                            <div className="truncate text-[11.5px] text-ink-mid">{n.description}</div>
                                         </div>
-                                        <div className="truncate text-[11.5px] text-ink-mid">{n.description}</div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            ))}
-        </div>
+                                    </motion.button>
+                                );
+                            })}
+                        </AnimatePresence>
+                    </motion.div>
+                ))}
+            </AnimatePresence>
+        </motion.div>
     );
 }
 
@@ -135,54 +175,34 @@ function MetaRow({ label, value, border }: { label: string; value: string; borde
     );
 }
 
-function DetailRail({ notes }: { notes: MemNote[] }) {
-    const selectedId = useAtomValue(memSelectedIdAtom);
-    const body = useAtomValue(memBodyAtom);
-    const edges = useAtomValue(memEdgesAtom);
-    const [editing, setEditing] = useState(false);
-    const [draft, setDraft] = useState("");
-    const [conflict, setConflict] = useState(false);
-    const sel = notes.find((n) => n.id === selectedId);
-
-    useEffect(() => {
-        setEditing(false);
-        setConflict(false);
-    }, [selectedId]);
-
-    if (!sel) {
-        return (
-            <aside className="w-[330px] flex-none border-l border-edge-faint bg-surface p-[22px] text-[13px] text-ink-mid">
-                Select a memory to see its content.
-            </aside>
-        );
-    }
+function DetailBody({
+    sel,
+    body,
+    related,
+    editing,
+    draft,
+    conflict,
+    setDraft,
+    startEdit,
+    doSave,
+    setEditing,
+    setConflict,
+}: {
+    sel: MemNote;
+    body: { body: string; mtime: number } | null;
+    related: MemNote[];
+    editing: boolean;
+    draft: string;
+    conflict: boolean;
+    setDraft: (v: string) => void;
+    startEdit: () => void;
+    doSave: () => void;
+    setEditing: (v: boolean) => void;
+    setConflict: (v: boolean) => void;
+}) {
     const m = typeMeta(sel.type);
-    const relatedIds = new Set<string>();
-    for (const e of edges) {
-        if (e.from === sel.id) relatedIds.add(e.to);
-        if (e.to === sel.id) relatedIds.add(e.from);
-    }
-    const related = notes.filter((n) => relatedIds.has(n.id));
-
-    const startEdit = () => {
-        setDraft(body?.body ?? "");
-        setConflict(false);
-        setEditing(true);
-    };
-    const doSave = () => {
-        const baseMtime = body?.mtime ?? 0;
-        fireAndForget(async () => {
-            const r = await saveNote(sel.path, draft, baseMtime);
-            if (r.conflict) {
-                setConflict(true); // file changed on disk since open; reload to see it
-            } else {
-                setEditing(false);
-            }
-        });
-    };
-
     return (
-        <aside className="w-[330px] flex-none overflow-y-auto border-l border-edge-faint bg-surface px-[20px] pb-[40px] pt-[22px]">
+        <>
             <div className="mb-[13px] flex items-center gap-[9px]">
                 <span className={cn("rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase", m.pillClass)} style={{ background: "rgba(255,255,255,0.05)" }}>
                     {m.label}
@@ -192,22 +212,27 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
             </div>
             <h2 className="mb-[14px] text-[18px] font-bold leading-[1.3] text-foreground">{sel.title}</h2>
             <div className="mb-[8px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mid">Content</div>
-            {editing ? (
-                <textarea
-                    autoFocus
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    className="mb-[10px] h-[220px] w-full resize-none rounded-[10px] border border-accent/40 bg-background px-[15px] py-[13px] font-mono text-[12.5px] leading-[1.6] text-ink-hi outline-none"
-                />
-            ) : (
-                <div className="mb-[10px] rounded-[10px] border border-edge-faint bg-background px-[15px] py-[13px] text-[13.5px] leading-[1.6] text-ink-hi">
-                    {body == null ? (
-                        "Loading…"
+            <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                    key={editing ? "edit" : body == null ? "load" : "ready"}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
+                    exit={{ opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } }}
+                >
+                    {editing ? (
+                        <textarea
+                            autoFocus
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            className="mb-[10px] h-[220px] w-full resize-none rounded-[10px] border border-accent/40 bg-background px-[15px] py-[13px] font-mono text-[12.5px] leading-[1.6] text-ink-hi outline-none"
+                        />
                     ) : (
-                        <MarkdownMessage text={body.body || sel.description} />
+                        <div className="mb-[10px] rounded-[10px] border border-edge-faint bg-background px-[15px] py-[13px] text-[13.5px] leading-[1.6] text-ink-hi">
+                            {body == null ? "Loading…" : <MarkdownMessage text={body.body || sel.description} />}
+                        </div>
                     )}
-                </div>
-            )}
+                </motion.div>
+            </AnimatePresence>
             {conflict && (
                 <div className="mb-[10px] rounded-[8px] border border-warning/40 bg-warning/10 px-[11px] py-[8px] text-[12px] text-warning">
                     This note changed on disk since you opened it. Reload to see the latest before saving.
@@ -281,6 +306,79 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
                     </div>
                 </>
             )}
+        </>
+    );
+}
+
+function DetailRail({ notes }: { notes: MemNote[] }) {
+    const selectedId = useAtomValue(memSelectedIdAtom);
+    const body = useAtomValue(memBodyAtom);
+    const edges = useAtomValue(memEdgesAtom);
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+    const [conflict, setConflict] = useState(false);
+    const sel = notes.find((n) => n.id === selectedId);
+
+    useEffect(() => {
+        setEditing(false);
+        setConflict(false);
+    }, [selectedId]);
+
+    const relatedIds = new Set<string>();
+    if (sel) {
+        for (const e of edges) {
+            if (e.from === sel.id) relatedIds.add(e.to);
+            if (e.to === sel.id) relatedIds.add(e.from);
+        }
+    }
+    const related = notes.filter((n) => relatedIds.has(n.id));
+
+    const startEdit = () => {
+        setDraft(body?.body ?? "");
+        setConflict(false);
+        setEditing(true);
+    };
+    const doSave = () => {
+        if (!sel) return;
+        const baseMtime = body?.mtime ?? 0;
+        fireAndForget(async () => {
+            const r = await saveNote(sel.path, draft, baseMtime);
+            if (r.conflict) {
+                setConflict(true); // file changed on disk since open; reload to see it
+            } else {
+                setEditing(false);
+            }
+        });
+    };
+
+    return (
+        <aside className="w-[330px] flex-none overflow-y-auto border-l border-edge-faint bg-surface px-[20px] pb-[40px] pt-[22px]">
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={sel ? sel.id : "empty"}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
+                    exit={{ opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } }}
+                >
+                    {!sel ? (
+                        <div className="text-[13px] text-ink-mid">Select a memory to see its content.</div>
+                    ) : (
+                        <DetailBody
+                            sel={sel}
+                            body={body}
+                            related={related}
+                            editing={editing}
+                            draft={draft}
+                            conflict={conflict}
+                            setDraft={setDraft}
+                            startEdit={startEdit}
+                            doSave={doSave}
+                            setEditing={setEditing}
+                            setConflict={setConflict}
+                        />
+                    )}
+                </motion.div>
+            </AnimatePresence>
         </aside>
     );
 }
@@ -291,6 +389,11 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const view = useAtomValue(memViewAtom);
     const selectedId = useAtomValue(memSelectedIdAtom);
     const search = useAtomValue(memSearchAtom);
+    const reflowAnimated = useAtomValue(memReflowAnimatedAtom);
+    // fade the list in only on the first-ever populate; memNotesAtom persists across remounts so a
+    // cached re-entry mounts non-empty and the reveal is suppressed (mirrors Sessions/Activity).
+    const [mountedEmpty] = useState(() => notes.length === 0);
+    const rp = reflowProps(reflowAnimated);
     const [newOpen, setNewOpen] = useState(false);
 
     // Resolve the focused agent's cwd so new notes land in that project's Claude hub (mirrors
@@ -319,27 +422,44 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
         : notes;
 
     return (
-        <div className="absolute inset-0 flex flex-col">
-            <Header count={notes.length} onNew={() => setNewOpen(true)} />
-            <SyncStrip focusedCwd={focusedCwd} />
-            <div className="flex min-h-0 flex-1">
-                <div className={cn("relative min-w-0 flex-1", view === "graph" ? "overflow-hidden" : "overflow-auto")}>
-                    {!loaded ? (
-                        <div className="p-[28px] text-[13px] text-ink-mid">Loading memory…</div>
-                    ) : notes.length === 0 ? (
-                        <div className="p-[28px] text-[13px] text-ink-mid">
-                            No memory yet. Create one with “New memory”, or point{" "}
-                            <span className="font-mono">memory:vaultpath</span> at an existing vault.
-                        </div>
-                    ) : view === "list" ? (
-                        <ListView notes={filtered} selectedId={selectedId} />
-                    ) : (
-                        <MemGraph notes={filtered} selectedId={selectedId} />
-                    )}
+        <MotionConfig reducedMotion="user">
+            <div className="absolute inset-0 flex flex-col">
+                <Header count={notes.length} onNew={() => setNewOpen(true)} />
+                <SyncStrip focusedCwd={focusedCwd} />
+                <div className="flex min-h-0 flex-1">
+                    <div className="relative min-w-0 flex-1 overflow-hidden">
+                        {!loaded ? (
+                            <div className="p-[28px] text-[13px] text-ink-mid">Loading memory…</div>
+                        ) : notes.length === 0 ? (
+                            <div className="p-[28px] text-[13px] text-ink-mid">
+                                No memory yet. Create one with “New memory”, or point{" "}
+                                <span className="font-mono">memory:vaultpath</span> at an existing vault.
+                            </div>
+                        ) : (
+                            <AnimatePresence mode="wait" initial={false}>
+                                <motion.div
+                                    key={view}
+                                    className="absolute inset-0"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                                >
+                                    {view === "list" ? (
+                                        <div className="absolute inset-0 overflow-auto">
+                                            <ListView notes={filtered} selectedId={selectedId} rp={rp} mountedEmpty={mountedEmpty} />
+                                        </div>
+                                    ) : (
+                                        <MemGraph notes={filtered} selectedId={selectedId} />
+                                    )}
+                                </motion.div>
+                            </AnimatePresence>
+                        )}
+                    </div>
+                    <DetailRail notes={notes} />
                 </div>
-                <DetailRail notes={notes} />
+                {newOpen && <NewMemoryModal onClose={() => setNewOpen(false)} cwd={focusedCwd ?? undefined} />}
             </div>
-            {newOpen && <NewMemoryModal onClose={() => setNewOpen(false)} cwd={focusedCwd ?? undefined} />}
-        </div>
+        </MotionConfig>
     );
 }

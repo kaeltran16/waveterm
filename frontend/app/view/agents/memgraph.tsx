@@ -7,7 +7,8 @@
 // the boot path, so the d3-force bundle stays off startup. Canvas colors are read from the @theme CSS
 // tokens (canvas fillStyle can't use CSS vars) so there are no hardcoded design colors.
 
-import { fireAndForget } from "@/util/util";
+import { useSettle } from "@/app/element/motionhooks";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { degreeMap } from "./memgraphlayout";
@@ -63,6 +64,8 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
     const settled = useRef(false); // true once the sim cools — gates label painting (smooth fly-in)
     const labelBoxes = useRef<{ x: number; y: number; w: number; h: number }[]>([]); // per-frame de-collision
     const [size, setSize] = useState({ w: 0, h: 0 });
+    const [cooled, setCooled] = useState(false); // flips true when the sim cools -> one-shot settle cue (m4)
+    const settling = useSettle(cooled);
     const [hover, setHover] = useState<{ nodes: Set<string>; links: Set<GLink> }>({
         nodes: new Set(),
         links: new Set(),
@@ -91,6 +94,7 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
     useEffect(() => {
         fitted.current = false;
         settled.current = false;
+        setCooled(false);
     }, [data]);
 
     const onNodeHover = useCallback(
@@ -166,7 +170,13 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
     }, [selectedId, hover, colors]);
 
     return (
-        <div ref={containerRef} className="absolute inset-0 overflow-hidden">
+        <div
+            ref={containerRef}
+            className={cn(
+                "absolute inset-0 overflow-hidden",
+                settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+            )}
+        >
             <Suspense fallback={<div className="p-[28px] text-[13px] text-ink-mid">Loading graph…</div>}>
                 {size.w > 0 && (
                     <ForceGraph2D
@@ -194,6 +204,7 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
                         }) as any}
                         onEngineStop={() => {
                             settled.current = true;
+                            setCooled(true);
                             if (!fitted.current) {
                                 fgRef.current?.zoomToFit?.(600, 50); // animated fit
                                 fitted.current = true;

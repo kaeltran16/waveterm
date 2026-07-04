@@ -28,6 +28,11 @@ export const memBodyAtom = atom<{ body: string; mtime: number } | null>(null) as
 } | null>;
 export const memSearchAtom = atom<string>("") as PrimitiveAtom<string>;
 
+// true = the next re-scan is mutation-driven and its list diff should animate (create/delete/harvest);
+// false = a search keystroke changed only the rendered subset, so the reflow stays instant. Written by
+// the mutation helpers below + the search box; read by MemorySurface into reflowProps.
+export const memReflowAnimatedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+
 export async function loadMemory(): Promise<void> {
     try {
         const g = await RpcApi.MemoryScanCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
@@ -76,6 +81,7 @@ export async function saveNote(path: string, content: string, baseMtime: number)
 }
 
 export async function createNote(name: string, type: string, scope: string, body: string, cwd?: string): Promise<void> {
+    globalStore.set(memReflowAnimatedAtom, true); // the create's new row should animate in
     await RpcApi.MemoryCreateCommand(TabRpcClient, { name, type, scope, body, cwd });
     await loadMemory();
 }
@@ -87,12 +93,14 @@ export async function harvestMemory(cwd: string): Promise<{ ingested: number; sk
     const ingested = r.ingested ?? 0;
     const skipped = r.skipped ?? 0;
     if (ingested > 0) {
+        globalStore.set(memReflowAnimatedAtom, true); // harvested rows should animate in
         await loadMemory();
     }
     return { ingested, skipped };
 }
 
 export async function deleteNote(path: string): Promise<void> {
+    globalStore.set(memReflowAnimatedAtom, true); // the removed row should play its exit
     await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
     globalStore.set(memSelectedIdAtom, null);
     globalStore.set(memBodyAtom, null);
