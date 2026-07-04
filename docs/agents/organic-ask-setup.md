@@ -21,43 +21,24 @@ normal terminal prompt. It is safe to leave the hook registered unconditionally.
 The hook logic is versioned in this repo. Only the registration snippet below
 lives outside it.
 
-## Setup
+## Setup — automatic
 
-### 1. Register the hook
+As of the `wsh`-native hooks, **no manual setup is required.** On every launch the
+Arc app runs `wsh install-agent-hooks`, which idempotently merges Arc's hook block
+into your user-level `~/.claude/settings.json` (preserving all other settings). The
+ask interception is registered as:
 
-Add to your project's `.claude/settings.json` **or** your user-level
-`~/.claude/settings.json`:
+- `PreToolUse` / `AskUserQuestion` → `wsh ask` (projects the question into the panel)
+- `PostToolUse` / `AskUserQuestion` → `wsh ask --clear` (removes the panel copy)
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"<ABSOLUTE-PATH-TO>/docs/agents/ask-hook.js\"",
-            "timeout": 3600
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+`wsh ask` reads the Claude Code hook envelope directly (unwrapping `tool_input`), so
+no wrapper script is needed. The legacy `docs/agents/ask-hook.js` /
+`ask-clear-hook.js` are superseded by the `wsh` subcommands and kept only for
+reference; a packaged install never used them (it ships only `bin/`, not `docs/`).
 
-`timeout` is in seconds. 3600 (1 hour) gives the human time to respond before
-CC gives up and times out the hook.
+To (re)provision manually: run `wsh install-agent-hooks` from any Arc terminal.
 
-The `command` must be an absolute path to the in-repo hook script. Examples:
-
-- **Windows:** `node "C:\\Users\\you\\waveterm\\docs\\agents\\ask-hook.js"`
-- **POSIX:** `node "/home/you/waveterm/docs/agents/ask-hook.js"`
-
-The `command` runs through your system shell, so `node` must be on `PATH`.
-
-**Claude Code loads hooks at startup.** After editing `settings.json`, restart the
+**Claude Code loads hooks at startup.** After the hooks are installed, restart the
 `claude` session (or start a new one) — a running session won't pick up the new hook.
 
 ### 2. Open the Agents panel in Wave

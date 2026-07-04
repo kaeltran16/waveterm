@@ -74,6 +74,45 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
     child
 }
 
+// The bundle ships wsh version-named (e.g. wsh-0.14.5-windows.x64.exe), not a plain
+// wsh.exe — find it by pattern in {app_path}/bin.
+fn find_wsh_binary(bin_dir: &std::path::Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(bin_dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("wsh") && name.ends_with("windows.x64.exe") {
+            return Some(entry.path());
+        }
+    }
+    None
+}
+
+// Fire-and-forget: idempotently provision Arc's Claude Code hooks into the user's
+// ~/.claude/settings.json. Runs every launch; wsh does the idempotent merge. Any
+// failure is ignored — a missing hook only means degraded cockpit display.
+fn install_agent_hooks(app_path: &std::path::Path) {
+    let bin = app_path.join("bin");
+    let Some(wsh) = find_wsh_binary(&bin) else {
+        println!("[tauri] wsh not found under {:?}; skipping hook install", bin);
+        return;
+    };
+    let mut cmd = Command::new(&wsh);
+    cmd.arg("install-agent-hooks")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    match cmd.spawn() {
+        Ok(_) => println!("[tauri] triggered agent-hooks install via {:?}", wsh),
+        Err(e) => println!("[tauri] agent-hooks install spawn failed: {}", e),
+    }
+}
+
 fn main() {
     let context = tauri::generate_context!();
     // WebView2 reads these env vars before the webview is created, so they must be set here in
@@ -124,6 +163,7 @@ fn main() {
             // resource_dir() only matters when packaged; avoid calling it in dev.
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
+            install_agent_hooks(&app_path);
             let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
             let child = spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
             app.state::<WavesrvChild>().0.lock().unwrap().replace(child);
@@ -139,4 +179,32 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn finds_versioned_wsh_binary() {
+        let dir = std::env::temp_dir().join(format!("arc-wsh-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        fs::write(dir.join("wavesrv.x64.exe"), b"x").unwrap();
+        fs::write(dir.join("wsh-0.14.5-windows.x64.exe"), b"x").unwrap();
+
+        let got = find_wsh_binary(&dir).expect("should find wsh");
+        assert_eq!(got.file_name().unwrap(), "wsh-0.14.5-windows.x64.exe");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn returns_none_when_no_wsh() {
+        let dir = std::env::temp_dir().join(format!("arc-wsh-none-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        fs::write(dir.join("wavesrv.x64.exe"), b"x").unwrap();
+        assert!(find_wsh_binary(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

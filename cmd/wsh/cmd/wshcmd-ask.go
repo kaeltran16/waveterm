@@ -52,6 +52,24 @@ func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)
 	}
+	questions, err := parseAskQuestions(raw)
+	if err != nil {
+		return err
+	}
+
+	_, err = wshclient.AskCommand(RpcClient, wshrpc.CommandAskData{ORef: oref.String(), Questions: questions}, &wshrpc.RpcOpts{Timeout: 5000})
+	return err
+}
+
+func parseAskQuestions(raw []byte) ([]baseds.AgentAskQuestion, error) {
+	// unwrap the Claude Code hook envelope if present; else treat raw as the questions container
+	payload := raw
+	var env struct {
+		ToolInput json.RawMessage `json:"tool_input"`
+	}
+	if json.Unmarshal(raw, &env) == nil && len(env.ToolInput) > 0 {
+		payload = env.ToolInput
+	}
 
 	var in struct {
 		Questions []struct {
@@ -64,11 +82,11 @@ func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			} `json:"options"`
 		} `json:"questions"`
 	}
-	if err := json.Unmarshal(raw, &in); err != nil {
-		return fmt.Errorf("no questions on stdin: %w", err)
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return nil, fmt.Errorf("no questions on stdin: %w", err)
 	}
 	if len(in.Questions) == 0 {
-		return fmt.Errorf("no questions provided")
+		return nil, fmt.Errorf("no questions provided")
 	}
 
 	questions := make([]baseds.AgentAskQuestion, len(in.Questions))
@@ -84,7 +102,5 @@ func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
 			Options:     opts,
 		}
 	}
-
-	_, err = wshclient.AskCommand(RpcClient, wshrpc.CommandAskData{ORef: oref.String(), Questions: questions}, &wshrpc.RpcOpts{Timeout: 5000})
-	return err
+	return questions, nil
 }

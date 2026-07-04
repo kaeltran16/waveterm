@@ -19,10 +19,10 @@ reaching Wave** — almost always the producer half (below), not the FE.
 Unlike usage (which has no hook and must ride the statusLine — see
 [usage-reporting.md](./usage-reporting.md)), the title rides the **same
 `agent:status` state event** that already carries state/detail/model. It is produced
-by `agent_status_reporter.py` (external repo `agent-status-spike`), wired into Claude
-Code lifecycle hooks (`PreToolUse`, `Stop`, …).
+by `wsh agent-hook` (in-repo, `cmd/wsh/cmd/wshcmd-agenthook.go`), wired into Claude
+Code lifecycle hooks (`PreToolUse`, `Stop`, …) and auto-installed by the Arc app.
 
-The reporter already tail-reads the parent transcript to find `--model`; the title
+The reporter already tail-reads the parent transcript to find the model; the title
 extraction piggybacks on that same read. The ai-title is **not** in the hook payload —
 it lives only in the transcript JSONL as `{"type":"ai-title","aiTitle":"…"}` records,
 which Claude Code re-emits (and refines) roughly once per turn. The **last** one is
@@ -33,10 +33,10 @@ current.
 ```
 Claude Code transcript JSONL   ({"type":"ai-title","aiTitle":"…"} near each turn's end)
         │
-        ▼  agent-status-spike/agent_status_reporter.py : read_last_title()  (tail ~64KB)
-   wsh agentstatus --state … --model … --title "<ai-title>"   (only on parent STATE events)
+        ▼  cmd/wsh/cmd/wshcmd-agenthook.go : readLastTitle()  (tail ~64KB)
+   agent-hook attaches the ai-title on parent STATE events (working / waiting / idle)
         │
-        ▼  cmd/wsh/cmd/wshcmd-agentstatus.go : agentStatusRun()
+        ▼  cmd/wsh/cmd/wshcmd-agenthook.go : agentHookRun() → publishAgentStatusData()
    publishes an `agent:status` WaveEvent  { state, …, title }
         │
         ▼  frontend/app/tab/sessionsidebar/agentstatusstore.ts : setupAgentStatusSubscription()
@@ -60,33 +60,29 @@ atom. So `--title` is attached only in the reporter's parent-state branch (along
 ai-title is emitted less often, so the worry was that in a long transcript the last one
 sits above a 64KB tail window. Measured across real transcripts up to ~11MB, the **last
 ai-title sits 193–24,525 bytes from EOF** — Claude emits it at the end of each turn, so
-the existing 64KB tail comfortably catches it. `read_last_title` parses per-line JSON
+the existing 64KB tail comfortably catches it. `readLastTitle` parses per-line JSON
 (titles are free text and may contain quotes, which a regex would truncate) and skips
 the partial leading line a mid-file tail read produces.
 
-## Reporter implementation (external)
+## Reporter implementation (in-repo)
 
-`agent_status_reporter.py` — two pure helpers (`_last_title_in`, `read_last_title`,
-unit-tested in `test_reporter.py`) plus the wiring in `main()`'s parent-state branch:
+`cmd/wsh/cmd/wshcmd-agenthook.go` — two pure tail-readers (`readLastModel`,
+`readLastTitle`, unit-tested in `wshcmd-agenthook_test.go`) plus the wiring in
+`agentHookRun`'s parent-state branch:
 
-```python
-transcript_path = event.get("transcript_path")
-parent_model = read_last_model(transcript_path)
-if parent_model:
-    tail = tail + ["--model", parent_model]
-title = read_last_title(transcript_path)
-if title:
-    tail = tail + ["--title", title]
+```go
+if em.AttachModelTitle && ev.TranscriptPath != "" {
+    data.Model = readLastModel(ev.TranscriptPath)
+    data.Title = readLastTitle(ev.TranscriptPath)
+}
 ```
 
 ## Verifying
 
-- `wsh agentstatus --help | grep title` — confirm the installed binary has `--title`.
-- Reporter logic on a real transcript (no publish):
-  ```python
-  from agent_status_reporter import read_last_title
-  read_last_title("/path/to/<session>.jsonl")   # → e.g. "Fix duplicate-session race"
-  ```
+- `wsh agent-hook --help` — confirm the installed binary has the hook subcommand.
+- Reporter logic on a real transcript is covered by `TestReadLastModelAndTitle` in
+  `cmd/wsh/cmd/wshcmd-agenthook_test.go` (feeds a synthetic JSONL, asserts the last
+  ai-title / model win).
 - Live: with an agent active in a Wave block, its sidebar row relabels to the task
   summary within a turn (the next `PreToolUse`/`Stop` hook). A manual rename overrides
   it; clearing the rename reverts to the auto label.

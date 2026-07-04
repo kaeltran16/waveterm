@@ -14,9 +14,10 @@ appears, **no usage data is reaching Wave** — see the data flow below.
 ## Why usage rides the statusLine, not the hook reporter
 
 Agent **state** (working / waiting / idle) and the **subagent tree** are driven by
-`agent_status_reporter.py` (external repo `agent-status-spike`), wired into Claude
-Code lifecycle hooks (`PreToolUse`, `Stop`, `SubagentStart`, …). Those hook payloads
-**do not carry usage numbers**.
+`wsh agent-hook` (in-repo, `cmd/wsh/cmd/wshcmd-agenthook.go`), wired into Claude Code
+lifecycle hooks (`PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SubagentStop`,
+`UserPromptSubmit`) and auto-installed by the Arc app. Those hook payloads **do not
+carry usage numbers**.
 
 Claude Code delivers context/rate-limit/cost numbers to exactly one place: the
 **`statusLine` command's** stdin JSON. So the usage bridge has to live there — there
@@ -148,5 +149,5 @@ idle); mainly keeps the account-global plan gauges current from other activity.
 - **Idle agents** keep their last usage value (atoms don't clear); it just stops
   refreshing once the statusLine quiets. A full app restart clears the atoms until the
   next statusLine fire per block.
-- The reporter (`agent_status_reporter.py`) is intentionally **not** involved here —
+- The reporter (`wsh agent-hook`) is intentionally **not** involved here —
   state/subagents and usage are independent channels into the same `agent:status` event.

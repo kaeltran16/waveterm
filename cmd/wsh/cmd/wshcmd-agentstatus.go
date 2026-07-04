@@ -77,6 +77,20 @@ func validAgentState(s string) bool {
 	return s == baseds.AgentState_Working || s == baseds.AgentState_Waiting || s == baseds.AgentState_Idle
 }
 
+func buildAgentStatusEvent(oref *waveobj.ORef, data baseds.AgentStatusData, persist int) wps.WaveEvent {
+	return wps.WaveEvent{
+		Event:   wps.Event_AgentStatus,
+		Scopes:  []string{oref.String()},
+		Persist: persist,
+		Data:    data,
+	}
+}
+
+func publishAgentStatusData(oref *waveobj.ORef, data baseds.AgentStatusData, persist int) error {
+	event := buildAgentStatusEvent(oref, data, persist)
+	return wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+}
+
 func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	defer func() {
 		sendActivity("agentstatus", rtnErr == nil)
@@ -113,14 +127,7 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		Ts:             time.Now().UnixMilli(),
 	}
 
-	event := wps.WaveEvent{
-		Event:   wps.Event_AgentStatus,
-		Scopes:  []string{oref.String()},
-		Persist: 1,
-		Data:    eventData,
-	}
-
-	err = wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+	err = publishAgentStatusData(oref, eventData, 1)
 	if err != nil {
 		return fmt.Errorf("publishing agentstatus event: %v", err)
 	}
@@ -158,14 +165,7 @@ func publishUsageDelta(cmd *cobra.Command, oref *waveobj.ORef) error {
 	// Persist:0 — usage deltas are ephemeral, exactly like subagent deltas. The retained Persist:1
 	// parent-state event for this scope shares the same persistKey and must remain the one a late
 	// subscriber replays; a retained usage event would evict it.
-	event := wps.WaveEvent{
-		Event:   wps.Event_AgentStatus,
-		Scopes:  []string{oref.String()},
-		Persist: 0,
-		Data:    eventData,
-	}
-
-	err := wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+	err := publishAgentStatusData(oref, eventData, 0)
 	if err != nil {
 		return fmt.Errorf("publishing agentstatus usage event: %v", err)
 	}
@@ -213,14 +213,7 @@ func publishSubagentDelta(oref *waveobj.ORef) error {
 	// Persist:0 — subagent deltas are ephemeral; they must not be retained or replayed to
 	// late subscribers (a replayed delta would resurrect a phantom child). The retained
 	// Persist:1 parent-state event for the same scope is untouched (pkg/wps/wps.go:196,228).
-	event := wps.WaveEvent{
-		Event:   wps.Event_AgentStatus,
-		Scopes:  []string{oref.String()},
-		Persist: 0,
-		Data:    eventData,
-	}
-
-	err := wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
+	err := publishAgentStatusData(oref, eventData, 0)
 	if err != nil {
 		return fmt.Errorf("publishing agentstatus subagent event: %v", err)
 	}
