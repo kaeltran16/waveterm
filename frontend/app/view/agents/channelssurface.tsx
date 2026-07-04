@@ -8,13 +8,13 @@
 // status pill and an asking worker reuses AnswerBar — Cockpit still owns monitoring; this surface
 // carries the dialogue and links out (↗).
 
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { CollapsibleRail, type RailExtraIcon, type RailSection } from "@/app/element/collapsiblerail";
 import { cardVariants } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -54,6 +54,7 @@ import { MarkdownMessage } from "./markdownmessage";
 import { projectsAtom } from "./projectsstore";
 import { RAIL_ICON } from "./railicons";
 import { channelRailOpenAtom } from "./railstore";
+import { profileRailOpenAtom } from "./profilepanel";
 import { defaultView } from "./runmodel";
 import { RunsView } from "./runssurface";
 
@@ -718,10 +719,12 @@ function ContextPanel({
     model,
     channel,
     agents,
+    extraIcons,
 }: {
     model: AgentsViewModel;
     channel: Channel | null;
     agents: AgentVM[];
+    extraIcons?: RailExtraIcon[];
 }) {
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
     const asking = snapshot.filter((w) => w.state === "asking");
@@ -825,7 +828,14 @@ function ContextPanel({
         },
     ];
 
-    return <CollapsibleRail openAtom={channelRailOpenAtom} ariaLabel="Channel context" sections={sections} />;
+    return (
+        <CollapsibleRail
+            openAtom={channelRailOpenAtom}
+            ariaLabel="Channel context"
+            sections={sections}
+            extraIcons={extraIcons}
+        />
+    );
 }
 
 export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
@@ -841,6 +851,20 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
     const [view, setView] = useState<"chat" | "runs">(() => defaultView(active));
+    const setProfileOpen = useSetAtom(profileRailOpenAtom);
+    // in the Runs view the profile drawer's ⚙ trigger is stacked under the context rail's own icon, so
+    // both live in one collapsed strip (the profile stays a separate drawer — see ProfilePanel).
+    const contextExtraIcons: RailExtraIcon[] | undefined =
+        view === "runs" && active
+            ? [
+                  {
+                      key: "profile",
+                      ariaLabel: "Jarvis profile",
+                      icon: RAIL_ICON.gear,
+                      onClick: () => setProfileOpen((o) => !o),
+                  },
+              ]
+            : undefined;
     useEffect(() => {
         setView(defaultView(active));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1065,7 +1089,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             </>
                         )}
                     </div>
-                    <ContextPanel model={model} channel={active} agents={agents} />
+                    <ContextPanel model={model} channel={active} agents={agents} extraIcons={contextExtraIcons} />
                 </div>
             </div>
         </MotionConfig>

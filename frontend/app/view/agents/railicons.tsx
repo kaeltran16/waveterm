@@ -62,6 +62,13 @@ export const RAIL_ICON: Record<string, ReactNode> = {
     ),
     // rhombus — autonomy (jarvis)
     autonomy: svg(<path d="M10 3l7 7-7 7-7-7z" />),
+    // cog — jarvis profile (settings)
+    gear: svg(
+        <>
+            <circle cx="10" cy="10" r="2.6" />
+            <path d="M10 2.4v2.4M10 15.2v2.4M17.6 10h-2.4M4.8 10H2.4M15.4 4.6l-1.7 1.7M6.3 13.7l-1.7 1.7M15.4 15.4l-1.7-1.7M6.3 6.3 4.6 4.6" />
+        </>
+    ),
     // two people — fleet
     fleet: svg(
         <>

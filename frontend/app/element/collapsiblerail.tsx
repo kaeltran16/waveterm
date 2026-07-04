@@ -11,6 +11,7 @@
 import { MotionConfig, motion } from "motion/react";
 import { useAtom, type PrimitiveAtom } from "jotai";
 import { type ReactNode } from "react";
+import { cn } from "@/util/util";
 import { MOTION } from "./motiontokens";
 import { Tooltip } from "./tooltip";
 
@@ -21,6 +22,16 @@ export interface RailSection {
     content: ReactNode;
 }
 
+// An extra glyph stacked under the rail's own icon in the collapsed strip — a trigger for a *sibling*
+// drawer (e.g. the Jarvis profile drawer under the channel context rail), so both live in one 44px
+// column instead of two side-by-side strips. The sibling stays a separate drawer; only the icon is here.
+export interface RailExtraIcon {
+    key: string;
+    icon: ReactNode;
+    ariaLabel: string;
+    onClick: () => void;
+}
+
 const RAIL_EXPANDED_PX = 300; // matches the app-bar usage column (app-bar.tsx) → continuous divider
 const RAIL_COLLAPSED_PX = 44;
 
@@ -29,22 +40,32 @@ export function CollapsibleRail({
     sections,
     footer,
     ariaLabel,
+    extraIcons,
+    hideWhenCollapsed,
 }: {
     openAtom: PrimitiveAtom<boolean>;
     sections: RailSection[];
     footer?: ReactNode;
     ariaLabel?: string;
+    extraIcons?: RailExtraIcon[];
+    // when true, the rail shows no collapsed strip (it animates to zero width): its glyph lives in a
+    // sibling rail's extraIcons, so this drawer only takes space while open. Preserves the slide.
+    hideWhenCollapsed?: boolean;
 }) {
     const [open, setOpen] = useAtom(openAtom);
+    const collapsedWidth = hideWhenCollapsed ? 0 : RAIL_COLLAPSED_PX;
 
     return (
         <MotionConfig reducedMotion="user">
             <motion.aside
                 aria-label={ariaLabel}
                 initial={false}
-                animate={{ width: open ? RAIL_EXPANDED_PX : RAIL_COLLAPSED_PX }}
+                animate={{ width: open ? RAIL_EXPANDED_PX : collapsedWidth }}
                 transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
-                className="flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
+                className={cn(
+                    "flex h-full shrink-0 flex-col overflow-hidden bg-surface",
+                    (open || !hideWhenCollapsed) && "border-l border-border"
+                )}
             >
                 {open ? (
                     <>
@@ -66,8 +87,8 @@ export function CollapsibleRail({
                         </div>
                         {footer ? <div className="shrink-0 border-t border-border px-[18px] py-3">{footer}</div> : null}
                     </>
-                ) : (
-                    <div className="flex flex-col items-center pt-3">
+                ) : hideWhenCollapsed ? null : (
+                    <div className="flex flex-col items-center gap-1 pt-3">
                         <Tooltip content={ariaLabel ?? "Expand"} placement="left">
                             <button
                                 type="button"
@@ -78,6 +99,18 @@ export function CollapsibleRail({
                                 {sections[0]?.icon}
                             </button>
                         </Tooltip>
+                        {extraIcons?.map((ei) => (
+                            <Tooltip key={ei.key} content={ei.ariaLabel} placement="left">
+                                <button
+                                    type="button"
+                                    onClick={ei.onClick}
+                                    aria-label={ei.ariaLabel}
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
+                                >
+                                    {ei.icon}
+                                </button>
+                            </Tooltip>
+                        ))}
                     </div>
                 )}
             </motion.aside>

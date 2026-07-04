@@ -7,7 +7,6 @@
 // existing RPCs; phase completion arrives via the external hook. See runmodel.ts for all derivations.
 
 import { fireAndForget } from "@/util/util";
-import { useSetAtom } from "jotai";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
@@ -24,7 +23,7 @@ import {
     phaseWorkers,
     runStatusView,
 } from "./runmodel";
-import { ProfilePanel, profileRailOpenAtom } from "./profilepanel";
+import { ProfilePanel } from "./profilepanel";
 
 const TONE_CLASS: Record<string, string> = {
     planning: "text-muted",
@@ -252,7 +251,6 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
     const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
     const [draft, setDraft] = useState("");
     const [expanded, setExpanded] = useState(true);
-    const toggleProfile = useSetAtom(profileRailOpenAtom);
 
     // when the channel changes or runs first arrive, land on the channel's default run
     useEffect(() => {
@@ -304,14 +302,6 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
                     className="flex-none rounded-[9px] border border-dashed border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:text-secondary"
                 >
                     + New run
-                </button>
-                <div className="flex-1" />
-                <button
-                    type="button"
-                    onClick={() => toggleProfile((o) => !o)}
-                    className="flex-none rounded-[9px] border border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:text-secondary"
-                >
-                    ⚙ Profile
                 </button>
             </div>
 

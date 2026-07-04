@@ -238,6 +238,7 @@ function PrinciplesSection({
 export function ProfilePanel({ channelId }: { channelId: string }) {
     const open = useAtomValue(profileRailOpenAtom);
     const [loaded, setLoaded] = useState<Loaded | null>(null);
+    const [error, setError] = useState<string | null>(null);
     const [draft, setDraft] = useState<ProfileOverride>({});
     const [saving, setSaving] = useState(false);
 
@@ -245,10 +246,18 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
         if (!open) {
             return;
         }
+        // reset per open/channel so a stale load never lingers; a failed load surfaces instead of
+        // sticking on "Loading…" forever (e.g. the channel was deleted out from under the drawer).
+        setLoaded(null);
+        setError(null);
         fireAndForget(async () => {
-            const p = await getJarvisProfile(channelId);
-            setLoaded({ global: p.global, override: p.override ?? {} });
-            setDraft(p.override ?? {});
+            try {
+                const p = await getJarvisProfile(channelId);
+                setLoaded({ global: p.global, override: p.override ?? {} });
+                setDraft(p.override ?? {});
+            } catch (e) {
+                setError(String(e));
+            }
         });
     }, [open, channelId]);
 
@@ -275,6 +284,8 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
             <PlaybookSection global={loaded.global} draft={draft} setDraft={setDraft} />
             <PrinciplesSection global={loaded.global} draft={draft} setDraft={setDraft} />
         </div>
+    ) : error ? (
+        <div className="text-[12px] leading-[1.5] text-error">Couldn't load the profile. {error}</div>
     ) : (
         <div className="text-[12px] text-muted">Loading…</div>
     );
@@ -293,5 +304,15 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
     const sections: RailSection[] = [
         { id: "profile", icon: <span className="text-[16px]">⚙</span>, label: "Profile", content: body },
     ];
-    return <CollapsibleRail openAtom={profileRailOpenAtom} ariaLabel="Jarvis profile" sections={sections} footer={footer} />;
+    // no collapsed strip of its own: the ⚙ trigger lives in the channel context rail's collapsed strip
+    // (see ChannelsSurface), so profile stays its own drawer without doubling up the right-edge column.
+    return (
+        <CollapsibleRail
+            openAtom={profileRailOpenAtom}
+            ariaLabel="Jarvis profile"
+            sections={sections}
+            footer={footer}
+            hideWhenCollapsed
+        />
+    );
 }
