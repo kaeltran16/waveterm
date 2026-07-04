@@ -61,3 +61,33 @@ func TestUpdateChannelMessageInErrorsWhenMissing(t *testing.T) {
 		t.Fatalf("expected error for missing message id")
 	}
 }
+
+func TestAppendRunInAppends(t *testing.T) {
+	ch := &waveobj.Channel{OID: "c1"}
+	appendRunIn(ch, waveobj.Run{ID: "r1", Goal: "a"})
+	appendRunIn(ch, waveobj.Run{ID: "r2", Goal: "b"})
+	if len(ch.Runs) != 2 || ch.Runs[0].ID != "r1" || ch.Runs[1].ID != "r2" {
+		t.Fatalf("unexpected runs: %+v", ch.Runs)
+	}
+}
+
+func TestUpdateRunInMutatesMatch(t *testing.T) {
+	ch := &waveobj.Channel{OID: "c1", Runs: []waveobj.Run{{ID: "r1"}, {ID: "r2"}}}
+	err := updateRunIn(ch, "r2", func(r *waveobj.Run) error {
+		r.Status = "done"
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ch.Runs[1].Status != "done" || ch.Runs[0].Status != "" {
+		t.Errorf("wrong run mutated: %+v", ch.Runs)
+	}
+}
+
+func TestUpdateRunInErrorsWhenMissing(t *testing.T) {
+	ch := &waveobj.Channel{OID: "c1", Runs: []waveobj.Run{{ID: "r1"}}}
+	if err := updateRunIn(ch, "nope", func(*waveobj.Run) error { return nil }); err == nil {
+		t.Fatalf("expected error for missing run id")
+	}
+}

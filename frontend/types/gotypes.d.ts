@@ -295,6 +295,7 @@ declare global {
         projectpath?: string;
         createdts: number;
         messages?: ChannelMessage[];
+        runs?: Run[];
     };
 
     // waveobj.ChannelMessage
@@ -321,6 +322,15 @@ declare global {
     type CloseTabRtnType = {
         closewindow?: boolean;
         newactivetabid?: string;
+    };
+
+    // wshrpc.CommandAdvanceRunData
+    type CommandAdvanceRunData = {
+        channelid: string;
+        runid: string;
+        phaseidx: number;
+        action: string;
+        artifacts?: string[];
     };
 
     // wshrpc.CommandAnswerAgentData
@@ -372,6 +382,12 @@ declare global {
         inputdata64?: string;
         signame?: string;
         termsize?: TermSize;
+    };
+
+    // wshrpc.CommandCancelRunData
+    type CommandCancelRunData = {
+        channelid: string;
+        runid: string;
     };
 
     // wshrpc.CommandCaptureBlockScreenshotData
@@ -436,6 +452,19 @@ declare global {
     type CommandCreateProjectData = {
         name: string;
         path: string;
+    };
+
+    // wshrpc.CommandCreateRunData
+    type CommandCreateRunData = {
+        channelid: string;
+        workspaceid: string;
+        goal: string;
+        playbookid?: string;
+    };
+
+    // wshrpc.CommandCreateRunRtnData
+    type CommandCreateRunRtnData = {
+        run: Run;
     };
 
     // wshrpc.CommandCreateSubBlockData
@@ -1807,6 +1836,29 @@ declare global {
         timeout?: number;
         noresponse?: boolean;
         route?: string;
+    };
+
+    // waveobj.Run
+    type Run = {
+        id: string;
+        goal: string;
+        playbookid?: string;
+        workspaceid: string;
+        projectpath: string;
+        status: string;
+        phases: RunPhase[];
+        createdts: number;
+    };
+
+    // waveobj.RunPhase
+    type RunPhase = {
+        kind: string;
+        skill?: string;
+        state: string;
+        gate?: boolean;
+        freshctx?: boolean;
+        workerorefs?: string[];
+        artifacts?: string[];
     };
 
     // waveobj.RuntimeOpts

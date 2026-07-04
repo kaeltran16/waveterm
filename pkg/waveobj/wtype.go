@@ -211,6 +211,27 @@ type ChannelMessage struct {
 	Data    string `json:"data,omitempty"` // optional JSON payload for rich rendering (e.g. JarvisCardData)
 }
 
+type RunPhase struct {
+	Kind        string   `json:"kind"`               // brainstorm | plan | execute | custom
+	Skill       string   `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
+	State       string   `json:"state"`              // pending | running | blocked | done | failed | skipped
+	Gate        bool     `json:"gate,omitempty"`     // halt for human review after this phase completes
+	FreshCtx    bool     `json:"freshctx,omitempty"` // this phase runs in its own fresh worker (clear-context boundary)
+	WorkerOrefs []string `json:"workerorefs,omitempty"`
+	Artifacts   []string `json:"artifacts,omitempty"`
+}
+
+type Run struct {
+	ID          string     `json:"id"`
+	Goal        string     `json:"goal"`
+	PlaybookId  string     `json:"playbookid,omitempty"`
+	WorkspaceId string     `json:"workspaceid"` // where phase-worker tabs are created (frontend supplies at CreateRun)
+	ProjectPath string     `json:"projectpath"` // worker cwd (copied from the channel)
+	Status      string     `json:"status"`      // planning | awaiting-review | executing | blocked | done | cancelled
+	Phases      []RunPhase `json:"phases"`
+	CreatedTs   int64      `json:"createdts"`
+}
+
 type Channel struct {
 	OID         string           `json:"oid"`
 	Version     int              `json:"version"`
@@ -218,6 +239,7 @@ type Channel struct {
 	ProjectPath string           `json:"projectpath,omitempty"`
 	CreatedTs   int64            `json:"createdts"`
 	Messages    []ChannelMessage `json:"messages,omitempty"`
+	Runs        []Run            `json:"runs,omitempty"`
 	Meta        MetaMapType      `json:"meta"`
 }
 

@@ -1733,6 +1733,104 @@ func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshr
 	return nil
 }
 
+// spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
+// attached orefs — a second write, so tab-creation never nests inside the run's state-transition write.
+func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) error {
+	run, err := wstore.GetRun(ctx, channelId, runId)
+	if err != nil {
+		return err
+	}
+	spawned, spawnErr := jarvis.EnsureWorkers(ctx, run, projectName)
+	if len(spawned) > 0 {
+		if uerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
+			for idx, oref := range spawned {
+				if idx >= 0 && idx < len(r.Phases) {
+					r.Phases[idx].WorkerOrefs = append(r.Phases[idx].WorkerOrefs, oref)
+				}
+			}
+			return nil
+		}); uerr != nil {
+			return uerr
+		}
+	}
+	return spawnErr // surfaced but non-fatal to already-persisted state
+}
+
+func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
+	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
+		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
+	}
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
+	if err != nil {
+		return nil, fmt.Errorf("loading channel: %w", err)
+	}
+	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, jarvis.DefaultPlaybook(), time.Now().UnixMilli())
+	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
+		return nil, fmt.Errorf("appending run: %w", err)
+	}
+	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
+		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+		return nil, fmt.Errorf("spawning first worker: %w", err)
+	}
+	out, _ := wstore.GetRun(ctx, data.ChannelId, run.ID)
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return &wshrpc.CommandCreateRunRtnData{Run: out}, nil
+}
+
+func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandAdvanceRunData) error {
+	if data.ChannelId == "" || data.RunId == "" {
+		return fmt.Errorf("channelid and runid are required")
+	}
+	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+		var next waveobj.Run
+		var e error
+		switch data.Action {
+		case jarvis.RunAction_Complete:
+			next, e = jarvis.CompletePhase(*r, data.PhaseIdx, data.Artifacts)
+		case jarvis.RunAction_Approve:
+			next, e = jarvis.ApproveGate(*r)
+		case jarvis.RunAction_SendBack:
+			next, e = jarvis.SendBackGate(*r)
+		default:
+			e = fmt.Errorf("unknown run action %q", data.Action)
+		}
+		if e != nil {
+			return e
+		}
+		*r = next
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("advancing run: %w", err)
+	}
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
+	if err != nil {
+		return fmt.Errorf("loading channel: %w", err)
+	}
+	if err := spawnRunWorkers(ctx, data.ChannelId, data.RunId, ch.Name); err != nil {
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+		return fmt.Errorf("spawning next worker: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
+func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCancelRunData) error {
+	if data.ChannelId == "" || data.RunId == "" {
+		return fmt.Errorf("channelid and runid are required")
+	}
+	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+		*r = jarvis.CancelRun(*r)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("cancelling run: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.CommandJarvisDecomposeData) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	if strings.TrimSpace(data.Goal) == "" {
 		return nil, fmt.Errorf("goal is required")

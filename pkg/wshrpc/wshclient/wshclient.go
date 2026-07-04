@@ -23,6 +23,12 @@ func ActivityCommand(w *wshutil.WshRpc, data wshrpc.ActivityUpdate, opts *wshrpc
 	return err
 }
 
+// command "advancerun", wshserver.AdvanceRunCommand
+func AdvanceRunCommand(w *wshutil.WshRpc, data wshrpc.CommandAdvanceRunData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "advancerun", data, opts)
+	return err
+}
+
 // command "agentaskclear", wshserver.AgentAskClearCommand
 func AgentAskClearCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "agentaskclear", data, opts)
@@ -105,6 +111,12 @@ func BlockJobStatusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts)
 func BlocksListCommand(w *wshutil.WshRpc, data wshrpc.BlocksListRequest, opts *wshrpc.RpcOpts) ([]wshrpc.BlocksListEntry, error) {
 	resp, err := sendRpcRequestCallHelper[[]wshrpc.BlocksListEntry](w, "blockslist", data, opts)
 	return resp, err
+}
+
+// command "cancelrun", wshserver.CancelRunCommand
+func CancelRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRunData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "cancelrun", data, opts)
+	return err
 }
 
 // command "captureblockscreenshot", wshserver.CaptureBlockScreenshotCommand
@@ -218,6 +230,12 @@ func CreateChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateChannelDat
 func CreateProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateProjectData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "createproject", data, opts)
 	return err
+}
+
+// command "createrun", wshserver.CreateRunCommand
+func CreateRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateRunData, opts *wshrpc.RpcOpts) (*wshrpc.CommandCreateRunRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandCreateRunRtnData](w, "createrun", data, opts)
+	return resp, err
 }
 
 // command "createsubblock", wshserver.CreateSubBlockCommand

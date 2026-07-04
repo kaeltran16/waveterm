@@ -24,6 +24,12 @@ export class RpcApiType {
         return client.wshRpcCall("activity", data, opts);
     }
 
+    // command "advancerun" [call]
+    AdvanceRunCommand(client: WshClient, data: CommandAdvanceRunData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "advancerun", data, opts);
+        return client.wshRpcCall("advancerun", data, opts);
+    }
+
     // command "agentaskclear" [call]
     AgentAskClearCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentaskclear", data, opts);
@@ -106,6 +112,12 @@ export class RpcApiType {
     BlocksListCommand(client: WshClient, data: BlocksListRequest, opts?: RpcOpts): Promise<BlocksListEntry[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "blockslist", data, opts);
         return client.wshRpcCall("blockslist", data, opts);
+    }
+
+    // command "cancelrun" [call]
+    CancelRunCommand(client: WshClient, data: CommandCancelRunData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "cancelrun", data, opts);
+        return client.wshRpcCall("cancelrun", data, opts);
     }
 
     // command "captureblockscreenshot" [call]
@@ -220,6 +232,12 @@ export class RpcApiType {
     CreateProjectCommand(client: WshClient, data: CommandCreateProjectData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createproject", data, opts);
         return client.wshRpcCall("createproject", data, opts);
+    }
+
+    // command "createrun" [call]
+    CreateRunCommand(client: WshClient, data: CommandCreateRunData, opts?: RpcOpts): Promise<CommandCreateRunRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createrun", data, opts);
+        return client.wshRpcCall("createrun", data, opts);
     }
 
     // command "createsubblock" [call]

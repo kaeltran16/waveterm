@@ -120,6 +120,9 @@ type WshRpcInterface interface {
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error) // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
+	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error) // create + start a goal Run (spawns phase 1's worker)
+	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                           // complete a phase / approve or send back a gate (spawns the next worker)
+	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                             // cancel a Run
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
@@ -752,6 +755,30 @@ type CommandJarvisDecomposeData struct {
 
 type CommandJarvisDecomposeRtnData struct {
 	Subtasks []string `json:"subtasks"`
+}
+
+type CommandCreateRunData struct {
+	ChannelId   string `json:"channelid"`
+	WorkspaceId string `json:"workspaceid"` // where phase-worker tabs are created
+	Goal        string `json:"goal"`
+	PlaybookId  string `json:"playbookid,omitempty"`
+}
+
+type CommandCreateRunRtnData struct {
+	Run *waveobj.Run `json:"run"`
+}
+
+type CommandAdvanceRunData struct {
+	ChannelId string   `json:"channelid"`
+	RunId     string   `json:"runid"`
+	PhaseIdx  int      `json:"phaseidx"`            // the phase being completed (ignored for approve/sendback)
+	Action    string   `json:"action"`             // complete | approve | sendback
+	Artifacts []string `json:"artifacts,omitempty"` // artifacts to record on complete
+}
+
+type CommandCancelRunData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
 }
 
 type CommandConsultData struct {
