@@ -76,6 +76,10 @@ func GetLayoutIdForTab(ctx context.Context, tabId string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to get layout id for given tab id %s: %w", tabId, err)
 	}
+	if tabObj == nil {
+		// DBGet returns (nil, nil) for a missing row; guard the deref (e.g. a cascade-deleted tab)
+		return "", fmt.Errorf("tab %s not found", tabId)
+	}
 	return tabObj.LayoutState, nil
 }
 
