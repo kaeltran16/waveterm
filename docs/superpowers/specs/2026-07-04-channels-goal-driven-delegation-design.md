@@ -170,6 +170,7 @@ This is too large for one implementation plan. Suggested build order, each its o
 2. **Run UI** — Run switcher, phase pipeline, review-gate card, activity threading. `@jarvis <goal>` + New Run entry points.
 3. **Jarvis profile** — global file + per-project override, resolver, in-app profile editor, `SetChannelProfileCommand`.
 4. **Escalation guidance** — wire principles into `Classify` and dispatch/goal prompts; brainstorm-ambiguity escalation.
+5. **Dual-mode runs / orchestrator mode** — add a `Mode` to a Run (`pipeline | orchestrator`), selectable from the start-run composer (default from the Jarvis profile). Pipeline mode is Pieces 1–4 (deterministic phases, code-driven routing, review gate). Orchestrator mode launches a single Claude Code *lead* that plans and spawns its own subagents / worktree workers to implement the goal, with an optional plan gate — adaptive execution rather than fixed phases. Builds directly on Piece 4's escalation substrate: the lead's subagents' asks route through the gatekeeper (coupling must match a run's workers recursively, not just direct phase `WorkerOrefs`), and the resolved principles align both the lead and its subagents. The phase rail reuses the live roster to show the lead + its subagents. Gets its own brainstorm → spec → plan cycle.
 
 ## Files touched (indicative)
 
