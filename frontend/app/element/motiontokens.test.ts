@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, shouldFadeEntry } from "./motiontokens";
+import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, shouldFadeEntry, reflowProps } from "./motiontokens";
 
 describe("motiontokens", () => {
     it("uses the Fluid feel: macro ~360ms on the chosen ease curve", () => {
@@ -80,5 +80,21 @@ describe("computeEntrances", () => {
         const r = computeEntrances(first.state, "k1", ["a"]);
         expect([...r.animate]).toEqual([]);
         expect(r.state.seen.has("b")).toBe(true);
+    });
+});
+
+describe("reflowProps", () => {
+    it("animates chip-driven reflow with the fluid macro transition", () => {
+        const rp = reflowProps(true);
+        expect(rp.initial).toBe("initial");
+        expect(rp.exit).toBe("exit");
+        expect(rp.transition).toEqual({ duration: MOTION.durMacro, ease: MOTION.easeFluid });
+    });
+
+    it("makes non-chip changes instant (no enter, no exit, zero-duration layout)", () => {
+        const rp = reflowProps(false);
+        expect(rp.initial).toBe(false);
+        expect(rp.exit).toBeUndefined();
+        expect(rp.transition).toEqual({ duration: 0 });
     });
 });

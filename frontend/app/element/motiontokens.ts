@@ -4,7 +4,7 @@
 // Single source of truth for cockpit motion. Feel = "Fluid" (calm): macro moments
 // ~360ms on a gentle ease-out; micro-interactions stay fast. See
 // docs/superpowers/specs/2026-07-03-cockpit-motion-system-design.md.
-import type { Variants } from "motion/react";
+import type { Transition, Variants } from "motion/react";
 
 export const MOTION = {
     durMacro: 0.36, // entrances, reflow
@@ -88,4 +88,25 @@ export function computeEntrances(
         }
     }
     return { animate, state: { key, seen } };
+}
+
+// Chip-driven reflow props (shared by Sessions and Activity). `animated` = a user filter changed the
+// list (chips) → play enter/exit + the fluid macro reflow. `false` = a silent, zero-duration layout snap
+// (Sessions' search path; Activity's first populate). Maps the decision to the Framer props a reflowing
+// list item spreads. See docs/superpowers/specs/2026-07-04-activity-motion-design.md.
+export interface ReflowProps {
+    initial: string | false;
+    exit: string | undefined;
+    transition: Transition;
+}
+
+export function reflowProps(animated: boolean): ReflowProps {
+    if (animated) {
+        return {
+            initial: "initial",
+            exit: "exit",
+            transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid },
+        };
+    }
+    return { initial: false, exit: undefined, transition: { duration: 0 } };
 }
