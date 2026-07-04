@@ -62,7 +62,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
     const gatePhase = run.phases[gateIdx];
     const artifact = (gatePhase.artifacts ?? [])[0];
     return (
-        <div className="mt-3 overflow-hidden rounded-[12px] border border-asking/40 bg-lane-asking">
+        <div className="mt-3 max-w-[760px] overflow-hidden rounded-[12px] border border-asking/40 bg-lane-asking">
             <div className="flex items-center gap-2 border-b border-asking/20 px-3.5 py-2.5">
                 <span className="h-[7px] w-[7px] rounded-full bg-asking" />
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Review gate</span>
@@ -100,7 +100,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
 
 function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent: AgentVM; kind: "clarify" | "fork" }) {
     return (
-        <div className="mt-3">
+        <div className="mt-3 max-w-[760px]">
             <div className="mb-1.5 flex items-center gap-2">
                 <span className="h-[7px] w-[7px] rounded-full bg-asking" />
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-asking">
@@ -114,7 +114,7 @@ function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent: AgentV
 
 function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel; channelId: string; run: Run; worker?: AgentVM }) {
     return (
-        <div className="relative mt-3 overflow-hidden rounded-[12px] border border-error/40 bg-error/10 px-4 py-3">
+        <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-[12px] border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
                 <span className="font-mono text-[12px] font-bold text-error">!</span>
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">Blocked · worker exited</span>
@@ -304,7 +304,7 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
             </div>
 
             <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-                <div className="mx-auto max-w-[750px]">
+                <div>
                     {run ? (
                         <>
                             {/* run header */}
@@ -370,9 +370,9 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
                 </div>
             </div>
 
-            {/* start-run composer */}
-            <div className="flex-none px-6 pb-4 pt-2">
-                <div className="mx-auto max-w-[750px] rounded-[12px] border border-edge-mid bg-surface-raised px-3.5 py-3">
+            {/* start-run composer — mirrors the chat Composer's shell so the two feel like one system */}
+            <div className="flex-none px-6 pb-[18px] pt-2">
+                <div className="rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
                     <input
                         value={draft}
                         onChange={(e) => setDraft(e.target.value)}
@@ -382,15 +382,15 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
                             }
                         }}
                         placeholder="Give Jarvis a goal to start a run…"
-                        className="w-full bg-transparent text-[13.5px] text-primary placeholder:text-muted focus:outline-none"
+                        className="w-full bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
                     />
-                    <div className="mt-2.5 flex items-center gap-2">
-                        <span className="font-mono text-[10.5px] text-muted">playbook · Superpowers default</span>
+                    <div className="mt-2.5 flex items-center gap-2.5">
+                        <span className="font-mono text-[11.5px] text-ink-mid">playbook · Superpowers default</span>
                         <div className="flex-1" />
                         <button
                             type="button"
                             onClick={startRun}
-                            className="rounded-[8px] bg-accent px-3.5 py-1.5 text-[12px] font-bold text-background hover:bg-accent/90"
+                            className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
                         >
                             Start run ⏎
                         </button>
