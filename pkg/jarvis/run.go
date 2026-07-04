@@ -31,12 +31,19 @@ const (
 	PhaseState_Skipped = "skipped"
 )
 
+// Run modes.
+const (
+	RunMode_Pipeline     = "pipeline"
+	RunMode_Orchestrator = "orchestrator"
+)
+
 // Phase kinds.
 const (
-	PhaseKind_Brainstorm = "brainstorm"
-	PhaseKind_Plan       = "plan"
-	PhaseKind_Execute    = "execute"
-	PhaseKind_Custom     = "custom"
+	PhaseKind_Brainstorm  = "brainstorm"
+	PhaseKind_Plan        = "plan"
+	PhaseKind_Execute     = "execute"
+	PhaseKind_Orchestrate = "orchestrate"
+	PhaseKind_Custom      = "custom"
 )
 
 // AdvanceRun actions (carried on CommandAdvanceRunData.Action).
@@ -44,6 +51,7 @@ const (
 	RunAction_Complete = "complete"
 	RunAction_Approve  = "approve"
 	RunAction_SendBack = "sendback"
+	RunAction_Hold     = "hold"
 )
 
 // DefaultPlaybook is the hardcoded superpowers pipeline (spec §"default playbook"): brainstorm -> plan
@@ -56,9 +64,17 @@ func DefaultPlaybook() []waveobj.RunPhase {
 	}
 }
 
+// DefaultOrchestratorPlaybook is a single adaptive "orchestrate" phase. The lead plans and dispatches
+// its own subagents; gate=true tells the lead (via BuildOrchestratePrompt) to hold for plan review.
+func DefaultOrchestratorPlaybook(gate bool) []waveobj.RunPhase {
+	return []waveobj.RunPhase{
+		{Kind: PhaseKind_Orchestrate, Skill: "superpowers:subagent-driven-development", State: PhaseState_Pending, Gate: gate},
+	}
+}
+
 // NewRun builds a run from a playbook: deep-copies the phases, marks the first phase running, derives
 // status. ts is supplied by the caller (mirrors NewChannelMessage) for testability.
-func NewRun(goal, workspaceId, projectPath, principles string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
+func NewRun(goal, workspaceId, projectPath, principles, mode string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
 	phases := make([]waveobj.RunPhase, len(playbook))
 	copy(phases, playbook)
 	if len(phases) > 0 {
@@ -67,6 +83,7 @@ func NewRun(goal, workspaceId, projectPath, principles string, playbook []waveob
 	r := waveobj.Run{
 		ID:          uuid.NewString(),
 		Goal:        goal,
+		Mode:        mode,
 		WorkspaceId: workspaceId,
 		ProjectPath: projectPath,
 		Principles:  principles,
@@ -93,6 +110,10 @@ func recomputeStatus(r *waveobj.Run) {
 		return
 	}
 	cur := r.Phases[firstOpen]
+	if cur.State == PhaseState_Running && cur.Held {
+		r.Status = RunStatus_AwaitingReview
+		return
+	}
 	if cur.State == PhaseState_Blocked || cur.State == PhaseState_Failed {
 		r.Status = RunStatus_Blocked
 		return
@@ -102,7 +123,8 @@ func recomputeStatus(r *waveobj.Run) {
 		r.Status = RunStatus_AwaitingReview
 		return
 	}
-	if cur.Kind == PhaseKind_Execute {
+	// orchestrate is a single adaptive phase: a running (non-held) lead is actively working = executing.
+	if cur.Kind == PhaseKind_Execute || cur.Kind == PhaseKind_Orchestrate {
 		r.Status = RunStatus_Executing
 		return
 	}
@@ -128,6 +150,33 @@ func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string) (waveobj.R
 	return run, nil
 }
 
+// HoldPhase marks a gated running phase as held (the lead paused itself for plan review). recomputeStatus
+// derives awaiting-review. Errors (out of range / not running / not gated) fail safe — the caller no-ops.
+func HoldPhase(run waveobj.Run, phaseIdx int) (waveobj.Run, error) {
+	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
+		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
+	}
+	if run.Phases[phaseIdx].State != PhaseState_Running {
+		return run, fmt.Errorf("phase %d is %q, not running", phaseIdx, run.Phases[phaseIdx].State)
+	}
+	if !run.Phases[phaseIdx].Gate {
+		return run, fmt.Errorf("phase %d is not gated; nothing to hold", phaseIdx)
+	}
+	run.Phases[phaseIdx].Held = true
+	recomputeStatus(&run)
+	return run, nil
+}
+
+// heldPhaseIndex returns the index of a held running phase (orchestrator plan gate), or -1.
+func heldPhaseIndex(run waveobj.Run) int {
+	for i := range run.Phases {
+		if run.Phases[i].State == PhaseState_Running && run.Phases[i].Held {
+			return i
+		}
+	}
+	return -1
+}
+
 // gateIndex returns the index of the completed gate a halted run is waiting on, or -1. It is the phase
 // immediately before the first still-open phase, when that phase is a Done gate.
 func gateIndex(run waveobj.Run) int {
@@ -146,6 +195,12 @@ func gateIndex(run waveobj.Run) int {
 func ApproveGate(run waveobj.Run) (waveobj.Run, error) {
 	if run.Status != RunStatus_AwaitingReview {
 		return run, fmt.Errorf("run is %q, not awaiting-review", run.Status)
+	}
+	// orchestrator: a held running phase resumes in place (no successor to start).
+	if hi := heldPhaseIndex(run); hi >= 0 {
+		run.Phases[hi].Held = false
+		recomputeStatus(&run)
+		return run, nil
 	}
 	gi := gateIndex(run)
 	if gi < 0 || gi+1 >= len(run.Phases) {
@@ -194,5 +249,22 @@ func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []stri
 	if len(priorArtifacts) > 0 {
 		fmt.Fprintf(&b, "Prior artifacts to build on: %s\n", strings.Join(priorArtifacts, ", "))
 	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run: plan, then execute
+// adaptively by dispatching subagents, carrying the principles down to each. A gated run tells the lead
+// to hold after planning; every run tells it to report completion. Self-report verbs are wsh commands.
+func BuildOrchestratePrompt(goal, principles string, gate bool) string {
+	var b strings.Builder
+	if strings.TrimSpace(principles) != "" {
+		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", principles)
+	}
+	b.WriteString("You are the lead orchestrator for this goal. Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
+	if gate {
+		b.WriteString("First write the plan, then run `wsh jarvis hold` and wait — do not dispatch any subagents until you are told to proceed.\n")
+	}
+	fmt.Fprintf(&b, "Goal: %s\n", goal)
+	b.WriteString("When the goal is fully accomplished, run `wsh jarvis complete`.\n")
 	return strings.TrimRight(b.String(), "\n")
 }

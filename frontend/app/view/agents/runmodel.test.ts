@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    composerSummary,
     currentPhaseIndex,
     defaultRunId,
     defaultView,
+    isOrchestrator,
     isTerminal,
     phaseStateView,
     phaseThread,
@@ -154,6 +156,26 @@ describe("phaseThread", () => {
         const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:gone"] }] });
         expect(phaseThread(run, 0, []).showBlocked).toBe(true);
     });
+    it("shows starting (not blocked) while a recorded worker's tab exists but has not reported status", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
+        // t1 is a live session (spawned tab) but not yet in the status-bearing roster
+        const t = phaseThread(run, 0, [], new Set(["t1"]));
+        expect(t.showStarting).toBe(true);
+        expect(t.showBlocked).toBe(false);
+    });
+    it("shows blocked (not starting) when the recorded worker's tab no longer exists", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
+        const t = phaseThread(run, 0, [], new Set());
+        expect(t.showBlocked).toBe(true);
+        expect(t.showStarting).toBe(false);
+    });
+    it("prefers the live worker over starting once it reports status", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
+        const t = phaseThread(run, 0, [agent({ id: "t1", state: "working" })], new Set(["t1"]));
+        expect(t.showWorkers).toBe(true);
+        expect(t.showStarting).toBe(false);
+        expect(t.showBlocked).toBe(false);
+    });
     it("shows the gate card only on the gated phase", () => {
         const run = base({
             status: "awaiting-review",
@@ -165,5 +187,31 @@ describe("phaseThread", () => {
     it("shows ship on the last phase when the run is done", () => {
         const run = base({ status: "done", phases: [{ kind: "execute", state: "done" }] });
         expect(phaseThread(run, 0, []).showShip).toBe(true);
+    });
+});
+
+describe("orchestrator derivations", () => {
+    function orchHeldRun(): Run {
+        return {
+            id: "r1", goal: "g", mode: "orchestrator", status: "awaiting-review",
+            phases: [{ kind: "orchestrate", state: "running", gate: true, held: true }],
+            createdts: 1, workspaceid: "w", projectpath: "/p",
+        } as unknown as Run;
+    }
+
+    it("reviewGate matches a held orchestrator phase", () => {
+        expect(reviewGate(orchHeldRun())).toEqual({ phaseIdx: 0 });
+    });
+
+    it("isOrchestrator reads the mode", () => {
+        expect(isOrchestrator(orchHeldRun())).toBe(true);
+        expect(isOrchestrator({ mode: "pipeline" } as unknown as Run)).toBe(false);
+        expect(isOrchestrator({} as unknown as Run)).toBe(false);
+    });
+
+    it("composerSummary describes mode + gate", () => {
+        expect(composerSummary("orchestrator", true)).toBe("orchestrator · plan gate on");
+        expect(composerSummary("orchestrator", false)).toBe("orchestrator · hands-off");
+        expect(composerSummary("pipeline", true)).toBe("pipeline · Superpowers default");
     });
 });

@@ -123,6 +123,7 @@ type WshRpcInterface interface {
 	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error) // create + start a goal Run (spawns phase 1's worker)
 	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                           // complete a phase / approve or send back a gate (spawns the next worker)
 	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                             // cancel a Run
+	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                   // lead self-reports hold/complete; resolves run/phase from its own oref
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                   // write a channel's per-project profile override (empty clears it)
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
@@ -764,6 +765,8 @@ type CommandCreateRunData struct {
 	WorkspaceId string `json:"workspaceid"` // where phase-worker tabs are created
 	Goal        string `json:"goal"`
 	PlaybookId  string `json:"playbookid,omitempty"`
+	Mode        string `json:"mode,omitempty"`     // pipeline | orchestrator (empty = resolved profile default)
+	PlanGate    *bool  `json:"plangate,omitempty"` // orchestrator plan gate; nil = resolved profile default
 }
 
 type CommandCreateRunRtnData struct {
@@ -781,6 +784,12 @@ type CommandAdvanceRunData struct {
 type CommandCancelRunData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+}
+
+type CommandReportRunPhaseData struct {
+	ORef      string   `json:"oref"`                // caller's tab oref ("tab:<id>")
+	Action    string   `json:"action"`              // hold | complete
+	Artifacts []string `json:"artifacts,omitempty"` // recorded on complete
 }
 
 type CommandGetJarvisProfileData struct {

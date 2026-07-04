@@ -55,6 +55,7 @@ import { projectsAtom } from "./projectsstore";
 import { RAIL_ICON } from "./railicons";
 import { channelRailOpenAtom } from "./railstore";
 import { profileRailOpenAtom } from "./profilepanel";
+import { getJarvisProfile, setChannelProfile } from "./runactions";
 import { defaultView } from "./runmodel";
 import { RunsView } from "./runssurface";
 
@@ -851,6 +852,9 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
     const [view, setView] = useState<"chat" | "runs">(() => defaultView(active));
+    const [runMode, setRunMode] = useState<string>("pipeline");
+    const [planGate, setPlanGate] = useState<boolean>(true);
+    const [runOverride, setRunOverride] = useState<ProfileOverride | null>(null);
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
     // in the Runs view the profile drawer's ⚙ trigger is stacked under the context rail's own icon, so
     // both live in one collapsed strip (the profile stays a separate drawer — see ProfilePanel).
@@ -868,6 +872,18 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         setView(defaultView(active));
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeId]);
+
+    useEffect(() => {
+        if (!activeId) {
+            return;
+        }
+        fireAndForget(async () => {
+            const p = await getJarvisProfile(activeId);
+            setRunMode(p.resolved.defaultmode || "pipeline");
+            setPlanGate(p.resolved.defaultplangate ?? true);
+            setRunOverride(p.override ?? null);
+        });
     }, [activeId]);
 
     useEffect(() => {
@@ -981,7 +997,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                 </div>
                             ) : null}
                             <div className="flex-1" />
-                            {active ? (
+                            {active && view === "chat" ? (
                                 <div
                                     className="flex flex-none items-center gap-0.5 rounded-[7px] border border-edge-mid p-0.5"
                                     title="Jarvis autonomy for this channel: Concierge observes; Gatekeeper auto-answers routine asks; Delegator spawns and runs workers toward a goal"
@@ -1013,10 +1029,48 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     ))}
                                 </div>
                             ) : null}
+                            {active && view === "runs" ? (
+                                <div className="flex flex-none items-center gap-1.5">
+                                    <div
+                                        className="flex items-center gap-0.5 rounded-[7px] border border-edge-mid p-0.5"
+                                        title="How Jarvis runs a goal: Pipeline uses fixed phases with a review gate; Orchestrator runs one adaptive lead that spawns its own subagents"
+                                    >
+                                        {(["pipeline", "orchestrator"] as const).map((mVal) => (
+                                            <button
+                                                key={mVal}
+                                                type="button"
+                                                onClick={() => {
+                                                    setRunMode(mVal);
+                                                    const next = { ...(runOverride ?? {}), defaultmode: mVal };
+                                                    setRunOverride(next);
+                                                    fireAndForget(() => setChannelProfile(active.oid, next));
+                                                }}
+                                                className={
+                                                    runMode === mVal
+                                                        ? "rounded-[5px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[11px] text-accent-soft"
+                                                        : "rounded-[5px] px-2 py-0.5 font-mono text-[11px] text-muted hover:text-secondary"
+                                                }
+                                            >
+                                                {mVal}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {runMode === "orchestrator" ? (
+                                        <label className="flex cursor-pointer items-center gap-1 font-mono text-[11px] text-muted">
+                                            <input
+                                                type="checkbox"
+                                                checked={planGate}
+                                                onChange={(e) => setPlanGate(e.target.checked)}
+                                            />
+                                            plan gate
+                                        </label>
+                                    ) : null}
+                                </div>
+                            ) : null}
                         </div>
 
                         {view === "runs" && active ? (
-                            <RunsView model={model} channel={active} agents={agents} />
+                            <RunsView model={model} channel={active} agents={agents} runMode={runMode} planGate={planGate} />
                         ) : (
                             <>
                         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">

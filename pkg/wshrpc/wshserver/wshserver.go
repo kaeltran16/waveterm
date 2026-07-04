@@ -1744,7 +1744,13 @@ func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshr
 
 // spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
 // attached orefs — a second write, so tab-creation never nests inside the run's state-transition write.
+//
+// EnsureWorkers creates a tab + block per worker (via wcore.CreateTab), which mutates the workspace's
+// tab list and inserts new objects. Those mutations only reach the frontend if this ctx collects and
+// flushes their update events — without that, the workspace atom never gains the worker's tab, the tab
+// never enters the session roster, and the run renders a false "worker exited" until a full reload.
 func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) error {
+	ctx = waveobj.ContextWithUpdates(ctx)
 	run, err := wstore.GetRun(ctx, channelId, runId)
 	if err != nil {
 		return err
@@ -1762,7 +1768,34 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 			return uerr
 		}
 	}
+	wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
 	return spawnErr // surfaced but non-fatal to already-persisted state
+}
+
+// resolveRunPlan derives the effective mode + playbook for a new run from the resolved profile and the
+// request's optional overrides. Precedence: request > profile default > built-in (pipeline; gate on).
+func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate *bool) (string, []waveobj.RunPhase) {
+	mode := reqMode
+	if mode == "" {
+		mode = resolved.DefaultMode
+	}
+	if mode == "" {
+		mode = jarvis.RunMode_Pipeline
+	}
+	if mode == jarvis.RunMode_Orchestrator {
+		gate := true
+		if reqPlanGate != nil {
+			gate = *reqPlanGate
+		} else if resolved.DefaultPlanGate != nil {
+			gate = *resolved.DefaultPlanGate
+		}
+		return mode, jarvis.DefaultOrchestratorPlaybook(gate)
+	}
+	playbook := resolved.Playbook
+	if len(playbook) == 0 {
+		playbook = jarvis.DefaultPlaybook()
+	}
+	return mode, playbook
 }
 
 func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
@@ -1775,11 +1808,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	}
 	global := jarvis.LoadGlobalProfile()
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
-	playbook := resolved.Playbook
-	if len(playbook) == 0 {
-		playbook = jarvis.DefaultPlaybook() // preserve ResolvePlaybook's empty-fallback
-	}
-	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, playbook, time.Now().UnixMilli())
+	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
+	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
@@ -1793,9 +1823,39 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	return &wshrpc.CommandCreateRunRtnData{Run: out}, nil
 }
 
+// steerRunLead sends a line of input into the block of a run worker (tab oref "tab:<id>"), resuming a
+// long-lived lead in place. Best-effort: resolution/send failures are logged, never fatal.
+func steerRunLead(ctx context.Context, tabORef, text string) {
+	oref, err := waveobj.ParseORef(tabORef)
+	if err != nil || oref.OType != waveobj.OType_Tab {
+		log.Printf("steerRunLead: bad oref %q: %v", tabORef, err)
+		return
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
+	if err != nil || len(tab.BlockIds) == 0 {
+		log.Printf("steerRunLead: no block for %q: %v", tabORef, err)
+		return
+	}
+	if err := blockcontroller.SendInput(tab.BlockIds[0], &blockcontroller.BlockInputUnion{InputData: []byte(text)}); err != nil {
+		log.Printf("steerRunLead: sending input to %q: %v", tabORef, err)
+	}
+}
+
 func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandAdvanceRunData) error {
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
+	}
+	// approve-in-place: an orchestrator lead held at the plan gate resumes via steer, not a fresh worker.
+	leadToSteer := ""
+	if data.Action == jarvis.RunAction_Approve {
+		if pre, perr := wstore.GetRun(ctx, data.ChannelId, data.RunId); perr == nil {
+			for i := range pre.Phases {
+				if pre.Phases[i].State == jarvis.PhaseState_Running && pre.Phases[i].Held && len(pre.Phases[i].WorkerOrefs) > 0 {
+					leadToSteer = pre.Phases[i].WorkerOrefs[0]
+					break
+				}
+			}
+		}
 	}
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
 		var next waveobj.Run
@@ -1807,6 +1867,8 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 			next, e = jarvis.ApproveGate(*r)
 		case jarvis.RunAction_SendBack:
 			next, e = jarvis.SendBackGate(*r)
+		case jarvis.RunAction_Hold:
+			next, e = jarvis.HoldPhase(*r, data.PhaseIdx)
 		default:
 			e = fmt.Errorf("unknown run action %q", data.Action)
 		}
@@ -1827,8 +1889,33 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 		return fmt.Errorf("spawning next worker: %w", err)
 	}
+	if leadToSteer != "" {
+		steerRunLead(ctx, leadToSteer, "approved, proceed\r")
+	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil
+}
+
+func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.CommandReportRunPhaseData) error {
+	if data.ORef == "" {
+		return fmt.Errorf("oref is required")
+	}
+	channels, err := wstore.GetChannels(ctx)
+	if err != nil {
+		return fmt.Errorf("loading channels: %w", err)
+	}
+	m := jarvis.ResolveRunWorker(channels, data.ORef)
+	if m == nil {
+		log.Printf("ReportRunPhase: no run owns oref %q (ignoring)", data.ORef)
+		return nil // fail safe: a stray report is a no-op, not an error
+	}
+	return ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: m.Channel.OID,
+		RunId:     m.Run.ID,
+		PhaseIdx:  m.PhaseIdx,
+		Action:    data.Action,
+		Artifacts: data.Artifacts,
+	})
 }
 
 func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCancelRunData) error {
@@ -1867,7 +1954,8 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 	if data.ChannelId == "" {
 		return fmt.Errorf("channelid is required")
 	}
-	empty := data.Override == nil || (data.Override.Playbook == nil && data.Override.Principles == nil)
+	empty := data.Override == nil || (data.Override.Playbook == nil && data.Override.Principles == nil &&
+		data.Override.DefaultMode == nil && data.Override.DefaultPlanGate == nil)
 	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
 		if ch.Meta == nil {
 			ch.Meta = make(waveobj.MetaMapType)

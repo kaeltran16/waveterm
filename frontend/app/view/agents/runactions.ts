@@ -10,13 +10,18 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 
-export async function createRun(channelId: string, goal: string, playbookId?: string): Promise<Run> {
+export async function createRun(
+    channelId: string,
+    goal: string,
+    opts?: { mode?: string; planGate?: boolean }
+): Promise<Run> {
     const workspaceId = globalStore.get(atoms.workspaceId);
     const rtn = await RpcApi.CreateRunCommand(TabRpcClient, {
         channelid: channelId,
         workspaceid: workspaceId,
         goal,
-        playbookid: playbookId,
+        mode: opts?.mode,
+        plangate: opts?.planGate,
     });
     return rtn.run;
 }

@@ -60,6 +60,12 @@ func ResolveProfile(global waveobj.JarvisProfile, override *waveobj.ProfileOverr
 		if override.Principles != nil {
 			out.Principles = *override.Principles
 		}
+		if override.DefaultMode != nil {
+			out.DefaultMode = *override.DefaultMode
+		}
+		if override.DefaultPlanGate != nil {
+			out.DefaultPlanGate = override.DefaultPlanGate
+		}
 	}
 	return out
 }

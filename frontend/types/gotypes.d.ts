@@ -460,6 +460,8 @@ declare global {
         workspaceid: string;
         goal: string;
         playbookid?: string;
+        mode?: string;
+        plangate?: boolean;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -1028,6 +1030,13 @@ declare global {
         tofilename: string;
     };
 
+    // wshrpc.CommandReportRunPhaseData
+    type CommandReportRunPhaseData = {
+        oref: string;
+        action: string;
+        artifacts?: string[];
+    };
+
     // wshrpc.CommandResolveIdsData
     type CommandResolveIdsData = {
         blockid: string;
@@ -1493,6 +1502,8 @@ declare global {
     type JarvisProfile = {
         playbook: RunPhase[];
         principles?: string;
+        defaultmode?: string;
+        defaultplangate?: boolean;
     };
 
     // waveobj.Job
@@ -1803,6 +1814,8 @@ declare global {
     type ProfileOverride = {
         playbook?: RunPhase[];
         principles?: string;
+        defaultmode?: string;
+        defaultplangate?: boolean;
     };
 
     // wconfig.ProjectKeywords
@@ -1873,6 +1886,7 @@ declare global {
         id: string;
         goal: string;
         playbookid?: string;
+        mode?: string;
         workspaceid: string;
         projectpath: string;
         principles?: string;
@@ -1888,6 +1902,7 @@ declare global {
         state: string;
         gate?: boolean;
         freshctx?: boolean;
+        held?: boolean;
         workerorefs?: string[];
         artifacts?: string[];
     };

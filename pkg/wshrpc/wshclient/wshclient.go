@@ -1014,6 +1014,12 @@ func RenameAppFileCommand(w *wshutil.WshRpc, data wshrpc.CommandRenameAppFileDat
 	return err
 }
 
+// command "reportrunphase", wshserver.ReportRunPhaseCommand
+func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "reportrunphase", data, opts)
+	return err
+}
+
 // command "resolveids", wshserver.ResolveIdsCommand
 func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opts *wshrpc.RpcOpts) (wshrpc.CommandResolveIdsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandResolveIdsRtnData](w, "resolveids", data, opts)

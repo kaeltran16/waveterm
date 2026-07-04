@@ -1020,6 +1020,12 @@ export class RpcApiType {
         return client.wshRpcCall("renameappfile", data, opts);
     }
 
+    // command "reportrunphase" [call]
+    ReportRunPhaseCommand(client: WshClient, data: CommandReportRunPhaseData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "reportrunphase", data, opts);
+        return client.wshRpcCall("reportrunphase", data, opts);
+    }
+
     // command "resolveids" [call]
     ResolveIdsCommand(client: WshClient, data: CommandResolveIdsData, opts?: RpcOpts): Promise<CommandResolveIdsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveids", data, opts);

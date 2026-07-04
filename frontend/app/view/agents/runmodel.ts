@@ -56,6 +56,13 @@ export function reviewGate(run: Run): { phaseIdx: number } | null {
         return null;
     }
     const phases = run.phases ?? [];
+    // orchestrator: a held running phase resumes in place
+    for (let i = 0; i < phases.length; i++) {
+        if (phases[i].state === "running" && phases[i].held) {
+            return { phaseIdx: i };
+        }
+    }
+    // pipeline: a completed gate whose successor is still pending (or absent)
     for (let i = 0; i < phases.length; i++) {
         if (phases[i].gate && phases[i].state === "done") {
             const next = phases[i + 1];
@@ -65,6 +72,18 @@ export function reviewGate(run: Run): { phaseIdx: number } | null {
         }
     }
     return null;
+}
+
+export function isOrchestrator(run: Run): boolean {
+    return run.mode === "orchestrator";
+}
+
+// One-line summary of what "Start run" will do, shown under the composer.
+export function composerSummary(mode: string, planGate: boolean): string {
+    if (mode === "orchestrator") {
+        return planGate ? "orchestrator · plan gate on" : "orchestrator · hands-off";
+    }
+    return "pipeline · Superpowers default";
 }
 
 // The phase the view focuses: the first running/blocked phase, else the gated phase awaiting review,
@@ -129,21 +148,32 @@ export interface PhaseThread {
     showBoundary: boolean;
     showWorkers: boolean;
     showGate: boolean;
+    showStarting: boolean;
     showBlocked: boolean;
     showShip: boolean;
 }
 
+// The recorded worker tab ids for a phase (the "tab:" orefs, unprefixed).
+function recordedWorkerTabs(phase: RunPhase): string[] {
+    return (phase.workerorefs ?? []).filter((o) => o.startsWith("tab:")).map((o) => o.slice(4));
+}
+
 // Which threaded elements a phase renders. Ask (live worker awaiting the human) is a clarify on a
-// brainstorm phase, a fork otherwise, and it suppresses the plain worker rows. Blocked = a running phase
-// whose recorded workers are all gone, or an engine-set blocked state. Ship = the last phase done on a
-// finished run.
-export function phaseThread(run: Run, idx: number, agents: AgentVM[]): PhaseThread {
+// brainstorm phase, a fork otherwise, and it suppresses the plain worker rows. A recorded worker with no
+// status-bearing roster row is either *starting* (its tab still exists — spawned, not yet reported) or
+// *gone* (its tab no longer exists → the "worker exited" blocked card). liveTabIds is the set of tab ids
+// that currently exist as sessions (roster + plain terminals); pass it to make that distinction — without
+// it, a recorded-but-unreported worker reads as gone. Ship = the last phase done on a finished run.
+export function phaseThread(run: Run, idx: number, agents: AgentVM[], liveTabIds?: Set<string>): PhaseThread {
     const phases = run.phases ?? [];
     const phase = phases[idx];
     const workers = phaseWorkers(phase, agents);
     const asker = workers.find((w) => w.state === "asking");
     const startedFresh = phase.state !== "pending" && phase.state !== "skipped";
-    const recordedButGone = (phase.workerorefs?.length ?? 0) > 0 && workers.length === 0;
+    const recorded = recordedWorkerTabs(phase);
+    const unreported = recorded.length > 0 && workers.length === 0;
+    const starting = unreported && liveTabIds != null && recorded.some((id) => liveTabIds.has(id));
+    const recordedButGone = unreported && !starting;
     return {
         showAsk: !!asker,
         askKind: asker ? (phase.kind === "brainstorm" ? "clarify" : "fork") : null,
@@ -151,6 +181,7 @@ export function phaseThread(run: Run, idx: number, agents: AgentVM[]): PhaseThre
         showBoundary: !!phase.freshctx && startedFresh,
         showWorkers: phase.state === "running" && workers.length > 0 && !asker,
         showGate: reviewGate(run)?.phaseIdx === idx,
+        showStarting: phase.state === "running" && starting,
         showBlocked: phase.state === "blocked" || (phase.state === "running" && recordedButGone),
         showShip: idx === phases.length - 1 && phase.state === "done" && run.status === "done",
     };

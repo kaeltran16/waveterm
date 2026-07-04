@@ -72,6 +72,16 @@ func priorArtifacts(run *waveobj.Run, idx int) []string {
 	return out
 }
 
+// phasePrompt builds the initial worker prompt for a phase, mode-aware: orchestrator runs get the
+// adaptive lead prompt; pipeline runs get the per-phase skill prompt.
+func phasePrompt(run *waveobj.Run, idx int) string {
+	p := run.Phases[idx]
+	if run.Mode == RunMode_Orchestrator {
+		return BuildOrchestratePrompt(run.Goal, run.Principles, p.Gate)
+	}
+	return BuildPhasePrompt(p, run.Goal, priorArtifacts(run, idx), run.Principles)
+}
+
 // EnsureWorkers spawns a claude worker for each running phase that has none yet, returning the phase
 // index -> tab oref it created. It does not mutate/persist the run; the caller attaches the orefs.
 // On a spawn error it returns what it has so far plus the error (the caller still persists partial work).
@@ -82,7 +92,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, projectName string) (m
 		if p.State != PhaseState_Running || len(p.WorkerOrefs) > 0 {
 			continue
 		}
-		prompt := BuildPhasePrompt(p, run.Goal, priorArtifacts(run, i), run.Principles)
+		prompt := phasePrompt(run, i)
 		oref, err := SpawnClaudeWorker(ctx, run.WorkspaceId, projectName, run.ProjectPath, prompt)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)

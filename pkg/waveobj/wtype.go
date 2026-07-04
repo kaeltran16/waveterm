@@ -212,11 +212,12 @@ type ChannelMessage struct {
 }
 
 type RunPhase struct {
-	Kind        string   `json:"kind"`               // brainstorm | plan | execute | custom
+	Kind        string   `json:"kind"`               // brainstorm | plan | execute | orchestrate | custom
 	Skill       string   `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
 	State       string   `json:"state"`              // pending | running | blocked | done | failed | skipped
-	Gate        bool     `json:"gate,omitempty"`     // halt for human review after this phase completes
+	Gate        bool     `json:"gate,omitempty"`     // pipeline: halt after this phase; orchestrator: the lead was told to hold
 	FreshCtx    bool     `json:"freshctx,omitempty"` // this phase runs in its own fresh worker (clear-context boundary)
+	Held        bool     `json:"held,omitempty"`     // orchestrator: the lead paused itself at the plan gate (runtime)
 	WorkerOrefs []string `json:"workerorefs,omitempty"`
 	Artifacts   []string `json:"artifacts,omitempty"`
 }
@@ -225,6 +226,7 @@ type Run struct {
 	ID          string     `json:"id"`
 	Goal        string     `json:"goal"`
 	PlaybookId  string     `json:"playbookid,omitempty"`
+	Mode        string     `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string     `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string     `json:"projectpath"`          // worker cwd (copied from the channel)
 	Principles  string     `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
@@ -237,15 +239,19 @@ type Run struct {
 // principles (free-text judgment; consumed in Piece 4, stored/resolved only for now). Playbook reuses
 // RunPhase so a resolved profile feeds NewRun directly (runtime fields are set at run creation).
 type JarvisProfile struct {
-	Playbook   []RunPhase `json:"playbook"`
-	Principles string     `json:"principles,omitempty"`
+	Playbook        []RunPhase `json:"playbook"`
+	Principles      string     `json:"principles,omitempty"`
+	DefaultMode     string     `json:"defaultmode,omitempty"`     // pipeline | orchestrator (empty = pipeline)
+	DefaultPlanGate *bool      `json:"defaultplangate,omitempty"` // nil = on
 }
 
 // ProfileOverride is a channel's per-project override, stored as JSON on channel meta. Pointer fields:
 // nil = inherit the global section, non-nil = replace it (section-level resolution).
 type ProfileOverride struct {
-	Playbook   *[]RunPhase `json:"playbook,omitempty"`
-	Principles *string     `json:"principles,omitempty"`
+	Playbook        *[]RunPhase `json:"playbook,omitempty"`
+	Principles      *string     `json:"principles,omitempty"`
+	DefaultMode     *string     `json:"defaultmode,omitempty"`
+	DefaultPlanGate *bool       `json:"defaultplangate,omitempty"`
 }
 
 type Channel struct {

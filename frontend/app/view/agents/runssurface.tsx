@@ -7,6 +7,7 @@
 // existing RPCs; phase completion arrives via the external hook. See runmodel.ts for all derivations.
 
 import { fireAndForget } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
@@ -15,8 +16,10 @@ import { AskRow, jumpToAgent, WorkerRow } from "./channelsprimitives";
 import type { WorkerState } from "./jarvisderive";
 import { approveGate, cancelRun, createRun, sendBackGate } from "./runactions";
 import {
+    composerSummary,
     currentPhaseIndex,
     defaultRunId,
+    isOrchestrator,
     isTerminal,
     phaseStateView,
     phaseThread,
@@ -24,6 +27,9 @@ import {
     runStatusView,
 } from "./runmodel";
 import { ProfilePanel } from "./profilepanel";
+import { getSubagentsAtom } from "./session-models/agentstatusstore";
+import { sessionSidebarViewModelAtom } from "./session-models/sessionsidebarmodel";
+import { flattenVisualOrder } from "./session-models/sessionviewmodel";
 
 const TONE_CLASS: Record<string, string> = {
     planning: "text-muted",
@@ -67,7 +73,9 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
             <div className="flex items-center gap-2 border-b border-asking/20 px-3.5 py-2.5">
                 <span className="h-[7px] w-[7px] rounded-full bg-asking" />
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Review gate</span>
-                <span className="flex-1 text-[11.5px] text-ink-mid">approve before execution starts</span>
+                <span className="flex-1 text-[11.5px] text-ink-mid">
+                    {run.mode === "orchestrator" ? "plan ready — approve to let the lead proceed" : "approve before execution starts"}
+                </span>
                 {artifact ? <span className="font-mono text-[10.5px] text-muted">{artifact}</span> : null}
             </div>
             <div className="flex items-center gap-2.5 px-3.5 py-3">
@@ -76,7 +84,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
                     onClick={() => fireAndForget(() => approveGate(channelId, run.id, gateIdx))}
                     className="rounded-[8px] bg-accent px-4 py-2 text-[12px] font-bold text-background hover:bg-accent/90"
                 >
-                    Approve & execute
+                    {run.mode === "orchestrator" ? "Approve & proceed" : "Approve & execute"}
                 </button>
                 <button
                     type="button"
@@ -152,6 +160,17 @@ function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel
     );
 }
 
+// A just-spawned worker whose tab exists but hasn't reported its first status yet. Shown instead of the
+// alarming "worker exited" card during the brief boot window; it flips to a live worker row on first status.
+function StartingCard() {
+    return (
+        <div className="mt-2.5 inline-flex items-center gap-2 rounded-[9px] border border-edge-mid bg-background px-3 py-2">
+            <span className="h-[7px] w-[7px] flex-none animate-pulse rounded-full bg-asking" />
+            <span className="text-[12px] text-secondary">Worker starting…</span>
+        </div>
+    );
+}
+
 function ShipMarker() {
     return (
         <div className="mt-2 inline-flex items-center gap-2 rounded-[9px] border border-success/30 bg-success/10 px-3 py-2">
@@ -185,13 +204,38 @@ function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded: boole
     );
 }
 
-function PhaseRail({ model, run, agents, channelId }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string }) {
+// Live Task-tool subagents of an orchestrator lead, nested under its worker row. Read from the per-lead
+// ephemeral atom the ~/.claude status reporter feeds; empty (and rendering nothing) until the lead spawns any.
+function SubagentRows({ leadId }: { leadId: string }) {
+    const subs = useAtomValue(getSubagentsAtom(`tab:${leadId}`));
+    if (subs.length === 0) {
+        return null;
+    }
+    return (
+        <div className="ml-4 mt-1 flex flex-col gap-1 border-l border-edge-mid pl-3">
+            {subs.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 text-[11px] text-secondary">
+                    <span
+                        className={
+                            "h-[6px] w-[6px] flex-none rounded-full " +
+                            (s.state === "failure" ? "bg-error" : s.state === "success" ? "bg-success" : "bg-asking")
+                        }
+                    />
+                    <span className="font-semibold">{s.type}</span>
+                    {s.model ? <span className="font-mono text-[9.5px] text-muted">{s.model}</span> : null}
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function PhaseRail({ model, run, agents, channelId, liveTabIds }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string> }) {
     const phases = run.phases ?? [];
     return (
         <div>
             {phases.map((p, i) => {
                 const v = phaseStateView(p.state);
-                const thread = phaseThread(run, i, agents);
+                const thread = phaseThread(run, i, agents, liveTabIds);
                 const workers = phaseWorkers(p, agents);
                 const notLast = i < phases.length - 1;
                 return (
@@ -225,7 +269,10 @@ function PhaseRail({ model, run, agents, channelId }: { model: AgentsViewModel; 
                                 {thread.showWorkers ? (
                                     <div className="mt-2.5 flex flex-col gap-1.5">
                                         {workers.map((w) => (
-                                            <WorkerRow key={w.id} model={model} w={toWorkerState(w)} />
+                                            <div key={w.id}>
+                                                <WorkerRow model={model} w={toWorkerState(w)} />
+                                                {isOrchestrator(run) ? <SubagentRows leadId={w.id} /> : null}
+                                            </div>
                                         ))}
                                     </div>
                                 ) : null}
@@ -233,6 +280,7 @@ function PhaseRail({ model, run, agents, channelId }: { model: AgentsViewModel; 
                                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
                                 ) : null}
+                                {thread.showStarting ? <StartingCard /> : null}
                                 {thread.showBlocked ? (
                                     <BlockedCard model={model} channelId={channelId} run={run} worker={workers[0]} />
                                 ) : null}
@@ -246,8 +294,27 @@ function PhaseRail({ model, run, agents, channelId }: { model: AgentsViewModel; 
     );
 }
 
-export function RunsView({ model, channel, agents }: { model: AgentsViewModel; channel: Channel; agents: AgentVM[] }) {
+export function RunsView({
+    model,
+    channel,
+    agents,
+    runMode,
+    planGate,
+}: {
+    model: AgentsViewModel;
+    channel: Channel;
+    agents: AgentVM[];
+    runMode: string;
+    planGate: boolean;
+}) {
     const runs = channel.runs ?? [];
+    // tab ids of every live session that owns a running term block — read straight from the session
+    // model so it includes an agent session that hasn't reported its first agent:status yet (that
+    // worker is neither in the roster nor in `terminals`, since it's an agent, not a plain shell).
+    // Lets the phase rail tell a *starting* worker (its tab still exists) from a *gone* one (tab
+    // destroyed), so a freshly-spawned run doesn't render the false "worker exited" card.
+    const sidebarVM = useAtomValue(sessionSidebarViewModelAtom);
+    const liveTabIds = new Set<string>(flattenVisualOrder(sidebarVM).filter((r) => r.termBlockOref).map((r) => r.tabId));
     const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
     const [draft, setDraft] = useState("");
     const [expanded, setExpanded] = useState(true);
@@ -269,7 +336,7 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
         }
         setDraft("");
         fireAndForget(async () => {
-            const created = await createRun(channel.oid, goal);
+            const created = await createRun(channel.oid, goal, { mode: runMode, planGate });
             setActiveRunId(created.id);
         });
     };
@@ -351,7 +418,7 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
 
                             <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
                             {expanded ? (
-                                <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} />
+                                <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} />
                             ) : null}
 
                             {!isTerminal(run.status) ? (
@@ -387,7 +454,7 @@ export function RunsView({ model, channel, agents }: { model: AgentsViewModel; c
                         className="w-full bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
                     />
                     <div className="mt-2.5 flex items-center gap-2.5">
-                        <span className="font-mono text-[11.5px] text-ink-mid">playbook · Superpowers default</span>
+                        <span className="font-mono text-[11.5px] text-ink-mid">{composerSummary(runMode, planGate)}</span>
                         <div className="flex-1" />
                         <button
                             type="button"

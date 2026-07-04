@@ -37,7 +37,7 @@ function movePhase(phases: RunPhase[], i: number, dir: -1 | 1): RunPhase[] {
 }
 
 function overrideIsEmpty(o: ProfileOverride): boolean {
-    return o.playbook == null && o.principles == null;
+    return o.playbook == null && o.principles == null && o.defaultmode == null && o.defaultplangate == null;
 }
 
 function Badge({ source }: { source: "global" | "project" }) {
@@ -235,6 +235,58 @@ function PrinciplesSection({
     );
 }
 
+function DefaultsSection({
+    global,
+    draft,
+    setDraft,
+}: {
+    global: JarvisProfile;
+    draft: ProfileOverride;
+    setDraft: React.Dispatch<React.SetStateAction<ProfileOverride>>;
+}) {
+    const mode = draft.defaultmode ?? global.defaultmode ?? "pipeline";
+    const gate = draft.defaultplangate ?? global.defaultplangate ?? true;
+    const overridden = draft.defaultmode != null || draft.defaultplangate != null;
+    return (
+        <div>
+            <div className="mb-1.5 flex items-center gap-2">
+                <span className="text-[12px] font-semibold text-primary">Run defaults</span>
+                <Badge source={overridden ? "project" : "global"} />
+                <div className="flex-1" />
+                {overridden ? (
+                    <button
+                        type="button"
+                        onClick={() => setDraft((d) => omit(omit(d, "defaultmode"), "defaultplangate"))}
+                        className="text-[10px] text-muted hover:text-secondary"
+                    >
+                        reset to global
+                    </button>
+                ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+                <select
+                    value={mode}
+                    onChange={(e) => setDraft((d) => ({ ...d, defaultmode: e.target.value }))}
+                    className="rounded-[6px] border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
+                >
+                    <option value="pipeline">pipeline</option>
+                    <option value="orchestrator">orchestrator</option>
+                </select>
+                {mode === "orchestrator" ? (
+                    <label className="flex cursor-pointer items-center gap-1 text-[11px] text-secondary">
+                        <input
+                            type="checkbox"
+                            checked={gate}
+                            onChange={(e) => setDraft((d) => ({ ...d, defaultplangate: e.target.checked }))}
+                        />
+                        plan gate on by default
+                    </label>
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
 export function ProfilePanel({ channelId }: { channelId: string }) {
     const open = useAtomValue(profileRailOpenAtom);
     const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -283,6 +335,7 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
             </div>
             <PlaybookSection global={loaded.global} draft={draft} setDraft={setDraft} />
             <PrinciplesSection global={loaded.global} draft={draft} setDraft={setDraft} />
+            <DefaultsSection global={loaded.global} draft={draft} setDraft={setDraft} />
         </div>
     ) : error ? (
         <div className="text-[12px] leading-[1.5] text-error">Couldn't load the profile. {error}</div>

@@ -124,3 +124,23 @@ func TestChannelOwnerORef_Passthrough(t *testing.T) {
 		t.Fatalf("unparseable oref should pass through, got %q", got)
 	}
 }
+
+func boolPtr(b bool) *bool    { return &b }
+func strPtr(s string) *string { return &s }
+
+func TestResolveProfile_DefaultModeAndGate(t *testing.T) {
+	global := waveobj.JarvisProfile{DefaultMode: RunMode_Pipeline, DefaultPlanGate: boolPtr(true)}
+
+	// nil override inherits global
+	got := ResolveProfile(global, nil)
+	if got.DefaultMode != RunMode_Pipeline || got.DefaultPlanGate == nil || *got.DefaultPlanGate != true {
+		t.Fatalf("nil override: got mode=%q gate=%v", got.DefaultMode, got.DefaultPlanGate)
+	}
+
+	// override replaces both sections
+	ov := &waveobj.ProfileOverride{DefaultMode: strPtr(RunMode_Orchestrator), DefaultPlanGate: boolPtr(false)}
+	got = ResolveProfile(global, ov)
+	if got.DefaultMode != RunMode_Orchestrator || got.DefaultPlanGate == nil || *got.DefaultPlanGate != false {
+		t.Fatalf("override: got mode=%q gate=%v", got.DefaultMode, got.DefaultPlanGate)
+	}
+}
