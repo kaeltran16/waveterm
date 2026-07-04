@@ -64,7 +64,7 @@ export function ChannelRail({
                                 type="button"
                                 onClick={() => onSelect(c.oid)}
                                 className={cn(
-                                    "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left",
+                                    "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left transition-colors duration-[140ms]",
                                     active ? "bg-accentbg" : "hover:bg-surface-hover"
                                 )}
                             >
@@ -92,7 +92,7 @@ export function ChannelRail({
                                 {channelHasAsk(c, agents) ? (
                                     <span
                                         title="an agent here needs you"
-                                        className="h-2 w-2 flex-none rounded-full bg-asking"
+                                        className="h-2 w-2 flex-none rounded-full bg-asking animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
                                     />
                                 ) : null}
                                 <span
@@ -131,7 +131,15 @@ export function ChannelRail({
                                             onClick={() => setConfirmId(undefined)}
                                             className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-[5px] border border-edge-mid bg-surface-raised text-muted hover:text-primary"
                                         >
-                                            <svg width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                            <svg
+                                                width="10"
+                                                height="10"
+                                                viewBox="0 0 20 20"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                            >
                                                 <path d="M5 5l10 10M15 5L5 15" />
                                             </svg>
                                         </button>
@@ -143,7 +151,16 @@ export function ChannelRail({
                                         onClick={() => setConfirmId(c.oid)}
                                         className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-[5px] border border-edge-mid bg-surface-raised text-muted hover:border-error hover:text-error"
                                     >
-                                        <svg width="11" height="11" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                        <svg
+                                            width="11"
+                                            height="11"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="1.6"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                        >
                                             <path d="M4 6h12" />
                                             <path d="M8 6V4.6A1.4 1.4 0 0 1 9.4 3.2h1.2A1.4 1.4 0 0 1 12 4.6V6" />
                                             <path d="M6.2 6l.6 9.2A1.5 1.5 0 0 0 8.3 16.7h3.4a1.5 1.5 0 0 0 1.5-1.5L13.8 6" />

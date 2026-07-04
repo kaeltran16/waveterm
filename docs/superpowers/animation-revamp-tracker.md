@@ -3,7 +3,7 @@
 > Living tracker for the cockpit-app motion revamp. One vocabulary, one token source,
 > rolled out surface by surface. Update the status table as each surface lands.
 
-Last updated: 2026-07-03
+Last updated: 2026-07-04
 
 ## Goal
 
@@ -66,7 +66,7 @@ cross-surface transitions and shared modals.
 | **Cockpit** | ✅ Shipped `b3ccce07`; chrome gaps + shared rail (2026-07-03) | 8 card moments + rolling counts, section-header entrance, grid→footer handoff, CollapsibleRail. |
 | Agent | ◐ Rail only | DETAILS rail now `CollapsibleRail` (alignment fixed, "just now idle" text fixed). Remaining: narration/composer/status motion (m5/m6/m7). |
 | Activity | ☐ Not started | Cross-project feed. Candidates: line entrance (m1/m5), no-cascade guard. |
-| Channels | ◐ Rail only | Context rail now `CollapsibleRail`. Remaining: message entrance (m1/m5), rail selection micro (m7). |
+| Channels | ✅ Shipped (2026-07-04) | Message entrance + no-cascade guard (`channelsmotion.ts`), streaming settle, escalation glow, rail selection micro + attention-dot pulse. |
 | Sessions | ✅ Shipped (2026-07-03) | Chip-filter reflow (m2 popLayout), instant search, one-shot load reveal, empty-state fade. No hero (surface is header+search+chips+list). |
 | Files / Diff | ☐ Not started | Candidates: list entrance (m1), reveal (m6). |
 | Memory | ☐ Not started | Vault viewer + force-graph. Candidates: detail reveal (m6); graph has its own physics — audit for conflicts. |
@@ -96,3 +96,5 @@ Legend: ✅ shipped · ◐ in progress · ☐ not started
 - Cockpit motion system shipped: commit `b3ccce07`
 - CollapsibleRail + cockpit motion-gap design: `docs/superpowers/specs/2026-07-03-collapsible-rail-and-cockpit-motion-gaps-design.md`
 - CollapsibleRail + cockpit motion-gap plan: `docs/superpowers/plans/2026-07-03-collapsible-rail-and-cockpit-motion-gaps.md`
+- Channels motion design spec: `docs/superpowers/specs/2026-07-04-channels-motion-design.md`
+- Channels motion implementation plan: `docs/superpowers/plans/2026-07-04-channels-motion-system.md`
