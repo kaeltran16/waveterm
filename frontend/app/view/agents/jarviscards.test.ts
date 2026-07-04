@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autonomyExplainer, fleetCounts, parseCardData, tierChip, unreadCount } from "./jarviscards";
+import { autonomyExplainer, escalationPending, fleetCounts, parseCardData, tierChip, unreadCount } from "./jarviscards";
 
 const answered = JSON.stringify({
     askORef: "block:abc",
@@ -77,6 +77,27 @@ describe("tierChip", () => {
         expect(tierChip("concierge")).toBe("C");
         expect(tierChip("gatekeeper")).toBe("G");
         expect(tierChip("delegator")).toBe("D");
+    });
+});
+
+describe("escalationPending", () => {
+    const card = { askORef: "block:abc" };
+    it("is pending while the worker is still blocked on this ask", () => {
+        expect(escalationPending(card, { state: "asking", ask: { oref: "block:abc" } })).toBe(true);
+    });
+    it("is resolved once the worker answered and resumed (no live ask)", () => {
+        // the resurface bug: on remount picked is null, so resolution must come from live worker state
+        expect(escalationPending(card, { state: "working" })).toBe(false);
+        expect(escalationPending(card, { state: "idle" })).toBe(false);
+    });
+    it("is resolved when the worker moved on to a different ask", () => {
+        expect(escalationPending(card, { state: "asking", ask: { oref: "block:other" } })).toBe(false);
+    });
+    it("is resolved when the worker has exited (no roster row)", () => {
+        expect(escalationPending(card, undefined)).toBe(false);
+    });
+    it("is resolved when the worker is gone", () => {
+        expect(escalationPending(card, { state: "gone" })).toBe(false);
     });
 });
 

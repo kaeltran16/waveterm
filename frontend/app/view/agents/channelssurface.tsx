@@ -26,7 +26,7 @@ import {
     mentionCandidates,
     type MentionCandidate,
 } from "./channelderive";
-import { autonomyExplainer, fleetCounts, parseCardData } from "./jarviscards";
+import { autonomyExplainer, escalationPending, fleetCounts, parseCardData } from "./jarviscards";
 import { RAIL_ICON } from "./railicons";
 import {
     describePlan,
@@ -408,6 +408,10 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
     const [picked, setPicked] = useState<number | null>(null);
     const worker = card ? workerFor(agents, card.workerORef) : undefined;
     const workerName = worker?.name ?? "worker";
+    // resolution is derived from live worker state, not local `picked`, so an answered escalation stays
+    // resolved after the surface unmounts on a tab switch (otherwise the answered question resurfaces).
+    // `picked` is kept only for optimistic feedback in the click→answer-propagation window.
+    const pending = card ? escalationPending(card, worker) : false;
     const deliver = (idx: number) => {
         if (!card) {
             return;
@@ -439,18 +443,20 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
                                 </p>
                             ) : null}
                             <p className="mb-3 text-[14px] font-semibold leading-[1.5] text-primary">{card.question}</p>
-                            {picked == null ? (
-                                <OptionList options={card.options} onPick={deliver} disabled={!worker} />
-                            ) : (
+                            {pending && picked == null ? (
+                                <OptionList options={card.options} onPick={deliver} />
+                            ) : picked != null ? (
                                 <div className="flex items-center gap-2 text-[12px] text-secondary">
                                     <span className="h-1.5 w-1.5 rounded-full bg-success" />
                                     You chose <b className="text-primary">{card.options[picked]?.label}</b> — sent to{" "}
                                     {workerName}, resuming.
                                 </div>
+                            ) : (
+                                <div className="flex items-center gap-2 text-[12px] text-secondary">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                    {worker ? `Answered — ${workerName} resumed.` : `${workerName} has exited.`}
+                                </div>
                             )}
-                            {!worker && picked == null ? (
-                                <p className="mt-2 text-[11px] text-muted">{workerName} has exited — can't deliver.</p>
-                            ) : null}
                         </>
                     ) : (
                         <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>

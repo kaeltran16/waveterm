@@ -48,6 +48,17 @@ export function parseCardData(msg: ChannelMessage): JarvisCardData | null {
     }
 }
 
+// escalationPending reports whether an escalation card is still awaiting the human — i.e. its worker is
+// live and blocked on this exact ask. Derived from live worker state (not component-local state) so an
+// answered escalation stays resolved across a surface remount; otherwise the question resurfaces on tab
+// switch. Resolved (false) covers: worker answered and resumed, moved on to a different ask, or exited.
+export function escalationPending(
+    card: { askORef: string },
+    worker: { state: string; ask?: { oref?: string } } | undefined
+): boolean {
+    return !!worker && worker.state === "asking" && worker.ask?.oref === card.askORef;
+}
+
 // unreadCount = channel messages strictly after lastReadTs, excluding the human's own posts.
 export function unreadCount(messages: ChannelMessage[] | undefined, lastReadTs: number | undefined): number {
     const since = lastReadTs ?? 0;
