@@ -248,6 +248,16 @@ svg [aria-label="tip"] g path {
     }
 }
 
+/* Usage donut arc (moment 7): registered so the conic-gradient sweep is transitionable —
+   gradient stops are not animatable unless routed through a typed custom property. WebView2 is
+   Chromium, so @property is supported. Angle only; ring color switches at ok/warn/hot thresholds
+   instantly. See docs/superpowers/specs/2026-07-04-usage-motion-design.md. */
+@property --usage-arc {
+    syntax: "<percentage>";
+    inherits: false;
+    initial-value: 0%;
+}
+
 /* Agents-view narration markdown (see markdownmessage.tsx). Neutral overlays, not palette hex. */
 .agent-md p {
     margin: 0 0 0.4em;

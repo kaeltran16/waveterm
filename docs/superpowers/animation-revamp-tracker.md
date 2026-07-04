@@ -70,7 +70,7 @@ cross-surface transitions and shared modals.
 | Sessions | ✅ Shipped (2026-07-03) | Chip-filter reflow (m2 popLayout), instant search, one-shot load reveal, empty-state fade. No hero (surface is header+search+chips+list). |
 | Files / Diff | ✅ Shipped (2026-07-04) | Browse: file-list entrance/reflow (m1/m2) + no-cascade guard (shared, extracted to `motiontokens.ts`; source→key via `filesmotion.ts`), diff-pane crossfade (m5-style opacity), row selection micro (m7). Review: hunk/file completion settle (m4), progress-bar width transition, hunk-pane crossfade on file switch, applied-screen reveal (m1). One `<MotionConfig reducedMotion="user">` at the FilesSurface root. SHA `ff0286e4`. |
 | Memory | ☐ Not started | Vault viewer + force-graph. Candidates: detail reveal (m6); graph has its own physics — audit for conflicts. |
-| Usage | ☐ Not started | Bars/donuts. Candidates: value/bar transitions (m7 micro); avoid decorative-only motion. |
+| Usage | ✅ Shipped (2026-07-04) | Bars tween on recompute (m7, Files idiom): split/model/daily. Live donut rings sweep via `@property --usage-arc` (m7). Live-limit card entrance + one-shot Historical load reveal (m1, `useDidBecomeTrue`). Reduced motion: `MotionConfig` + `useReducedMotion` gate on inline transitions. No count-up, no cascade, no new motion module. SHA `29107756`. |
 | **Cross-surface tab transitions** | ☐ Not started | Switching surfaces (`[`/`]`, rail). Design decision pending: crossfade vs. none. Must not fight per-surface entrances. |
 | **Shared modals** (Settings, New Agent, Help) | ✅ Shipped (2026-07-03) | Backdrop fade + panel scale via `ModalShell`; generic `FlexiModal` stack animated; Settings excluded (surface); WhichKeyBar excluded. |
 
@@ -102,3 +102,5 @@ Legend: ✅ shipped · ◐ in progress · ☐ not started
 - Files/Diff motion implementation plan: `docs/superpowers/plans/2026-07-04-files-diff-motion-system.md`
 - Activity motion design spec: `docs/superpowers/specs/2026-07-04-activity-motion-design.md`
 - Activity motion implementation plan: `docs/superpowers/plans/2026-07-04-activity-motion-system.md`
+- Usage motion design spec: `docs/superpowers/specs/2026-07-04-usage-motion-design.md`
+- Usage motion implementation plan: `docs/superpowers/plans/2026-07-04-usage-motion-system.md`
