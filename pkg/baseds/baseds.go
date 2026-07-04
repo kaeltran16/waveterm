@@ -32,7 +32,10 @@ type BadgeEvent struct {
 const (
 	AgentState_Working = "working"
 	AgentState_Waiting = "waiting"
-	AgentState_Idle    = "idle"
+	// AgentState_Asking is a pending question (AskUserQuestion) — distinct from Waiting
+	// (a generic Notification nudge) so the cockpit can surface it as "asking", not "working".
+	AgentState_Asking = "asking"
+	AgentState_Idle   = "idle"
 )
 
 const (

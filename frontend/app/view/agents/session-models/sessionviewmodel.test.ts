@@ -62,7 +62,10 @@ describe("badgeToStatus", () => {
 });
 
 describe("aggregateStatus", () => {
-    it("prioritizes waiting over everything", () => {
+    it("prioritizes asking over everything", () => {
+        expect(aggregateStatus(["idle", "working", "waiting", "asking"])).toBe("asking");
+    });
+    it("prioritizes waiting over working/idle", () => {
         expect(aggregateStatus(["idle", "working", "waiting"])).toBe("waiting");
     });
     it("prioritizes working over idle", () => {
@@ -165,6 +168,11 @@ describe("buildSessionViewModel", () => {
         const row = vm.groups[0].sessions[0];
         expect(row.blocked).toBe(true);
         expect(row.active).toBe(true);
+    });
+
+    it("marks asking rows as blocked too", () => {
+        const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X", status: "asking" })]);
+        expect(vm.groups[0].sessions[0].blocked).toBe(true);
     });
 
     it("groups by the provided serviceLabel, not the cwd basename", () => {
@@ -350,7 +358,15 @@ describe("needsYouTarget", () => {
         ]);
         expect(needsYouTarget(vm)).toBe("t1");
     });
-    it("returns undefined when nothing is waiting", () => {
+    it("targets an asking row (needs-you), not just waiting", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", cwd: "/src/A", active: true }),
+            input({ tabId: "t2", cwd: "/src/B", status: "working" }),
+            input({ tabId: "t3", cwd: "/src/C", status: "asking" }),
+        ]);
+        expect(needsYouTarget(vm)).toBe("t3");
+    });
+    it("returns undefined when nothing needs you", () => {
         const vm = buildSessionViewModel([
             input({ tabId: "t1", cwd: "/src/A", active: true, status: "working" }),
         ]);

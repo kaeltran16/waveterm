@@ -169,11 +169,18 @@ describe("agentVMFromInput", () => {
 });
 
 describe("agentVMFromInput status mapping", () => {
-    it("maps backend 'waiting' to working, not asking (asking comes only from agent:ask)", () => {
+    it("maps backend 'waiting' (a Notification nudge) to working, not asking", () => {
         const vm = agentVMFromInput({ id: "t1", name: "a", status: "waiting", ts: 1000 }, 5000);
         expect(vm.state).toBe("working");
         expect(vm.activeMs).toBe(4000);
         expect(vm.blockedMs).toBeUndefined();
+    });
+    it("maps backend 'asking' (a pending AskUserQuestion) straight to asking, with blockedMs (not idleSince)", () => {
+        const vm = agentVMFromInput({ id: "t1", name: "a", status: "asking", ts: 1000 }, 5000);
+        expect(vm.state).toBe("asking");
+        expect(vm.blockedMs).toBe(4000);
+        expect(vm.activeMs).toBeUndefined();
+        expect(vm.idleSince).toBeUndefined();
     });
     it("maps 'working' to working and 'idle' to idle", () => {
         expect(agentVMFromInput({ id: "t", name: "a", status: "working", ts: 1000 }, 2000).state).toBe("working");

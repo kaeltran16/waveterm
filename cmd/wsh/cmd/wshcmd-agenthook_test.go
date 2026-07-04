@@ -25,7 +25,7 @@ func TestPlanEmission(t *testing.T) {
 		{"notification waiting", ccHookEvent{HookEventName: "Notification"}, baseds.AgentState_Waiting, "", false},
 		{"post tool working", ccHookEvent{HookEventName: "PostToolUse"}, baseds.AgentState_Working, "", true},
 		{"pre bash working", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"ls"}`)}, baseds.AgentState_Working, "", true},
-		{"pre ask waiting", ccHookEvent{HookEventName: "PreToolUse", ToolName: "AskUserQuestion"}, baseds.AgentState_Waiting, "", false},
+		{"pre ask -> asking", ccHookEvent{HookEventName: "PreToolUse", ToolName: "AskUserQuestion"}, baseds.AgentState_Asking, "", false},
 		{"pre task starts subagent", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolUseID: "t1", ToolInput: json.RawMessage(`{"subagent_type":"Explore"}`)}, baseds.AgentState_Working, baseds.SubagentAction_Start, true},
 		{"pre task no id -> no subagent", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolInput: json.RawMessage(`{"subagent_type":"Explore"}`)}, baseds.AgentState_Working, "", true},
 		{"subagent stop", ccHookEvent{HookEventName: "SubagentStop", ToolUseID: "t1"}, "", baseds.SubagentAction_Stop, false},

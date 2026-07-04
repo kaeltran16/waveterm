@@ -2,7 +2,13 @@
 
 export const NO_CWD_LABEL = "ungrouped";
 
-export type SessionStatus = "working" | "waiting" | "idle";
+export type SessionStatus = "working" | "waiting" | "asking" | "idle";
+
+/** Pure: a status that means "needs the human" — a pending question (asking) or a nudge (waiting).
+ *  Both get the amber dot, mark the row blocked, and are targeted by the needs-you navigation. */
+export function isNeedsYou(status: SessionStatus): boolean {
+    return status === "asking" || status === "waiting";
+}
 
 export type SubagentState = "working" | "success" | "failure";
 
@@ -39,8 +45,11 @@ export function badgeToStatus(badge?: { color?: string } | null): SessionStatus 
     return "idle";
 }
 
-/** Priority for a collapsed group's aggregate dot: waiting > working > idle. */
+/** Priority for a collapsed group's aggregate dot: asking > waiting > working > idle. */
 export function aggregateStatus(statuses: SessionStatus[]): SessionStatus {
+    if (statuses.includes("asking")) {
+        return "asking";
+    }
     if (statuses.includes("waiting")) {
         return "waiting";
     }
@@ -120,7 +129,7 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
         agent: s.agent,
         status,
         active: s.active,
-        blocked: status === "waiting",
+        blocked: isNeedsYou(status),
         pinned: s.pinned,
         isAgentsTab: s.isAgentsTab ?? false,
         detail: s.detail,
@@ -232,7 +241,7 @@ export function waitingTarget(vm: SidebarViewModel, offset: number): string | un
     for (let i = 1; i <= order.length; i++) {
         // double-mod normalizes a possibly-negative index (offset -1) back into [0, len)
         const idx = (((activeIdx + offset * i) % order.length) + order.length) % order.length;
-        if (order[idx].status === "waiting") {
+        if (isNeedsYou(order[idx].status)) {
             return order[idx].tabId;
         }
     }
@@ -267,11 +276,11 @@ export function reduceSubagents(list: SubagentVM[], delta: SubagentDelta): Subag
     return list.map((s) => (s.id === delta.id ? { ...s, state, model: delta.model ?? s.model } : s));
 }
 
-/** Pure: the row's dot reflects children — the parent's own waiting (amber) dominates;
+/** Pure: the row's dot reflects children — the parent's own needs-you state (amber) dominates;
  *  otherwise any working child lifts an idle/working parent to working. */
 export function rollUpStatus(parent: SessionStatus, subagents: SubagentVM[]): SessionStatus {
-    if (parent === "waiting") {
-        return "waiting";
+    if (isNeedsYou(parent)) {
+        return parent;
     }
     if (subagents.some((s) => s.state === "working")) {
         return "working";

@@ -288,10 +288,13 @@ export interface LiveAgentInput {
     project?: string; // launch-time project name (session:project); groups the roster without the lossy path derivation
 }
 
-/** Pure: one live row -> an AgentVM. `working` and `waiting` both map to working (asking is applied
- *  later by withAsk, only from a live agent:ask); working age -> activeMs. task/ask filled later (async). */
+/** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
+ *  the badge is amber even when the ask fell back to the terminal (no structured agent:ask). `waiting`
+ *  (a generic Notification nudge) still folds to working. withAsk later overlays the answer UI when a
+ *  live agent:ask arrives; working age -> activeMs. task/ask filled later (async). */
 export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
-    const state: AgentState = input.status === "working" || input.status === "waiting" ? "working" : "idle";
+    const state: AgentState =
+        input.status === "asking" ? "asking" : input.status === "working" || input.status === "waiting" ? "working" : "idle";
     const age = input.ts != null ? Math.max(0, now - input.ts) : undefined;
     const vm: AgentVM = {
         id: input.id,
@@ -307,6 +310,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     };
     if (state === "working") {
         vm.activeMs = age;
+    } else if (state === "asking") {
+        // blocked since the question appeared; withAsk refines this from ask.ts when a structured ask exists
+        vm.blockedMs = age;
     } else if (input.ts != null) {
         vm.idleSince = input.ts;
     }

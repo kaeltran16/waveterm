@@ -66,7 +66,7 @@ func planEmission(ev ccHookEvent) agentEmission {
 			}
 			return em
 		case "AskUserQuestion":
-			return agentEmission{State: baseds.AgentState_Waiting}
+			return agentEmission{State: baseds.AgentState_Asking}
 		default:
 			return agentEmission{State: baseds.AgentState_Working, Detail: detailForTool(ev.ToolName, ev.ToolInput), AttachModelTitle: true}
 		}
