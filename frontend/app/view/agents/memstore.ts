@@ -33,6 +33,16 @@ export const memSearchAtom = atom<string>("") as PrimitiveAtom<string>;
 // the mutation helpers below + the search box; read by MemorySurface into reflowProps.
 export const memReflowAnimatedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
+// Drawer open/closed (shared CollapsibleRail). Module-scope so it persists across MemorySurface
+// remounts; default open because the detail view is the point of the tab.
+export const memRailOpenAtom = atom<boolean>(true) as PrimitiveAtom<boolean>;
+
+// Edit draft lifted out of the rail component: CollapsibleRail unmounts its content when collapsed,
+// so an in-progress draft would be lost on collapse if held in local useState.
+export const memEditingAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+export const memDraftAtom = atom<string>("") as PrimitiveAtom<string>;
+export const memConflictAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+
 export async function loadMemory(): Promise<void> {
     try {
         const g = await RpcApi.MemoryScanCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
@@ -58,6 +68,9 @@ function noteById(id: string): MemNote | undefined {
 export async function selectNote(id: string): Promise<void> {
     globalStore.set(memSelectedIdAtom, id);
     globalStore.set(memBodyAtom, null);
+    globalStore.set(memRailOpenAtom, true); // selecting a note opens a collapsed drawer
+    globalStore.set(memEditingAtom, false); // leaving a note drops its edit mode/conflict
+    globalStore.set(memConflictAtom, false);
     const n = noteById(id);
     if (!n) return;
     try {

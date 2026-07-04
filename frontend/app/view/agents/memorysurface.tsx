@@ -5,10 +5,11 @@
 // List (grouped by scope, type pills) + detail rail (content, meta, related/backlinks, Edit/Delete).
 // Graph view added in a follow-up task; until then the toggle shows a calm placeholder.
 
+import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -16,14 +17,19 @@ import { resolveCwd } from "./agentcwdresolve";
 import { MarkdownMessage } from "./markdownmessage";
 import { MemGraph } from "./memgraph";
 import { NewMemoryModal } from "./newmemorymodal";
+import { RAIL_ICON } from "./railicons";
 import { SyncStrip } from "./syncstrip";
 import {
     deleteNote,
     loadMemory,
     memBodyAtom,
+    memConflictAtom,
+    memDraftAtom,
+    memEditingAtom,
     memEdgesAtom,
     memLoadedAtom,
     memNotesAtom,
+    memRailOpenAtom,
     memReflowAnimatedAtom,
     memSearchAtom,
     memSelectedIdAtom,
@@ -179,27 +185,32 @@ function DetailBody({
     sel,
     body,
     related,
-    editing,
-    draft,
-    conflict,
-    setDraft,
-    startEdit,
-    doSave,
-    setEditing,
-    setConflict,
 }: {
     sel: MemNote;
     body: { body: string; mtime: number } | null;
     related: MemNote[];
-    editing: boolean;
-    draft: string;
-    conflict: boolean;
-    setDraft: (v: string) => void;
-    startEdit: () => void;
-    doSave: () => void;
-    setEditing: (v: boolean) => void;
-    setConflict: (v: boolean) => void;
 }) {
+    const [editing, setEditing] = useAtom(memEditingAtom);
+    const [draft, setDraft] = useAtom(memDraftAtom);
+    const [conflict, setConflict] = useAtom(memConflictAtom);
+
+    const startEdit = () => {
+        setDraft(body?.body ?? "");
+        setConflict(false);
+        setEditing(true);
+    };
+    const doSave = () => {
+        const baseMtime = body?.mtime ?? 0;
+        fireAndForget(async () => {
+            const r = await saveNote(sel.path, draft, baseMtime);
+            if (r.conflict) {
+                setConflict(true); // file changed on disk since open; reload to see it
+            } else {
+                setEditing(false);
+            }
+        });
+    };
+
     const m = typeMeta(sel.type);
     return (
         <>
@@ -314,15 +325,7 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
     const selectedId = useAtomValue(memSelectedIdAtom);
     const body = useAtomValue(memBodyAtom);
     const edges = useAtomValue(memEdgesAtom);
-    const [editing, setEditing] = useState(false);
-    const [draft, setDraft] = useState("");
-    const [conflict, setConflict] = useState(false);
     const sel = notes.find((n) => n.id === selectedId);
-
-    useEffect(() => {
-        setEditing(false);
-        setConflict(false);
-    }, [selectedId]);
 
     const relatedIds = new Set<string>();
     if (sel) {
@@ -333,54 +336,31 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
     }
     const related = notes.filter((n) => relatedIds.has(n.id));
 
-    const startEdit = () => {
-        setDraft(body?.body ?? "");
-        setConflict(false);
-        setEditing(true);
-    };
-    const doSave = () => {
-        if (!sel) return;
-        const baseMtime = body?.mtime ?? 0;
-        fireAndForget(async () => {
-            const r = await saveNote(sel.path, draft, baseMtime);
-            if (r.conflict) {
-                setConflict(true); // file changed on disk since open; reload to see it
-            } else {
-                setEditing(false);
-            }
-        });
-    };
+    const sections: RailSection[] = [
+        {
+            id: "detail",
+            icon: RAIL_ICON.info,
+            label: "Memory detail",
+            content: (
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={sel ? sel.id : "empty"}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
+                        exit={{ opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } }}
+                    >
+                        {!sel ? (
+                            <div className="text-[13px] text-ink-mid">Select a memory to see its content.</div>
+                        ) : (
+                            <DetailBody sel={sel} body={body} related={related} />
+                        )}
+                    </motion.div>
+                </AnimatePresence>
+            ),
+        },
+    ];
 
-    return (
-        <aside className="w-[330px] flex-none overflow-y-auto border-l border-edge-faint bg-surface px-[20px] pb-[40px] pt-[22px]">
-            <AnimatePresence mode="wait">
-                <motion.div
-                    key={sel ? sel.id : "empty"}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
-                    exit={{ opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } }}
-                >
-                    {!sel ? (
-                        <div className="text-[13px] text-ink-mid">Select a memory to see its content.</div>
-                    ) : (
-                        <DetailBody
-                            sel={sel}
-                            body={body}
-                            related={related}
-                            editing={editing}
-                            draft={draft}
-                            conflict={conflict}
-                            setDraft={setDraft}
-                            startEdit={startEdit}
-                            doSave={doSave}
-                            setEditing={setEditing}
-                            setConflict={setConflict}
-                        />
-                    )}
-                </motion.div>
-            </AnimatePresence>
-        </aside>
-    );
+    return <CollapsibleRail openAtom={memRailOpenAtom} ariaLabel="Memory detail" sections={sections} />;
 }
 
 export function MemorySurface({ model }: { model: AgentsViewModel }) {
