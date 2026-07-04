@@ -232,6 +232,21 @@ type Run struct {
 	CreatedTs   int64      `json:"createdts"`
 }
 
+// JarvisProfile is a resolved (or the global) Jarvis profile: the playbook (phase pipeline) and the
+// principles (free-text judgment; consumed in Piece 4, stored/resolved only for now). Playbook reuses
+// RunPhase so a resolved profile feeds NewRun directly (runtime fields are set at run creation).
+type JarvisProfile struct {
+	Playbook   []RunPhase `json:"playbook"`
+	Principles string     `json:"principles,omitempty"`
+}
+
+// ProfileOverride is a channel's per-project override, stored as JSON on channel meta. Pointer fields:
+// nil = inherit the global section, non-nil = replace it (section-level resolution).
+type ProfileOverride struct {
+	Playbook   *[]RunPhase `json:"playbook,omitempty"`
+	Principles *string     `json:"principles,omitempty"`
+}
+
 type Channel struct {
 	OID         string           `json:"oid"`
 	Version     int              `json:"version"`

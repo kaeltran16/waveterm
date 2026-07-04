@@ -594,6 +594,18 @@ declare global {
         channels: Channel[];
     };
 
+    // wshrpc.CommandGetJarvisProfileData
+    type CommandGetJarvisProfileData = {
+        channelid: string;
+    };
+
+    // wshrpc.CommandGetJarvisProfileRtnData
+    type CommandGetJarvisProfileRtnData = {
+        global: JarvisProfile;
+        override: ProfileOverride;
+        resolved: JarvisProfile;
+    };
+
     // wshrpc.CommandGetMetaData
     type CommandGetMetaData = {
         oref: ORef;
@@ -1045,6 +1057,12 @@ declare global {
         pick: number;
     };
 
+    // wshrpc.CommandSetChannelProfileData
+    type CommandSetChannelProfileData = {
+        channelid: string;
+        override: ProfileOverride;
+    };
+
     // wshrpc.CommandSetChannelReadData
     type CommandSetChannelReadData = {
         channelid: string;
@@ -1471,6 +1489,12 @@ declare global {
         text: string;
     };
 
+    // waveobj.JarvisProfile
+    type JarvisProfile = {
+        playbook: RunPhase[];
+        principles?: string;
+    };
+
     // waveobj.Job
     type Job = WaveObj & {
         connection: string;
@@ -1773,6 +1797,12 @@ declare global {
         memfree?: number;
         numcpu?: number;
         cpusum?: number;
+    };
+
+    // waveobj.ProfileOverride
+    type ProfileOverride = {
+        playbook?: RunPhase[];
+        principles?: string;
     };
 
     // wconfig.ProjectKeywords

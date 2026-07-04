@@ -516,6 +516,12 @@ export class RpcApiType {
         return client.wshRpcCall("getfullconfig", null, opts);
     }
 
+    // command "getjarvisprofile" [call]
+    GetJarvisProfileCommand(client: WshClient, data: CommandGetJarvisProfileData, opts?: RpcOpts): Promise<CommandGetJarvisProfileRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getjarvisprofile", data, opts);
+        return client.wshRpcCall("getjarvisprofile", data, opts);
+    }
+
     // command "getjwtpublickey" [call]
     GetJwtPublicKeyCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getjwtpublickey", null, opts);
@@ -1060,6 +1066,12 @@ export class RpcApiType {
     SetChannelMessagePickCommand(client: WshClient, data: CommandSetChannelMessagePickData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelmessagepick", data, opts);
         return client.wshRpcCall("setchannelmessagepick", data, opts);
+    }
+
+    // command "setchannelprofile" [call]
+    SetChannelProfileCommand(client: WshClient, data: CommandSetChannelProfileData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelprofile", data, opts);
+        return client.wshRpcCall("setchannelprofile", data, opts);
     }
 
     // command "setchannelread" [call]

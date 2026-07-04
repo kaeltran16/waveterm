@@ -42,3 +42,11 @@ export async function sendBackGate(channelId: string, runId: string, gateIdx: nu
 export async function cancelRun(channelId: string, runId: string): Promise<void> {
     await RpcApi.CancelRunCommand(TabRpcClient, { channelid: channelId, runid: runId });
 }
+
+export async function getJarvisProfile(channelId: string): Promise<CommandGetJarvisProfileRtnData> {
+    return RpcApi.GetJarvisProfileCommand(TabRpcClient, { channelid: channelId });
+}
+
+export async function setChannelProfile(channelId: string, override: ProfileOverride): Promise<void> {
+    await RpcApi.SetChannelProfileCommand(TabRpcClient, { channelid: channelId, override });
+}

@@ -123,6 +123,8 @@ type WshRpcInterface interface {
 	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error) // create + start a goal Run (spawns phase 1's worker)
 	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                           // complete a phase / approve or send back a gate (spawns the next worker)
 	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                             // cancel a Run
+	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
+	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                   // write a channel's per-project profile override (empty clears it)
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
@@ -779,6 +781,21 @@ type CommandAdvanceRunData struct {
 type CommandCancelRunData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+}
+
+type CommandGetJarvisProfileData struct {
+	ChannelId string `json:"channelid"`
+}
+
+type CommandGetJarvisProfileRtnData struct {
+	Global   waveobj.JarvisProfile    `json:"global"`
+	Override *waveobj.ProfileOverride `json:"override"`
+	Resolved waveobj.JarvisProfile    `json:"resolved"`
+}
+
+type CommandSetChannelProfileData struct {
+	ChannelId string                   `json:"channelid"`
+	Override  *waveobj.ProfileOverride `json:"override"`
 }
 
 type CommandConsultData struct {

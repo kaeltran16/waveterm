@@ -1773,7 +1773,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
 	}
-	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, jarvis.DefaultPlaybook(), time.Now().UnixMilli())
+	playbook := jarvis.ResolvePlaybook(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(ch))
+	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, playbook, time.Now().UnixMilli())
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
@@ -1835,6 +1836,45 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	})
 	if err != nil {
 		return fmt.Errorf("cancelling run: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
+func (ws *WshServer) GetJarvisProfileCommand(ctx context.Context, data wshrpc.CommandGetJarvisProfileData) (*wshrpc.CommandGetJarvisProfileRtnData, error) {
+	if data.ChannelId == "" {
+		return nil, fmt.Errorf("channelid is required")
+	}
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
+	if err != nil {
+		return nil, fmt.Errorf("loading channel: %w", err)
+	}
+	global := jarvis.LoadGlobalProfile()
+	override := jarvis.OverrideFromMeta(ch)
+	return &wshrpc.CommandGetJarvisProfileRtnData{
+		Global:   global,
+		Override: override,
+		Resolved: jarvis.ResolveProfile(global, override),
+	}, nil
+}
+
+func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.CommandSetChannelProfileData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	empty := data.Override == nil || (data.Override.Playbook == nil && data.Override.Principles == nil)
+	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+		if ch.Meta == nil {
+			ch.Meta = make(waveobj.MetaMapType)
+		}
+		if empty {
+			delete(ch.Meta, jarvis.MetaKey_JarvisProfile)
+		} else {
+			ch.Meta[jarvis.MetaKey_JarvisProfile] = data.Override
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("updating channel profile: %w", err)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil

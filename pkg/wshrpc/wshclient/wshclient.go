@@ -513,6 +513,12 @@ func GetFullConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.Full
 	return resp, err
 }
 
+// command "getjarvisprofile", wshserver.GetJarvisProfileCommand
+func GetJarvisProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandGetJarvisProfileData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetJarvisProfileRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetJarvisProfileRtnData](w, "getjarvisprofile", data, opts)
+	return resp, err
+}
+
 // command "getjwtpublickey", wshserver.GetJwtPublicKeyCommand
 func GetJwtPublicKeyCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "getjwtpublickey", nil, opts)
@@ -1053,6 +1059,12 @@ func SetChannelGatekeeperCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChanne
 // command "setchannelmessagepick", wshserver.SetChannelMessagePickCommand
 func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelMessagePickData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelmessagepick", data, opts)
+	return err
+}
+
+// command "setchannelprofile", wshserver.SetChannelProfileCommand
+func SetChannelProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelProfileData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setchannelprofile", data, opts)
 	return err
 }
 
