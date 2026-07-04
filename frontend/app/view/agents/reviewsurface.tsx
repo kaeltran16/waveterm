@@ -11,7 +11,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { useEffect } from "react";
-import { MOTION, cardVariants, easeFluidCss } from "@/app/element/motiontokens";
+import { MOTION, cardVariants } from "@/app/element/motiontokens";
 import { useSettle } from "@/app/element/motionhooks";
 import { parseUnifiedDiff } from "./gitdiff";
 import {
@@ -60,8 +60,6 @@ export function ReviewSurface() {
     if (model.files.length === 0) return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">No changes to review</div>;
 
     const prog = progressOf(model.files, d);
-    const acceptPct = prog.total ? (prog.accepted / prog.total) * 100 : 0;
-    const rejectPct = prog.total ? (prog.rejected / prog.total) * 100 : 0;
     const done = prog.pending === 0;
 
     if (applied) {
@@ -86,71 +84,40 @@ export function ReviewSurface() {
 
     const sel = model.files.find((f) => f.path === selected) ?? model.files[0];
 
+    // Single file list lives in the Diff sidebar (FilesSurface); this surface is just the
+    // selected file's hunks + apply footer.
     return (
-        <div className="flex h-full min-h-0">
-            {/* left: file list with per-file review progress */}
-            <div className="flex w-[300px] flex-none flex-col border-r border-border bg-surface">
-                <div className="flex-none border-b border-edge-faint p-[13px]">
-                    <div className="mb-[8px] flex items-baseline justify-between font-mono text-[11px]">
-                        <span className="text-ink-faint">{model.files.length} files</span>
-                        <span className="text-ink-mid">{prog.reviewed}/{prog.total} reviewed</span>
-                    </div>
-                    <div className="flex h-[6px] overflow-hidden rounded-[4px] bg-surface-hover">
-                        <div className="h-full bg-success" style={{ width: `${acceptPct}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
-                        <div className="h-full bg-error" style={{ width: `${rejectPct}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
-                    </div>
+        <div className="flex h-full min-w-0 flex-1 flex-col bg-transparent">
+            <FileHeader f={sel} d={d} />
+            <motion.div
+                key={sel.path}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                className="flex-1 overflow-auto p-[16px_20px_26px]"
+            >
+                {sel.hunks.map((h) => <HunkBlock key={h.id} f={sel} h={h} d={d} />)}
+            </motion.div>
+            <div className="flex flex-none items-center gap-[14px] border-t border-border bg-surface px-[22px] py-[12px]">
+                <div className="flex items-center gap-[12px] font-mono text-[11px]">
+                    <span className="text-ink-mid">{prog.reviewed}/{prog.total} reviewed</span>
+                    <span className="text-success">{prog.accepted} keep</span>
+                    <span className="text-error">{prog.rejected} discard</span>
+                    <span className="text-ink-faint">{prog.pending} left</span>
                 </div>
-                <div className="flex-1 overflow-y-auto p-[8px]">
-                    {model.files.map((f) => {
-                        const verdict = fileDecision(f, d);
-                        const dec = f.hunks.filter((h) => d[hunkKey(f.path, h.id)]).length;
-                        const ring = verdict === "accept" ? "text-success" : verdict === "reject" ? "text-error" : verdict === "partial" ? "text-warning" : "text-ink-faint";
-                        return (
-                            <button key={f.path} onClick={() => globalStore.set(reviewSelectedAtom, f.path)}
-                                className={cn("flex w-full items-center gap-[8px] rounded-[8px] px-[9px] py-[7px] text-left hover:bg-surface-hover",
-                                    f.path === sel.path && "bg-surface-selected")}>
-                                <span className={cn("font-mono text-[11px]", ring)}>●</span>
-                                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-mid">{f.path}</span>
-                                <span className="flex-none font-mono text-[10px] text-ink-faint">{dec}/{f.hunks.length}</span>
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-
-            {/* right: selected file's hunks + footer */}
-            <div className="flex min-w-0 flex-1 flex-col bg-transparent">
-                <FileHeader f={sel} d={d} />
-                <motion.div
-                    key={sel.path}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                    className="flex-1 overflow-auto p-[16px_20px_26px]"
-                >
-                    {sel.hunks.map((h) => <HunkBlock key={h.id} f={sel} h={h} d={d} />)}
-                </motion.div>
-                <div className="flex flex-none items-center gap-[14px] border-t border-border bg-surface px-[22px] py-[12px]">
-                    <div className="flex items-center gap-[12px] font-mono text-[11px]">
-                        <span className="text-ink-mid">{prog.reviewed}/{prog.total} reviewed</span>
-                        <span className="text-success">{prog.accepted} keep</span>
-                        <span className="text-error">{prog.rejected} discard</span>
-                        <span className="text-ink-faint">{prog.pending} left</span>
-                    </div>
-                    <div className="flex-1" />
-                    {prog.reviewed > 0 && <button onClick={resetReview} className="text-ink-faint hover:text-ink-mid font-[600] text-[12px]">Reset</button>}
-                    {prog.pending > 0 && (
-                        <button onClick={() => decideMany(pendingKeysOf(model.files, d), "accept")}
-                            className="rounded-[9px] border border-border px-[15px] py-[9px] text-[12.5px] font-[600] text-ink-mid hover:text-foreground">
-                            Accept all remaining
-                        </button>
-                    )}
-                    <button onClick={() => void applyReview()} disabled={!done}
-                        className={cn("flex items-center gap-[7px] rounded-[9px] px-[17px] py-[9px] text-[12.5px] font-bold",
-                            done ? "bg-success text-black" : "cursor-not-allowed bg-surface text-ink-faint opacity-70")}>
-                        {done ? `Apply review · keep ${prog.accepted}` : `${prog.pending} change${prog.pending === 1 ? "" : "s"} left to review`} →
+                <div className="flex-1" />
+                {prog.reviewed > 0 && <button onClick={resetReview} className="text-ink-faint hover:text-ink-mid font-[600] text-[12px]">Reset</button>}
+                {prog.pending > 0 && (
+                    <button onClick={() => decideMany(pendingKeysOf(model.files, d), "accept")}
+                        className="rounded-[9px] border border-border px-[15px] py-[9px] text-[12.5px] font-[600] text-ink-mid hover:text-foreground">
+                        Accept all remaining
                     </button>
-                </div>
+                )}
+                <button onClick={() => void applyReview()} disabled={!done}
+                    className={cn("flex items-center gap-[7px] rounded-[9px] px-[17px] py-[9px] text-[12.5px] font-bold",
+                        done ? "bg-success text-black" : "cursor-not-allowed bg-surface text-ink-faint opacity-70")}>
+                    {done ? `Apply review · keep ${prog.accepted}` : `${prog.pending} change${prog.pending === 1 ? "" : "s"} left to review`} →
+                </button>
             </div>
         </div>
     );

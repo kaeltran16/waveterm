@@ -11,7 +11,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { MOTION, cardVariants, computeEntrances, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
+import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
 import type { AgentsViewModel } from "./agents";
 import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
@@ -19,7 +19,7 @@ import { statusColor, type GitChange } from "./gitstatus";
 import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, selectFile } from "./filesstore";
 import { projectsAtom } from "./projectsstore";
 import { ReviewSurface } from "./reviewsurface";
-import { loadReview } from "./reviewstore";
+import { decisionsAtom, fileDecision, hunkKey, loadReview, progressOf, reviewModelAtom, reviewSelectedAtom } from "./reviewstore";
 import { sourceKey } from "./filesmotion";
 
 // Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
@@ -225,6 +225,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const state = useAtomValue(filesStateAtom);
     const selected = useAtomValue(filesSelectedPathAtom);
     const diff = useAtomValue(filesDiffAtom);
+    const reviewModel = useAtomValue(reviewModelAtom);
+    const decisions = useAtomValue(decisionsAtom);
+    const reviewSel = useAtomValue(reviewSelectedAtom);
 
     // registered projects (name -> path) as a sorted, path-bearing list for the picker
     const projects: FilesProject[] = Object.entries(registry ?? {})
@@ -279,6 +282,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     }
     const dirLabel = state?.cwd ? baseName(state.cwd) : "—";
     const changes = state?.changes;
+    // review mode reuses this one sidebar list: progress header + per-file verdict/counts,
+    // selection driven through reviewSelectedAtom (the hunk pane lives in ReviewSurface).
+    const rprog = reviewModel ? progressOf(reviewModel.files, decisions) : null;
+    const rSelPath = reviewModel
+        ? (reviewModel.files.find((f) => f.path === reviewSel)?.path ?? reviewModel.files[0]?.path ?? null)
+        : null;
 
     return (
         <MotionConfig reducedMotion="user">
@@ -312,9 +321,51 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             <span className="text-error">−{changes?.dels ?? 0}</span>
                         </div>
                     )}
+                    {mode === "review" && rprog && (
+                        <div className="mt-[11px]">
+                            <div className="mb-[6px] flex items-baseline justify-between font-mono text-[11px]">
+                                <span className="text-ink-faint">{reviewModel!.files.length} files</span>
+                                <span className="text-ink-mid">{rprog.reviewed}/{rprog.total} reviewed</span>
+                            </div>
+                            <div className="flex h-[6px] overflow-hidden rounded-[4px] bg-surface-hover">
+                                <div className="h-full bg-success" style={{ width: `${rprog.total ? (rprog.accepted / rprog.total) * 100 : 0}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
+                                <div className="h-full bg-error" style={{ width: `${rprog.total ? (rprog.rejected / rprog.total) * 100 : 0}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <div className="flex-1 overflow-y-auto p-[8px]">
-                    {state == null ? (
+                    {mode === "review" ? (
+                        reviewModel == null ? (
+                            <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Loading…</div>
+                        ) : reviewModel.files.length === 0 ? (
+                            <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No changes to review</div>
+                        ) : (
+                            reviewModel.files.map((f) => {
+                                const verdict = fileDecision(f, decisions);
+                                const dec = f.hunks.filter((h) => decisions[hunkKey(f.path, h.id)]).length;
+                                const ring =
+                                    verdict === "accept" ? "text-success"
+                                    : verdict === "reject" ? "text-error"
+                                    : verdict === "partial" ? "text-warning"
+                                    : "text-ink-faint";
+                                return (
+                                    <button
+                                        key={f.path}
+                                        onClick={() => globalStore.set(reviewSelectedAtom, f.path)}
+                                        className={cn(
+                                            "flex w-full items-center gap-[8px] rounded-[8px] px-[9px] py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
+                                            f.path === rSelPath && "bg-surface-selected"
+                                        )}
+                                    >
+                                        <span className={cn("font-mono text-[11px]", ring)}>●</span>
+                                        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-mid">{f.path}</span>
+                                        <span className="flex-none font-mono text-[10px] text-ink-faint">{dec}/{f.hunks.length}</span>
+                                    </button>
+                                );
+                            })
+                        )
+                    ) : state == null ? (
                         <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Loading…</div>
                     ) : !state.isRepo ? (
                         <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Not a git repository</div>
