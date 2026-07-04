@@ -8,11 +8,13 @@
 package gitinfo
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -52,7 +54,65 @@ func GetChanges(ctx context.Context, cwd string) (*Changes, error) {
 	}
 	// `diff --numstat HEAD` errors on a repo with no commits yet; status is still meaningful.
 	numstat, _ := run(ctx, cwd, "diff", "--numstat", "HEAD")
+	// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
+	// Append synthetic numstat rows for untracked files so their added lines count in the totals.
+	numstat += untrackedNumstat(cwd, statusZ)
 	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true}, nil
+}
+
+const maxUntrackedScan = 5 << 20 // 5 MiB; beyond this, report "-" instead of scanning the whole file
+
+// untrackedNumstat produces numstat-format rows ("<adds>\t0\t<path>\n") for the untracked files in a
+// `git status --porcelain=v1 -z` listing, so brand-new files contribute their added lines to the
+// Files-surface totals. Binary/oversized/unreadable files report "-" (git's convention); wholly
+// untracked directories (porcelain collapses these to a trailing "/") are skipped — no file to count.
+func untrackedNumstat(cwd, statusZ string) string {
+	var b strings.Builder
+	parts := strings.Split(statusZ, "\x00")
+	for i := 0; i < len(parts); i++ {
+		entry := parts[i]
+		if len(entry) < 3 {
+			continue
+		}
+		// rename/copy entries carry an extra NUL-separated source path — consume it to stay aligned
+		if entry[0] == 'R' || entry[0] == 'C' {
+			i++
+			continue
+		}
+		if entry[:2] != "??" {
+			continue
+		}
+		path := entry[3:]
+		if path == "" || strings.HasSuffix(path, "/") {
+			continue
+		}
+		fmt.Fprintf(&b, "%s\t0\t%s\n", untrackedAdds(filepath.Join(cwd, path)), path)
+	}
+	return b.String()
+}
+
+// untrackedAdds returns a numstat added-lines field for a new file: its line count for text, or "-"
+// (git's binary marker) for binary, oversized, or unreadable files.
+func untrackedAdds(full string) string {
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() || info.Size() > maxUntrackedScan {
+		return "-"
+	}
+	content, err := os.ReadFile(full)
+	if err != nil {
+		return "-"
+	}
+	if len(content) == 0 {
+		return "0"
+	}
+	if bytes.IndexByte(content, 0) >= 0 {
+		return "-" // NUL byte -> binary, like git
+	}
+	lines := bytes.Count(content, []byte{'\n'})
+	if !bytes.HasSuffix(content, []byte{'\n'}) {
+		lines++ // a final line without a trailing newline still counts
+	}
+	return strconv.Itoa(lines)
 }
 
 func GetDiff(ctx context.Context, cwd, path string) (*Diff, error) {

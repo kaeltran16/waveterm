@@ -55,6 +55,35 @@ func TestGetChanges(t *testing.T) {
 	if !strings.Contains(ch.Numstat, "a.txt") {
 		t.Fatalf("numstat missing tracked change: %q", ch.Numstat)
 	}
+	// b.txt is untracked with one line ("new\n") — its added line must be counted in numstat
+	if !strings.Contains(ch.Numstat, "1\t0\tb.txt") {
+		t.Fatalf("untracked b.txt not counted in numstat: %q", ch.Numstat)
+	}
+}
+
+func TestUntrackedAdds(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cases := []struct{ name, content, want string }{
+		{"three.txt", "a\nb\nc\n", "3"},
+		{"notrail.txt", "a\nb", "2"}, // final line without a trailing newline still counts
+		{"empty.txt", "", "0"},
+		{"binary.bin", "a\x00b\n", "-"},
+	}
+	for _, c := range cases {
+		if got := untrackedAdds(write(c.name, c.content)); got != c.want {
+			t.Fatalf("%s: adds = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := untrackedAdds(filepath.Join(dir, "missing")); got != "-" {
+		t.Fatalf("missing file: adds = %q, want -", got)
+	}
 }
 
 func TestGetChangesNotARepo(t *testing.T) {
