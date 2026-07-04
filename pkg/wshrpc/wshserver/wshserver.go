@@ -1714,6 +1714,25 @@ func (ws *WshServer) SetChannelReadCommand(ctx context.Context, data wshrpc.Comm
 	return nil
 }
 
+func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshrpc.CommandSetChannelMessagePickData) error {
+	if data.ChannelId == "" || data.MessageId == "" {
+		return fmt.Errorf("channelid and messageid are required")
+	}
+	err := wstore.UpdateChannelMessage(ctx, data.ChannelId, data.MessageId, func(msg *waveobj.ChannelMessage) error {
+		patched, err := jarvis.SetCardHumanPick(msg.Data, data.Pick)
+		if err != nil {
+			return fmt.Errorf("patching card pick: %w", err)
+		}
+		msg.Data = patched
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("recording message pick: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.CommandJarvisDecomposeData) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	if strings.TrimSpace(data.Goal) == "" {
 		return nil, fmt.Errorf("goal is required")

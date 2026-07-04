@@ -5,6 +5,7 @@ package wstore
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -54,6 +55,24 @@ func GetChannels(ctx context.Context) ([]*waveobj.Channel, error) {
 		return chans[i].CreatedTs > chans[j].CreatedTs
 	})
 	return chans, nil
+}
+
+// updateChannelMessageIn finds the message by id in ch and applies fn to it in place; returns an error
+// if no message with that id exists. Pure over the channel object — the DB wrapper is UpdateChannelMessage.
+func updateChannelMessageIn(ch *waveobj.Channel, messageId string, fn func(*waveobj.ChannelMessage) error) error {
+	for i := range ch.Messages {
+		if ch.Messages[i].ID == messageId {
+			return fn(&ch.Messages[i])
+		}
+	}
+	return fmt.Errorf("message %q not found in channel", messageId)
+}
+
+// UpdateChannelMessage applies fn to the identified message and persists the channel.
+func UpdateChannelMessage(ctx context.Context, channelId, messageId string, fn func(*waveobj.ChannelMessage) error) error {
+	return DBUpdateFnErr(ctx, channelId, func(ch *waveobj.Channel) error {
+		return updateChannelMessageIn(ch, messageId, fn)
+	})
 }
 
 func PostChannelMessage(ctx context.Context, channelId string, msg waveobj.ChannelMessage) (*waveobj.ChannelMessage, error) {

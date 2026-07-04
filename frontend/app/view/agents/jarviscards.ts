@@ -19,7 +19,8 @@ export interface JarvisCardData {
     workerORef: string;
     question: string;
     options: JarvisCardOption[];
-    choice?: number;
+    choice?: number; // Jarvis's own pick (gatekeeper auto-answer); absent on an escalation
+    humanPick?: number; // the option a human selected on this card, persisted so it survives a remount
     reason?: string;
 }
 
@@ -41,6 +42,7 @@ export function parseCardData(msg: ChannelMessage): JarvisCardData | null {
             question: p.question,
             options: p.options,
             choice: typeof p.choice === "number" ? p.choice : undefined,
+            humanPick: typeof p.humanPick === "number" ? p.humanPick : undefined,
             reason: typeof p.reason === "string" ? p.reason : undefined,
         };
     } catch {

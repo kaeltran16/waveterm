@@ -23,6 +23,11 @@ describe("parseCardData", () => {
         const esc = JSON.stringify({ askORef: "block:a", workerORef: "tab:b", question: "q", options: [{ label: "x" }] });
         expect(parseCardData({ id: "2", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: esc })?.choice).toBeUndefined();
     });
+    it("parses a persisted humanPick", () => {
+        const esc = JSON.stringify({ askORef: "block:a", workerORef: "tab:b", question: "q", options: [{ label: "x" }, { label: "y" }], humanPick: 1 });
+        const cd = parseCardData({ id: "2h", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: esc });
+        expect(cd?.humanPick).toBe(1);
+    });
     it("returns null for a legacy message (no data)", () => {
         expect(parseCardData({ id: "3", kind: "jarvis-answered", author: "jarvis", text: "flat", ts: 0 })).toBeNull();
     });

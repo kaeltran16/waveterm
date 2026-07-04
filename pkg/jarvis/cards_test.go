@@ -50,3 +50,35 @@ func TestBuildCardData_Escalation_NoChoice(t *testing.T) {
 		t.Fatalf("expected nil choice, got %+v", cd.Choice)
 	}
 }
+
+func TestSetCardHumanPick_SetsPickAndPreservesFields(t *testing.T) {
+	choice := 1
+	orig, err := json.Marshal(BuildCardData(sampleQuestion(), &choice, "reason", "block:abc", "tab:xyz"))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	patched, err := SetCardHumanPick(string(orig), 0)
+	if err != nil {
+		t.Fatalf("SetCardHumanPick: %v", err)
+	}
+	var cd JarvisCardData
+	if err := json.Unmarshal([]byte(patched), &cd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cd.HumanPick == nil || *cd.HumanPick != 0 {
+		t.Fatalf("humanPick: %+v", cd.HumanPick)
+	}
+	// original Jarvis choice + other fields survive the patch
+	if cd.Choice == nil || *cd.Choice != 1 {
+		t.Fatalf("choice clobbered: %+v", cd.Choice)
+	}
+	if cd.Question == "" || len(cd.Options) != 2 || cd.AskORef != "block:abc" {
+		t.Fatalf("fields lost: %+v", cd)
+	}
+}
+
+func TestSetCardHumanPick_RejectsMalformed(t *testing.T) {
+	if _, err := SetCardHumanPick("{not json", 0); err == nil {
+		t.Fatalf("expected error for malformed data")
+	}
+}

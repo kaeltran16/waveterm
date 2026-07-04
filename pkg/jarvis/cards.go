@@ -3,7 +3,11 @@
 
 package jarvis
 
-import "github.com/wavetermdev/waveterm/pkg/baseds"
+import (
+	"encoding/json"
+
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+)
 
 // JarvisCardOption is one selectable option in a Gatekeeper card.
 type JarvisCardOption struct {
@@ -19,8 +23,25 @@ type JarvisCardData struct {
 	WorkerORef string             `json:"workerORef"`
 	Question   string             `json:"question"`
 	Options    []JarvisCardOption `json:"options"`
-	Choice     *int               `json:"choice,omitempty"` // present ⇒ answered; absent ⇒ escalation
+	Choice     *int               `json:"choice,omitempty"`    // Jarvis's own pick: present ⇒ auto-answered; absent ⇒ escalation
+	HumanPick  *int               `json:"humanPick,omitempty"` // the option a human selected on this card (escalation answer / answered-override); persisted so it survives a surface remount
 	Reason     string             `json:"reason,omitempty"`
+}
+
+// SetCardHumanPick patches HumanPick onto a JarvisCardData JSON blob, recording the option index a human
+// selected on the card so it survives a surface remount (otherwise the FE only holds it in local state,
+// which resets on tab switch). Returns an error if data isn't a parseable card.
+func SetCardHumanPick(data string, pick int) (string, error) {
+	var card JarvisCardData
+	if err := json.Unmarshal([]byte(data), &card); err != nil {
+		return "", err
+	}
+	card.HumanPick = &pick
+	out, err := json.Marshal(card)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // BuildCardData assembles the card payload from a single-select ask question.

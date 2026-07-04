@@ -325,19 +325,30 @@ function GatekeeperRow({
     const [steered, setSteered] = useState<number | null>(null);
     const worker = card ? workerFor(agents, card.workerORef) : undefined;
     const workerName = worker?.name ?? "worker";
+    // the override is persisted to the message (card.humanPick) so the "steered → X" footer survives a
+    // surface remount; `steered` is only the optimistic local echo before the write round-trips.
+    const steeredIdx = steered != null ? steered : (card?.humanPick ?? null);
     const doOverride = (idx: number) => {
         if (!card) {
             return;
         }
         setSteered(idx);
         setOverriding(false);
+        const channelId = globalStore.get(activeChannelIdAtom);
         fireAndForget(async () => {
             await steerWorker({
-                channelId: msg.reforef ? msg.reforef : (globalStore.get(activeChannelIdAtom) ?? ""),
+                channelId: msg.reforef ? msg.reforef : (channelId ?? ""),
                 workerORef: card.workerORef,
                 agents,
                 text: `reconsider — use ${card.options[idx]?.label}`,
             });
+            if (channelId) {
+                await RpcApi.SetChannelMessagePickCommand(TabRpcClient, {
+                    channelid: channelId,
+                    messageid: msg.id,
+                    pick: idx,
+                });
+            }
         });
     };
     return (
@@ -370,11 +381,11 @@ function GatekeeperRow({
                             <div className="mt-3 flex items-center gap-2.5 border-t border-edge-faint pt-2.5">
                                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
                                 <span className="flex-1 text-[11.5px] text-muted">
-                                    {steered != null
-                                        ? `steered ${workerName} → ${card.options[steered]?.label}`
+                                    {steeredIdx != null
+                                        ? `steered ${workerName} → ${card.options[steeredIdx]?.label}`
                                         : `${workerName} resumed on its own`}
                                 </span>
-                                {steered == null && worker ? (
+                                {steeredIdx == null && worker ? (
                                     <button
                                         type="button"
                                         onClick={() => setOverriding((v) => !v)}
@@ -408,21 +419,30 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
     const [picked, setPicked] = useState<number | null>(null);
     const worker = card ? workerFor(agents, card.workerORef) : undefined;
     const workerName = worker?.name ?? "worker";
-    // resolution is derived from live worker state, not local `picked`, so an answered escalation stays
-    // resolved after the surface unmounts on a tab switch (otherwise the answered question resurfaces).
-    // `picked` is kept only for optimistic feedback in the click→answer-propagation window.
+    // resolution is derived from live worker state (not local `picked`), so an answered escalation stays
+    // resolved after the surface unmounts on a tab switch. The chosen option is persisted to the message
+    // (card.humanPick) so "You chose X" also survives the remount; `picked` is just optimistic feedback.
     const pending = card ? escalationPending(card, worker) : false;
+    const chosen = picked != null ? picked : (card?.humanPick ?? null);
     const deliver = (idx: number) => {
         if (!card) {
             return;
         }
         setPicked(idx);
-        fireAndForget(() =>
-            RpcApi.AnswerAgentCommand(TabRpcClient, {
+        const channelId = globalStore.get(activeChannelIdAtom);
+        fireAndForget(async () => {
+            await RpcApi.AnswerAgentCommand(TabRpcClient, {
                 oref: card.askORef,
                 answers: [{ selectedindexes: [idx] }],
-            })
-        );
+            });
+            if (channelId) {
+                await RpcApi.SetChannelMessagePickCommand(TabRpcClient, {
+                    channelid: channelId,
+                    messageid: msg.id,
+                    pick: idx,
+                });
+            }
+        });
     };
     return (
         <div className="flex items-start gap-3">
@@ -443,12 +463,12 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
                                 </p>
                             ) : null}
                             <p className="mb-3 text-[14px] font-semibold leading-[1.5] text-primary">{card.question}</p>
-                            {pending && picked == null ? (
+                            {pending && chosen == null ? (
                                 <OptionList options={card.options} onPick={deliver} />
-                            ) : picked != null ? (
+                            ) : chosen != null ? (
                                 <div className="flex items-center gap-2 text-[12px] text-secondary">
                                     <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                                    You chose <b className="text-primary">{card.options[picked]?.label}</b> — sent to{" "}
+                                    You chose <b className="text-primary">{card.options[chosen]?.label}</b> — sent to{" "}
                                     {workerName}, resuming.
                                 </div>
                             ) : (
