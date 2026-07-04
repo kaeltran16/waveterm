@@ -7,10 +7,13 @@
 // folded from the backend usage scan (usagestore/usagestats), scoped by a 7-day / All-time toggle.
 // Loads on mount + a 60s refresh for the current window; a 1s tick keeps reset countdowns current.
 
+import { useDidBecomeTrue } from "@/app/element/motionhooks";
+import { MOTION, cardVariants, easeFluidCss } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { MotionConfig, motion, useReducedMotion } from "motion/react";
+import { type CSSProperties, useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatReset, groupAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
 import { prettyModel } from "./modellabel";
@@ -66,6 +69,12 @@ function ageStr(ms: number): string {
     return Math.floor(h / 24) + "d";
 }
 
+// Files-precedent value transition (moment 7): tween a bar's width/height on recompute. Returns
+// undefined under reduced motion so the value snaps. Token-sourced duration + ease.
+function barTransition(reduce: boolean, prop: "width" | "height"): string | undefined {
+    return reduce ? undefined : `${prop} ${MOTION.durMacro}s ${easeFluidCss}`;
+}
+
 function Segmented<T extends string>({
     value,
     options,
@@ -104,13 +113,18 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 }
 
 function MiniDonut({ title, pct, reset, now }: { title: string; pct?: number; reset?: number; now: number }) {
+    const reduce = useReducedMotion();
     const has = pct != null;
-    const ring = has
-        ? `conic-gradient(${RING[usageLevel(pct)]} 0 ${Math.min(100, pct)}%, var(--color-edge-strong) 0)`
-        : "conic-gradient(var(--color-edge-strong) 0 100%)";
+    const arc = has ? Math.min(100, pct) : 0;
+    const color = has ? RING[usageLevel(pct)] : "var(--color-edge-strong)";
+    const ringStyle = {
+        background: `conic-gradient(${color} 0 var(--usage-arc), var(--color-edge-strong) 0)`,
+        "--usage-arc": `${arc}%`,
+        transition: reduce ? undefined : `--usage-arc ${MOTION.durMacro}s ${easeFluidCss}`,
+    } as CSSProperties;
     return (
         <div className="flex items-center gap-[7px]">
-            <div className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full" style={{ background: ring }}>
+            <div className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full" style={ringStyle}>
                 <div className="flex h-[29px] w-[29px] items-center justify-center rounded-full bg-background">
                     <span className="font-mono text-[10px] font-bold text-primary">{has ? Math.round(pct) + "%" : "—"}</span>
                 </div>
@@ -133,7 +147,13 @@ function LiveLimitCard({ d, now }: { d: ProviderDonuts; now: number }) {
         ? "color-mix(in srgb, var(--color-warning) 22%, transparent)"
         : "color-mix(in srgb, var(--color-success) 22%, transparent)";
     return (
-        <div className="flex items-center gap-[11px] rounded-[11px] border bg-surface-raised px-[14px] py-[12px]" style={{ borderColor: border }}>
+        <motion.div
+            variants={cardVariants}
+            initial="initial"
+            animate="animate"
+            className="flex items-center gap-[11px] rounded-[11px] border bg-surface-raised px-[14px] py-[12px]"
+            style={{ borderColor: border }}
+        >
             <div className="w-[94px] flex-none">
                 <div className="mb-[5px] flex items-center gap-[7px]">
                     <span className="h-[7px] w-[7px] flex-none rounded-full" style={{ background: dot }} />
@@ -147,16 +167,24 @@ function LiveLimitCard({ d, now }: { d: ProviderDonuts; now: number }) {
                 <MiniDonut title="5-hour" pct={d.fivehour.pct} reset={d.fivehour.reset} now={now} />
                 <MiniDonut title="Weekly" pct={d.week.pct} reset={d.week.reset} now={now} />
             </div>
-        </div>
+        </motion.div>
     );
 }
 
 function SplitBar({ items, totalOf }: { items: ClassUsage[]; totalOf: (c: ClassUsage) => number }) {
+    const reduce = useReducedMotion();
     const total = items.reduce((s, c) => s + totalOf(c), 0) || 1;
     return (
         <div className="mb-[18px] flex h-[30px] overflow-hidden rounded-[7px] bg-background">
             {items.map((c) => (
-                <div key={c.cls} style={{ width: `${(totalOf(c) / total) * 100}%`, background: CLASS_COLOR[c.cls] }} />
+                <div
+                    key={c.cls}
+                    style={{
+                        width: `${(totalOf(c) / total) * 100}%`,
+                        background: CLASS_COLOR[c.cls],
+                        transition: barTransition(reduce, "width"),
+                    }}
+                />
             ))}
         </div>
     );
@@ -231,6 +259,7 @@ function DailyChart({
     metric: "tokens" | "spend";
     onMetric: (m: "tokens" | "spend") => void;
 }) {
+    const reduce = useReducedMotion();
     const rows = daily.map((d) => {
         const a = metric === "tokens" ? d.claudeTokens : d.claudeSpendUsd;
         const b = metric === "tokens" ? d.codexTokens : d.codexSpendUsd;
@@ -282,10 +311,15 @@ function DailyChart({
                             return (
                                 <div key={r.day} title={tip} className="flex flex-1 cursor-default flex-col items-center gap-[7px]">
                                     <div className="flex h-[156px] w-full flex-col items-center justify-end gap-[2px]">
-                                        {r.b > 0 ? <div className="w-[64%] max-w-[30px] rounded-t-[3px] bg-success" style={{ height: bH }} /> : null}
+                                        {r.b > 0 ? (
+                                            <div
+                                                className="w-[64%] max-w-[30px] rounded-t-[3px] bg-success"
+                                                style={{ height: bH, transition: barTransition(reduce, "height") }}
+                                            />
+                                        ) : null}
                                         <div
                                             className={cn("w-[64%] max-w-[30px] bg-accent", r.b > 0 ? "" : "rounded-t-[3px]")}
-                                            style={{ height: aH }}
+                                            style={{ height: aH, transition: barTransition(reduce, "height") }}
                                         />
                                         {idle ? <div className="h-[2px] w-[64%] max-w-[30px] rounded-[2px] bg-edge-strong" /> : null}
                                     </div>
@@ -301,6 +335,7 @@ function DailyChart({
 }
 
 function ModelGroup({ p }: { p: ProviderUsage }) {
+    const reduce = useReducedMotion();
     return (
         <div className="rounded-[14px] border border-border bg-surface-raised px-[20px] py-[18px]">
             <div className="mb-4 flex items-baseline justify-between">
@@ -319,7 +354,14 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
                         </span>
                     </div>
                     <div className="h-[7px] overflow-hidden rounded-[4px] bg-edge-strong">
-                        <div className="h-full rounded-[4px]" style={{ width: `${m.pct}%`, background: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                        <div
+                            className="h-full rounded-[4px]"
+                            style={{
+                                width: `${m.pct}%`,
+                                background: MODEL_COLORS[i % MODEL_COLORS.length],
+                                transition: barTransition(reduce, "width"),
+                            }}
+                        />
                     </div>
                 </div>
             ))}
@@ -357,111 +399,114 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const claudeToday = stats.daily.length ? stats.daily[stats.daily.length - 1].claudeTokens : 0;
     const codexToday = stats.daily.length ? stats.daily[stats.daily.length - 1].codexTokens : 0;
     const hasHistory = stats.providers.length > 0 || stats.totals.tokensWeek > 0;
+    const revealHistory = useDidBecomeTrue(hasHistory);
 
     return (
-        <div className="absolute inset-0 overflow-y-auto">
-            <div className="mx-auto max-w-[1060px] px-[30px] pb-[90px] pt-[28px]">
-                <div className="mb-[22px] flex items-end gap-[18px]">
-                    <div className="min-w-0 flex-1">
-                        <h1 className="mb-[5px] text-[25px] font-bold tracking-[-0.02em] text-primary">Usage</h1>
-                        <p className="max-w-[640px] text-[13.5px] leading-[1.5] text-secondary">
-                            Durable history from transcripts, plus live quota while agents run. Spend is an{" "}
-                            <span className="text-muted-foreground">≈ API-equivalent</span> estimate from a bundled price
-                            table — never a bill.
-                        </p>
-                        {loadError ? (
-                            <p className="mt-1 text-[12px] text-warning">Couldn’t refresh — showing the last loaded usage.</p>
-                        ) : null}
+        <MotionConfig reducedMotion="user">
+            <div className="absolute inset-0 overflow-y-auto">
+                <div className="mx-auto max-w-[1060px] px-[30px] pb-[90px] pt-[28px]">
+                    <div className="mb-[22px] flex items-end gap-[18px]">
+                        <div className="min-w-0 flex-1">
+                            <h1 className="mb-[5px] text-[25px] font-bold tracking-[-0.02em] text-primary">Usage</h1>
+                            <p className="max-w-[640px] text-[13.5px] leading-[1.5] text-secondary">
+                                Durable history from transcripts, plus live quota while agents run. Spend is an{" "}
+                                <span className="text-muted-foreground">≈ API-equivalent</span> estimate from a bundled price
+                                table — never a bill.
+                            </p>
+                            {loadError ? (
+                                <p className="mt-1 text-[12px] text-warning">Couldn’t refresh — showing the last loaded usage.</p>
+                            ) : null}
+                        </div>
+                        <Segmented<"7d" | "all">
+                            value={usageWindow}
+                            onChange={setUsageWindow}
+                            options={[
+                                { key: "7d", label: "7 days" },
+                                { key: "all", label: "All time" },
+                            ]}
+                        />
                     </div>
-                    <Segmented<"7d" | "all">
-                        value={usageWindow}
-                        onChange={setUsageWindow}
-                        options={[
-                            { key: "7d", label: "7 days" },
-                            { key: "all", label: "All time" },
-                        ]}
-                    />
-                </div>
 
-                {/* LIVE LIMITS */}
-                <div className="mb-[10px] rounded-[14px] border border-border bg-background px-[18px] py-[15px]">
-                    <div className="mb-[14px] flex flex-wrap items-center gap-[11px]">
-                        <span className="flex items-center gap-2">
-                            <span className="h-[8px] w-[8px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-success" />
-                            <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-secondary">
-                                Live limits
+                    {/* LIVE LIMITS */}
+                    <div className="mb-[10px] rounded-[14px] border border-border bg-background px-[18px] py-[15px]">
+                        <div className="mb-[14px] flex flex-wrap items-center gap-[11px]">
+                            <span className="flex items-center gap-2">
+                                <span className="h-[8px] w-[8px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-success" />
+                                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-secondary">
+                                    Live limits
+                                </span>
                             </span>
-                        </span>
-                        <span className="font-mono text-[10.5px] text-muted">ephemeral · known only while a Claude agent runs</span>
-                        <div className="flex-1" />
-                        <div className="flex items-center gap-[13px] font-mono text-[10px] text-secondary">
-                            <span className="flex items-center gap-[5px]">
-                                <span className="h-[7px] w-[7px] rounded-full bg-success" />
-                                live
-                            </span>
-                            <span className="flex items-center gap-[5px]">
-                                <span className="h-[7px] w-[7px] rounded-full bg-warning opacity-[0.65]" />
-                                as of …
-                            </span>
+                            <span className="font-mono text-[10.5px] text-muted">ephemeral · known only while a Claude agent runs</span>
+                            <div className="flex-1" />
+                            <div className="flex items-center gap-[13px] font-mono text-[10px] text-secondary">
+                                <span className="flex items-center gap-[5px]">
+                                    <span className="h-[7px] w-[7px] rounded-full bg-success" />
+                                    live
+                                </span>
+                                <span className="flex items-center gap-[5px]">
+                                    <span className="h-[7px] w-[7px] rounded-full bg-warning opacity-[0.65]" />
+                                    as of …
+                                </span>
+                            </div>
                         </div>
+                        {donuts.length === 0 ? (
+                            <div className="py-3 text-center font-mono text-[11px] text-muted">
+                                No quota readings yet — start a Claude agent.
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                {donuts.map((d) => (
+                                    <LiveLimitCard key={d.provider} d={d} now={now} />
+                                ))}
+                            </div>
+                        )}
                     </div>
-                    {donuts.length === 0 ? (
-                        <div className="py-3 text-center font-mono text-[11px] text-muted">
-                            No quota readings yet — start a Claude agent.
-                        </div>
+                    <p className="mb-8 ml-[2px] font-mono text-[10.5px] leading-[1.5] text-muted">
+                        Each donut keeps its last snapshot per provider — countdowns stay correct off absolute reset times,
+                        rolling to empty once a window passes. Codex quota isn’t wired through the live roster yet.
+                    </p>
+
+                    {/* HISTORICAL */}
+                    <div className="mb-4 flex items-center gap-[11px]">
+                        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Historical</span>
+                        <span className="font-mono text-[10.5px] text-muted">durable · every transcript in window</span>
+                        <div className="h-px flex-1 bg-border" />
+                    </div>
+
+                    {!hasHistory ? (
+                        <div className="mt-10 text-center text-[13px] text-muted">No usage yet — start an agent.</div>
                     ) : (
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            {donuts.map((d) => (
-                                <LiveLimitCard key={d.provider} d={d} now={now} />
-                            ))}
-                        </div>
+                        <motion.div variants={cardVariants} initial={revealHistory ? "initial" : false} animate="animate">
+                            <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                                <StatCard
+                                    label="Tokens · today"
+                                    value={fmt(claudeToday + codexToday)}
+                                    sub={`claude ${fmt(claudeToday)} · codex ${fmt(codexToday)}`}
+                                />
+                                <StatCard label="Spend · today" value={`≈ ${usd(stats.totals.spendTodayUsd)}`} sub="API-equivalent" />
+                                <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} sub={cachePctSub} />
+                                <StatCard label="Spend · 7 days" value={`≈ ${usd(stats.totals.spendWeekUsd)}`} sub="API-equivalent" />
+                            </div>
+
+                            <SplitCard split={stats.split} />
+
+                            <DailyChart
+                                daily={stats.daily}
+                                truncated={stats.dailyTruncated}
+                                window={usageWindow}
+                                metric={usageMetric}
+                                onMetric={setUsageMetric}
+                            />
+
+                            <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-2">
+                                {stats.providers.map((p) => (
+                                    <ModelGroup key={p.provider} p={p} />
+                                ))}
+                            </div>
+                        </motion.div>
                     )}
                 </div>
-                <p className="mb-8 ml-[2px] font-mono text-[10.5px] leading-[1.5] text-muted">
-                    Each donut keeps its last snapshot per provider — countdowns stay correct off absolute reset times,
-                    rolling to empty once a window passes. Codex quota isn’t wired through the live roster yet.
-                </p>
-
-                {/* HISTORICAL */}
-                <div className="mb-4 flex items-center gap-[11px]">
-                    <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Historical</span>
-                    <span className="font-mono text-[10.5px] text-muted">durable · every transcript in window</span>
-                    <div className="h-px flex-1 bg-border" />
-                </div>
-
-                {!hasHistory ? (
-                    <div className="mt-10 text-center text-[13px] text-muted">No usage yet — start an agent.</div>
-                ) : (
-                    <>
-                        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <StatCard
-                                label="Tokens · today"
-                                value={fmt(claudeToday + codexToday)}
-                                sub={`claude ${fmt(claudeToday)} · codex ${fmt(codexToday)}`}
-                            />
-                            <StatCard label="Spend · today" value={`≈ ${usd(stats.totals.spendTodayUsd)}`} sub="API-equivalent" />
-                            <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} sub={cachePctSub} />
-                            <StatCard label="Spend · 7 days" value={`≈ ${usd(stats.totals.spendWeekUsd)}`} sub="API-equivalent" />
-                        </div>
-
-                        <SplitCard split={stats.split} />
-
-                        <DailyChart
-                            daily={stats.daily}
-                            truncated={stats.dailyTruncated}
-                            window={usageWindow}
-                            metric={usageMetric}
-                            onMetric={setUsageMetric}
-                        />
-
-                        <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-2">
-                            {stats.providers.map((p) => (
-                                <ModelGroup key={p.provider} p={p} />
-                            ))}
-                        </div>
-                    </>
-                )}
             </div>
-        </div>
+        </MotionConfig>
     );
 }
