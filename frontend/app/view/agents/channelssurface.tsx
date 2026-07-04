@@ -492,7 +492,7 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
                     className={cn(
                         "rounded-[9px] border border-asking/40 bg-lane-asking px-3.5 py-3",
                         pending &&
-                            picked == null &&
+                            chosen == null &&
                             "animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
                     )}
                 >
