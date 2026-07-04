@@ -54,6 +54,8 @@ import { MarkdownMessage } from "./markdownmessage";
 import { projectsAtom } from "./projectsstore";
 import { RAIL_ICON } from "./railicons";
 import { channelRailOpenAtom } from "./railstore";
+import { defaultView } from "./runmodel";
+import { RunsView } from "./runssurface";
 
 function consultIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
@@ -838,6 +840,11 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const [draft, setDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
+    const [view, setView] = useState<"chat" | "runs">(() => defaultView(active));
+    useEffect(() => {
+        setView(defaultView(active));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeId]);
 
     useEffect(() => {
         fireAndForget(loadChannels);
@@ -931,6 +938,24 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     </div>
                                 ) : null}
                             </div>
+                            {active ? (
+                                <div className="ml-1.5 flex items-center gap-0.5 rounded-[9px] border border-edge-mid p-0.5">
+                                    {(["chat", "runs"] as const).map((v) => (
+                                        <button
+                                            key={v}
+                                            type="button"
+                                            onClick={() => setView(v)}
+                                            className={
+                                                view === v
+                                                    ? "rounded-[6px] bg-accentbg/40 px-3 py-1 text-[11.5px] font-bold text-accent-soft"
+                                                    : "rounded-[6px] px-3 py-1 text-[11.5px] font-bold text-muted hover:text-secondary"
+                                            }
+                                        >
+                                            {v === "chat" ? "Chat" : "Runs"}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
                             <div className="flex-1" />
                             {active ? (
                                 <div
@@ -966,6 +991,10 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             ) : null}
                         </div>
 
+                        {view === "runs" && active ? (
+                            <RunsView model={model} channel={active} agents={agents} />
+                        ) : (
+                            <>
                         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
                             <div className="flex flex-col gap-5">
                                 {channels == null ? (
@@ -1033,6 +1062,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             }
                             candidates={mentionCandidates(installedRuntimes, roster)}
                         />
+                            </>
+                        )}
                     </div>
                     <ContextPanel model={model} channel={active} agents={agents} />
                 </div>

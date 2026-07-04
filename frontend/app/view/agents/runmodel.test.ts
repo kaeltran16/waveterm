@@ -1,0 +1,169 @@
+import { describe, expect, it } from "vitest";
+import type { AgentVM } from "./agentsviewmodel";
+import {
+    currentPhaseIndex,
+    defaultRunId,
+    defaultView,
+    isTerminal,
+    phaseStateView,
+    phaseThread,
+    phaseWorkers,
+    reviewGate,
+    runStatusView,
+} from "./runmodel";
+
+function phase(over: Partial<RunPhase> = {}): RunPhase {
+    return { kind: "execute", state: "pending", ...over };
+}
+function run(over: Partial<Run> = {}): Run {
+    return {
+        id: "r1",
+        goal: "g",
+        workspaceid: "w1",
+        projectpath: "/p",
+        status: "planning",
+        phases: [],
+        createdts: 1,
+        ...over,
+    };
+}
+
+describe("runStatusView", () => {
+    it("maps awaiting-review to a review tone with a spaced label", () => {
+        expect(runStatusView("awaiting-review")).toEqual({ label: "awaiting review", tone: "review" });
+    });
+    it("maps executing to a running tone", () => {
+        expect(runStatusView("executing").tone).toBe("running");
+    });
+    it("falls back to the raw status with a planning tone", () => {
+        expect(runStatusView("weird")).toEqual({ label: "weird", tone: "planning" });
+    });
+});
+
+describe("phaseStateView", () => {
+    it("maps running", () => {
+        expect(phaseStateView("running")).toMatchObject({ label: "running", tone: "running" });
+    });
+    it("maps unknown to pending", () => {
+        expect(phaseStateView("zzz").tone).toBe("pending");
+    });
+});
+
+describe("currentPhaseIndex", () => {
+    it("returns the first running phase", () => {
+        expect(currentPhaseIndex(run({ phases: [phase({ state: "done" }), phase({ state: "running" }), phase()] }))).toBe(1);
+    });
+    it("returns the gated phase when awaiting review", () => {
+        const r = run({
+            status: "awaiting-review",
+            phases: [phase({ state: "done" }), phase({ gate: true, state: "done" }), phase({ state: "pending" })],
+        });
+        expect(currentPhaseIndex(r)).toBe(1);
+    });
+    it("returns the last non-skipped phase otherwise", () => {
+        expect(currentPhaseIndex(run({ status: "done", phases: [phase({ state: "done" }), phase({ state: "skipped" })] }))).toBe(0);
+    });
+});
+
+describe("reviewGate", () => {
+    it("is null unless the run is awaiting review", () => {
+        expect(reviewGate(run({ status: "executing", phases: [phase({ gate: true, state: "done" }), phase()] }))).toBeNull();
+    });
+    it("returns the done gated phase whose successor is pending", () => {
+        const r = run({
+            status: "awaiting-review",
+            phases: [phase({ state: "done" }), phase({ gate: true, state: "done" }), phase({ state: "pending" })],
+        });
+        expect(reviewGate(r)).toEqual({ phaseIdx: 1 });
+    });
+});
+
+describe("isTerminal / defaultView / defaultRunId", () => {
+    it("treats done/cancelled/failed as terminal", () => {
+        expect(isTerminal("done")).toBe(true);
+        expect(isTerminal("executing")).toBe(false);
+    });
+    it("defaultView is runs when the channel has runs", () => {
+        expect(defaultView({ runs: [run()] } as unknown as Channel)).toBe("runs");
+        expect(defaultView({ runs: [] } as unknown as Channel)).toBe("chat");
+        expect(defaultView(null)).toBe("chat");
+    });
+    it("defaultRunId prefers the most-recent non-terminal run", () => {
+        const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "executing" })];
+        expect(defaultRunId(runs)).toBe("b");
+    });
+    it("defaultRunId falls back to the most-recent run when all terminal", () => {
+        const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "cancelled" })];
+        expect(defaultRunId(runs)).toBe("b");
+    });
+    it("defaultRunId is undefined for no runs", () => {
+        expect(defaultRunId([])).toBeUndefined();
+    });
+});
+
+function agent(over: Partial<AgentVM> = {}): AgentVM {
+    return { id: "t1", name: "claude", state: "working", ...over } as AgentVM;
+    // note: cast — AgentVM has many fields; tests only touch id/name/state/ask
+}
+
+describe("phaseWorkers", () => {
+    it("resolves tab: orefs to live roster rows, dropping missing ones", () => {
+        const p: RunPhase = { kind: "execute", state: "running", workerorefs: ["tab:t1", "tab:gone"] };
+        const agents = [agent({ id: "t1" })];
+        expect(phaseWorkers(p, agents).map((a) => a.id)).toEqual(["t1"]);
+    });
+    it("returns empty for no orefs", () => {
+        expect(phaseWorkers({ kind: "execute", state: "pending" }, [])).toEqual([]);
+    });
+});
+
+describe("phaseThread", () => {
+    const base = (over: Partial<Run>) =>
+        ({ id: "r", goal: "g", workspaceid: "w", projectpath: "/p", status: "executing", phases: [], createdts: 1, ...over }) as Run;
+
+    it("shows an ask (fork on execute) when a worker is asking", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
+        const agents = [agent({ id: "t1", state: "asking" })];
+        const t = phaseThread(run, 0, agents);
+        expect(t.showAsk).toBe(true);
+        expect(t.askKind).toBe("fork");
+        expect(t.askAgent?.id).toBe("t1");
+        expect(t.showWorkers).toBe(false); // suppressed while asking
+    });
+    it("labels a brainstorm-phase ask as clarify", () => {
+        const run = base({ phases: [{ kind: "brainstorm", state: "running", workerorefs: ["tab:t1"] }] });
+        const agents = [agent({ id: "t1", state: "asking" })];
+        expect(phaseThread(run, 0, agents).askKind).toBe("clarify");
+    });
+    it("shows execute worker rows when running and not asking", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:t1"] }] });
+        const agents = [agent({ id: "t1", state: "working" })];
+        const t = phaseThread(run, 0, agents);
+        expect(t.showWorkers).toBe(true);
+        expect(t.showAsk).toBe(false);
+    });
+    it("shows the context-clear boundary for a started freshctx phase", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", freshctx: true, workerorefs: ["tab:t1"] }] });
+        expect(phaseThread(run, 0, [agent({ id: "t1" })]).showBoundary).toBe(true);
+    });
+    it("does not show the boundary for a pending freshctx phase", () => {
+        const run = base({ phases: [{ kind: "execute", state: "pending", freshctx: true }] });
+        expect(phaseThread(run, 0, []).showBoundary).toBe(false);
+    });
+    it("shows blocked when a running phase's recorded worker is gone", () => {
+        const run = base({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:gone"] }] });
+        expect(phaseThread(run, 0, []).showBlocked).toBe(true);
+    });
+    it("shows the gate card only on the gated phase", () => {
+        const run = base({
+            status: "awaiting-review",
+            phases: [{ kind: "plan", gate: true, state: "done" }, { kind: "execute", state: "pending" }],
+        });
+        expect(phaseThread(run, 0, []).showGate).toBe(true);
+        expect(phaseThread(run, 1, []).showGate).toBe(false);
+    });
+    it("shows ship on the last phase when the run is done", () => {
+        const run = base({ status: "done", phases: [{ kind: "execute", state: "done" }] });
+        expect(phaseThread(run, 0, []).showShip).toBe(true);
+    });
+});
