@@ -200,7 +200,7 @@ function HunkBlock({ f, h, d }: { f: ReviewFile; h: ReviewFile["hunks"][number];
     return (
         <div
             className={cn(
-                "mb-[10px] overflow-hidden rounded-[8px] border border-border border-l-2 transition-[border-color,opacity] duration-[200ms]",
+                "mb-[10px] overflow-hidden rounded-[8px] border border-border border-l-2 transition-[border-color,opacity] duration-[140ms]",
                 rail,
                 settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
             )}
