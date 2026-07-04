@@ -8,16 +8,18 @@
 // status pill and an asking worker reuses AnswerBar — Cockpit still owns monitoring; this surface
 // carries the dialogue and links out (↗).
 
+import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { cardVariants } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { useAtomValue, useSetAtom } from "jotai";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
-import { AnswerBar } from "./answerbar";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
+import { AnswerBar } from "./answerbar";
 import { sendChannelMessage, steerWorker } from "./channelactions";
 import {
     activeMentionQuery,
@@ -26,8 +28,6 @@ import {
     mentionCandidates,
     type MentionCandidate,
 } from "./channelderive";
-import { autonomyExplainer, escalationPending, fleetCounts, parseCardData } from "./jarviscards";
-import { RAIL_ICON } from "./railicons";
 import {
     describePlan,
     planMessage,
@@ -36,11 +36,8 @@ import {
     type PlanChip,
     type RosterEntry,
 } from "./channelmessages";
-import { runtimeLogo } from "./runtimelogo";
-import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
 import { ChannelRail } from "./channelrail";
-import { channelRailOpenAtom } from "./railstore";
-import { MarkdownMessage } from "./markdownmessage";
+import { computeEntrances, initialEntranceState } from "./channelsmotion";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
@@ -52,7 +49,13 @@ import {
     selectChannel,
     type ConsultStream,
 } from "./channelsstore";
+import { autonomyExplainer, escalationPending, fleetCounts, parseCardData } from "./jarviscards";
+import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
+import { MarkdownMessage } from "./markdownmessage";
 import { projectsAtom } from "./projectsstore";
+import { RAIL_ICON } from "./railicons";
+import { channelRailOpenAtom } from "./railstore";
+import { runtimeLogo } from "./runtimelogo";
 
 const STATE_DOT: Record<string, string> = {
     working: "var(--color-success)",
@@ -86,6 +89,23 @@ function jarvisReqIdOf(refORef?: string): string | undefined {
 
 function timeLabel(ts: number, now: number): string {
     return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
+}
+
+// one-shot completion settle (moment 4): plays @keyframes settle once when a streaming reply resolves
+// (streaming -> done). Mirrors agentrow.tsx's justFinished pattern (520ms matches settle's .5s).
+function useSettle(done: boolean): boolean {
+    const [settling, setSettling] = useState(false);
+    const prevDone = useRef(done);
+    useEffect(() => {
+        if (done && !prevDone.current) {
+            setSettling(true);
+            const t = setTimeout(() => setSettling(false), 520);
+            prevDone.current = done;
+            return () => clearTimeout(t);
+        }
+        prevDone.current = done;
+    }, [done]);
+    return settling;
 }
 
 // 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; a runtime
@@ -220,6 +240,8 @@ function ConsultRow({
     const liveKeys = consultId
         ? Object.keys(streams).filter((k) => k.startsWith(`${consultId}:`) && !repliedRuntimes.has(k.split(":")[1]))
         : [];
+    // the consult is "done" once every live stream has resolved into a persisted reply
+    const settling = useSettle(liveKeys.length === 0 && replies.length > 0);
     return (
         <div className="flex items-start gap-3">
             <Avatar name={msg.author} />
@@ -230,11 +252,18 @@ function ConsultRow({
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
                 <p className="mb-2.5 text-[14px] leading-[1.6] text-secondary">{msg.text || "(empty)"}</p>
-                <div className="flex flex-col gap-2">
+                <div
+                    className={cn(
+                        "flex flex-col gap-2",
+                        settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                    )}
+                >
                     {replies.map((r) => (
                         <div key={r.id} className="rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5">
                             <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">{r.author}</div>
-                            <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{r.text}</div>
+                            <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">
+                                {r.text}
+                            </div>
                         </div>
                     ))}
                     {liveKeys.map((k) => {
@@ -275,6 +304,7 @@ function JarvisRow({
         ? allMessages.find((m) => m.kind === "jarvis-reply" && jarvisReqIdOf(m.reforef) === reqId)
         : undefined;
     const live = reqId && !reply ? streams[`${reqId}:jarvis`] : undefined;
+    const settling = useSettle(!!reply);
     return (
         <div className="flex items-start gap-3">
             <Avatar name={msg.author} />
@@ -286,7 +316,12 @@ function JarvisRow({
                 </div>
                 <p className="mb-2.5 text-[14px] leading-[1.6] text-secondary">{msg.text || "(empty)"}</p>
                 {reply ? (
-                    <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5">
+                    <div
+                        className={cn(
+                            "rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5",
+                            settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                        )}
+                    >
                         <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">jarvis</div>
                         <MarkdownMessage text={reply.text} className="text-[13px] leading-[1.55] text-secondary" />
                     </div>
@@ -433,7 +468,14 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
                     <Tag label="escalation" tone="asking" />
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
-                <div className="rounded-[9px] border border-asking/40 bg-lane-asking px-3.5 py-3">
+                <div
+                    className={cn(
+                        "rounded-[9px] border border-asking/40 bg-lane-asking px-3.5 py-3",
+                        pending &&
+                            picked == null &&
+                            "animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
+                    )}
+                >
                     {card ? (
                         <>
                             {card.reason ? (
@@ -919,6 +961,17 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const messages = active?.messages ?? [];
+    // replies are folded into their parent rows, so they never appear as standalone stream items
+    const shownMessages = messages.filter((m) => m.kind !== "consult-reply" && m.kind !== "jarvis-reply");
+    const messageIds = shownMessages.map((m) => m.id);
+    // no-cascade guard: switch/mount is silent, only true arrivals animate (see channelsmotion.ts)
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entranceIds } = computeEntrances(entranceRef.current, activeId, messageIds);
+    const idsKey = messageIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, activeId, messageIds).state;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeId, idsKey]);
     // pre-send chip: render what Send will do (spawn a worker, consult, steer, …) before it happens.
     // projectName mirrors send()'s choice so the "spawns a worker in <x>" preview matches the dispatch.
     const chip: PlanChip | null =
@@ -960,129 +1013,140 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     };
 
     return (
-        <div className="absolute inset-0 flex">
-            <ChannelRail
-                channels={channels}
-                activeId={activeId}
-                agents={agents}
-                projects={projects}
-                picking={picking}
-                onSelect={(id) => fireAndForget(() => selectChannel(id))}
-                onToggleNew={() => setPicking((p) => !p)}
-                onPickProject={pickProject}
-                onDeleteChannel={(id) => fireAndForget(() => deleteChannel(id))}
-            />
-
-            <div className="@container flex min-w-0 flex-1">
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-[22px] py-3.5">
-                    <span className="font-mono text-[17px] font-bold text-muted">#</span>
-                    <div className="min-w-0">
-                        <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
-                            {active?.name ?? "no channel"}
-                        </div>
-                        {active?.projectpath ? (
-                            <div className="truncate font-mono text-[11.5px] text-muted">{active.projectpath}</div>
-                        ) : null}
-                    </div>
-                    <div className="flex-1" />
-                    {active ? (
-                        <div
-                            className="flex flex-none items-center gap-0.5 rounded-[7px] border border-edge-mid p-0.5"
-                            title="Jarvis autonomy for this channel: Concierge observes; Gatekeeper auto-answers routine asks; Delegator spawns and runs workers toward a goal"
-                        >
-                            {(["concierge", "gatekeeper", "delegator"] as const).map((t) => (
-                                <button
-                                    key={t}
-                                    type="button"
-                                    onClick={() =>
-                                        fireAndForget(() =>
-                                            RpcApi.SetChannelTierCommand(TabRpcClient, {
-                                                channelid: active.oid,
-                                                tier: t,
-                                                mode:
-                                                    ((active.meta as Record<string, unknown> | undefined)?.[
-                                                        "delegator:mode"
-                                                    ] as string) ?? "report",
-                                            })
-                                        )
-                                    }
-                                    className={
-                                        tier === t
-                                            ? "rounded-[5px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[11px] text-accent-soft"
-                                            : "rounded-[5px] px-2 py-0.5 font-mono text-[11px] text-muted hover:text-secondary"
-                                    }
-                                >
-                                    {t}
-                                </button>
-                            ))}
-                        </div>
-                    ) : null}
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
-                    <div className="flex flex-col gap-5">
-                        {channels == null ? (
-                            <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>
-                        ) : !activeId ? (
-                            <div className="mt-10 text-center text-[13px] text-muted">
-                                No channel yet — click <span className="text-secondary">+ New channel</span> to create
-                                one bound to a project.
-                            </div>
-                        ) : messages.length === 0 ? (
-                            <div className="mt-10 text-center text-[13px] text-muted">
-                                Empty channel. Try <span className="font-mono text-secondary">@claude do something</span>.
-                            </div>
-                        ) : (
-                            messages
-                                .filter((m) => m.kind !== "consult-reply" && m.kind !== "jarvis-reply")
-                                .map((m) =>
-                                    m.kind === "consult" ? (
-                                        <ConsultRow
-                                            key={m.id}
-                                            msg={m}
-                                            allMessages={messages}
-                                            streams={consultStreams}
-                                            now={now}
-                                        />
-                                    ) : m.kind === "jarvis" ? (
-                                        <JarvisRow
-                                            key={m.id}
-                                            msg={m}
-                                            allMessages={messages}
-                                            streams={consultStreams}
-                                            now={now}
-                                        />
-                                    ) : m.kind === "jarvis-answered" ? (
-                                        <GatekeeperRow key={m.id} model={model} agents={agents} msg={m} now={now} />
-                                    ) : m.kind === "jarvis-escalation" ? (
-                                        <EscalationRow key={m.id} agents={agents} msg={m} now={now} />
-                                    ) : (
-                                        <MessageRow key={m.id} model={model} agents={agents} msg={m} now={now} />
-                                    )
-                                )
-                        )}
-                    </div>
-                </div>
-
-                <Composer
-                    value={draft}
-                    onChange={setDraft}
-                    onSend={send}
-                    chip={chip}
-                    disabled={!activeId}
-                    placeholder={
-                        tier === "gatekeeper"
-                            ? `Message #${active?.name ?? "channel"} — Jarvis is auto-answering routine asks`
-                            : tier === "delegator"
-                              ? `Message #${active?.name ?? "channel"} — Jarvis is managing this channel`
-                              : `Message #${active?.name ?? "channel"}`
-                    }
-                    candidates={mentionCandidates(installedRuntimes, roster)}
+        <MotionConfig reducedMotion="user">
+            <div className="absolute inset-0 flex">
+                <ChannelRail
+                    channels={channels}
+                    activeId={activeId}
+                    agents={agents}
+                    projects={projects}
+                    picking={picking}
+                    onSelect={(id) => fireAndForget(() => selectChannel(id))}
+                    onToggleNew={() => setPicking((p) => !p)}
+                    onPickProject={pickProject}
+                    onDeleteChannel={(id) => fireAndForget(() => deleteChannel(id))}
                 />
-              </div>
-              <ContextPanel model={model} channel={active} agents={agents} />
+
+                <div className="@container flex min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-1 flex-col">
+                        <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-[22px] py-3.5">
+                            <span className="font-mono text-[17px] font-bold text-muted">#</span>
+                            <div className="min-w-0">
+                                <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
+                                    {active?.name ?? "no channel"}
+                                </div>
+                                {active?.projectpath ? (
+                                    <div className="truncate font-mono text-[11.5px] text-muted">
+                                        {active.projectpath}
+                                    </div>
+                                ) : null}
+                            </div>
+                            <div className="flex-1" />
+                            {active ? (
+                                <div
+                                    className="flex flex-none items-center gap-0.5 rounded-[7px] border border-edge-mid p-0.5"
+                                    title="Jarvis autonomy for this channel: Concierge observes; Gatekeeper auto-answers routine asks; Delegator spawns and runs workers toward a goal"
+                                >
+                                    {(["concierge", "gatekeeper", "delegator"] as const).map((t) => (
+                                        <button
+                                            key={t}
+                                            type="button"
+                                            onClick={() =>
+                                                fireAndForget(() =>
+                                                    RpcApi.SetChannelTierCommand(TabRpcClient, {
+                                                        channelid: active.oid,
+                                                        tier: t,
+                                                        mode:
+                                                            ((active.meta as Record<string, unknown> | undefined)?.[
+                                                                "delegator:mode"
+                                                            ] as string) ?? "report",
+                                                    })
+                                                )
+                                            }
+                                            className={
+                                                tier === t
+                                                    ? "rounded-[5px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[11px] text-accent-soft"
+                                                    : "rounded-[5px] px-2 py-0.5 font-mono text-[11px] text-muted hover:text-secondary"
+                                            }
+                                        >
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : null}
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
+                            <div className="flex flex-col gap-5">
+                                {channels == null ? (
+                                    <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>
+                                ) : !activeId ? (
+                                    <div className="mt-10 text-center text-[13px] text-muted">
+                                        No channel yet — click <span className="text-secondary">+ New channel</span> to
+                                        create one bound to a project.
+                                    </div>
+                                ) : messages.length === 0 ? (
+                                    <div className="mt-10 text-center text-[13px] text-muted">
+                                        Empty channel. Try{" "}
+                                        <span className="font-mono text-secondary">@claude do something</span>.
+                                    </div>
+                                ) : (
+                                    <AnimatePresence mode="popLayout" initial={false}>
+                                        {shownMessages.map((m) => (
+                                            <motion.div
+                                                key={m.id}
+                                                layout
+                                                variants={cardVariants}
+                                                initial={entranceIds.has(m.id) ? "initial" : false}
+                                                animate="animate"
+                                            >
+                                                {m.kind === "consult" ? (
+                                                    <ConsultRow
+                                                        msg={m}
+                                                        allMessages={messages}
+                                                        streams={consultStreams}
+                                                        now={now}
+                                                    />
+                                                ) : m.kind === "jarvis" ? (
+                                                    <JarvisRow
+                                                        msg={m}
+                                                        allMessages={messages}
+                                                        streams={consultStreams}
+                                                        now={now}
+                                                    />
+                                                ) : m.kind === "jarvis-answered" ? (
+                                                    <GatekeeperRow model={model} agents={agents} msg={m} now={now} />
+                                                ) : m.kind === "jarvis-escalation" ? (
+                                                    <EscalationRow agents={agents} msg={m} now={now} />
+                                                ) : (
+                                                    <MessageRow model={model} agents={agents} msg={m} now={now} />
+                                                )}
+                                            </motion.div>
+                                        ))}
+                                    </AnimatePresence>
+                                )}
+                            </div>
+                        </div>
+
+                        <Composer
+                            value={draft}
+                            onChange={setDraft}
+                            onSend={send}
+                            chip={chip}
+                            disabled={!activeId}
+                            placeholder={
+                                tier === "gatekeeper"
+                                    ? `Message #${active?.name ?? "channel"} — Jarvis is auto-answering routine asks`
+                                    : tier === "delegator"
+                                      ? `Message #${active?.name ?? "channel"} — Jarvis is managing this channel`
+                                      : `Message #${active?.name ?? "channel"}`
+                            }
+                            candidates={mentionCandidates(installedRuntimes, roster)}
+                        />
+                    </div>
+                    <ContextPanel model={model} channel={active} agents={agents} />
+                </div>
             </div>
-        </div>
+        </MotionConfig>
     );
 }
