@@ -403,11 +403,11 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div className="absolute inset-0 flex flex-col">
-                <Header count={notes.length} onNew={() => setNewOpen(true)} />
-                <SyncStrip focusedCwd={focusedCwd} />
-                <div className="flex min-h-0 flex-1">
-                    <div className="relative min-w-0 flex-1 overflow-hidden">
+            <div className="absolute inset-0 flex">
+                <div className="flex min-w-0 flex-1 flex-col">
+                    <Header count={notes.length} onNew={() => setNewOpen(true)} />
+                    <SyncStrip focusedCwd={focusedCwd} />
+                    <div className="relative min-h-0 flex-1 overflow-hidden">
                         {!loaded ? (
                             <div className="p-[28px] text-[13px] text-ink-mid">Loading memory…</div>
                         ) : notes.length === 0 ? (
@@ -436,8 +436,8 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                             </AnimatePresence>
                         )}
                     </div>
-                    <DetailRail notes={notes} />
                 </div>
+                <DetailRail notes={notes} />
                 {newOpen && <NewMemoryModal onClose={() => setNewOpen(false)} cwd={focusedCwd ?? undefined} />}
             </div>
         </MotionConfig>
