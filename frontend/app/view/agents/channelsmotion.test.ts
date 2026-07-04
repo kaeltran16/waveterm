@@ -9,7 +9,7 @@ describe("computeEntrances", () => {
         const r = computeEntrances(initialEntranceState(), "c1", ["a", "b"]);
         expect([...r.animate]).toEqual([]);
         expect([...r.state.seen].sort()).toEqual(["a", "b"]);
-        expect(r.state.channelId).toBe("c1");
+        expect(r.state.key).toBe("c1");
     });
 
     test("switching channels animates nothing and reseeds", () => {
@@ -17,7 +17,7 @@ describe("computeEntrances", () => {
         const r = computeEntrances(first.state, "c2", ["x", "y"]);
         expect([...r.animate]).toEqual([]);
         expect([...r.state.seen].sort()).toEqual(["x", "y"]);
-        expect(r.state.channelId).toBe("c2");
+        expect(r.state.key).toBe("c2");
     });
 
     test("same-channel append animates only the new ids", () => {

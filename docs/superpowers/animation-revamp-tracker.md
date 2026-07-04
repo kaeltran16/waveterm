@@ -64,11 +64,11 @@ cross-surface transitions and shared modals.
 | Surface | Status | Notes |
 |---|---|---|
 | **Cockpit** | ✅ Shipped `b3ccce07`; chrome gaps + shared rail (2026-07-03) | 8 card moments + rolling counts, section-header entrance, grid→footer handoff, CollapsibleRail. |
-| Agent | ◐ Rail only | DETAILS rail now `CollapsibleRail` (alignment fixed, "just now idle" text fixed). Remaining: narration/composer/status motion (m5/m6/m7). |
+| Agent | ◐ Rail only | DETAILS rail now `CollapsibleRail` (alignment fixed, "just now idle" text fixed). Remaining: AgentTree roster entrance/reflow + AgentHeader status motion (m1/m2/m3/m4/m7). (m5 narration is moot — the center is the live TUI, not a narrated transcript; there is no inline composer on this surface, so m6 does not apply.) |
 | Activity | ☐ Not started | Cross-project feed. Candidates: line entrance (m1/m5), no-cascade guard. |
 | Channels | ✅ Shipped (2026-07-04) | Message entrance + no-cascade guard (`channelsmotion.ts`), streaming settle, escalation glow, rail selection micro + attention-dot pulse. |
 | Sessions | ✅ Shipped (2026-07-03) | Chip-filter reflow (m2 popLayout), instant search, one-shot load reveal, empty-state fade. No hero (surface is header+search+chips+list). |
-| Files / Diff | ☐ Not started | Candidates: list entrance (m1), reveal (m6). |
+| Files / Diff | ✅ Shipped (2026-07-04) | Browse: file-list entrance/reflow (m1/m2) + no-cascade guard (shared, extracted to `motiontokens.ts`; source→key via `filesmotion.ts`), diff-pane crossfade (m5-style opacity), row selection micro (m7). Review: hunk/file completion settle (m4), progress-bar width transition, hunk-pane crossfade on file switch, applied-screen reveal (m1). One `<MotionConfig reducedMotion="user">` at the FilesSurface root. SHA: _pending Task 4/5 commits_. |
 | Memory | ☐ Not started | Vault viewer + force-graph. Candidates: detail reveal (m6); graph has its own physics — audit for conflicts. |
 | Usage | ☐ Not started | Bars/donuts. Candidates: value/bar transitions (m7 micro); avoid decorative-only motion. |
 | **Cross-surface tab transitions** | ☐ Not started | Switching surfaces (`[`/`]`, rail). Design decision pending: crossfade vs. none. Must not fight per-surface entrances. |
@@ -98,3 +98,5 @@ Legend: ✅ shipped · ◐ in progress · ☐ not started
 - CollapsibleRail + cockpit motion-gap plan: `docs/superpowers/plans/2026-07-03-collapsible-rail-and-cockpit-motion-gaps.md`
 - Channels motion design spec: `docs/superpowers/specs/2026-07-04-channels-motion-design.md`
 - Channels motion implementation plan: `docs/superpowers/plans/2026-07-04-channels-motion-system.md`
+- Files/Diff motion design spec: `docs/superpowers/specs/2026-07-04-files-diff-motion-design.md`
+- Files/Diff motion implementation plan: `docs/superpowers/plans/2026-07-04-files-diff-motion-system.md`

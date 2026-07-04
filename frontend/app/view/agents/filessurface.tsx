@@ -9,7 +9,9 @@ import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { MOTION, cardVariants, computeEntrances, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
 import type { AgentsViewModel } from "./agents";
 import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
@@ -18,6 +20,7 @@ import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent
 import { projectsAtom } from "./projectsstore";
 import { ReviewSurface } from "./reviewsurface";
 import { loadReview } from "./reviewstore";
+import { sourceKey } from "./filesmotion";
 
 // Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
 const STATE_DOT: Record<AgentState, string> = { asking: "bg-warning", working: "bg-success", idle: "bg-muted" };
@@ -33,7 +36,7 @@ export interface FilesProject {
 }
 
 // The Files surface can be scoped either to a running agent's worktree or to a registered project.
-type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
+export type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
 
 // In-tab source selector: picks whose worktree the Files surface shows. Agents (with a state dot)
 // write the shared focusIdAtom so a diff can be inspected without bouncing back to the Agent tab;
@@ -134,7 +137,7 @@ function FileRow({ change, selected, onSelect }: { change: GitChange; selected: 
         <button
             onClick={onSelect}
             className={cn(
-                "flex w-full items-center gap-[7px] rounded-[7px] px-[8px] py-[5px] text-left hover:bg-surface-hover",
+                "flex w-full items-center gap-[7px] rounded-[7px] px-[8px] py-[5px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
                 selected && "bg-surface-selected"
             )}
         >
@@ -166,43 +169,52 @@ function DiffRow({ line }: { line: DiffLine }) {
 }
 
 function CenterPane({ path, view, cwd }: { path: string | null; view: FileView | null; cwd: string | null }) {
-    if (!path) {
-        return <EmptyCenter msg="Select a file to view its changes" />;
-    }
     return (
-        <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">
-                <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
-                <div className="flex-1" />
-                <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
-                {cwd && (
-                    <button
-                        onClick={() => getApi().openExternal(`${cwd}/${path}`)}
-                        className="flex-none rounded-[8px] border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
-                    >
-                        Open in editor ↗
-                    </button>
-                )}
-            </div>
-            {view == null ? (
-                <EmptyCenter msg="Loading…" />
+        <motion.div
+            key={path ?? "__empty__"}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+            className="flex min-w-0 flex-1 flex-col"
+        >
+            {!path ? (
+                <EmptyCenter msg="Select a file to view its changes" />
             ) : (
                 <>
-                    {view.isDiff && (
-                        <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px] font-mono text-[11px] font-bold">
-                            <span className="text-success">+{view.adds}</span>
-                            <span className="text-error">−{view.dels}</span>
-                            <span className="font-medium text-ink-mid">{view.hunkLabel}</span>
-                        </div>
-                    )}
-                    <div className="flex-1 overflow-auto py-[8px] font-mono text-[12.5px] leading-[1.75]">
-                        {view.lines.map((l, i) => (
-                            <DiffRow key={i} line={l} />
-                        ))}
+                    <div className="flex flex-none items-center gap-[11px] border-b border-border px-[20px] py-[13px]">
+                        <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
+                        <div className="flex-1" />
+                        <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
+                        {cwd && (
+                            <button
+                                onClick={() => getApi().openExternal(`${cwd}/${path}`)}
+                                className="flex-none rounded-[8px] border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
+                            >
+                                Open in editor ↗
+                            </button>
+                        )}
                     </div>
+                    {view == null ? (
+                        <EmptyCenter msg="Loading…" />
+                    ) : (
+                        <>
+                            {view.isDiff && (
+                                <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px] font-mono text-[11px] font-bold">
+                                    <span className="text-success">+{view.adds}</span>
+                                    <span className="text-error">−{view.dels}</span>
+                                    <span className="font-medium text-ink-mid">{view.hunkLabel}</span>
+                                </div>
+                            )}
+                            <div className="flex-1 overflow-auto py-[8px] font-mono text-[12.5px] leading-[1.75]">
+                                {view.lines.map((l, i) => (
+                                    <DiffRow key={i} line={l} />
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </>
             )}
-        </div>
+        </motion.div>
     );
 }
 
@@ -229,6 +241,16 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         : focusId
           ? { kind: "agent", id: focusId }
           : null;
+
+    // No-cascade entrance guard: switching source reseeds the file list silently; only files that
+    // arrive from a live git update within the held source animate in.
+    const filePaths = state?.changes?.files.map((f) => f.path) ?? [];
+    const guardKey = sourceKey(source);
+    const entranceRef = useRef<EntranceState>(initialEntranceState());
+    const { animate: entranceIds } = computeEntrances(entranceRef.current, guardKey, filePaths);
+    useEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, guardKey, filePaths).state;
+    }, [guardKey, filePaths.join(" ")]);
 
     // Default to the first agent when nothing is scoped, so opening Files is immediately useful
     // instead of a dead "select a source" screen.
@@ -259,6 +281,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const changes = state?.changes;
 
     return (
+        <MotionConfig reducedMotion="user">
         <div className="absolute inset-0 flex min-h-0">
             <div className="flex w-[292px] flex-none flex-col border-r border-border bg-surface">
                 <div className="flex-none border-b border-edge-faint p-[15px]">
@@ -298,14 +321,24 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     ) : (changes?.files.length ?? 0) === 0 ? (
                         <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No changes</div>
                     ) : (
-                        changes!.files.map((c) => (
-                            <FileRow
-                                key={c.path}
-                                change={c}
-                                selected={c.path === selected}
-                                onSelect={() => state.cwd && fireAndForget(() => selectFile(state.cwd!, c.path))}
-                            />
-                        ))
+                        <AnimatePresence mode="popLayout" initial={false}>
+                            {changes!.files.map((c) => (
+                                <motion.div
+                                    key={c.path}
+                                    layout
+                                    variants={cardVariants}
+                                    initial={entranceIds.has(c.path) ? "initial" : false}
+                                    animate="animate"
+                                    exit="exit"
+                                >
+                                    <FileRow
+                                        change={c}
+                                        selected={c.path === selected}
+                                        onSelect={() => state.cwd && fireAndForget(() => selectFile(state.cwd!, c.path))}
+                                    />
+                                </motion.div>
+                            ))}
+                        </AnimatePresence>
                     )}
                 </div>
             </div>
@@ -313,5 +346,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 {mode === "review" ? <ReviewSurface /> : <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />}
             </div>
         </div>
+        </MotionConfig>
     );
 }

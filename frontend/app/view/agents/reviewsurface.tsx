@@ -9,7 +9,10 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { motion } from "motion/react";
 import { useEffect } from "react";
+import { MOTION, cardVariants, easeFluidCss } from "@/app/element/motiontokens";
+import { useSettle } from "@/app/element/motionhooks";
 import { parseUnifiedDiff } from "./gitdiff";
 import {
     appliedAtom, applyReview, decide, decideMany, decisionsAtom, fileDecision, hunkKey, progressOf,
@@ -63,7 +66,12 @@ export function ReviewSurface() {
 
     if (applied) {
         return (
-            <div className="flex h-full flex-col items-center justify-center gap-[16px] p-[30px]">
+            <motion.div
+                variants={cardVariants}
+                initial="initial"
+                animate="animate"
+                className="flex h-full flex-col items-center justify-center gap-[16px] p-[30px]"
+            >
                 <div className="text-[18px] font-bold text-foreground">Review applied</div>
                 <div className="font-mono text-[13px] text-ink-mid">
                     Kept {applied.accepted} · discarded {applied.rejected}
@@ -72,7 +80,7 @@ export function ReviewSurface() {
                 <button onClick={resetReview} className="rounded-[9px] border border-border px-[15px] py-[8px] text-[12px] text-ink-mid hover:text-foreground">
                     Reopen review
                 </button>
-            </div>
+            </motion.div>
         );
     }
 
@@ -88,8 +96,8 @@ export function ReviewSurface() {
                         <span className="text-ink-mid">{prog.reviewed}/{prog.total} reviewed</span>
                     </div>
                     <div className="flex h-[6px] overflow-hidden rounded-[4px] bg-surface-hover">
-                        <div className="h-full bg-success" style={{ width: `${acceptPct}%` }} />
-                        <div className="h-full bg-error" style={{ width: `${rejectPct}%` }} />
+                        <div className="h-full bg-success" style={{ width: `${acceptPct}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
+                        <div className="h-full bg-error" style={{ width: `${rejectPct}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-[8px]">
@@ -113,9 +121,15 @@ export function ReviewSurface() {
             {/* right: selected file's hunks + footer */}
             <div className="flex min-w-0 flex-1 flex-col bg-transparent">
                 <FileHeader f={sel} d={d} />
-                <div className="flex-1 overflow-auto p-[16px_20px_26px]">
+                <motion.div
+                    key={sel.path}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                    className="flex-1 overflow-auto p-[16px_20px_26px]"
+                >
                     {sel.hunks.map((h) => <HunkBlock key={h.id} f={sel} h={h} d={d} />)}
-                </div>
+                </motion.div>
                 <div className="flex flex-none items-center gap-[14px] border-t border-border bg-surface px-[22px] py-[12px]">
                     <div className="flex items-center gap-[12px] font-mono text-[11px]">
                         <span className="text-ink-mid">{prog.reviewed}/{prog.total} reviewed</span>
@@ -146,8 +160,12 @@ function FileHeader({ f, d }: { f: ReviewFile; d: Decisions }) {
     const verdict = fileDecision(f, d);
     const fkeys = f.hunks.map((h) => hunkKey(f.path, h.id));
     const glyph = f.isNew ? "A" : "M";
+    const settling = useSettle(verdict === "accept" || verdict === "reject");
     return (
-        <div className="flex flex-none items-center gap-[10px] border-b border-border bg-surface px-[20px] py-[13px]">
+        <div className={cn(
+            "flex flex-none items-center gap-[10px] border-b border-border bg-surface px-[20px] py-[13px]",
+            settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+        )}>
             <span className={cn("flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[5px] font-mono text-[10px] font-bold",
                 f.isNew ? "bg-success/15 text-success" : "bg-warning/15 text-warning")}>{glyph}</span>
             <span className="min-w-0 truncate font-mono text-[12.5px] font-semibold">{f.path}</span>
@@ -178,8 +196,16 @@ function HunkBlock({ f, h, d }: { f: ReviewFile; h: ReviewFile["hunks"][number];
     const dec = d[key] ?? null;
     const rail = dec === "accept" ? "border-l-success" : dec === "reject" ? "border-l-error" : "border-l-transparent";
     const view = f.isNew ? null : parseUnifiedDiff(f.diffHeader + h.body);
+    const settling = useSettle(dec !== null);
     return (
-        <div className={cn("mb-[10px] overflow-hidden rounded-[8px] border border-border border-l-2", rail)} style={{ opacity: dec === "reject" ? 0.5 : 1 }}>
+        <div
+            className={cn(
+                "mb-[10px] overflow-hidden rounded-[8px] border border-border border-l-2 transition-[border-color,opacity] duration-[200ms]",
+                rail,
+                settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+            )}
+            style={{ opacity: dec === "reject" ? 0.5 : 1 }}
+        >
             <div className="flex items-center gap-[10px] border-b border-edge-faint bg-surface px-[13px] py-[7px]">
                 <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-faint">{h.header}</span>
                 <span className="flex-none font-mono text-[10px] font-bold text-success">+{h.adds}</span>

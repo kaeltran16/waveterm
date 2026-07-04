@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MOTION, cardVariants, modalBackdrop, modalPanel, shouldFadeEntry } from "./motiontokens";
+import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, shouldFadeEntry } from "./motiontokens";
 
 describe("motiontokens", () => {
     it("uses the Fluid feel: macro ~360ms on the chosen ease curve", () => {
@@ -36,5 +36,49 @@ describe("motiontokens", () => {
 
     it("modal panel reuses the card entrance signature (single source of feel)", () => {
         expect(modalPanel).toBe(cardVariants);
+    });
+});
+
+describe("easeFluidCss", () => {
+    it("is the css cubic-bezier form of MOTION.easeFluid", () => {
+        expect(easeFluidCss).toBe(`cubic-bezier(${MOTION.easeFluid.join(", ")})`);
+        expect(easeFluidCss).toBe("cubic-bezier(0.22, 1, 0.36, 1)");
+    });
+});
+
+describe("computeEntrances", () => {
+    it("first mount animates nothing and seeds seen", () => {
+        const r = computeEntrances(initialEntranceState(), "k1", ["a", "b"]);
+        expect([...r.animate]).toEqual([]);
+        expect([...r.state.seen].sort()).toEqual(["a", "b"]);
+        expect(r.state.key).toBe("k1");
+    });
+
+    it("switching key animates nothing and reseeds", () => {
+        const first = computeEntrances(initialEntranceState(), "k1", ["a", "b"]);
+        const r = computeEntrances(first.state, "k2", ["x", "y"]);
+        expect([...r.animate]).toEqual([]);
+        expect([...r.state.seen].sort()).toEqual(["x", "y"]);
+        expect(r.state.key).toBe("k2");
+    });
+
+    it("same-key append animates only the new ids", () => {
+        const first = computeEntrances(initialEntranceState(), "k1", ["a", "b"]);
+        const r = computeEntrances(first.state, "k1", ["a", "b", "c"]);
+        expect([...r.animate]).toEqual(["c"]);
+        expect([...r.state.seen].sort()).toEqual(["a", "b", "c"]);
+    });
+
+    it("undefined key (no source) seeds silently", () => {
+        const r = computeEntrances(initialEntranceState(), undefined, []);
+        expect([...r.animate]).toEqual([]);
+        expect(r.state.key).toBeUndefined();
+    });
+
+    it("a removed id does not error and stays remembered", () => {
+        const first = computeEntrances(initialEntranceState(), "k1", ["a", "b"]);
+        const r = computeEntrances(first.state, "k1", ["a"]);
+        expect([...r.animate]).toEqual([]);
+        expect(r.state.seen.has("b")).toBe(true);
     });
 });

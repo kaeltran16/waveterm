@@ -54,3 +54,38 @@ const NARRATED_KINDS = new Set(["message", "user"]);
 export function shouldFadeEntry(kind: string): boolean {
     return NARRATED_KINDS.has(kind);
 }
+
+// CSS-transition form of easeFluid (Framer wants the array; CSS `transition:` wants the string).
+export const easeFluidCss = `cubic-bezier(${MOTION.easeFluid.join(", ")})`;
+
+// No-cascade entrance guard (shared by Channels, Files, and future list surfaces). Switching the
+// active `key` (channel / files source / …) reseeds silently so a whole-list swap never cascades;
+// only ids that arrive while the key is unchanged animate in. Pure — callers hold the returned
+// state in a ref. See docs/superpowers/specs/2026-07-04-files-diff-motion-design.md.
+export interface EntranceState {
+    key: string | undefined;
+    seen: Set<string>;
+}
+
+export function initialEntranceState(): EntranceState {
+    return { key: undefined, seen: new Set() };
+}
+
+export function computeEntrances(
+    prev: EntranceState,
+    key: string | undefined,
+    ids: string[]
+): { animate: Set<string>; state: EntranceState } {
+    if (key !== prev.key) {
+        return { animate: new Set(), state: { key, seen: new Set(ids) } };
+    }
+    const animate = new Set<string>();
+    const seen = new Set(prev.seen);
+    for (const id of ids) {
+        if (!seen.has(id)) {
+            animate.add(id);
+            seen.add(id);
+        }
+    }
+    return { animate, state: { key, seen } };
+}
