@@ -48,6 +48,15 @@ export const composerReveal: Variants = {
     exit: { opacity: 0, height: 0, transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
 };
 
+// Popover / dropdown reveal. Opacity + scale only (never x/y — consistent with cardVariants); the
+// panel scales from its anchor corner via a per-site transform-origin. Snappy in and out — a dropdown
+// dismiss should not linger.
+export const popoverReveal: Variants = {
+    initial: { opacity: 0, scale: 0.96 },
+    animate: { opacity: 1, scale: 1, transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, scale: 0.96, transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
+};
+
 // Narration burst guard (moment 5): only prose/user turns fade in. Tool-action bursts
 // never animate, so a fast stream of tool lines cannot strobe.
 const NARRATED_KINDS = new Set(["message", "user"]);

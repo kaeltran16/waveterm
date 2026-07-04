@@ -1,11 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { MOTION } from "@/app/element/motiontokens";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceAtom, startupSurfaceOptions } from "./cockpitprefsstore";
@@ -31,26 +34,34 @@ const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
 ];
 
 export function SettingsSurface(_props: { model: AgentsViewModel }) {
+    const reduce = useReducedMotion();
     return (
-        <div className="flex h-full flex-col overflow-y-auto bg-background px-10 py-9">
-            <div className="mx-auto w-full max-w-[720px]">
-                <h1 className="text-[26px] font-extrabold tracking-[-0.025em] text-primary">Settings</h1>
-                <p className="mb-9 mt-1.5 text-[13.5px] text-muted">
-                    Cockpit preferences, appearance, and New Agent defaults.
-                </p>
-                <AppearanceSection />
-                <SectionGap />
-                <FontsSection />
-                <SectionGap />
-                <GeneralSection />
-                <SectionGap />
-                <NewAgentDefaultsSection />
-                <SectionGap />
-                <TerminalSection />
-                <SectionGap />
-                <MemorySection />
+        <MotionConfig reducedMotion="user">
+            <div className="flex h-full flex-col overflow-y-auto bg-background px-10 py-9">
+                <motion.div
+                    className="mx-auto w-full max-w-[720px]"
+                    initial={reduce ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
+                >
+                    <h1 className="text-[26px] font-extrabold tracking-[-0.025em] text-primary">Settings</h1>
+                    <p className="mb-9 mt-1.5 text-[13.5px] text-muted">
+                        Cockpit preferences, appearance, and New Agent defaults.
+                    </p>
+                    <AppearanceSection />
+                    <SectionGap />
+                    <FontsSection />
+                    <SectionGap />
+                    <GeneralSection />
+                    <SectionGap />
+                    <NewAgentDefaultsSection />
+                    <SectionGap />
+                    <TerminalSection />
+                    <SectionGap />
+                    <MemorySection />
+                </motion.div>
             </div>
-        </div>
+        </MotionConfig>
     );
 }
 
@@ -430,7 +441,13 @@ function NewAgentDefaultsSection() {
                     </button>
                 ))}
             </div>
-            <div className="rounded-[14px] border border-border bg-surface px-4 py-1.5">
+            <motion.div
+                key={runtime}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                className="rounded-[14px] border border-border bg-surface px-4 py-1.5"
+            >
                 {catalog.map((f, i) => {
                     const on = !!runtimeFlags[f.id];
                     return (
@@ -471,7 +488,7 @@ function NewAgentDefaultsSection() {
                         </button>
                     );
                 })}
-            </div>
+            </motion.div>
         </div>
     );
 }
@@ -513,49 +530,51 @@ function TermThemeDropdown({
                 <span className={cn("font-mono text-[10px] text-muted transition-transform", open && "rotate-180")}>▾</span>
             </button>
             {open ? (
-                <>
-                    <button
-                        type="button"
-                        aria-hidden
-                        tabIndex={-1}
-                        onClick={() => setOpen(false)}
-                        className="fixed inset-0 z-10 cursor-default"
-                    />
-                    <div className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[220px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]">
-                        {options.map((o) => {
-                            const sel = o.value === value;
-                            return (
-                                <button
-                                    key={o.value}
-                                    type="button"
-                                    onClick={() => {
-                                        onChange(o.value);
-                                        setOpen(false);
-                                    }}
-                                    className={cn(
-                                        "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-[9px] py-2 text-left transition-colors hover:bg-surface-hover",
-                                        sel ? "bg-surface-raised" : "bg-transparent"
-                                    )}
-                                >
-                                    <span className="flex flex-none gap-0.5">
-                                        {o.swatch.map((c, i) => (
-                                            <span key={i} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
-                                        ))}
-                                    </span>
-                                    <span className="flex-1 whitespace-nowrap text-[12.5px] font-semibold text-primary">
-                                        {o.label}
-                                    </span>
-                                    {sel ? (
-                                        <span className="flex-none text-accent">
-                                            <CheckIcon />
-                                        </span>
-                                    ) : null}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </>
+                <button
+                    type="button"
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setOpen(false)}
+                    className="fixed inset-0 z-10 cursor-default"
+                />
             ) : null}
+            <PopoverReveal
+                open={open}
+                origin="top right"
+                className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[220px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
+            >
+                {options.map((o) => {
+                    const sel = o.value === value;
+                    return (
+                        <button
+                            key={o.value}
+                            type="button"
+                            onClick={() => {
+                                onChange(o.value);
+                                setOpen(false);
+                            }}
+                            className={cn(
+                                "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-[9px] py-2 text-left transition-colors hover:bg-surface-hover",
+                                sel ? "bg-surface-raised" : "bg-transparent"
+                            )}
+                        >
+                            <span className="flex flex-none gap-0.5">
+                                {o.swatch.map((c, i) => (
+                                    <span key={i} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
+                                ))}
+                            </span>
+                            <span className="flex-1 whitespace-nowrap text-[12.5px] font-semibold text-primary">
+                                {o.label}
+                            </span>
+                            {sel ? (
+                                <span className="flex-none text-accent">
+                                    <CheckIcon />
+                                </span>
+                            ) : null}
+                        </button>
+                    );
+                })}
+            </PopoverReveal>
         </div>
     );
 }
@@ -681,7 +700,7 @@ function MemorySection() {
                     className={cn(
                         "shrink-0 rounded-[9px] border px-[18px] text-[13px] font-semibold transition-colors",
                         showSaved
-                            ? "border-success/40 bg-success/[0.14] text-success-soft"
+                            ? "border-success/40 bg-success/[0.14] text-success-soft animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                             : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
                     )}
                 >

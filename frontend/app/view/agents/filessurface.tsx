@@ -12,6 +12,7 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import type { AgentsViewModel } from "./agents";
 import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
@@ -74,10 +75,12 @@ function SourcePicker({
                 <span className="min-w-0 flex-1 truncate text-left font-mono text-[12px] text-ink-mid">{label}</span>
                 {hasAny ? <span className="flex-none text-[10px] text-ink-faint">▾</span> : null}
             </button>
-            {open && hasAny ? (
-                <>
-                    <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded-[8px] border border-border bg-modalbg py-1 shadow-popover">
+            {open && hasAny ? <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} /> : null}
+            <PopoverReveal
+                open={open && hasAny}
+                origin="top"
+                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded-[8px] border border-border bg-modalbg py-1 shadow-popover"
+            >
                         {agents.length > 0 ? (
                             <div className="px-[10px] pb-[3px] pt-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
                                 Agents
@@ -121,9 +124,7 @@ function SourcePicker({
                                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{p.name}</span>
                             </button>
                         ))}
-                    </div>
-                </>
-            ) : null}
+            </PopoverReveal>
         </div>
     );
 }

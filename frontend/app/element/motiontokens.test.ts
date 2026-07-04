@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, shouldFadeEntry, reflowProps } from "./motiontokens";
+import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, modalBackdrop, modalPanel, popoverReveal, shouldFadeEntry, reflowProps } from "./motiontokens";
 
 describe("motiontokens", () => {
     it("uses the Fluid feel: macro ~360ms on the chosen ease curve", () => {
@@ -36,6 +36,20 @@ describe("motiontokens", () => {
 
     it("modal panel reuses the card entrance signature (single source of feel)", () => {
         expect(modalPanel).toBe(cardVariants);
+    });
+});
+
+describe("popoverReveal", () => {
+    it("reveals opacity+scale only (never x/y), snappy in and out", () => {
+        expect(popoverReveal.initial).not.toHaveProperty("x");
+        expect(popoverReveal.initial).not.toHaveProperty("y");
+        expect((popoverReveal.initial as { opacity: number }).opacity).toBe(0);
+        expect((popoverReveal.initial as { scale: number }).scale).toBeCloseTo(0.96);
+        expect((popoverReveal.animate as any).opacity).toBe(1);
+        expect((popoverReveal.animate as any).scale).toBe(1);
+        expect((popoverReveal.animate as any).transition.duration).toBeCloseTo(MOTION.durMicro);
+        expect((popoverReveal.exit as any).transition.duration).toBeCloseTo(MOTION.durMicro);
+        expect((popoverReveal.animate as any).transition.ease).toEqual(MOTION.easeFluid);
     });
 });
 

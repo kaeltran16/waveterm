@@ -5,6 +5,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
@@ -59,10 +60,7 @@ function TaskPopover({
     onClose: () => void;
 }) {
     return (
-        <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute right-2.5 top-[46px] z-30 max-h-[calc(100%-116px)] w-[min(282px,calc(100%-20px))] overflow-y-auto rounded-[11px] border border-edge-strong bg-surface-raised p-3 shadow-[0_18px_44px_rgba(0,0,0,0.55)]"
-        >
+        <div onClick={(e) => e.stopPropagation()}>
             <div className="mb-2.5 flex items-center gap-2">
                 <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-muted">Task list</span>
                 <span className="rounded-[5px] border border-edge-mid bg-surface px-1.5 py-px font-mono text-[9.5px] text-secondary">
@@ -373,16 +371,22 @@ export function AgentRow({
                 </div>
             ) : null}
 
-            {/* task popover (placeholder) */}
-            {tasksOpen && tasks && prog ? (
-                <TaskPopover
-                    tasks={tasks}
-                    done={prog.done}
-                    total={prog.total}
-                    pct={prog.pct}
-                    onClose={() => setTasksOpen(false)}
-                />
-            ) : null}
+            {/* task popover */}
+            <PopoverReveal
+                open={tasksOpen && !!tasks && !!prog}
+                origin="top right"
+                className="absolute right-2.5 top-[46px] z-30 max-h-[calc(100%-116px)] w-[min(282px,calc(100%-20px))] overflow-y-auto rounded-[11px] border border-edge-strong bg-surface-raised p-3 shadow-[0_18px_44px_rgba(0,0,0,0.55)]"
+            >
+                {tasks && prog ? (
+                    <TaskPopover
+                        tasks={tasks}
+                        done={prog.done}
+                        total={prog.total}
+                        pct={prog.pct}
+                        onClose={() => setTasksOpen(false)}
+                    />
+                ) : null}
+            </PopoverReveal>
 
             {/* scrollable body: feed + answer + composer scroll together as one region, so nothing
                 clips at small card heights and the whole card reads as vertically scrollable. The feed

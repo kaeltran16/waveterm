@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { composerReveal } from "@/app/element/motiontokens";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { agentCwd } from "./agentcwd";
@@ -382,64 +385,72 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                     <span className="text-[11.5px] font-medium">Add flag</span>
                                 </button>
                             </div>
-                            {flagMenuOpen ? (
-                                <div className="mt-2 overflow-hidden rounded-[10px] border border-edge-mid bg-surface">
-                                    <div className="flex items-center gap-2 border-b border-edge-faint px-[11px] py-2">
-                                        <span className="font-mono text-[12px] font-semibold text-success">/</span>
-                                        <input
-                                            value={flagQuery}
-                                            onChange={(e) => setFlagQuery(e.target.value)}
-                                            placeholder="Search flags…"
-                                            className="flex-1 bg-transparent font-mono text-[12px] text-secondary outline-none"
-                                        />
-                                        <span className="whitespace-nowrap font-mono text-[10px] text-muted">
-                                            {flagCatalog.length} for {RUNTIMES.find((r) => r.id === runtime)?.name}
-                                        </span>
-                                    </div>
-                                    <div className="max-h-[158px] overflow-y-auto p-[5px]">
-                                        {menuFlags.length === 0 ? (
-                                            <div className="p-[14px] text-center text-[11.5px] text-muted">
-                                                No matching flags
-                                            </div>
-                                        ) : (
-                                            menuFlags.map((f) => {
-                                                const on = !!runtimeFlags[f.id];
-                                                return (
-                                                    <button
-                                                        key={f.id}
-                                                        type="button"
-                                                        onClick={() => setFlag(f.id, !on)}
-                                                        className={cn(
-                                                            "flex w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-[9px] py-[7px] text-left hover:bg-surface-hover",
-                                                            on ? "bg-accentbg" : ""
-                                                        )}
-                                                    >
-                                                        <span
+                            <AnimatePresence>
+                                {flagMenuOpen && (
+                                    <motion.div
+                                        variants={composerReveal}
+                                        initial="initial"
+                                        animate="animate"
+                                        exit="exit"
+                                        className="mt-2 overflow-hidden rounded-[10px] border border-edge-mid bg-surface"
+                                    >
+                                        <div className="flex items-center gap-2 border-b border-edge-faint px-[11px] py-2">
+                                            <span className="font-mono text-[12px] font-semibold text-success">/</span>
+                                            <input
+                                                value={flagQuery}
+                                                onChange={(e) => setFlagQuery(e.target.value)}
+                                                placeholder="Search flags…"
+                                                className="flex-1 bg-transparent font-mono text-[12px] text-secondary outline-none"
+                                            />
+                                            <span className="whitespace-nowrap font-mono text-[10px] text-muted">
+                                                {flagCatalog.length} for {RUNTIMES.find((r) => r.id === runtime)?.name}
+                                            </span>
+                                        </div>
+                                        <div className="max-h-[158px] overflow-y-auto p-[5px]">
+                                            {menuFlags.length === 0 ? (
+                                                <div className="p-[14px] text-center text-[11.5px] text-muted">
+                                                    No matching flags
+                                                </div>
+                                            ) : (
+                                                menuFlags.map((f) => {
+                                                    const on = !!runtimeFlags[f.id];
+                                                    return (
+                                                        <button
+                                                            key={f.id}
+                                                            type="button"
+                                                            onClick={() => setFlag(f.id, !on)}
                                                             className={cn(
-                                                                "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[9px] font-bold text-background",
-                                                                on ? "border-accent bg-accent" : "border-edge-strong"
+                                                                "flex w-full cursor-pointer items-center gap-[10px] rounded-[7px] px-[9px] py-[7px] text-left hover:bg-surface-hover",
+                                                                on ? "bg-accentbg" : ""
                                                             )}
                                                         >
-                                                            {on ? "✓" : ""}
-                                                        </span>
-                                                        <span
-                                                            className={cn(
-                                                                "shrink-0 font-mono text-[11.5px] font-semibold",
-                                                                on ? "text-accent-soft" : "text-muted-foreground"
-                                                            )}
-                                                        >
-                                                            {f.flag}
-                                                        </span>
-                                                        <span className="flex-1 truncate text-right text-[11px] text-muted">
-                                                            {f.desc}
-                                                        </span>
-                                                    </button>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                </div>
-                            ) : null}
+                                                            <span
+                                                                className={cn(
+                                                                    "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[9px] font-bold text-background",
+                                                                    on ? "border-accent bg-accent" : "border-edge-strong"
+                                                                )}
+                                                            >
+                                                                {on ? "✓" : ""}
+                                                            </span>
+                                                            <span
+                                                                className={cn(
+                                                                    "shrink-0 font-mono text-[11.5px] font-semibold",
+                                                                    on ? "text-accent-soft" : "text-muted-foreground"
+                                                                )}
+                                                            >
+                                                                {f.flag}
+                                                            </span>
+                                                            <span className="flex-1 truncate text-right text-[11px] text-muted">
+                                                                {f.desc}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                     ) : null}
                     {runtimeSupportsWorktree(runtime) ? (
@@ -492,38 +503,40 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                             </button>
                                         ) : null}
                                     </div>
-                                    {branchListOpen && branches.length > 0 ? (
-                                        <div className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded-[8px] border border-edge-mid bg-modalbg py-1 shadow-popover">
-                                            {branches.map((b) => (
-                                                <button
-                                                    key={b.name}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setBranch(b.name);
-                                                        setBranchEdited(true);
-                                                        setBranchListOpen(false);
-                                                    }}
+                                    <PopoverReveal
+                                        open={branchListOpen && branches.length > 0}
+                                        origin="bottom left"
+                                        className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded-[8px] border border-edge-mid bg-modalbg py-1 shadow-popover"
+                                    >
+                                        {branches.map((b) => (
+                                            <button
+                                                key={b.name}
+                                                type="button"
+                                                onClick={() => {
+                                                    setBranch(b.name);
+                                                    setBranchEdited(true);
+                                                    setBranchListOpen(false);
+                                                }}
+                                                className={cn(
+                                                    "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
+                                                    b.name === effectiveBranch ? "text-primary" : "text-secondary"
+                                                )}
+                                            >
+                                                <span
                                                     className={cn(
-                                                        "flex w-full cursor-pointer items-center gap-2 px-3 py-[7px] text-left hover:bg-surface-hover",
-                                                        b.name === effectiveBranch ? "text-primary" : "text-secondary"
+                                                        "h-[6px] w-[6px] shrink-0 rounded-full",
+                                                        b.name === effectiveBranch ? "bg-accent" : "bg-muted"
                                                     )}
-                                                >
-                                                    <span
-                                                        className={cn(
-                                                            "h-[6px] w-[6px] shrink-0 rounded-full",
-                                                            b.name === effectiveBranch ? "bg-accent" : "bg-muted"
-                                                        )}
-                                                    />
-                                                    <span className="flex-1 truncate font-mono text-[12px]">
-                                                        {b.name}
-                                                    </span>
-                                                    {b.age ? (
-                                                        <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span>
-                                                    ) : null}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    ) : null}
+                                                />
+                                                <span className="flex-1 truncate font-mono text-[12px]">
+                                                    {b.name}
+                                                </span>
+                                                {b.age ? (
+                                                    <span className="shrink-0 text-[10.5px] text-muted">{b.age}</span>
+                                                ) : null}
+                                            </button>
+                                        ))}
+                                    </PopoverReveal>
                                     <div className="mt-[7px] text-[11px] text-muted">
                                         {worktreeOutcome({ branch: effectiveBranch, currentBranch, branchNames })}
                                     </div>

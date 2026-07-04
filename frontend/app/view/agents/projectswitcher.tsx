@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -58,10 +59,12 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                 {label}
                 <span className="text-[9px] text-muted">▾</span>
             </button>
-            {open ? (
-                <>
-                    <div className="fixed inset-0 z-50" onClick={close} />
-                    <div className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-[12px] border border-edge-strong bg-surface-raised shadow-popover">
+            {open ? <div className="fixed inset-0 z-50" onClick={close} /> : null}
+            <PopoverReveal
+                open={open}
+                origin="top left"
+                className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-[12px] border border-edge-strong bg-surface-raised shadow-popover"
+            >
                         <div className="px-3 pb-1.5 pt-[9px]">
                             <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
                                 Switch project
@@ -195,9 +198,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                             <span className="text-[15px] leading-none">+</span>
                             <span className="text-[12.5px] font-semibold">New project</span>
                         </button>
-                    </div>
-                </>
-            ) : null}
+            </PopoverReveal>
         </div>
     );
 }
