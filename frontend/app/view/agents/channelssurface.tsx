@@ -14,20 +14,19 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
-import { toggleSelection, type AgentVM } from "./agentsviewmodel";
-import { AnswerBar } from "./answerbar";
+import { type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage, steerWorker } from "./channelactions";
 import {
     activeMentionQuery,
-    avatarColor,
     highlightSegments,
     mentionCandidates,
     type MentionCandidate,
 } from "./channelderive";
+import { AskRow, Avatar, jumpToAgent, STATE_DOT, Tag, timeLabel, WorkerRow, workerFor } from "./channelsprimitives";
 import {
     describePlan,
     planMessage,
@@ -50,34 +49,11 @@ import {
     type ConsultStream,
 } from "./channelsstore";
 import { autonomyExplainer, escalationPending, fleetCounts, parseCardData } from "./jarviscards";
-import { buildFleetSnapshot, type WorkerState } from "./jarvisderive";
+import { buildFleetSnapshot } from "./jarvisderive";
 import { MarkdownMessage } from "./markdownmessage";
 import { projectsAtom } from "./projectsstore";
 import { RAIL_ICON } from "./railicons";
 import { channelRailOpenAtom } from "./railstore";
-import { runtimeLogo } from "./runtimelogo";
-
-const STATE_DOT: Record<string, string> = {
-    working: "var(--color-success)",
-    asking: "var(--color-asking)",
-    idle: "var(--color-muted)",
-    gone: "var(--color-edge-strong)",
-};
-
-// resolve a dispatch/directive RefORef ("tab:<id>") to the live roster row, if still present
-function workerFor(agents: AgentVM[], refORef: string): AgentVM | undefined {
-    if (!refORef.startsWith("tab:")) {
-        return undefined;
-    }
-    const id = refORef.slice(4);
-    return agents.find((a) => a.id === id);
-}
-
-function jumpToAgent(model: AgentsViewModel, id: string) {
-    globalStore.set(model.focusIdAtom, id);
-    globalStore.set(model.terminalTargetAtom, undefined);
-    globalStore.set(model.surfaceAtom, "agent");
-}
 
 function consultIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
@@ -85,10 +61,6 @@ function consultIdOf(refORef?: string): string | undefined {
 
 function jarvisReqIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("jarvis:") ? refORef.slice("jarvis:".length) : undefined;
-}
-
-function timeLabel(ts: number, now: number): string {
-    return now - ts < 60_000 ? "now" : new Date(ts).toLocaleTimeString();
 }
 
 // one-shot completion settle (moment 4): plays @keyframes settle once when a streaming reply resolves
@@ -106,53 +78,6 @@ function useSettle(done: boolean): boolean {
         prevDone.current = done;
     }, [done]);
     return settling;
-}
-
-// 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; a runtime
-// author (claude/codex/antigravity) gets its real brand mark on a white logo-tile (initials are
-// ambiguous — claude and codex both start with "C"); everyone else gets a deterministically-colored initial.
-function Avatar({ name }: { name: string }) {
-    if (name.toLowerCase() === "jarvis") {
-        return (
-            <div className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] bg-accent">
-                <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-background" />
-            </div>
-        );
-    }
-    const logo = runtimeLogo(name);
-    if (logo) {
-        return (
-            <img
-                src={logo}
-                alt={name}
-                title={name}
-                className="h-8 w-8 flex-none rounded-[9px] border border-edge-mid bg-white object-contain p-1.5"
-            />
-        );
-    }
-    return (
-        <div
-            className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] font-mono text-[13px] font-bold text-background"
-            style={{ backgroundColor: avatarColor(name) }}
-        >
-            {(name.charAt(0) || "?").toUpperCase()}
-        </div>
-    );
-}
-
-function Tag({ label, tone }: { label: string; tone: "muted" | "asking" }) {
-    if (tone === "asking") {
-        return (
-            <span className="rounded-[4px] bg-asking px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-background">
-                {label}
-            </span>
-        );
-    }
-    return (
-        <span className="rounded-[4px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-ink-mid">
-            {label}
-        </span>
-    );
 }
 
 // A radio-style option list used by the escalation card (deliver an answer) and Override (steer). When
@@ -192,29 +117,6 @@ function OptionList({
                     </span>
                 </button>
             ))}
-        </div>
-    );
-}
-
-// An asking worker's answer row, reusing the cockpit's AnswerBar + model answer state.
-function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
-    const answerSel = useAtomValue(model.answerSelAtom);
-    const setAnswerSel = useSetAtom(model.answerSelAtom);
-    const sentIds = useAtomValue(model.sentIdsAtom);
-    const toggle = (qi: number, oi: number) => {
-        const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
-        setAnswerSel((prev) => ({ ...prev, [agent.id]: toggleSelection(prev[agent.id] ?? {}, qi, oi, multi) }));
-    };
-    return (
-        <div className="rounded-[9px] border border-asking/40 bg-lane-asking p-3">
-            <AnswerBar
-                agent={agent}
-                selections={answerSel[agent.id] ?? {}}
-                sent={sentIds.has(agent.id)}
-                numbered
-                onToggle={toggle}
-                onSubmit={() => model.submitAnswer(agent.id)}
-            />
         </div>
     );
 }
@@ -803,38 +705,6 @@ function Composer({
                 </div>
             </div>
             <CommandHint />
-        </div>
-    );
-}
-
-// One worker row in the context panel: state dot + name, an "open ↗" jump for a live worker (or a muted
-// "gone" label for an exited one), and the worker's task beneath.
-function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
-    return (
-        <div className="mb-2.5">
-            <div className="flex items-center gap-2">
-                <span
-                    className="h-2 w-2 flex-none rounded-full"
-                    style={{ backgroundColor: STATE_DOT[w.state] ?? "var(--color-muted)" }}
-                />
-                <span className="font-mono text-[12.5px] text-primary">{w.name}</span>
-                {w.state === "gone" ? (
-                    <span className="ml-auto font-mono text-[10px] text-muted">gone</span>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={() => jumpToAgent(model, w.oref.slice("tab:".length))}
-                        className="ml-auto cursor-pointer font-mono text-[10px] text-accent-soft hover:text-accent"
-                    >
-                        open ↗
-                    </button>
-                )}
-            </div>
-            {(w.dispatchTask ?? w.task) ? (
-                <div title={w.dispatchTask ?? w.task} className="mt-0.5 truncate pl-4 text-[11px] text-muted">
-                    {w.dispatchTask ?? w.task}
-                </div>
-            ) : null}
         </div>
     );
 }
