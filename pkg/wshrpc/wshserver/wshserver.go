@@ -1773,8 +1773,13 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
 	}
-	playbook := jarvis.ResolvePlaybook(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(ch))
-	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, playbook, time.Now().UnixMilli())
+	global := jarvis.LoadGlobalProfile()
+	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
+	playbook := resolved.Playbook
+	if len(playbook) == 0 {
+		playbook = jarvis.DefaultPlaybook() // preserve ResolvePlaybook's empty-fallback
+	}
+	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, playbook, time.Now().UnixMilli())
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}

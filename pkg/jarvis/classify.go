@@ -27,8 +27,9 @@ type Decision struct {
 }
 
 // BuildClassifyPrompt composes a JSON-only prompt: the single question + its indexed options, the
-// worker's task, and a capped recent timeline. The model must return {action, optionindex, reason}.
-func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveobj.Channel) string {
+// worker's task, the resolved principles (when any), and a capped recent timeline. The model must
+// return {action, optionindex, reason}. Empty principles reproduce the pre-Piece-4 prompt.
+func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveobj.Channel, principles string) string {
 	var opts strings.Builder
 	for i, o := range q.Options {
 		opts.WriteString(fmt.Sprintf("  %d: %s", i, o.Label))
@@ -41,12 +42,21 @@ func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveob
 	if task == "" {
 		task = "(unknown task)"
 	}
-	return strings.Join([]string{
+	lines := []string{
 		fmt.Sprintf(`You are Jarvis, gatekeeping a coding agent in the "%s" channel. A worker paused to ask a multiple-choice question. Decide whether it is ROUTINE (safe to auto-answer on the human's behalf) or a genuine FORK that needs the human.`, channel.Name),
 		`Escalate (do NOT answer) if the choice is irreversible, changes product scope or user-facing behavior, is a real judgment call, or you are not confident. When in doubt, escalate.`,
+	}
+	if strings.TrimSpace(principles) != "" {
+		lines = append(lines,
+			"",
+			"Team principles to weigh (escalate a fork that is principle-significant, e.g. a quick patch vs. the clean fix; when you DO auto-answer, prefer the option these principles favor):",
+			principles,
+		)
+	}
+	lines = append(lines,
 		"",
-		"Worker task: " + task,
-		"Question: " + q.Question,
+		"Worker task: "+task,
+		"Question: "+q.Question,
 		"Options (index: label):",
 		strings.TrimRight(opts.String(), "\n"),
 		"",
@@ -54,7 +64,8 @@ func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveob
 		timeline,
 		"",
 		`Reply with ONLY a JSON object, no prose: {"action":"answer"|"escalate","optionindex":<int, required when action is answer>,"reason":"<one short sentence>"}`,
-	}, "\n")
+	)
+	return strings.Join(lines, "\n")
 }
 
 func recentTimeline(channel *waveobj.Channel) string {
@@ -100,9 +111,10 @@ func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQu
 	if !ok {
 		return Decision{Action: "escalate", Reason: "claude CLI unavailable"}
 	}
+	principles := ResolveProfile(LoadGlobalProfile(), OverrideFromMeta(channel)).Principles
 	runCtx, cancel := context.WithTimeout(ctx, classifyTimeout)
 	defer cancel()
-	reply, err := consult.Run(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(q, task, channel), func(string) {})
+	reply, err := consult.Run(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(q, task, channel, principles), func(string) {})
 	if err != nil {
 		return Decision{Action: "escalate", Reason: "classifier error: " + err.Error()}
 	}

@@ -32,7 +32,7 @@ func TestDefaultPlaybookShape(t *testing.T) {
 }
 
 func TestNewRunStartsFirstPhaseRunning(t *testing.T) {
-	r := NewRun("ship coupons", "ws1", "/repo", DefaultPlaybook(), 1717000000000)
+	r := NewRun("ship coupons", "ws1", "/repo", "", DefaultPlaybook(), 1717000000000)
 	if r.ID == "" {
 		t.Fatalf("expected a generated ID")
 	}
@@ -50,9 +50,16 @@ func TestNewRunStartsFirstPhaseRunning(t *testing.T) {
 	}
 }
 
+func TestNewRunStoresPrinciples(t *testing.T) {
+	r := NewRun("g", "ws", "/r", "prefer the clean fix", DefaultPlaybook(), 1)
+	if r.Principles != "prefer the clean fix" {
+		t.Fatalf("want principles stored, got %q", r.Principles)
+	}
+}
+
 func TestNewRunCopiesPlaybook(t *testing.T) {
 	pb := DefaultPlaybook()
-	r := NewRun("g", "ws", "/r", pb, 1)
+	r := NewRun("g", "ws", "/r", "", pb, 1)
 	r.Phases[0].State = PhaseState_Done
 	if pb[0].State != PhaseState_Pending {
 		t.Errorf("NewRun must not alias the caller's playbook slice")
@@ -60,7 +67,7 @@ func TestNewRunCopiesPlaybook(t *testing.T) {
 }
 
 func TestCompletePhaseAdvancesLinear(t *testing.T) {
-	r := NewRun("g", "ws", "/r", DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", "", DefaultPlaybook(), 1)
 	r, err := CompletePhase(r, 0, []string{"docs/spec.md"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -77,7 +84,7 @@ func TestCompletePhaseAdvancesLinear(t *testing.T) {
 }
 
 func TestCompletePhaseHaltsAtGate(t *testing.T) {
-	r := NewRun("g", "ws", "/r", DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", "", DefaultPlaybook(), 1)
 	r, _ = CompletePhase(r, 0, nil)
 	r, err := CompletePhase(r, 1, []string{"docs/plan.md"})
 	if err != nil {
@@ -95,7 +102,7 @@ func TestCompletePhaseHaltsAtGate(t *testing.T) {
 }
 
 func TestCompletePhaseRejectsNonRunning(t *testing.T) {
-	r := NewRun("g", "ws", "/r", DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", "", DefaultPlaybook(), 1)
 	if _, err := CompletePhase(r, 1, nil); err == nil {
 		t.Errorf("expected error completing a pending phase")
 	}
@@ -106,7 +113,7 @@ func TestCompletePhaseRejectsNonRunning(t *testing.T) {
 
 func runAtGate(t *testing.T) waveobj.Run {
 	t.Helper()
-	r := NewRun("g", "ws", "/r", DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", "", DefaultPlaybook(), 1)
 	r, _ = CompletePhase(r, 0, nil)
 	r, _ = CompletePhase(r, 1, []string{"docs/plan.md"})
 	if r.Status != RunStatus_AwaitingReview {
@@ -130,7 +137,7 @@ func TestApproveGateStartsExecute(t *testing.T) {
 }
 
 func TestApproveGateRejectsWhenNotAwaiting(t *testing.T) {
-	r := NewRun("g", "ws", "/r", DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", "", DefaultPlaybook(), 1)
 	if _, err := ApproveGate(r); err == nil {
 		t.Errorf("expected error approving a run not awaiting-review")
 	}
@@ -154,7 +161,7 @@ func TestSendBackReopensPlan(t *testing.T) {
 }
 
 func TestCancelRunSkipsOpenPhases(t *testing.T) {
-	r := NewRun("g", "ws", "/r", DefaultPlaybook(), 1)
+	r := NewRun("g", "ws", "/r", "", DefaultPlaybook(), 1)
 	r, _ = CompletePhase(r, 0, nil)
 	r = CancelRun(r)
 	if r.Status != RunStatus_Cancelled {
@@ -170,10 +177,26 @@ func TestCancelRunSkipsOpenPhases(t *testing.T) {
 
 func TestBuildPhasePromptMentionsSkillGoalAndArtifacts(t *testing.T) {
 	p := waveobj.RunPhase{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans"}
-	got := BuildPhasePrompt(p, "ship coupons", []string{"docs/spec.md"})
+	got := BuildPhasePrompt(p, "ship coupons", []string{"docs/spec.md"}, "")
 	for _, want := range []string{"superpowers:writing-plans", "ship coupons", "docs/spec.md"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt missing %q: %s", want, got)
 		}
+	}
+}
+
+func TestBuildPhasePromptIncludesPrinciplesWhenPresent(t *testing.T) {
+	p := waveobj.RunPhase{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans"}
+	got := BuildPhasePrompt(p, "ship coupons", nil, "prefer the clean fix")
+	if !strings.Contains(got, "prefer the clean fix") {
+		t.Errorf("prompt missing principles: %s", got)
+	}
+}
+
+func TestBuildPhasePromptOmitsPrinciplesWhenEmpty(t *testing.T) {
+	p := waveobj.RunPhase{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans"}
+	withEmpty := BuildPhasePrompt(p, "g", nil, "")
+	if strings.Contains(withEmpty, "principles") {
+		t.Errorf("empty principles should add no principles text: %s", withEmpty)
 	}
 }

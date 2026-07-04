@@ -82,7 +82,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, projectName string) (m
 		if p.State != PhaseState_Running || len(p.WorkerOrefs) > 0 {
 			continue
 		}
-		prompt := BuildPhasePrompt(p, run.Goal, priorArtifacts(run, i))
+		prompt := BuildPhasePrompt(p, run.Goal, priorArtifacts(run, i), run.Principles)
 		oref, err := SpawnClaudeWorker(ctx, run.WorkspaceId, projectName, run.ProjectPath, prompt)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)

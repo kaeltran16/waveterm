@@ -84,8 +84,15 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	}
 	ownerORef := channelOwnerORef(ctx, data.ORef)
 	ch := ResolveGatekeeperChannel(channels, ownerORef)
+	task := ""
+	if ch != nil {
+		task = workerTaskFor(ch, ownerORef)
+	} else if m := ResolveRunWorker(channels, ownerORef); m != nil {
+		ch = m.Channel
+		task = runWorkerTask(m.Run, m.PhaseIdx)
+	}
 	if ch == nil {
-		return // not owned by any gatekeeper-enabled channel
+		return // not owned by any gatekeeper-enabled channel or run
 	}
 	// deterministic pre-filter: only a single single-select question is auto-answerable.
 	if len(data.Questions) != 1 || data.Questions[0].MultiSelect {
@@ -93,7 +100,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		return
 	}
 	q := data.Questions[0]
-	decision := Classify(ctx, ch, q, workerTaskFor(ch, ownerORef))
+	decision := Classify(ctx, ch, q, task)
 	if ctx.Err() != nil {
 		return // cleared / cancelled mid-classification
 	}

@@ -1875,6 +1875,7 @@ declare global {
         playbookid?: string;
         workspaceid: string;
         projectpath: string;
+        principles?: string;
         status: string;
         phases: RunPhase[];
         createdts: number;

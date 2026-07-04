@@ -6,7 +6,11 @@
 // auto-answers routine ones or escalates genuine forks. Concierge (read+post) is separate for now.
 package jarvis
 
-import "github.com/wavetermdev/waveterm/pkg/waveobj"
+import (
+	"fmt"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+)
 
 // MetaKey_GatekeeperEnabled is the per-channel bool flag toggling Gatekeeper for that channel.
 const MetaKey_GatekeeperEnabled = "gatekeeper:enabled"
@@ -56,4 +60,45 @@ func workerTaskFor(ch *waveobj.Channel, askingORef string) string {
 		}
 	}
 	return ""
+}
+
+// RunWorkerMatch locates a run phase worker: the channel/run it belongs to and the phase index.
+type RunWorkerMatch struct {
+	Channel  *waveobj.Channel
+	Run      *waveobj.Run
+	PhaseIdx int
+}
+
+// ResolveRunWorker finds the run phase whose WorkerOrefs contains askingORef, across all channels.
+// Unlike ResolveGatekeeperChannel it is NOT gated by MetaKey_GatekeeperEnabled: starting a run is
+// itself opting into Jarvis management, so run workers are always gatekept. Returns nil when no phase
+// owns the oref. (Piece 5 can add a descendant/subagent predicate here without changing callers.)
+func ResolveRunWorker(channels []*waveobj.Channel, askingORef string) *RunWorkerMatch {
+	for _, ch := range channels {
+		for ri := range ch.Runs {
+			run := &ch.Runs[ri]
+			for pi := range run.Phases {
+				for _, wo := range run.Phases[pi].WorkerOrefs {
+					if wo == askingORef {
+						return &RunWorkerMatch{Channel: ch, Run: run, PhaseIdx: pi}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// runWorkerTask is the classifier "task" context for a run worker: the phase it is executing, framed
+// against the run goal. Falls back to the bare goal for an out-of-range index.
+func runWorkerTask(run *waveobj.Run, phaseIdx int) string {
+	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
+		return run.Goal
+	}
+	p := run.Phases[phaseIdx]
+	skill := p.Skill
+	if skill == "" {
+		skill = p.Kind
+	}
+	return fmt.Sprintf("%s phase (%s) of run goal: %s", p.Kind, skill, run.Goal)
 }

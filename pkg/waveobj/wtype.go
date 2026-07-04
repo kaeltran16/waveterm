@@ -225,9 +225,10 @@ type Run struct {
 	ID          string     `json:"id"`
 	Goal        string     `json:"goal"`
 	PlaybookId  string     `json:"playbookid,omitempty"`
-	WorkspaceId string     `json:"workspaceid"` // where phase-worker tabs are created (frontend supplies at CreateRun)
-	ProjectPath string     `json:"projectpath"` // worker cwd (copied from the channel)
-	Status      string     `json:"status"`      // planning | awaiting-review | executing | blocked | done | cancelled
+	WorkspaceId string     `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
+	ProjectPath string     `json:"projectpath"`          // worker cwd (copied from the channel)
+	Principles  string     `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
+	Status      string     `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
 	Phases      []RunPhase `json:"phases"`
 	CreatedTs   int64      `json:"createdts"`
 }

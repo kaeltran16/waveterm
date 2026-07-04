@@ -19,11 +19,27 @@ func aQuestion() baseds.AgentAskQuestion {
 
 func TestBuildClassifyPrompt_Contents(t *testing.T) {
 	c := &waveobj.Channel{Name: "payments-api"}
-	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c)
+	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, "")
 	for _, want := range []string{"Which migration?", "0", "Use existing", "1", "Create new", "harden webhooks", "JSON"} {
 		if !contains(p, want) {
 			t.Fatalf("prompt missing %q\n---\n%s", want, p)
 		}
+	}
+}
+
+func TestBuildClassifyPrompt_IncludesPrinciples(t *testing.T) {
+	c := &waveobj.Channel{Name: "payments-api"}
+	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, "prefer the clean fix")
+	if !contains(p, "prefer the clean fix") {
+		t.Fatalf("prompt missing principles\n---\n%s", p)
+	}
+}
+
+func TestBuildClassifyPrompt_OmitsEmptyPrinciples(t *testing.T) {
+	c := &waveobj.Channel{Name: "payments-api"}
+	p := BuildClassifyPrompt(aQuestion(), "harden webhooks", c, "")
+	if contains(p, "principles") {
+		t.Fatalf("empty principles should add no principles text\n---\n%s", p)
 	}
 }
 

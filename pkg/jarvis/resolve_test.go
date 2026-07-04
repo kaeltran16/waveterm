@@ -21,6 +21,54 @@ func dispatch(oref, text string) waveobj.ChannelMessage {
 	return waveobj.ChannelMessage{Kind: "dispatch", Author: "claude", Text: text, RefORef: oref}
 }
 
+func chWithRun(name string, enabled bool, run waveobj.Run) *waveobj.Channel {
+	c := ch(name, enabled)
+	c.Runs = []waveobj.Run{run}
+	return c
+}
+
+func TestResolveRunWorker_MatchesPhaseWorker(t *testing.T) {
+	run := waveobj.Run{ID: "r1", Goal: "ship coupons", Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Brainstorm, State: PhaseState_Done, WorkerOrefs: []string{"tab:t0"}},
+		{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans", State: PhaseState_Running, WorkerOrefs: []string{"tab:t1"}},
+	}}
+	c := chWithRun("c1", true, run)
+	m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:t1")
+	if m == nil || m.Channel.OID != "c1" || m.Run.ID != "r1" || m.PhaseIdx != 1 {
+		t.Fatalf("want c1/r1/phase 1, got %+v", m)
+	}
+}
+
+func TestResolveRunWorker_MatchesRegardlessOfToggle(t *testing.T) {
+	run := waveobj.Run{ID: "r1", Goal: "g", Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Execute, State: PhaseState_Running, WorkerOrefs: []string{"tab:t1"}},
+	}}
+	c := chWithRun("c1", false, run) // gatekeeper toggle OFF
+	if m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:t1"); m == nil {
+		t.Fatalf("run workers must resolve even with the gatekeeper toggle off")
+	}
+}
+
+func TestResolveRunWorker_NilForUnknown(t *testing.T) {
+	run := waveobj.Run{ID: "r1", Phases: []waveobj.RunPhase{{Kind: PhaseKind_Plan, WorkerOrefs: []string{"tab:t1"}}}}
+	c := chWithRun("c1", true, run)
+	if m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:nope"); m != nil {
+		t.Fatalf("want nil for unknown oref, got %+v", m)
+	}
+}
+
+func TestRunWorkerTask_MentionsPhaseAndGoal(t *testing.T) {
+	run := &waveobj.Run{Goal: "ship coupons", Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Plan, Skill: "superpowers:writing-plans"},
+	}}
+	task := runWorkerTask(run, 0)
+	for _, want := range []string{"plan", "superpowers:writing-plans", "ship coupons"} {
+		if !contains(task, want) {
+			t.Fatalf("task missing %q: %s", want, task)
+		}
+	}
+}
+
 func TestResolve_EnabledOwner(t *testing.T) {
 	c := ch("c1", true, dispatch("tab:t1", "harden webhooks"))
 	got := ResolveGatekeeperChannel([]*waveobj.Channel{c}, "tab:t1")

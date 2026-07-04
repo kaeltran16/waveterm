@@ -58,7 +58,7 @@ func DefaultPlaybook() []waveobj.RunPhase {
 
 // NewRun builds a run from a playbook: deep-copies the phases, marks the first phase running, derives
 // status. ts is supplied by the caller (mirrors NewChannelMessage) for testability.
-func NewRun(goal, workspaceId, projectPath string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
+func NewRun(goal, workspaceId, projectPath, principles string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
 	phases := make([]waveobj.RunPhase, len(playbook))
 	copy(phases, playbook)
 	if len(phases) > 0 {
@@ -69,6 +69,7 @@ func NewRun(goal, workspaceId, projectPath string, playbook []waveobj.RunPhase, 
 		Goal:        goal,
 		WorkspaceId: workspaceId,
 		ProjectPath: projectPath,
+		Principles:  principles,
 		Status:      RunStatus_Planning,
 		Phases:      phases,
 		CreatedTs:   ts,
@@ -180,10 +181,14 @@ func CancelRun(run waveobj.Run) waveobj.Run {
 	return run
 }
 
-// BuildPhasePrompt is the claude worker's initial prompt for a phase: run the phase's skill against the
-// goal, using any artifacts prior phases produced. Piece 4 prepends the resolved Jarvis principles.
-func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []string) string {
+// BuildPhasePrompt is the claude worker's initial prompt for a phase: work by the resolved principles,
+// run the phase's skill against the goal, using any artifacts prior phases produced. Empty principles
+// add nothing (identical to the pre-Piece-4 prompt).
+func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []string, principles string) string {
 	var b strings.Builder
+	if strings.TrimSpace(principles) != "" {
+		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", principles)
+	}
 	fmt.Fprintf(&b, "Use the %s skill to work this goal, then stop when the phase's deliverable is written.\n", phase.Skill)
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	if len(priorArtifacts) > 0 {
