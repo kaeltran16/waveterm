@@ -238,13 +238,17 @@ func CancelRun(run waveobj.Run) waveobj.Run {
 
 // BuildPhasePrompt is the claude worker's initial prompt for a phase: work by the resolved principles,
 // run the phase's skill against the goal, using any artifacts prior phases produced. Empty principles
-// add nothing (identical to the pre-Piece-4 prompt).
+// add nothing (identical to the pre-Piece-4 prompt). The autonomy line keeps a headless worker (no human
+// at its terminal) from stalling on a skill's clarifying-question prompts: proceed on reasonable
+// assumptions for low-stakes calls, and reserve AskUserQuestion — which surfaces in the cockpit — for
+// decisions a wrong guess would actually derail.
 func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []string, principles string) string {
 	var b strings.Builder
 	if strings.TrimSpace(principles) != "" {
 		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", principles)
 	}
 	fmt.Fprintf(&b, "Use the %s skill to work this goal, then stop when the phase's deliverable is written.\n", phase.Skill)
+	b.WriteString("You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the AskUserQuestion tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n")
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	if len(priorArtifacts) > 0 {
 		fmt.Fprintf(&b, "Prior artifacts to build on: %s\n", strings.Join(priorArtifacts, ", "))

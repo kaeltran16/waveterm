@@ -185,6 +185,18 @@ func TestBuildPhasePromptMentionsSkillGoalAndArtifacts(t *testing.T) {
 	}
 }
 
+func TestBuildPhasePromptTellsWorkerToSelfServeAndEscalate(t *testing.T) {
+	p := waveobj.RunPhase{Kind: PhaseKind_Brainstorm, Skill: "superpowers:brainstorming"}
+	got := BuildPhasePrompt(p, "write a haiku", nil, "")
+	// headless workers must not stall on a skill's clarifying questions: proceed on assumptions,
+	// escalate only hard calls via AskUserQuestion (routed to the cockpit).
+	for _, want := range []string{"headless", "AskUserQuestion"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing autonomy guidance %q: %s", want, got)
+		}
+	}
+}
+
 func TestBuildPhasePromptIncludesPrinciplesWhenPresent(t *testing.T) {
 	p := waveobj.RunPhase{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans"}
 	got := BuildPhasePrompt(p, "ship coupons", nil, "prefer the clean fix")

@@ -6,17 +6,24 @@ package jarvis
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// SpawnClaudeWorker creates a background tab running `claude <prompt>` in cwd and returns its tab oref
-// ("tab:<id>"). Mirrors the frontend launchAgent path for the claude runtime (no flags): configure the
-// new tab's default block as a cmd worker, tag the tab for the roster, and force-start the controller
-// (controllers otherwise start lazily on a frontend terminal resync — force=true launches it headlessly).
+// SpawnClaudeWorker creates a background tab running `claude --dangerously-skip-permissions <prompt>` in
+// cwd and returns its tab oref ("tab:<id>"). Mirrors the frontend launchAgent path for the claude runtime,
+// but the permission-skip flag is mandatory here (opt-in in the launcher): a run worker is headless with no
+// human attached, so without it claude blocks forever on the folder-trust dialog / per-tool prompts —
+// alive but never running, never firing the hooks that report agent:status (the "worker never starts"
+// symptom). Configure the new tab's default block as a cmd worker, tag the tab for the roster, and
+// force-start the controller (controllers otherwise start lazily on a frontend terminal resync —
+// force=true launches it headlessly).
 func SpawnClaudeWorker(ctx context.Context, workspaceId, projectName, cwd, prompt string) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
@@ -38,7 +45,7 @@ func SpawnClaudeWorker(ctx context.Context, workspaceId, projectName, cwd, promp
 		waveobj.MetaKey_View:       "term",
 		waveobj.MetaKey_Controller: "cmd",
 		waveobj.MetaKey_Cmd:        "claude",
-		waveobj.MetaKey_CmdArgs:    []string{prompt},
+		waveobj.MetaKey_CmdArgs:    []string{"--dangerously-skip-permissions", prompt},
 		waveobj.MetaKey_CmdShell:   false,
 		waveobj.MetaKey_CmdJwt:     true,
 	}
@@ -60,7 +67,30 @@ func SpawnClaudeWorker(ctx context.Context, workspaceId, projectName, cwd, promp
 	if err := blockcontroller.ResyncController(ctx, tabId, blockId, &waveobj.RuntimeOpts{}, true); err != nil {
 		return "", fmt.Errorf("starting worker controller: %w", err)
 	}
+	// Make the worker visible in the roster immediately. The roster keys off agent:status, which
+	// otherwise arrives only from the external reporter hook — unreliable for a headless worker (the
+	// hook may be owned by a coexisting install and route to the wrong wavesrv). A real hook event
+	// later refines this (detail/model, idle-on-stop).
+	wps.Broker.Publish(initialWorkerStatusEvent(blockId, time.Now().UnixMilli()))
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String(), nil
+}
+
+// initialWorkerStatusEvent is the retained agent:status the backend emits at spawn so a run worker
+// enters the cockpit roster without waiting on the external reporter hook. Persist:1 mirrors the
+// reporter's parent-state event, so a late-subscribing frontend replays it.
+func initialWorkerStatusEvent(blockId string, ts int64) wps.WaveEvent {
+	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+	return wps.WaveEvent{
+		Event:   wps.Event_AgentStatus,
+		Scopes:  []string{oref},
+		Persist: 1,
+		Data: baseds.AgentStatusData{
+			ORef:  oref,
+			State: baseds.AgentState_Working,
+			Agent: "claude",
+			Ts:    ts,
+		},
+	}
 }
 
 // priorArtifacts collects the artifacts of all phases before idx (in order).

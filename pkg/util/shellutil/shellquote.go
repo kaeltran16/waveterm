@@ -97,11 +97,12 @@ func HardQuotePowerShell(s string) string {
 		// In PowerShell, backtick (`) is the escape character
 		switch c {
 		case '"', '`', '$':
-			buf = append(buf, '`')
+			buf = append(buf, '`', c)
 		case '\n':
 			buf = append(buf, '`', 'n') // PowerShell uses `n for newline
+		default:
+			buf = append(buf, c)
 		}
-		buf = append(buf, c)
 	}
 
 	buf = append(buf, '"')

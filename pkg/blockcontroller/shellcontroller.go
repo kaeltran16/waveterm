@@ -412,7 +412,7 @@ func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc 
 		}
 	} else if bc.ControllerType == BlockController_Cmd {
 		var cmdOptsPtr *shellexec.CommandOptsType
-		cmdStr, cmdOptsPtr, err = createCmdStrAndOpts(bc.BlockId, blockMeta, remoteName)
+		cmdStr, cmdOptsPtr, err = createCmdStrAndOpts(bc.BlockId, blockMeta, remoteName, connUnion.ShellType)
 		if err != nil {
 			return nil, err
 		}
@@ -715,7 +715,22 @@ func getLocalShellOpts(blockMeta waveobj.MetaMapType) []string {
 }
 
 // for "cmd" type blocks
-func createCmdStrAndOpts(blockId string, blockMeta waveobj.MetaMapType, connName string) (string, *shellexec.CommandOptsType, error) {
+// quoteCmdArg quotes a single cmd:args value for the shell that will actually run the command.
+// createCmdStrAndOpts's output is handed to `<shell> -c <cmdStr>`, so the quoting must match that
+// shell: POSIX single-quote escaping corrupts args under PowerShell (an apostrophe splits the arg),
+// so dispatch on the resolved shell type.
+func quoteCmdArg(arg string, shellType string) string {
+	switch shellType {
+	case shellutil.ShellType_pwsh:
+		return shellutil.HardQuotePowerShell(arg)
+	case shellutil.ShellType_fish:
+		return shellutil.HardQuoteFish(arg)
+	default:
+		return utilfn.ShellQuote(arg, false, -1)
+	}
+}
+
+func createCmdStrAndOpts(blockId string, blockMeta waveobj.MetaMapType, connName string, shellType string) (string, *shellexec.CommandOptsType, error) {
 	var cmdStr string
 	var cmdOpts shellexec.CommandOptsType
 	cmdStr = blockMeta.GetString(waveobj.MetaKey_Cmd, "")
@@ -736,9 +751,9 @@ func createCmdStrAndOpts(blockId string, blockMeta waveobj.MetaMapType, connName
 			return "", nil, fmt.Errorf("cmd should not have spaces if cmd:shell is false (use cmd:args)")
 		}
 		cmdArgs := blockMeta.GetStringList(waveobj.MetaKey_CmdArgs)
-		// shell escape the args
+		// shell escape the args for the target shell
 		for _, arg := range cmdArgs {
-			cmdStr = cmdStr + " " + utilfn.ShellQuote(arg, false, -1)
+			cmdStr = cmdStr + " " + quoteCmdArg(arg, shellType)
 		}
 	}
 	cmdOpts.ForceJwt = blockMeta.GetBool(waveobj.MetaKey_CmdJwt, false)
