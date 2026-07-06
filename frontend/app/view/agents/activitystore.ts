@@ -19,6 +19,7 @@ export const ACTIVITY_EVENT_CAP = 200;
 export const ACTIVITY_TAIL_LINES = 2000;
 
 export const activityEventsAtom = atom<ActivityEvent[]>([]) as PrimitiveAtom<ActivityEvent[]>;
+export const activityLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 export interface ActivityGroup {
     project: string;
@@ -99,6 +100,7 @@ export async function loadActivity(model: AgentsViewModel): Promise<void> {
             }
         }
         globalStore.set(activityEventsAtom, events.slice(0, ACTIVITY_EVENT_CAP));
+        globalStore.set(activityLoadedAtom, true);
     } finally {
         loading = false;
     }

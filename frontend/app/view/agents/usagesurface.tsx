@@ -8,6 +8,7 @@
 // Loads on mount + a 60s refresh for the current window; a 1s tick keeps reset countdowns current.
 
 import { useDidBecomeTrue } from "@/app/element/motionhooks";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { MOTION, cardVariants, easeFluidCss } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
@@ -19,7 +20,7 @@ import { formatReset, groupAgents, providerPlanUsage, usageLevel } from "./agent
 import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
-import { loadUsage, usageErrorAtom, usageStatsAtom } from "./usagestore";
+import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
 
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
 const RING: Record<"ok" | "warn" | "hot", string> = {
@@ -369,10 +370,44 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
     );
 }
 
+function UsageHistorySkeleton() {
+    return (
+        <div>
+            <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="rounded-[12px] border border-border bg-surface-raised px-[17px] py-[15px]">
+                        <SkeletonLine className="mb-[12px] h-[11px] w-[72px]" />
+                        <SkeletonLine className="mb-[9px] h-[23px] w-[92px]" />
+                        <SkeletonLine className="h-[10px] w-[118px]" />
+                    </div>
+                ))}
+            </div>
+            <div className="mb-4 rounded-[14px] border border-border bg-surface-raised px-[22px] py-[20px]">
+                <SkeletonLine className="mb-3 h-[15px] w-[128px]" />
+                <SkeletonLine className="mb-5 h-[12px] w-[62%]" />
+                <SkeletonLine className="mb-[18px] h-[30px] w-full rounded-[7px]" />
+                <SkeletonLine className="h-[30px] w-full rounded-[7px]" />
+            </div>
+            <div className="rounded-[14px] border border-border bg-surface-raised px-[22px] py-[18px]">
+                <SkeletonLine className="mb-5 h-[15px] w-[92px]" />
+                <div className="flex h-[156px] items-end gap-[7px] border-b border-l border-border px-1">
+                    <SkeletonLine className="h-[42px] flex-1 rounded-t-[3px]" />
+                    <SkeletonLine className="h-[75px] flex-1 rounded-t-[3px]" />
+                    <SkeletonLine className="h-[58px] flex-1 rounded-t-[3px]" />
+                    <SkeletonLine className="h-[104px] flex-1 rounded-t-[3px]" />
+                    <SkeletonLine className="h-[66px] flex-1 rounded-t-[3px]" />
+                    <SkeletonLine className="h-[122px] flex-1 rounded-t-[3px]" />
+                    <SkeletonLine className="h-[84px] flex-1 rounded-t-[3px]" />
+                </div>
+            </div>
+        </div>
+    );
+}
 export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const stats: UsageStats = useAtomValue(usageStatsAtom);
     const loadError = useAtomValue(usageErrorAtom);
+    const usageLoaded = useAtomValue(usageLoadedAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
     const [usageWindow, setUsageWindow] = useState<"7d" | "all">("7d");
@@ -473,7 +508,9 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         <div className="h-px flex-1 bg-border" />
                     </div>
 
-                    {!hasHistory ? (
+                    {!usageLoaded ? (
+                        <UsageHistorySkeleton />
+                    ) : !hasHistory ? (
                         <div className="mt-10 text-center text-[13px] text-muted">No usage yet — start an agent.</div>
                     ) : (
                         <motion.div variants={cardVariants} initial={revealHistory ? "initial" : false} animate="animate">

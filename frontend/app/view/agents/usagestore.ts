@@ -29,6 +29,7 @@ const EMPTY: UsageStats = {
 
 export const usageStatsAtom = atom<UsageStats>(EMPTY) as PrimitiveAtom<UsageStats>;
 export const usageErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+export const usageLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 let loading = false;
 
@@ -45,6 +46,7 @@ export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void>
         // keep the last-good stats; surface a subtle "couldn't refresh" instead of blanking
         globalStore.set(usageErrorAtom, true);
     } finally {
+        globalStore.set(usageLoadedAtom, true);
         loading = false;
     }
 }

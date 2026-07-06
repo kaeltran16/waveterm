@@ -6,13 +6,14 @@
 // ended sessions render no Jump button (deferred to the Sessions surface).
 
 import { MOTION, cardVariants, reflowProps } from "@/app/element/motiontokens";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { ActivityEvent, ActivityType } from "./activityevents";
-import { activityEventsAtom, applyFilter, groupByProject, loadActivity } from "./activitystore";
+import { activityEventsAtom, activityLoadedAtom, applyFilter, groupByProject, loadActivity } from "./activitystore";
 import type { AgentsViewModel } from "./agents";
 import { formatAge } from "./agentsviewmodel";
 
@@ -46,8 +47,34 @@ function jump(model: AgentsViewModel, e: ActivityEvent): void {
     globalStore.set(model.surfaceAtom, "agent");
 }
 
+function ActivitySkeleton() {
+    return (
+        <div className="space-y-[30px]">
+            {[0, 1].map((group) => (
+                <div key={group}>
+                    <div className="mb-1.5 flex items-center gap-2.5">
+                        <SkeletonLine className="h-[11px] w-[96px]" />
+                        <div className="h-px flex-1 bg-border" />
+                        <SkeletonLine className="h-[10px] w-[28px]" />
+                    </div>
+                    {[0, 1, 2].map((row) => (
+                        <div key={row} className="flex gap-4 border-b border-edge-faint px-1 py-3.5">
+                            <SkeletonLine className="mt-0.5 h-[11px] w-[42px] shrink-0" />
+                            <SkeletonLine className="mt-1 h-[9px] w-[9px] shrink-0 rounded-full" />
+                            <div className="min-w-0 flex-1">
+                                <SkeletonLine className="mb-[8px] h-[13px] w-[72%]" />
+                                <SkeletonLine className="h-[10px] w-[118px]" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ))}
+        </div>
+    );
+}
 export function ActivitySurface({ model }: { model: AgentsViewModel }) {
     const events = useAtomValue(activityEventsAtom);
+    const loaded = useAtomValue(activityLoadedAtom);
     const filter = useAtomValue(model.activityFilterAtom);
     const now = useAtomValue(model.nowAtom);
     // Load reveal fires only on the first-ever visit: activityEventsAtom is module-level and persists
@@ -97,7 +124,9 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
                             );
                         })}
                     </div>
-                    {groups.length === 0 ? (
+                    {!loaded ? (
+                        <ActivitySkeleton />
+                    ) : groups.length === 0 ? (
                         <div className="mt-10 text-center text-[13px] text-muted">No recent activity.</div>
                     ) : (
                         <motion.div

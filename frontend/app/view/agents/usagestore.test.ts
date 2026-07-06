@@ -7,7 +7,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { loadUsage, usageStatsAtom, usageErrorAtom } from "./usagestore";
+import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
 
 afterEach(() => {
     getStats.mockReset();
@@ -19,6 +19,7 @@ afterEach(() => {
         providers: [],
     });
     globalStore.set(usageErrorAtom, false);
+    globalStore.set(usageLoadedAtom, false);
 });
 
 describe("loadUsage", () => {
@@ -37,6 +38,7 @@ describe("loadUsage", () => {
         expect(globalStore.get(usageStatsAtom)).not.toBe(sentinel); // success replaced the atom
         expect(globalStore.get(usageStatsAtom).totals.tokensToday).toBe(0);
         expect(globalStore.get(usageErrorAtom)).toBe(false);
+        expect(globalStore.get(usageLoadedAtom)).toBe(true);
     });
 
     it("keeps the last-good stats and flags error when the RPC throws", async () => {
@@ -52,5 +54,6 @@ describe("loadUsage", () => {
         await loadUsage(7);
         expect(globalStore.get(usageStatsAtom)).toEqual(good); // NOT clobbered with empty
         expect(globalStore.get(usageErrorAtom)).toBe(true);
+        expect(globalStore.get(usageLoadedAtom)).toBe(true);
     });
 });

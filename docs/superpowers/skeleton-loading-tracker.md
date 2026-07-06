@@ -8,10 +8,10 @@ Tracks cockpit surfaces that use the shared skeleton primitive for honest first-
 | Agent | Skipped | The center pane is a live terminal or transcript surface; use explicit terminal/status states instead. |
 | Sessions | Implemented | First-load archive scan uses a list-shaped skeleton. |
 | Diff | Implemented | Changed-file sidebar and selected diff pane use skeletons while git data loads. |
-| Activity | Deferred | Needs a loaded-vs-empty atom before skeletons can be honest; `activityEventsAtom` currently starts as `[]`. |
+| Activity | Implemented | First-load event scan uses grouped feed skeletons before showing empty state. |
 | Channels | Deferred | Channel list/messages use existing loading text; add only if load delay is visible and state distinguishes loaded-empty. |
 | Runs | Deferred | Run state uses explicit phase statuses; skeleton only fits initial channel-run load if needed. |
-| Usage | Deferred | Needs a loaded flag; `usageStatsAtom` currently starts as an empty stats object and preserves last-good data on refresh errors. |
+| Usage | Implemented | Historical usage scan uses stat/chart skeletons before showing empty state; refresh errors still preserve last-good data. |
 | Memory | Implemented | First-load vault scan uses list/detail skeletons. |
 | Settings | Skipped | Settings are config-backed and should stay immediately readable; per-control pending states are enough. |
 
