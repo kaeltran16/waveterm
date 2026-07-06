@@ -13,8 +13,8 @@
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { globalStore } from "@/app/store/jotaiStore";
+import { buildAgentBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
-import type { Binding } from "@/app/store/keybindings/types";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { MotionConfig } from "motion/react";
@@ -24,8 +24,7 @@ import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
-import { moveCursor } from "./agentsviewmodel";
-import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { terminalFullscreenAtom } from "./railstore";
 
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -59,58 +58,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         }
     }, [agent?.id]);
 
-    // null-safe: the roster can be empty (agent == null -> AgentLaunchHero below). Defined before the
-    // early return so the binding hooks stay above it (Rules of Hooks).
-    const step = (delta: number) => {
-        if (agent == null) {
-            return;
-        }
-        globalStore.set(model.focusIdAtom, moveCursor(order, agent.id, delta) ?? agent.id);
-        globalStore.set(model.focusReplyAtom, false);
-    };
-
-    // Agent-surface keys migrated into the registry (spec §; discoverable in the cheat sheet, governed
-    // by the shared posture rules). Rebuilt when the roster/focus changes so step() sees current order.
-    const agentBindings = useMemo<Binding[]>(() => {
-        const nav = (ctx: { editable: boolean; modalOpen: boolean; surface: string }) =>
-            !ctx.editable && !ctx.modalOpen && ctx.surface === "agent";
-        return [
-            {
-                id: "agent:back",
-                keys: "Escape",
-                group: "Agent",
-                label: "Back to Cockpit (or exit fullscreen)",
-                when: nav,
-                run: () => {
-                    if (globalStore.get(terminalFullscreenAtom)) {
-                        globalStore.set(terminalFullscreenAtom, false);
-                    } else {
-                        globalStore.set(model.surfaceAtom, "cockpit");
-                    }
-                },
-            },
-            { id: "agent:prev", keys: "ArrowLeft", group: "Agent", label: "Previous agent", when: nav, run: () => step(-1) },
-            { id: "agent:next", keys: "ArrowRight", group: "Agent", label: "Next agent", when: nav, run: () => step(1) },
-            { id: "agent:prev-k", keys: "k", group: "Agent", label: "Previous agent", when: nav, run: () => step(-1) },
-            { id: "agent:next-j", keys: "j", group: "Agent", label: "Next agent", when: nav, run: () => step(1) },
-            {
-                id: "agent:toggle-rail",
-                keys: "d",
-                group: "Agent",
-                label: "Toggle agent rail",
-                when: nav,
-                run: () => globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom)),
-            },
-            {
-                id: "agent:fullscreen",
-                keys: "f",
-                group: "Agent",
-                label: "Toggle terminal fullscreen",
-                when: nav,
-                run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
-            },
-        ];
-    }, [model, order, agent?.id]);
+    // Agent-surface keys live in the registry (bindings.ts). Stable array — run() reads live atoms.
+    const agentBindings = useMemo(() => buildAgentBindings(model), [model]);
     useKeybindings(agentBindings);
 
     if (!agent) {
@@ -119,7 +68,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
 
     return (
         <MotionConfig reducedMotion="user">
-            <div ref={wrapRef} tabIndex={0} className="flex h-full w-full outline-none">
+            <div ref={wrapRef} tabIndex={0} data-cockpit-surface-wrap className="flex h-full w-full outline-none">
                 {!fullscreen ? <AgentTree model={model} /> : null}
                 <div className="flex min-w-0 flex-1 flex-col">
                     <AgentHeader agent={agent} />

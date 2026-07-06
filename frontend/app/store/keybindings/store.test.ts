@@ -3,7 +3,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
-import { buildGlobalBindings } from "./bindings";
+import { buildAgentBindings, buildGlobalBindings } from "./bindings";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
 import type { Binding, KeyContext, SurfaceKey } from "./types";
 
@@ -82,19 +82,17 @@ describe("keybinding conflict invariant", () => {
         expect(() => assertNoConflicts(buildGlobalBindings(model))).not.toThrow();
     });
 
-    it("global + agent-surface sample bindings do not conflict", () => {
-        const model = { surfaceAtom: {}, paletteOpenAtom: {}, newAgentOpenAtom: {} } as any;
-        // Mirror the agent-surface bindings' keys/when for the invariant check.
-        const nav = (c: KeyContext) => !c.editable && !c.modalOpen && c.surface === "agent";
-        const agentKeys = ["Escape", "ArrowLeft", "ArrowRight", "k", "j", "d", "f"];
-        const agentBindings: Binding[] = agentKeys.map((keys, i) => ({
-            id: `agent:${i}`,
-            keys,
-            group: "Agent",
-            label: keys,
-            when: nav,
-            run: () => {},
-        }));
-        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...agentBindings])).not.toThrow();
+    it("global + agent-surface bindings do not conflict", () => {
+        const model = {} as any; // build() reads no atoms; run()/when() do, and are not called here
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildAgentBindings(model)])).not.toThrow();
+    });
+
+    it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {
+        const model = {} as any;
+        const b = buildAgentBindings(model).find((x) => x.id === "agent:return-nav");
+        expect(b?.keys).toBe("Shift:Escape");
+        // fires only while the TUI owns focus (editable) on the agent surface
+        expect(b?.when?.({ surface: "agent", editable: true, modalOpen: false, leader: null })).toBe(true);
+        expect(b?.when?.({ surface: "agent", editable: false, modalOpen: false, leader: null })).toBe(false);
     });
 });

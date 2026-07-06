@@ -23,7 +23,7 @@ import { CommandPalette } from "./command-palette";
 import "./cockpit.scss";
 import { ShortcutsCheatSheet } from "./shortcuts-cheatsheet";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
-import { WhichKeyBar } from "./whichkey-bar";
+import { HintsFooter } from "./hints-footer";
 
 const AgentsBlockId = "cockpit-agents";
 
@@ -68,10 +68,10 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <div className="min-h-0 flex-1">
                 <CockpitShell model={model} tabId={tabIdRef.current} />
             </div>
+            <HintsFooter model={model} />
             <NewProjectModal model={model} />
             <NewAgentModal model={model} />
             <CommandPalette model={model} />
-            <WhichKeyBar />
             <ShortcutsCheatSheet model={model} />
             <ModalsRenderer />
         </div>
