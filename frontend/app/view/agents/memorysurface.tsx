@@ -7,6 +7,7 @@
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
@@ -363,6 +364,40 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
     return <CollapsibleRail openAtom={memRailOpenAtom} ariaLabel="Memory detail" sections={sections} />;
 }
 
+function MemorySkeleton() {
+    return (
+        <div className="absolute inset-0 flex">
+            <div className="min-w-0 flex-1 p-[28px]">
+                <div className="mb-[22px] flex items-center gap-[10px]">
+                    <SkeletonLine className="h-[24px] w-[170px]" />
+                    <SkeletonLine className="h-[24px] w-[66px] rounded-[7px]" />
+                </div>
+                <div className="space-y-[18px]">
+                    {Array.from({ length: 3 }).map((_, group) => (
+                        <div key={group}>
+                            <SkeletonLine className="mb-[9px] h-[11px] w-[86px]" />
+                            <div className="space-y-[7px]">
+                                {Array.from({ length: 3 }).map((_, row) => (
+                                    <div key={row} className="rounded-[10px] border border-border bg-surface px-[12px] py-[10px]">
+                                        <SkeletonLine className="mb-[8px] h-[13px] w-[58%]" />
+                                        <SkeletonLine className="h-[11px] w-[82%]" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="hidden w-[300px] flex-none border-l border-border p-[18px] xl:block">
+                <SkeletonLine className="mb-[12px] h-[16px] w-[65%]" />
+                <SkeletonLine className="mb-[8px] h-[11px] w-full" />
+                <SkeletonLine className="mb-[8px] h-[11px] w-[88%]" />
+                <SkeletonLine className="h-[11px] w-[55%]" />
+            </div>
+        </div>
+    );
+}
+
 export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const notes = useAtomValue(memNotesAtom);
     const loaded = useAtomValue(memLoadedAtom);
@@ -409,7 +444,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                     <SyncStrip focusedCwd={focusedCwd} />
                     <div className="relative min-h-0 flex-1 overflow-hidden">
                         {!loaded ? (
-                            <div className="p-[28px] text-[13px] text-ink-mid">Loading memory…</div>
+                            <MemorySkeleton />
                         ) : notes.length === 0 ? (
                             <div className="p-[28px] text-[13px] text-ink-mid">
                                 No memory yet. Create one with “New memory”, or point{" "}

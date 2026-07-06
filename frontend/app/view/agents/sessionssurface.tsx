@@ -6,6 +6,7 @@
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { MOTION, cardVariants } from "@/app/element/motiontokens";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
@@ -37,6 +38,24 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
         >
             {label}
         </button>
+    );
+}
+
+function SessionsSkeleton() {
+    return (
+        <div className="overflow-hidden rounded-[12px] border border-border bg-surface">
+            {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-[11px] border-b border-border px-[14px] py-[12px] last:border-b-0">
+                    <SkeletonLine className="h-[18px] w-[54px] rounded-[5px]" />
+                    <div className="min-w-0 flex-1">
+                        <SkeletonLine className="mb-[7px] h-[13px] w-[72%]" />
+                        <SkeletonLine className="h-[11px] w-[48%]" />
+                    </div>
+                    <SkeletonLine className="h-[11px] w-[42px]" />
+                    <SkeletonLine className="h-[28px] w-[76px] rounded-[7px]" />
+                </div>
+            ))}
+        </div>
     );
 }
 
@@ -119,7 +138,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     </div>
 
                     {sessions == null ? (
-                        <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>
+                        <SessionsSkeleton />
                     ) : shown.length === 0 ? (
                         <motion.div
                             variants={cardVariants}

@@ -13,6 +13,7 @@ import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "./agents";
 import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
@@ -133,6 +134,40 @@ function EmptyCenter({ msg }: { msg: string }) {
     return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">{msg}</div>;
 }
 
+function FileListSkeleton() {
+    return (
+        <div className="space-y-[7px] px-[8px] py-[6px]">
+            {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-[7px] rounded-[7px] px-[8px] py-[5px]">
+                    <SkeletonLine className="h-[13px] flex-1" />
+                    <SkeletonLine className="h-[10px] w-[18px]" />
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function DiffSkeleton() {
+    return (
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint px-[20px] py-[8px]">
+                <SkeletonLine className="h-[11px] w-[34px]" />
+                <SkeletonLine className="h-[11px] w-[34px]" />
+                <SkeletonLine className="h-[11px] w-[92px]" />
+            </div>
+            <div className="flex-1 overflow-hidden px-[20px] py-[14px]">
+                {Array.from({ length: 12 }).map((_, i) => (
+                    <div key={i} className="mb-[10px] flex gap-[10px]">
+                        <SkeletonLine className="h-[12px] w-[30px]" />
+                        <SkeletonLine className="h-[12px] w-[30px]" />
+                        <SkeletonLine className="h-[12px] w-[72%]" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function FileRow({ change, selected, onSelect }: { change: GitChange; selected: boolean; onSelect: () => void }) {
     return (
         <button
@@ -196,7 +231,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                         )}
                     </div>
                     {view == null ? (
-                        <EmptyCenter msg="Loading…" />
+                        <DiffSkeleton />
                     ) : (
                         <>
                             {view.isDiff && (
@@ -338,7 +373,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 <div className="flex-1 overflow-y-auto p-[8px]">
                     {mode === "review" ? (
                         reviewModel == null ? (
-                            <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Loading…</div>
+                            <FileListSkeleton />
                         ) : reviewModel.files.length === 0 ? (
                             <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No changes to review</div>
                         ) : (
@@ -367,7 +402,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             })
                         )
                     ) : state == null ? (
-                        <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Loading…</div>
+                        <FileListSkeleton />
                     ) : !state.isRepo ? (
                         <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Not a git repository</div>
                     ) : (changes?.files.length ?? 0) === 0 ? (
