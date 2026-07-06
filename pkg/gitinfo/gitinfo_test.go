@@ -124,6 +124,157 @@ func TestGetDiffUntracked(t *testing.T) {
 	}
 }
 
+// subdirRepoWithChange builds a monorepo whose changes live under services/foo/ (plus one root
+// file), returning the repo root. Models a "microservice" agent whose cwd is a subdirectory of the
+// git root — the case where paths from `status` (repo-root-relative) diverge from `git -C <cwd>`
+// pathspecs (cwd-relative).
+func subdirRepoWithChange(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	git(t, dir, "config", "core.autocrlf", "false")
+	sub := filepath.Join(dir, "services", "foo")
+	if err := os.MkdirAll(filepath.Join(sub, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "README.md", "root\n")
+	if err := os.WriteFile(filepath.Join(sub, "app.js"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "nested", "deep.js"), []byte("d\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+	// changes: modify a tracked file in the subtree, add an untracked file in the subtree, and touch
+	// a file OUTSIDE the subtree (must be excluded from the microservice-scoped view).
+	if err := os.WriteFile(filepath.Join(sub, "app.js"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "new.js"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "README.md", "root\nchanged\n")
+	return dir
+}
+
+func TestGetChangesSubdir(t *testing.T) {
+	root := subdirRepoWithChange(t)
+	cwd := filepath.Join(root, "services", "foo")
+	ch, err := GetChanges(context.Background(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("expected IsRepo true from a subdir")
+	}
+	// paths are relative to cwd (the microservice), not the repo root
+	if !strings.Contains(ch.StatusZ, "app.js") || strings.Contains(ch.StatusZ, "services/foo/app.js") {
+		t.Fatalf("statusz should be cwd-relative: %q", ch.StatusZ)
+	}
+	// scoped to the subtree: the out-of-subtree README.md change must not appear
+	if strings.Contains(ch.StatusZ, "README.md") {
+		t.Fatalf("statusz leaked out-of-subtree file: %q", ch.StatusZ)
+	}
+	// numstat correlates with cwd-relative status paths, and the untracked new.js is counted
+	if !strings.Contains(ch.Numstat, "app.js") {
+		t.Fatalf("numstat missing tracked change (cwd-relative): %q", ch.Numstat)
+	}
+	if !strings.Contains(ch.Numstat, "1\t0\tnew.js") {
+		t.Fatalf("untracked new.js not counted in numstat: %q", ch.Numstat)
+	}
+}
+
+// changePathFor returns the path GetChanges reports for the entry ending in `suffix` — the exact
+// string the frontend round-trips back into GetDiff/RevertFile. The fixtures have no renames, so
+// every entry carries the 2-char status + space prefix.
+func changePathFor(t *testing.T, statusZ, suffix string) string {
+	t.Helper()
+	for _, e := range strings.Split(statusZ, "\x00") {
+		if len(e) < 3 {
+			continue
+		}
+		if p := e[3:]; strings.HasSuffix(p, suffix) {
+			return p
+		}
+	}
+	t.Fatalf("no change entry ending in %q: %q", suffix, statusZ)
+	return ""
+}
+
+func TestGetDiffTrackedSubdir(t *testing.T) {
+	root := subdirRepoWithChange(t)
+	cwd := filepath.Join(root, "services", "foo")
+	ch, err := GetChanges(context.Background(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Untracked {
+		t.Fatal("app.js is tracked")
+	}
+	if !strings.Contains(d.Diff, "+three") {
+		t.Fatalf("diff missing addition from a subdir: %q", d.Diff)
+	}
+}
+
+func TestGetDiffUntrackedSubdir(t *testing.T) {
+	root := subdirRepoWithChange(t)
+	cwd := filepath.Join(root, "services", "foo")
+	ch, err := GetChanges(context.Background(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "new.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Untracked {
+		t.Fatal("new.js should be untracked")
+	}
+	if strings.TrimSpace(d.Content) != "new" {
+		t.Fatalf("untracked content from a subdir = %q, want new", d.Content)
+	}
+}
+
+func TestRevertFileSubdir(t *testing.T) {
+	root := subdirRepoWithChange(t)
+	cwd := filepath.Join(root, "services", "foo")
+	ch, err := GetChanges(context.Background(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RevertFile(context.Background(), cwd, changePathFor(t, ch.StatusZ, "app.js"), " M"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(cwd, "app.js"))
+	if string(got) != "one\ntwo\n" {
+		t.Fatalf("subdir revert did not restore: %q", got)
+	}
+}
+
+// End-to-end guard for the --relative diff header: the revert patch is reconstructed from that
+// header, so a subdir agent's `git -C cwd apply --reverse` only resolves if the header is
+// cwd-relative (a/app.js, not a/services/foo/app.js).
+func TestRevertHunkSubdir(t *testing.T) {
+	root := subdirRepoWithChange(t)
+	cwd := filepath.Join(root, "services", "foo")
+	d, err := GetDiff(context.Background(), cwd, "app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RevertHunk(context.Background(), cwd, "app.js", d.Diff); err != nil {
+		t.Fatalf("subdir hunk revert failed to apply: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(cwd, "app.js"))
+	if string(got) != "one\ntwo\n" {
+		t.Fatalf("subdir hunk revert did not restore: %q", got)
+	}
+}
+
 func TestWorktreePath(t *testing.T) {
 	got := WorktreePath("/home/u/code/payments-api", "feat/new-agent")
 	want := filepath.ToSlash(filepath.Join("/home/u/code", "payments-api-worktrees", "feat-new-agent"))

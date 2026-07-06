@@ -48,16 +48,50 @@ func GetChanges(ctx context.Context, cwd string) (*Changes, error) {
 		return &Changes{IsRepo: false}, nil
 	}
 	branch, _ := run(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
-	statusZ, err := run(ctx, cwd, "status", "--porcelain=v1", "-z")
+	// cwd's path within the repo (e.g. "services/foo/"), empty when cwd is the repo root. When cwd is
+	// a subdirectory — a microservice inside a monorepo — this scopes the surface to cwd's subtree and
+	// makes every path cwd-relative, so a path fed back into GetDiff/RevertFile as a `git -C cwd`
+	// pathspec resolves. Without it, `status` prints repo-root-relative paths that don't round-trip.
+	prefix, _ := run(ctx, cwd, "rev-parse", "--show-prefix")
+	prefix = strings.TrimSpace(prefix)
+	// `-- .` scopes to cwd's subtree; status has no --relative, so we strip the prefix ourselves below.
+	statusZ, err := run(ctx, cwd, "status", "--porcelain=v1", "-z", "--", ".")
 	if err != nil {
 		return nil, err
 	}
+	statusZ = stripPrefixZ(statusZ, prefix)
+	// --relative scopes to cwd and prints cwd-relative paths, matching the stripped status above.
 	// `diff --numstat HEAD` errors on a repo with no commits yet; status is still meaningful.
-	numstat, _ := run(ctx, cwd, "diff", "--numstat", "HEAD")
+	numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", "HEAD")
 	// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
 	// Append synthetic numstat rows for untracked files so their added lines count in the totals.
 	numstat += untrackedNumstat(cwd, statusZ)
 	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true}, nil
+}
+
+// stripPrefixZ rewrites a `status --porcelain -z` blob so its paths are relative to prefix (cwd's
+// path within the repo, e.g. "services/foo/") to match `diff --relative` output. Entries are
+// "XY <path>"; rename/copy entries carry an extra NUL-separated bare source path. A blank prefix
+// (cwd is the repo root) returns the blob unchanged.
+func stripPrefixZ(statusZ, prefix string) string {
+	if prefix == "" {
+		return statusZ
+	}
+	parts := strings.Split(statusZ, "\x00")
+	for i := 0; i < len(parts); i++ {
+		entry := parts[i]
+		if len(entry) < 3 {
+			continue
+		}
+		parts[i] = entry[:3] + strings.TrimPrefix(entry[3:], prefix)
+		if entry[0] == 'R' || entry[0] == 'C' {
+			i++ // the next field is the bare rename/copy source path
+			if i < len(parts) {
+				parts[i] = strings.TrimPrefix(parts[i], prefix)
+			}
+		}
+	}
+	return strings.Join(parts, "\x00")
 }
 
 const maxUntrackedScan = 5 << 20 // 5 MiB; beyond this, report "-" instead of scanning the whole file
@@ -205,13 +239,26 @@ func RevertFile(ctx context.Context, cwd, path, status string) error {
 	}
 }
 
+// repoRoot returns the working-tree top-level for cwd, falling back to cwd when it can't be resolved
+// (not a repo / git error). `git apply` resolves patch paths relative to this top-level regardless of
+// the process cwd, so RevertHunk must anchor there.
+func repoRoot(ctx context.Context, cwd string) string {
+	top, err := run(ctx, cwd, "rev-parse", "--show-toplevel")
+	if err != nil || strings.TrimSpace(top) == "" {
+		return cwd
+	}
+	return strings.TrimSpace(top)
+}
+
 // RevertHunk reverse-applies a unified-diff patch (one or more hunks for a single file) to the
 // working tree, discarding exactly those changes. Fails (does not silently no-op) if the patch
 // no longer applies — the caller surfaces that so the user can reload a stale diff.
 func RevertHunk(ctx context.Context, cwd, path, patch string) error {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	_, err := runStdin(ctx, cwd, patch, "apply", "--reverse", "-")
+	// git apply resolves the patch's (repo-root-relative) paths against the working-tree top-level, not
+	// cwd — so a subdirectory (microservice) cwd would silently apply nothing. Anchor at the root.
+	_, err := runStdin(ctx, repoRoot(ctx, cwd), patch, "apply", "--reverse", "-")
 	return err
 }
 

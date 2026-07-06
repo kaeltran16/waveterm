@@ -211,7 +211,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-            className="flex min-w-0 flex-1 flex-col"
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
             {!path ? (
                 <EmptyCenter msg="Select a file to view its changes" />
@@ -241,7 +241,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                                     <span className="font-medium text-ink-mid">{view.hunkLabel}</span>
                                 </div>
                             )}
-                            <div className="flex-1 overflow-auto py-[8px] font-mono text-[12.5px] leading-[1.75]">
+                            <div className="min-h-0 flex-1 overflow-auto py-[8px] font-mono text-[12.5px] leading-[1.75]">
                                 {view.lines.map((l, i) => (
                                     <DiffRow key={i} line={l} />
                                 ))}
@@ -429,7 +429,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     )}
                 </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {mode === "review" ? <ReviewSurface /> : <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />}
             </div>
         </div>
