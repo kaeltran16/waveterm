@@ -12,6 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Maximize2, Minimize2, Square, X } from "lucide-react";
 import { confirmCloseAgent } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
@@ -33,7 +34,8 @@ const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
 };
 
 // shared compact icon-button (matches the rail-toggle's resting style)
-const ICON_BTN = "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-[#aeb6bf]";
+const ICON_BTN =
+    "cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-[9px] py-[6px] text-secondary";
 
 export function AgentHeader({ agent }: { agent: AgentVM }) {
     const railVisible = useAtomValue(railVisibleAtom);
@@ -139,9 +141,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                             title="Interrupt the current turn (Esc)"
                             className={cn(ICON_BTN, "hover:border-edge-strong")}
                         >
-                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                                <rect x="6" y="6" width="8" height="8" rx="1.5" />
-                            </svg>
+                            <Square size={16} strokeWidth={2} fill="currentColor" />
                         </button>
                         <button
                             type="button"
@@ -155,18 +155,11 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                                     : cn(ICON_BTN, "hover:border-edge-strong")
                             )}
                         >
-                            <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.6"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            >
-                                <path d="M4 8V4h4 M16 8V4h-4 M4 12v4h4 M16 12v4h-4" />
-                            </svg>
+                            {fullscreen ? (
+                                <Minimize2 size={16} strokeWidth={1.8} />
+                            ) : (
+                                <Maximize2 size={16} strokeWidth={1.8} />
+                            )}
                         </button>
                         <button
                             type="button"
@@ -174,38 +167,10 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                             title="Close terminal — ends the agent"
                             className={cn(ICON_BTN, "hover:border-error hover:text-error")}
                         >
-                            <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.7"
-                                strokeLinecap="round"
-                            >
-                                <line x1="5" y1="5" x2="15" y2="15" />
-                                <line x1="15" y1="5" x2="5" y2="15" />
-                            </svg>
+                            <X size={16} strokeWidth={1.9} />
                         </button>
                     </>
                 ) : null}
-                <button
-                    type="button"
-                    onClick={() => globalStore.set(railVisibleAtom, !railVisible)}
-                    title={railVisible ? "Hide details (d)" : "Show details (d)"}
-                    aria-pressed={railVisible}
-                    className={cn(
-                        "cursor-pointer rounded-[7px] border px-[9px] py-[6px]",
-                        railVisible
-                            ? "border-accent bg-accentbg text-accent"
-                            : cn(ICON_BTN, "hover:border-edge-strong")
-                    )}
-                >
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-                        <rect x="3" y="4" width="14" height="12" rx="2" />
-                        <line x1="13" y1="4" x2="13" y2="16" />
-                    </svg>
-                </button>
             </div>
         </div>
     );

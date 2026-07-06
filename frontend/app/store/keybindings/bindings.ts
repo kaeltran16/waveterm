@@ -5,6 +5,7 @@ import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseAgent } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { Binding, KeyContext } from "./types";
 
 const DOUBLE_CTRL_C_MS = 500;
@@ -23,6 +24,14 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
 ];
 
 const navigate = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
+
+export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | undefined): AgentVM | null {
+    if (!focusId) {
+        return null;
+    }
+    const focused = agents.find((x) => x.id === focusId);
+    return focused?.kind === "terminal" ? focused : null;
+}
 
 export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
     let lastCtrlC: number | null = null;
@@ -100,13 +109,14 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 const now = performance.now();
                 if (lastCtrlC != null && now - lastCtrlC < DOUBLE_CTRL_C_MS) {
                     lastCtrlC = null;
-                    const agents = globalStore.get(model.agentsAtom);
+                    const agents = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
                     const fid = globalStore.get(model.focusIdAtom);
-                    const a = agents.find((x) => x.id === fid) ?? agents[0];
+                    const a = closeTargetForDoubleCtrlC(agents, fid);
                     if (a) {
                         confirmCloseAgent(a.id, a.name);
+                        return true;
                     }
-                    return true; // consume the second press
+                    return false;
                 }
                 lastCtrlC = now;
                 return false; // first press falls through so the PTY receives ^C

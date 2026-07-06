@@ -1,13 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { cn, fireAndForget, stringToBase64 } from "@/util/util";
-import { RAIL_ICON } from "./railicons";
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
+import { diffNavIntent } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import {
     formatAge,
@@ -18,11 +19,13 @@ import {
     usageLevel,
     type AgentVM,
 } from "./agentsviewmodel";
+import { requestAgentFileSelection } from "./filesstore";
 import { capFiles, statusColor } from "./gitstatus";
 import { liveEntriesByIdAtom } from "./livetranscript";
+import { prettyModel } from "./modellabel";
+import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { runtimeMeta } from "./runtimemeta";
-import { prettyModel } from "./modellabel";
 import { getSubagentsAtom } from "./session-models/agentstatusstore";
 import { agentTokensAtom, loadTokensForAgent } from "./tokenstore";
 
@@ -44,9 +47,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-    return (
-        <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-[#8b939d]">{children}</h3>
-    );
+    return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-[#8b939d]">{children}</h3>;
 }
 
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -69,6 +70,14 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
 
     const noTerminal = agent.blockId == null;
+    const openDiff = (path?: string) => {
+        const intent = diffNavIntent(agent.id, railState?.cwd, path);
+        if (intent.select) {
+            requestAgentFileSelection(agent.id, intent.select.path);
+        }
+        globalStore.set(model.focusIdAtom, intent.focusId);
+        globalStore.set(model.surfaceAtom, intent.surface);
+    };
     const drive = (data: string) => {
         if (!agent.blockId) {
             return;
@@ -232,15 +241,25 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                     ) : (
                         <div className="flex flex-col gap-[7px]">
                             {shownFiles.map((f) => (
-                                <div
+                                <button
+                                    type="button"
                                     key={f.path}
-                                    className="flex items-center gap-[8px] font-mono text-[11.5px] font-medium text-[#aeb6bf]"
+                                    onClick={() => openDiff(f.path)}
+                                    className="flex cursor-pointer items-center gap-[8px] rounded-[6px] px-[5px] py-[3px] text-left font-mono text-[11.5px] font-medium text-secondary hover:bg-surface-hover hover:text-primary"
                                 >
                                     <span className={cn("flex-none font-bold", statusColor(f.status))}>{f.status}</span>
                                     <span className="min-w-0 truncate">{f.path}</span>
-                                </div>
+                                </button>
                             ))}
-                            {moreFiles > 0 ? <div className="text-[11px] text-muted">+{moreFiles} more</div> : null}
+                            {moreFiles > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => openDiff()}
+                                    className="w-fit cursor-pointer rounded-[6px] px-[5px] py-[3px] text-[11px] text-muted hover:bg-surface-hover hover:text-secondary"
+                                >
+                                    +{moreFiles} more
+                                </button>
+                            ) : null}
                         </div>
                     )}
                 </div>

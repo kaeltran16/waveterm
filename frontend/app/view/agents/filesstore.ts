@@ -28,6 +28,7 @@ export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileVi
 // guards against a stale load overwriting a newer one; token distinguishes agent- vs project-scoped
 // loads (`agent:<id>` / `project:<name>`) so switching source cancels the in-flight load.
 const current = { token: "" };
+const requestedSelection = { token: "", path: "" };
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null };
 
@@ -47,7 +48,15 @@ async function loadChangesForCwd(token: string, cwd: string | null): Promise<voi
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes });
-        const first = changes?.files[0]?.path;
+        const requested =
+            requestedSelection.token === token && changes?.files.some((f) => f.path === requestedSelection.path)
+                ? requestedSelection.path
+                : undefined;
+        const first = requested ?? changes?.files[0]?.path;
+        if (requested) {
+            requestedSelection.token = "";
+            requestedSelection.path = "";
+        }
         if (first) {
             void selectFile(cwd, first);
         }
@@ -91,6 +100,11 @@ export async function loadFilesForProject(name: string, path: string): Promise<v
     const token = `project:${name}`;
     beginLoad(token);
     await loadChangesForCwd(token, path || null);
+}
+
+export function requestAgentFileSelection(id: string, path: string): void {
+    requestedSelection.token = `agent:${id}`;
+    requestedSelection.path = path;
 }
 
 export async function selectFile(cwd: string, path: string): Promise<void> {
