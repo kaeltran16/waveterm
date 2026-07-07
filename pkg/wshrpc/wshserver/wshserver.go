@@ -1549,6 +1549,17 @@ func (ws *WshServer) GetTranscriptTokensCommand(ctx context.Context, data wshrpc
 	return &wshrpc.CommandGetTranscriptTokensRtnData{Tokens: total}, nil
 }
 
+func (ws *WshServer) GetCacheStatusCommand(ctx context.Context, data wshrpc.CommandGetCacheStatusData) (*wshrpc.CommandGetCacheStatusRtnData, error) {
+	cw, err := usagestats.LastCacheWrite(data.Path)
+	if err != nil {
+		return nil, fmt.Errorf("checking cache status: %w", err)
+	}
+	if cw == nil {
+		return &wshrpc.CommandGetCacheStatusRtnData{}, nil
+	}
+	return &wshrpc.CommandGetCacheStatusRtnData{LastWriteTs: cw.TS.Unix(), OneHour: cw.OneHour}, nil
+}
+
 func (ws *WshServer) GetWindowTokensCommand(ctx context.Context, data wshrpc.CommandGetWindowTokensData) (*wshrpc.CommandGetWindowTokensRtnData, error) {
 	cutoffs := []time.Time{cutoffFromEpoch(data.FiveHourCutoff), cutoffFromEpoch(data.WeekCutoff)}
 	sums, err := usagestats.WindowTokens(cutoffs)

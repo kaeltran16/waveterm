@@ -498,6 +498,12 @@ export class RpcApiType {
         return client.wshRpcCall("getbuilderstatus", data, opts);
     }
 
+    // command "getcachestatus" [call]
+    GetCacheStatusCommand(client: WshClient, data: CommandGetCacheStatusData, opts?: RpcOpts): Promise<CommandGetCacheStatusRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getcachestatus", data, opts);
+        return client.wshRpcCall("getcachestatus", data, opts);
+    }
+
     // command "getchannels" [call]
     GetChannelsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandGetChannelsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannels", null, opts);

@@ -306,6 +306,37 @@ func SumTranscript(path string) (int, error) {
 	return sumRecords(recs), nil
 }
 
+// CacheWrite is the most recent prompt-cache-writing message in a transcript.
+type CacheWrite struct {
+	TS      time.Time
+	OneHour bool // true if this write used the extended 1h TTL bucket (else the default 5m bucket)
+}
+
+// LastCacheWrite finds the most recent assistant record with cache-write activity in the
+// transcript at path, and reports which TTL bucket it used. Only Claude transcripts carry this
+// concept (extractClaude yields nothing for a Codex-shaped file, so this returns nil for those).
+// Returns nil (no error) when the transcript has no cache-write activity, is empty, or is missing.
+func LastCacheWrite(path string) (*CacheWrite, error) {
+	lines := readLines(path)
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	var last *Record
+	for _, r := range extractClaude(lines) {
+		if r.CacheCreate <= 0 {
+			continue
+		}
+		if last == nil || r.TS.After(last.TS) {
+			rc := r
+			last = &rc
+		}
+	}
+	if last == nil {
+		return nil, nil
+	}
+	return &CacheWrite{TS: last.TS, OneHour: last.CacheCreate1h > 0}, nil
+}
+
 // sumRecordsSinceCutoffs returns, per cutoff (positionally), the summed token total of
 // records at/after that cutoff. A zero cutoff means all-time (every record counts).
 func sumRecordsSinceCutoffs(records []Record, cutoffs []time.Time) []int {

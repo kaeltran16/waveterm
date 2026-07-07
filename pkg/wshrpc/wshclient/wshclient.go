@@ -495,6 +495,12 @@ func GetBuilderStatusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpt
 	return resp, err
 }
 
+// command "getcachestatus", wshserver.GetCacheStatusCommand
+func GetCacheStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandGetCacheStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetCacheStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetCacheStatusRtnData](w, "getcachestatus", data, opts)
+	return resp, err
+}
+
 // command "getchannels", wshserver.GetChannelsCommand
 func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelsRtnData](w, "getchannels", nil, opts)

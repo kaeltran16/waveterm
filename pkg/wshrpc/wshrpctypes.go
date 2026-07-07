@@ -101,6 +101,7 @@ type WshRpcInterface interface {
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
 	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
+	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
 	MemoryScanCommand(ctx context.Context) (*CommandMemoryScanRtnData, error)
 	MemoryReadCommand(ctx context.Context, data CommandMemoryReadData) (*CommandMemoryReadRtnData, error)
 	MemoryWriteCommand(ctx context.Context, data CommandMemoryWriteData) (*CommandMemoryWriteRtnData, error)
@@ -863,6 +864,15 @@ type CommandGetWindowTokensData struct {
 type CommandGetWindowTokensRtnData struct {
 	FiveHourTokens int `json:"fivehourtokens"`
 	WeekTokens     int `json:"weektokens"`
+}
+
+type CommandGetCacheStatusData struct {
+	Path string `json:"path"`
+}
+
+type CommandGetCacheStatusRtnData struct {
+	LastWriteTs int64 `json:"lastwritets,omitempty"` // epoch seconds; absent = no cache-write found
+	OneHour     bool  `json:"onehour,omitempty"`
 }
 
 type MemoryNote struct {

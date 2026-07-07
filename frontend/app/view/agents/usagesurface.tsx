@@ -21,6 +21,7 @@ import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
 import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
+import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
 const RING: Record<"ok" | "warn" | "hot", string> = {
@@ -113,7 +114,19 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
     );
 }
 
-function MiniDonut({ title, pct, reset, now }: { title: string; pct?: number; reset?: number; now: number }) {
+function MiniDonut({
+    title,
+    pct,
+    reset,
+    now,
+    projectedExhaustion,
+}: {
+    title: string;
+    pct?: number;
+    reset?: number;
+    now: number;
+    projectedExhaustion?: number | null;
+}) {
     const reduce = useReducedMotion();
     const has = pct != null;
     const arc = has ? Math.min(100, pct) : 0;
@@ -135,12 +148,25 @@ function MiniDonut({ title, pct, reset, now }: { title: string; pct?: number; re
                 <div className="whitespace-nowrap font-mono text-[9px] text-muted">
                     {reset ? "resets " + formatReset(reset, now) : has ? "live" : "no data"}
                 </div>
+                {projectedExhaustion != null ? (
+                    <div className="whitespace-nowrap font-mono text-[9px] text-warning">
+                        ~100% by {formatProjectedDate(projectedExhaustion)}
+                    </div>
+                ) : null}
             </div>
         </div>
     );
 }
 
-function LiveLimitCard({ d, now }: { d: ProviderDonuts; now: number }) {
+function LiveLimitCard({
+    d,
+    now,
+    weeklyProjectionMs,
+}: {
+    d: ProviderDonuts;
+    now: number;
+    weeklyProjectionMs?: number | null;
+}) {
     const stale = d.stale != null;
     const dot = stale ? "var(--color-warning)" : "var(--color-success)";
     const label = stale ? "as of " + ageStr(now - d.stale!.capturedAt) + " ago" : "Live";
@@ -166,7 +192,13 @@ function LiveLimitCard({ d, now }: { d: ProviderDonuts; now: number }) {
             </div>
             <div className="flex flex-1 justify-end gap-[10px]">
                 <MiniDonut title="5-hour" pct={d.fivehour.pct} reset={d.fivehour.reset} now={now} />
-                <MiniDonut title="Weekly" pct={d.week.pct} reset={d.week.reset} now={now} />
+                <MiniDonut
+                    title="Weekly"
+                    pct={d.week.pct}
+                    reset={d.week.reset}
+                    now={now}
+                    projectedExhaustion={weeklyProjectionMs}
+                />
             </div>
         </motion.div>
     );
@@ -427,6 +459,16 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     }, [model]);
 
     const donuts = mergeRateLimitWindows(providerPlanUsage([...asking, ...working, ...idle]), saved, now);
+    const claudeDonut = donuts.find((d) => d.provider === "claude");
+    const weeklyProjectionMs =
+        claudeDonut?.week.pct != null && claudeDonut.week.reset != null
+            ? projectWeeklyExhaustion(
+                  stats.daily.map((d) => ({ day: d.day, tokens: d.claudeTokens })),
+                  claudeDonut.week.pct,
+                  claudeDonut.week.reset,
+                  now
+              )
+            : null;
     const tokTotal = stats.split.reduce((s, c) => s + c.tokens, 0);
     const cacheRead = stats.split.find((c) => c.cls === "cacheRead");
     const cachePctSub =
@@ -491,7 +533,12 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         ) : (
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                 {donuts.map((d) => (
-                                    <LiveLimitCard key={d.provider} d={d} now={now} />
+                                    <LiveLimitCard
+                                        key={d.provider}
+                                        d={d}
+                                        now={now}
+                                        weeklyProjectionMs={d.provider === "claude" ? weeklyProjectionMs : null}
+                                    />
                                 ))}
                             </div>
                         )}

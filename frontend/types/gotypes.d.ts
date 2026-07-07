@@ -591,6 +591,17 @@ declare global {
         lines: string[];
     };
 
+    // wshrpc.CommandGetCacheStatusData
+    type CommandGetCacheStatusData = {
+        path: string;
+    };
+
+    // wshrpc.CommandGetCacheStatusRtnData
+    type CommandGetCacheStatusRtnData = {
+        lastwritets?: number;
+        onehour?: boolean;
+    };
+
     // wshrpc.CommandGetChannelsRtnData
     type CommandGetChannelsRtnData = {
         channels: Channel[];

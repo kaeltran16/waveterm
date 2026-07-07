@@ -196,6 +196,63 @@ func TestSumTranscript(t *testing.T) {
 	}
 }
 
+func TestLastCacheWrite(t *testing.T) {
+	dir := t.TempDir()
+
+	// Two cache-writing assistant messages: an earlier one on the default (5m) bucket, a later
+	// one on the extended 1h bucket. LastCacheWrite must report the later one.
+	path := filepath.Join(dir, "claude.jsonl")
+	lines := "" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":200}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:05:00.000Z","requestId":"r2","message":{"id":"m2","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":300,"cache_creation":{"ephemeral_1h_input_tokens":300}}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:02:00.000Z","requestId":"r3","message":{"id":"m3","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":5}}}` + "\n" // no cache write, in between -- must not win on TS ordering alone
+	if err := os.WriteFile(path, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LastCacheWrite(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got == nil {
+		t.Fatal("want non-nil CacheWrite")
+	}
+	if !got.OneHour {
+		t.Errorf("want OneHour=true (the 10:05 write used the extended bucket), got false")
+	}
+	if !got.TS.Equal(time.Date(2026, 6, 26, 10, 5, 0, 0, time.UTC)) {
+		t.Errorf("ts = %v, want 10:05:00", got.TS)
+	}
+
+	// No cache-write activity at all -> nil, no error.
+	noCache := filepath.Join(dir, "no-cache.jsonl")
+	noCacheLine := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":5}}}`
+	if err := os.WriteFile(noCache, []byte(noCacheLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got2, err := LastCacheWrite(noCache)
+	if err != nil || got2 != nil {
+		t.Fatalf("want nil/no-error for no cache activity, got %+v, err=%v", got2, err)
+	}
+
+	// Codex-shaped transcript -> nil (extractClaude yields nothing for it), no error.
+	codex := filepath.Join(dir, "rollout-x.jsonl")
+	codexLine := `{"timestamp":"2026-06-26T03:08:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110}}}}`
+	if err := os.WriteFile(codex, []byte(codexLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got3, err := LastCacheWrite(codex)
+	if err != nil || got3 != nil {
+		t.Fatalf("want nil/no-error for codex transcript, got %+v, err=%v", got3, err)
+	}
+
+	// Missing file -> nil, no error (mirrors SumTranscript's missing-file behavior).
+	got4, err := LastCacheWrite(filepath.Join(dir, "does-not-exist.jsonl"))
+	if err != nil || got4 != nil {
+		t.Fatalf("want nil/no-error for missing file, got %+v, err=%v", got4, err)
+	}
+}
+
 func TestWindowTokens(t *testing.T) {
 	// Two records straddling a cutoff. WindowTokens sums records with TS >= cutoff.
 	older := Record{TS: time.Date(2026, 6, 26, 8, 0, 0, 0, time.UTC), Provider: "claude", Model: "claude-opus-4-8", Input: 100, Output: 10}

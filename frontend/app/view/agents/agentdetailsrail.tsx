@@ -27,6 +27,7 @@ import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { runtimeMeta } from "./runtimemeta";
 import { getSubagentsAtom } from "./session-models/agentstatusstore";
+import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { agentTokensAtom, loadTokensForAgent } from "./tokenstore";
 
 const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
@@ -61,10 +62,13 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const tools = summarizeActions(recentActions(entries, 0)).byVerb;
     const railState = useAtomValue(railStateAtom);
     const tokensTotal = useAtomValue(agentTokensAtom);
+    const cacheStatus = useAtomValue(agentCacheStatusAtom);
+    const now = useAtomValue(model.nowAtom);
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
         fireAndForget(() => loadTokensForAgent(agent.id, agent.transcriptPath));
+        fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
     }, [agent.id, agent.transcriptPath, agent.blockId]);
 
     const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
@@ -92,6 +96,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
 
     const running = agent.state === "idle" ? `${formatAge(agent.activeMs)} idle` : formatAge(agent.activeMs);
     const tokens = tokensTotal != null ? formatTokens(tokensTotal) : "—";
+    const cacheCountdown = formatCacheCountdown(cacheStatus, now);
+    const isClaude = (agent.agent || "claude") === "claude";
     const cost = usage?.costusd ? `$${usage.costusd.toFixed(2)}` : "—";
 
     const sections: RailSection[] = [
@@ -120,6 +126,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         <DetailRow label="Running" value={running} />
                         <DetailRow label="Tokens" value={tokens} />
                         <DetailRow label="Cost" value={cost} />
+                        {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
                     </div>
                 </div>
             ),
