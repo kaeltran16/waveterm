@@ -962,6 +962,18 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     onToggleNew={() => setPicking((p) => !p)}
                     onPickProject={pickProject}
                     onDeleteChannel={(id) => fireAndForget(() => deleteChannel(id))}
+                    onSetTier={(id, t) =>
+                        fireAndForget(() =>
+                            RpcApi.SetChannelTierCommand(TabRpcClient, {
+                                channelid: id,
+                                tier: t,
+                                mode:
+                                    ((channels?.find((c) => c.oid === id)?.meta as Record<string, unknown> | undefined)?.[
+                                        "delegator:mode"
+                                    ] as string) ?? "report",
+                            })
+                        )
+                    }
                 />
 
                 <div className="@container flex min-w-0 flex-1">

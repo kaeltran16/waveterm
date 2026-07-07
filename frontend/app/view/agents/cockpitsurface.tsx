@@ -747,6 +747,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 onResizeStart={() => beginCardResize(a.id)}
                 onResizeMove={(dx, dy) => dragResizeMove(a.id, dx, dy)}
                 onResizeEnd={(full) => endCardResize(a.id, full)}
+                onToggleFullWidth={() =>
+                    setCardPrefs((p) => ({ ...p, [a.id]: { ...p[a.id], fullWidth: !p[a.id]?.fullWidth } }))
+                }
             />
         );
     };
@@ -1044,3 +1047,4 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         </MotionConfig>
     );
 }
+

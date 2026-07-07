@@ -9,6 +9,7 @@ import { MOTION, cardVariants, reflowProps } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useState } from "react";
@@ -169,6 +170,19 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
                                                     exit={rp.exit}
                                                     transition={rp.transition}
                                                     className="flex gap-4 border-b border-edge-faint px-1 py-3.5 hover:bg-surface"
+                                                    onContextMenu={(ev) => {
+                                                        const items: ContextMenuItem[] = [];
+                                                        if (e.live) {
+                                                            items.push({ label: "Jump to agent", click: () => jump(model, e) });
+                                                        }
+                                                        items.push({
+                                                            label: `Filter to ${TYPE_META[e.type].label}`,
+                                                            click: () => globalStore.set(model.activityFilterAtom, e.type),
+                                                        });
+                                                        items.push({ label: "Copy summary", click: () => void navigator.clipboard.writeText(e.text) });
+                                                        items.push({ label: "Copy project", click: () => void navigator.clipboard.writeText(e.project) });
+                                                        ContextMenuModel.getInstance().showContextMenu(items, ev);
+                                                    }}
                                                 >
                                                     <span className="w-[42px] shrink-0 pt-0.5 text-right font-mono text-[11.5px] text-muted">
                                                         {now - e.ts < 60_000 ? "now" : formatAge(now - e.ts)}

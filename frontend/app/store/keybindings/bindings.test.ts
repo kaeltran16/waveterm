@@ -10,15 +10,19 @@ describe("closeTargetForDoubleCtrlC", () => {
         { id: "terminal-tab", name: "Terminal", state: "idle", kind: "terminal" },
     ] as any;
 
-    it("does not close an agent session", () => {
-        expect(closeTargetForDoubleCtrlC(agents, "agent-tab")).toBeNull();
+    it("closes a focused agent session (spec §5: double-Ctrl+C closes the agent)", () => {
+        expect(closeTargetForDoubleCtrlC(agents, "agent-tab")).toEqual(agents[0]);
     });
 
     it("closes a focused plain terminal row", () => {
         expect(closeTargetForDoubleCtrlC(agents, "terminal-tab")).toEqual(agents[1]);
     });
 
-    it("does not fall back to the first agent when focus is missing", () => {
+    it("returns null (no close) when nothing is focused", () => {
         expect(closeTargetForDoubleCtrlC(agents, undefined)).toBeNull();
+    });
+
+    it("returns null when the focused id is not in the roster", () => {
+        expect(closeTargetForDoubleCtrlC(agents, "gone")).toBeNull();
     });
 });

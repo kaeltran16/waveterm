@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch } from "./agentsviewmodel";
+import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -882,5 +882,20 @@ describe("computeGridLayout", () => {
         const { rects, totalHeight } = computeGridLayout([], {}, W, H);
         expect(rects.size).toBe(0);
         expect(totalHeight).toBe(H);
+    });
+});
+
+describe("conversationText", () => {
+    it("joins message and user prose with blank lines, dropping tool actions", () => {
+        const entries: AgentEntry[] = [
+            { kind: "user", text: "add a test" },
+            { kind: "action", verb: "Read", target: "file.ts", outcome: "ok" },
+            { kind: "message", text: "done — added it" },
+        ];
+        expect(conversationText(entries)).toBe("add a test\n\ndone — added it");
+    });
+
+    it("returns an empty string when there is no prose", () => {
+        expect(conversationText([{ kind: "action", verb: "Bash", target: "ls" }])).toBe("");
     });
 });

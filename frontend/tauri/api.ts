@@ -85,7 +85,7 @@ export function installTauriApi(init: InitData) {
 
 // Everything outside the implemented set: typed benign-default stubs (not throws), so the bridge
 // implements the full ElectronApi type and an incidental call cannot crash. showContextMenu/
-// onContextMenuClick are CUT (the Tauri primitive is menu.ts buildTauriMenu); updateWindowControls
+// onContextMenuClick are CUT (context menus are themed React now - app/store/contextmenu.ts); updateWindowControls
 // Overlay/onMenuItemAbout are obsolete under the custom titlebar. All deleted with their callers in
 // Phase 5.
 function installStubs(api: Partial<ElectronApi>) {
@@ -120,3 +120,4 @@ function installStubs(api: Partial<ElectronApi>) {
     api.saveTextFile = (..._a: any[]) => { stubWarn("saveTextFile"); return Promise.resolve(false); };
     api.getPathForFile = (..._a: any[]) => { stubWarn("getPathForFile"); return ""; };
 }
+

@@ -5,11 +5,12 @@
 // attention dot when a channel has a worker waiting on you, and a "+ New channel" action that opens the
 // project picker. Replaces the old top-bar channel pills.
 
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useState } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import { channelHasAsk } from "./channelderive";
-import { tierFromMeta } from "./channelmessages";
+import { tierFromMeta, type JarvisTier } from "./channelmessages";
 import { READ_TS_META, tierChip, unreadCount } from "./jarviscards";
 
 export function ChannelRail({
@@ -22,6 +23,7 @@ export function ChannelRail({
     onToggleNew,
     onPickProject,
     onDeleteChannel,
+    onSetTier,
 }: {
     channels: Channel[] | null;
     activeId: string | undefined;
@@ -32,6 +34,7 @@ export function ChannelRail({
     onToggleNew: () => void;
     onPickProject: (name: string, path: string) => void;
     onDeleteChannel: (id: string) => void;
+    onSetTier: (id: string, tier: JarvisTier) => void;
 }) {
     // oid of the channel awaiting a delete confirmation (two-click, no blocking dialog)
     const [confirmId, setConfirmId] = useState<string | undefined>(undefined);
@@ -59,7 +62,31 @@ export function ChannelRail({
                     const unread = unreadCount(c.messages, c.meta?.[READ_TS_META] as number | undefined);
                     const confirming = confirmId === c.oid;
                     return (
-                        <div key={c.oid} className="group relative">
+                        <div
+                            key={c.oid}
+                            className="group relative"
+                            onContextMenu={(ev) =>
+                                ContextMenuModel.getInstance().showContextMenu(
+                                    [
+                                        { label: "Open", click: () => onSelect(c.oid) },
+                                        {
+                                            label: "Autonomy",
+                                            submenu: (["concierge", "gatekeeper", "delegator"] as JarvisTier[]).map(
+                                                (t): ContextMenuItem => ({
+                                                    label: t.charAt(0).toUpperCase() + t.slice(1),
+                                                    type: "checkbox",
+                                                    checked: tier === t,
+                                                    click: () => onSetTier(c.oid, t),
+                                                })
+                                            ),
+                                        },
+                                        { type: "separator" },
+                                        { label: "Delete channel", click: () => onDeleteChannel(c.oid) },
+                                    ],
+                                    ev
+                                )
+                            }
+                        >
                             <button
                                 type="button"
                                 onClick={() => onSelect(c.oid)}

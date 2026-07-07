@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, shouldFadeEntry } from "@/app/element/motiontokens";
 import { Fragment, useState } from "react";
-import { groupTimeline, summarizeActions, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
+import { conversationText, groupTimeline, summarizeActions, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
@@ -61,6 +62,14 @@ export function NarrationTimeline({
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
     const items = groupTimeline(entries);
+    const copyMenu = (text: string) => (e: React.MouseEvent) =>
+        ContextMenuModel.getInstance().showContextMenu(
+            [
+                { label: "Copy text", click: () => void navigator.clipboard.writeText(text) },
+                { label: "Copy conversation", click: () => void navigator.clipboard.writeText(conversationText(entries)) },
+            ],
+            e
+        );
 
     let lastMessageIdx = -1;
     if (accentLatest) {
@@ -83,6 +92,7 @@ export function NarrationTimeline({
                         <motion.div
                             key={item.index}
                             className="mt-2 flex gap-2.5"
+                            onContextMenu={copyMenu(item.text)}
                             initial={shouldFadeEntry("message") ? { opacity: 0 } : false}
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
@@ -106,6 +116,7 @@ export function NarrationTimeline({
                         <motion.div
                             key={item.index}
                             className="mt-2 flex justify-end pl-[30px]"
+                            onContextMenu={copyMenu(item.text)}
                             initial={shouldFadeEntry("user") ? { opacity: 0 } : false}
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
@@ -158,3 +169,4 @@ export function NarrationTimeline({
         </div>
     );
 }
+

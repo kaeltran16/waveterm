@@ -26,12 +26,14 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
 
 const navigate = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 
+// Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
+// terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
+// only when nothing focusable is targeted, so the press falls through to the PTY instead.
 export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | undefined): AgentVM | null {
     if (!focusId) {
         return null;
     }
-    const focused = agents.find((x) => x.id === focusId);
-    return focused?.kind === "terminal" ? focused : null;
+    return agents.find((x) => x.id === focusId) ?? null;
 }
 
 export function buildGlobalBindings(model: AgentsViewModel): Binding[] {

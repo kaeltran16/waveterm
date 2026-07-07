@@ -5,6 +5,7 @@
 // existing Agent surface focus behavior stays the single path for starting/resuming agents.
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { MOTION, cardVariants } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { cn, fireAndForget } from "@/util/util";
@@ -171,6 +172,16 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                             exit={rp.exit}
                                             transition={rp.transition}
                                             className="flex items-center gap-[11px] border-b border-border px-[14px] py-[12px] last:border-b-0 hover:bg-surface-hover"
+                                            onContextMenu={(ev) => {
+                                                const items: ContextMenuItem[] = [
+                                                    { label: "Resume", enabled: !!s.resumecommand, click: () => resume(s) },
+                                                ];
+                                                if (s.resumecommand) {
+                                                    items.push({ label: "Copy resume command", click: () => void navigator.clipboard.writeText(s.resumecommand) });
+                                                }
+                                                items.push({ label: "Copy project path", click: () => void navigator.clipboard.writeText(s.projectpath) });
+                                                ContextMenuModel.getInstance().showContextMenu(items, ev);
+                                            }}
                                         >
                                             <span className="shrink-0 rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[.08em] text-muted">
                                                 {s.runtime}

@@ -6,6 +6,7 @@
 // reuses them without duplication.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { AgentsViewModel } from "./agents";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
@@ -112,7 +113,21 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
 
 export function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
     return (
-        <div className="mb-2.5">
+        <div
+            className="mb-2.5"
+            onContextMenu={(ev) =>
+                ContextMenuModel.getInstance().showContextMenu(
+                    [
+                        {
+                            label: "Open agent",
+                            enabled: w.state !== "gone",
+                            click: () => jumpToAgent(model, w.oref.slice("tab:".length)),
+                        },
+                    ],
+                    ev
+                )
+            }
+        >
             <div className="flex items-center gap-2">
                 <span
                     className="h-2 w-2 flex-none rounded-full"

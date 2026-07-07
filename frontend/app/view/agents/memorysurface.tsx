@@ -9,6 +9,7 @@ import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
@@ -140,6 +141,18 @@ function ListView({
                                         exit={rp.exit}
                                         transition={rp.transition}
                                         onClick={() => fireAndForget(() => selectNote(n.id))}
+                                        onContextMenu={(ev) =>
+                                            ContextMenuModel.getInstance().showContextMenu(
+                                                [
+                                                    { label: "Open", click: () => fireAndForget(() => selectNote(n.id)) },
+                                                    { label: "Copy title", click: () => void navigator.clipboard.writeText(n.title) },
+                                                    { label: "Copy path", click: () => void navigator.clipboard.writeText(n.path) },
+                                                    { type: "separator" },
+                                                    { label: "Delete", click: () => fireAndForget(() => deleteNote(n.path)) },
+                                                ],
+                                                ev
+                                            )
+                                        }
                                         className={cn(
                                             "mb-[8px] flex w-full cursor-pointer items-center gap-[13px] rounded-[11px] border px-[15px] py-[12px] text-left transition-colors duration-150 hover:border-edge-strong",
                                             n.id === selectedId

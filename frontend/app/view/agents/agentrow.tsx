@@ -1,12 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { confirmCloseAgent } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     hasAnswerableAsk,
@@ -135,6 +137,7 @@ export function AgentRow({
     onResizeStart,
     onResizeMove,
     onResizeEnd,
+    onToggleFullWidth,
 }: {
     agent: AgentVM;
     now: number;
@@ -165,6 +168,7 @@ export function AgentRow({
     onResizeStart?: () => void; // corner pointer-down: snapshot the column's heights
     onResizeMove?: (dxPx: number, dyPx: number, pendingFull: boolean) => void; // corner drag: dx/dy + pending full-width
     onResizeEnd?: (full: boolean) => void; // corner pointer-up: commit height + the pending full-width state
+    onToggleFullWidth?: () => void; // flips this card's full-width pref
 }) {
     const composerRef = useRef<AgentComposerHandle>(null);
     const cardRef = useRef<HTMLDivElement>(null);
@@ -214,6 +218,25 @@ export function AgentRow({
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;
     const muteAction = idle ? onDismiss : onBackground;
+    const onContextMenu = (e: React.MouseEvent) => {
+        const items: ContextMenuItem[] = [
+            { label: "Open", click: onOpen },
+            { label: "Open terminal", click: onOpenTerminal },
+        ];
+        if (diff) {
+            items.push({ label: "Review changes", click: onOpenDiff });
+        }
+        if (onToggleFullWidth) {
+            items.push({ label: fullWidth ? "Exit full width" : "Full width", click: onToggleFullWidth });
+        }
+        if (muteAction) {
+            items.push({ label: idle ? "Dismiss" : "Mute & background", click: muteAction });
+        }
+        items.push({ label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) });
+        items.push({ type: "separator" });
+        items.push({ label: "Close agent", click: () => confirmCloseAgent(agent.id, agent.name) });
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
 
     // in-row narration sticks to the latest line unless the user scrolls up to read history
     useEffect(() => {
@@ -280,6 +303,7 @@ export function AgentRow({
             }}
             data-agent-id={agent.id}
             onClick={onCursor}
+            onContextMenu={onContextMenu}
             onDoubleClick={onOpen}
             className={cn(
                 // card fills its spring-driven height (h); overflow clipped
@@ -545,3 +569,4 @@ export function AgentRow({
         </motion.div>
     );
 }
+

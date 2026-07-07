@@ -182,6 +182,18 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
     return items;
 }
 
+// Joins the prose (message + user) entries of a transcript into one copyable string. Tool actions
+// are omitted — they are not conversational content.
+export function conversationText(entries: AgentEntry[]): string {
+    const out: string[] = [];
+    for (const e of entries) {
+        if (e.kind === "message" || e.kind === "user") {
+            out.push(e.text);
+        }
+    }
+    return out.join("\n\n");
+}
+
 export interface ActionsSummary {
     total: number;
     byVerb: { verb: string; count: number }[];

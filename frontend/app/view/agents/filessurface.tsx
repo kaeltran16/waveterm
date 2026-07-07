@@ -6,6 +6,7 @@
 // agent's worktree; right = the selected file's diff (or plain view for untracked). Read-only.
 
 import { getApi } from "@/app/store/global";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -168,10 +169,21 @@ function DiffSkeleton() {
     );
 }
 
-function FileRow({ change, selected, onSelect }: { change: GitChange; selected: boolean; onSelect: () => void }) {
+function FileRow({
+    change,
+    selected,
+    onSelect,
+    onContextMenu,
+}: {
+    change: GitChange;
+    selected: boolean;
+    onSelect: () => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
+}) {
     return (
         <button
             onClick={onSelect}
+            onContextMenu={onContextMenu}
             className={cn(
                 "flex w-full items-center gap-[7px] rounded-[7px] px-[8px] py-[5px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
                 selected && "bg-surface-selected"
@@ -422,6 +434,20 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         change={c}
                                         selected={c.path === selected}
                                         onSelect={() => state.cwd && fireAndForget(() => selectFile(state.cwd!, c.path))}
+                                        onContextMenu={(ev) => {
+                                            const cwd = state.cwd;
+                                            if (!cwd) {
+                                                return;
+                                            }
+                                            ContextMenuModel.getInstance().showContextMenu(
+                                                [
+                                                    { label: "Open in editor", click: () => getApi().openExternal(`${cwd}/${c.path}`) },
+                                                    { label: "Copy path", click: () => void navigator.clipboard.writeText(c.path) },
+                                                    { label: "Copy absolute path", click: () => void navigator.clipboard.writeText(`${cwd}/${c.path}`) },
+                                                ],
+                                                ev
+                                            );
+                                        }}
                                     />
                                 </motion.div>
                             ))}

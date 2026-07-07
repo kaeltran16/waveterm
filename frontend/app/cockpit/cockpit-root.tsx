@@ -1,5 +1,6 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+import { ContextMenuHost } from "@/app/element/contextmenuhost";
 import { ModalsRenderer } from "@/app/modals/modalsrenderer";
 import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -74,6 +75,9 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <CommandPalette model={model} />
             <ShortcutsCheatSheet model={model} />
             <ModalsRenderer />
+            <ContextMenuHost />
         </div>
     );
 }
+
+
