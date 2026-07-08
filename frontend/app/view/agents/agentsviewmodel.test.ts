@@ -837,6 +837,16 @@ describe("computeGridLayout", () => {
         expect(rects.get("b")!.x).toBeCloseTo(colW + GRID_ROW_GAP_PX);
     });
 
+    it("spans a single column card across the full width (not half), still filling height", () => {
+        const { rects, colA, colB } = computeGridLayout([card("solo")], {}, W, H);
+        expect(colA.map((c) => c.id)).toEqual(["solo"]);
+        expect(colB).toHaveLength(0);
+        const r = rects.get("solo")!;
+        expect(r.x).toBe(0);
+        expect(r.w).toBe(W);
+        expect(r.h).toBeCloseTo(H);
+    });
+
     it("stacks equal-weight column cards top-to-bottom with a gap between them", () => {
         const cards = [card("a"), card("b"), card("c")]; // a (idx0) + c (idx2) both land in colA
         const { rects } = computeGridLayout(cards, {}, W, H);

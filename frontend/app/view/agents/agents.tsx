@@ -82,6 +82,8 @@ export class AgentsViewModel implements ViewModel {
     chipFilterAtom = atom<ChipFilter>("all");
     // Activity surface: selected type filter chip (spec §4.1). Default "all".
     activityFilterAtom = atom<ActivityType | "all">("all");
+    // Activity surface: selected project scope ("all" | <project>), independent of the type chip.
+    activityProjectFilterAtom = atom<string>("all");
 
     // New Project / New Agent modal + command-palette visibility (gated overlays rendered from the cockpit root).
     newProjectOpenAtom = atom(false);

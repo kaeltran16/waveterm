@@ -56,4 +56,18 @@ describe("loadUsage", () => {
         expect(globalStore.get(usageErrorAtom)).toBe(true);
         expect(globalStore.get(usageLoadedAtom)).toBe(true);
     });
+
+    it("latest window load wins: a late stale response does not overwrite the newer window's data", async () => {
+        let resolveOld!: (v: any) => void;
+        getStats
+            .mockImplementationOnce(() => new Promise((r) => (resolveOld = r))) // window 7 (older, resolves late)
+            .mockResolvedValueOnce({ buckets: [] }); // window 0 (newer, resolves first)
+        const pOld = loadUsage(7);
+        const pNew = loadUsage(0);
+        await pNew;
+        const afterNew = globalStore.get(usageStatsAtom);
+        resolveOld({ buckets: [] }); // stale window-7 response lands after the switch
+        await pOld;
+        expect(globalStore.get(usageStatsAtom)).toBe(afterNew); // ignored — the newer window's object stands
+    });
 });

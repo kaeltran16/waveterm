@@ -2,8 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { degreeMap } from "./memgraphlayout";
+import { degreeMap, graphSignature } from "./memgraphlayout";
 import type { MemEdge } from "./memtypes";
+
+describe("graphSignature", () => {
+    const edges: MemEdge[] = [{ from: "a", to: "b" }];
+    it("is stable across node-id ordering (same set -> same key, so the sim doesn't restart)", () => {
+        expect(graphSignature(["a", "b", "c"], edges)).toBe(graphSignature(["c", "a", "b"], edges));
+    });
+    it("is stable across edge ordering", () => {
+        const e1: MemEdge[] = [{ from: "a", to: "b" }, { from: "b", to: "c" }];
+        const e2: MemEdge[] = [{ from: "b", to: "c" }, { from: "a", to: "b" }];
+        expect(graphSignature(["a", "b", "c"], e1)).toBe(graphSignature(["a", "b", "c"], e2));
+    });
+    it("changes when a node is added or removed", () => {
+        expect(graphSignature(["a", "b"], edges)).not.toBe(graphSignature(["a", "b", "c"], edges));
+    });
+    it("changes when the edge set changes", () => {
+        expect(graphSignature(["a", "b"], [{ from: "a", to: "b" }])).not.toBe(graphSignature(["a", "b"], []));
+    });
+});
 
 describe("degreeMap", () => {
     it("counts undirected degree per node", () => {

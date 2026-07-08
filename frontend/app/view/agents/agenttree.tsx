@@ -4,12 +4,15 @@
 import { useSettle } from "@/app/element/motionhooks";
 import { cardVariants, composerReveal, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
+import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useLayoutEffect, useRef } from "react";
+import { confirmCloseAgent } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree } from "./agenttreemodel";
+import { duplicateSession } from "./session-models/sessionsidebarmodel";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     getSubagentExpandAtom,
@@ -46,6 +49,15 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
         globalStore.set(model.focusIdAtom, agent.id);
         globalStore.set(model.focusReplyAtom, false);
     };
+    const onContextMenu = (e: React.MouseEvent) => {
+        const items: ContextMenuItem[] = [
+            { label: "Duplicate", click: () => duplicateSession(agent.id) },
+            { label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) },
+            { type: "separator" },
+            { label: "Close agent", click: () => confirmCloseAgent(agent.id, agent.name) },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
 
     // layout="position" so a subagent expand (composerReveal below) doesn't scale-distort the row —
     // only its position animates when siblings reflow. Entrance/exit via cardVariants (opacity+scale).
@@ -53,6 +65,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
         <motion.div layout="position" variants={cardVariants} initial={animateEntrance ? "initial" : false} animate="animate" exit="exit">
             <div
                 onClick={select}
+                onContextMenu={onContextMenu}
                 className={cn(
                     "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms]",
                     // m3 attention: a static amber tint marks an asking row (the pulse lives in the dot, not the row);

@@ -110,3 +110,20 @@ export function mergeRateLimitWindows(
         })
         .sort((a, b) => (PROVIDER_RANK[a.provider] ?? 99) - (PROVIDER_RANK[b.provider] ?? 99));
 }
+
+// Pure: the single most-utilized provider by 5-hour pct across the merged donuts, or undefined if none
+// report a 5-hour window. Drives the app-bar's compact gauge so it reads off the SAME data as the Usage
+// tab (persisted + per-provider) and can label which provider it's showing when both Claude and Codex exist.
+export function topProviderUsage(donuts: ProviderDonuts[]): { provider: string; pct: number } | undefined {
+    let top: { provider: string; pct: number } | undefined;
+    for (const d of donuts) {
+        const pct = d.fivehour.pct;
+        if (pct == null) {
+            continue;
+        }
+        if (top == null || pct > top.pct) {
+            top = { provider: d.provider, pct };
+        }
+    }
+    return top;
+}

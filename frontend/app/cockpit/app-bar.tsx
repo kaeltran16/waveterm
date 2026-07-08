@@ -3,14 +3,18 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { topFiveHourPct, usageLevel } from "@/app/view/agents/agentsviewmodel";
+import { providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
+import { mergeRateLimitWindows, savedRateLimitsAtom, topProviderUsage } from "@/app/view/agents/ratelimitstore";
+import { runtimeMeta } from "@/app/view/agents/runtimemeta";
+import { cn } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
 
-// donut foreground color tracks the usage band (matches the rail bars)
+// donut foreground tracks the usage band — the SAME rings the Usage tab uses (success/warn/error), so
+// a given percentage reads the same color in the app bar and on the tab
 const DONUT_COLOR: Record<"ok" | "warn" | "hot", string> = {
-    ok: "var(--color-accent)",
+    ok: "var(--color-success)",
     warn: "var(--color-warning)",
     hot: "var(--color-error)",
 };
@@ -20,7 +24,13 @@ const DONUT_COLOR: Record<"ok" | "warn" | "hot", string> = {
 export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
     const win = getCurrentWindow();
     const agents = useAtomValue(model.agentsAtom);
-    const fivePct = topFiveHourPct(agents);
+    const saved = useAtomValue(savedRateLimitsAtom);
+    const now = useAtomValue(model.nowAtom);
+    // read the SAME merged (live-over-saved) per-provider donut data as the Usage tab, so the gauge
+    // matches it and persists after agents go idle; when both providers report, show the most-utilized.
+    const top = topProviderUsage(mergeRateLimitWindows(providerPlanUsage(agents), saved, now));
+    const fivePct = top?.pct;
+    const rt = top ? runtimeMeta(top.provider) : undefined;
     const donut =
         fivePct != null
             ? `conic-gradient(${DONUT_COLOR[usageLevel(fivePct)]} 0 ${fivePct}%, var(--color-edge-mid) ${fivePct}% 100%)`
@@ -76,7 +86,8 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                         <span className="h-[14px] w-[14px] rounded-full bg-surface" />
                     </span>
                     <span className="text-left leading-tight">
-                        <span className="block font-mono text-[11px] text-secondary">
+                        <span className="flex items-center gap-1 font-mono text-[11px] text-secondary">
+                            {rt ? <span className={cn("leading-none", rt.text)}>{rt.glyph}</span> : null}
                             {fivePct != null ? `${Math.round(fivePct)}%` : "—"}
                         </span>
                         <span className="block text-[9px] text-muted">5h limit</span>

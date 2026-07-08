@@ -1,5 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mergeRateLimitWindows, readSavedRateLimits, recordRateLimit, type SavedSnapshot } from "./ratelimitstore";
+import {
+    mergeRateLimitWindows,
+    readSavedRateLimits,
+    recordRateLimit,
+    topProviderUsage,
+    type SavedSnapshot,
+} from "./ratelimitstore";
+
+describe("topProviderUsage", () => {
+    const now = 1_800_000_000_000;
+    it("returns the provider with the highest 5-hour pct (so both-provider case is labeled, not a bare max)", () => {
+        const donuts = mergeRateLimitWindows(
+            [
+                { provider: "claude", usage: { fivehourpct: 40 } },
+                { provider: "codex", usage: { fivehourpct: 72 } },
+            ],
+            {},
+            now
+        );
+        expect(topProviderUsage(donuts)).toEqual({ provider: "codex", pct: 72 });
+    });
+    it("ignores windows with no 5-hour pct and is undefined when none have one", () => {
+        const donuts = mergeRateLimitWindows([{ provider: "claude", usage: { weekpct: 30 } }], {}, now);
+        expect(topProviderUsage(donuts)).toBeUndefined();
+        expect(topProviderUsage([])).toBeUndefined();
+    });
+});
 
 function mockLocalStorage(): Record<string, string> {
     const store: Record<string, string> = {};

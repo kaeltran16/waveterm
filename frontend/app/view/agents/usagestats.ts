@@ -218,3 +218,11 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStat
 
     return { totals: { tokensToday, tokensWeek, spendTodayUsd, spendWeekUsd }, split, daily, dailyTruncated, providers };
 }
+
+// Pure: the model-usage grid class. A single provider fills the full row (dropping lg:grid-cols-2, which
+// otherwise leaves a lone card at half width with dead space beside it); two or more split into two
+// columns on lg. Kept here so the layout decision is declarative and testable.
+export function modelGridClass(providerCount: number): string {
+    const base = "grid grid-cols-1 gap-[14px]";
+    return providerCount <= 1 ? base : `${base} lg:grid-cols-2`;
+}

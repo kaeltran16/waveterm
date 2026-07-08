@@ -805,7 +805,8 @@ export function computeGridLayout(
     const colStartY = fwStackPx + (fullWidth.length > 0 ? gap : 0);
     const columnsAvail = Math.max(0, containerH - fwStackPx - (fullWidth.length > 0 ? gap : 0));
     const { colA, colB } = distributeColumns(columnCards);
-    const colW = (containerW - gap) / 2;
+    // a lone card would otherwise sit at half width with colB empty; let it span the full width
+    const colW = columnCards.length === 1 ? containerW : (containerW - gap) / 2;
 
     const layoutColumn = (col: AgentVM[], x: number): number => {
         const avail = Math.max(0, columnsAvail - gap * Math.max(0, col.length - 1));

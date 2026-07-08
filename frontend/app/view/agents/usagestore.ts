@@ -31,22 +31,30 @@ export const usageStatsAtom = atom<UsageStats>(EMPTY) as PrimitiveAtom<UsageStat
 export const usageErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const usageLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
-let loading = false;
+// Monotonic request id: the latest loadUsage wins. Replaces a single `loading` bool that silently
+// dropped a window switch fired while a prior load was in flight (and let a slow prior-window response
+// land after the switch and clobber the new window's data). Now a switch always issues a fresh request
+// and any older, still-in-flight response is ignored on resolve.
+let loadSeq = 0;
 
 export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void> {
-    if (loading) {
-        return;
-    }
-    loading = true;
+    const seq = ++loadSeq;
     try {
         const rtn = await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays });
+        if (seq !== loadSeq) {
+            return; // a newer load superseded this one — ignore its result
+        }
         globalStore.set(usageStatsAtom, aggregateBuckets(rtn.buckets ?? [], Date.now()));
         globalStore.set(usageErrorAtom, false);
     } catch {
+        if (seq !== loadSeq) {
+            return;
+        }
         // keep the last-good stats; surface a subtle "couldn't refresh" instead of blanking
         globalStore.set(usageErrorAtom, true);
     } finally {
-        globalStore.set(usageLoadedAtom, true);
-        loading = false;
+        if (seq === loadSeq) {
+            globalStore.set(usageLoadedAtom, true);
+        }
     }
 }

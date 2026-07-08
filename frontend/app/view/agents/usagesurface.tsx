@@ -19,6 +19,7 @@ import type { AgentsViewModel } from "./agents";
 import { formatReset, groupAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
 import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
+import { modelGridClass } from "./usagestats";
 import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
 import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
@@ -336,23 +337,34 @@ function DailyChart({
                         <span className="font-mono text-[9.5px] text-muted">0</span>
                     </div>
                     <div className="flex flex-1 items-end gap-[7px] border-b border-l border-border px-1">
-                        {rows.map((r) => {
+                        {rows.map((r, ri) => {
                             const aH = Math.round((r.a / dmax) * DAILY_CHART_H);
                             const bH = Math.round((r.b / dmax) * DAILY_CHART_H);
                             const idle = r.total === 0;
                             const tip = `${r.day} · ${metric === "tokens" ? fmt(r.total) + " tok" : usd(r.total) + " ≈"}`;
+                            // grow each column up from the baseline on mount, left-to-right stagger (scaleY,
+                            // not height, so it's GPU-composited and never fights the height recompute tween)
+                            const grow = reduce
+                                ? {}
+                                : {
+                                      initial: { scaleY: 0 },
+                                      animate: { scaleY: 1 },
+                                      transition: { delay: ri * 0.025, duration: MOTION.durMacro, ease: MOTION.easeFluid },
+                                  };
                             return (
                                 <div key={r.day} title={tip} className="flex flex-1 cursor-default flex-col items-center gap-[7px]">
                                     <div className="flex h-[156px] w-full flex-col items-center justify-end gap-[2px]">
                                         {r.b > 0 ? (
-                                            <div
+                                            <motion.div
+                                                {...grow}
                                                 className="w-[64%] max-w-[30px] rounded-t-[3px] bg-success"
-                                                style={{ height: bH, transition: barTransition(reduce, "height") }}
+                                                style={{ height: bH, transformOrigin: "bottom", transition: barTransition(reduce, "height") }}
                                             />
                                         ) : null}
-                                        <div
+                                        <motion.div
+                                            {...grow}
                                             className={cn("w-[64%] max-w-[30px] bg-accent", r.b > 0 ? "" : "rounded-t-[3px]")}
-                                            style={{ height: aH, transition: barTransition(reduce, "height") }}
+                                            style={{ height: aH, transformOrigin: "bottom", transition: barTransition(reduce, "height") }}
                                         />
                                         {idle ? <div className="h-[2px] w-[64%] max-w-[30px] rounded-[2px] bg-edge-strong" /> : null}
                                     </div>
@@ -387,13 +399,17 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
                         </span>
                     </div>
                     <div className="h-[7px] overflow-hidden rounded-[4px] bg-edge-strong">
-                        <div
+                        <motion.div
                             className="h-full rounded-[4px]"
                             style={{
                                 width: `${m.pct}%`,
+                                transformOrigin: "left",
                                 background: MODEL_COLORS[i % MODEL_COLORS.length],
                                 transition: barTransition(reduce, "width"),
                             }}
+                            initial={reduce ? false : { scaleX: 0 }}
+                            animate={{ scaleX: 1 }}
+                            transition={reduce ? { duration: 0 } : { delay: i * 0.04, duration: MOTION.durMacro, ease: MOTION.easeFluid }}
                         />
                     </div>
                 </div>
@@ -448,6 +464,10 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
     useEffect(() => {
         const days = usageWindow === "7d" ? 7 : 0;
+        // reset loaded so the skeleton shows while the newly-selected window loads (esp. the heavy
+        // all-time scan), instead of leaving the previous window's stats on screen until it resolves.
+        // The 60s refresh below does NOT reset — it silently refreshes in place.
+        globalStore.set(usageLoadedAtom, false);
         void loadUsage(days);
         const refresh = setInterval(() => void loadUsage(days), 60_000);
         return () => clearInterval(refresh);
@@ -582,7 +602,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                 onMetric={setUsageMetric}
                             />
 
-                            <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-2">
+                            <div className={modelGridClass(stats.providers.length)}>
                                 {stats.providers.map((p) => (
                                     <ModelGroup key={p.provider} p={p} />
                                 ))}

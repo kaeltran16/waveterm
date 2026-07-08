@@ -32,6 +32,25 @@ export function applyFilter(events: ActivityEvent[], filter: ActivityType | "all
     return filter === "all" ? events : events.filter((e) => e.type === filter);
 }
 
+// Project scope filter. "all" passes everything; otherwise matches the same normalized key groupByProject
+// uses (blank project -> "—") so the chip selection lines up with the rendered groups.
+export function applyProjectFilter(events: ActivityEvent[], project: string): ActivityEvent[] {
+    return project === "all" ? events : events.filter((e) => (e.project || "—") === project);
+}
+
+// Distinct project keys present, most-recent-first (so the chip order matches the group order).
+export function activityProjects(events: ActivityEvent[]): string[] {
+    const latest = new Map<string, number>();
+    for (const e of events) {
+        const key = e.project || "—";
+        const cur = latest.get(key);
+        if (cur == null || e.ts > cur) {
+            latest.set(key, e.ts);
+        }
+    }
+    return [...latest.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+}
+
 export function groupByProject(events: ActivityEvent[]): ActivityGroup[] {
     const byProj = new Map<string, ActivityEvent[]>();
     for (const ev of events) {
