@@ -51,7 +51,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
     };
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
-            { label: "Duplicate", click: () => duplicateSession(agent.id) },
+            { label: "Duplicate", click: () => duplicateSession(model, agent.id) },
             { label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) },
             { type: "separator" },
             { label: "Close agent", click: () => confirmCloseAgent(agent.id, agent.name) },

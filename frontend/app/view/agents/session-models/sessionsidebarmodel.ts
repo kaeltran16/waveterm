@@ -12,6 +12,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom } from "jotai";
+import type { AgentsViewModel } from "../agents";
+import type { PendingLaunch } from "../agentsviewmodel";
 import { getAgentStatusAtom, getSubagentExpandAtom, getSubagentsAtom } from "./agentstatusstore";
 import { sessionGroupLabelAtom } from "./sessiongroupstore";
 import {
@@ -274,10 +276,12 @@ export function closeGroup(label: string, memberIds: string[]) {
     });
 }
 
-/** Duplicate a session: open a new tab running the same agent in the same cwd as the source.
- *  Reconfigures the new tab's default shell block *before* activating it, so the controller starts
- *  with the cloned cmd:cwd/cmd (the backend doesn't start the controller until the tab renders). */
-export function duplicateSession(sourceTabId: string) {
+/** Duplicate a session: open a new tab that re-launches the same agent in the same cwd as the source.
+ *  Clones the source term block's launch meta onto the new tab's default block *before* it renders, then
+ *  surfaces + focuses the clone exactly like launchAgent — a pending roster row so it shows immediately,
+ *  plus focusIdAtom/surfaceAtom so its terminal mounts and the controller starts. The cockpit renders
+ *  agents in-place via the focus pane, so the old setActiveTab path is a dead no-op stub under Tauri. */
+export function duplicateSession(model: AgentsViewModel, sourceTabId: string) {
     const source = findSessionTermBlock(sourceTabId);
     if (source == null) {
         return;
@@ -288,24 +292,45 @@ export function duplicateSession(sourceTabId: string) {
     }
     const srcTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", sourceTabId)));
     const agent = srcTab?.meta?.["session:agent"];
+    const project = srcTab?.meta?.["session:project"];
+    const name = srcTab?.name ?? "";
     const blockMeta = buildDuplicateBlockMeta(source.meta);
     fireAndForget(async () => {
-        const newTabId = await WorkspaceService.CreateTab(ws.oid, "", false);
+        const newTabId = await WorkspaceService.CreateTab(ws.oid, name, false);
         const newTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", newTabId)));
         const defaultBlockId = newTab?.blockids?.[0];
-        if (defaultBlockId != null) {
-            await RpcApi.SetMetaCommand(TabRpcClient, {
-                oref: WOS.makeORef("block", defaultBlockId),
-                meta: blockMeta,
-            });
+        if (defaultBlockId == null) {
+            return;
         }
+        const blockORef = WOS.makeORef("block", defaultBlockId);
+        await RpcApi.SetMetaCommand(TabRpcClient, { oref: blockORef, meta: blockMeta });
+        // getWaveObjectAtom is a one-time fetch (no subscription); reload so the session sidebar sees the
+        // cloned cmd:cwd and the tab enters the roster (without this the clone never surfaces).
+        await WOS.reloadWaveObject(blockORef);
+        const tabMeta: Record<string, any> = {};
         if (agent != null) {
-            await RpcApi.SetMetaCommand(TabRpcClient, {
-                oref: WOS.makeORef("tab", newTabId),
-                meta: { "session:agent": agent },
-            });
+            tabMeta["session:agent"] = agent;
         }
-        setActiveTab(newTabId);
+        if (project != null) {
+            tabMeta["session:project"] = project;
+        }
+        if (Object.keys(tabMeta).length > 0) {
+            await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", newTabId), meta: tabMeta });
+        }
+        // agent panel gets a pending roster row so the clone appears before the reporter registers it.
+        if (agent != null) {
+            const pending: PendingLaunch = {
+                tabId: newTabId,
+                blockId: defaultBlockId,
+                name,
+                project: project ?? "",
+                ts: Date.now(),
+            };
+            globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
+        }
+        // Focus into the Agent surface so the clone's terminal mounts and its controller starts.
+        globalStore.set(model.focusIdAtom, newTabId);
+        globalStore.set(model.surfaceAtom, "agent");
     });
 }
 
