@@ -13,7 +13,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { resolveCwd } from "./agentcwdresolve";
 import { MarkdownMessage } from "./markdownmessage";
@@ -448,6 +448,19 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const filtered = q
         ? notes.filter((n) => (n.title + " " + n.description).toLowerCase().includes(q))
         : notes;
+    // graph gets the FULL set + a match-id filter: search dims non-matches in place instead of
+    // removing them, so typing never restarts the force simulation
+    const graphFilterIds = useMemo(
+        () =>
+            q
+                ? new Set(
+                      notes
+                          .filter((n) => (n.title + " " + n.description).toLowerCase().includes(q))
+                          .map((n) => n.id)
+                  )
+                : null,
+        [q, notes]
+    );
 
     return (
         <MotionConfig reducedMotion="user">
@@ -478,7 +491,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                                             <ListView notes={filtered} selectedId={selectedId} rp={rp} mountedEmpty={mountedEmpty} />
                                         </div>
                                     ) : (
-                                        <MemGraph notes={filtered} selectedId={selectedId} />
+                                        <MemGraph notes={notes} filteredIds={graphFilterIds} selectedId={selectedId} />
                                     )}
                                 </motion.div>
                             </AnimatePresence>

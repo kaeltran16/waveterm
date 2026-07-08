@@ -1,29 +1,41 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Obsidian-style memory graph built on react-force-graph-2d: a live d3-force simulation (dots repel,
-// links pull, nodes are draggable) with dots sized by link-count, hover-a-node to highlight its
-// neighbors and dim the rest, and labels that fade in as you zoom. Lazy-loaded — the graph is not on
-// the boot path, so the d3-force bundle stays off startup. Canvas colors are read from the @theme CSS
-// tokens (canvas fillStyle can't use CSS vars) so there are no hardcoded design colors.
+// Obsidian-style memory graph on react-force-graph-2d, driven for calm: node positions and the
+// camera persist at module scope so remounts (Graph<->List toggles) resume exactly where you left
+// off instead of replaying the fly-in; the sim is pre-warmed past alpha-min so the first painted
+// frame is already settled and framed; search dims non-matches instead of removing them, so typing
+// never restarts the simulation; labels reveal map-style by degree (hubs first) with greedy
+// de-collision. Canvas colors are read from the @theme CSS tokens (fillStyle can't use CSS vars).
+// Lazy-loaded — the d3-force bundle stays off the boot path.
 
-import { useSettle } from "@/app/element/motionhooks";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { degreeMap, graphSignature } from "./memgraphlayout";
+import { Maximize, Minus, Plus } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { degreeMap, graphSignature, labelZoomThreshold, seedPosition, type XY } from "./memgraphlayout";
 import { memEdgesAtom, selectNote } from "./memstore";
 import type { MemNote } from "./memtypes";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
-const LABEL_ZOOM = 1.2; // reveal all labels once zoomed past this
+const WARMUP_TICKS = 200; // enough for the sim to cool below alpha-min -> first paint is settled
+const FIT_MAX_ZOOM = 1.6; // don't let zoomToFit blow a tiny graph up to poster size
+const SEARCH_LABEL_MAX = 40; // label every search match while the match set stays readable
+const LABEL_FADE = 0.2; // zoom range over which a label fades in past its threshold
+const OFFSCREEN_MARGIN = 28; // px; selection outside this margin recenters the camera
 const nodeRadius = (deg: number) => 3 + Math.min(Math.sqrt(deg) * 2.2, 12);
 
 type GNode = { id: string; title: string; type: string; deg: number; x?: number; y?: number };
 type GLink = { source: string | GNode; target: string | GNode };
 
 const idOf = (e: string | GNode) => (typeof e === "object" ? e.id : e);
+
+// layout + camera survive remounts so reopening the graph resumes in place (no re-simulation)
+const posCache = new Map<string, XY>();
+let savedCam: { x: number; y: number; k: number } | null = null;
+
+const EMPTY_DATA = { nodes: [] as GNode[], links: [] as GLink[] };
 
 // #rrggbb (+ optional alpha) → rgba() so we can add transparency to a token color for the label chip
 function rgba(hex: string, a: number) {
@@ -43,33 +55,62 @@ function useThemeColors() {
             feedback: c("--color-mem-feedback"),
             user: c("--color-mem-user"),
         };
+        const edge = c("--color-ink-faint");
         return {
             fill: (t: string) => mem[t] ?? c("--color-ink-mid"),
             label: c("--color-foreground"),
             chip: rgba(c("--color-background"), 0.72), // backing behind label text for contrast
-            edge: c("--color-ink-faint"),
+            edge,
+            edgeDim: rgba(edge, 0.15),
             edgeHot: c("--color-accent"),
+            edgeSel: rgba(c("--color-accent"), 0.45),
             ring: c("--color-foreground"),
             bg: c("--color-background"),
         };
     }, []);
 }
 
-export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: string | null }) {
+function CtrlBtn({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+    return (
+        <button
+            title={label}
+            aria-label={label}
+            onClick={onClick}
+            className="flex h-[28px] w-[28px] cursor-pointer items-center justify-center text-ink-mid hover:bg-accentbg hover:text-foreground"
+        >
+            {children}
+        </button>
+    );
+}
+
+export function MemGraph({
+    notes,
+    filteredIds,
+    selectedId,
+}: {
+    notes: MemNote[];
+    filteredIds: ReadonlySet<string> | null;
+    selectedId: string | null;
+}) {
     const allEdges = useAtomValue(memEdgesAtom);
     const colors = useThemeColors();
     const containerRef = useRef<HTMLDivElement>(null);
     const fgRef = useRef<any>(undefined);
-    const fitted = useRef(false);
-    const settled = useRef(false); // true once the sim cools — gates label painting (smooth fly-in)
+    const camInit = useRef(false); // camera restored/fit once per mount
+    const hoverIdRef = useRef<string | null>(null);
     const labelBoxes = useRef<{ x: number; y: number; w: number; h: number }[]>([]); // per-frame de-collision
     const [size, setSize] = useState({ w: 0, h: 0 });
-    const [cooled, setCooled] = useState(false); // flips true when the sim cools -> one-shot settle cue (m4)
-    const settling = useSettle(cooled);
+    const [fgApi, setFgApi] = useState<any>(null); // set when the lazy graph mounts (ref callback)
+    const [ready, setReady] = useState(false); // forces configured -> real data may flow to the sim
     const [hover, setHover] = useState<{ nodes: Set<string>; links: Set<GLink> }>({
         nodes: new Set(),
         links: new Set(),
     });
+
+    const attachFg = useCallback((inst: any) => {
+        fgRef.current = inst;
+        setFgApi(inst ?? null);
+    }, []);
 
     useEffect(() => {
         const el = containerRef.current;
@@ -86,11 +127,34 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
         return () => ro.disconnect();
     }, []);
 
-    // nodes + links for the current (filtered) set; links restricted to present notes so search
-    // filtering never leaves dangling edges. deg drives node size.
-    // Gate the rebuild on the structural signature (not the identity of `notes`, which is a fresh
-    // filtered array every render): reuse the same node/link objects — and thus the sim's live x/y —
-    // whenever the node/edge set is unchanged. This is the core clank fix (no restart per keystroke/hover).
+    // Configure physics BEFORE any data reaches the sim (the graph mounts with EMPTY_DATA until
+    // `ready`), so the one warmup runs with the right forces — no post-hoc reheat/re-settle.
+    // collide stops cluster overlap; weak x/y gravity keeps disconnected components in frame; the
+    // default center force is dropped because it translates the whole graph while dragging one node.
+    useEffect(() => {
+        if (!fgApi) return;
+        let live = true;
+        fireAndForget(async () => {
+            const { forceCollide, forceX, forceY } = await import("d3-force-3d");
+            if (!live) return;
+            fgApi.d3Force("collide", forceCollide((n: GNode) => nodeRadius(n.deg) + 3));
+            fgApi.d3Force("charge")?.strength(-100).distanceMax(260);
+            fgApi.d3Force("link")?.distance(38);
+            fgApi.d3Force("x", forceX(0).strength(0.04));
+            fgApi.d3Force("y", forceY(0).strength(0.04));
+            fgApi.d3Force("center", null);
+            setReady(true);
+        });
+        return () => {
+            live = false;
+        };
+    }, [fgApi]);
+
+    // Nodes + links for the FULL note set (search dims rather than removes — see paintNode). Links
+    // are restricted to present notes so broken [[links]] never produce dangling edges. Gate the
+    // rebuild on the structural signature (not the identity of `notes`, which is a fresh array every
+    // render): reuse the same node/link objects — and thus the sim's live x/y — whenever the set is
+    // unchanged. Nodes seed from the position cache so structural changes wobble locally.
     const sig = graphSignature(
         notes.map((n) => n.id),
         allEdges
@@ -99,20 +163,51 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
         const ids = new Set(notes.map((n) => n.id));
         const edges = allEdges.filter((e) => ids.has(e.from) && ids.has(e.to));
         const deg = degreeMap(edges);
-        const nodes: GNode[] = notes.map((n) => ({ id: n.id, title: n.title, type: n.type, deg: deg.get(n.id) ?? 0 }));
+        const nodes: GNode[] = notes.map((n) => {
+            const seed = seedPosition(n.id, edges, posCache);
+            return { id: n.id, title: n.title, type: n.type, deg: deg.get(n.id) ?? 0, ...(seed ?? {}) };
+        });
         const links: GLink[] = edges.map((e) => ({ source: e.from, target: e.to }));
         return { nodes, links };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sig]);
+    const dataRef = useRef(data);
+    dataRef.current = data;
 
-    useEffect(() => {
-        fitted.current = false;
-        settled.current = false;
-        setCooled(false);
-    }, [data]);
+    const savePositions = useCallback(() => {
+        for (const n of dataRef.current.nodes) {
+            if (Number.isFinite(n.x) && Number.isFinite(n.y)) posCache.set(n.id, { x: n.x!, y: n.y! });
+        }
+    }, []);
+
+    const saveCamera = useCallback(() => {
+        const fg = fgRef.current;
+        if (!fg || !camInit.current) return; // ignore zoom events from before the restore/fit
+        const c = fg.centerAt();
+        const k = fg.zoom();
+        if (c && Number.isFinite(c.x) && Number.isFinite(k)) savedCam = { x: c.x, y: c.y, k };
+    }, []);
+
+    // restore the last camera, or frame the graph — once per mount, on the first settled frame
+    const initCamera = useCallback(() => {
+        const fg = fgRef.current;
+        if (camInit.current || !fg || dataRef.current.nodes.length === 0) return;
+        camInit.current = true;
+        if (savedCam) {
+            fg.centerAt(savedCam.x, savedCam.y, 0);
+            fg.zoom(savedCam.k, 0);
+        } else {
+            fg.zoomToFit(0, 60);
+            if (fg.zoom() > FIT_MAX_ZOOM) fg.zoom(FIT_MAX_ZOOM, 0);
+        }
+    }, []);
 
     const onNodeHover = useCallback(
         (node: GNode | null) => {
+            const id = node?.id ?? null;
+            if (id === hoverIdRef.current) return; // mousemove churn guard
+            hoverIdRef.current = id;
+            if (containerRef.current) containerRef.current.style.cursor = node ? "pointer" : "";
             const nodes = new Set<string>();
             const links = new Set<GLink>();
             if (node) {
@@ -130,14 +225,42 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
         [data]
     );
 
+    // the selected node's links stay softly highlighted so the selection reads at a glance
+    const selLinks = useMemo(() => {
+        const s = new Set<GLink>();
+        if (selectedId) {
+            for (const l of data.links) {
+                if (idOf(l.source) === selectedId || idOf(l.target) === selectedId) s.add(l);
+            }
+        }
+        return s;
+    }, [data, selectedId]);
+
+    // when selection changes to a node outside the viewport (e.g. via the related-notes rail),
+    // glide the camera to it
+    useEffect(() => {
+        const fg = fgRef.current;
+        const el = containerRef.current;
+        if (!fg || !el || !selectedId || !camInit.current) return;
+        const node = dataRef.current.nodes.find((n) => n.id === selectedId);
+        if (!node || !Number.isFinite(node.x)) return;
+        const p = fg.graph2ScreenCoords(node.x, node.y);
+        const m = OFFSCREEN_MARGIN;
+        if (p.x < m || p.y < m || p.x > el.clientWidth - m || p.y > el.clientHeight - m) {
+            fg.centerAt(node.x, node.y, 500);
+        }
+    }, [selectedId]);
+
     const paintNode = useCallback(
         (node: GNode, ctx: CanvasRenderingContext2D, scale: number) => {
+            const searchDim = filteredIds != null && !filteredIds.has(node.id);
             const focused = hover.nodes.size > 0;
             const inFocus = !focused || hover.nodes.has(node.id);
             const sel = node.id === selectedId;
             const r = nodeRadius(node.deg) + (sel ? 2 : 0);
-            // idle: de-emphasize the unlinked halo; focus: dim everything outside the neighborhood
-            ctx.globalAlpha = focused ? (inFocus ? 1 : 0.12) : node.deg > 0 ? 1 : 0.55;
+            // search dim dominates; hover focus dims everything outside the neighborhood; idle
+            // de-emphasizes the unlinked halo
+            ctx.globalAlpha = searchDim ? 0.07 : focused ? (inFocus ? 1 : 0.12) : node.deg > 0 ? 1 : 0.55;
             ctx.beginPath();
             ctx.arc(node.x!, node.y!, r, 0, 2 * Math.PI);
             ctx.fillStyle = colors.fill(node.type);
@@ -147,11 +270,17 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
                 ctx.strokeStyle = colors.ring;
                 ctx.stroke();
             }
-            // labels only once settled (skipping them during the sim keeps the fly-in smooth), and only
-            // for the hover neighborhood or when zoomed in. Greedy de-collision (boxes reset per frame in
-            // onRenderFramePre) so labels never overlap — the readability fix.
-            const wantLabel = settled.current && inFocus && (hover.nodes.has(node.id) || scale > LABEL_ZOOM);
-            if (wantLabel) {
+            // map-style labels: hovered/selected/search-matched nodes always label; otherwise the
+            // label fades in as zoom passes the node's degree-tiered threshold. Greedy de-collision
+            // (boxes reset per frame in onRenderFramePre) keeps labels overlap-free.
+            if (searchDim || !inFocus) {
+                ctx.globalAlpha = 1;
+                return;
+            }
+            const forced =
+                sel || hover.nodes.has(node.id) || (filteredIds != null && filteredIds.size <= SEARCH_LABEL_MAX);
+            const la = forced ? 1 : Math.min(1, Math.max(0, (scale - labelZoomThreshold(node.deg)) / LABEL_FADE));
+            if (la > 0.05) {
                 const fs = 12.5 / scale;
                 ctx.font = `600 ${fs}px ui-monospace, monospace`;
                 const tw = ctx.measureText(node.title).width;
@@ -163,7 +292,7 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
                 );
                 if (!hit) {
                     labelBoxes.current.push(box);
-                    ctx.globalAlpha = 1;
+                    ctx.globalAlpha = la;
                     ctx.fillStyle = colors.chip;
                     ctx.beginPath();
                     ctx.roundRect(box.x, box.y, box.w, box.h, 3 / scale);
@@ -175,65 +304,101 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
             }
             ctx.globalAlpha = 1;
         },
-        [hover, selectedId, colors]
+        [hover, selectedId, colors, filteredIds]
     );
 
-    // the sim may be idle when selection/hover/colors change — force a repaint
+    // search-dimmed nodes get no pointer area: near-invisible dots shouldn't be clickable
+    const paintPointerArea = useCallback(
+        (node: GNode, color: string, ctx: CanvasRenderingContext2D) => {
+            if (filteredIds != null && !filteredIds.has(node.id)) return;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(node.x!, node.y!, nodeRadius(node.deg) + 2, 0, 2 * Math.PI);
+            ctx.fill();
+        },
+        [filteredIds]
+    );
+
+    const linkColor = useCallback(
+        (l: GLink) => {
+            if (hover.links.has(l)) return colors.edgeHot;
+            if (filteredIds != null && !(filteredIds.has(idOf(l.source)) && filteredIds.has(idOf(l.target)))) {
+                return colors.edgeDim;
+            }
+            if (hover.nodes.size > 0) return colors.edgeDim; // focused elsewhere
+            if (selLinks.has(l)) return colors.edgeSel;
+            return colors.edge;
+        },
+        [hover, filteredIds, selLinks, colors]
+    );
+
+    const linkWidth = useCallback(
+        (l: GLink) => (hover.links.has(l) ? 1.8 : selLinks.has(l) ? 1.2 : 0.7),
+        [hover, selLinks]
+    );
+
+    // the sim may be idle when selection/hover/search change — force a repaint
     useEffect(() => {
         fgRef.current?.refresh?.();
-    }, [selectedId, hover, colors]);
+    }, [selectedId, hover, colors, filteredIds]);
+
+    const zoomBy = (f: number) => {
+        const fg = fgRef.current;
+        if (!fg) return;
+        fg.zoom(Math.min(8, Math.max(0.05, fg.zoom() * f)), 220);
+    };
 
     return (
-        <div
-            ref={containerRef}
-            className={cn(
-                "absolute inset-0 overflow-hidden",
-                settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
-            )}
-        >
+        <div ref={containerRef} className="absolute inset-0 overflow-hidden">
             <Suspense fallback={<div className="p-[28px] text-[13px] text-ink-mid">Loading graph…</div>}>
                 {size.w > 0 && (
                     <ForceGraph2D
-                        ref={fgRef}
+                        // typed as MutableRefObject only, but react-kapsule forwards callback refs fine
+                        ref={attachFg as any}
                         width={size.w}
                         height={size.h}
-                        graphData={data}
+                        graphData={ready ? data : EMPTY_DATA}
                         backgroundColor={colors.bg}
                         nodeRelSize={1}
+                        minZoom={0.05}
+                        maxZoom={8}
                         nodeCanvasObject={paintNode as any}
-                        nodePointerAreaPaint={
-                            ((node: GNode, color: string, ctx: CanvasRenderingContext2D) => {
-                                ctx.fillStyle = color;
-                                ctx.beginPath();
-                                ctx.arc(node.x!, node.y!, nodeRadius(node.deg) + 2, 0, 2 * Math.PI);
-                                ctx.fill();
-                            }) as any
-                        }
-                        linkColor={((l: GLink) => (hover.links.has(l) ? colors.edgeHot : colors.edge)) as any}
-                        linkWidth={((l: GLink) => (hover.links.has(l) ? 2 : 0.6)) as any}
+                        nodePointerAreaPaint={paintPointerArea as any}
+                        linkColor={linkColor as any}
+                        linkWidth={linkWidth as any}
                         onNodeHover={onNodeHover as any}
                         onNodeClick={((node: GNode) => fireAndForget(() => selectNote(node.id))) as any}
+                        onNodeDragEnd={(() => savePositions()) as any}
                         onRenderFramePre={(() => {
                             labelBoxes.current = []; // reset de-collision boxes at the start of each frame
                         }) as any}
                         onEngineStop={() => {
-                            settled.current = true;
-                            setCooled(true);
-                            if (!fitted.current) {
-                                fgRef.current?.zoomToFit?.(600, 50); // animated fit
-                                fitted.current = true;
-                            }
-                            fgRef.current?.refresh?.(); // repaint so labels appear now that it's settled
+                            initCamera();
+                            savePositions();
                         }}
-                        // damped + time-boxed settle → calmer, smoother motion than the bouncy default.
-                        // Slightly faster decay + shorter cooldown so it stops jiggling sooner (less "clank").
+                        onZoomEnd={saveCamera as any}
+                        // damped decay: the pre-warmed layout arrives settled; live ticks only run
+                        // after drag reheats, and cool quickly
                         d3VelocityDecay={0.5}
                         d3AlphaDecay={0.045}
-                        warmupTicks={30}
+                        warmupTicks={WARMUP_TICKS}
                         cooldownTime={3000}
                     />
                 )}
             </Suspense>
+
+            {/* zoom controls — pinned overlay */}
+            <div className="absolute right-[12px] top-[12px] flex flex-col overflow-hidden rounded-[9px] border border-edge-mid bg-surface/90">
+                <CtrlBtn label="Zoom in" onClick={() => zoomBy(1.5)}>
+                    <Plus size={14} strokeWidth={2} />
+                </CtrlBtn>
+                <CtrlBtn label="Zoom out" onClick={() => zoomBy(1 / 1.5)}>
+                    <Minus size={14} strokeWidth={2} />
+                </CtrlBtn>
+                <CtrlBtn label="Fit to view" onClick={() => fgRef.current?.zoomToFit?.(400, 60)}>
+                    <Maximize size={13} strokeWidth={2} />
+                </CtrlBtn>
+            </div>
 
             {/* type legend — pinned overlay */}
             <div className="pointer-events-none absolute bottom-[10px] left-[12px] flex gap-[15px] rounded-[9px] border border-edge-faint bg-surface/80 px-[13px] py-[8px]">
