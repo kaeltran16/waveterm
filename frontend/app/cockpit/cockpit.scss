@@ -13,3 +13,50 @@
     overflow: hidden;
     position: relative;
 }
+
+// Empty-cockpit glyph ambience. CSS-driven (not framer): repeat:Infinity keyframe loops don't run
+// when nested under the entrance motion.div's variant tree. step-end gives the caret a hard,
+// terminal-authentic block blink.
+@keyframes cockpit-empty-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-6px);
+    }
+}
+@keyframes cockpit-empty-glow {
+    0%,
+    100% {
+        opacity: 0.55;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+@keyframes cockpit-empty-caret {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+}
+.cockpit-empty-glyph {
+    animation: cockpit-empty-float 5.5s ease-in-out infinite;
+}
+.cockpit-empty-glow {
+    animation: cockpit-empty-glow 3.6s ease-in-out infinite;
+}
+.cockpit-empty-caret {
+    animation: cockpit-empty-caret 1.1s step-end infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .cockpit-empty-glyph,
+    .cockpit-empty-glow,
+    .cockpit-empty-caret {
+        animation: none;
+    }
+}
