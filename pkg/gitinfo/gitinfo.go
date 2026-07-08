@@ -55,7 +55,10 @@ func GetChanges(ctx context.Context, cwd string) (*Changes, error) {
 	prefix, _ := run(ctx, cwd, "rev-parse", "--show-prefix")
 	prefix = strings.TrimSpace(prefix)
 	// `-- .` scopes to cwd's subtree; status has no --relative, so we strip the prefix ourselves below.
-	statusZ, err := run(ctx, cwd, "status", "--porcelain=v1", "-z", "--", ".")
+	// `-uall` lists untracked files individually instead of collapsing a wholly-new directory into one
+	// "dir/" entry — that collapsed row can't be diffed (GetDiff would os.ReadFile a directory) and
+	// wedges the Files pane, so we expand it at the source.
+	statusZ, err := run(ctx, cwd, "status", "--porcelain=v1", "-z", "-uall", "--", ".")
 	if err != nil {
 		return nil, err
 	}

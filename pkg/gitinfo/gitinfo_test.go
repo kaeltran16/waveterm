@@ -86,6 +86,44 @@ func TestUntrackedAdds(t *testing.T) {
 	}
 }
 
+func TestGetChangesExpandsUntrackedDir(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "base.txt", "base\n")
+	commitAll(t, dir)
+	// a brand-new directory with files: default porcelain collapses this to a single "newdir/" entry,
+	// which the Files surface can't diff (GetDiff would os.ReadFile a directory). -uall must expand it.
+	if err := os.MkdirAll(filepath.Join(dir, "newdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "newdir", "a.txt"), []byte("aa\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "newdir", "b.txt"), []byte("bb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := GetChanges(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ch.StatusZ, "newdir/a.txt") || !strings.Contains(ch.StatusZ, "newdir/b.txt") {
+		t.Fatalf("statusz should list untracked files individually: %q", ch.StatusZ)
+	}
+	// the collapsed "newdir/" entry must be gone — it would round-trip into GetDiff as a directory
+	for _, e := range strings.Split(ch.StatusZ, "\x00") {
+		if len(e) >= 3 && e[3:] == "newdir/" {
+			t.Fatalf("statusz still has the collapsed directory entry: %q", ch.StatusZ)
+		}
+	}
+	// each expanded path diffs as untracked content (the bug: a "newdir/" row errored here)
+	d, err := GetDiff(context.Background(), dir, "newdir/a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Untracked || strings.TrimSpace(d.Content) != "aa" {
+		t.Fatalf("expanded untracked file diff wrong: untracked=%v content=%q", d.Untracked, d.Content)
+	}
+}
+
 func TestGetChangesNotARepo(t *testing.T) {
 	ch, err := GetChanges(context.Background(), t.TempDir())
 	if err != nil {
