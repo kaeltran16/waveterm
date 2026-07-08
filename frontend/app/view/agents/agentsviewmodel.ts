@@ -267,6 +267,17 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
     return items;
 }
 
+// Pure: how a collapsed action group renders. "reveal" = the user expanded a historical burst, so
+// it animates open. "open" = the auto-open trailing burst during live streaming — plain, never
+// animated (the burst guard: a streaming run must not strobe, even if the user had also expanded it).
+// "collapsed" = show the summary button.
+export function burstRenderMode(o: { userOpened: boolean; autoOpen: boolean }): "reveal" | "open" | "collapsed" {
+    if (o.autoOpen) {
+        return "open";
+    }
+    return o.userOpened ? "reveal" : "collapsed";
+}
+
 // Joins the prose (message + user) entries of a transcript into one copyable string. Tool actions
 // are omitted — they are not conversational content.
 export function conversationText(entries: AgentEntry[]): string {

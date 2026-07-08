@@ -5,9 +5,10 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
 import { AnimatePresence, motion } from "motion/react";
-import { MOTION, shouldFadeEntry } from "@/app/element/motiontokens";
+import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
 import { Fragment, useState } from "react";
 import {
+    burstRenderMode,
     conversationText,
     detailExceedsInline,
     groupTimeline,
@@ -165,24 +166,33 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
                     </span>
                 ) : null}
             </div>
-            {detail && open && !toModal ? (
-                <div className="my-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code">
-                    <div className="max-h-[200px] overflow-auto">
-                        <ToolDetailBody detail={detail} variant="inline" />
-                    </div>
-                    <div className="flex items-center border-t border-edge-faint px-3 py-1">
-                        <div className="flex-1" />
-                        <button
-                            type="button"
-                            title="Expand"
-                            onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                            className="text-accent hover:text-accent-soft"
-                        >
-                            ↗
-                        </button>
-                    </div>
-                </div>
-            ) : null}
+            <AnimatePresence initial={false}>
+                {detail && open && !toModal ? (
+                    <motion.div
+                        key="detail"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="my-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code"
+                    >
+                        <div className="max-h-[200px] overflow-auto">
+                            <ToolDetailBody detail={detail} variant="inline" />
+                        </div>
+                        <div className="flex items-center border-t border-edge-faint px-3 py-1">
+                            <div className="flex-1" />
+                            <button
+                                type="button"
+                                title="Expand"
+                                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
+                                className="text-accent hover:text-accent-soft"
+                            >
+                                ↗
+                            </button>
+                        </div>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }
@@ -218,11 +228,20 @@ function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; 
                 <div className="min-w-[6px] flex-1" />
                 <span className="shrink-0 font-mono text-[8px] text-edge-strong">{toModal ? "↗" : open ? "▼" : "▶"}</span>
             </div>
-            {open && !toModal ? (
-                <div className="my-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code">
-                    <ToolDetailBody detail={detail} variant="inline" />
-                </div>
-            ) : null}
+            <AnimatePresence initial={false}>
+                {open && !toModal ? (
+                    <motion.div
+                        key="detail"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="my-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code"
+                    >
+                        <ToolDetailBody detail={detail} variant="inline" />
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }
@@ -315,14 +334,25 @@ export function NarrationTimeline({
                     return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
                 }
                 const isTrailing = idx === items.length - 1;
-                const isOpen = expanded.has(item.startIndex) || (active && isTrailing);
-                if (isOpen) {
-                    return (
-                        <Fragment key={"g" + item.startIndex}>
-                            {item.actions.map((action, k) => (
-                                <ToolLine key={item.startIndex + k} action={action} />
-                            ))}
-                        </Fragment>
+                const mode = burstRenderMode({ userOpened: expanded.has(item.startIndex), autoOpen: !!active && isTrailing });
+                if (mode !== "collapsed") {
+                    const lines = item.actions.map((action, k) => (
+                        <ToolLine key={item.startIndex + k} action={action} />
+                    ));
+                    // "reveal" (user expanded a historical burst) grows open; "open" (auto-open trailing
+                    // burst during streaming) renders plain so the live run never strobes.
+                    return mode === "reveal" ? (
+                        <motion.div
+                            key={"g" + item.startIndex}
+                            variants={composerReveal}
+                            initial="initial"
+                            animate="animate"
+                            className="overflow-hidden"
+                        >
+                            {lines}
+                        </motion.div>
+                    ) : (
+                        <Fragment key={"g" + item.startIndex}>{lines}</Fragment>
                     );
                 }
                 const summary = summarizeActions(item.actions);

@@ -238,8 +238,10 @@ export function AgentRow({
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
-    // in-row narration sticks to the latest line unless the user scrolls up to read history
-    useEffect(() => {
+    // in-row narration sticks to the latest line unless the user scrolls up to read history.
+    // layout-effect (not effect) so the pin lands before paint — otherwise each chunk paints the
+    // taller feed at the old scrollTop, then snaps down a frame later, which reads as a jump.
+    useLayoutEffect(() => {
         const el = scrollRef.current;
         if (el && stickRef.current) {
             el.scrollTop = el.scrollHeight;
