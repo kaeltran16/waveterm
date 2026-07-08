@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#e6e9ed}
+a{color:#7c95ff;text-decoration:none}
+a:hover{color:#8da3ff}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#262c34;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#343c46;background-clip:padding-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes tf-pulse{0%,100%{opacity:1}50%{opacity:.32}}
+@keyframes tf-ring{0%{box-shadow:0 0 0 0 rgba(84,199,154,.45)}70%{box-shadow:0 0 0 6px rgba(84,199,154,0)}100%{box-shadow:0 0 0 0 rgba(84,199,154,0)}}
+@keyframes tf-flow{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+@keyframes tf-caret{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes tf-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes tf-pop{from{opacity:0;transform:scale(.965)}to{opacity:1;transform:none}}
+@keyframes tf-fade{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:#0c0e11;color:#e6e9ed;font-family:'Hanken Grotesk',system-ui,sans-serif;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:40px 34px">
+
+  <!-- dimmed cockpit backdrop -->
+  <div style="position:absolute;inset:0;filter:blur(3px);opacity:.4;pointer-events:none;overflow:hidden">
+    <div style="padding:18px 34px;border-bottom:1px solid #141920"><span style="font-size:20px;font-weight:700;letter-spacing:-.02em">Cockpit</span></div>
+    <div style="padding:22px 34px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="height:240px;background:#0e1218;border:1px solid #212934;border-radius:14px"></div>
+      <div style="height:240px;background:#0e1218;border:1px solid #212934;border-radius:14px"></div>
+      <div style="height:200px;background:#0e1218;border:1px solid #212934;border-radius:14px"></div>
+      <div style="height:200px;background:#0e1218;border:1px solid #212934;border-radius:14px"></div>
+    </div>
+  </div>
+  <div style="position:absolute;inset:0;background:rgba(7,9,12,.6)"></div>
+
+  <!-- caption -->
+  <div style="position:absolute;top:26px;left:34px;z-index:3;display:flex;align-items:center;gap:10px">
+    <span style="font:700 10px 'JetBrains Mono';letter-spacing:.16em;text-transform:uppercase;color:#7c95ff">Transcript feed</span>
+    <span style="font:500 11.5px 'JetBrains Mono';color:#6b7178">one agent card · live</span>
+  </div>
+
+  <!-- ============ AGENT CARD ============ -->
+  <div style="position:relative;z-index:2;width:560px;max-width:100%;height:min(860px,94vh);display:flex;flex-direction:column;background:#0e1116;border:1px solid #242b34;border-radius:15px;box-shadow:0 40px 110px rgba(0,0,0,.6),0 0 0 1px rgba(0,0,0,.3);overflow:hidden">
+
+    <!-- card header -->
+    <div style="flex:none;position:relative">
+      <div style="display:flex;align-items:center;gap:11px;padding:12px 15px 11px">
+        <div style="width:9px;height:9px;border-radius:50%;background:#54c79a;animation:tf-ring 2s infinite;flex:none"></div>
+        <span style="font-weight:700;font-size:14px;letter-spacing:-.01em;flex:none">auth-refactor</span>
+        <span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:#d97757;background:rgba(217,119,87,.13);border-radius:5px;padding:3px 6px;flex:none">claude</span>
+        <span style="font:500 11px 'JetBrains Mono';color:#6b7178;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">payments-api · refactor/session-store</span>
+        <span style="font:500 10.5px 'JetBrains Mono';color:#4f565f;flex:none">12m</span>
+      </div>
+      <!-- streaming flow bar -->
+      <div style="height:2px;background:#12161b;overflow:hidden">
+        <div style="height:100%;width:26%;background:linear-gradient(90deg,transparent,#7c95ff,transparent);animation:tf-flow 1.9s linear infinite"></div>
+      </div>
+    </div>
+
+    <!-- feed -->
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:16px 15px 10px;display:flex;flex-direction:column;gap:14px">
+
+      <sc-for list="{{ blocks }}" as="b" hint-placeholder-count="8">
+
+        <!-- USER -->
+        <sc-if value="{{ b.isUser }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;justify-content:flex-end;padding-left:44px">
+            <div style="background:#1a222c;border:1px solid #263140;border-radius:14px;border-bottom-right-radius:5px;padding:9px 13px">
+              <p style="font:500 13px/1.5 'Hanken Grotesk';color:#e6e9ed">{{ b.text }}</p>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ASSISTANT prose -->
+        <sc-if value="{{ b.isAssistant }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <div style="width:22px;height:22px;border-radius:7px;flex:none;background:rgba(217,119,87,.15);display:flex;align-items:center;justify-content:center;margin-top:1px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#d97757"></div>
+            </div>
+            <p style="font:400 13.5px/1.62 'Hanken Grotesk';color:#dfe4ea;flex:1;min-width:0;padding-top:1px">
+              <sc-for list="{{ b.parts }}" as="p" hint-placeholder-count="3"><span style="font-weight:{{ p.weight }};color:{{ p.color }};background:{{ p.bg }};border-radius:{{ p.radius }};padding:{{ p.pad }};font-family:{{ p.font }};font-size:{{ p.size }}">{{ p.t }}</span></sc-for>
+            </p>
+          </div>
+        </sc-if>
+
+        <!-- CODE BLOCK -->
+        <sc-if value="{{ b.isCode }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-left:32px;background:#0b0d10;border:1px solid #1c2128;border-radius:10px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid #14181e;background:#0e1116">
+              <span style="font:600 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:#7c95ff">{{ b.lang }}</span>
+              <span style="font:500 10.5px 'JetBrains Mono';color:#5b6470">{{ b.path }}</span>
+              <div style="flex:1"></div>
+              <button onClick="{{ b.copy }}" style="display:flex;align-items:center;gap:5px;background:transparent;border:1px solid #20262e;border-radius:6px;padding:3px 8px;cursor:pointer;color:{{ b.copyColor }}" style-hover="border-color:#2a313a">
+                <span style="font:500 9.5px 'JetBrains Mono';letter-spacing:.03em">{{ b.copyLabel }}</span>
+              </button>
+            </div>
+            <div style="overflow-x:auto"><div style="padding:9px 0;min-width:min-content">
+              <sc-for list="{{ b.lines }}" as="ln" hint-placeholder-count="5">
+                <div style="display:flex;font:400 12px/1.75 'JetBrains Mono';white-space:pre">
+                  <span style="width:34px;flex:none;text-align:right;padding-right:14px;color:#3f4751;user-select:none">{{ ln.n }}</span>
+                  <span style="padding-right:16px"><sc-for list="{{ ln.toks }}" as="tk" hint-placeholder-count="4"><span style="color:{{ tk.c }}">{{ tk.t }}</span></sc-for></span>
+                </div>
+              </sc-for>
+            </div></div>
+          </div>
+        </sc-if>
+
+        <!-- TOOL CALL -->
+        <sc-if value="{{ b.isTool }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-left:32px">
+            <div onClick="{{ b.toggle }}" style="display:flex;align-items:center;gap:8px;padding:2px 6px;margin:-1px -6px;border-radius:6px;cursor:pointer" style-hover="background:#12161b">
+              <span style="width:12px;height:12px;flex:none;display:flex;align-items:center;justify-content:center;color:{{ b.statusColor }}">
+                <sc-if value="{{ b.isOk }}" hint-placeholder-val="{{ true }}"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3.5 8.5l3 3 6-7"/></svg></sc-if>
+                <sc-if value="{{ b.isErr }}" hint-placeholder-val="{{ false }}"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></sc-if>
+              </span>
+              <span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:#777f89;flex:none">{{ b.verb }}</span>
+              <span style="font:500 11px 'JetBrains Mono';color:#9aa3ad;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ b.target }}</span>
+              <span style="font:500 10.5px 'JetBrains Mono';color:{{ b.summaryColor }};flex:none;white-space:nowrap">{{ b.summary }}</span>
+              <div style="flex:1;min-width:6px"></div>
+              <span style="font:500 9.5px 'JetBrains Mono';color:#4f565f;flex:none">{{ b.dur }}</span>
+              <span style="font:600 7px 'JetBrains Mono';color:#3a4049;flex:none;transform:rotate({{ b.caretDeg }});transition:transform .12s">▶</span>
+            </div>
+
+            <sc-if value="{{ b.open }}" hint-placeholder-val="{{ false }}">
+              <div style="margin:6px 0 2px;background:#0b0d10;border:1px solid #171c22;border-radius:9px;overflow:hidden;position:relative">
+                <div style="max-height:200px;overflow:auto">
+
+                <!-- grep matches -->
+                <sc-if value="{{ b.isGrep }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:8px 0">
+                    <sc-for list="{{ b.grep }}" as="g" hint-placeholder-count="4">
+                      <div style="display:flex;gap:10px;padding:2px 13px;font:400 11px/1.6 'JetBrains Mono';white-space:pre;overflow:hidden">
+                        <span style="color:#6b7178;flex:none">{{ g.loc }}</span>
+                        <span style="color:#cdd3da;white-space:pre;overflow:hidden;text-overflow:ellipsis">{{ g.code }}</span>
+                      </div>
+                    </sc-for>
+                    <div style="font:500 10px 'JetBrains Mono';color:#4f565f;padding:6px 13px 2px">{{ b.grepMore }}</div>
+                  </div>
+                </sc-if>
+
+                <!-- read snippet -->
+                <sc-if value="{{ b.isRead }}" hint-placeholder-val="{{ false }}">
+                  <div style="overflow-x:auto"><pre style="font:400 11px/1.7 'JetBrains Mono';color:#aeb6bf;padding:9px 13px;white-space:pre;min-width:min-content">{{ b.read }}</pre></div>
+                </sc-if>
+
+                <!-- bash terminal -->
+                <sc-if value="{{ b.isBash }}" hint-placeholder-val="{{ false }}">
+                  <div style="overflow-x:auto"><pre style="font:400 11px/1.7 'JetBrains Mono';color:{{ b.termColor }};padding:9px 13px;white-space:pre;min-width:min-content">{{ b.term }}</pre></div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 13px 9px">
+                    <span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ b.exitColor }};background:{{ b.exitBg }};border-radius:4px;padding:2px 7px">exit {{ b.exit }}</span>
+                    <span style="font:500 10px 'JetBrains Mono';color:#4f565f">{{ b.dur }}</span>
+                  </div>
+                </sc-if>
+
+                </div>
+                <sc-if value="{{ b.capped }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:1px;right:1px;bottom:32px;height:32px;background:linear-gradient(transparent,#0b0d10);pointer-events:none"></div></sc-if>
+                <div style="display:flex;align-items:center;border-top:1px solid #14181e;padding:5px 9px 5px 12px">
+                  <span style="font:500 9.5px 'JetBrains Mono';color:#4f565f">{{ b.detailMeta }}</span>
+                  <div style="flex:1"></div>
+                  <button onClick="{{ b.openModal }}" style="display:flex;align-items:center;gap:5px;background:transparent;border:0;cursor:pointer;color:#7c95ff;padding:2px 4px" style-hover="color:#9db0ff">
+                    <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.02em">Expand</span>
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3h4v4M13 3l-5 5M7 13H3V9M3 13l5-5"/></svg>
+                  </button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- BURST -->
+        <sc-if value="{{ b.isBurst }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-left:32px">
+            <div onClick="{{ b.toggle }}" style="display:flex;align-items:center;gap:8px;padding:2px 6px;margin:-1px -6px;border-radius:6px;cursor:pointer" style-hover="background:#12161b">
+              <span style="width:12px;height:12px;flex:none;display:flex;align-items:center;justify-content:center;color:#54c79a">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3.5 8.5l3 3 6-7"/></svg>
+              </span>
+              <span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:#777f89;flex:none">edited</span>
+              <span style="font:500 11px 'JetBrains Mono';color:#9aa3ad">{{ b.summary }}</span>
+              <span style="font:500 10px 'JetBrains Mono';color:#54c79a;flex:none">{{ b.add }}</span>
+              <span style="font:500 10px 'JetBrains Mono';color:#e0726c;flex:none">{{ b.del }}</span>
+              <div style="flex:1;min-width:6px"></div>
+              <span style="font:600 7px 'JetBrains Mono';color:#3a4049;flex:none;transform:rotate({{ b.caretDeg }});transition:transform .12s">▶</span>
+            </div>
+            <sc-if value="{{ b.open }}" hint-placeholder-val="{{ false }}">
+              <div style="margin:6px 0 2px;background:#0b0d10;border:1px solid #171c22;border-radius:9px;overflow:hidden;position:relative">
+                <div style="max-height:230px;overflow:auto;display:flex;flex-direction:column">
+                <sc-for list="{{ b.files }}" as="f" hint-placeholder-count="3">
+                  <div style="border-bottom:1px solid #12161b">
+                    <div style="display:flex;align-items:center;gap:9px;padding:7px 11px;background:#0e1116">
+                      <span style="font:700 8.5px 'JetBrains Mono';width:15px;height:15px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:4px;color:{{ f.badgeColor }};background:{{ f.badgeBg }}">{{ f.badge }}</span>
+                      <span style="flex:1;min-width:0;font:500 11.5px 'JetBrains Mono';color:#dbe1e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.path }}</span>
+                      <span style="font:700 9.5px 'JetBrains Mono';color:#54c79a;flex:none">{{ f.add }}</span>
+                      <span style="font:700 9.5px 'JetBrains Mono';color:#e0726c;flex:none">{{ f.del }}</span>
+                    </div>
+                    <div style="background:#0b0d10;padding:4px 0;overflow-x:auto"><div style="min-width:min-content">
+                      <sc-for list="{{ f.lines }}" as="l" hint-placeholder-count="3">
+                        <div style="display:flex;background:{{ l.bg }};font:400 11px/1.7 'JetBrains Mono';white-space:pre">
+                          <span style="width:30px;flex:none;text-align:right;padding:0 6px;color:#3f4751;user-select:none">{{ l.gOld }}</span>
+                          <span style="width:30px;flex:none;text-align:right;padding:0 6px;color:#3f4751;user-select:none">{{ l.gNew }}</span>
+                          <span style="width:13px;flex:none;text-align:center;color:{{ l.signColor }}">{{ l.sign }}</span>
+                          <span style="padding-right:14px;color:{{ l.textColor }}">{{ l.text }}</span>
+                        </div>
+                      </sc-for>
+                    </div></div>
+                  </div>
+                </sc-for>
+                </div>
+                <sc-if value="{{ b.capped }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:1px;right:1px;bottom:32px;height:32px;background:linear-gradient(transparent,#0b0d10);pointer-events:none"></div></sc-if>
+                <div style="display:flex;align-items:center;border-top:1px solid #14181e;padding:5px 9px 5px 12px">
+                  <span style="font:500 9.5px 'JetBrains Mono';color:#4f565f">{{ b.detailMeta }}</span>
+                  <div style="flex:1"></div>
+                  <button onClick="{{ b.openModal }}" style="display:flex;align-items:center;gap:5px;background:transparent;border:0;cursor:pointer;color:#7c95ff;padding:2px 4px" style-hover="color:#9db0ff">
+                    <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.02em">Expand</span>
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 3h4v4M13 3l-5 5M7 13H3V9M3 13l5-5"/></svg>
+                  </button>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+      </sc-for>
+
+      <!-- live caret -->
+      <div style="display:flex;gap:10px;align-items:center;margin-left:0">
+        <div style="width:22px;height:22px;border-radius:7px;flex:none;background:rgba(217,119,87,.15);display:flex;align-items:center;justify-content:center">
+          <div style="width:8px;height:8px;border-radius:50%;background:#d97757;animation:tf-pulse 1.3s infinite"></div>
+        </div>
+        <span style="font:500 12.5px 'Hanken Grotesk';color:#9aa3ad">Re-running type-check<span style="animation:tf-caret 1s step-end infinite;color:#d97757">▍</span></span>
+      </div>
+
+    </div>
+
+    <!-- composer -->
+    <div style="flex:none;border-top:1px solid #14181e;padding:10px 12px;display:flex;align-items:center;gap:10px;background:#0e1116">
+      <div style="flex:1;background:#0b0d10;border:1px solid #1c2128;border-radius:9px;padding:9px 12px;font:400 12.5px 'Hanken Grotesk';color:#4f565f">Reply or steer auth-refactor…</div>
+      <button style="width:32px;height:32px;flex:none;border-radius:8px;border:0;background:#7c95ff;color:#0b0e14;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:#8da3ff">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 13V3M8 3L4 7M8 3l4 4"/></svg>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- DETAIL MODAL (inline → modal escalation) -->
+  <sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute;inset:0;z-index:20;background:rgba(6,8,11,.68);display:flex;align-items:center;justify-content:center;padding:44px;animation:tf-fade .14s both">
+      <div onClick="{{ stop }}" style="width:min(720px,100%);max-height:100%;background:#0e1116;border:1px solid #2a313a;border-radius:14px;box-shadow:0 40px 120px rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;animation:tf-pop .16s cubic-bezier(.2,.7,.2,1) both">
+        <div style="flex:none;display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid #161a20">
+          <span style="width:15px;height:15px;flex:none;display:flex;align-items:center;justify-content:center;color:{{ modal.statusColor }}">
+            <sc-if value="{{ modal.isOk }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3.5 8.5l3 3 6-7"/></svg></sc-if>
+            <sc-if value="{{ modal.isErr }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4l8 8M12 4l-8 8"/></svg></sc-if>
+          </span>
+          <span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:#777f89;flex:none">{{ modal.verb }}</span>
+          <span style="font:600 13px 'JetBrains Mono';color:#e6e9ed;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">{{ modal.title }}</span>
+          <span style="font:500 11px 'JetBrains Mono';color:#6b7178;flex:none">{{ modal.dur }}</span>
+          <button onClick="{{ closeModal }}" style="width:27px;height:27px;flex:none;border-radius:7px;border:1px solid #262c34;background:transparent;color:#8b939d;cursor:pointer;display:flex;align-items:center;justify-content:center" style-hover="border-color:#2f3742;color:#e6e9ed"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+        <div style="flex:1;min-height:0;overflow-y:auto;background:#0b0d10">
+
+          <sc-if value="{{ modal.isGrep }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:12px 0">
+              <sc-for list="{{ modal.grep }}" as="g" hint-placeholder-count="6">
+                <div style="display:flex;gap:12px;padding:2px 16px;font:400 12px/1.7 'JetBrains Mono';white-space:pre;overflow:hidden">
+                  <span style="color:#6b7178;flex:none">{{ g.loc }}</span>
+                  <span style="color:#cdd3da">{{ g.code }}</span>
+                </div>
+              </sc-for>
+              <div style="font:500 11px 'JetBrains Mono';color:#4f565f;padding:8px 16px 2px">{{ modal.grepMore }}</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ modal.isRead }}" hint-placeholder-val="{{ false }}">
+            <pre style="font:400 12px/1.75 'JetBrains Mono';color:#aeb6bf;padding:14px 16px;white-space:pre;min-width:min-content">{{ modal.read }}</pre>
+          </sc-if>
+
+          <sc-if value="{{ modal.isBash }}" hint-placeholder-val="{{ false }}">
+            <pre style="font:400 12px/1.75 'JetBrains Mono';color:{{ modal.termColor }};padding:14px 16px;white-space:pre;min-width:min-content">{{ modal.term }}</pre>
+            <div style="padding:0 16px 14px"><span style="font:600 9px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ modal.exitColor }};background:{{ modal.exitBg }};border-radius:5px;padding:3px 9px">exit {{ modal.exit }}</span></div>
+          </sc-if>
+
+          <sc-if value="{{ modal.isBurst }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column">
+              <sc-for list="{{ modal.files }}" as="f" hint-placeholder-count="3">
+                <div style="border-bottom:1px solid #12161b">
+                  <div style="display:flex;align-items:center;gap:10px;padding:9px 15px;background:#0e1116">
+                    <span style="font:700 9px 'JetBrains Mono';width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:4px;color:{{ f.badgeColor }};background:{{ f.badgeBg }}">{{ f.badge }}</span>
+                    <span style="flex:1;min-width:0;font:500 12.5px 'JetBrains Mono';color:#dbe1e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.path }}</span>
+                    <span style="font:700 10px 'JetBrains Mono';color:#54c79a;flex:none">{{ f.add }}</span>
+                    <span style="font:700 10px 'JetBrains Mono';color:#e0726c;flex:none">{{ f.del }}</span>
+                  </div>
+                  <div style="padding:5px 0;overflow-x:auto"><div style="min-width:min-content">
+                    <sc-for list="{{ f.lines }}" as="l" hint-placeholder-count="3">
+                      <div style="display:flex;background:{{ l.bg }};font:400 12px/1.75 'JetBrains Mono';white-space:pre">
+                        <span style="width:34px;flex:none;text-align:right;padding:0 8px;color:#3f4751;user-select:none">{{ l.gOld }}</span>
+                        <span style="width:34px;flex:none;text-align:right;padding:0 8px;color:#3f4751;user-select:none">{{ l.gNew }}</span>
+                        <span style="width:14px;flex:none;text-align:center;color:{{ l.signColor }}">{{ l.sign }}</span>
+                        <span style="padding-right:16px;color:{{ l.textColor }}">{{ l.text }}</span>
+                      </div>
+                    </sc-for>
+                  </div></div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: &quot;100%&quot;, &quot;height&quot;: &quot;100%&quot;}}">
+class Component extends DCLogic {
+  state = {
+    open: { 't-grep': false, 't-read': false, 'bst': false, 't-test': false, 't-tsc': true },
+    copied: null,
+    modalId: null,
+  };
+
+  toggle(id){ this.setState(s => ({ open: { ...s.open, [id]: !s.open[id] } })); }
+
+  copy(id, text){
+    try { navigator.clipboard && navigator.clipboard.writeText(text); } catch(e){}
+    this.setState({ copied: id });
+    clearTimeout(this._ct);
+    this._ct = setTimeout(() => this.setState({ copied: null }), 1400);
+  }
+
+  // ---- lightweight markdown for prose (bold + inline code) ----
+  parseMd(text){
+    const parts = [];
+    const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+    let last = 0, m;
+    const push = (t, kind) => {
+      if (!t) return;
+      if (kind === 'b') parts.push({ t, weight:'600', color:'#f0f2f5', bg:'transparent', radius:'0', pad:'0', font:"inherit", size:'inherit' });
+      else if (kind === 'c') parts.push({ t, weight:'500', color:'#aebfff', bg:'rgba(124,149,255,.1)', radius:'4px', pad:'1px 5px', font:"'JetBrains Mono',monospace", size:'12px' });
+      else parts.push({ t, weight:'400', color:'#dfe4ea', bg:'transparent', radius:'0', pad:'0', font:'inherit', size:'inherit' });
+    };
+    while ((m = re.exec(text))) {
+      push(text.slice(last, m.index), 't');
+      const tok = m[0];
+      if (tok.startsWith('**')) push(tok.slice(2, -2), 'b');
+      else push(tok.slice(1, -1), 'c');
+      last = re.lastIndex;
+    }
+    push(text.slice(last), 't');
+    return parts;
+  }
+
+  // ---- syntax highlight one line -> tokens ----
+  hlLine(line){
+    const kw = new Set(['const','let','var','function','return','new','import','from','export','default','if','else','for','while','await','async','class','extends','true','false','null','undefined','this','void','type','interface']);
+    const re = /(\/\/[^\n]*)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)|(\s+)|([^\sA-Za-z0-9_$])/g;
+    const toks = []; let m;
+    while ((m = re.exec(line))) {
+      let t = m[0], c = '#cdd3da';
+      if (m[1]) c = '#6b7178';                        // comment
+      else if (m[2]) c = '#7fd6ab';                   // string
+      else if (m[3]) c = '#e6b450';                   // number
+      else if (m[4]) c = kw.has(m[4]) ? '#aebfff' : '#cdd3da'; // keyword / ident
+      else if (m[6]) c = '#8b939d';                   // punctuation
+      toks.push({ t, c });
+    }
+    if (toks.length === 0) toks.push({ t: ' ', c: '#cdd3da' });
+    return { toks };
+  }
+
+  renderVals(){
+    const st = this.state;
+    const md = t => ({ isAssistant:true, parts: this.parseMd(t) });
+    const user = t => ({ isUser:true, text:t });
+
+    const code = (id, lang, path, src) => ({
+      isCode:true, lang, path,
+      lines: src.split('\n').map((l,i) => ({ n:i+1, ...this.hlLine(l) })),
+      copy: () => this.copy(id, src),
+      copyLabel: st.copied === id ? 'Copied' : 'Copy',
+      copyColor: st.copied === id ? '#54c79a' : '#6b7178',
+    });
+
+    const opened = id => !!st.open[id];
+    const shell = id => ({ cardBg: opened(id) ? '#0b0d10' : '#0e1116', cardBorder: opened(id) ? '#232a33' : '#1c2128', bodyBorder:'#14181e', caretDeg: opened(id) ? '90deg' : '0deg' });
+
+    const tool = (id, cfg) => {
+      const status = cfg.status; // ok | err
+      const base = {
+        isTool:true, id, verb:cfg.verb, target:cfg.target, meta:cfg.meta||'', hasMeta:!!cfg.meta,
+        summary:cfg.summary, summaryColor: status==='err' ? '#e0726c' : '#9aa3ad',
+        isRead:cfg.kind==='read', isGrep:cfg.kind==='grep', isBash:cfg.kind==='bash',
+        isOk:status==='ok', isErr:status==='err',
+        statusColor: status==='err' ? '#e0726c' : '#54c79a',
+        iconColor: cfg.kind==='grep' ? '#8aa0ff' : (cfg.kind==='bash' ? '#8fbfa6' : '#9aa3ad'),
+        iconBg: cfg.kind==='grep' ? 'rgba(124,149,255,.12)' : (cfg.kind==='bash' ? 'rgba(84,199,154,.1)' : '#181d23'),
+        dur:cfg.dur, open:opened(id), toggle:()=>this.toggle(id), ...shell(id),
+        grep:cfg.grep||[], grepMore:cfg.grepMore||'', read:cfg.read||'',
+        term:cfg.term||'', termColor: cfg.status==='err' ? '#dcb6b3' : '#aeb6bf',
+        exit: cfg.exit==null ? 0 : cfg.exit,
+        exitColor: cfg.exit ? '#e0726c' : '#54c79a',
+        exitBg: cfg.exit ? 'rgba(224,114,108,.12)' : 'rgba(84,199,154,.12)',
+        capped: (cfg.kind==='grep' ? (cfg.grep||[]).length>6 : cfg.kind==='read' ? (cfg.read||'').split('\n').length>9 : cfg.kind==='bash' ? (cfg.term||'').split('\n').length>8 : false),
+        detailMeta: (cfg.kind==='bash' ? ('exit '+(cfg.exit||0)+' · '+cfg.dur) : (cfg.summary+' · '+cfg.dur)),
+        openModal: () => this.setState({ modalId: id }),
+      };
+      return base;
+    };
+
+    // diff row helper
+    const dcfg = { add:{bg:'rgba(84,199,154,.09)',sign:'+',sc:'#54c79a',tc:'#bfe9d3'}, del:{bg:'rgba(224,114,108,.09)',sign:'\u2212',sc:'#e0726c',tc:'#e9b9b6'}, ctx:{bg:'transparent',sign:'',sc:'#3f4751',tc:'#c8cdd3'} };
+    const diff = rows => rows.map(([k,o,n,t]) => { const c=dcfg[k]||dcfg.ctx; return { bg:c.bg, sign:c.sign, signColor:c.sc, textColor:c.tc, gOld:o, gNew:n, text:t }; });
+    const fbadge = { M:{color:'#e6b450',bg:'rgba(230,180,80,.14)'}, A:{color:'#54c79a',bg:'rgba(84,199,154,.14)'} };
+
+    const burst = (id, summary, add, del, files) => ({
+      isBurst:true, id, summary, add, del, open:opened(id), toggle:()=>this.toggle(id), ...shell(id),
+      files: files.map(f => ({ path:f.path, badge:f.badge, badgeColor:fbadge[f.badge].color, badgeBg:fbadge[f.badge].bg, add:f.add, del:f.del, lines:diff(f.lines) })),
+      capped: files.reduce((n,f)=>n+f.lines.length+1,0) > 9,
+      detailMeta: files.length+' files · '+add+' '+del,
+      openModal: () => this.setState({ modalId: id }),
+    });
+
+    const blocks = [
+      user("Refactor session handling so we can run the API on multiple instances. Don't break existing logins."),
+      md("On it — first I'll map how sessions are read and written across the codebase, then pick a store that survives horizontal scaling."),
+      tool('t-grep', { kind:'grep', verb:'grep', target:'"req.session"', meta:'--type ts', status:'ok', dur:'2.1s', summary:'14 matches',
+        grep:[
+          { loc:'src/auth.ts:42', code:'req.session.userId = user.id' },
+          { loc:'src/auth.ts:88', code:'delete req.session.userId' },
+          { loc:'src/middleware/guard.ts:17', code:'if (!req.session) return res.sendStatus(401)' },
+          { loc:'src/session.ts:9', code:'req.session.regenerate(done)' },
+          { loc:'src/routes/me.ts:23', code:'const uid = req.session.userId' },
+        ], grepMore:'+9 more across 3 files' }),
+      tool('t-read', { kind:'read', verb:'read', target:'src/session.ts', meta:':1\u201380', status:'ok', dur:'0.4s', summary:'80 lines',
+        read:'import session from "express-session";\n\nexport const sessionMiddleware = session({\n  secret: env.SESSION_SECRET,\n  store: new MemoryStore(),   // \u2190 not multi-instance safe\n  resave: false,\n  saveUninitialized: false,\n  cookie: { maxAge: 864e5 },\n});' }),
+      md("Sessions live in express-session's in-process **MemoryStore** \u2014 that won't survive multiple instances. 14 call sites across 5 modules, all test-covered. A shared Redis store keyed by `sess:` is the smallest safe change:"),
+      code('t-code1', 'ts', 'src/session.ts', "app.use(session({\n  store: new RedisStore({ client: redis, prefix: 'sess:' }),\n  secret: env.SESSION_SECRET,\n  resave: false,\n  saveUninitialized: false,\n}));"),
+      burst('bst', '3 files', '+60', '\u22126', [
+        { path:'src/session.ts', badge:'M', add:'+38', del:'\u22126', lines:[
+          ['ctx','11','11','  secret: env.SESSION_SECRET,'],
+          ['del','12','',"  store: new MemoryStore(),"],
+          ['add','','12',"  store: new RedisStore({ client: redis }),"],
+          ['ctx','13','13','  resave: false,'],
+        ] },
+        { path:'src/redis.ts', badge:'A', add:'+21', del:'\u22120', lines:[
+          ['add','','1',"import Redis from 'ioredis';"],
+          ['add','','2',"export const redis = new Redis(env.REDIS_URL);"],
+          ['add','','3',"const SESSION_TTL = 60 * 60 * 24; // 24h"],
+        ] },
+        { path:'package.json', badge:'M', add:'+1', del:'\u22120', lines:[
+          ['ctx','18','18','  "dependencies": {'],
+          ['add','','19','    "connect-redis": "^7.1.0",'],
+        ] },
+      ]),
+      tool('t-test', { kind:'bash', verb:'bash', target:'npm test -- session', status:'ok', dur:'8.2s', summary:'24 passing', exit:0,
+        term:'PASS  test/session.test.ts\n  \u2713 persists a session across instances (41 ms)\n  \u2713 expires after ttl (12 ms)\n\nTest Suites: 1 passed\nTests:       24 passed' }),
+      tool('t-tsc', { kind:'bash', verb:'bash', target:'tsc --noEmit', status:'err', dur:'0.9s', summary:'1 error', exit:1,
+        term:"src/redis.ts:22:33 - error TS7006:\n  Parameter 'client' implicitly has an 'any' type.\n\n22   const store = new RedisStore({ client });\n                                   ~~~~~~" }),
+      md("Missing a type on the client \u2014 pinning it to the shared `Redis` instance and re-checking."),
+    ];
+
+    const mt = blocks.find(x => x.id === st.modalId) || null;
+    return {
+      blocks,
+      modalOpen: !!mt,
+      closeModal: () => this.setState({ modalId: null }),
+      stop: (e) => { if (e && e.stopPropagation) e.stopPropagation(); },
+      modal: mt ? {
+        verb: mt.isBurst ? 'edited' : (mt.verb || ''),
+        title: mt.isBurst ? mt.summary : mt.target,
+        dur: mt.dur || '',
+        statusColor: mt.statusColor || '#54c79a',
+        isOk: mt.isBurst ? true : mt.isOk, isErr: !!mt.isErr,
+        isGrep: !!mt.isGrep, isRead: !!mt.isRead, isBash: !!mt.isBash, isBurst: !!mt.isBurst,
+        grep: mt.grep || [], grepMore: mt.grepMore || '', read: mt.read || '',
+        term: mt.term || '', termColor: mt.termColor, exit: mt.exit, exitColor: mt.exitColor, exitBg: mt.exitBg,
+        files: mt.files || [],
+      } : {},
+    };
+  }
+}
+</script>
+</body>
+</html>
