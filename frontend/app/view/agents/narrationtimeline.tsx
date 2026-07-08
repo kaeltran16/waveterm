@@ -2,12 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, shouldFadeEntry } from "@/app/element/motiontokens";
 import { Fragment, useState } from "react";
-import { conversationText, groupTimeline, summarizeActions, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
+import {
+    conversationText,
+    detailExceedsInline,
+    groupTimeline,
+    summarizeActions,
+    type ActionDetail,
+    type AgentActionEntry,
+    type AgentEntry,
+    type EditFile,
+} from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
+import { formatDuration } from "./tooldetail";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
 // (accent avatar + prose); user -> right-aligned bubble; action -> tool line
@@ -16,34 +27,201 @@ import { MarkdownMessage } from "./markdownmessage";
 // click; while `active`, the trailing run stays expanded. tool_result content is
 // never present. Per-tool timestamps are omitted (not in AgentEntry).
 
-function ToolLine({ action }: { action: AgentActionEntry }) {
-    const ok = action.outcome !== "fail";
+// Shared per-kind detail renderer. Used inline (capped by max-height) and by the modal (uncapped).
+// Tokens only — no raw hex. See Wave-transcript-feed.dc.html.
+export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; variant: "inline" | "modal" }) {
+    const pad = variant === "modal" ? "px-4 py-3" : "px-[11px] py-[9px]";
+    if (detail.kind === "grep") {
+        return (
+            <div className={pad}>
+                {detail.matches.map((g, i) => (
+                    <div key={i} className="flex gap-2.5 whitespace-pre font-mono text-[11px] leading-[1.6]">
+                        <span className="shrink-0 text-muted">{g.loc}</span>
+                        <span className="truncate text-secondary">{g.code}</span>
+                    </div>
+                ))}
+                {detail.more ? <div className="pt-1.5 font-mono text-[10px] text-feed-time">{detail.more}</div> : null}
+            </div>
+        );
+    }
+    if (detail.kind === "read") {
+        return (
+            <pre className={`overflow-x-auto whitespace-pre font-mono text-[11px] leading-[1.7] text-ink-mid ${pad}`}>
+                {detail.snippet}
+            </pre>
+        );
+    }
+    if (detail.kind === "bash") {
+        return (
+            <div>
+                <pre
+                    className={`overflow-x-auto whitespace-pre font-mono text-[11px] leading-[1.7] ${pad} ${detail.exit ? "text-error" : "text-ink-mid"}`}
+                >
+                    {detail.output}
+                </pre>
+                <div className="flex items-center gap-2 px-[13px] pb-[9px]">
+                    <span
+                        className={`rounded-[4px] px-[7px] py-0.5 font-mono text-[8.5px] font-semibold uppercase ${detail.exit ? "bg-error/15 text-error" : "bg-success/15 text-success"}`}
+                    >
+                        exit {detail.exit}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+    // edit
     return (
-        <div className="flex items-center gap-1.5 px-1 py-[3px] opacity-[0.68]">
-            <span
+        <div className="flex flex-col">
+            {detail.files.map((f, i) => (
+                <div key={i} className="border-b border-lane last:border-b-0">
+                    <div className="flex items-center gap-2.5 bg-surface px-[11px] py-[7px]">
+                        <span
+                            className={`flex h-[15px] w-[15px] items-center justify-center rounded-[4px] font-mono text-[8.5px] font-bold ${f.badge === "A" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
+                        >
+                            {f.badge}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-hi">{f.path}</span>
+                        <span className="font-mono text-[9.5px] font-bold text-success">+{f.adds}</span>
+                        <span className="font-mono text-[9.5px] font-bold text-error">−{f.dels}</span>
+                    </div>
+                    <div className="overflow-x-auto bg-surface-code py-1">
+                        <div className="min-w-min">
+                            {f.lines.map((l, k) => (
+                                <div
+                                    key={k}
+                                    className={`flex whitespace-pre font-mono text-[11px] leading-[1.7] ${l.sign === "+" ? "bg-success/[0.09]" : l.sign === "-" ? "bg-error/[0.09]" : ""}`}
+                                >
+                                    <span
+                                        className={`w-[13px] shrink-0 text-center ${l.sign === "+" ? "text-success" : l.sign === "-" ? "text-error" : "text-ink-faint"}`}
+                                    >
+                                        {l.sign}
+                                    </span>
+                                    <span
+                                        className={`pr-3.5 ${l.sign === "+" ? "text-success-soft" : l.sign === "-" ? "text-error" : "text-secondary"}`}
+                                    >
+                                        {l.text}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+// A single tool action row. Clickable when it carries detail: short detail expands inline, detail
+// past the per-kind budget opens the viewport modal. The bare-line look is preserved when detail
+// is absent (e.g. Codex actions, or Claude tools with no captured body).
+function ToolLine({ action }: { action: AgentActionEntry }) {
+    const [open, setOpen] = useState(false);
+    const ok = action.outcome !== "fail";
+    const detail = action.detail;
+    const toModal = detail ? detailExceedsInline(detail) : false;
+    const onClick = () => {
+        if (!detail) {
+            return;
+        }
+        if (toModal) {
+            modalsModel.pushModal("AgentToolDetailModal", { action });
+        } else {
+            setOpen((v) => !v);
+        }
+    };
+    return (
+        <div>
+            <div
+                onClick={onClick}
                 className={cn(
-                    "flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] text-[8px]",
-                    ok ? "bg-success/15 text-success" : "bg-error/15 text-error"
+                    "flex items-center gap-1.5 rounded-[6px] px-1.5 py-[3px]",
+                    detail ? "cursor-pointer opacity-[0.72] hover:bg-lane hover:opacity-100" : "opacity-[0.68]"
                 )}
             >
-                {ok ? "✓" : "✗"}
-            </span>
-            <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.03em] text-feed-label">
-                {action.verb}
-            </span>
-            <span className="shrink-0 whitespace-nowrap font-mono text-[10.5px] text-feed-summary">{action.target}</span>
-            {action.note ? (
-                <>
-                    <span className="shrink-0 text-[9px] text-edge-strong">→</span>
-                    <span
-                        className={cn(
-                            "min-w-0 truncate font-mono text-[10.5px] opacity-[0.85]",
-                            ok ? "text-success" : "text-error"
-                        )}
-                    >
-                        {action.note}
+                <span
+                    className={cn(
+                        "flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] text-[8px]",
+                        ok ? "bg-success/15 text-success" : "bg-error/15 text-error"
+                    )}
+                >
+                    {ok ? "✓" : "✗"}
+                </span>
+                <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.03em] text-feed-label">
+                    {action.verb}
+                </span>
+                <span className="min-w-0 truncate font-mono text-[10.5px] text-feed-summary">{action.target}</span>
+                {action.summary ? (
+                    <span className={cn("shrink-0 font-mono text-[10.5px]", ok ? "text-feed-summary" : "text-error")}>
+                        {action.summary}
                     </span>
-                </>
+                ) : null}
+                <div className="min-w-[6px] flex-1" />
+                {action.durationMs ? (
+                    <span className="shrink-0 font-mono text-[9.5px] text-feed-time">{formatDuration(action.durationMs)}</span>
+                ) : null}
+                {detail ? (
+                    <span className="shrink-0 font-mono text-[8px] text-edge-strong">
+                        {toModal ? "↗" : open ? "▼" : "▶"}
+                    </span>
+                ) : null}
+            </div>
+            {detail && open && !toModal ? (
+                <div className="my-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code">
+                    <div className="max-h-[200px] overflow-auto">
+                        <ToolDetailBody detail={detail} variant="inline" />
+                    </div>
+                    <div className="flex items-center border-t border-edge-faint px-3 py-1">
+                        <div className="flex-1" />
+                        <button
+                            type="button"
+                            title="Expand"
+                            onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
+                            className="text-accent hover:text-accent-soft"
+                        >
+                            ↗
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+// A folded run of consecutive edits (Wave-transcript-feed.dc.html burst). Summary row: "N files
+// +adds −dels"; expands inline when the combined diff fits the edit budget, else opens the modal.
+function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; dels: number }) {
+    const [open, setOpen] = useState(false);
+    const detail = { kind: "edit" as const, files };
+    const toModal = detailExceedsInline(detail);
+    const action = {
+        kind: "action" as const,
+        verb: "edited",
+        target: `${files.length} file${files.length === 1 ? "" : "s"}`,
+        detail,
+    };
+    const onClick = () => (toModal ? modalsModel.pushModal("AgentToolDetailModal", { action }) : setOpen((v) => !v));
+    return (
+        <div>
+            <div
+                onClick={onClick}
+                className="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[3px] opacity-[0.72] hover:bg-lane hover:opacity-100"
+            >
+                <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] bg-success/15 text-[8px] text-success">
+                    ✓
+                </span>
+                <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.03em] text-feed-label">
+                    edited
+                </span>
+                <span className="font-mono text-[10.5px] text-feed-summary">{action.target}</span>
+                <span className="shrink-0 font-mono text-[10px] text-success">+{adds}</span>
+                <span className="shrink-0 font-mono text-[10px] text-error">−{dels}</span>
+                <div className="min-w-[6px] flex-1" />
+                <span className="shrink-0 font-mono text-[8px] text-edge-strong">{toModal ? "↗" : open ? "▼" : "▶"}</span>
+            </div>
+            {open && !toModal ? (
+                <div className="my-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code">
+                    <ToolDetailBody detail={detail} variant="inline" />
+                </div>
             ) : null}
         </div>
     );
@@ -132,6 +310,9 @@ export function NarrationTimeline({
                 }
                 if (item.kind === "action") {
                     return <ToolLine key={item.index} action={item.action} />;
+                }
+                if (item.kind === "edit-burst") {
+                    return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
                 }
                 const isTrailing = idx === items.length - 1;
                 const isOpen = expanded.has(item.startIndex) || (active && isTrailing);

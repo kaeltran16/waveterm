@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
+import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -897,5 +897,48 @@ describe("conversationText", () => {
 
     it("returns an empty string when there is no prose", () => {
         expect(conversationText([{ kind: "action", verb: "Bash", target: "ls" }])).toBe("");
+    });
+});
+
+describe("detail inline routing", () => {
+    it("counts grep matches", () => {
+        expect(detailLineCount({ kind: "grep", matches: [{ loc: "a", code: "b" }] })).toBe(1);
+    });
+    it("routes a 7-match grep to the modal (budget 6)", () => {
+        const matches = Array.from({ length: 7 }, () => ({ loc: "x", code: "y" }));
+        expect(detailExceedsInline({ kind: "grep", matches })).toBe(true);
+    });
+    it("keeps a 6-match grep inline", () => {
+        const matches = Array.from({ length: 6 }, () => ({ loc: "x", code: "y" }));
+        expect(detailExceedsInline({ kind: "grep", matches })).toBe(false);
+    });
+});
+
+describe("edit-burst grouping", () => {
+    const edit = (path: string): AgentEntry => ({
+        kind: "action",
+        verb: "edited",
+        target: path,
+        detail: { kind: "edit", files: [{ path, badge: "M", adds: 2, dels: 1, lines: [{ sign: "+", text: "a" }] }] },
+    });
+    it("folds 3+ consecutive edits into one edit-burst with summed totals", () => {
+        const items = groupTimeline([edit("a.ts"), edit("b.ts"), edit("c.ts")]);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({ kind: "edit-burst", adds: 6, dels: 3 });
+        expect((items[0] as any).files).toHaveLength(3);
+    });
+    it("leaves a 2-edit run as inline actions", () => {
+        const items = groupTimeline([edit("a.ts"), edit("b.ts")]);
+        expect(items.map((i) => i.kind)).toEqual(["action", "action"]);
+    });
+    it("isEditAction requires the edit detail", () => {
+        expect(isEditAction({ kind: "action", verb: "edited", target: "a.ts" })).toBe(false);
+        expect(isEditAction(edit("a.ts"))).toBe(true);
+    });
+    it("aggregateEditBurst sums files across actions", () => {
+        const burst = aggregateEditBurst([edit("a.ts"), edit("b.ts")] as AgentActionEntry[], 0);
+        expect(burst.files).toHaveLength(2);
+        expect(burst.adds).toBe(4);
+        expect(burst.dels).toBe(2);
     });
 });

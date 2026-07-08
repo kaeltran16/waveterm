@@ -134,6 +134,14 @@
     --ansi-brightcyan: #b7b8cb;
     --ansi-brightwhite: #f0f0f0;
 
+    /* Code syntax highlight (transcript code blocks; see highlight.ts) */
+    --color-syntax-keyword: #aebfff;
+    --color-syntax-string: #7fd6ab;
+    --color-syntax-number: #e6b450;
+    --color-syntax-comment: #6b7178;
+    --color-syntax-punct: #8b939d;
+    --color-syntax-ident: #cdd3da;
+
     --container-w600: 600px;
     --container-w450: 450px;
     --container-w350: 350px;
@@ -219,6 +227,16 @@ svg [aria-label="tip"] g path {
     }
     50% {
         opacity: 0.32;
+    }
+}
+
+/* Streaming flow bar (transcript feed): a subtle accent sweep under a working card's header. */
+@keyframes flowBar {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(400%);
     }
 }
 

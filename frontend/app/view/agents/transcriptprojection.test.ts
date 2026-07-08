@@ -168,3 +168,56 @@ describe("projectTranscript thinking blocks", () => {
         expect(entries).toEqual([{ kind: "message", text: "visible narration" }]);
     });
 });
+
+describe("projectTranscript detail", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+
+    it("attaches an edit diff from Edit old/new strings", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "e1", name: "Edit", input: { file_path: "/p/a.ts", old_string: "a\nb", new_string: "c" } }] } }),
+            L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e1", is_error: false }] } }),
+        ]);
+        expect(out[0]).toMatchObject({ kind: "action", verb: "edited", target: "a.ts" });
+        expect((out[0] as any).detail).toEqual({
+            kind: "edit",
+            files: [
+                {
+                    path: "/p/a.ts",
+                    badge: "M",
+                    adds: 1,
+                    dels: 2,
+                    lines: [
+                        { sign: "-", text: "a" },
+                        { sign: "-", text: "b" },
+                        { sign: "+", text: "c" },
+                    ],
+                },
+            ],
+        });
+    });
+
+    it("attaches bash output + exit from the tool_result body", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test" } }] } }),
+            L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "b1", is_error: false, content: "24 passing" }] } }),
+        ]);
+        expect((out[0] as any).detail).toEqual({ kind: "bash", output: "24 passing", exit: 0 });
+    });
+
+    it("computes durationMs from record timestamps", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", timestamp: "2026-07-08T00:00:00.000Z", message: { content: [{ type: "tool_use", id: "b2", name: "Bash", input: { command: "x" } }] } }),
+            L({ type: "user", timestamp: "2026-07-08T00:00:03.200Z", message: { content: [{ type: "tool_result", tool_use_id: "b2", is_error: false, content: "" }] } }),
+        ]);
+        expect((out[0] as any).durationMs).toBe(3200);
+    });
+
+    it("does not leak private scratch fields (_useTs/_tool)", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", timestamp: "2026-07-08T00:00:00.000Z", message: { content: [{ type: "tool_use", id: "b3", name: "Bash", input: { command: "x" } }] } }),
+            L({ type: "user", timestamp: "2026-07-08T00:00:01.000Z", message: { content: [{ type: "tool_result", tool_use_id: "b3", is_error: false, content: "out" }] } }),
+        ]);
+        expect(Object.keys(out[0])).not.toContain("_useTs");
+        expect(Object.keys(out[0])).not.toContain("_tool");
+    });
+});

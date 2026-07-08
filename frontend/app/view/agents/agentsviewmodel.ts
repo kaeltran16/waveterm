@@ -5,11 +5,44 @@ import { projectNameFromTranscriptPath } from "./projectname";
 
 export type AgentState = "asking" | "working" | "idle";
 
+// Detail captured from a tool call's result / input (Wave-transcript-feed.dc.html). All optional:
+// absent detail renders exactly as today (bare verb + target line).
+export interface GrepMatch {
+    loc: string;
+    code: string;
+}
+export interface DiffLine {
+    sign: "+" | "-" | "";
+    text: string;
+}
+export interface EditFile {
+    path: string;
+    badge: "M" | "A";
+    adds: number;
+    dels: number;
+    lines: DiffLine[];
+}
+
+export type ActionDetail =
+    | { kind: "grep"; matches: GrepMatch[]; more?: string }
+    | { kind: "read"; snippet: string; truncated?: boolean }
+    | { kind: "bash"; output: string; exit: number }
+    | { kind: "edit"; files: EditFile[] };
+
 // One item of "previous info": something the agent said, or something it did.
 export type AgentEntry =
     | { kind: "message"; text: string }
     | { kind: "user"; text: string }
-    | { kind: "action"; verb: string; target: string; outcome?: "ok" | "fail"; note?: string };
+    | {
+          kind: "action";
+          verb: string;
+          target: string;
+          outcome?: "ok" | "fail";
+          note?: string;
+          summary?: string; // e.g. "14 matches", "80 lines", "24 passing"
+          durationMs?: number; // tool_use → tool_result wall time, when timestamps present
+          detail?: ActionDetail; // rich, expandable detail; absent = bare line
+      };
 
 export interface AgentAskOption {
     label: string;
@@ -137,6 +170,34 @@ export function recentActions(entries: AgentEntry[], max: number): AgentActionEn
 
 export const CollapseRunThreshold = 3;
 
+// Per-kind inline line budget (Wave-transcript-feed.dc.html DCLogic `capped`). At or under the
+// budget the detail expands inline; over it, the row opens the modal instead.
+export const DETAIL_INLINE_MAX: Record<ActionDetail["kind"], number> = {
+    grep: 6,
+    read: 9,
+    bash: 8,
+    edit: 9,
+};
+
+// Pure: number of lines a detail would render inline (drives inline-vs-modal routing).
+export function detailLineCount(d: ActionDetail): number {
+    switch (d.kind) {
+        case "grep":
+            return d.matches.length;
+        case "read":
+            return d.snippet.split("\n").length;
+        case "bash":
+            return d.output.split("\n").length;
+        case "edit":
+            return d.files.reduce((n, f) => n + f.lines.length + 1, 0);
+    }
+}
+
+// Pure: true when detail exceeds its inline budget and a click should open the modal directly.
+export function detailExceedsInline(d: ActionDetail): boolean {
+    return detailLineCount(d) > DETAIL_INLINE_MAX[d.kind];
+}
+
 // A timeline render item: prose/user pass through inline; a maximal run of >= threshold
 // consecutive actions folds into one `group` (keyed by the run's first entry index, which
 // is stable because entries are append-only). Shorter runs stay as inline `action` items.
@@ -144,7 +205,29 @@ export type TimelineItem =
     | { kind: "message"; text: string; index: number }
     | { kind: "user"; text: string; index: number }
     | { kind: "action"; action: AgentActionEntry; index: number }
-    | { kind: "group"; startIndex: number; actions: AgentActionEntry[] };
+    | { kind: "group"; startIndex: number; actions: AgentActionEntry[] }
+    | { kind: "edit-burst"; startIndex: number; files: EditFile[]; adds: number; dels: number };
+
+// Pure: fold a run of edit actions (verb "edited"/"wrote" carrying an edit detail) into one burst.
+export function aggregateEditBurst(
+    actions: AgentActionEntry[],
+    startIndex: number
+): Extract<TimelineItem, { kind: "edit-burst" }> {
+    const files: EditFile[] = [];
+    for (const a of actions) {
+        if (a.detail?.kind === "edit") {
+            files.push(...a.detail.files);
+        }
+    }
+    const adds = files.reduce((n, f) => n + f.adds, 0);
+    const dels = files.reduce((n, f) => n + f.dels, 0);
+    return { kind: "edit-burst", startIndex, files, adds, dels };
+}
+
+// Pure: does this action participate in an edit burst?
+export function isEditAction(e: AgentEntry): boolean {
+    return e.kind === "action" && (e.verb === "edited" || e.verb === "wrote") && e.detail?.kind === "edit";
+}
 
 /** Pure: collapse bursts of consecutive actions into groups while preserving chronology. */
 export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThreshold): TimelineItem[] {
@@ -155,7 +238,9 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
         if (run.length === 0) {
             return;
         }
-        if (run.length >= threshold) {
+        if (run.length >= threshold && run.every((a) => isEditAction(a))) {
+            items.push(aggregateEditBurst(run, runStart));
+        } else if (run.length >= threshold) {
             items.push({ kind: "group", startIndex: runStart, actions: run });
         } else {
             run.forEach((action, k) => items.push({ kind: "action", action, index: runStart + k }));

@@ -6,6 +6,7 @@
 // that nothing read — so confirm dialogs (e.g. the Agent header's Close terminal) never appeared.
 // Mounted once in CockpitBody.
 
+import { AgentToolDetailModal } from "@/app/view/agents/tooldetailmodal";
 import { modalsModel } from "@/app/store/modalmodel";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig } from "motion/react";
@@ -18,6 +19,7 @@ const REGISTRY: Record<string, ComponentType<any>> = {
     ConfirmModal,
     MessageModal,
     UserInputModal,
+    AgentToolDetailModal,
 };
 
 export function ModalsRenderer() {

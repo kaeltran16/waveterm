@@ -379,6 +379,13 @@ export function AgentRow({
                 ) : null}
             </div>
 
+            {/* streaming flow bar — a subtle accent sweep under the header while the agent works */}
+            {working ? (
+                <div className="h-[2px] shrink-0 overflow-hidden bg-lane">
+                    <div className="h-full w-[26%] bg-gradient-to-r from-transparent via-accent to-transparent animate-[flowBar_1.9s_linear_infinite] motion-reduce:animate-none" />
+                </div>
+            ) : null}
+
             {/* asking band */}
             {asking ? (
                 <div className="shrink-0 border-b border-edge-mid px-3.5 py-2.5">

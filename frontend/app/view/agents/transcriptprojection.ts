@@ -5,6 +5,9 @@
 // No React, no Wave runtime imports. Deterministic; no LLM (spec §5.3).
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
+import { buildEditDiff, parseGrep, sliceRead, toolResultText } from "./tooldetail";
+
+const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
 
 const VERB_BY_TOOL: Record<string, string> = {
     Read: "read",
@@ -73,10 +76,24 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                 }
                 if (block?.type === "tool_use" && typeof block.name === "string") {
                     const action: ActionEntry = { kind: "action", verb: verbFor(block.name), target: targetFor(block.input) };
+                    if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
+                        action.detail = {
+                            kind: "edit",
+                            files: [buildEditDiff(String(block.input.file_path ?? ""), block.input.old_string, String(block.input.new_string ?? ""))],
+                        };
+                    } else if (block.name === "Write" && block.input && typeof block.input.content === "string") {
+                        action.detail = {
+                            kind: "edit",
+                            files: [buildEditDiff(String(block.input.file_path ?? ""), "", block.input.content)],
+                        };
+                    }
+                    // scratch fields (stripped before return): tool_use timestamp for duration, tool name for result routing
+                    (action as any)._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+                    (action as any)._tool = block.name;
                     entries.push(action);
                     if (typeof block.id === "string") {
                         // same object lives in entries and the map; a later tool_result mutates
-                        // outcome through the map reference and the entries copy updates with it
+                        // outcome/detail through the map reference and the entries copy updates with it
                         actionById.set(block.id, action);
                     }
                 }
@@ -106,12 +123,37 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                 if (action == null) {
                     continue;
                 }
+                const body = toolResultText(block.content);
+                const tool = (action as any)._tool as string | undefined;
+                if (tool === "Grep" && body) {
+                    const matches = parseGrep(body);
+                    action.detail = { kind: "grep", matches };
+                    action.summary = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
+                } else if ((tool === "Read" || tool === "Glob") && body) {
+                    const { snippet, truncated } = sliceRead(body, READ_MODAL_MAX_LINES);
+                    action.detail = { kind: "read", snippet, truncated };
+                    action.summary = `${body.split("\n").length} lines`;
+                } else if (tool === "Bash" && body) {
+                    action.detail = { kind: "bash", output: body, exit: block.is_error === true ? 1 : 0 };
+                }
+                const resTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+                const useTs = (action as any)._useTs as number;
+                if (Number.isFinite(resTs) && Number.isFinite(useTs) && resTs >= useTs) {
+                    action.durationMs = resTs - useTs;
+                }
                 if (block.is_error === true) {
                     action.outcome = "fail";
                 } else if (action.verb === "ran") {
                     action.outcome = "ok";
                 }
             }
+        }
+    }
+    // strip private scratch fields so they never leak into the AgentEntry contract
+    for (const e of entries) {
+        if (e.kind === "action") {
+            delete (e as any)._useTs;
+            delete (e as any)._tool;
         }
     }
     return entries;

@@ -6,6 +6,7 @@ import { cn } from "@/util/util";
 import { Fragment } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { CodeBlock } from "./codeblock";
 import { splitInsightBlocks } from "./insightblocks";
 
 // Lightweight inline markdown for narration lines. Deliberately NOT the full element/markdown.tsx
@@ -33,6 +34,15 @@ const MD_COMPONENTS: Components = {
             <table>{children}</table>
         </div>
     ),
+    pre: ({ children }) => {
+        // children is the <code> element react-markdown produced for a fenced block
+        const child: any = Array.isArray(children) ? children[0] : children;
+        const props = child?.props ?? {};
+        const className: string = props.className ?? "";
+        const lang = /language-(\w+)/.exec(className)?.[1];
+        const raw = Array.isArray(props.children) ? props.children.join("") : String(props.children ?? "");
+        return <CodeBlock code={raw} lang={lang} />;
+    },
 };
 
 function renderMd(text: string) {
