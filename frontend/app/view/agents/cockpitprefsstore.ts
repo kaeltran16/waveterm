@@ -49,3 +49,16 @@ export function coerceTransparency(n: number): number {
     }
     return Math.min(1, Math.max(0, n));
 }
+
+// Decide whether a stat result is a valid vault target. Returns an error message to surface, or null
+// when the folder is safe to save. Callers skip the stat (and this check) for an empty path — clearing
+// the override is valid and falls back to the default vault dir.
+export function vaultPathError(info: { notfound?: boolean; isdir?: boolean }): string | null {
+    if (info.notfound) {
+        return "Folder not found";
+    }
+    if (!info.isdir) {
+        return "Not a folder";
+    }
+    return null;
+}

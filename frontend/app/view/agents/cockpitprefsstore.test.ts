@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceOptions } from "./cockpitprefsstore";
+import {
+    coerceFontSize,
+    coerceScrollback,
+    coerceTransparency,
+    startupSurfaceOptions,
+    vaultPathError,
+} from "./cockpitprefsstore";
 
 describe("startupSurfaceOptions", () => {
     it("returns the workflow surfaces without the agent surface", () => {
@@ -49,4 +55,11 @@ describe("coerceTransparency", () => {
     it("clamps above 1", () => expect(coerceTransparency(1.5)).toBe(1));
     it("clamps below 0", () => expect(coerceTransparency(-0.2)).toBe(0));
     it("coerces NaN to 0", () => expect(coerceTransparency(Number.NaN)).toBe(0));
+});
+
+describe("vaultPathError", () => {
+    it("accepts an existing directory", () => expect(vaultPathError({ isdir: true })).toBeNull());
+    it("rejects a missing path", () => expect(vaultPathError({ notfound: true })).toBe("Folder not found"));
+    it("rejects a file (not a directory)", () => expect(vaultPathError({ isdir: false })).toBe("Not a folder"));
+    it("rejects when isdir is absent", () => expect(vaultPathError({})).toBe("Not a folder"));
 });

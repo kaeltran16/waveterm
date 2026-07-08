@@ -12,7 +12,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceAtom, startupSurfaceOptions } from "./cockpitprefsstore";
+import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceAtom, startupSurfaceOptions, vaultPathError } from "./cockpitprefsstore";
 import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
@@ -674,10 +674,30 @@ function MemorySection() {
     const stored = useAtomValue(getSettingsKeyAtom("memory:vaultpath"));
     const [draft, setDraft] = useState<string>(stored ?? "");
     const [saved, setSaved] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const dirty = draft !== (stored ?? "");
     const showSaved = saved && !dirty;
-    const commit = () => {
-        void RpcApi.SetConfigCommand(TabRpcClient, { "memory:vaultpath": draft.trim() }).then(() => setSaved(true));
+    // validate before persisting: an empty path clears the override (falls back to the default vault),
+    // otherwise the folder must exist and be a directory. reuses FileInfoCommand (bare local path, ~
+    // expanded by the backend) instead of a dedicated RPC — mirrors the New Project picker's stat check.
+    const commit = async () => {
+        const path = draft.trim();
+        setError(null);
+        if (path !== "") {
+            try {
+                const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } });
+                const err = vaultPathError(info);
+                if (err) {
+                    setError(err);
+                    return;
+                }
+            } catch (e) {
+                setError(String(e));
+                return;
+            }
+        }
+        await RpcApi.SetConfigCommand(TabRpcClient, { "memory:vaultpath": path });
+        setSaved(true);
     };
     // native OS folder picker (Tauri dialog plugin), mirroring newprojectmodal's browse. dynamic import
     // keeps non-Tauri contexts (preview, vitest) clean. populates the draft; Save still commits.
@@ -688,6 +708,7 @@ function MemorySection() {
             if (typeof picked === "string" && picked) {
                 setDraft(picked);
                 setSaved(false);
+                setError(null);
             }
         } catch (e) {
             console.error("vault folder picker failed", e);
@@ -707,6 +728,7 @@ function MemorySection() {
                         onChange={(e) => {
                             setDraft(e.target.value);
                             setSaved(false);
+                            setError(null);
                         }}
                         className="w-full rounded-[9px] border border-edge-mid bg-surface-raised py-2.5 pl-3.5 pr-10 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
                     />
@@ -722,7 +744,7 @@ function MemorySection() {
                 </div>
                 <button
                     type="button"
-                    onClick={commit}
+                    onClick={() => void commit()}
                     className={cn(
                         "shrink-0 rounded-[9px] border px-[18px] text-[13px] font-semibold transition-colors",
                         showSaved
@@ -733,6 +755,7 @@ function MemorySection() {
                     {showSaved ? "Saved ✓" : "Save"}
                 </button>
             </div>
+            {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
         </div>
     );
 }

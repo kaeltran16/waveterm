@@ -8,6 +8,7 @@
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
+import { getSettingsKeyAtom } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn, fireAndForget } from "@/util/util";
@@ -440,9 +441,12 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
         };
     }, [agent?.transcriptPath, agent?.blockId]);
 
+    // re-scan on mount and whenever the vault path changes (Settings > Memory). getSettingsKeyAtom is
+    // cached per key, so this atom identity is stable and the effect fires only on an actual path change.
+    const vaultPath = useAtomValue(getSettingsKeyAtom("memory:vaultpath"));
     useEffect(() => {
         fireAndForget(() => loadMemory());
-    }, []);
+    }, [vaultPath]);
 
     const q = search.trim().toLowerCase();
     const filtered = q
