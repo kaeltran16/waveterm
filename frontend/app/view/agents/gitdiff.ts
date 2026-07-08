@@ -101,13 +101,22 @@ export function parseUnifiedDiff(diff: string): FileView {
     return { isDiff: true, lines, adds, dels, hunkLabel, diffHeader, hunks };
 }
 
+// A new (untracked) file has no HEAD blob, so `git diff` emits nothing and the backend hands us the
+// raw content. Render it as an all-additions diff — every line a green "+" — so a new file reads as
+// the diff it morally is (matching git/GitHub), not as flat, undecorated text.
 export function plainFileView(content: string): FileView {
-    const lines: DiffLine[] = content.split("\n").map((text, i) => ({
+    // split never drops anything, so a trailing newline leaves a phantom empty final element — drop it
+    // so we neither render nor count a blank added line.
+    const raw = content === "" ? [] : content.split("\n");
+    if (raw.length && raw[raw.length - 1] === "") {
+        raw.pop();
+    }
+    const lines: DiffLine[] = raw.map((text, i) => ({
         gOld: "",
         gNew: String(i + 1),
-        sign: "",
+        sign: "+",
         text,
-        kind: "ctx" as const,
+        kind: "add" as const,
     }));
-    return { isDiff: false, lines, adds: 0, dels: 0, hunkLabel: "", diffHeader: "", hunks: [] };
+    return { isDiff: true, lines, adds: lines.length, dels: 0, hunkLabel: "New file", diffHeader: "", hunks: [] };
 }

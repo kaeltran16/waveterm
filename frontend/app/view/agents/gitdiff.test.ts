@@ -37,13 +37,27 @@ describe("parseUnifiedDiff", () => {
 });
 
 describe("plainFileView", () => {
-    it("numbers every line in the new gutter, no signs", () => {
+    it("renders a new file as an all-additions diff (green +, new gutter)", () => {
         const v = plainFileView("a\nb");
-        expect(v.isDiff).toBe(false);
+        expect(v.isDiff).toBe(true);
+        expect(v.adds).toBe(2);
+        expect(v.dels).toBe(0);
         expect(v.lines).toEqual([
-            { gOld: "", gNew: "1", sign: "", text: "a", kind: "ctx" },
-            { gOld: "", gNew: "2", sign: "", text: "b", kind: "ctx" },
+            { gOld: "", gNew: "1", sign: "+", text: "a", kind: "add" },
+            { gOld: "", gNew: "2", sign: "+", text: "b", kind: "add" },
         ]);
+    });
+
+    it("drops the phantom empty line a trailing newline leaves behind", () => {
+        const v = plainFileView("a\nb\n");
+        expect(v.lines.map((l) => l.text)).toEqual(["a", "b"]);
+        expect(v.adds).toBe(2);
+    });
+
+    it("an empty file has no added lines", () => {
+        const v = plainFileView("");
+        expect(v.lines).toEqual([]);
+        expect(v.adds).toBe(0);
     });
 });
 
