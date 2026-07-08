@@ -222,6 +222,56 @@ func mergeStatusLine(existing map[string]any, wshExe string) map[string]any {
 	return out
 }
 
+// configIsHealthy reports whether existing already carries Arc's full managed hook set and managed
+// statusLine, all referencing a wsh binary that exists on disk (per exeExists). When true the install
+// can skip its rewrite, so a coexisting install does not clobber a working config every launch.
+// When any managed hook is missing or its exe is gone, it returns false and the caller heals (rewrites).
+func configIsHealthy(existing map[string]any, exeExists func(string) bool) bool {
+	hooks, _ := existing["hooks"].(map[string]any)
+	if hooks == nil {
+		return false
+	}
+	count := 0
+	for _, event := range managedEventOrder() {
+		groups, _ := hooks[event].([]any)
+		for _, g := range groups {
+			gm, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			hs, _ := gm["hooks"].([]any)
+			for _, h := range hs {
+				hm, ok := h.(map[string]any)
+				if !ok {
+					continue
+				}
+				c, _ := hm["command"].(string)
+				if !isManagedCommand(c) {
+					continue
+				}
+				exe, _ := splitFirstToken(c)
+				if !exeExists(exe) {
+					return false
+				}
+				count++
+			}
+		}
+	}
+	if count != len(managedHooks) {
+		return false
+	}
+	sl, _ := existing["statusLine"].(map[string]any)
+	if sl == nil {
+		return false
+	}
+	slc, _ := sl["command"].(string)
+	if !isManagedStatusLine(slc) {
+		return false
+	}
+	exe, _ := splitFirstToken(slc)
+	return exeExists(exe)
+}
+
 var installAgentHooksCmd = &cobra.Command{
 	Use:                   "install-agent-hooks",
 	Short:                 "install Arc's Claude Code hooks into ~/.claude/settings.json (idempotent)",
@@ -251,6 +301,14 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		if err := json.Unmarshal(b, &existing); err != nil {
 			return fmt.Errorf("parsing %s: %w", path, err)
 		}
+	}
+
+	if configIsHealthy(existing, func(p string) bool {
+		_, err := os.Stat(p)
+		return err == nil
+	}) {
+		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
+		return nil
 	}
 
 	exe, err := os.Executable()

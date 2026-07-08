@@ -70,14 +70,62 @@ cockpit the user is watching — inherently racy, matching "sometimes".
 (`initialWorkerStatusEvent`), so the worker enters the roster deterministically at spawn.
 A real hook event (if it arrives) still refines it (detail/model, idle-on-stop).
 
-**Residual (follow-up):** if the reporter hook never fires (the routing failure above),
-the retained `working` status is never overwritten with `idle` on exit, so a finished
-worker can linger as "working" in the roster. Strictly better than invisible; a proper fix
-would clear/idle the status on controller exit, or repoint the hooks at the running
-install. Not addressed here.
+**Residual — now fixed (2026-07-08, run-worker status hardening).** The retained `working`
+was never overwritten with `idle` on exit, so if the reporter hook never fired a finished
+worker lingered as "working". The backend now owns the coarse lifecycle: when an
+**agent-session** block's process exits, the cmd wait-loop publishes a retained
+`agent:status = idle` scoped to that block (`emitAgentIdleOnExit` /`idleOnExitEvent` in
+`pkg/blockcontroller/shellcontroller.go`), gated on the tab's `session:agent` meta so plain
+terminals emit nothing. Spawn (`working`) and exit (`idle`) now share one constructor
+(`blockcontroller.AgentStatusEvent`), so their shape cannot drift. Independent of the hook.
 
-**Touchpoints:** `pkg/jarvis/runexec.go` (`SpawnClaudeWorker`, `initialWorkerStatusEvent`);
-`agentstatusstore.ts` (`setupAgentStatusSubscription`); `liveagents.ts`.
+**Live verification (CDP, 2026-07-08).** Drove a real agent-session cmd block (tab tagged
+`session:agent`, a short non-`claude` command so *no* Claude hook runs — the only thing that
+can move the status is the backend). Read the block's persisted `agent:status` via the
+`eventreadhistory` RPC:
+- **Natural exit:** `working → idle` after the command exited (~4s), idle emitted by the
+  backend with no hook involvement.
+- **Kill (`controllerdestroy`):** `working → idle` immediately.
+Both confirm the backstop fires on graceful exit and kill alike. (A real run worker runs
+`claude` *interactively*, so its process lingers past turn-end and only exits on
+finish/cancel/crash; `CancelRun` deletes the worker tab, in which case the roster row is
+removed rather than idled — either way no stale "working" survives.)
+
+**Touchpoints:** `pkg/jarvis/runexec.go` (`SpawnClaudeWorker`, `initialWorkerStatusEvent` →
+`AgentStatusEvent`); `pkg/blockcontroller/{blockcontroller.go,shellcontroller.go}`
+(`AgentStatusEvent`, `idleOnExitEvent`, `emitAgentIdleOnExit`); `agentstatusstore.ts`;
+`liveagents.ts`.
+
+### C. Cross-install hook routing — confirmed working, not a defect (2026-07-08)
+
+The earlier hypothesis (residual A's "routing failure") was that when `~/.claude/settings.json`
+hooks are stamped with a *different* install's `wsh`, status never reaches the cockpit. A code
+trace argued the opposite (the hook routes by the JWT's **absolute** socket path, not by which
+`wsh` runs it); this was confirmed live.
+
+**Evidence.** On this machine two installs coexist: a **packaged** Arc (data home
+`dev.arc.app`, socket `…\dev.arc.app\data\wave.sock`) and this **dev** build (`dev.arc.app-dev`,
+served from `dist/bin`). The verifying Claude Code session itself ran as a packaged-Arc agent
+block (`WAVETERM_BLOCKID`=`df9292f9…`, JWT socket = `dev.arc.app\data\wave.sock`). Running the
+**dev-build** `wsh agent-hook` (a *different* install's binary) under that session env, with the
+new `WAVETERM_HOOK_DEBUG=1` log (`~/.claude/arc-hook-debug.log`), produced:
+
+```
+published event=UserPromptSubmit state=working oref=block:df9292f9-…
+```
+
+i.e. a foreign `wsh` binary published to the packaged-Arc wavesrv named in the JWT. Had it
+resolved the wrong/absent socket it would have logged `skip: setupRpcClient failed`; it logged
+`published`. **Outcome (a): cross-install routing is sound.** The earlier "sometimes working"
+inconsistency was the missing `idle` (fixed above), not a routing break — so no speculative
+routing fix was added.
+
+**Diagnostics (2a) & churn (2c).** `wsh agent-hook` now logs its branch per invocation when
+`WAVETERM_HOOK_DEBUG` is set (silent no-op otherwise; never writes to stdout/stderr).
+`install-agent-hooks` now skips rewriting an already-healthy config
+(`configIsHealthy` in `wshcmd-installhooks.go`), so two coexisting installs stop clobbering
+each other's hook paths every launch. (Caveat: the churn stops only once *both* installs carry
+this guard — the packaged Arc here predates it and still re-stamps its path on its next launch.)
 
 ### B. Pipeline brainstorm phase is interactive — headless worker stalls — **fixed**
 
@@ -102,7 +150,10 @@ human can actually answer. The plan-phase gate remains the primary human checkpo
 
 ---
 
-**Verification status:** unit-level only — `pkg/jarvis` tests cover the reworded prompt
-(`TestBuildPhasePromptTellsWorkerToSelfServeAndEscalate`) and the spawn event
-(`TestInitialWorkerStatusEvent`); the backend and callers build. **Not yet driven
-end-to-end in the live dev app** (roster appearance + organic-ask round-trip).
+**Verification status:** A and B were unit-level at first; the run-worker status hardening
+(2026-07-08) added unit coverage — `AgentStatusEvent`/`idleOnExitEvent`
+(`pkg/blockcontroller`), `hookDebugLine` and `configIsHealthy` (`cmd/wsh/cmd`), alongside the
+existing `TestInitialWorkerStatusEvent` and `TestBuildPhasePromptTellsWorkerToSelfServeAndEscalate` —
+**and drove the backend idle-on-exit backstop and cross-install hook routing end-to-end in the
+live dev app over CDP** (results in residual A and section C above). Not yet exercised live: the
+organic-ask round-trip (B).

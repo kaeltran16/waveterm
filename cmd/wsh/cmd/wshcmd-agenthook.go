@@ -274,32 +274,62 @@ func init() {
 	rootCmd.AddCommand(agentHookCmd)
 }
 
+// hookDebugLine appends one diagnostic line to ~/.claude/arc-hook-debug.log when WAVETERM_HOOK_DEBUG
+// is set. Best-effort and silent: a lifecycle hook must never write to stdout/stderr or fail the turn.
+// The path is home-relative (not data-dir) so logging works even when the JWT/socket is unavailable —
+// which is exactly the failure being diagnosed.
+func hookDebugLine(msg string) {
+	if os.Getenv("WAVETERM_HOOK_DEBUG") == "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "arc-hook-debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(time.Now().Format(time.RFC3339) + " " + msg + "\n")
+}
+
 // agentHookRun always returns nil: a hook must never break the agent's turn.
 func agentHookRun(cmd *cobra.Command, args []string) error {
 	if os.Getenv("WAVETERM_BLOCKID") == "" {
-		return nil // not inside an Arc block; near-instant no-op
+		return nil // not inside an Arc block; near-instant no-op (not logged: not an error)
 	}
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
+		hookDebugLine("skip: read stdin failed")
 		return nil
 	}
 	var ev ccHookEvent
 	if json.Unmarshal(raw, &ev) != nil {
+		hookDebugLine("skip: unmarshal hook event failed")
 		return nil
 	}
 	em := planEmission(ev)
 	if em.State == "" && em.Subagent == nil {
+		hookDebugLine("skip: no emission for event=" + ev.HookEventName)
 		return nil
 	}
 	jwt := os.Getenv(wshutil.WaveJwtTokenVarName)
 	if jwt == "" {
+		hookDebugLine("skip: no jwt in env (WAVETERM_BLOCKID set) event=" + ev.HookEventName)
 		return nil
 	}
 	if setupRpcClient(nil, jwt) != nil {
+		hookDebugLine("skip: setupRpcClient failed event=" + ev.HookEventName)
 		return nil
 	}
 	oref, err := resolveBlockArg()
 	if err != nil {
+		hookDebugLine("skip: resolveBlockArg failed event=" + ev.HookEventName)
 		return nil
 	}
 	if em.State != "" {
@@ -331,5 +361,6 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		}
 		_ = publishAgentStatusData(oref, data, 0)
 	}
+	hookDebugLine("published event=" + ev.HookEventName + " state=" + em.State + " oref=" + oref.String())
 	return nil
 }

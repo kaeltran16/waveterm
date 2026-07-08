@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
@@ -617,6 +618,7 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		}
 		bc.writeMutedMessageToTerminal("[" + msg + "]")
 		go checkCloseOnExit(bc.BlockId, exitCode)
+		go emitAgentIdleOnExit(bc.BlockId)
 	}()
 	return nil
 }
@@ -645,6 +647,36 @@ func (union *ConnUnion) getRemoteInfoAndShellType(blockMeta waveobj.MetaMapType)
 	}
 	union.ShellType = shellutil.GetShellTypeFromShellPath(union.ShellPath)
 	return nil
+}
+
+// idleOnExitEvent returns the retained idle status to publish when an agent-session block exits,
+// or nil when the block is not an agent session (no session:agent tab meta). Pure: no I/O.
+func idleOnExitEvent(blockId string, tabMeta waveobj.MetaMapType, ts int64) *wps.WaveEvent {
+	agent := tabMeta.GetString("session:agent", "")
+	if agent == "" {
+		return nil // not an agent session — do not promote a plain terminal to an idle "agent"
+	}
+	ev := AgentStatusEvent(blockId, baseds.AgentState_Idle, agent, ts)
+	return &ev
+}
+
+// emitAgentIdleOnExit publishes idle for a run/agent worker whose process just exited, so the
+// cockpit roster stops showing it as "working" even if the reporter hook never fires. No-op for
+// non-agent blocks. Fire-and-forget: called from the shell-proc wait loop.
+func emitAgentIdleOnExit(blockId string) {
+	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancelFn()
+	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
+	if err != nil {
+		return // tab already gone: the roster row is gone too, so no stale "working" can persist
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return
+	}
+	if ev := idleOnExitEvent(blockId, tab.Meta, time.Now().UnixMilli()); ev != nil {
+		wps.Broker.Publish(*ev)
+	}
 }
 
 func checkCloseOnExit(blockId string, exitCode int) {

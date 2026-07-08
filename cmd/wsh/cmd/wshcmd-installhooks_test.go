@@ -214,3 +214,25 @@ func TestMergeStatusLinePreservesOtherKeys(t *testing.T) {
 		t.Fatal("theme not preserved")
 	}
 }
+
+func TestConfigIsHealthy(t *testing.T) {
+	full := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+
+	// all managed present + exe exists -> healthy
+	if !configIsHealthy(full, func(string) bool { return true }) {
+		t.Fatal("full config with present exe should be healthy")
+	}
+	// exe missing on disk -> not healthy (must heal to repoint)
+	if configIsHealthy(full, func(string) bool { return false }) {
+		t.Fatal("full config with missing exe should NOT be healthy")
+	}
+	// empty config -> not healthy
+	if configIsHealthy(map[string]any{}, func(string) bool { return true }) {
+		t.Fatal("empty config should NOT be healthy")
+	}
+	// hooks present but statusLine absent -> not healthy
+	hooksOnly := mergeAgentHooks(map[string]any{}, testWsh)
+	if configIsHealthy(hooksOnly, func(string) bool { return true }) {
+		t.Fatal("config missing managed statusLine should NOT be healthy")
+	}
+}

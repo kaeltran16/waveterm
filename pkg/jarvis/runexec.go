@@ -76,21 +76,10 @@ func SpawnClaudeWorker(ctx context.Context, workspaceId, projectName, cwd, promp
 }
 
 // initialWorkerStatusEvent is the retained agent:status the backend emits at spawn so a run worker
-// enters the cockpit roster without waiting on the external reporter hook. Persist:1 mirrors the
-// reporter's parent-state event, so a late-subscribing frontend replays it.
+// enters the cockpit roster without waiting on the external reporter hook. Delegates to the shared
+// constructor so spawn (working) and exit (idle) events share one shape.
 func initialWorkerStatusEvent(blockId string, ts int64) wps.WaveEvent {
-	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
-	return wps.WaveEvent{
-		Event:   wps.Event_AgentStatus,
-		Scopes:  []string{oref},
-		Persist: 1,
-		Data: baseds.AgentStatusData{
-			ORef:  oref,
-			State: baseds.AgentState_Working,
-			Agent: "claude",
-			Ts:    ts,
-		},
-	}
+	return blockcontroller.AgentStatusEvent(blockId, baseds.AgentState_Working, "claude", ts)
 }
 
 // priorArtifacts collects the artifacts of all phases before idx (in order).

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
@@ -49,6 +50,24 @@ const (
 
 const DefaultTimeout = 2 * time.Second
 const DefaultGracefulKillWait = 400 * time.Millisecond
+
+// AgentStatusEvent builds the retained agent:status event the roster keys off. Shared by the
+// run-worker spawn emit (working) and the process-exit emit (idle) so their shape cannot drift.
+// Persist:1 so a late-subscribing frontend replays the last state.
+func AgentStatusEvent(blockId, state, agent string, ts int64) wps.WaveEvent {
+	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+	return wps.WaveEvent{
+		Event:   wps.Event_AgentStatus,
+		Scopes:  []string{oref},
+		Persist: 1,
+		Data: baseds.AgentStatusData{
+			ORef:  oref,
+			State: state,
+			Agent: agent,
+			Ts:    ts,
+		},
+	}
+}
 
 type BlockInputUnion struct {
 	InputData []byte            `json:"inputdata,omitempty"`

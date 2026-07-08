@@ -177,3 +177,29 @@ func TestAgentHookRegistered(t *testing.T) {
 		t.Fatalf("agent-hook not registered: found=%v err=%v", found, err)
 	}
 }
+
+func TestHookDebugLine(t *testing.T) {
+	home := t.TempDir()
+	// os.UserHomeDir reads HOME on unix, USERPROFILE on windows — set both so the test is OS-agnostic.
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	logPath := filepath.Join(home, ".claude", "arc-hook-debug.log")
+
+	// flag unset -> no file written
+	t.Setenv("WAVETERM_HOOK_DEBUG", "")
+	hookDebugLine("should-not-appear")
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("log file should not exist when flag unset, stat err = %v", err)
+	}
+
+	// flag set -> line appended
+	t.Setenv("WAVETERM_HOOK_DEBUG", "1")
+	hookDebugLine("branch=no-blockid")
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading log: %v", err)
+	}
+	if !strings.Contains(string(b), "branch=no-blockid") {
+		t.Fatalf("log missing message, got %q", string(b))
+	}
+}
