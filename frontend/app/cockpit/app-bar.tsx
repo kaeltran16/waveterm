@@ -65,7 +65,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
             <button
                 type="button"
                 onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
-                className="flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-accent px-3 py-[7px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
+                className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[clamp(9px,1.3vw,12px)] py-[7px] text-[clamp(11px,1.35vw,12.5px)] font-semibold text-background hover:bg-accenthover"
             >
                 <span className="-mt-px text-[15px] leading-none">+</span>New agent
             </button>

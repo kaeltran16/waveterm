@@ -849,7 +849,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 initial="initial"
                                 animate="animate"
                                 exit="exit"
-                                className="absolute inset-0 flex flex-col items-center justify-center px-[30px] py-12 text-center"
+                                className="absolute inset-0 z-10 flex flex-col items-center justify-center px-[30px] py-12 text-center"
                             >
                                 <div className="flex w-full max-w-[600px] flex-col items-center">
                                     {/* terminal-window glyph. Ambience is CSS-driven (cockpit.scss) — framer
