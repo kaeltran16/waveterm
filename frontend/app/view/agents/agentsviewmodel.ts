@@ -26,7 +26,8 @@ export interface EditFile {
 export type ActionDetail =
     | { kind: "grep"; matches: GrepMatch[]; more?: string }
     | { kind: "read"; snippet: string; truncated?: boolean }
-    | { kind: "bash"; output: string; exit: number }
+    | { kind: "bash"; command?: string; output: string; exit: number }
+    | { kind: "skill"; name: string; args?: string }
     | { kind: "edit"; files: EditFile[] };
 
 // One item of "previous info": something the agent said, or something it did.
@@ -176,6 +177,7 @@ export const DETAIL_INLINE_MAX: Record<ActionDetail["kind"], number> = {
     grep: 6,
     read: 9,
     bash: 8,
+    skill: 6,
     edit: 9,
 };
 
@@ -187,7 +189,9 @@ export function detailLineCount(d: ActionDetail): number {
         case "read":
             return d.snippet.split("\n").length;
         case "bash":
-            return d.output.split("\n").length;
+            return d.output.split("\n").length + (d.command ? 1 : 0);
+        case "skill":
+            return d.args ? d.args.split("\n").length + 1 : 1;
         case "edit":
             return d.files.reduce((n, f) => n + f.lines.length + 1, 0);
     }

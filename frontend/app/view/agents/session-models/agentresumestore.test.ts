@@ -2,23 +2,20 @@ import { describe, expect, it } from "vitest";
 import { shouldPersistClaudeResume } from "./agentresumestore";
 
 describe("shouldPersistClaudeResume", () => {
-    it("resumes a claude agent only when the --continue flag is enabled", () => {
-        expect(shouldPersistClaudeResume("claude", { claude: { continue: true } })).toBe(true);
+    it("resumes a claude agent when Remember flags is on", () => {
+        expect(shouldPersistClaudeResume("claude", true)).toBe(true);
     });
 
-    it("does not resume claude when the continue flag is off, empty, or missing", () => {
-        expect(shouldPersistClaudeResume("claude", { claude: { continue: false } })).toBe(false);
-        expect(shouldPersistClaudeResume("claude", { claude: {} })).toBe(false);
-        expect(shouldPersistClaudeResume("claude", {})).toBe(false);
-        expect(shouldPersistClaudeResume("claude", undefined)).toBe(false);
+    it("does not resume claude when Remember flags is off (user wants a clean slate)", () => {
+        expect(shouldPersistClaudeResume("claude", false)).toBe(false);
     });
 
-    it("never resumes non-claude providers, even with a continue flag set", () => {
-        expect(shouldPersistClaudeResume("codex", { codex: { continue: true } })).toBe(false);
-        expect(shouldPersistClaudeResume(undefined, { claude: { continue: true } })).toBe(false);
+    it("never resumes non-claude providers, even when Remember flags is on", () => {
+        expect(shouldPersistClaudeResume("codex", true)).toBe(false);
+        expect(shouldPersistClaudeResume(undefined, true)).toBe(false);
     });
 
     it("matches the provider case-insensitively", () => {
-        expect(shouldPersistClaudeResume("Claude", { claude: { continue: true } })).toBe(true);
+        expect(shouldPersistClaudeResume("Claude", true)).toBe(true);
     });
 });

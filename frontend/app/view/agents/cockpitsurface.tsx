@@ -153,6 +153,10 @@ function UsageBar({
     );
 }
 
+// One consolidated hints bar for the cockpit surface. The triage keys are cockpit-local (handled by
+// onKeyDown below, not the global keybinding registry); the trailing global chips are the same ones
+// the global HintsFooter shows elsewhere — folded in here so the cockpit surface renders a single bar
+// (the footer suppresses its rest posture on this surface — see hints-footer.tsx).
 const HINTS: [string, string][] = [
     ["↑↓ / j k", "move"],
     ["⏎", "open"],
@@ -163,6 +167,9 @@ const HINTS: [string, string][] = [
     ["b", "background"],
     ["n", "next ask"],
     ["[ ]", "switch surface"],
+    ["g", "go"],
+    ["⌃P", "palette"],
+    ["⌃N", "new"],
 ];
 
 function HelpOverlay({ onClose }: { onClose: () => void }) {

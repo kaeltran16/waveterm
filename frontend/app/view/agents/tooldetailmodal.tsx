@@ -27,7 +27,7 @@ export function AgentToolDetailModal({ action }: { action: AgentActionEntry }) {
     const ok = action.outcome !== "fail";
     return (
         <FlexiModal className="w-[min(720px,90vw)]" onClickBackdrop={close}>
-            <div className="flex items-center gap-2.5 border-b border-edge-faint pb-3">
+            <div className="flex w-full items-center gap-2.5 border-b border-edge-faint pb-3">
                 <span className={ok ? "text-success" : "text-error"}>{ok ? "✓" : "✗"}</span>
                 <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.06em] text-feed-label">
                     {action.verb}
@@ -44,7 +44,7 @@ export function AgentToolDetailModal({ action }: { action: AgentActionEntry }) {
                     ✕
                 </button>
             </div>
-            <div className="mt-3 max-h-[70vh] overflow-y-auto rounded-[10px] border border-edge-faint bg-surface-code">
+            <div className="mt-3 w-full max-h-[70vh] overflow-y-auto rounded-[10px] border border-edge-faint bg-surface-code">
                 {action.detail ? <ToolDetailBody detail={action.detail} variant="modal" /> : null}
             </div>
         </FlexiModal>

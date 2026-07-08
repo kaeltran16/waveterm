@@ -12,20 +12,17 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { resumeArgsForClaude, sessionIdFromTranscript, type Runtime } from "../launch";
-import { naFlagsAtom } from "../naflagsstore";
+import { resumeArgsForClaude, sessionIdFromTranscript } from "../launch";
+import { naRememberFlagsAtom } from "../naflagsstore";
 
 // oref -> resume id already baked into the block this session, to skip redundant SetMeta writes
 const bakedResumeId = new Map<string, string>();
 
-// Pure: resume-on-reopen is Claude-only, and gated on the user's claude "--continue" ("Resume the last
-// session") launch flag so it respects the New Agent defaults setting. Off by default (naFlagsAtom is
-// empty), so an agent relaunches fresh on reopen unless the user opted into resume.
-export function shouldPersistClaudeResume(
-    provider: string | undefined,
-    flags: Partial<Record<Runtime, Record<string, boolean>>> | undefined
-): boolean {
-    return (provider ?? "").toLowerCase() === "claude" && flags?.claude?.continue === true;
+// Pure: resume-on-reopen is Claude-only, gated on the user's "Remember flags" New Agent default. When
+// that setting is off the user wants a clean slate, so the agent relaunches fresh on reopen; when on
+// (the default) reopening reattaches to the live session. codex/antigravity always restart fresh.
+export function shouldPersistClaudeResume(provider: string | undefined, rememberFlags: boolean): boolean {
+    return (provider ?? "").toLowerCase() === "claude" && rememberFlags === true;
 }
 
 function sameArgs(a: string[], b: string[]): boolean {
@@ -39,7 +36,7 @@ export async function persistClaudeResume(
     provider: string | undefined,
     transcriptPath: string | undefined
 ): Promise<void> {
-    if (!shouldPersistClaudeResume(provider, globalStore.get(naFlagsAtom))) {
+    if (!shouldPersistClaudeResume(provider, globalStore.get(naRememberFlagsAtom))) {
         return;
     }
     const sessionId = sessionIdFromTranscript(transcriptPath);

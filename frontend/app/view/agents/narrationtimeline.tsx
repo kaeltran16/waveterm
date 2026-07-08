@@ -19,6 +19,7 @@ import {
     type EditFile,
 } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
+import { highlightLine } from "./highlight";
 import { formatDuration } from "./tooldetail";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
@@ -46,20 +47,42 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
         );
     }
     if (detail.kind === "read") {
+        // syntax-highlight the file body with the feed's lightweight tokenizer (same one CodeBlock uses).
+        // Kept off shiki deliberately — the feed is on the cockpit boot path.
         return (
-            <pre className={`overflow-x-auto whitespace-pre font-mono text-[11px] leading-[1.7] text-ink-mid ${pad}`}>
-                {detail.snippet}
-            </pre>
+            <div className={`overflow-x-auto ${pad}`}>
+                <div className="min-w-min font-mono text-[11px] leading-[1.7]">
+                    {detail.snippet.split("\n").map((ln, i) => (
+                        <div key={i} className="whitespace-pre">
+                            {highlightLine(ln).map((tk, k) => (
+                                <span key={k} className={tk.cls}>
+                                    {tk.t}
+                                </span>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            </div>
         );
     }
     if (detail.kind === "bash") {
         return (
             <div>
-                <pre
-                    className={`overflow-x-auto whitespace-pre font-mono text-[11px] leading-[1.7] ${pad} ${detail.exit ? "text-error" : "text-ink-mid"}`}
-                >
-                    {detail.output}
-                </pre>
+                {detail.command ? (
+                    <div
+                        className={`flex gap-2 whitespace-pre-wrap break-all font-mono text-[11px] leading-[1.6] text-secondary ${pad}`}
+                    >
+                        <span className="shrink-0 select-none text-accent">$</span>
+                        <span>{detail.command}</span>
+                    </div>
+                ) : null}
+                {detail.output ? (
+                    <pre
+                        className={`overflow-x-auto whitespace-pre font-mono text-[11px] leading-[1.7] ${detail.command ? "border-t border-edge-faint" : ""} ${pad} ${detail.exit ? "text-error" : "text-ink-mid"}`}
+                    >
+                        {detail.output}
+                    </pre>
+                ) : null}
                 <div className="flex items-center gap-2 px-[13px] pb-[9px]">
                     <span
                         className={`rounded-[4px] px-[7px] py-0.5 font-mono text-[8.5px] font-semibold uppercase ${detail.exit ? "bg-error/15 text-error" : "bg-success/15 text-success"}`}
@@ -67,6 +90,21 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                         exit {detail.exit}
                     </span>
                 </div>
+            </div>
+        );
+    }
+    if (detail.kind === "skill") {
+        return (
+            <div className={pad}>
+                <div className="flex items-center gap-2 font-mono text-[11px]">
+                    <span className="text-syntax-keyword">skill</span>
+                    <span className="text-primary">{detail.name}</span>
+                </div>
+                {detail.args ? (
+                    <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.6] text-secondary">
+                        {detail.args}
+                    </pre>
+                ) : null}
             </div>
         );
     }

@@ -5,6 +5,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
+import { Scaling } from "lucide-react";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -562,13 +563,10 @@ export function AgentRow({
                     }}
                     onClick={(e) => e.stopPropagation()}
                     title={fullWidth ? "Drag in to un-span · down to resize" : "Drag out to span · down to resize"}
-                    className="group/grip absolute bottom-[1px] right-[1px] z-20 flex h-[20px] w-[20px] cursor-nwse-resize items-end justify-end p-[3px] text-edge-strong opacity-40 transition-opacity group-hover:opacity-100 group-hover/grip:text-accent"
+                    className="group/grip absolute bottom-[2px] right-[2px] z-20 flex h-[20px] w-[20px] cursor-nwse-resize items-center justify-center rounded-[5px] text-muted opacity-60 transition-opacity group-hover:opacity-100 hover:bg-surface-raised group-hover/grip:text-accent"
                 >
-                    {/* diagonal grip lines: the standard "drag from the corner to resize / span" affordance */}
-                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-                        <path d="M14.5 7.5 L7.5 14.5" />
-                        <path d="M14.5 12 L12 14.5" />
-                    </svg>
+                    {/* lucide scaling glyph: reads as "resize / drag out to span" more clearly than bare corner lines */}
+                    <Scaling size={14} strokeWidth={1.8} />
                 </div>
             ) : null}
         </motion.div>

@@ -17,6 +17,7 @@ const VERB_BY_TOOL: Record<string, string> = {
     Grep: "grep",
     Glob: "glob",
     Task: "spawned",
+    Skill: "skill",
 };
 
 function verbFor(name: string): string {
@@ -44,6 +45,9 @@ function targetFor(input: any): string {
     }
     if (typeof input.command === "string") {
         return input.command;
+    }
+    if (typeof input.skill === "string") {
+        return input.skill;
     }
     return "";
 }
@@ -86,10 +90,17 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                             kind: "edit",
                             files: [buildEditDiff(String(block.input.file_path ?? ""), "", block.input.content)],
                         };
+                    } else if (block.name === "Skill" && block.input && typeof block.input.skill === "string") {
+                        const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
+                        action.detail = { kind: "skill", name: block.input.skill, args: args !== "" ? args : undefined };
                     }
-                    // scratch fields (stripped before return): tool_use timestamp for duration, tool name for result routing
+                    // scratch fields (stripped before return): tool_use timestamp for duration, tool name for result
+                    // routing, and the raw Bash command (the target line shows the human description instead).
                     (action as any)._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
                     (action as any)._tool = block.name;
+                    if (block.name === "Bash" && typeof block.input?.command === "string") {
+                        (action as any)._command = block.input.command;
+                    }
                     entries.push(action);
                     if (typeof block.id === "string") {
                         // same object lives in entries and the map; a later tool_result mutates
@@ -134,7 +145,12 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                     action.detail = { kind: "read", snippet, truncated };
                     action.summary = `${body.split("\n").length} lines`;
                 } else if (tool === "Bash" && body) {
-                    action.detail = { kind: "bash", output: body, exit: block.is_error === true ? 1 : 0 };
+                    action.detail = {
+                        kind: "bash",
+                        command: (action as any)._command,
+                        output: body,
+                        exit: block.is_error === true ? 1 : 0,
+                    };
                 }
                 const resTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
                 const useTs = (action as any)._useTs as number;
@@ -154,6 +170,7 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
         if (e.kind === "action") {
             delete (e as any)._useTs;
             delete (e as any)._tool;
+            delete (e as any)._command;
         }
     }
     return entries;

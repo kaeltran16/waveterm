@@ -196,12 +196,30 @@ describe("projectTranscript detail", () => {
         });
     });
 
-    it("attaches bash output + exit from the tool_result body", () => {
+    it("attaches the raw command (not the description) plus output + exit to a bash detail", () => {
         const out = projectTranscript([
-            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test" } }] } }),
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test", description: "run tests" } }] } }),
             L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "b1", is_error: false, content: "24 passing" }] } }),
         ]);
-        expect((out[0] as any).detail).toEqual({ kind: "bash", output: "24 passing", exit: 0 });
+        // the line shows the human description; the raw command lives in the detail
+        expect(out[0]).toMatchObject({ kind: "action", verb: "ran", target: "run tests" });
+        expect((out[0] as any).detail).toEqual({ kind: "bash", command: "npm test", output: "24 passing", exit: 0 });
+    });
+
+    it("renders a Skill call as a labeled line (verb + skill name) with an args detail", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "s1", name: "Skill", input: { skill: "brainstorming", args: "design the cache" } }] } }),
+        ]);
+        expect(out[0]).toMatchObject({ kind: "action", verb: "skill", target: "brainstorming" });
+        expect((out[0] as any).detail).toEqual({ kind: "skill", name: "brainstorming", args: "design the cache" });
+    });
+
+    it("omits the args detail field when a Skill call has no args", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "s2", name: "Skill", input: { skill: "commit" } }] } }),
+        ]);
+        expect(out[0]).toMatchObject({ kind: "action", verb: "skill", target: "commit" });
+        expect((out[0] as any).detail).toEqual({ kind: "skill", name: "commit" });
     });
 
     it("computes durationMs from record timestamps", () => {
@@ -219,5 +237,6 @@ describe("projectTranscript detail", () => {
         ]);
         expect(Object.keys(out[0])).not.toContain("_useTs");
         expect(Object.keys(out[0])).not.toContain("_tool");
+        expect(Object.keys(out[0])).not.toContain("_command");
     });
 });

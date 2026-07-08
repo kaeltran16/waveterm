@@ -61,6 +61,21 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     useApplyCockpitTheme();
     useApplyCockpitFonts();
     useEffect(() => initKeybindingDispatcher(model), [model]);
+    // Kill the native browser context menu app-wide so it never leaks on elements without a themed
+    // handler (e.g. navrail items). Themed menus (ContextMenuModel) render via portal and are
+    // unaffected — preventDefault only suppresses the native menu. Native stays only inside editable
+    // fields, where right-click copy/paste is expected.
+    useEffect(() => {
+        const onContextMenu = (e: MouseEvent) => {
+            const el = e.target as HTMLElement | null;
+            if (el?.closest("input, textarea") || el?.isContentEditable) {
+                return;
+            }
+            e.preventDefault();
+        };
+        window.addEventListener("contextmenu", onContextMenu);
+        return () => window.removeEventListener("contextmenu", onContextMenu);
+    }, []);
     const globalBindings = useMemo(() => buildGlobalBindings(model), [model]);
     useKeybindings(globalBindings);
     return (

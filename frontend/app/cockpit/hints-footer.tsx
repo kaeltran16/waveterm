@@ -74,6 +74,13 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
         );
     }
 
+    // The cockpit surface renders its own consolidated hints bar (cockpitsurface.tsx HINTS), so the
+    // footer's rest posture would be a redundant second row here. Leader posture above still shows
+    // (the which-key bar must appear on every surface).
+    if (surface === "cockpit") {
+        return null;
+    }
+
     // Rest / in-terminal posture: both fall out of filtering hints by live when(ctx).
     const ctx = deriveKeyContext();
     const chips = visibleHints(ctx, bindings, SURFACE_HINTS[surface] ?? [], GLOBAL_HINTS);
