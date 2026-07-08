@@ -16,14 +16,34 @@ export function degreeMap(edges: MemEdge[]): Map<string, number> {
     return deg;
 }
 
-// Map-style tiered label reveal: hubs are labeled at any practical zoom, mid-degree nodes from
-// moderate zoom, leaves only when zoomed in — so the settled fit view names the landmarks instead
-// of showing a wall of anonymous dots.
+// Map-style tiered label reveal: hubs are labeled around fit zoom, mid-degree nodes from moderate
+// zoom, leaves only when clearly zoomed in — so the settled fit view names a few landmarks instead
+// of drowning the canvas in text.
 export function labelZoomThreshold(deg: number): number {
-    if (deg >= 6) return 0.5;
-    if (deg >= 3) return 0.8;
-    if (deg >= 1) return 1.3;
-    return 1.7;
+    if (deg >= 6) return 0.7;
+    if (deg >= 3) return 1.1;
+    if (deg >= 1) return 1.5;
+    return 1.9;
+}
+
+// How many unforced labels may show at once, scaled by zoom (hover/selection/search matches are
+// exempt). Quadratic in scale: a handful of landmarks at fit zoom, generous when zoomed in where
+// fewer nodes are on screen anyway.
+export function labelBudget(scale: number): number {
+    return Math.round(7 * scale * scale);
+}
+
+// Label priority: lower rank labels first. Degree-sorted, id tiebreak for determinism.
+export function degreeRank(nodes: { id: string; deg: number }[]): Map<string, number> {
+    const sorted = [...nodes].sort((a, b) => b.deg - a.deg || (a.id < b.id ? -1 : 1));
+    return new Map(sorted.map((n, i) => [n.id, i]));
+}
+
+const TITLE_MAX = 40;
+
+// Harvested notes can have sentence-long titles; cap what the canvas draws.
+export function truncateTitle(title: string): string {
+    return title.length > TITLE_MAX ? title.slice(0, TITLE_MAX) + "…" : title;
 }
 
 export type XY = { x: number; y: number };

@@ -43,11 +43,14 @@ promoted to a direct dependency to add the missing forces.
    (null = no query). Non-matching nodes paint at ~0.06 alpha with no label; links dim unless both
    endpoints match; matches keep full color and are force-labeled when few (≤ 40). The sim is never
    touched while typing.
-3. **Pre-warmed, framed first paint.** Forces are configured *before* data is handed to the sim
-   (render with empty data → configure forces in an effect → then feed real data), warmup ticks
-   scale with how much of the layout was cache-seeded, and the camera restores (or `zoomToFit(0)`
-   fires on the first frame). The settled-gate on labels is removed; the one-shot settle pulse
-   (`useSettle`) is dropped as meaningless without a fly-in.
+3. **Partial warmup + framed live settle.** Forces are configured *before* data is handed to the
+   sim (render with empty data → configure forces in an effect → then feed real data). A partial
+   warmup (~50 ticks) roughs the layout in off-screen, the camera restores or fits on the FIRST
+   live tick, and the remaining ~1.5s of cooling plays as a short, framed organic settle. The
+   settled-gate on labels is removed (labels ride along); the settle pulse (`useSettle`) stays.
+   REVISED after user feedback: the first cut fully pre-warmed (200 ticks) which killed all motion
+   — "it is worse, all the animation is gone". The clank was never the motion; it was motion
+   playing unframed with a late snap-fit. Keep the life, frame it from tick one.
 4. **Map-style tiered labels.** Label reveal threshold is a function of degree — hubs label at any
    zoom, mid-degree nodes from moderate zoom, leaves when zoomed in — like city labels on a map.
    The existing greedy de-collision keeps them overlap-free. Hover/selection/neighborhood always label.
