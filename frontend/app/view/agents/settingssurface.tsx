@@ -7,6 +7,7 @@ import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
+import { Folder } from "lucide-react";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
@@ -678,22 +679,47 @@ function MemorySection() {
     const commit = () => {
         void RpcApi.SetConfigCommand(TabRpcClient, { "memory:vaultpath": draft.trim() }).then(() => setSaved(true));
     };
+    // native OS folder picker (Tauri dialog plugin), mirroring newprojectmodal's browse. dynamic import
+    // keeps non-Tauri contexts (preview, vitest) clean. populates the draft; Save still commits.
+    const browse = async () => {
+        try {
+            const { open } = await import("@tauri-apps/plugin-dialog");
+            const picked = await open({ directory: true, multiple: false, title: "Select vault folder" });
+            if (typeof picked === "string" && picked) {
+                setDraft(picked);
+                setSaved(false);
+            }
+        } catch (e) {
+            console.error("vault folder picker failed", e);
+        }
+    };
     return (
         <div>
             <SectionLabel>Memory</SectionLabel>
             <div className="text-[14px] font-semibold text-primary">Vault path</div>
             <div className="mb-3 mt-0.5 text-[12.5px] text-muted">Folder the Memory surface reads and writes.</div>
             <div className="flex gap-2.5">
-                <input
-                    type="text"
-                    value={draft}
-                    placeholder="~/vault"
-                    onChange={(e) => {
-                        setDraft(e.target.value);
-                        setSaved(false);
-                    }}
-                    className="min-w-0 flex-1 rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-2.5 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
-                />
+                <div className="relative min-w-0 flex-1">
+                    <input
+                        type="text"
+                        value={draft}
+                        placeholder="~/vault"
+                        onChange={(e) => {
+                            setDraft(e.target.value);
+                            setSaved(false);
+                        }}
+                        className="w-full rounded-[9px] border border-edge-mid bg-surface-raised py-2.5 pl-3.5 pr-10 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => void browse()}
+                        title="Browse for folder"
+                        aria-label="Browse for folder"
+                        className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-muted transition-colors hover:bg-surface-hover hover:text-primary"
+                    >
+                        <Folder size={15} />
+                    </button>
+                </div>
                 <button
                     type="button"
                     onClick={commit}
