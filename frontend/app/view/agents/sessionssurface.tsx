@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAge, formatTokens } from "./agentsviewmodel";
 import type { Runtime } from "./launch";
+import { runtimeMeta } from "./runtimemeta";
 import { reflowProps } from "./sessionsmotion";
 import {
     filterSessions,
@@ -183,9 +184,22 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                                 ContextMenuModel.getInstance().showContextMenu(items, ev);
                                             }}
                                         >
-                                            <span className="shrink-0 rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-[.08em] text-muted">
-                                                {s.runtime}
-                                            </span>
+                                            {(() => {
+                                                const rt = runtimeMeta(s.runtime);
+                                                return (
+                                                    <span
+                                                        className={cn(
+                                                            "flex shrink-0 items-center gap-1 rounded-[5px] border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[.06em]",
+                                                            rt.text,
+                                                            rt.softBg,
+                                                            rt.line
+                                                        )}
+                                                    >
+                                                        <span className="text-[10px] leading-none">{rt.glyph}</span>
+                                                        {s.runtime}
+                                                    </span>
+                                                );
+                                            })()}
                                             <div className="min-w-0 flex-1">
                                                 <div className="truncate text-[12.5px] font-semibold text-primary">
                                                     {s.task || "(untitled session)"}

@@ -166,6 +166,16 @@
     --zindex-modal-wrapper: 500;
 }
 
+/* Tailwind v4 preflight dropped `button { cursor: pointer }`; restore it app-wide so bespoke
+   <button>/role=button controls (surface tabs, chips, etc.) read as clickable. In @layer base so an
+   explicit cursor-* utility still wins, and :disabled keeps the default arrow. */
+@layer base {
+    button:not(:disabled),
+    [role="button"]:not([aria-disabled="true"]) {
+        cursor: pointer;
+    }
+}
+
 /* Chart tooltip styling for sysinfo plots */
 svg [aria-label="tip"] g path {
     color: var(--border-color);

@@ -18,6 +18,7 @@ import (
 
 const transcriptTailBytes = 64 * 1024
 const bashDetailMax = 60
+const titleMax = 72 // fallback head-text length cap (rune-safe)
 
 // ccHookEvent is the subset of the Claude Code lifecycle-hook stdin payload we use.
 type ccHookEvent struct {
@@ -180,6 +181,84 @@ func readLastTitle(path string) string {
 	return title
 }
 
+// userText extracts the human prose from a transcript user record's `content`, which is either a bare
+// string or an array of content blocks. Only `text` blocks count; tool_result blocks are skipped, so a
+// tool_result-only user turn yields "" (it isn't something the human typed).
+func userText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		parts := make([]string, 0, len(blocks))
+		for _, b := range blocks {
+			if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+				parts = append(parts, strings.TrimSpace(b.Text))
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, " "))
+	}
+	return ""
+}
+
+// lastUserPrompt returns the text of the most recent user turn that carries human prose. Drives the
+// head-text fallback when a turn (e.g. a skill/slash-command dispatch) produced no ai-title record.
+func lastUserPrompt(lines []string) string {
+	prompt := ""
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		var rec struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(ln), &rec) != nil || rec.Type != "user" {
+			continue
+		}
+		if txt := userText(rec.Message.Content); txt != "" {
+			prompt = txt
+		}
+	}
+	return prompt
+}
+
+func readLastUserPrompt(path string) string {
+	return lastUserPrompt(tailLines(path))
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
+// titleFromPrompt turns a user prompt into a head-text title: the first non-empty line, rune-truncated.
+// A slash-command prompt (e.g. "/commit stage the diff") already carries the skill name plus the ask,
+// so no special parsing is needed. Empty prompt -> "".
+func titleFromPrompt(prompt string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		return truncateRunes(line, titleMax)
+	}
+	return ""
+}
+
 var agentHookCmd = &cobra.Command{
 	Use:                   "agent-hook",
 	Short:                 "Claude Code lifecycle hook: report agent status to the Arc cockpit",
@@ -235,6 +314,11 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		if em.AttachModelTitle && ev.TranscriptPath != "" {
 			data.Model = readLastModel(ev.TranscriptPath)
 			data.Title = readLastTitle(ev.TranscriptPath)
+			// no ai-title yet (e.g. a skill/slash-command turn) -> fall back to the user's prompt so
+			// the row still gets a head-text summary instead of the bare agent name
+			if data.Title == "" {
+				data.Title = titleFromPrompt(readLastUserPrompt(ev.TranscriptPath))
+			}
 		}
 		_ = publishAgentStatusData(oref, data, 1)
 	}

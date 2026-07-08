@@ -230,7 +230,7 @@ export function AgentRow({
             items.push({ label: fullWidth ? "Exit full width" : "Full width", click: onToggleFullWidth });
         }
         if (muteAction) {
-            items.push({ label: idle ? "Dismiss" : "Mute & background", click: muteAction });
+            items.push({ label: "Move to background", click: muteAction });
         }
         items.push({ label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) });
         items.push({ type: "separator" });
@@ -371,10 +371,23 @@ export function AgentRow({
                             e.stopPropagation();
                             muteAction();
                         }}
-                        title={idle ? "Dismiss to Idle" : "Mute & background (M)"}
-                        className={cn(CTL_BOX, "text-[11px]")}
+                        title={idle ? "Move to background" : "Move to background (B)"}
+                        className={CTL_BOX}
                     >
-                        ⤓
+                        {/* down-chevron into a tray line: collapse this card into the background lane */}
+                        <svg
+                            viewBox="0 0 16 16"
+                            width="12"
+                            height="12"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.6}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <path d="M4 5 L8 9 L12 5" />
+                            <path d="M4 11.5 H12" />
+                        </svg>
                     </button>
                 ) : null}
             </div>
@@ -458,31 +471,10 @@ export function AgentRow({
                     />
                 ) : null}
 
-                {/* footer: reply chips (asking, always visible) above the composer, which collapses
-                    to a slim "+ message… R" row by default and expands on R / click */}
+                {/* footer: the composer collapses to a slim "+ message… R" row by default and expands
+                    on R / click. The structured AnswerBar above is the single suggestion affordance —
+                    the free-form reply chips were removed so an ask never shows two suggestion rows. */}
                 <div className="shrink-0 border-t border-edge-mid">
-                    {asking && agent.ask?.replySuggestions?.length ? (
-                        <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-                            {agent.ask.replySuggestions.map((s, i) => (
-                                <button
-                                    key={i}
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (composerOpen) {
-                                            composerRef.current?.fill(s);
-                                        } else {
-                                            onOpenComposer();
-                                            requestAnimationFrame(() => composerRef.current?.fill(s));
-                                        }
-                                    }}
-                                    className="cursor-pointer whitespace-nowrap rounded-[7px] border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:border-warning/55 hover:bg-warning/20"
-                                >
-                                    {s}
-                                </button>
-                            ))}
-                        </div>
-                    ) : null}
                     {showComposer ? (
                         <motion.div
                             variants={composerReveal}
@@ -561,9 +553,13 @@ export function AgentRow({
                     }}
                     onClick={(e) => e.stopPropagation()}
                     title={fullWidth ? "Drag in to un-span · down to resize" : "Drag out to span · down to resize"}
-                    className="group/grip absolute bottom-[2px] right-[2px] z-20 flex h-[18px] w-[18px] cursor-nwse-resize items-end justify-end p-[3px] opacity-0 transition-opacity group-hover:opacity-100"
+                    className="group/grip absolute bottom-[1px] right-[1px] z-20 flex h-[20px] w-[20px] cursor-nwse-resize items-end justify-end p-[3px] text-edge-strong opacity-40 transition-opacity group-hover:opacity-100 group-hover/grip:text-accent"
                 >
-                    <div className="h-[8px] w-[8px] rounded-br-[3px] border-b-2 border-r-2 border-edge-strong group-hover/grip:border-accent" />
+                    {/* diagonal grip lines: the standard "drag from the corner to resize / span" affordance */}
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
+                        <path d="M14.5 7.5 L7.5 14.5" />
+                        <path d="M14.5 12 L12 14.5" />
+                    </svg>
                 </div>
             ) : null}
         </motion.div>

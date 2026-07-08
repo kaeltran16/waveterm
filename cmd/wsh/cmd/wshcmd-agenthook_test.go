@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -119,6 +120,54 @@ func TestReadLastTitleMissing(t *testing.T) {
 	}
 	if got := readLastModel("/no/such/file"); got != "" {
 		t.Fatalf("model on missing file = %q, want empty", got)
+	}
+}
+
+func TestLastUserPrompt(t *testing.T) {
+	// last user turn with human text wins; assistant/ai-title lines and tool_result-only user turns are ignored
+	lines := []string{
+		`{"type":"assistant","message":{"content":[]}}`,
+		`{"type":"user","message":{"content":"first ask"}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"file contents"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"text","text":"/commit stage the diff"}]}}`,
+		`{"type":"ai-title","aiTitle":"x"}`,
+	}
+	if got := lastUserPrompt(lines); got != "/commit stage the diff" {
+		t.Fatalf("lastUserPrompt = %q, want %q", got, "/commit stage the diff")
+	}
+}
+
+func TestLastUserPromptStringAndEmpty(t *testing.T) {
+	if got := lastUserPrompt([]string{`{"type":"user","message":{"content":"hi there"}}`}); got != "hi there" {
+		t.Fatalf("string content = %q, want %q", got, "hi there")
+	}
+	if got := lastUserPrompt([]string{`{"type":"assistant","message":{"content":"x"}}`}); got != "" {
+		t.Fatalf("no user turn -> %q, want empty", got)
+	}
+	if got := lastUserPrompt([]string{`{"type":"user","message":{"content":[{"type":"tool_result","content":"r"}]}}`}); got != "" {
+		t.Fatalf("tool_result-only user turn -> %q, want empty", got)
+	}
+}
+
+func TestTitleFromPrompt(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"slash command carries skill + ask", "/commit stage the diff", "/commit stage the diff"},
+		{"first non-empty line only", "\n\n  do the thing  \nsecond line", "do the thing"},
+		{"empty -> empty", "   \n  ", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := titleFromPrompt(tt.in); got != tt.want {
+				t.Fatalf("titleFromPrompt(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTitleFromPromptTruncatedByRune(t *testing.T) {
+	got := titleFromPrompt(strings.Repeat("x", 200))
+	if len([]rune(got)) != titleMax {
+		t.Fatalf("truncated rune-len = %d, want %d", len([]rune(got)), titleMax)
 	}
 }
 

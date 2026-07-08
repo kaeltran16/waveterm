@@ -11,7 +11,7 @@ import { useSettle } from "@/app/element/motionhooks";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { degreeMap } from "./memgraphlayout";
+import { degreeMap, graphSignature } from "./memgraphlayout";
 import { memEdgesAtom, selectNote } from "./memstore";
 import type { MemNote } from "./memtypes";
 
@@ -74,7 +74,13 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
     useEffect(() => {
         const el = containerRef.current;
         if (!el) return;
-        const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+        // only push a new size when it actually changed — an unconditional setState on every observed
+        // resize re-renders (and reflows the canvas) even when dimensions are identical
+        const ro = new ResizeObserver(() =>
+            setSize((prev) =>
+                prev.w === el.clientWidth && prev.h === el.clientHeight ? prev : { w: el.clientWidth, h: el.clientHeight }
+            )
+        );
         ro.observe(el);
         setSize({ w: el.clientWidth, h: el.clientHeight });
         return () => ro.disconnect();
@@ -82,6 +88,13 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
 
     // nodes + links for the current (filtered) set; links restricted to present notes so search
     // filtering never leaves dangling edges. deg drives node size.
+    // Gate the rebuild on the structural signature (not the identity of `notes`, which is a fresh
+    // filtered array every render): reuse the same node/link objects — and thus the sim's live x/y —
+    // whenever the node/edge set is unchanged. This is the core clank fix (no restart per keystroke/hover).
+    const sig = graphSignature(
+        notes.map((n) => n.id),
+        allEdges
+    );
     const data = useMemo(() => {
         const ids = new Set(notes.map((n) => n.id));
         const edges = allEdges.filter((e) => ids.has(e.from) && ids.has(e.to));
@@ -89,7 +102,8 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
         const nodes: GNode[] = notes.map((n) => ({ id: n.id, title: n.title, type: n.type, deg: deg.get(n.id) ?? 0 }));
         const links: GLink[] = edges.map((e) => ({ source: e.from, target: e.to }));
         return { nodes, links };
-    }, [notes, allEdges]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sig]);
 
     useEffect(() => {
         fitted.current = false;
@@ -211,11 +225,12 @@ export function MemGraph({ notes, selectedId }: { notes: MemNote[]; selectedId: 
                             }
                             fgRef.current?.refresh?.(); // repaint so labels appear now that it's settled
                         }}
-                        // damped + time-boxed settle → calmer, smoother motion than the bouncy default
+                        // damped + time-boxed settle → calmer, smoother motion than the bouncy default.
+                        // Slightly faster decay + shorter cooldown so it stops jiggling sooner (less "clank").
                         d3VelocityDecay={0.5}
-                        d3AlphaDecay={0.035}
+                        d3AlphaDecay={0.045}
                         warmupTicks={30}
-                        cooldownTime={4000}
+                        cooldownTime={3000}
                     />
                 )}
             </Suspense>

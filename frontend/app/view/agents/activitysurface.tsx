@@ -14,7 +14,15 @@ import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { ActivityEvent, ActivityType } from "./activityevents";
-import { activityEventsAtom, activityLoadedAtom, applyFilter, groupByProject, loadActivity } from "./activitystore";
+import {
+    activityEventsAtom,
+    activityLoadedAtom,
+    activityProjects,
+    applyFilter,
+    applyProjectFilter,
+    groupByProject,
+    loadActivity,
+} from "./activitystore";
 import type { AgentsViewModel } from "./agents";
 import { formatAge } from "./agentsviewmodel";
 
@@ -77,6 +85,7 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
     const events = useAtomValue(activityEventsAtom);
     const loaded = useAtomValue(activityLoadedAtom);
     const filter = useAtomValue(model.activityFilterAtom);
+    const projectFilter = useAtomValue(model.activityProjectFilterAtom);
     const now = useAtomValue(model.nowAtom);
     // Load reveal fires only on the first-ever visit: activityEventsAtom is module-level and persists
     // across surface remounts, so it is empty only before the first load ever completes.
@@ -86,7 +95,8 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         void loadActivity(model);
     }, [model]);
-    const groups = groupByProject(applyFilter(events, filter));
+    const projects = activityProjects(events);
+    const groups = groupByProject(applyProjectFilter(applyFilter(events, filter), projectFilter));
     const rp = reflowProps(reflowAnimated);
     return (
         <MotionConfig reducedMotion="user">
@@ -96,7 +106,7 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
                         <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">Activity</h1>
                         <p className="text-[13.5px] text-secondary">Every agent event, grouped by project.</p>
                     </div>
-                    <div className="mb-7 flex flex-wrap gap-2">
+                    <div className={cn("flex flex-wrap gap-2", projects.length > 1 ? "mb-3" : "mb-7")}>
                         {CHIPS.map((c) => {
                             const active = filter === c.key;
                             const dot = c.key !== "all" ? TYPE_META[c.key].color : undefined;
@@ -125,6 +135,44 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
                             );
                         })}
                     </div>
+                    {/* project scope — only when more than one project is present */}
+                    {projects.length > 1 ? (
+                        <div className="mb-7 flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    globalStore.set(model.activityProjectFilterAtom, "all");
+                                    setReflowAnimated(true);
+                                }}
+                                className={cn(
+                                    "cursor-pointer rounded-[8px] border px-[13px] py-[6px] text-[12px] font-medium",
+                                    projectFilter === "all"
+                                        ? "border-accent bg-accentbg text-accent-soft"
+                                        : "border-border bg-surface text-ink-mid hover:border-edge-strong"
+                                )}
+                            >
+                                All projects
+                            </button>
+                            {projects.map((p) => (
+                                <button
+                                    key={p}
+                                    type="button"
+                                    onClick={() => {
+                                        globalStore.set(model.activityProjectFilterAtom, p);
+                                        setReflowAnimated(true);
+                                    }}
+                                    className={cn(
+                                        "cursor-pointer rounded-[8px] border px-[13px] py-[6px] font-mono text-[12px] font-medium",
+                                        projectFilter === p
+                                            ? "border-accent bg-accentbg text-accent-soft"
+                                            : "border-border bg-surface text-ink-mid hover:border-edge-strong"
+                                    )}
+                                >
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
                     {!loaded ? (
                         <ActivitySkeleton />
                     ) : groups.length === 0 ? (
@@ -179,6 +227,12 @@ export function ActivitySurface({ model }: { model: AgentsViewModel }) {
                                                             label: `Filter to ${TYPE_META[e.type].label}`,
                                                             click: () => globalStore.set(model.activityFilterAtom, e.type),
                                                         });
+                                                        if (e.project) {
+                                                            items.push({
+                                                                label: `Filter to project ${e.project}`,
+                                                                click: () => globalStore.set(model.activityProjectFilterAtom, e.project),
+                                                            });
+                                                        }
                                                         items.push({ label: "Copy summary", click: () => void navigator.clipboard.writeText(e.text) });
                                                         items.push({ label: "Copy project", click: () => void navigator.clipboard.writeText(e.project) });
                                                         ContextMenuModel.getInstance().showContextMenu(items, ev);

@@ -8,13 +8,25 @@
 // into the block's persisted cmd:args, so the very same relaunch reattaches to the session instead of
 // starting over. FE-only, no backend change; codex/antigravity keep restarting fresh.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { resumeArgsForClaude, sessionIdFromTranscript } from "../launch";
+import { resumeArgsForClaude, sessionIdFromTranscript, type Runtime } from "../launch";
+import { naFlagsAtom } from "../naflagsstore";
 
 // oref -> resume id already baked into the block this session, to skip redundant SetMeta writes
 const bakedResumeId = new Map<string, string>();
+
+// Pure: resume-on-reopen is Claude-only, and gated on the user's claude "--continue" ("Resume the last
+// session") launch flag so it respects the New Agent defaults setting. Off by default (naFlagsAtom is
+// empty), so an agent relaunches fresh on reopen unless the user opted into resume.
+export function shouldPersistClaudeResume(
+    provider: string | undefined,
+    flags: Partial<Record<Runtime, Record<string, boolean>>> | undefined
+): boolean {
+    return (provider ?? "").toLowerCase() === "claude" && flags?.claude?.continue === true;
+}
 
 function sameArgs(a: string[], b: string[]): boolean {
     return a.length === b.length && a.every((v, i) => v === b[i]);
@@ -27,7 +39,7 @@ export async function persistClaudeResume(
     provider: string | undefined,
     transcriptPath: string | undefined
 ): Promise<void> {
-    if ((provider ?? "").toLowerCase() !== "claude") {
+    if (!shouldPersistClaudeResume(provider, globalStore.get(naFlagsAtom))) {
         return;
     }
     const sessionId = sessionIdFromTranscript(transcriptPath);

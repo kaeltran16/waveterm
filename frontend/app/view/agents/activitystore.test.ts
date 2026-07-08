@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { ActivityEvent } from "./activityevents";
-import { applyFilter, groupByProject } from "./activitystore";
+import { activityProjects, applyFilter, applyProjectFilter, groupByProject } from "./activitystore";
 
 const e = (project: string, type: ActivityEvent["type"], ts: number): ActivityEvent => ({
     id: `${project}-${ts}`,
@@ -22,6 +22,27 @@ describe("applyFilter", () => {
         const evs = [e("a", "asked", 1), e("a", "committed", 2)];
         expect(applyFilter(evs, "all")).toHaveLength(2);
         expect(applyFilter(evs, "asked").map((x) => x.type)).toEqual(["asked"]);
+    });
+});
+
+describe("applyProjectFilter", () => {
+    it("returns all events for 'all' and only the matching project otherwise", () => {
+        const evs = [e("alpha", "started", 1), e("beta", "asked", 2)];
+        expect(applyProjectFilter(evs, "all")).toHaveLength(2);
+        expect(applyProjectFilter(evs, "beta").map((x) => x.project)).toEqual(["beta"]);
+    });
+    it("normalizes a blank project to '—' so it matches the group key", () => {
+        expect(applyProjectFilter([e("", "started", 1)], "—")).toHaveLength(1);
+    });
+});
+
+describe("activityProjects", () => {
+    it("lists distinct projects, most-recent first (matches the group order)", () => {
+        const evs = [e("alpha", "started", 10), e("beta", "asked", 30), e("alpha", "asked", 20)];
+        expect(activityProjects(evs)).toEqual(["beta", "alpha"]);
+    });
+    it("normalizes a blank project to '—'", () => {
+        expect(activityProjects([e("", "started", 1)])).toEqual(["—"]);
     });
 });
 

@@ -15,3 +15,14 @@ export function degreeMap(edges: MemEdge[]): Map<string, number> {
     }
     return deg;
 }
+
+// Order-independent structural key for the current graph (sorted node ids + sorted edge keys). The graph
+// component memoizes its node/link objects on this, so re-renders that don't change the *set* (hover,
+// resize, a 1s now-tick, a search keystroke that doesn't change the results) reuse the same objects
+// instead of rebuilding them — which would reset react-force-graph's in-place x/y and restart the
+// simulation. That restart-on-every-render is the "clank". Titles are intentionally excluded.
+export function graphSignature(nodeIds: string[], edges: MemEdge[]): string {
+    const nodes = [...nodeIds].sort().join(",");
+    const links = edges.map((e) => `${e.from}>${e.to}`).sort().join(",");
+    return `${nodes}|${links}`;
+}

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { aggregateBuckets } from "./usagestats";
+import { aggregateBuckets, modelGridClass } from "./usagestats";
+
+describe("modelGridClass", () => {
+    it("fills the full width when there is a single provider (or none)", () => {
+        expect(modelGridClass(1)).toBe("grid grid-cols-1 gap-[14px]");
+        expect(modelGridClass(0)).toBe("grid grid-cols-1 gap-[14px]");
+    });
+    it("splits into two columns on lg for multiple providers", () => {
+        expect(modelGridClass(2)).toBe("grid grid-cols-1 gap-[14px] lg:grid-cols-2");
+    });
+});
 
 function bkt(over: Partial<UsageBucket>): UsageBucket {
     return {
