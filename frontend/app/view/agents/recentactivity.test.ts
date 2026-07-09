@@ -31,6 +31,21 @@ describe("buildRecentActivity", () => {
         expect(out[0].typeLabel).toBe("you");
         expect(out[0].text).toBe("go");
     });
+    it("describes a command entry with its slash name and args", () => {
+        const out = buildRecentActivity([mk("a", "working")], { a: [{ kind: "command", name: "/review", args: "PR #402" }] }, { a: 5 }, 5, 0);
+        expect(out[0]).toMatchObject({ text: "/review PR #402", typeLabel: "command" });
+    });
+
+    it("describes a skill command with a slash-prefixed leaf name", () => {
+        const out = buildRecentActivity([mk("a", "working")], { a: [{ kind: "command", name: "brainstorming", args: "x", isSkill: true }] }, { a: 5 }, 5, 0);
+        expect(out[0]).toMatchObject({ text: "/brainstorming x", typeLabel: "skill" });
+    });
+
+    it("describes a compaction entry as compacted", () => {
+        const out = buildRecentActivity([mk("a", "working")], { a: [{ kind: "compaction", trigger: "manual", preTokens: 1, postTokens: 1 }] }, { a: 5 }, 5, 0);
+        expect(out[0]).toMatchObject({ text: "Conversation compacted", typeLabel: "compacted" });
+    });
+
     it("falls back to previousInfo when no live entries exist", () => {
         const agents = [mk("a", "asking", { previousInfo: [msg("seeded")] })];
         const out = buildRecentActivity(agents, {}, {}, 5, 0);

@@ -629,6 +629,28 @@ describe("groupTimeline", () => {
     });
 });
 
+describe("groupTimeline command/compaction", () => {
+    it("passes command and compaction through as standalone items, keeping order and flushing runs", () => {
+        const entries: AgentEntry[] = [
+            { kind: "command", name: "/review", args: "PR #402" },
+            { kind: "action", verb: "ran", target: "gh pr diff" },
+            { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859, summary: "kept" },
+            { kind: "command", name: "brainstorming", args: "x", isSkill: true },
+        ];
+        const items = groupTimeline(entries);
+        expect(items.map((i) => i.kind)).toEqual(["command", "action", "compaction", "command"]);
+        expect(items[0]).toEqual({ kind: "command", name: "/review", args: "PR #402", isSkill: undefined, index: 0 });
+        expect(items[2]).toEqual({
+            kind: "compaction",
+            trigger: "manual",
+            preTokens: 415334,
+            postTokens: 22859,
+            summary: "kept",
+            index: 2,
+        });
+        expect(items[3]).toMatchObject({ kind: "command", name: "brainstorming", isSkill: true, index: 3 });
+    });
+});
 describe("summarizeActions", () => {
     const actions: AgentActionEntry[] = [
         { kind: "action", verb: "read", target: "a" },
@@ -925,6 +947,18 @@ describe("conversationText", () => {
     });
 });
 
+describe("conversationText command/compaction", () => {
+    it("includes commands as slash lines and skips compaction", () => {
+        const entries: AgentEntry[] = [
+            { kind: "user", text: "hi" },
+            { kind: "command", name: "/clear" },
+            { kind: "command", name: "brainstorming", args: "design x", isSkill: true },
+            { kind: "compaction", summary: "big summary" },
+            { kind: "message", text: "done" },
+        ];
+        expect(conversationText(entries)).toBe("hi\n\n/clear\n\n/brainstorming design x\n\ndone");
+    });
+});
 describe("detail inline routing", () => {
     it("counts grep matches", () => {
         expect(detailLineCount({ kind: "grep", matches: [{ loc: "a", code: "b" }] })).toBe(1);

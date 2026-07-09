@@ -55,6 +55,7 @@ import {
 } from "./livetranscript";
 import { ProjectSwitcher } from "./projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
+import { InlineMarkdown } from "./inlinemarkdown";
 import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
@@ -1073,7 +1074,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                                               <span className="font-mono font-semibold text-primary">
                                                                   {e.agent}
                                                               </span>{" "}
-                                                              {e.text}
+                                                              <InlineMarkdown text={e.text} />
                                                           </div>
                                                           <div className="mt-[3px] font-mono text-[10px] text-muted">
                                                               {e.typeLabel} ·{" "}

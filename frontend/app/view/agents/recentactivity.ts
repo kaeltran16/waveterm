@@ -17,12 +17,23 @@ export interface RecentActivityItem {
     state: AgentState;
 }
 
+function commandText(entry: Extract<AgentEntry, { kind: "command" }>): string {
+    const name = entry.isSkill && !entry.name.startsWith("/") ? `/${entry.name}` : entry.name;
+    return `${name} ${entry.args ?? ""}`.trim();
+}
+
 function describe(entry: AgentEntry): { text: string; typeLabel: string } {
     if (entry.kind === "message") {
         return { text: entry.text, typeLabel: "said" };
     }
     if (entry.kind === "user") {
         return { text: entry.text, typeLabel: "you" };
+    }
+    if (entry.kind === "command") {
+        return { text: commandText(entry), typeLabel: entry.isSkill ? "skill" : "command" };
+    }
+    if (entry.kind === "compaction") {
+        return { text: "Conversation compacted", typeLabel: "compacted" };
     }
     return { text: `${entry.verb} ${entry.target}`.trim(), typeLabel: entry.verb };
 }

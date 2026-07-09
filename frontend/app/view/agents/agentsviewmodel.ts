@@ -34,6 +34,8 @@ export type ActionDetail =
 export type AgentEntry =
     | { kind: "message"; text: string }
     | { kind: "user"; text: string }
+    | { kind: "command"; name: string; args?: string; isSkill?: boolean }
+    | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }
     | {
           kind: "action";
           verb: string;
@@ -208,6 +210,8 @@ export function detailExceedsInline(d: ActionDetail): boolean {
 export type TimelineItem =
     | { kind: "message"; text: string; index: number }
     | { kind: "user"; text: string; index: number }
+    | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
+    | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
     | { kind: "action"; action: AgentActionEntry; index: number }
     | { kind: "group"; startIndex: number; actions: AgentActionEntry[] }
     | { kind: "edit-burst"; startIndex: number; files: EditFile[]; adds: number; dels: number };
@@ -263,8 +267,19 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
         flush();
         if (e.kind === "message") {
             items.push({ kind: "message", text: e.text, index: i });
-        } else {
+        } else if (e.kind === "user") {
             items.push({ kind: "user", text: e.text, index: i });
+        } else if (e.kind === "command") {
+            items.push({ kind: "command", name: e.name, args: e.args, isSkill: e.isSkill, index: i });
+        } else if (e.kind === "compaction") {
+            items.push({
+                kind: "compaction",
+                trigger: e.trigger,
+                preTokens: e.preTokens,
+                postTokens: e.postTokens,
+                summary: e.summary,
+                index: i,
+            });
         }
     });
     flush();
@@ -289,6 +304,9 @@ export function conversationText(entries: AgentEntry[]): string {
     for (const e of entries) {
         if (e.kind === "message" || e.kind === "user") {
             out.push(e.text);
+        } else if (e.kind === "command") {
+            const name = e.isSkill ? "/" + e.name : e.name;
+            out.push(e.args ? `${name} ${e.args}` : name);
         }
     }
     return out.join("\n\n");

@@ -83,6 +83,91 @@ describe("projectTranscript user turns", () => {
     });
 });
 
+describe("projectTranscript commands and isMeta", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+
+    it("parses a <command-name> user string into a command entry (slash kept, message dropped, args when present)", () => {
+        const withArgs = "<command-name>/review</command-name>\n  <command-message>review</command-message>\n  <command-args>PR #402</command-args>";
+        const bare = "<command-name>/clear</command-name>\n  <command-message>clear</command-message>\n  <command-args></command-args>";
+        expect(projectTranscript([L({ type: "user", message: { content: withArgs } })])).toEqual([
+            { kind: "command", name: "/review", args: "PR #402" },
+        ]);
+        expect(projectTranscript([L({ type: "user", message: { content: bare } })])).toEqual([
+            { kind: "command", name: "/clear" },
+        ]);
+    });
+
+    it("normalizes a command-name that lacks a leading slash", () => {
+        const out = projectTranscript([
+            L({ type: "user", message: { content: "<command-name>compact</command-name><command-args></command-args>" } }),
+        ]);
+        expect(out).toEqual([{ kind: "command", name: "/compact" }]);
+    });
+
+    it("skips synthetic isMeta user records (skill body dumps, caveats, continuation)", () => {
+        const out = projectTranscript([
+            L({ type: "user", isMeta: true, message: { content: [{ type: "text", text: "# Skill body\n\nlong markdown" }] } }),
+            L({ type: "user", isMeta: true, message: { content: "<local-command-caveat>Caveat...</local-command-caveat>" } }),
+            L({ type: "user", message: { content: "real prompt" } }),
+        ]);
+        expect(out).toEqual([{ kind: "user", text: "real prompt" }]);
+    });
+    it("renders a user-invoked skill (caller.direct) as a skill command chip with the leaf name", () => {
+        const out = projectTranscript([
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        { type: "tool_use", id: "s1", name: "Skill", input: { skill: "superpowers:brainstorming", args: "design the cache" }, caller: { type: "direct" } },
+                    ],
+                },
+            }),
+        ]);
+        expect(out).toEqual([{ kind: "command", name: "brainstorming", isSkill: true, args: "design the cache" }]);
+    });
+
+    it("omits args for a skill chip with no args", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "s2", name: "Skill", input: { skill: "commit" }, caller: { type: "direct" } }] } }),
+        ]);
+        expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true }]);
+    });
+});
+
+describe("projectTranscript compaction", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const boundary = L({
+        type: "system",
+        subtype: "compact_boundary",
+        content: "Conversation compacted",
+        compactMetadata: { trigger: "manual", preTokens: 415334, postTokens: 22859 },
+    });
+    const summary = L({ type: "user", isCompactSummary: true, message: { content: "This session is being continued...\n\nSummary:\n**kept**" } });
+
+    it("merges an adjacent boundary + summary into one compaction entry", () => {
+        expect(projectTranscript([boundary, summary])).toEqual([
+            { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859, summary: "This session is being continued...\n\nSummary:\n**kept**" },
+        ]);
+    });
+
+    it("produces a summary-only compaction when there is no boundary", () => {
+        expect(projectTranscript([summary])).toEqual([{ kind: "compaction", summary: "This session is being continued...\n\nSummary:\n**kept**" }]);
+    });
+
+    it("produces a stats-only compaction when there is no summary", () => {
+        expect(projectTranscript([boundary])).toEqual([{ kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859 }]);
+    });
+
+    it("does not fold a real user turn into the compaction", () => {
+        const out = projectTranscript([boundary, L({ type: "user", message: { content: "next thing" } }), summary]);
+        expect(out).toEqual([
+            { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859 },
+            { kind: "user", text: "next thing" },
+            { kind: "compaction", summary: "This session is being continued...\n\nSummary:\n**kept**" },
+        ]);
+    });
+});
+
 describe("extractAiTitle", () => {
     it("returns the LAST ai-title's aiTitle", () => {
         const lines = [

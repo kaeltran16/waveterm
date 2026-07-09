@@ -50,6 +50,9 @@
     --color-accenthover: #8da3ff;
     --color-accent-soft: #aebfff;
     --color-accentbg: rgba(124, 149, 255, 0.12);
+    /* skill invocation chip */
+    --color-skill: #c58cff;
+    --color-skill-soft: #dcc0ff;
 
     /* Status: amber = asking, green = working */
     --color-error: #e0726c;

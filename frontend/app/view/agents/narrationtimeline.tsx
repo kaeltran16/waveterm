@@ -11,6 +11,7 @@ import {
     burstRenderMode,
     conversationText,
     detailExceedsInline,
+    formatTokens,
     groupTimeline,
     summarizeActions,
     type ActionDetail,
@@ -237,6 +238,81 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
 
 // A folded run of consecutive edits (Wave-transcript-feed.dc.html burst). Summary row: "N files
 // +adds −dels"; expands inline when the combined diff fits the edit budget, else opens the modal.
+function CommandChip({ name, args, isSkill }: { name: string; args?: string; isSkill?: boolean }) {
+    return (
+        <div className="mt-2 flex justify-end">
+            <span
+                className={cn(
+                    "inline-flex max-w-[88%] flex-wrap items-baseline rounded-lg border px-[11px] py-[5px] font-mono",
+                    isSkill ? "border-skill/35 bg-skill/[0.08]" : "border-accent/35 bg-accent/[0.07]"
+                )}
+            >
+                {isSkill ? <span className="mr-[7px] self-center text-[11px] text-skill">✦</span> : null}
+                <span className={cn("text-[12px] font-semibold", isSkill ? "text-skill-soft" : "text-accent-soft")}>{name}</span>
+                {args ? (
+                    <span className={cn("ml-2 border-l pl-2 text-[11.5px] text-feed-summary", isSkill ? "border-skill/25" : "border-accent/25")}>
+                        {args}
+                    </span>
+                ) : null}
+            </span>
+        </div>
+    );
+}
+
+function CompactionDivider({
+    trigger,
+    preTokens,
+    postTokens,
+    summary,
+}: {
+    trigger?: string;
+    preTokens?: number;
+    postTokens?: number;
+    summary?: string;
+}) {
+    const [open, setOpen] = useState(false);
+    const stat = preTokens != null && postTokens != null ? `${formatTokens(preTokens)} → ${formatTokens(postTokens)} tokens` : null;
+    const canExpand = !!summary;
+    return (
+        <div className="mt-3.5">
+            <button type="button" disabled={!canExpand} onClick={() => setOpen((v) => !v)} className={cn("flex w-full items-center gap-2.5", canExpand ? "cursor-pointer" : "cursor-default")}>
+                <span className="h-px flex-1 bg-gradient-to-r from-transparent via-accent/30 to-transparent" />
+                <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-accent/30 bg-accent/[0.07] px-[11px] py-[3px] font-mono text-[10px]">
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.05em] text-accent-soft">Compacted</span>
+                    {stat ? (
+                        <>
+                            <span className="text-edge-strong">·</span>
+                            <span className="text-feed-summary">{stat}</span>
+                        </>
+                    ) : null}
+                    {trigger ? (
+                        <>
+                            <span className="text-edge-strong">·</span>
+                            <span className="text-muted">{trigger}</span>
+                        </>
+                    ) : null}
+                    {canExpand ? <span className="text-[8px] text-muted">{open ? "▲" : "▼"}</span> : null}
+                </span>
+                <span className="h-px flex-1 bg-gradient-to-r from-transparent via-accent/30 to-transparent" />
+            </button>
+            <AnimatePresence initial={false}>
+                {open && summary ? (
+                    <motion.div
+                        key="sum"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="my-2 overflow-hidden rounded-[10px] border border-edge-faint bg-surface-code px-3.5 py-3"
+                    >
+                        <div className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.06em] text-feed-label">Summary — kept context</div>
+                        <MarkdownMessage text={summary} />
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+        </div>
+    );
+}
 function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; dels: number }) {
     const [open, setOpen] = useState(false);
     const detail = { kind: "edit" as const, files };
@@ -362,6 +438,30 @@ export function NarrationTimeline({
                                 </div>
                                 <p className="text-[12.5px] leading-[1.5] text-primary">{item.text}</p>
                             </div>
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "command") {
+                    return (
+                        <motion.div
+                            key={item.index}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        >
+                            <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} />
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "compaction") {
+                    return (
+                        <motion.div
+                            key={item.index}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        >
+                            <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} />
                         </motion.div>
                     );
                 }

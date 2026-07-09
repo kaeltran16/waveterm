@@ -54,6 +54,32 @@ function targetFor(input: any): string {
 
 type ActionEntry = AgentEntry & { kind: "action" };
 
+function parseCommand(content: string): { name: string; args?: string } | null {
+    const nameMatch = /<command-name>([^]*?)<\/command-name>/.exec(content);
+    if (nameMatch == null) {
+        return null;
+    }
+    const raw = nameMatch[1].trim();
+    const name = raw.startsWith("/") ? raw : "/" + raw;
+    const argsMatch = /<command-args>([^]*?)<\/command-args>/.exec(content);
+    const args = argsMatch ? argsMatch[1].trim() : "";
+    return args !== "" ? { name, args } : { name };
+}
+
+function skillLeaf(skill: string): string {
+    const parts = skill.split(":");
+    return parts[parts.length - 1] || skill;
+}
+
+function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
+    const last = entries[entries.length - 1];
+    if (last != null && last.kind === "compaction") {
+        Object.assign(last, patch);
+        return;
+    }
+    entries.push({ kind: "compaction", ...patch });
+}
+
 /** Pure: project transcript JSONL lines into ordered previous-info entries.
  *  assistant text -> message; tool_use -> action; tool_result -> outcome on the matching
  *  action (fail on error; ok only for "ran", to avoid a checkmark on every read/edit).
@@ -79,6 +105,16 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                     continue;
                 }
                 if (block?.type === "tool_use" && typeof block.name === "string") {
+                    if (block.name === "Skill" && block?.caller?.type === "direct" && typeof block.input?.skill === "string") {
+                        const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
+                        entries.push({
+                            kind: "command",
+                            name: skillLeaf(block.input.skill),
+                            isSkill: true,
+                            ...(args !== "" ? { args } : {}),
+                        });
+                        continue;
+                    }
                     const action: ActionEntry = { kind: "action", verb: verbFor(block.name), target: targetFor(block.input) };
                     if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
                         action.detail = {
@@ -112,9 +148,29 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             continue;
         }
         if (rec.type === "user") {
+            if (rec.isMeta === true) {
+                continue;
+            }
+            if (rec.isCompactSummary === true) {
+                const raw = rec?.message?.content;
+                const summary =
+                    typeof raw === "string"
+                        ? raw
+                        : Array.isArray(raw)
+                          ? raw
+                                .filter((b: any) => b?.type === "text")
+                                .map((b: any) => b.text)
+                                .join("\n")
+                          : "";
+                mergeCompaction(entries, summary.trim() !== "" ? { summary } : {});
+                continue;
+            }
             const content = rec?.message?.content;
             if (typeof content === "string") {
-                if (content.trim() !== "") {
+                const cmd = parseCommand(content);
+                if (cmd != null) {
+                    entries.push({ kind: "command", ...cmd });
+                } else if (content.trim() !== "") {
                     entries.push({ kind: "user", text: content });
                 }
                 continue;
@@ -163,6 +219,22 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                     action.outcome = "ok";
                 }
             }
+            continue;
+        }
+        if (rec.type === "system" && rec.subtype === "compact_boundary") {
+            const m = rec.compactMetadata ?? {};
+            const patch: Partial<Extract<AgentEntry, { kind: "compaction" }>> = {};
+            if (typeof m.trigger === "string") {
+                patch.trigger = m.trigger;
+            }
+            if (typeof m.preTokens === "number") {
+                patch.preTokens = m.preTokens;
+            }
+            if (typeof m.postTokens === "number") {
+                patch.postTokens = m.postTokens;
+            }
+            mergeCompaction(entries, patch);
+            continue;
         }
     }
     // strip private scratch fields so they never leak into the AgentEntry contract
