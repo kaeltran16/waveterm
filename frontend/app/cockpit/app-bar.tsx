@@ -5,7 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { liveWindowAgents, providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
-import { mergeRateLimitWindows, savedRateLimitsAtom, topProviderUsage } from "@/app/view/agents/ratelimitstore";
+import { mergeRateLimitWindows, savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
 import { runtimeMeta } from "@/app/view/agents/runtimemeta";
 import { cn } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -26,15 +26,20 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
-    // read the SAME merged (live-over-saved) per-provider donut data as the Usage tab, so the gauge
-    // matches it and persists after agents go idle; when both providers report, show the most-utilized.
-    const top = topProviderUsage(mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now));
-    const fivePct = top?.pct;
-    const rt = top ? runtimeMeta(top.provider) : undefined;
-    const donut =
-        fivePct != null
-            ? `conic-gradient(${DONUT_COLOR[usageLevel(fivePct)]} 0 ${fivePct}%, var(--color-edge-mid) ${fivePct}% 100%)`
-            : "var(--color-edge-mid)";
+    // one compact gauge per provider that reports a 5-hour window (claude + codex) — the SAME merged
+    // (live-over-saved) per-provider data as the Usage tab. Showing every provider (not just the most-
+    // utilized) means a maxed-out provider no longer hides the other's usage.
+    const gauges = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now)
+        .filter((d) => d.fivehour.pct != null)
+        .map((d) => {
+            const pct = d.fivehour.pct!;
+            return {
+                provider: d.provider,
+                pct,
+                rt: runtimeMeta(d.provider),
+                donut: `conic-gradient(${DONUT_COLOR[usageLevel(pct)]} 0 ${pct}%, var(--color-edge-mid) ${pct}% 100%)`,
+            };
+        });
     return (
         <div
             data-tauri-drag-region
@@ -77,21 +82,29 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <button
                     type="button"
                     onClick={() => globalStore.set(model.surfaceAtom, "usage")}
-                    className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1.5 py-1 hover:bg-surface-hover"
+                    className="flex cursor-pointer flex-col items-start justify-center gap-0.5 rounded-[7px] px-1.5 py-1 hover:bg-surface-hover"
                 >
-                    <span
-                        className="flex h-[22px] w-[22px] items-center justify-center rounded-full"
-                        style={{ background: donut }}
-                    >
-                        <span className="h-[14px] w-[14px] rounded-full bg-surface" />
-                    </span>
-                    <span className="text-left leading-tight">
-                        <span className="flex items-center gap-1 font-mono text-[11px] text-secondary">
-                            {rt ? <span className={cn("leading-none", rt.text)}>{rt.glyph}</span> : null}
-                            {fivePct != null ? `${Math.round(fivePct)}%` : "—"}
+                    {gauges.length === 0 ? (
+                        <span className="font-mono text-[11px] text-secondary">—</span>
+                    ) : (
+                        <span className="flex items-center gap-3">
+                            {gauges.map((g) => (
+                                <span key={g.provider} className="flex items-center gap-1.5">
+                                    <span
+                                        className="flex h-[18px] w-[18px] items-center justify-center rounded-full"
+                                        style={{ background: g.donut }}
+                                    >
+                                        <span className="h-[11px] w-[11px] rounded-full bg-surface" />
+                                    </span>
+                                    <span className="flex items-center gap-1 font-mono text-[11px] text-secondary">
+                                        <span className={cn("leading-none", g.rt.text)}>{g.rt.glyph}</span>
+                                        {`${Math.round(g.pct)}%`}
+                                    </span>
+                                </span>
+                            ))}
                         </span>
-                        <span className="block text-[9px] text-muted">5h limit</span>
-                    </span>
+                    )}
+                    <span className="text-[9px] text-muted">5h limit</span>
                 </button>
                 <div className="ml-auto flex h-full items-center">
                     <button
