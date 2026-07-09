@@ -307,7 +307,6 @@ export function AgentRow({
             data-agent-id={agent.id}
             onClick={onCursor}
             onContextMenu={onContextMenu}
-            onDoubleClick={onOpen}
             className={cn(
                 // card fills its spring-driven height (h); overflow clipped
                 "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
@@ -492,7 +491,6 @@ export function AgentRow({
                             animate="animate"
                             className="flex flex-col gap-1.5 overflow-hidden px-3 py-2"
                             onClick={(e) => e.stopPropagation()}
-                            onDoubleClick={(e) => e.stopPropagation()}
                         >
                             <AgentComposer
                                 ref={composerRef}
