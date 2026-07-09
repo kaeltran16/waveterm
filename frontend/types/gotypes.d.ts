@@ -651,6 +651,16 @@ declare global {
         label: string;
     };
 
+    // wshrpc.CommandGetSubagentsData
+    type CommandGetSubagentsData = {
+        path: string;
+    };
+
+    // wshrpc.CommandGetSubagentsRtnData
+    type CommandGetSubagentsRtnData = {
+        subagents: SubagentFileInfo[];
+    };
+
     // wshrpc.CommandGetTempDirData
     type CommandGetTempDirData = {
         filename?: string;
@@ -2086,6 +2096,14 @@ declare global {
         rwnd: number;
         readerrouteid: string;
         writerrouteid: string;
+    };
+
+    // wshrpc.SubagentFileInfo
+    type SubagentFileInfo = {
+        agentid: string;
+        transcriptpath: string;
+        firstprompt: string;
+        startedatms: number;
     };
 
     // wps.SubscriptionRequest

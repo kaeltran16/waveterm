@@ -1,0 +1,54 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+//
+// The subagent interior: a child's transcript rendered as narration in the focused view's center pane,
+// swapped in over the (kept-mounted) parent terminal. Tails the child's own transcript file via the
+// shared livetranscript stream (keyed sub:<agentId>); breadcrumb / Esc returns to the parent.
+
+import { globalStore } from "@/app/store/jotaiStore";
+import { useAtomValue } from "jotai";
+import { useEffect } from "react";
+import { liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from "./livetranscript";
+import { NarrationTimeline } from "./narrationtimeline";
+import { focusSubagentAtom, type FocusSubagent } from "./subagentsstore";
+
+export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; parentName: string }) {
+    const streamId = `sub:${sub.agentId}`;
+    useEffect(() => {
+        startTranscriptStream(streamId, sub.transcriptPath, "claude");
+        return () => stopTranscriptStream(streamId);
+    }, [streamId, sub.transcriptPath]);
+
+    const back = () => globalStore.set(focusSubagentAtom, null);
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                back();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, []);
+
+    const entries = useAtomValue(liveEntriesByIdAtom)[streamId] ?? [];
+    return (
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-2 font-mono text-[11px]">
+                <button type="button" onClick={back} title="Back to parent (Esc)" className="cursor-pointer text-muted hover:text-primary">
+                    ◂ {parentName}
+                </button>
+                <span className="text-edge-strong">›</span>
+                <span className="text-accent">{sub.label}</span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                {entries.length > 0 ? (
+                    <NarrationTimeline entries={entries} accentLatest active />
+                ) : (
+                    <div className="flex h-full items-center justify-center text-[12px] text-muted">
+                        Loading subagent transcript…
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}

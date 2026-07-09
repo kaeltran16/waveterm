@@ -228,3 +228,55 @@ export function extractAiTitle(lines: string[]): string | undefined {
     }
     return title;
 }
+
+export interface SubagentSpawn {
+    toolUseId: string;
+    subagentType: string;
+    prompt: string;
+    done: boolean;
+    failed: boolean;
+}
+
+/** Pure: Task/Agent tool_use blocks in a Claude transcript -> subagent spawns, each joined to its
+ *  tool_result by tool_use_id (done + failed via is_error). A spawn with no matching result is still
+ *  running (done=false). Spawns keep first-seen order; non-Task tools are ignored. */
+export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
+    const spawns = new Map<string, SubagentSpawn>();
+    const order: string[] = [];
+    for (const line of lines) {
+        let rec: any;
+        try {
+            rec = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        const content = rec?.message?.content;
+        if (!Array.isArray(content)) {
+            continue;
+        }
+        for (const block of content) {
+            if (
+                block?.type === "tool_use" &&
+                (block.name === "Task" || block.name === "Agent") &&
+                typeof block.id === "string"
+            ) {
+                const input = block.input ?? {};
+                spawns.set(block.id, {
+                    toolUseId: block.id,
+                    subagentType: typeof input.subagent_type === "string" ? input.subagent_type : "",
+                    prompt: typeof input.prompt === "string" ? input.prompt : "",
+                    done: false,
+                    failed: false,
+                });
+                order.push(block.id);
+            } else if (block?.type === "tool_result" && typeof block.tool_use_id === "string") {
+                const s = spawns.get(block.tool_use_id);
+                if (s) {
+                    s.done = true;
+                    s.failed = block.is_error === true;
+                }
+            }
+        }
+    }
+    return order.map((id) => spawns.get(id)!);
+}

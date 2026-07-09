@@ -573,6 +573,12 @@ func GetSessionGroupCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSessionGrou
 	return resp, err
 }
 
+// command "getsubagents", wshserver.GetSubagentsCommand
+func GetSubagentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSubagentsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetSubagentsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetSubagentsRtnData](w, "getsubagents", data, opts)
+	return resp, err
+}
+
 // command "gettab", wshserver.GetTabCommand
 func GetTabCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*waveobj.Tab, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.Tab](w, "gettab", data, opts)

@@ -3,6 +3,29 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Subagent interior view — v1 exclusions (2026-07-09)
+
+Shipped the focused-view subagent interior (click a tree child → its live-tailing transcript swaps
+into the center pane), disk-backed by `<parent>/<sessionId>/subagents/agent-*.jsonl`. Spec:
+`docs/superpowers/specs/2026-07-09-subagent-interior-view-design.md` §11. Out of scope for v1:
+
+1. **Cockpit-card fan-out badge** (`⑃ N` + peek on `agentrow.tsx`) — the deferred v1 half; brings
+   fan-out to the at-a-glance grid. The focused view got the interior; the card grid did not.
+2. **Codex subagents** — Codex has no confirmed per-subagent transcript files, so Codex parents show
+   no children (graceful degradation). Revisit if/when Codex grows per-subagent files.
+3. **Retire the vestigial hook path** — `agenthook.go` subagent deltas + `agentstatusstore`
+   reducer/TTL + `baseds.AgentSubagentDelta` are no longer the tree's source (the tree now reads
+   `subagentsByIdAtom`). Left dormant; `getSubagentsAtom` is now a dead export. Remove once the
+   disk-source path is proven in the field (separate change, its own blast radius).
+4. **Deep nesting (depth > 1)** — a subagent that itself fans out is rendered flat, not as a subtree.
+5. **Workflow-orchestrated subagents degrade** (surfaced by the Phase 0 spike): 582/606 (96%) of real
+   child files correlate by exact prompt-match. The other 24 are Workflow-tool / orchestration
+   subagents whose parent transcript has no `Task` tool_use (16) or a substantively-different prompt
+   (7). These still appear in the tree and open their interior, but with a **prompt-derived label**
+   and a **perpetual "working" dot** (no parent `tool_result` to resolve ✓/✗). A future pass could
+   read a terminal signal from the child file itself; a prefix-match was rejected (rescues only 1/24,
+   adds collision risk). See `subagentcorrelate.ts` header.
+
 ## Feature-triage residue — prioritization + scoping corrections (2026-07-03)
 
 Reconciled `docs/feature-triage.md` (2026-06-23) against the current tree. Most of that ~13-item

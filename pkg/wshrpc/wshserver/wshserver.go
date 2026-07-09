@@ -1479,6 +1479,14 @@ func (ws *WshServer) GetAgentTranscriptCommand(ctx context.Context, data wshrpc.
 	return &wshrpc.CommandGetAgentTranscriptRtnData{Lines: lines}, nil
 }
 
+func (ws *WshServer) GetSubagentsCommand(ctx context.Context, data wshrpc.CommandGetSubagentsData) (*wshrpc.CommandGetSubagentsRtnData, error) {
+	infos, err := listSubagents(data.Path)
+	if err != nil {
+		return nil, fmt.Errorf("listing subagents: %w", err)
+	}
+	return &wshrpc.CommandGetSubagentsRtnData{Subagents: infos}, nil
+}
+
 func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandGitChangesData) (*wshrpc.CommandGitChangesRtnData, error) {
 	ch, err := gitinfo.GetChanges(ctx, data.Cwd)
 	if err != nil {

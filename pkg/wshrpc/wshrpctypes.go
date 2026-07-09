@@ -94,6 +94,7 @@ type WshRpcInterface interface {
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
 	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
 	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
+	GetSubagentsCommand(ctx context.Context, data CommandGetSubagentsData) (*CommandGetSubagentsRtnData, error) // list a parent agent's on-disk subagent transcripts
 	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
 	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
 	GitRevertCommand(ctx context.Context, data CommandGitRevertData) error
@@ -645,6 +646,21 @@ type CommandGetAgentTranscriptData struct {
 
 type CommandGetAgentTranscriptRtnData struct {
 	Lines []string `json:"lines"`
+}
+
+type CommandGetSubagentsData struct {
+	Path string `json:"path"` // the PARENT agent transcript path; its subagents/ dir is derived from it
+}
+
+type SubagentFileInfo struct {
+	AgentId        string `json:"agentid"`
+	TranscriptPath string `json:"transcriptpath"`
+	FirstPrompt    string `json:"firstprompt"`
+	StartedAtMs    int64  `json:"startedatms"`
+}
+
+type CommandGetSubagentsRtnData struct {
+	Subagents []SubagentFileInfo `json:"subagents"`
 }
 
 type CommandGitChangesData struct {

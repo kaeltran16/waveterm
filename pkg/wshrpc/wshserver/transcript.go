@@ -5,11 +5,13 @@ package wshserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -195,4 +197,71 @@ func streamTranscript(ctx context.Context, path string, tailLines int, ch chan w
 			log.Printf("transcript watcher error: %v\n", werr)
 		}
 	}
+}
+
+// subagentsDir derives the Claude Code subagents directory for a parent transcript path:
+// <dir>/<basename without .jsonl>/subagents.
+func subagentsDir(parentPath string) string {
+	base := strings.TrimSuffix(filepath.Base(parentPath), ".jsonl")
+	return filepath.Join(filepath.Dir(parentPath), base, "subagents")
+}
+
+// firstPromptOf extracts the human prompt from a subagent transcript's first record. That record is a
+// user turn whose message.content is either a bare string or an array of {type,text} blocks.
+func firstPromptOf(line string) string {
+	var rec struct {
+		Message struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal([]byte(line), &rec) != nil {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(rec.Message.Content, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(rec.Message.Content, &blocks) == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+				return strings.TrimSpace(b.Text)
+			}
+		}
+	}
+	return ""
+}
+
+// listSubagents returns one SubagentFileInfo per agent-*.jsonl in the parent's subagents dir, sorted by
+// StartedAtMs ascending. A missing dir yields an empty slice (not an error) — a parent that never
+// spawned a subagent has no dir.
+func listSubagents(parentPath string) ([]wshrpc.SubagentFileInfo, error) {
+	if parentPath == "" {
+		return nil, fmt.Errorf("parent transcript path is required")
+	}
+	matches, err := filepath.Glob(filepath.Join(subagentsDir(parentPath), "agent-*.jsonl"))
+	if err != nil {
+		return nil, fmt.Errorf("globbing subagents: %w", err)
+	}
+	infos := make([]wshrpc.SubagentFileInfo, 0, len(matches))
+	for _, path := range matches {
+		head, err := readTranscriptHead(path, 1)
+		if err != nil || len(head) == 0 {
+			continue
+		}
+		info := wshrpc.SubagentFileInfo{
+			AgentId:        strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "agent-"), ".jsonl"),
+			TranscriptPath: path,
+			FirstPrompt:    firstPromptOf(head[0]),
+		}
+		if st, statErr := os.Stat(path); statErr == nil {
+			info.StartedAtMs = st.ModTime().UnixMilli()
+		}
+		infos = append(infos, info)
+	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].StartedAtMs < infos[j].StartedAtMs })
+	return infos, nil
 }

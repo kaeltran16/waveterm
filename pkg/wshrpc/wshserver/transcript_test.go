@@ -186,3 +186,56 @@ func TestStreamTranscript(t *testing.T) {
 		t.Fatal("streamTranscript did not return after cancel")
 	}
 }
+
+func TestListSubagents(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "sess.jsonl")
+	if err := os.WriteFile(parent, []byte(`{"type":"user"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subdir := filepath.Join(dir, "sess", "subagents")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(id, prompt string) {
+		rec := `{"agentId":"` + id + `","type":"user","message":{"content":"` + prompt + `"}}` + "\n"
+		if err := os.WriteFile(filepath.Join(subdir, "agent-"+id+".jsonl"), []byte(rec), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("aaa", "Explore the repo")
+	write("bbb", "Plan the work")
+
+	infos, err := listSubagents(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 2 {
+		t.Fatalf("want 2 infos, got %d", len(infos))
+	}
+	byId := map[string]wshrpc.SubagentFileInfo{}
+	for _, in := range infos {
+		byId[in.AgentId] = in
+	}
+	if byId["aaa"].FirstPrompt != "Explore the repo" {
+		t.Errorf("firstPrompt aaa = %q", byId["aaa"].FirstPrompt)
+	}
+	if byId["bbb"].TranscriptPath != filepath.Join(subdir, "agent-bbb.jsonl") {
+		t.Errorf("transcriptPath bbb = %q", byId["bbb"].TranscriptPath)
+	}
+}
+
+func TestListSubagentsMissingDir(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "none.jsonl")
+	if err := os.WriteFile(parent, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	infos, err := listSubagents(parent)
+	if err != nil {
+		t.Fatalf("missing subagents dir must not error: %v", err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("want 0 infos, got %d", len(infos))
+	}
+}

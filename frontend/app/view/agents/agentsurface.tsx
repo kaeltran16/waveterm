@@ -25,6 +25,8 @@ import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
 import { terminalFullscreenAtom } from "./railstore";
+import { SubagentInterior } from "./subagentinterior";
+import { focusSubagentAtom } from "./subagentsstore";
 
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -32,6 +34,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
+    const focusSub = useAtomValue(focusSubagentAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
     // list[0] — the Focus surface always shows something, defaulting to the first agent in order (never
@@ -40,6 +43,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const mountable = [...agents, ...terminals];
     const focused = focusId != null ? mountable.find((a) => a.id === focusId) : undefined;
     const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
+    const showSub = focusSub != null && focusSub.parentId === agent?.id;
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
     useEffect(() => {
@@ -47,6 +51,13 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             globalStore.set(model.focusIdAtom, agent.id);
         }
     }, [agent?.id, focusId, model]);
+
+    // a stale interior (its parent is no longer focused) closes so the terminal returns
+    useEffect(() => {
+        if (focusSub != null && focusSub.parentId !== agent?.id) {
+            globalStore.set(focusSubagentAtom, null);
+        }
+    }, [agent?.id, focusSub]);
 
     // only pull focus to the wrapper for the no-terminal fallback (so esc/←→/d work without a click).
     // when the live terminal is shown it must own focus for immediate typing — stealing it back to the
@@ -71,27 +82,27 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             <div ref={wrapRef} tabIndex={0} data-cockpit-surface-wrap className="flex h-full w-full outline-none">
                 {!fullscreen ? <AgentTree model={model} /> : null}
                 <div className="flex min-w-0 flex-1 flex-col">
-                    <AgentHeader agent={agent} />
-                    {/* Keep every live agent's terminal mounted and toggle display:none, mirroring the
-                        surface-level keep-alive (cockpitshell.tsx). Swapping one pane's blockId on focus
-                        change disposes+recreates the term, whose restore replays a serialized snapshot and
-                        then resumes the live Claude Code TUI's differential stream on top of it — the frames
-                        stack (the "distortion"). A visibility toggle avoids the remount entirely. */}
-                    {mountable
-                        .filter((a) => a.blockId != null)
-                        .map((a) => (
-                            <div
-                                key={a.id}
-                                className={cn("min-h-0 flex-1", a.id === agent.id ? "flex flex-col" : "hidden")}
-                            >
-                                <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                    {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
+                        returning to the parent never remounts/replays the live TUI (frame-stacking) */}
+                    <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
+                        <AgentHeader agent={agent} />
+                        {mountable
+                            .filter((a) => a.blockId != null)
+                            .map((a) => (
+                                <div
+                                    key={a.id}
+                                    className={cn("min-h-0 flex-1", a.id === agent.id ? "flex flex-col" : "hidden")}
+                                >
+                                    <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                                </div>
+                            ))}
+                        {agent.blockId == null ? (
+                            <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
+                                No live terminal for this agent.
                             </div>
-                        ))}
-                    {agent.blockId == null ? (
-                        <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
-                            No live terminal for this agent.
-                        </div>
-                    ) : null}
+                        ) : null}
+                    </div>
+                    {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}
                 </div>
                 {!fullscreen && agent.kind !== "terminal" ? <AgentDetailsRail model={model} agent={agent} /> : null}
             </div>

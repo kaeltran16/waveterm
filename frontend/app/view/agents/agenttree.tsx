@@ -8,19 +8,20 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { confirmCloseAgent } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree } from "./agenttreemodel";
+import { lastActivityByIdAtom } from "./livetranscript";
 import { duplicateSession } from "./session-models/sessionsidebarmodel";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     getSubagentExpandAtom,
-    getSubagentsAtom,
     toggleSubagentExpand,
 } from "./session-models/agentstatusstore";
 import { subagentExpanded, type SubagentState } from "./session-models/sessionviewmodel";
 import { StatusDot } from "./statusdot";
+import { dropSubagents, focusSubagentAtom, refreshSubagents, scheduleSubagents, subagentsByIdAtom } from "./subagentsstore";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
     asking: "var(--color-warning)",
@@ -37,7 +38,7 @@ const SUB_COLOR: Record<SubagentState, string> = {
 function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; agent: AgentVM; animateEntrance: boolean }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const oref = `block:${agent.blockId}`;
-    const subs = useAtomValue(getSubagentsAtom(oref));
+    const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const expandOverride = useAtomValue(getSubagentExpandAtom(oref));
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
@@ -106,7 +107,22 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
                         {subs.map((s) => (
                             <div
                                 key={s.id}
-                                className="relative flex items-center gap-[8px] rounded-[9px] py-[7px] pl-[28px] pr-[10px] hover:bg-surface-hover"
+                                onClick={() => {
+                                    if (!s.transcriptPath) {
+                                        return;
+                                    }
+                                    globalStore.set(model.focusIdAtom, agent.id);
+                                    globalStore.set(focusSubagentAtom, {
+                                        parentId: agent.id,
+                                        agentId: s.id,
+                                        transcriptPath: s.transcriptPath,
+                                        label: s.type || "subagent",
+                                    });
+                                }}
+                                className={cn(
+                                    "relative flex items-center gap-[8px] rounded-[9px] py-[7px] pl-[28px] pr-[10px] hover:bg-surface-hover",
+                                    s.transcriptPath && "cursor-pointer"
+                                )}
                             >
                                 <span className="absolute left-[13px] top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-[#3c4450]">
                                     ↳
@@ -172,6 +188,34 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
     const terminals = useAtomValue(model.terminalsAtom);
     const order = useAtomValue(model.orderAtom);
     const rows = buildAgentTree(agents, order);
+
+    // Disk-backed subagent loading for every rendered parent: refresh on enter, debounce on parent
+    // transcript activity, drop on leave. Mirrors cockpitsurface's per-card git effect.
+    const lastActivity = useAtomValue(lastActivityByIdAtom);
+    const trackedRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const now = new Set(agents.map((a) => a.id));
+        for (const a of agents) {
+            if (!trackedRef.current.has(a.id)) {
+                void refreshSubagents(a.id, a.transcriptPath);
+            }
+        }
+        for (const id of trackedRef.current) {
+            if (!now.has(id)) {
+                dropSubagents(id);
+            }
+        }
+        trackedRef.current = now;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [agents.map((a) => a.id).join(",")]);
+    useEffect(() => {
+        for (const a of agents) {
+            if (lastActivity[a.id]) {
+                scheduleSubagents(a.id, a.transcriptPath);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lastActivity]);
 
     // no-cascade guard (single constant key — the surface has one roster): mounting or switching to the
     // surface seeds silently, so only agents/terminals that arrive after mount fade in. See motiontokens.ts.

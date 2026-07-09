@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
+import { extractAiTitle, extractSubagentSpawns, extractTasks, projectTranscript } from "./transcriptprojection";
 
 const LINES: string[] = [
     JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "fix the race" }] } }), // human prompt -> user entry
@@ -238,5 +238,42 @@ describe("projectTranscript detail", () => {
         expect(Object.keys(out[0])).not.toContain("_useTs");
         expect(Object.keys(out[0])).not.toContain("_tool");
         expect(Object.keys(out[0])).not.toContain("_command");
+    });
+});
+
+describe("extractSubagentSpawns", () => {
+    const asst = (blocks: any[]) => JSON.stringify({ type: "assistant", message: { content: blocks } });
+    const usr = (blocks: any[]) => JSON.stringify({ type: "user", message: { content: blocks } });
+
+    it("pairs a completed Task with its ok result", () => {
+        const lines = [
+            asst([{ type: "tool_use", id: "t1", name: "Task", input: { subagent_type: "Explore", prompt: "look at X" } }]),
+            usr([{ type: "tool_result", tool_use_id: "t1", is_error: false }]),
+        ];
+        expect(extractSubagentSpawns(lines)).toEqual([
+            { toolUseId: "t1", subagentType: "Explore", prompt: "look at X", done: true, failed: false },
+        ]);
+    });
+
+    it("marks a still-running Task as not done", () => {
+        const lines = [asst([{ type: "tool_use", id: "t2", name: "Task", input: { subagent_type: "Plan", prompt: "plan Y" } }])];
+        expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: false, failed: false });
+    });
+
+    it("marks an errored Task as failed", () => {
+        const lines = [
+            asst([{ type: "tool_use", id: "t3", name: "Task", input: { subagent_type: "Test", prompt: "test Z" } }]),
+            usr([{ type: "tool_result", tool_use_id: "t3", is_error: true }]),
+        ];
+        expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: true, failed: true });
+    });
+
+    it("keeps parallel spawns in first-seen order and ignores non-Task tools", () => {
+        const lines = [
+            asst([{ type: "tool_use", id: "r", name: "Read", input: { file_path: "a" } }]),
+            asst([{ type: "tool_use", id: "a", name: "Task", input: { subagent_type: "Explore", prompt: "P1" } }]),
+            asst([{ type: "tool_use", id: "b", name: "Task", input: { subagent_type: "Explore", prompt: "P2" } }]),
+        ];
+        expect(extractSubagentSpawns(lines).map((s) => s.toolUseId)).toEqual(["a", "b"]);
     });
 });
