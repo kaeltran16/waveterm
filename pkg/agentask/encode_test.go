@@ -125,14 +125,6 @@ func TestEncodeMultiSelectRejectsOutOfRange(t *testing.T) {
 	}
 }
 
-func TestEncodeRejectsMultiQuestion(t *testing.T) {
-	qs := append(singleSelect(2), baseds.AgentAskQuestion{Question: "q2"})
-	answers := []baseds.AgentAnswerItem{{SelectedIndexes: []int{0}}, {SelectedIndexes: []int{0}}}
-	if _, err := EncodeAnswer(qs, answers); err == nil {
-		t.Fatalf("expected error for multi-question, got nil")
-	}
-}
-
 func TestEncodeRejectsIndexOutOfRange(t *testing.T) {
 	if _, err := EncodeAnswer(singleSelect(2), ans(5)); err == nil {
 		t.Fatalf("expected error for out-of-range index, got nil")
@@ -143,5 +135,114 @@ func TestEncodeRejectsZeroSelections(t *testing.T) {
 	answers := []baseds.AgentAnswerItem{{SelectedIndexes: []int{}}}
 	if _, err := EncodeAnswer(singleSelect(2), answers); err == nil {
 		t.Fatalf("expected error for empty selection, got nil")
+	}
+}
+
+func qn(nOpts int, multi bool) baseds.AgentAskQuestion {
+	opts := make([]baseds.AgentAskOption, nOpts)
+	for i := range opts {
+		opts[i] = baseds.AgentAskOption{Label: "opt"}
+	}
+	return baseds.AgentAskQuestion{Question: "q", Options: opts, MultiSelect: multi}
+}
+
+func item(idxs ...int) baseds.AgentAnswerItem {
+	return baseds.AgentAnswerItem{SelectedIndexes: idxs}
+}
+
+// Confirmed protocol: single-select = downs + enter (enter auto-advances); multi-select = toggle
+// each choice then Tab; the run ends on the Submit tab -> one final enter, no review.
+func TestEncodeMultiQuestionTwoSingleSelects(t *testing.T) {
+	got, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(2, false)},
+		[]baseds.AgentAnswerItem{item(1), item(0)},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	want := [][]byte{down, {'\r'}, {'\r'}, {'\r'}} // Q1: down,enter(advance) | Q2: enter(advance) | submit
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEncodeMultiQuestionSingleThenMulti(t *testing.T) {
+	got, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(3, true)},
+		[]baseds.AgentAnswerItem{item(0), item(0, 2)},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	tabk := []byte{'\t'}
+	// Q1 single idx0: enter(advance) | Q2 multi {0,2}: toggle0, down,down, toggle2, Tab | submit
+	want := [][]byte{{'\r'}, {'\r'}, down, down, {'\r'}, tabk, {'\r'}}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEncodeMultiQuestionMultiThenSingle(t *testing.T) {
+	got, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(3, true), qn(2, false)},
+		[]baseds.AgentAnswerItem{item(1), item(0)},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	tabk := []byte{'\t'}
+	// Q1 multi {1}: down, toggle, Tab | Q2 single idx0: enter(advance) | submit
+	want := [][]byte{down, {'\r'}, tabk, {'\r'}, {'\r'}}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEncodeMultiQuestionThreeSingleSelects(t *testing.T) {
+	got, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(2, false), qn(2, false)},
+		[]baseds.AgentAnswerItem{item(0), item(1), item(0)},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	// no Tab anywhere; N+1 = 4 enters total
+	want := [][]byte{{'\r'}, down, {'\r'}, {'\r'}, {'\r'}}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEncodeMultiQuestionRejectsAnswerCountMismatch(t *testing.T) {
+	_, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(2, false)},
+		[]baseds.AgentAnswerItem{item(0)},
+	)
+	if err == nil {
+		t.Fatalf("expected error for answer/question count mismatch, got nil")
+	}
+}
+
+func TestEncodeMultiQuestionRejectsOutOfRange(t *testing.T) {
+	_, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(2, false)},
+		[]baseds.AgentAnswerItem{item(0), item(5)},
+	)
+	if err == nil {
+		t.Fatalf("expected error for out-of-range index in question 2, got nil")
+	}
+}
+
+func TestEncodeMultiQuestionRejectsEmptyMultiSelect(t *testing.T) {
+	_, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(3, true)},
+		[]baseds.AgentAnswerItem{item(0), item()},
+	)
+	if err == nil {
+		t.Fatalf("expected error for empty multi-select selection in a batch, got nil")
 	}
 }

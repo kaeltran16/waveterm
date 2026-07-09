@@ -21,6 +21,12 @@ var downArrow = []byte{0x1b, '[', 'B'}
 
 const enter = byte('\r')
 
+// tab advances to the next question tab in Claude Code's multi-question AskUserQuestion picker. A
+// single-select confirms + auto-advances on enter (needs no tab); a multi-select toggles on enter
+// (staying on the tab) and needs an explicit tab to move on. Verified live against CC v2.1.205
+// (2026-07-09).
+const tab = byte('\t')
+
 // KeystrokeDelay separates each keystroke the caller injects into the picker. Claude Code's
 // Ink (React) TUI tracks the highlighted option as React state; keys delivered in one PTY
 // write are handled in a single tick, so a later key reads the pre-update index (e.g. Enter
@@ -29,19 +35,25 @@ const enter = byte('\r')
 const KeystrokeDelay = 60 * time.Millisecond
 
 // EncodeAnswer returns the keystrokes that drive the native picker to the given answer, one
-// keystroke per element so the caller can deliver them with KeystrokeDelay between each.
-// Supports exactly one question — single-select (one option index) or multi-select (see
-// encodeMultiSelect). Multi-question batches still return an error (callers fall back to
-// answering in the terminal); driving the picker's per-question tab bar is not yet implemented.
+// keystroke per element so the caller delivers them with KeystrokeDelay between each. Supports one
+// question (single- or multi-select) or a multi-question batch (see encodeMultiQuestion). Returns an
+// error for shapes it cannot encode; callers then fall back to answering in the terminal.
 func EncodeAnswer(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) ([][]byte, error) {
-	if len(questions) != 1 {
-		return nil, fmt.Errorf("panel answering supports exactly one question, got %d", len(questions))
+	if len(questions) == 0 {
+		return nil, fmt.Errorf("no questions to answer")
 	}
-	if len(answers) != 1 {
-		return nil, fmt.Errorf("expected exactly one answer, got %d", len(answers))
+	if len(answers) != len(questions) {
+		return nil, fmt.Errorf("expected %d answers, got %d", len(questions), len(answers))
 	}
-	q := questions[0]
-	sel := answers[0].SelectedIndexes
+	if len(questions) == 1 {
+		return encodeSingleQuestion(questions[0], answers[0].SelectedIndexes)
+	}
+	return encodeMultiQuestion(questions, answers)
+}
+
+// encodeSingleQuestion drives a standalone one-question picker: single-select confirms + closes on
+// enter; multi-select uses its inline Submit row + review. Output is unchanged from the original.
+func encodeSingleQuestion(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
 	if q.MultiSelect {
 		return encodeMultiSelect(q, sel)
 	}
@@ -52,24 +64,21 @@ func EncodeAnswer(questions []baseds.AgentAskQuestion, answers []baseds.AgentAns
 	if idx < 0 || idx >= len(q.Options) {
 		return nil, fmt.Errorf("selected index %d out of range (%d options)", idx, len(q.Options))
 	}
+	return singleSelectKeys(idx), nil
+}
+
+// singleSelectKeys moves the highlight from option 0 down to idx and presses enter.
+func singleSelectKeys(idx int) [][]byte {
 	keys := make([][]byte, 0, idx+1)
 	for i := 0; i < idx; i++ {
 		keys = append(keys, downArrow)
 	}
-	keys = append(keys, []byte{enter})
-	return keys, nil
+	return append(keys, []byte{enter})
 }
 
-// encodeMultiSelect drives Claude Code's multi-select picker. Verified live against CC v2.1.199
-// (2026-07-03) with a PTY harness: the picker renders checkbox rows; Enter TOGGLES the highlighted
-// option's checkbox (unlike single-select, where Enter confirms immediately); ESC[B/[A navigate.
-// After the N agent options CC appends a "Type something" free-text row (index N) then a "Submit"
-// row (index N+1). So: walk down from index 0 toggling each chosen option, descend to the Submit
-// row and press Enter (which opens a "Ready to submit your answers?" review defaulting to
-// "Submit answers"), then a final Enter finalizes. Selections are sorted + de-duplicated so a
+// sortedUniqueIndexes validates sel against nOpts and returns it ascending + de-duplicated, so a
 // double-toggle can't cancel a choice.
-func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
-	n := len(q.Options)
+func sortedUniqueIndexes(sel []int, nOpts int) ([]int, error) {
 	if len(sel) == 0 {
 		return nil, fmt.Errorf("multi-select expects at least one selected index")
 	}
@@ -77,15 +86,24 @@ func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
 	sort.Ints(idxs)
 	uniq := make([]int, 0, len(idxs))
 	for _, i := range idxs {
-		if i < 0 || i >= n {
-			return nil, fmt.Errorf("selected index %d out of range (%d options)", i, n)
+		if i < 0 || i >= nOpts {
+			return nil, fmt.Errorf("selected index %d out of range (%d options)", i, nOpts)
 		}
 		if len(uniq) == 0 || uniq[len(uniq)-1] != i {
 			uniq = append(uniq, i)
 		}
 	}
+	return uniq, nil
+}
 
-	var keys [][]byte
+// multiToggleKeys moves to each selected option and toggles it (enter), stopping after the last
+// toggle. It returns the final highlight index so a caller can navigate onward. Assumes the tab's
+// highlight starts at option 0.
+func multiToggleKeys(sel []int, nOpts int) (keys [][]byte, last int, err error) {
+	uniq, err := sortedUniqueIndexes(sel, nOpts)
+	if err != nil {
+		return nil, 0, err
+	}
 	cur := 0
 	for _, i := range uniq {
 		for d := 0; d < i-cur; d++ {
@@ -94,10 +112,51 @@ func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
 		keys = append(keys, []byte{enter}) // toggle this option
 		cur = i
 	}
-	// descend to the Submit row (index n+1), then Enter to open the review, Enter to confirm
-	for d := 0; d < (n+1)-cur; d++ {
+	return keys, cur, nil
+}
+
+// encodeMultiSelect drives a standalone multi-select picker: toggle each option, descend to the
+// Submit row (index nOpts+1, after CC's "Type something" row), enter to open the review, enter to
+// confirm. Verified live against CC v2.1.199 (2026-07-03).
+func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
+	n := len(q.Options)
+	keys, last, err := multiToggleKeys(sel, n)
+	if err != nil {
+		return nil, err
+	}
+	for d := 0; d < (n+1)-last; d++ {
 		keys = append(keys, downArrow)
 	}
-	keys = append(keys, []byte{enter}, []byte{enter})
-	return keys, nil
+	return append(keys, []byte{enter}, []byte{enter}), nil
+}
+
+// encodeMultiQuestion drives Claude Code's multi-question tab bar (Q1..QN, Submit). Each tab's
+// highlight starts at option 0. Single-select: downs + enter, where enter selects AND auto-advances
+// to the next tab. Multi-select: toggle each choice, then tab to advance (enter only toggles). After
+// the last question the auto-advance (single) or tab (multi) lands on the Submit tab, which shows a
+// "Ready to submit your answers?" review defaulting to "Submit answers" -> the final enter confirms
+// it. Verified live against CC v2.1.205 (2026-07-09) with a PTY harness driving both trailing types.
+func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) ([][]byte, error) {
+	var keys [][]byte
+	for i, q := range questions {
+		sel := answers[i].SelectedIndexes
+		if q.MultiSelect {
+			toggles, _, err := multiToggleKeys(sel, len(q.Options))
+			if err != nil {
+				return nil, fmt.Errorf("question %d: %w", i, err)
+			}
+			keys = append(keys, toggles...)
+			keys = append(keys, []byte{tab})
+			continue
+		}
+		if len(sel) != 1 {
+			return nil, fmt.Errorf("question %d: single-select expects exactly one selected index, got %d", i, len(sel))
+		}
+		idx := sel[0]
+		if idx < 0 || idx >= len(q.Options) {
+			return nil, fmt.Errorf("question %d: selected index %d out of range (%d options)", i, idx, len(q.Options))
+		}
+		keys = append(keys, singleSelectKeys(idx)...)
+	}
+	return append(keys, []byte{enter}), nil
 }

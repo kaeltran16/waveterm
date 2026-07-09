@@ -33,7 +33,7 @@ Reconciled `docs/feature-triage.md` (2026-06-23) against the current tree. Most 
 Resume, Usage, New-Agent launchers, Files accept/reject, **Git Worktrees** inside the New-Agent
 launcher). The residual **not-built** items, ranked by leverage:
 
-1. **Multi-answer ask** — **multi-SELECT SHIPPED 2026-07-03; multi-QUESTION still gated.** Chose the
+1. **Multi-answer ask** — **multi-SELECT SHIPPED 2026-07-03; multi-QUESTION SHIPPED 2026-07-09.** Chose the
    live-keystroke-spike path (option (a)). Drove a real CC v2.1.199 multi-select `AskUserQuestion`
    picker under a `node-pty` harness and verified the protocol *by outcome* (CC echoed back exactly the
    toggled labels), including at the real 60ms `KeystrokeDelay`. Protocol (now encoded + commented in
@@ -44,9 +44,15 @@ launcher). The residual **not-built** items, ranked by leverage:
    more Enter**. `DeliverAnswer` (panel answers) and the Jarvis actuator are unaffected (the actuator
    only sends single indices). FE was already multi-capable (`toggleSelection`/`buildAskAnswers`/
    `canSubmitAsk`), so single-question multi-select now works end-to-end.
-   **Remaining:** `EncodeAnswer` still errors on `len(questions) != 1` (multi-*question* batches).
-   The picker renders each question as a top-bar tab (`←  ☐ Q1  …  ✔ Submit  →`); driving the `←/→`
-   tab navigation + per-tab submit is a separate spike (harness: `scratchpad/pty-spike/harness.mjs`).
+   **Multi-question (2026-07-09):** `EncodeAnswer`'s `len(questions) != 1` guard is gone; the new
+   `encodeMultiQuestion` walks the tab bar (`←  ☐ Q1  …  ✔ Submit  →`). Protocol, verified live vs CC
+   v2.1.205 with an in-repo PTY harness driving the real `EncodeAnswer` output: each tab starts at
+   option 0; a **single-select** confirms *and* auto-advances to the next tab on Enter; a
+   **multi-select** toggles on Enter and needs an explicit **Tab** to advance; whichever trailing type
+   lands on the Submit tab, it shows a "Ready to submit your answers?" review defaulting to "Submit
+   answers", so one final Enter confirms. Both labels echoed back exactly for `[single][multi]` and
+   `[multi][single]` batches. FE + `DeliverAnswer` were already multi-question capable.
+   **Remaining gap:** free-text ("Type something") answering is still not delivered from the panel.
 2. **Sub-agent tree in the cockpit** (M→H) — the one residual item that advances the orchestration
    thesis and undoes a regression (old session sidebar had `SubagentStart`/`SubagentStop` lifecycle;
    the cockpit has zero subagent code). Best "real feature" investment.
