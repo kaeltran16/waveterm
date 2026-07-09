@@ -3,7 +3,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
+import { liveWindowAgents, providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom, topProviderUsage } from "@/app/view/agents/ratelimitstore";
 import { runtimeMeta } from "@/app/view/agents/runtimemeta";
@@ -28,7 +28,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     // read the SAME merged (live-over-saved) per-provider donut data as the Usage tab, so the gauge
     // matches it and persists after agents go idle; when both providers report, show the most-utilized.
-    const top = topProviderUsage(mergeRateLimitWindows(providerPlanUsage(agents), saved, now));
+    const top = topProviderUsage(mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now));
     const fivePct = top?.pct;
     const rt = top ? runtimeMeta(top.provider) : undefined;
     const donut =

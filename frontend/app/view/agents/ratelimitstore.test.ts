@@ -6,6 +6,7 @@ import {
     topProviderUsage,
     type SavedSnapshot,
 } from "./ratelimitstore";
+import { liveWindowAgents, providerPlanUsage, type AgentVM } from "./agentsviewmodel";
 
 describe("topProviderUsage", () => {
     const now = 1_800_000_000_000;
@@ -24,6 +25,30 @@ describe("topProviderUsage", () => {
         const donuts = mergeRateLimitWindows([{ provider: "claude", usage: { weekpct: 30 } }], {}, now);
         expect(topProviderUsage(donuts)).toBeUndefined();
         expect(topProviderUsage([])).toBeUndefined();
+    });
+});
+
+describe("account-level donut ignores idle agents' stale snapshots", () => {
+    const now = 1_800_000_000_000;
+    const active = { id: "a", name: "A", task: "", state: "working", agent: "claude", usage: { fivehourpct: 80, weekpct: 50 } } as AgentVM;
+    const idleStale = { id: "b", name: "B", task: "", state: "idle", agent: "claude", usage: { fivehourpct: 20, weekpct: 10 } } as AgentVM;
+
+    it("shows the active session's live window, not the idle snapshot, regardless of roster order", () => {
+        for (const roster of [[active, idleStale], [idleStale, active]]) {
+            const claude = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(roster)), {}, now).find(
+                (d) => d.provider === "claude"
+            );
+            expect(claude?.fivehour.pct).toBe(80);
+        }
+    });
+
+    it("falls back to the saved reading (marked stale) when every claude session is idle", () => {
+        const saved: Record<string, SavedSnapshot> = { claude: { fivehourpct: 63, capturedAt: now } };
+        const claude = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents([idleStale])), saved, now).find(
+            (d) => d.provider === "claude"
+        );
+        expect(claude?.fivehour.pct).toBe(63);
+        expect(claude?.stale?.capturedAt).toBe(now);
     });
 });
 

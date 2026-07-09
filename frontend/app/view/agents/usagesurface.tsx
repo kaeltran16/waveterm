@@ -16,7 +16,7 @@ import { useAtomValue } from "jotai";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { formatReset, groupAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
+import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
 import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import { modelGridClass } from "./usagestats";
@@ -460,7 +460,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     const [usageWindow, setUsageWindow] = useState<"7d" | "all">("7d");
     const [usageMetric, setUsageMetric] = useState<"tokens" | "spend">("tokens");
-    const { asking, working, idle } = groupAgents(agents);
 
     useEffect(() => {
         const days = usageWindow === "7d" ? 7 : 0;
@@ -478,7 +477,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         return () => clearInterval(tick);
     }, [model]);
 
-    const donuts = mergeRateLimitWindows(providerPlanUsage([...asking, ...working, ...idle]), saved, now);
+    const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
     const claudeDonut = donuts.find((d) => d.provider === "claude");
     const weeklyProjectionMs =
         claudeDonut?.week.pct != null && claudeDonut.week.reset != null

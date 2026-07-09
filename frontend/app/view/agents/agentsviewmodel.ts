@@ -403,6 +403,16 @@ export function providerPlanUsage(
     return rows.sort((x, y) => (PROVIDER_RANK[x.provider] ?? 99) - (PROVIDER_RANK[y.provider] ?? 99));
 }
 
+/** Pure: agents whose live rate-limit window reading is current. Rate limits are account-level, so
+ *  every active session of a provider reports the same window; an idle agent instead keeps a frozen
+ *  snapshot from its last turn. Feeding that as "live" lets a stale idle reading override a fresher
+ *  active one when providerPlanUsage rows collapse per-provider. Excluding idle agents lets them fall
+ *  through to the persisted (continuously-updated) saved reading. The Usage donut and the app-bar
+ *  gauge both take this so they show the same, current account window. */
+export function liveWindowAgents(agents: AgentVM[]): AgentVM[] {
+    return agents.filter((a) => a.state !== "idle");
+}
+
 /** Minimal per-agent inputs the live roster feeds the pure mapping. `status` is the sidebar's
  *  SessionStatus string ("working" | "waiting" | "idle"); `ts` is the status event's UnixMilli. */
 export interface LiveAgentInput {

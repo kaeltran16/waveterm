@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
+import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -7,6 +7,13 @@ const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): 
     task: "",
     state,
     ...extra,
+});
+
+describe("liveWindowAgents", () => {
+    it("keeps active (asking/working) agents and drops idle ones (an idle agent's usage is a frozen snapshot)", () => {
+        const agents = [mk("a", "asking"), mk("b", "working"), mk("c", "idle")];
+        expect(liveWindowAgents(agents).map((a) => a.id)).toEqual(["a", "b"]);
+    });
 });
 
 describe("sortAgents", () => {
