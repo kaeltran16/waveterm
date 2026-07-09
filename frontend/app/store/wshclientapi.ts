@@ -1032,6 +1032,12 @@ export class RpcApiType {
         return client.wshRpcCall("renameappfile", data, opts);
     }
 
+    // command "renamechannel" [call]
+    RenameChannelCommand(client: WshClient, data: CommandRenameChannelData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "renamechannel", data, opts);
+        return client.wshRpcCall("renamechannel", data, opts);
+    }
+
     // command "reportrunphase" [call]
     ReportRunPhaseCommand(client: WshClient, data: CommandReportRunPhaseData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "reportrunphase", data, opts);

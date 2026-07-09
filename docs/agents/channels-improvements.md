@@ -12,6 +12,19 @@ trust-the-UI, one prevents accidental worker spawns. Biggest daily-use payoff.
 check deferred). #3 in progress in a parallel agent session. Others unstarted.
 Design doc for #5/#7: `docs/superpowers/specs/2026-07-03-channels-legibility-design.md`.
 
+**Update (2026-07-09):** a hands-on real-world retest (`docs/agents/channels-realworld-report/`)
+drove a fix batch. **Shipped:** #1 (channels can now be named at creation *and* renamed — see #3),
+#2 (live rail badges — every tier change now `loadChannels()` like create/delete), #3 rename
+(new `RenameChannelCommand` + rail context-menu + inline-edit; archive still unbuilt), #4 (real
+search `<input>` + client-side `filterChannels`), #6 (one-time inline confirm before arming
+Delegator), #9 (gone workers collapse under a "Done · N" disclosure — per-worker dismiss still
+deferred). Plus report-only findings: transcript auto-scroll on send, a `steer` tag on directive
+rows, and the top finding — the "NEEDS YOU" panel + rail dot now exclude asks Jarvis already
+auto-answered (shared `pendingAsks`/`answeredAskORefs` helpers). **Still deferred:** #8 ambient
+nav/titlebar badge; consult inheriting the operator's global CLAUDE.md; routing the Activity-tab
+"N need you" count through the same `pendingAsks` helper (unconfirmed double-count).
+Plan: `docs/superpowers/plans/2026-07-09-channels-realworld-report-fixes.md`.
+
 ---
 
 ## Quick wins (small, high-value)

@@ -3,7 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
-import { activeMentionQuery, avatarColor, channelHasAsk, highlightSegments, mentionCandidates } from "./channelderive";
+import {
+    activeMentionQuery,
+    avatarColor,
+    channelHasAsk,
+    filterChannels,
+    highlightSegments,
+    mentionCandidates,
+} from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
 
 describe("avatarColor", () => {
@@ -180,5 +187,19 @@ describe("highlightSegments", () => {
             { text: "@codex", kind: "mention" },
             { text: " politely", kind: "text" },
         ]);
+    });
+});
+
+describe("filterChannels", () => {
+    const ch = (name: string): Channel => ({ oid: name, name, createdts: 0, messages: [] }) as unknown as Channel;
+    const list = [ch("waveterm"), ch("cdp-flow"), ch("Wave-API")];
+    it("returns the list unchanged for a blank query", () => {
+        expect(filterChannels(list, "  ")).toHaveLength(3);
+    });
+    it("matches case-insensitively on a substring", () => {
+        expect(filterChannels(list, "wave").map((c) => c.name)).toEqual(["waveterm", "Wave-API"]);
+    });
+    it("returns empty when nothing matches", () => {
+        expect(filterChannels(list, "zzz")).toHaveLength(0);
     });
 });

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { autonomyExplainer, escalationPending, fleetCounts, parseCardData, tierChip, unreadCount } from "./jarviscards";
+import {
+    answeredAskORefs,
+    autonomyExplainer,
+    escalationPending,
+    fleetCounts,
+    parseCardData,
+    pendingAsks,
+    tierChip,
+    unreadCount,
+} from "./jarviscards";
 
 const answered = JSON.stringify({
     askORef: "block:abc",
@@ -116,5 +125,40 @@ describe("fleetCounts", () => {
     });
     it("empty snapshot is zero", () => {
         expect(fleetCounts([])).toEqual({ working: 0, waiting: 0 });
+    });
+});
+
+const answeredCard = (askORef: string) =>
+    JSON.stringify({ askORef, workerORef: "tab:x", question: "q", options: [{ label: "y" }], choice: 0 });
+
+describe("answeredAskORefs", () => {
+    it("collects askORefs from jarvis-answered cards only (not escalations)", () => {
+        const msgs = [
+            { id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("block:a") },
+            { id: "2", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: answeredCard("block:b") },
+            { id: "3", kind: "human", author: "you", text: "hi", ts: 0 },
+        ] as ChannelMessage[];
+        const s = answeredAskORefs(msgs);
+        expect(s.has("block:a")).toBe(true);
+        expect(s.has("block:b")).toBe(false);
+        expect(s.size).toBe(1);
+    });
+});
+
+describe("pendingAsks", () => {
+    const w = (askORef?: string, state = "asking") => ({ state, askORef, oref: "tab:x" });
+    it("keeps an asking worker with no answered card", () => {
+        expect(pendingAsks([w("block:a")], [] as ChannelMessage[])).toHaveLength(1);
+    });
+    it("drops an asking worker whose ask Jarvis already answered", () => {
+        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("block:a") }] as ChannelMessage[];
+        expect(pendingAsks([w("block:a")], msgs)).toHaveLength(0);
+    });
+    it("keeps a NEW ask from a worker whose PREVIOUS ask was answered", () => {
+        const msgs = [{ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answeredCard("block:old") }] as ChannelMessage[];
+        expect(pendingAsks([w("block:new")], msgs)).toHaveLength(1);
+    });
+    it("ignores non-asking workers", () => {
+        expect(pendingAsks([w("block:a", "working")], [] as ChannelMessage[])).toHaveLength(0);
     });
 });

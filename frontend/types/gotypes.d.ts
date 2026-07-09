@@ -1051,6 +1051,12 @@ declare global {
         tofilename: string;
     };
 
+    // wshrpc.CommandRenameChannelData
+    type CommandRenameChannelData = {
+        channelid: string;
+        name: string;
+    };
+
     // wshrpc.CommandReportRunPhaseData
     type CommandReportRunPhaseData = {
         oref: string;

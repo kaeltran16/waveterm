@@ -6,6 +6,8 @@
 
 import type { AgentVM } from "./agentsviewmodel";
 import { parseMentions, type RosterEntry } from "./channelmessages";
+import { pendingAsks } from "./jarviscards";
+import { buildFleetSnapshot } from "./jarvisderive";
 
 // identity palette tokens (defined in tailwindsetup.css @theme). "you" is pinned to the accent.
 const AVATAR_TOKENS = [
@@ -16,6 +18,13 @@ const AVATAR_TOKENS = [
     "var(--color-avatar-5)",
     "var(--color-avatar-6)",
 ];
+
+// Case-insensitive substring filter over channel names for the rail search box. A blank query returns
+// the list unchanged.
+export function filterChannels(channels: Channel[], query: string): Channel[] {
+    const q = query.trim().toLowerCase();
+    return q ? channels.filter((c) => c.name.toLowerCase().includes(q)) : channels;
+}
 
 export function avatarColor(name: string): string {
     if (name.toLowerCase() === "you") {
@@ -28,22 +37,14 @@ export function avatarColor(name: string): string {
     return AVATAR_TOKENS[h % AVATAR_TOKENS.length];
 }
 
-// A channel is "waiting on you" when any worker it dispatched (or steered) is currently asking.
-// GetChannels returns each channel's messages, so resolve dispatch/directive refORefs ("tab:<id>")
-// against the live roster. Presence of any asking agent short-circuits the message scan.
+// A channel is "waiting on you" when any worker it dispatched (or steered) is asking AND Jarvis has not
+// already auto-answered that ask. Shares pendingAsks with the fleet panel so the rail dot and the
+// "NEEDS YOU" count never disagree.
 export function channelHasAsk(channel: Channel, agents: AgentVM[]): boolean {
-    const askingIds = new Set(agents.filter((a) => a.state === "asking").map((a) => a.id));
-    if (askingIds.size === 0) {
+    if (!agents.some((a) => a.state === "asking")) {
         return false;
     }
-    for (const m of channel.messages ?? []) {
-        if ((m.kind === "dispatch" || m.kind === "directive") && m.reforef?.startsWith("tab:")) {
-            if (askingIds.has(m.reforef.slice(4))) {
-                return true;
-            }
-        }
-    }
-    return false;
+    return pendingAsks(buildFleetSnapshot(channel, agents), channel.messages ?? []).length > 0;
 }
 
 // --- composer @mentions ------------------------------------------------------

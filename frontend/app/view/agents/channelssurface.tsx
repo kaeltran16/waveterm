@@ -45,10 +45,12 @@ import {
     createChannel,
     deleteChannel,
     loadChannels,
+    renameChannel,
     selectChannel,
+    setChannelTier,
     type ConsultStream,
 } from "./channelsstore";
-import { autonomyExplainer, escalationPending, fleetCounts, parseCardData } from "./jarviscards";
+import { autonomyExplainer, escalationPending, fleetCounts, parseCardData, pendingAsks } from "./jarviscards";
 import { buildFleetSnapshot } from "./jarvisderive";
 import { MarkdownMessage } from "./markdownmessage";
 import { projectsAtom } from "./projectsstore";
@@ -450,6 +452,7 @@ function MessageRow({
 }) {
     const worker = msg.reforef ? workerFor(agents, msg.reforef) : undefined;
     const isDispatch = msg.kind === "dispatch";
+    const isSteer = msg.kind === "directive";
     return (
         <div className="flex items-start gap-3">
             <Avatar name={msg.author} />
@@ -457,6 +460,7 @@ function MessageRow({
                 <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-[13px] font-semibold text-primary">{msg.author}</span>
                     {isDispatch ? <Tag label="dispatch" tone="muted" /> : null}
+                    {isSteer ? <Tag label="steer" tone="muted" /> : null}
                     {isDispatch && worker?.state === "asking" ? <Tag label="asking" tone="asking" /> : null}
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
@@ -728,8 +732,11 @@ function ContextPanel({
     extraIcons?: RailExtraIcon[];
 }) {
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
-    const asking = snapshot.filter((w) => w.state === "asking");
+    const asking = pendingAsks(snapshot, channel?.messages ?? []);
     const counts = fleetCounts(snapshot);
+    const [showGone, setShowGone] = useState(false);
+    const liveWorkers = snapshot.filter((w) => w.state !== "gone");
+    const goneWorkers = snapshot.filter((w) => w.state === "gone");
     const tier = tierFromMeta(channel?.meta as Record<string, unknown> | undefined);
     const explainer = autonomyExplainer(tier);
     const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
@@ -786,7 +793,25 @@ function ContextPanel({
                     {snapshot.length === 0 ? (
                         <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
                     ) : (
-                        snapshot.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
+                        <>
+                            {liveWorkers.length === 0 ? (
+                                <p className="text-[11.5px] text-muted">No active workers.</p>
+                            ) : (
+                                liveWorkers.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
+                            )}
+                            {goneWorkers.length > 0 ? (
+                                <div className="mt-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowGone((v) => !v)}
+                                        className="mb-1.5 flex w-full cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-[.09em] text-muted hover:text-secondary"
+                                    >
+                                        <span>{showGone ? "▾" : "▸"}</span> Done · {goneWorkers.length}
+                                    </button>
+                                    {showGone ? goneWorkers.map((w) => <WorkerRow key={w.oref} model={model} w={w} />) : null}
+                                </div>
+                            ) : null}
+                        </>
                     )}
                 </div>
             ),
@@ -849,6 +874,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const consultStreams = useAtomValue(consultStreamsAtom);
     const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
     const [draft, setDraft] = useState("");
+    const [confirmDelegator, setConfirmDelegator] = useState(false);
     const [picking, setPicking] = useState(false);
     const [installedRuntimes, setInstalledRuntimes] = useState<string[]>([]);
     const [view, setView] = useState<"chat" | "runs">(() => defaultView(active));
@@ -871,6 +897,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
             : undefined;
     useEffect(() => {
         setView(defaultView(active));
+        setConfirmDelegator(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeId]);
 
@@ -907,6 +934,32 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const idsKey = messageIds.join(",");
     useLayoutEffect(() => {
         entranceRef.current = computeEntrances(entranceRef.current, activeId, messageIds).state;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeId, idsKey]);
+    // Auto-scroll the transcript: always on channel switch and on the user's own send; on an incoming
+    // message only if the user was already near the bottom (standard chat behavior). Fixes the "my send
+    // did nothing" confusion from the real-world report (§C9).
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const nearBottomRef = useRef(true);
+    const prevActiveRef = useRef<string | undefined>(undefined);
+    const onTranscriptScroll = () => {
+        const el = scrollRef.current;
+        if (el) {
+            nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        }
+    };
+    useLayoutEffect(() => {
+        const el = scrollRef.current;
+        if (!el) {
+            return;
+        }
+        const channelChanged = prevActiveRef.current !== activeId;
+        prevActiveRef.current = activeId;
+        const last = shownMessages[shownMessages.length - 1];
+        if (channelChanged || last?.author === "you" || nearBottomRef.current) {
+            el.scrollTop = el.scrollHeight;
+            nearBottomRef.current = true;
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeId, idsKey]);
     // pre-send chip: render what Send will do (spawn a worker, consult, steer, …) before it happens.
@@ -964,16 +1017,16 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     onDeleteChannel={(id) => fireAndForget(() => deleteChannel(id))}
                     onSetTier={(id, t) =>
                         fireAndForget(() =>
-                            RpcApi.SetChannelTierCommand(TabRpcClient, {
-                                channelid: id,
-                                tier: t,
-                                mode:
-                                    ((channels?.find((c) => c.oid === id)?.meta as Record<string, unknown> | undefined)?.[
-                                        "delegator:mode"
-                                    ] as string) ?? "report",
-                            })
+                            setChannelTier(
+                                id,
+                                t,
+                                ((channels?.find((c) => c.oid === id)?.meta as Record<string, unknown> | undefined)?.[
+                                    "delegator:mode"
+                                ] as string) ?? "report"
+                            )
                         )
                     }
+                    onRenameChannel={(id, name) => fireAndForget(() => renameChannel(id, name))}
                 />
 
                 <div className="@container flex min-w-0 flex-1">
@@ -1018,18 +1071,22 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                         <button
                                             key={t}
                                             type="button"
-                                            onClick={() =>
+                                            onClick={() => {
+                                                setConfirmDelegator(false);
+                                                if (t === "delegator" && tier !== "delegator") {
+                                                    setConfirmDelegator(true);
+                                                    return;
+                                                }
                                                 fireAndForget(() =>
-                                                    RpcApi.SetChannelTierCommand(TabRpcClient, {
-                                                        channelid: active.oid,
-                                                        tier: t,
-                                                        mode:
-                                                            ((active.meta as Record<string, unknown> | undefined)?.[
-                                                                "delegator:mode"
-                                                            ] as string) ?? "report",
-                                                    })
-                                                )
-                                            }
+                                                    setChannelTier(
+                                                        active.oid,
+                                                        t,
+                                                        ((active.meta as Record<string, unknown> | undefined)?.[
+                                                            "delegator:mode"
+                                                        ] as string) ?? "report"
+                                                    )
+                                                );
+                                            }}
                                             className={
                                                 tier === t
                                                     ? "rounded-[5px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[11px] text-accent-soft"
@@ -1039,6 +1096,38 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                             {t}
                                         </button>
                                     ))}
+                                </div>
+                            ) : null}
+                            {active && view === "chat" && confirmDelegator ? (
+                                <div className="flex flex-none items-center gap-2 rounded-[7px] border border-asking/50 bg-lane-asking px-2.5 py-1">
+                                    <span className="font-mono text-[11px] text-ink-mid">
+                                        Jarvis will spawn &amp; run workers on its own.
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setConfirmDelegator(false);
+                                            fireAndForget(() =>
+                                                setChannelTier(
+                                                    active.oid,
+                                                    "delegator",
+                                                    ((active.meta as Record<string, unknown> | undefined)?.[
+                                                        "delegator:mode"
+                                                    ] as string) ?? "report"
+                                                )
+                                            );
+                                        }}
+                                        className="cursor-pointer rounded-[5px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[11px] text-accent-soft hover:bg-accentbg/60"
+                                    >
+                                        Enable
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setConfirmDelegator(false)}
+                                        className="cursor-pointer rounded-[5px] px-2 py-0.5 font-mono text-[11px] text-muted hover:text-secondary"
+                                    >
+                                        Cancel
+                                    </button>
                                 </div>
                             ) : null}
                             {active && view === "runs" ? (
@@ -1085,7 +1174,11 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                             <RunsView model={model} channel={active} agents={agents} runMode={runMode} planGate={planGate} />
                         ) : (
                             <>
-                        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]">
+                        <div
+                            ref={scrollRef}
+                            onScroll={onTranscriptScroll}
+                            className="min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-[22px]"
+                        >
                             <div className="flex flex-col gap-5">
                                 {channels == null ? (
                                     <div className="mt-10 text-center text-[13px] text-muted">Loading…</div>

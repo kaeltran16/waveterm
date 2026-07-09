@@ -1742,6 +1742,24 @@ func (ws *WshServer) SetChannelReadCommand(ctx context.Context, data wshrpc.Comm
 	return nil
 }
 
+func (ws *WshServer) RenameChannelCommand(ctx context.Context, data wshrpc.CommandRenameChannelData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	name := strings.TrimSpace(data.Name)
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+		ch.Name = name
+	})
+	if err != nil {
+		return fmt.Errorf("renaming channel: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshrpc.CommandSetChannelMessagePickData) error {
 	if data.ChannelId == "" || data.MessageId == "" {
 		return fmt.Errorf("channelid and messageid are required")

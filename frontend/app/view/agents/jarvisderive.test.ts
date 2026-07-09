@@ -57,6 +57,13 @@ describe("buildFleetSnapshot", () => {
         expect(buildFleetSnapshot(chan([{ kind: "human", author: "you", text: "hi", reforef: "" }]), [])).toEqual([]);
         expect(buildFleetSnapshot(chan([]), [])).toEqual([]);
     });
+
+    it("carries the live ask oref for an asking worker", () => {
+        const c = chan([{ kind: "dispatch", author: "claude", text: "go", reforef: "tab:w1" }]);
+        const agents = [agent({ id: "w1", name: "claude", state: "asking", ask: { oref: "block:ask1", questions: [{ question: "q?" }] } })];
+        const snap = buildFleetSnapshot(c, agents);
+        expect(snap[0].askORef).toBe("block:ask1");
+    });
 });
 
 describe("buildJarvisPrompt", () => {

@@ -61,6 +61,33 @@ export function escalationPending(
     return !!worker && worker.state === "asking" && worker.ask?.oref === card.askORef;
 }
 
+// The set of ask orefs Jarvis has already auto-answered in this channel (jarvis-answered cards).
+export function answeredAskORefs(messages: ChannelMessage[]): Set<string> {
+    const out = new Set<string>();
+    for (const m of messages) {
+        if (m.kind !== "jarvis-answered") {
+            continue;
+        }
+        const card = parseCardData(m);
+        if (card?.askORef) {
+            out.add(card.askORef);
+        }
+    }
+    return out;
+}
+
+// Workers genuinely blocked on the human: asking, and not already auto-answered by Jarvis. An ask Jarvis
+// answered on the worker's behalf is Jarvis's to resume, not a "needs you" for the human — so it drops
+// out even if the worker's live state is briefly still "asking". Matched by the worker's CURRENT ask
+// oref, so a new ask from the same worker still surfaces. Generic over any {state, askORef}-shaped row.
+export function pendingAsks<T extends { state: string; askORef?: string }>(
+    snapshot: T[],
+    messages: ChannelMessage[]
+): T[] {
+    const answered = answeredAskORefs(messages);
+    return snapshot.filter((w) => w.state === "asking" && !(w.askORef && answered.has(w.askORef)));
+}
+
 // unreadCount = channel messages strictly after lastReadTs, excluding the human's own posts.
 export function unreadCount(messages: ChannelMessage[] | undefined, lastReadTs: number | undefined): number {
     const since = lastReadTs ?? 0;

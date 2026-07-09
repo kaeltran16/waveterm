@@ -65,6 +65,19 @@ export async function deleteChannel(channelId: string): Promise<void> {
     await loadChannels();
 }
 
+// Persist a channel's autonomy tier, then refresh the snapshot-fed rail so its badge updates
+// immediately. The rail reads the channelsAtom snapshot (not live WOS), so a tier change is
+// invisible until loadChannels() re-fetches — mirrors how create/delete already refresh.
+export async function setChannelTier(channelId: string, tier: string, mode: string): Promise<void> {
+    await RpcApi.SetChannelTierCommand(TabRpcClient, { channelid: channelId, tier, mode });
+    await loadChannels();
+}
+
+export async function renameChannel(channelId: string, name: string): Promise<void> {
+    await RpcApi.RenameChannelCommand(TabRpcClient, { channelid: channelId, name });
+    await loadChannels();
+}
+
 // Ephemeral live consult streams, keyed `${consultId}:${runtime}`. Not persisted — superseded by the
 // consult-reply message (matched by RefORef `consult:<consultId>` + author) once it arrives via WOS.
 export interface ConsultStream {

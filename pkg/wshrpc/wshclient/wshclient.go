@@ -1026,6 +1026,12 @@ func RenameAppFileCommand(w *wshutil.WshRpc, data wshrpc.CommandRenameAppFileDat
 	return err
 }
 
+// command "renamechannel", wshserver.RenameChannelCommand
+func RenameChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandRenameChannelData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "renamechannel", data, opts)
+	return err
+}
+
 // command "reportrunphase", wshserver.ReportRunPhaseCommand
 func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "reportrunphase", data, opts)

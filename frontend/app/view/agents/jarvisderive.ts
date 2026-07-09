@@ -14,6 +14,7 @@ export interface WorkerState {
     task?: string; // live task (async-filled, may be empty), else the dispatch text
     dispatchTask?: string; // the literal task typed into this channel's dispatch message (ground truth)
     askText?: string; // first pending question, when asking
+    askORef?: string; // the worker's current ask oref (when asking), used to drop Jarvis-answered asks
 }
 
 const OREF_PREFIX = "tab:";
@@ -48,6 +49,7 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
                 task: live.task || undefined,
                 dispatchTask,
                 askText: live.state === "asking" ? live.ask?.questions?.[0]?.question : undefined,
+                askORef: live.state === "asking" ? live.ask?.oref : undefined,
             };
         }
         const info = dispatchInfo.get(oref);
