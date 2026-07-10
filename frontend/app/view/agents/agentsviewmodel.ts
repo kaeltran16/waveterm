@@ -36,6 +36,10 @@ export type AgentEntry =
     | { kind: "user"; text: string }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }
+    // a background Task/subagent finished (Claude's <task-notification>): summary + optional full result
+    | { kind: "notification"; summary: string; status?: string; result?: string }
+    // the human interrupted the agent mid-turn ([Request interrupted by user])
+    | { kind: "interrupted" }
     | {
           kind: "action";
           verb: string;
@@ -212,6 +216,8 @@ export type TimelineItem =
     | { kind: "user"; text: string; index: number }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
+    | { kind: "notification"; summary: string; status?: string; result?: string; index: number }
+    | { kind: "interrupted"; index: number }
     | { kind: "action"; action: AgentActionEntry; index: number }
     | { kind: "group"; startIndex: number; actions: AgentActionEntry[] }
     | { kind: "edit-burst"; startIndex: number; files: EditFile[]; adds: number; dels: number };
@@ -280,6 +286,10 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
                 summary: e.summary,
                 index: i,
             });
+        } else if (e.kind === "notification") {
+            items.push({ kind: "notification", summary: e.summary, status: e.status, result: e.result, index: i });
+        } else if (e.kind === "interrupted") {
+            items.push({ kind: "interrupted", index: i });
         }
     });
     flush();

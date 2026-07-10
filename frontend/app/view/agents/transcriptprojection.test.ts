@@ -168,6 +168,47 @@ describe("projectTranscript compaction", () => {
     });
 });
 
+describe("projectTranscript task-notification, stdout, and interrupts", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+
+    it("projects a task-notification user string into a notification entry (summary/status/result)", () => {
+        const content = [
+            "<task-notification>",
+            "<task-id>abc123</task-id>",
+            "<tool-use-id>toolu_1</tool-use-id>",
+            "<status>completed</status>",
+            '<summary>Agent "Map layout" finished</summary>',
+            "<note>a note</note>",
+            "<result>Here is the report.</result>",
+            "</task-notification>",
+        ].join("\n");
+        expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([
+            { kind: "notification", summary: 'Agent "Map layout" finished', status: "completed", result: "Here is the report." },
+        ]);
+    });
+
+    it("omits result when the task-notification has none", () => {
+        const content = "<task-notification>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>";
+        expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([
+            { kind: "notification", summary: "done", status: "completed" },
+        ]);
+    });
+
+    it("skips a user-string <local-command-stdout> record (with ANSI) rather than leaking the raw tag", () => {
+        const content = "<local-command-stdout>[2mCompacted (ctrl+o to see full summary)[22m</local-command-stdout>";
+        expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([]);
+    });
+
+    it("projects [Request interrupted by user] as an interrupted marker, both as a text block and a string", () => {
+        expect(projectTranscript([L({ type: "user", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } })])).toEqual([
+            { kind: "interrupted" },
+        ]);
+        expect(projectTranscript([L({ type: "user", message: { content: "[Request interrupted by user for tool use]" } })])).toEqual([
+            { kind: "interrupted" },
+        ]);
+    });
+});
+
 describe("extractAiTitle", () => {
     it("returns the LAST ai-title's aiTitle", () => {
         const lines = [

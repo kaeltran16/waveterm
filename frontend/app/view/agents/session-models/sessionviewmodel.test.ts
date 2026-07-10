@@ -15,6 +15,7 @@ import {
     waitingTarget,
     rollUpStatus,
     subagentExpanded,
+    visibleSubagents,
     toggleCollapsed,
     type SessionInput,
 } from "./sessionviewmodel";
@@ -457,6 +458,22 @@ describe("subagentExpanded", () => {
     it("manual override wins over auto", () => {
         expect(subagentExpanded([{ id: "a", type: "E", state: "working" }], false)).toBe(false);
         expect(subagentExpanded([{ id: "a", type: "E", state: "success" }], true)).toBe(true);
+    });
+});
+
+describe("visibleSubagents", () => {
+    it("keeps working and failure, drops success and done", () => {
+        const subs: { id: string; type: string; state: "working" | "success" | "failure" | "done" }[] = [
+            { id: "a", type: "E", state: "working" },
+            { id: "b", type: "E", state: "success" },
+            { id: "c", type: "E", state: "failure" },
+            { id: "d", type: "E", state: "done" },
+        ];
+        expect(visibleSubagents(subs).map((s) => s.id)).toEqual(["a", "c"]);
+    });
+    it("returns [] when every child has finished cleanly", () => {
+        expect(visibleSubagents([{ id: "a", type: "E", state: "success" }])).toEqual([]);
+        expect(visibleSubagents([])).toEqual([]);
     });
 });
 

@@ -673,6 +673,18 @@ describe("groupTimeline command/compaction", () => {
         });
         expect(items[3]).toMatchObject({ kind: "command", name: "brainstorming", isSkill: true, index: 3 });
     });
+
+    it("passes notification and interrupted through as standalone items, flushing runs", () => {
+        const entries: AgentEntry[] = [
+            { kind: "action", verb: "spawned", target: "worker" },
+            { kind: "notification", summary: "worker finished", status: "completed", result: "report body" },
+            { kind: "interrupted" },
+        ];
+        const items = groupTimeline(entries);
+        expect(items.map((i) => i.kind)).toEqual(["action", "notification", "interrupted"]);
+        expect(items[1]).toEqual({ kind: "notification", summary: "worker finished", status: "completed", result: "report body", index: 1 });
+        expect(items[2]).toEqual({ kind: "interrupted", index: 2 });
+    });
 });
 describe("summarizeActions", () => {
     const actions: AgentActionEntry[] = [

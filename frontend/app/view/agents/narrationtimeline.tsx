@@ -360,6 +360,79 @@ function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; 
     );
 }
 
+// The human interrupted the agent mid-turn. A thin centered marker, not a You bubble.
+function InterruptedDivider() {
+    return (
+        <div className="mt-3 flex items-center gap-2.5">
+            <span className="h-px flex-1 bg-edge-faint" />
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-edge-mid bg-surface px-[10px] py-[2px] font-mono text-[9px] font-semibold uppercase tracking-[0.05em] text-muted">
+                <span className="text-[9px] leading-none">⊘</span>
+                Interrupted
+            </span>
+            <span className="h-px flex-1 bg-edge-faint" />
+        </div>
+    );
+}
+
+// A finished background Task/subagent (<task-notification>). Collapsed: a "Task" chip + summary +
+// status pill; expands to the child's full result via MarkdownMessage (result can be large).
+function TaskNotificationRow({ summary, status, result }: { summary: string; status?: string; result?: string }) {
+    const [open, setOpen] = useState(false);
+    const canExpand = !!result;
+    const ok = status == null || status === "completed";
+    return (
+        <div className="mt-2 flex gap-2.5">
+            <span
+                className={cn(
+                    "mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border font-mono text-[10px]",
+                    ok ? "border-success/30 bg-success/[0.12] text-success" : "border-warning/30 bg-warning/[0.12] text-warning"
+                )}
+            >
+                ⑃
+            </span>
+            <div className="min-w-0 flex-1">
+                <button
+                    type="button"
+                    disabled={!canExpand}
+                    onClick={() => setOpen((v) => !v)}
+                    className={cn(
+                        "flex w-full items-center gap-2 rounded-[8px] border border-edge-faint bg-surface px-2.5 py-1.5 text-left",
+                        canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
+                    )}
+                >
+                    <span className="shrink-0 font-mono text-[8.5px] font-semibold uppercase tracking-[0.06em] text-feed-label">Task</span>
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{summary || "Subagent finished"}</span>
+                    {status ? (
+                        <span
+                            className={cn(
+                                "shrink-0 rounded-[4px] px-[6px] py-0.5 font-mono text-[8.5px] font-semibold uppercase",
+                                ok ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
+                            )}
+                        >
+                            {status}
+                        </span>
+                    ) : null}
+                    {canExpand ? <span className="shrink-0 font-mono text-[8px] text-edge-strong">{open ? "▼" : "▶"}</span> : null}
+                </button>
+                <AnimatePresence initial={false}>
+                    {open && result ? (
+                        <motion.div
+                            key="res"
+                            variants={composerReveal}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            className="mt-1.5 overflow-hidden rounded-[9px] border border-edge-faint bg-surface-code px-3.5 py-3"
+                        >
+                            <MarkdownMessage text={result} />
+                        </motion.div>
+                    ) : null}
+                </AnimatePresence>
+            </div>
+        </div>
+    );
+}
+
 export function NarrationTimeline({
     entries,
     accentLatest,
@@ -462,6 +535,30 @@ export function NarrationTimeline({
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
                             <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} />
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "notification") {
+                    return (
+                        <motion.div
+                            key={item.index}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        >
+                            <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} />
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "interrupted") {
+                    return (
+                        <motion.div
+                            key={item.index}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        >
+                            <InterruptedDivider />
                         </motion.div>
                     );
                 }

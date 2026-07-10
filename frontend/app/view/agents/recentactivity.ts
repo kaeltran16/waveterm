@@ -35,6 +35,12 @@ function describe(entry: AgentEntry): { text: string; typeLabel: string } {
     if (entry.kind === "compaction") {
         return { text: "Conversation compacted", typeLabel: "compacted" };
     }
+    if (entry.kind === "notification") {
+        return { text: entry.summary || "Subagent finished", typeLabel: "task" };
+    }
+    if (entry.kind === "interrupted") {
+        return { text: "Interrupted", typeLabel: "interrupted" };
+    }
     return { text: `${entry.verb} ${entry.target}`.trim(), typeLabel: entry.verb };
 }
 

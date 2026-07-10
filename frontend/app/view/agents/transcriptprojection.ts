@@ -71,6 +71,25 @@ function skillLeaf(skill: string): string {
     return parts[parts.length - 1] || skill;
 }
 
+// Claude interruption marker, both "[Request interrupted by user]" and the "...for tool use]" variant.
+function isInterrupted(text: string): boolean {
+    return text.trimStart().startsWith("[Request interrupted by user");
+}
+
+// A finished background Task/subagent arrives as a user-role record whose string content is a
+// <task-notification> XML block. Parse the human-facing fields; the full <result> is the child's report.
+function parseTaskNotification(content: string): Extract<AgentEntry, { kind: "notification" }> | null {
+    if (!content.includes("<task-notification>")) {
+        return null;
+    }
+    const grab = (tag: string): string | undefined => {
+        const m = new RegExp(`<${tag}>([^]*?)</${tag}>`).exec(content);
+        return m ? m[1].trim() : undefined;
+    };
+    const result = grab("result");
+    return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...(result ? { result } : {}) };
+}
+
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
     const last = entries[entries.length - 1];
     if (last != null && last.kind === "compaction") {
@@ -167,11 +186,21 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             }
             const content = rec?.message?.content;
             if (typeof content === "string") {
-                const cmd = parseCommand(content);
-                if (cmd != null) {
-                    entries.push({ kind: "command", ...cmd });
-                } else if (content.trim() !== "") {
-                    entries.push({ kind: "user", text: content });
+                const note = parseTaskNotification(content);
+                if (note != null) {
+                    entries.push(note);
+                } else if (content.includes("<local-command-stdout>")) {
+                    // slash-command stdout (e.g. "Compacted …", with raw ANSI) — not shown, matching the
+                    // system/local_command record that is already skipped. Never a user bubble.
+                } else if (isInterrupted(content)) {
+                    entries.push({ kind: "interrupted" });
+                } else {
+                    const cmd = parseCommand(content);
+                    if (cmd != null) {
+                        entries.push({ kind: "command", ...cmd });
+                    } else if (content.trim() !== "") {
+                        entries.push({ kind: "user", text: content });
+                    }
                 }
                 continue;
             }
@@ -180,7 +209,7 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             }
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-                    entries.push({ kind: "user", text: block.text });
+                    entries.push(isInterrupted(block.text) ? { kind: "interrupted" } : { kind: "user", text: block.text });
                     continue;
                 }
                 if (block?.type !== "tool_result" || typeof block.tool_use_id !== "string") {

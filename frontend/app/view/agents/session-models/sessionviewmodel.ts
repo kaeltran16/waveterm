@@ -257,6 +257,13 @@ export function rollUpStatus(parent: SessionStatus, subagents: SubagentVM[]): Se
     return parent;
 }
 
+/** Pure: the subagents the tree still shows — those still working or that failed (need attention).
+ *  Children that finished cleanly (success) or terminated with unknown outcome (done) are dropped so
+ *  a completed fan-out doesn't linger. Never mutates input. */
+export function visibleSubagents(subagents: SubagentVM[]): SubagentVM[] {
+    return subagents.filter((s) => s.state === "working" || s.state === "failure");
+}
+
 /** Pure: auto-expand while a child is working; a manual override (set this turn) wins.
  *  An empty list is never expanded (nothing to show). */
 export function subagentExpanded(subagents: SubagentVM[], manualOverride?: boolean): boolean {

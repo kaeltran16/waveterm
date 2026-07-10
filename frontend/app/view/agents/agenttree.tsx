@@ -18,7 +18,7 @@ import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
 } from "./session-models/agentstatusstore";
-import { subagentExpanded, type SubagentState } from "./session-models/sessionviewmodel";
+import { subagentExpanded, visibleSubagents, type SubagentState } from "./session-models/sessionviewmodel";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -39,7 +39,8 @@ const SUB_COLOR: Record<SubagentState, string> = {
 function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; agent: AgentVM; animateEntrance: boolean }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const oref = `block:${agent.blockId}`;
-    const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
+    // drop children that finished (success/done) so a completed fan-out doesn't linger in the tree
+    const subs = visibleSubagents(useAtomValue(subagentsByIdAtom)[agent.id] ?? []);
     const expandOverride = useAtomValue(getSubagentExpandAtom(oref));
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
