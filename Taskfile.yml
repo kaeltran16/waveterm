@@ -45,6 +45,10 @@ tasks:
         deps:
             - npm:install
 
+    verify:ui:
+        desc: Run the CDP verification harness against the running dev app (scripts/cdp/). Pass scenario names after --, e.g. `task verify:ui -- surface-smoke`.
+        cmd: node scripts/cdp/verify.mjs {{.CLI_ARGS}}
+
     docs:npm:install:
         desc: Runs `npm install` in docs directory
         internal: true
