@@ -28,10 +28,19 @@ import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
+import { subagentsByIdAtom } from "./subagentsstore";
+import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
     "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-edge-mid text-secondary hover:border-edge-strong hover:bg-white/[0.04]";
+
+const SUB_COLOR: Record<SubagentState, string> = {
+    working: "var(--color-accent)",
+    success: "var(--color-success)",
+    failure: "var(--color-error)",
+    done: "var(--color-muted)",
+};
 
 function TaskChip({ done, total, onClick }: { done: number; total: number; onClick: () => void }) {
     return (
@@ -104,6 +113,43 @@ function TaskPopover({
                     </div>
                 ))}
             </div>
+        </div>
+    );
+}
+
+// A ⑃ N fan-out badge for the cockpit card: count of the agent's subagents, with a hover peek listing
+// each child's type + state dot. Read-only; clicking opens the focused view (where the tree/interior live).
+function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void }) {
+    const [peek, setPeek] = useState(false);
+    return (
+        <div className="relative shrink-0" onMouseEnter={() => setPeek(true)} onMouseLeave={() => setPeek(false)}>
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onOpen();
+                }}
+                title={`${subs.length} subagent${subs.length === 1 ? "" : "s"}`}
+                className="flex cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-muted hover:border-accent hover:text-accent-soft"
+            >
+                <span className="text-[10px] leading-none">⑃</span>
+                {subs.length}
+            </button>
+            <PopoverReveal
+                open={peek}
+                origin="top right"
+                className="absolute right-0 top-[24px] z-30 w-[212px] rounded-[9px] border border-edge-strong bg-surface-raised p-2 shadow-[0_14px_36px_rgba(0,0,0,0.5)]"
+            >
+                <div className="flex flex-col gap-1">
+                    {subs.map((s) => (
+                        <div key={s.id} className="flex items-center gap-2">
+                            <span className="h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: SUB_COLOR[s.state] }} />
+                            <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">{s.type || "subagent"}</span>
+                            <span className="font-mono text-[9px] text-muted">{s.state}</span>
+                        </div>
+                    ))}
+                </div>
+            </PopoverReveal>
         </div>
     );
 }
@@ -217,6 +263,7 @@ export function AgentRow({
     const qIdx = Math.min(activeQuestion ?? 0, Math.max(0, qs.length - 1));
     const question = qs[qIdx]?.question;
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
+    const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const tasks = useAtomValue(tasksByIdAtom)[agent.id];
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;
@@ -310,6 +357,7 @@ export function AgentRow({
                         {project}
                     </span>
                 ) : null}
+                {subs.length > 0 ? <FanoutBadge subs={subs} onOpen={onOpen} /> : null}
                 {diff ? (
                     <button
                         type="button"

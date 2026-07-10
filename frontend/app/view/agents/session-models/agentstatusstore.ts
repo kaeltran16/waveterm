@@ -4,12 +4,8 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { atom, type PrimitiveAtom } from "jotai";
-import { reduceSubagents, type SubagentDelta, type SubagentVM } from "./sessionviewmodel";
 import { recordRateLimit } from "../ratelimitstore";
 import { persistClaudeResume } from "./agentresumestore";
-
-// a completed subagent is noise after a minute; drop it this long after it stops
-const COMPLETED_SUBAGENT_TTL_MS = 60_000;
 
 function invertPct(pct: number | undefined): number | undefined {
     if (pct == null) {
@@ -54,18 +50,6 @@ export function getAgentUsageAtom(oref: string): PrimitiveAtom<AgentUsage> {
     return usageAtom;
 }
 
-// per-block ephemeral subagent list, reduced from start/stop deltas; cleared on the parent's idle transition
-const subagentAtoms = new Map<string, PrimitiveAtom<SubagentVM[]>>();
-
-export function getSubagentsAtom(oref: string): PrimitiveAtom<SubagentVM[]> {
-    let saAtom = subagentAtoms.get(oref);
-    if (!saAtom) {
-        saAtom = atom<SubagentVM[]>([]) as PrimitiveAtom<SubagentVM[]>;
-        subagentAtoms.set(oref, saAtom);
-    }
-    return saAtom;
-}
-
 // per-block manual expand override (undefined = auto). Reset to undefined on the parent's idle transition.
 const subagentExpandAtoms = new Map<string, PrimitiveAtom<boolean>>();
 
@@ -85,27 +69,6 @@ export function toggleSubagentExpand(oref: string, currentlyExpanded: boolean) {
     globalStore.set(getSubagentExpandAtom(oref), !currentlyExpanded);
 }
 
-function normalizeSubagentStatus(status: string): "success" | "failure" | undefined {
-    if (status === "failure") {
-        return "failure";
-    }
-    if (status === "success") {
-        return "success";
-    }
-    return undefined;
-}
-
-function scheduleSubagentExpiry(oref: string, id: string) {
-    setTimeout(() => {
-        const saAtom = getSubagentsAtom(oref);
-        const list = globalStore.get(saAtom);
-        const next = list.filter((s) => s.id !== id);
-        if (next.length !== list.length) {
-            globalStore.set(saAtom, next);
-        }
-    }, COMPLETED_SUBAGENT_TTL_MS);
-}
-
 let subscribed = false;
 export function setupAgentStatusSubscription() {
     if (subscribed) {
@@ -118,23 +81,6 @@ export function setupAgentStatusSubscription() {
             const data = event.data as AgentStatusData;
             if (data?.oref == null) {
                 return;
-            }
-            if (data.subagent != null) {
-                const sa = data.subagent;
-                const action: SubagentDelta["action"] =
-                    sa.action === "stop" ? "stop" : sa.action === "model" ? "model" : "start";
-                const delta: SubagentDelta = {
-                    action,
-                    id: sa.id,
-                    type: sa.type ?? "",
-                    status: normalizeSubagentStatus(sa.status),
-                    model: sa.model,
-                };
-                const saAtom = getSubagentsAtom(data.oref);
-                globalStore.set(saAtom, reduceSubagents(globalStore.get(saAtom), delta));
-                if (action === "stop") {
-                    scheduleSubagentExpiry(data.oref, sa.id);
-                }
             }
             if (data.usage != null) {
                 const provider = data.agent ?? globalStore.get(getAgentStatusAtom(data.oref))?.agent ?? "claude";
@@ -149,8 +95,7 @@ export function setupAgentStatusSubscription() {
                 // resume-on-reopen: bake this Claude session's --resume key into the block's launch command
                 void persistClaudeResume(data.oref, data.agent, data.transcriptpath);
                 if (data.state === "idle") {
-                    // turn ended: subagent state is ephemeral — clear the list and the manual expand override
-                    globalStore.set(getSubagentsAtom(data.oref), []);
+                    // turn ended: reset the manual subagent-expand override (disk-backed list persists)
                     globalStore.set(getSubagentExpandAtom(data.oref), undefined);
                 }
             }

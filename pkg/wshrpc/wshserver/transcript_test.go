@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,5 +238,45 @@ func TestListSubagentsMissingDir(t *testing.T) {
 	}
 	if len(infos) != 0 {
 		t.Fatalf("want 0 infos, got %d", len(infos))
+	}
+}
+
+func TestSubagentDoneSignal(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "sess.jsonl")
+	if err := os.WriteFile(parent, []byte(`{"type":"user"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subdir := filepath.Join(dir, "sess", "subagents")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRecs := func(id string, recs ...string) {
+		if err := os.WriteFile(filepath.Join(subdir, "agent-"+id+".jsonl"), []byte(strings.Join(recs, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// terminated: last record is an assistant text turn
+	writeRecs("done1",
+		`{"agentId":"done1","type":"user","message":{"content":"Explore"}}`,
+		`{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"result"}]}}`)
+	// live: last record is a pending tool_use
+	writeRecs("live1",
+		`{"agentId":"live1","type":"user","message":{"content":"Plan"}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}`)
+
+	infos, err := listSubagents(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byId := map[string]wshrpc.SubagentFileInfo{}
+	for _, in := range infos {
+		byId[in.AgentId] = in
+	}
+	if !byId["done1"].Done {
+		t.Errorf("done1: want Done=true")
+	}
+	if byId["live1"].Done {
+		t.Errorf("live1: want Done=false (pending tool_use)")
 	}
 }

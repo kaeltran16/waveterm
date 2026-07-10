@@ -59,6 +59,7 @@ import { InlineMarkdown } from "./inlinemarkdown";
 import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
+import { useSubagentTracking } from "./subagenttracking";
 
 // A count that slide-swaps its digits when the value changes (moment: a count ticking is a state
 // change worth making legible). Under reduced motion, MotionConfig drops the y transform → crossfade.
@@ -216,6 +217,7 @@ function useModelAtom<T>(a: PrimitiveAtom<T>): [T, (v: T | ((p: T) => T)) => voi
 
 export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
+    useSubagentTracking(agents);
     const { asking, working, idle } = groupAgents(agents);
 
     // 1s tick so the liveness cue (age / quiet) stays current; drives the model's nowAtom

@@ -26,6 +26,23 @@ into the center pane), disk-backed by `<parent>/<sessionId>/subagents/agent-*.js
    read a terminal signal from the child file itself; a prefix-match was rejected (rescues only 1/24,
    adds collision risk). See `subagentcorrelate.ts` header.
 
+**Update 2026-07-10 (subagent-tree-followups):** items 1, 3, and the state half of 5 shipped
+(spec/plan `docs/superpowers/{specs,plans}/2026-07-10-subagent-tree-followups.md`).
+- **#1 fan-out badge** — `⑃ N` + hover peek on `agentrow.tsx`, fed by `subagentsByIdAtom` via the
+  extracted `useSubagentTracking` hook (also used by the cockpit grid and the Runs surface).
+- **#5 done signal** — the backend tail-reads a child's last record (`lastRecordTerminal`) into
+  `SubagentFileInfo.Done`; `correlateSubagents` resolves a terminated *orphan* (no parent Task
+  `tool_result`) to a new neutral **`done`** state instead of a perpetual "working". Success/failure is
+  still only knowable for matched children — `done` is deliberately outcome-neutral.
+- **#3 hook path retired** — the rail and Runs orchestrator rows now read the disk store; the
+  `AgentSubagentDelta` emission (`wshcmd-agenthook.go` **and** the `wsh agentstatus --subagent-*`
+  emitter in `wshcmd-agentstatus.go`), the `agentstatusstore` reducer/TTL/idle-clear, `getSubagentsAtom`,
+  and `baseds.AgentSubagentDelta` are deleted. Correction: `getSubagentsAtom` was **not** a dead export
+  (it was live in the rail + Runs) — this migrated then removed it.
+- **#4 deep nesting — CLOSED (no-go).** 0 nested `subagents/*/subagents` dirs across 619 real child
+  files; CC writes a flat layout. Reopen only if a nested child file is observed.
+- **#2 Codex subagents — remains no-go** (no per-subagent files).
+
 ## Feature-triage residue — prioritization + scoping corrections (2026-07-03)
 
 Reconciled `docs/feature-triage.md` (2026-06-23) against the current tree. Most of that ~13-item

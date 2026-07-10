@@ -14,7 +14,7 @@ import { fireAndForget } from "@/util/util";
 import { atom } from "jotai";
 import type { AgentsViewModel } from "../agents";
 import type { PendingLaunch } from "../agentsviewmodel";
-import { getAgentStatusAtom, getSubagentExpandAtom, getSubagentsAtom } from "./agentstatusstore";
+import { getAgentStatusAtom, getSubagentExpandAtom } from "./agentstatusstore";
 import { sessionGroupLabelAtom } from "./sessiongroupstore";
 import {
     badgeToStatus,
@@ -76,7 +76,6 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             }
             model = agentStatus?.model;
             title = agentStatus?.title;
-            subagents = get(getSubagentsAtom(termBlockOref));
             subagentsExpanded = subagentExpanded(subagents, get(getSubagentExpandAtom(termBlockOref)));
         }
 

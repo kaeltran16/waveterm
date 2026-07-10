@@ -26,8 +26,8 @@ import { prettyModel } from "./modellabel";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { runtimeMeta } from "./runtimemeta";
-import { getSubagentsAtom } from "./session-models/agentstatusstore";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
+import { subagentsByIdAtom } from "./subagentsstore";
 import { agentTokensAtom, loadTokensForAgent } from "./tokenstore";
 
 const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
@@ -53,7 +53,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
-    const subs = useAtomValue(getSubagentsAtom(`block:${agent.blockId}`));
+    const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);

@@ -10,7 +10,7 @@ export function isNeedsYou(status: SessionStatus): boolean {
     return status === "asking" || status === "waiting";
 }
 
-export type SubagentState = "working" | "success" | "failure";
+export type SubagentState = "working" | "success" | "failure" | "done";
 
 export interface SubagentVM {
     id: string;
@@ -18,15 +18,6 @@ export interface SubagentVM {
     state: SubagentState;
     model?: string;
     transcriptPath?: string; // disk-backed source: the child's own transcript file (undefined for the legacy hook path)
-}
-
-/** A single subagent lifecycle transition, mapped from the AgentStatusData.subagent delta. */
-export interface SubagentDelta {
-    action: "start" | "stop" | "model";
-    id: string;
-    type: string;
-    status?: "success" | "failure";
-    model?: string;
 }
 
 // Couples to the Phase 0 reporter's color constants. Phase 2 replaces this with an explicit
@@ -252,29 +243,6 @@ export function waitingTarget(vm: SidebarViewModel, offset: number): string | un
 /** Pure: the next waiting (needs-you) session after the active one in visual order, wrapping. */
 export function needsYouTarget(vm: SidebarViewModel): string | undefined {
     return waitingTarget(vm, 1);
-}
-
-/** Pure: reduce a subagent start/stop/model delta into the per-block list. Never mutates the input.
- *  start is idempotent by id; stop flips the matching entry (or appends if the start was missed);
- *  model updates the model field without changing state (or appends a working entry if start was missed). */
-export function reduceSubagents(list: SubagentVM[], delta: SubagentDelta): SubagentVM[] {
-    if (delta.action === "start") {
-        if (list.some((s) => s.id === delta.id)) {
-            return list;
-        }
-        return [...list, { id: delta.id, type: delta.type, state: "working", model: delta.model }];
-    }
-    if (delta.action === "model") {
-        if (!list.some((s) => s.id === delta.id)) {
-            return [...list, { id: delta.id, type: delta.type, state: "working", model: delta.model }];
-        }
-        return list.map((s) => (s.id === delta.id ? { ...s, model: delta.model } : s));
-    }
-    const state: SubagentState = delta.status === "failure" ? "failure" : "success";
-    if (!list.some((s) => s.id === delta.id)) {
-        return [...list, { id: delta.id, type: delta.type, state, model: delta.model }];
-    }
-    return list.map((s) => (s.id === delta.id ? { ...s, state, model: delta.model ?? s.model } : s));
 }
 
 /** Pure: the row's dot reflects children — the parent's own needs-you state (amber) dominates;

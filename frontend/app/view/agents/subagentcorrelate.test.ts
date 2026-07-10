@@ -15,6 +15,7 @@ const file = (over: Partial<SubagentFileInfo>): SubagentFileInfo => ({
     transcriptpath: "/p/agent-a1.jsonl",
     firstprompt: "look at X",
     startedatms: 1,
+    done: false,
     ...over,
 });
 
@@ -29,9 +30,16 @@ describe("correlateSubagents", () => {
         expect(out[0].state).toBe("failure");
     });
 
-    it("maps a running (or unmatched) file to working", () => {
+    it("maps a matched running spawn to working", () => {
         expect(correlateSubagents([spawn({ done: false })], [file({})])[0].state).toBe("working");
-        expect(correlateSubagents([], [file({ firstprompt: "orphan" })])[0].state).toBe("working");
+    });
+
+    it("maps an unmatched, unfinished file to working", () => {
+        expect(correlateSubagents([], [file({ firstprompt: "orphan", done: false })])[0].state).toBe("working");
+    });
+
+    it("maps an unmatched, terminated file to the neutral done state", () => {
+        expect(correlateSubagents([], [file({ firstprompt: "orphan", done: true })])[0].state).toBe("done");
     });
 
     it("matches on normalized whitespace", () => {

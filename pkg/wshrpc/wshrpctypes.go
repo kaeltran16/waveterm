@@ -662,6 +662,7 @@ type SubagentFileInfo struct {
 	TranscriptPath string `json:"transcriptpath"`
 	FirstPrompt    string `json:"firstprompt"`
 	StartedAtMs    int64  `json:"startedatms"`
+	Done           bool   `json:"done"` // last record is a terminal assistant turn (finished; outcome unknown)
 }
 
 type CommandGetSubagentsRtnData struct {

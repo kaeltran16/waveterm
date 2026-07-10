@@ -18,20 +18,18 @@ func TestPlanEmission(t *testing.T) {
 		name      string
 		ev        ccHookEvent
 		wantState string
-		wantSub   string // subagent action, "" if none
-		wantMT    bool   // AttachModelTitle
+		wantMT    bool // AttachModelTitle
 	}{
-		{"prompt submit", ccHookEvent{HookEventName: "UserPromptSubmit"}, baseds.AgentState_Working, "", true},
-		{"stop idle", ccHookEvent{HookEventName: "Stop"}, baseds.AgentState_Idle, "", true},
-		{"notification waiting", ccHookEvent{HookEventName: "Notification"}, baseds.AgentState_Waiting, "", false},
-		{"post tool working", ccHookEvent{HookEventName: "PostToolUse"}, baseds.AgentState_Working, "", true},
-		{"pre bash working", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"ls"}`)}, baseds.AgentState_Working, "", true},
-		{"pre ask -> asking", ccHookEvent{HookEventName: "PreToolUse", ToolName: "AskUserQuestion"}, baseds.AgentState_Asking, "", false},
-		{"pre task starts subagent", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolUseID: "t1", ToolInput: json.RawMessage(`{"subagent_type":"Explore"}`)}, baseds.AgentState_Working, baseds.SubagentAction_Start, true},
-		{"pre task no id -> no subagent", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolInput: json.RawMessage(`{"subagent_type":"Explore"}`)}, baseds.AgentState_Working, "", true},
-		{"subagent stop", ccHookEvent{HookEventName: "SubagentStop", ToolUseID: "t1"}, "", baseds.SubagentAction_Stop, false},
-		{"subagent stop no id -> nothing", ccHookEvent{HookEventName: "SubagentStop"}, "", "", false},
-		{"unknown event -> nothing", ccHookEvent{HookEventName: "PreCompact"}, "", "", false},
+		{"prompt submit", ccHookEvent{HookEventName: "UserPromptSubmit"}, baseds.AgentState_Working, true},
+		{"stop idle", ccHookEvent{HookEventName: "Stop"}, baseds.AgentState_Idle, true},
+		{"notification waiting", ccHookEvent{HookEventName: "Notification"}, baseds.AgentState_Waiting, false},
+		{"post tool working", ccHookEvent{HookEventName: "PostToolUse"}, baseds.AgentState_Working, true},
+		{"pre bash working", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"ls"}`)}, baseds.AgentState_Working, true},
+		{"pre ask -> asking", ccHookEvent{HookEventName: "PreToolUse", ToolName: "AskUserQuestion"}, baseds.AgentState_Asking, false},
+		// Task now only keeps the parent "working"; the disk store (not a hook delta) tracks subagents.
+		{"pre task -> working", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolUseID: "t1", ToolInput: json.RawMessage(`{"subagent_type":"Explore"}`)}, baseds.AgentState_Working, true},
+		{"subagent stop -> nothing", ccHookEvent{HookEventName: "SubagentStop", ToolUseID: "t1"}, "", false},
+		{"unknown event -> nothing", ccHookEvent{HookEventName: "PreCompact"}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -39,24 +37,10 @@ func TestPlanEmission(t *testing.T) {
 			if em.State != tt.wantState {
 				t.Fatalf("state = %q, want %q", em.State, tt.wantState)
 			}
-			gotSub := ""
-			if em.Subagent != nil {
-				gotSub = em.Subagent.Action
-			}
-			if gotSub != tt.wantSub {
-				t.Fatalf("subagent action = %q, want %q", gotSub, tt.wantSub)
-			}
 			if em.AttachModelTitle != tt.wantMT {
 				t.Fatalf("attachModelTitle = %v, want %v", em.AttachModelTitle, tt.wantMT)
 			}
 		})
-	}
-}
-
-func TestPlanEmissionTaskType(t *testing.T) {
-	em := planEmission(ccHookEvent{HookEventName: "PreToolUse", ToolName: "Task", ToolUseID: "t1", ToolInput: json.RawMessage(`{"subagent_type":"Plan"}`)})
-	if em.Subagent == nil || em.Subagent.Type != "Plan" || em.Subagent.Id != "t1" {
-		t.Fatalf("subagent = %#v, want {Start t1 Plan}", em.Subagent)
 	}
 }
 

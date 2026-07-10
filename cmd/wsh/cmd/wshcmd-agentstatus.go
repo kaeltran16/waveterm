@@ -32,13 +32,6 @@ var (
 	agentStatusTitle      string
 	agentStatusTranscript string
 
-	agentSubagentStart  bool
-	agentSubagentStop   bool
-	agentSubagentModel  bool
-	agentSubagentId     string
-	agentSubagentType   string
-	agentSubagentStatus string
-
 	agentUsageFlag       bool
 	agentUsageContext    float64
 	agentUsageContextMax int
@@ -54,15 +47,9 @@ func init() {
 	agentStatusCmd.Flags().StringVar(&agentStatusState, "state", "", "agent state: working | waiting | idle")
 	agentStatusCmd.Flags().StringVar(&agentStatusDetail, "detail", "", "activity detail line (e.g. \"editing foo.go\")")
 	agentStatusCmd.Flags().StringVar(&agentStatusAgent, "agent", "", "agent identity (claude | codex)")
-	agentStatusCmd.Flags().BoolVar(&agentSubagentStart, "subagent-start", false, "report a subagent that started (requires --id, --type)")
-	agentStatusCmd.Flags().BoolVar(&agentSubagentStop, "subagent-stop", false, "report a subagent that stopped (requires --id; optionally --status success|failure)")
-	agentStatusCmd.Flags().StringVar(&agentSubagentId, "id", "", "subagent agent_id (with --subagent-start/--subagent-stop)")
-	agentStatusCmd.Flags().StringVar(&agentSubagentType, "type", "", "subagent agent_type (e.g. Explore, Plan)")
-	agentStatusCmd.Flags().StringVar(&agentSubagentStatus, "status", "", "subagent outcome: success | failure (with --subagent-stop)")
 	agentStatusCmd.Flags().StringVar(&agentStatusModel, "model", "", "resolved model id (e.g. claude-sonnet-4-6)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTitle, "title", "", "agent ai-title / task summary (used as the sidebar tab label)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTranscript, "transcript", "", "path to the agent's transcript JSONL (for previous-info projection)")
-	agentStatusCmd.Flags().BoolVar(&agentSubagentModel, "subagent-model", false, "report a subagent's resolved model (requires --id, --model)")
 	agentStatusCmd.Flags().BoolVar(&agentUsageFlag, "usage", false, "report a usage-only delta from the statusLine JSON (no --state)")
 	agentStatusCmd.Flags().Float64Var(&agentUsageContext, "context-pct", 0, "context window used percentage")
 	agentStatusCmd.Flags().IntVar(&agentUsageContextMax, "context-max", 0, "context window size in tokens (200000 | 1000000)")
@@ -102,10 +89,6 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	}
 	if oref.OType != waveobj.OType_Block && oref.OType != waveobj.OType_Tab {
 		return fmt.Errorf("agentstatus oref must be a block or tab (got %q)", oref.OType)
-	}
-
-	if agentSubagentStart || agentSubagentStop || agentSubagentModel {
-		return publishSubagentDelta(oref)
 	}
 
 	if agentUsageFlag {
@@ -172,52 +155,4 @@ func publishUsage(oref *waveobj.ORef, usage *baseds.AgentUsage) error {
 	// Persist:0 — usage deltas are ephemeral; a retained usage event would evict the
 	// retained Persist:1 parent-state event that a late subscriber must replay.
 	return publishAgentStatusData(oref, eventData, 0)
-}
-
-func publishSubagentDelta(oref *waveobj.ORef) error {
-	if agentSubagentStart && agentSubagentStop {
-		return fmt.Errorf("--subagent-start and --subagent-stop are mutually exclusive")
-	}
-	if agentSubagentId == "" {
-		return fmt.Errorf("--id is required with --subagent-start/--subagent-stop/--subagent-model")
-	}
-
-	action := baseds.SubagentAction_Start
-	status := ""
-	if agentSubagentStop {
-		action = baseds.SubagentAction_Stop
-		if agentSubagentStatus != "" && agentSubagentStatus != baseds.SubagentStatus_Success && agentSubagentStatus != baseds.SubagentStatus_Failure {
-			return fmt.Errorf("--status must be success or failure (got %q)", agentSubagentStatus)
-		}
-		status = agentSubagentStatus
-	}
-	if agentSubagentModel {
-		action = baseds.SubagentAction_Model
-		if agentStatusModel == "" {
-			return fmt.Errorf("--model is required with --subagent-model")
-		}
-	}
-
-	eventData := baseds.AgentStatusData{
-		ORef:  oref.String(),
-		Agent: agentStatusAgent,
-		Ts:    time.Now().UnixMilli(),
-		Subagent: &baseds.AgentSubagentDelta{
-			Action: action,
-			Id:     agentSubagentId,
-			Type:   agentSubagentType,
-			Status: status,
-			Model:  agentStatusModel,
-		},
-	}
-
-	// Persist:0 — subagent deltas are ephemeral; they must not be retained or replayed to
-	// late subscribers (a replayed delta would resurrect a phantom child). The retained
-	// Persist:1 parent-state event for the same scope is untouched (pkg/wps/wps.go:196,228).
-	err := publishAgentStatusData(oref, eventData, 0)
-	if err != nil {
-		return fmt.Errorf("publishing agentstatus subagent event: %v", err)
-	}
-	fmt.Printf("agentstatus subagent %s %s set\n", action, agentSubagentId)
-	return nil
 }

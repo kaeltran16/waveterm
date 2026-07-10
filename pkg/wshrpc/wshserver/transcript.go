@@ -235,6 +235,42 @@ func firstPromptOf(line string) string {
 	return ""
 }
 
+// lastRecordTerminal reports whether the transcript's last record is a terminal assistant turn: an
+// assistant message with a text block and no pending tool_use. Verified 2026-07-10 across 619 real
+// subagent files — a finished child always ends this way (end_turn/stop_sequence); a live child's last
+// record is a pending tool_use or a mid-flight tool_result. Read error / no records / non-assistant -> false.
+func lastRecordTerminal(path string) bool {
+	tail, err := readTranscriptTail(path, 1)
+	if err != nil || len(tail) == 0 {
+		return false
+	}
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal([]byte(tail[0]), &rec) != nil || rec.Type != "assistant" {
+		return false
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+		return false
+	}
+	hasText := false
+	for _, b := range blocks {
+		if b.Type == "tool_use" {
+			return false // a tool call awaits its result: still working
+		}
+		if b.Type == "text" {
+			hasText = true
+		}
+	}
+	return hasText
+}
+
 // listSubagents returns one SubagentFileInfo per agent-*.jsonl in the parent's subagents dir, sorted by
 // StartedAtMs ascending. A missing dir yields an empty slice (not an error) — a parent that never
 // spawned a subagent has no dir.
@@ -256,6 +292,7 @@ func listSubagents(parentPath string) ([]wshrpc.SubagentFileInfo, error) {
 			AgentId:        strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "agent-"), ".jsonl"),
 			TranscriptPath: path,
 			FirstPrompt:    firstPromptOf(head[0]),
+			Done:           lastRecordTerminal(path),
 		}
 		if st, statErr := os.Stat(path); statErr == nil {
 			info.StartedAtMs = st.ModTime().UnixMilli()

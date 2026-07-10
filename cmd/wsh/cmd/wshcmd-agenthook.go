@@ -30,13 +30,11 @@ type ccHookEvent struct {
 }
 
 // agentEmission describes what to publish for one hook event. State=="" means no
-// parent-state event; Subagent==nil means no subagent delta. Both may be set (a Task
-// PreToolUse both keeps the parent "working" and starts a subagent).
+// parent-state event (a clean no-op).
 type agentEmission struct {
 	State            string
 	Detail           string
 	AttachModelTitle bool
-	Subagent         *baseds.AgentSubagentDelta
 }
 
 func planEmission(ev ccHookEvent) agentEmission {
@@ -49,23 +47,10 @@ func planEmission(ev ccHookEvent) agentEmission {
 		return agentEmission{State: baseds.AgentState_Waiting}
 	case "PostToolUse":
 		return agentEmission{State: baseds.AgentState_Working, AttachModelTitle: true}
-	case "SubagentStop":
-		if ev.ToolUseID != "" {
-			return agentEmission{Subagent: &baseds.AgentSubagentDelta{Action: baseds.SubagentAction_Stop, Id: ev.ToolUseID}}
-		}
-		return agentEmission{}
 	case "PreToolUse":
 		switch ev.ToolName {
 		case "Task":
-			em := agentEmission{State: baseds.AgentState_Working, AttachModelTitle: true}
-			if ev.ToolUseID != "" {
-				em.Subagent = &baseds.AgentSubagentDelta{
-					Action: baseds.SubagentAction_Start,
-					Id:     ev.ToolUseID,
-					Type:   stringField(ev.ToolInput, "subagent_type"),
-				}
-			}
-			return em
+			return agentEmission{State: baseds.AgentState_Working, AttachModelTitle: true}
 		case "AskUserQuestion":
 			return agentEmission{State: baseds.AgentState_Asking}
 		default:
@@ -314,7 +299,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	em := planEmission(ev)
-	if em.State == "" && em.Subagent == nil {
+	if em.State == "" {
 		hookDebugLine("skip: no emission for event=" + ev.HookEventName)
 		return nil
 	}
@@ -351,15 +336,6 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 			}
 		}
 		_ = publishAgentStatusData(oref, data, 1)
-	}
-	if em.Subagent != nil {
-		data := baseds.AgentStatusData{
-			ORef:     oref.String(),
-			Agent:    "claude",
-			Ts:       time.Now().UnixMilli(),
-			Subagent: em.Subagent,
-		}
-		_ = publishAgentStatusData(oref, data, 0)
 	}
 	hookDebugLine("published event=" + ev.HookEventName + " state=" + em.State + " oref=" + oref.String())
 	return nil

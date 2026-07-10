@@ -25,6 +25,16 @@ function firstLineLabel(prompt: string): string {
     return line.length > FALLBACK_LABEL_MAX ? line.slice(0, FALLBACK_LABEL_MAX) : line;
 }
 
+// state resolution: a matched spawn's parent tool_result is authoritative (working/failure/success).
+// An orphan (no matching spawn) has no parent accept/reject signal, so the child file tells us only
+// whether it *finished* — a terminated orphan is the neutral "done", never a green success.
+function resolveState(spawn: SubagentSpawn | undefined, fileDone: boolean): SubagentVM["state"] {
+    if (spawn != null) {
+        return !spawn.done ? "working" : spawn.failed ? "failure" : "success";
+    }
+    return fileDone ? "done" : "working";
+}
+
 export function correlateSubagents(spawns: SubagentSpawn[], files: SubagentFileInfo[]): SubagentVM[] {
     const byPrompt = new Map<string, SubagentSpawn[]>();
     for (const s of spawns) {
@@ -40,7 +50,6 @@ export function correlateSubagents(spawns: SubagentSpawn[], files: SubagentFileI
         // shift() consumes the match so parallel same-prompt spawns pair 1:1 with files in order
         const spawn = byPrompt.get(normPrompt(f.firstprompt))?.shift();
         const type = spawn?.subagentType || firstLineLabel(f.firstprompt) || "subagent";
-        const state: SubagentVM["state"] = spawn == null || !spawn.done ? "working" : spawn.failed ? "failure" : "success";
-        return { id: f.agentid, type, state, transcriptPath: f.transcriptpath };
+        return { id: f.agentid, type, state: resolveState(spawn, f.done), transcriptPath: f.transcriptpath };
     });
 }

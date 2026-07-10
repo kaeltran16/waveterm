@@ -119,17 +119,7 @@ declare global {
         title?: string;
         transcriptpath?: string;
         ts: number;
-        subagent?: AgentSubagentDelta;
         usage?: AgentUsage;
-    };
-
-    // baseds.AgentSubagentDelta
-    type AgentSubagentDelta = {
-        action: string;
-        id: string;
-        type?: string;
-        status?: string;
-        model?: string;
     };
 
     // wshrpc.AgentTranscriptUpdate
@@ -2169,6 +2159,7 @@ declare global {
         transcriptpath: string;
         firstprompt: string;
         startedatms: number;
+        done: boolean;
     };
 
     // wps.SubscriptionRequest

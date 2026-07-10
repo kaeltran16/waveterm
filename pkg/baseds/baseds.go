@@ -38,28 +38,8 @@ const (
 	AgentState_Idle   = "idle"
 )
 
-const (
-	SubagentAction_Start = "start"
-	SubagentAction_Stop  = "stop"
-	SubagentAction_Model = "model"
-
-	SubagentStatus_Success = "success"
-	SubagentStatus_Failure = "failure"
-)
-
-// AgentSubagentDelta is an optional delta carried on AgentStatusData describing a single
-// subagent lifecycle transition in the parent session (SubagentStart / SubagentStop hooks).
-// It is a delta, not state: the frontend reduces a stream of these into a per-block list.
-type AgentSubagentDelta struct {
-	Action string `json:"action"` // SubagentAction_Start | SubagentAction_Stop | SubagentAction_Model
-	Id     string `json:"id"`
-	Type   string `json:"type,omitempty"`   // agent_type (e.g. Explore, Plan)
-	Status string `json:"status,omitempty"` // SubagentStatus_* (stop only)
-	Model  string `json:"model,omitempty"`  // resolved model id (e.g. claude-sonnet-4-6)
-}
-
 // AgentUsage is an optional usage snapshot carried on AgentStatusData, sourced from the Claude
-// Code statusLine JSON. Like AgentSubagentDelta it rides a stateless (State-empty) Persist:0 event.
+// Code statusLine JSON. Like the usage delta it rides a stateless (State-empty) Persist:0 event.
 // The rate-limit fields are pointers because they are populated only for Claude.ai Pro/Max sessions
 // and may be independently absent — nil means "unknown", which must render differently from 0%.
 type AgentUsage struct {
@@ -73,20 +53,18 @@ type AgentUsage struct {
 }
 
 // AgentStatusData is the payload of Event_AgentStatus. ORef is the block (or tab)
-// the status applies to; State is one of the AgentState_* constants. When Subagent is
-// non-nil the event carries a subagent delta, and when Usage is non-nil a usage snapshot;
-// in both delta cases State may be empty.
+// the status applies to; State is one of the AgentState_* constants. When Usage is
+// non-nil the event carries a usage snapshot, in which case State may be empty.
 type AgentStatusData struct {
-	ORef           string              `json:"oref"`
-	State          string              `json:"state"`
-	Detail         string              `json:"detail,omitempty"`
-	Agent          string              `json:"agent,omitempty"`
-	Model          string              `json:"model,omitempty"`
-	Title          string              `json:"title,omitempty"` // agent's ai-title (task summary), used as the sidebar label
-	TranscriptPath string              `json:"transcriptpath,omitempty"`
-	Ts             int64               `json:"ts"`
-	Subagent       *AgentSubagentDelta `json:"subagent,omitempty"`
-	Usage          *AgentUsage         `json:"usage,omitempty"`
+	ORef           string      `json:"oref"`
+	State          string      `json:"state"`
+	Detail         string      `json:"detail,omitempty"`
+	Agent          string      `json:"agent,omitempty"`
+	Model          string      `json:"model,omitempty"`
+	Title          string      `json:"title,omitempty"` // agent's ai-title (task summary), used as the sidebar label
+	TranscriptPath string      `json:"transcriptpath,omitempty"`
+	Ts             int64       `json:"ts"`
+	Usage          *AgentUsage `json:"usage,omitempty"`
 }
 
 type AgentAskOption struct {

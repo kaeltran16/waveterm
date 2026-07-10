@@ -33,9 +33,10 @@ import {
     runStatusView,
 } from "./runmodel";
 import { ProfilePanel } from "./profilepanel";
-import { getSubagentsAtom } from "./session-models/agentstatusstore";
 import { sessionSidebarViewModelAtom } from "./session-models/sessionsidebarmodel";
 import { flattenVisualOrder } from "./session-models/sessionviewmodel";
+import { subagentsByIdAtom } from "./subagentsstore";
+import { useSubagentTracking } from "./subagenttracking";
 
 const TONE_CLASS: Record<string, string> = {
     planning: "text-muted",
@@ -279,10 +280,10 @@ function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded: boole
     );
 }
 
-// Live Task-tool subagents of an orchestrator lead, nested under its worker row. Read from the per-lead
-// ephemeral atom the ~/.claude status reporter feeds; empty (and rendering nothing) until the lead spawns any.
+// Live Task-tool subagents of an orchestrator lead, nested under its worker row. Read from the disk-backed
+// subagent store (populated by useSubagentTracking in PhaseRail); empty (and rendering nothing) until the lead spawns any.
 function SubagentRows({ leadId }: { leadId: string }) {
-    const subs = useAtomValue(getSubagentsAtom(`tab:${leadId}`));
+    const subs = useAtomValue(subagentsByIdAtom)[leadId] ?? [];
     if (subs.length === 0) {
         return null;
     }
@@ -293,7 +294,13 @@ function SubagentRows({ leadId }: { leadId: string }) {
                     <span
                         className={
                             "h-[6px] w-[6px] flex-none rounded-full " +
-                            (s.state === "failure" ? "bg-error" : s.state === "success" ? "bg-success" : "bg-asking")
+                            (s.state === "failure"
+                                ? "bg-error"
+                                : s.state === "success"
+                                  ? "bg-success"
+                                  : s.state === "done"
+                                    ? "bg-muted"
+                                    : "bg-asking")
                         }
                     />
                     <span className="font-semibold">{s.type}</span>
@@ -306,6 +313,8 @@ function SubagentRows({ leadId }: { leadId: string }) {
 
 function PhaseRail({ model, run, agents, channelId, liveTabIds, now }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number }) {
     const phases = run.phases ?? [];
+    const trackedWorkers = isOrchestrator(run) ? phases.flatMap((p) => phaseWorkers(p, agents)) : [];
+    useSubagentTracking(trackedWorkers);
     return (
         <div>
             {phases.map((p, i) => {

@@ -13,7 +13,6 @@ import {
     NO_CWD_LABEL,
     reorderWithinGroup,
     waitingTarget,
-    reduceSubagents,
     rollUpStatus,
     subagentExpanded,
     toggleCollapsed,
@@ -429,52 +428,6 @@ describe("waitingTarget", () => {
     });
 });
 
-describe("reduceSubagents", () => {
-    it("start appends a working subagent", () => {
-        expect(reduceSubagents([], { action: "start", id: "a", type: "Explore" })).toEqual([
-            { id: "a", type: "Explore", state: "working" },
-        ]);
-    });
-    it("start is idempotent for a known id", () => {
-        const list = [{ id: "a", type: "Explore", state: "working" as const }];
-        expect(reduceSubagents(list, { action: "start", id: "a", type: "Explore" })).toEqual(list);
-    });
-    it("stop flips the matching id to success", () => {
-        expect(
-            reduceSubagents([{ id: "a", type: "E", state: "working" }], { action: "stop", id: "a", type: "E", status: "success" })
-        ).toEqual([{ id: "a", type: "E", state: "success" }]);
-    });
-    it("stop with failure marks failure", () => {
-        expect(
-            reduceSubagents([{ id: "a", type: "E", state: "working" }], { action: "stop", id: "a", type: "E", status: "failure" })
-        ).toEqual([{ id: "a", type: "E", state: "failure" }]);
-    });
-    it("stop defaults to success when status is omitted", () => {
-        expect(reduceSubagents([{ id: "a", type: "E", state: "working" }], { action: "stop", id: "a", type: "E" })).toEqual([
-            { id: "a", type: "E", state: "success" },
-        ]);
-    });
-    it("stop for an unknown id appends a stopped entry", () => {
-        expect(reduceSubagents([], { action: "stop", id: "b", type: "Plan", status: "success" })).toEqual([
-            { id: "b", type: "Plan", state: "success" },
-        ]);
-    });
-    it("does not mutate the input list", () => {
-        const list = [{ id: "a", type: "E", state: "working" as const }];
-        reduceSubagents(list, { action: "stop", id: "a", type: "E", status: "success" });
-        expect(list).toEqual([{ id: "a", type: "E", state: "working" }]);
-    });
-    it("tracks parallel subagents independently", () => {
-        let l = reduceSubagents([], { action: "start", id: "a", type: "E" });
-        l = reduceSubagents(l, { action: "start", id: "b", type: "P" });
-        l = reduceSubagents(l, { action: "stop", id: "a", type: "E", status: "success" });
-        expect(l).toEqual([
-            { id: "a", type: "E", state: "success" },
-            { id: "b", type: "P", state: "working" },
-        ]);
-    });
-});
-
 describe("rollUpStatus", () => {
     it("waiting parent dominates a working child", () => {
         expect(rollUpStatus("waiting", [{ id: "a", type: "E", state: "working" }])).toBe("waiting");
@@ -627,26 +580,6 @@ describe("modelLabel", () => {
     it("returns empty for missing input", () => {
         expect(modelLabel("")).toBe("");
         expect(modelLabel(undefined)).toBe("");
-    });
-});
-
-describe("reduceSubagents — model", () => {
-    it("model action sets the model on an existing subagent without changing state", () => {
-        const started = reduceSubagents([], { action: "start", id: "a", type: "Explore" });
-        expect(reduceSubagents(started, { action: "model", id: "a", type: "Explore", model: "claude-sonnet-4-6" })).toEqual([
-            { id: "a", type: "Explore", state: "working", model: "claude-sonnet-4-6" },
-        ]);
-    });
-    it("model action before start appends a working entry carrying the model", () => {
-        expect(reduceSubagents([], { action: "model", id: "a", type: "Explore", model: "claude-opus-4-8" })).toEqual([
-            { id: "a", type: "Explore", state: "working", model: "claude-opus-4-8" },
-        ]);
-    });
-    it("stop after model preserves the model", () => {
-        let l = reduceSubagents([], { action: "start", id: "a", type: "E" });
-        l = reduceSubagents(l, { action: "model", id: "a", type: "E", model: "claude-haiku-4-5" });
-        l = reduceSubagents(l, { action: "stop", id: "a", type: "E", status: "success" });
-        expect(l).toEqual([{ id: "a", type: "E", state: "success", model: "claude-haiku-4-5" }]);
     });
 });
 
