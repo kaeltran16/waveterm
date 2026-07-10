@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#e6e9ed;overflow:hidden}
+a{color:#7c95ff;text-decoration:none}
+a:hover{color:#8da3ff}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#262c34;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#343c46;background-clip:padding-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes rr-pulse{0%,100%{opacity:1}50%{opacity:.32}}
+@keyframes rr-sweep{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes rr-flow{0%{transform:translateX(-140%)}100%{transform:translateX(560%)}}
+</style>
+</helmet>
+
+<div style="position:fixed;inset:0;display:flex;flex-direction:column;background:#0c0e11;color:#e6e9ed;font-family:'Hanken Grotesk',system-ui,sans-serif">
+
+  <!-- ============ TOPBAR ============ -->
+  <div style="height:46px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px 0 16px;background:#0e1116;border-bottom:1px solid #1c2128">
+    <div style="display:flex;gap:8px;align-items:center">
+      <div style="width:12px;height:12px;border-radius:50%;background:#f0625a"></div>
+      <div style="width:12px;height:12px;border-radius:50%;background:#f5bf4f"></div>
+      <div style="width:12px;height:12px;border-radius:50%;background:#5fc95a"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;padding-left:6px">
+      <svg width="21" height="21" viewBox="0 0 100 100"><defs><linearGradient id="rr-arc" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a4b5ff"/><stop offset="1" stop-color="#5f74e0"/></linearGradient></defs><circle cx="50" cy="50" r="37" fill="none" stroke="url(#rr-arc)" stroke-width="11" stroke-linecap="round" stroke-dasharray="180 300" transform="rotate(125 50 50)"/><polyline points="41,38 55,50 41,62" fill="none" stroke="#e6e9ed" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span style="font-weight:800;font-size:16px;letter-spacing:-.03em">arc</span>
+      <span style="color:#3a424c;font-size:13px">/</span>
+      <button style="display:flex;align-items:center;gap:6px;background:transparent;border:0;color:#9aa3ad;font:500 13px 'Hanken Grotesk';cursor:pointer;padding:4px 7px;border-radius:6px" style-hover="background:#171c22;color:#e6e9ed">payments-api<span style="font-size:9px;color:#5b626b">▾</span></button>
+    </div>
+    <div style="margin:0 auto;width:min(520px,40%);display:flex;align-items:center;gap:10px;background:#13171d;border:1px solid #20262e;border-radius:9px;padding:7px 12px;cursor:text;color:#6b7178" style-hover="border-color:#2c333d;background:#151a21">
+      <div style="width:13px;height:13px;border-radius:50%;border:1.5px solid #5b626b;position:relative"><div style="position:absolute;width:5px;height:1.5px;background:#5b626b;bottom:-2px;right:-3px;transform:rotate(45deg)"></div></div>
+      <span style="flex:1;text-align:left;font-size:13px">Search agents, sessions, commands…</span>
+      <span style="font:500 11px 'JetBrains Mono';color:#5b626b;border:1px solid #262c34;border-radius:5px;padding:2px 6px">⌘K</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <button style="display:flex;align-items:center;gap:8px;background:transparent;border:0;cursor:pointer;padding:4px 6px;border-radius:7px" style-hover="background:#171c22">
+        <div style="width:22px;height:22px;border-radius:50%;background:conic-gradient(#e6b450 0 62%,#262c34 62% 100%);display:flex;align-items:center;justify-content:center"><div style="width:14px;height:14px;border-radius:50%;background:#0e1116"></div></div>
+        <div style="text-align:left"><div style="font:600 11px 'JetBrains Mono';color:#cfd5db;line-height:1">62%</div><div style="font-size:9px;color:#6b7178;line-height:1.4">5h limit</div></div>
+      </button>
+      <div style="width:1px;height:20px;background:#20262e"></div>
+      <button style="display:flex;align-items:center;gap:6px;background:#7c95ff;color:#0b0e14;border:0;border-radius:8px;padding:7px 13px;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="background:#8da3ff"><span style="font-size:15px;line-height:0;margin-top:-1px">+</span>New agent</button>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+
+    <!-- ============ NAV ============ -->
+    <nav style="width:78px;flex:none;background:#0e1116;border-right:1px solid #1c2128;display:flex;flex-direction:column;padding:9px 0 6px;gap:1px;overflow-y:auto">
+      <div style="display:flex;flex-direction:column;gap:1px">
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="2" width="7" height="7" rx="1.6"/><rect x="11" y="2" width="7" height="7" rx="1.6"/><rect x="2" y="11" width="7" height="7" rx="1.6"/><rect x="11" y="11" width="7" height="7" rx="1.6"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Cockpit</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.3" fill="currentColor" stroke="none"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Agent</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="currentColor"><circle cx="3.5" cy="5" r="1.6"/><rect x="7" y="4" width="11" height="2" rx="1"/><circle cx="3.5" cy="10" r="1.6"/><rect x="7" y="9" width="11" height="2" rx="1"/><circle cx="3.5" cy="15" r="1.6"/><rect x="7" y="14" width="8" height="2" rx="1"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Activity</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="14" height="10" rx="2.5"/><path d="M7 14v3l4-3" fill="currentColor" stroke="none"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Channels</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M10 3l7 3.5-7 3.5-7-3.5z"/><path d="M3 10.5l7 3.5 7-3.5"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Sessions</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="14" height="14" rx="3"/><path d="M10 3.5v13"/><path d="M5.4 7.5h2.6M6.7 6.2v2.6"/><path d="M12 12.5h2.6"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Diff</span>
+        </button>
+        <!-- RADAR (active) -->
+        <button style="position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#7c95ff">
+          <div style="position:absolute;inset:0;background:rgba(124,149,255,.1);border-radius:10px"></div><div style="position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:3px;height:20px;border-radius:0 3px 3px 0;background:#7c95ff"></div>
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" style="position:relative;z-index:1"><circle cx="10" cy="10" r="7.2"/><circle cx="10" cy="10" r="3.6"/><circle cx="10" cy="10" r="1.1" fill="currentColor" stroke="none"/><path d="M10 10l5.1-5.1"/></svg>
+          <span style="position:relative;z-index:1;font:600 9.5px 'Hanken Grotesk'">Radar</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" style="position:relative;z-index:1"><line x1="5.5" y1="6" x2="14.5" y2="5" stroke="currentColor" stroke-width="1.5"></line><line x1="5.5" y1="6" x2="10" y2="15" stroke="currentColor" stroke-width="1.5"></line><line x1="14.5" y1="5" x2="10" y2="15" stroke="currentColor" stroke-width="1.5"></line><circle cx="5.5" cy="6" r="2.4" fill="currentColor"></circle><circle cx="14.5" cy="5" r="2.1" fill="currentColor"></circle><circle cx="10" cy="15" r="2.7" fill="currentColor"></circle></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Memory</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke-linecap="round"><circle cx="10" cy="10" r="7" stroke="#2a313a" stroke-width="1.8"/><path d="M10 3a7 7 0 0 1 6.1 10.4" stroke="currentColor" stroke-width="1.8"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Usage</span>
+        </button>
+        <button style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;margin:0 8px;border:0;background:transparent;border-radius:10px;cursor:pointer;color:#6b7178" style-hover="color:#c3cad1">
+          <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="6" x2="17" y2="6"/><circle cx="13" cy="6" r="2.1" fill="#0e1116"/><line x1="3" y1="14" x2="17" y2="14"/><circle cx="7" cy="14" r="2.1" fill="#0e1116"/></svg>
+          <span style="font:600 9.5px 'Hanken Grotesk'">Settings</span>
+        </button>
+      </div>
+      <div style="flex:1;min-height:8px"></div>
+      <button style="display:flex;justify-content:center;padding:6px 0;margin:0 8px;border:0;background:transparent;cursor:pointer">
+        <div style="width:29px;height:29px;border-radius:50%;background:linear-gradient(135deg,#3a4250,#23282f);border:1px solid #2c333d;display:flex;align-items:center;justify-content:center;font:600 11px 'JetBrains Mono';color:#cfd5db">DK</div>
+      </button>
+    </nav>
+
+    <!-- ============ MAIN ============ -->
+    <main style="flex:1;min-width:0;display:flex;flex-direction:column;background:#0c0e11">
+
+      <!-- header -->
+      <div style="flex:none;padding:22px 30px 0">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px">
+          <div style="min-width:0">
+            <div style="display:flex;align-items:center;gap:11px;margin-bottom:6px">
+              <h1 style="font-size:25px;font-weight:700;letter-spacing:-.02em">Repo Radar</h1>
+              <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#8089b0;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.24);border-radius:6px;padding:3px 8px">Correctness risk</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <p style="color:#8b939d;font-size:13px">{{ headerSub }}</p>
+              <sc-if value="{{ showCoverage }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font:600 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Coverage</span>
+                  <sc-for list="{{ coverage }}" as="cv" hint-placeholder-count="4">
+                    <span style="display:inline-flex;align-items:center;gap:5px;font:600 10.5px 'JetBrains Mono';color:{{ cv.color }}"><span>{{ cv.glyph }}</span>{{ cv.label }}</span>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;flex:none">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span style="font:600 8px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b;padding-left:2px">Scan scope</span>
+              <div style="display:flex;align-items:center;gap:8px;background:#13171d;border:1px solid #232a32;border-radius:8px;padding:6px 11px;color:#aeb6bf;font:500 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#2f3742"><span style="font:600 13px 'JetBrains Mono';color:#5b626b">#</span>payments-api<span style="font-size:9px;color:#5b626b">▾</span></div>
+            </div>
+            <sc-if value="{{ showBudget }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:2px">
+                <span style="font:600 8px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b;padding-left:2px">Model budget</span>
+                <div style="display:flex;align-items:center;gap:8px;background:#0e1116;border:1px solid #232a32;border-radius:8px;padding:5px 11px">
+                  <div style="width:20px;height:20px;border-radius:50%;background:conic-gradient(#7c95ff 0 {{ budget.pct }},#1c2128 {{ budget.pct }} 100%);display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:50%;background:#0e1116"></div></div>
+                  <span style="font:600 11px 'JetBrains Mono';color:#aeb6bf">{{ budget.used }}<span style="color:#5b626b"> / {{ budget.cap }}</span></span>
+                </div>
+              </div>
+            </sc-if>
+            <button style="align-self:flex-end;display:flex;align-items:center;gap:8px;background:{{ scanBtnBg }};color:{{ scanBtnColor }};border:{{ scanBtnBorder }};border-radius:8px;padding:8px 14px;font:700 12.5px 'Hanken Grotesk';cursor:pointer">
+              <sc-if value="{{ btnScan }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="10" r="7.2"/><circle cx="10" cy="10" r="3"/><path d="M10 10l4.6-4.6"/></svg></sc-if>
+              <sc-if value="{{ btnCancel }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 4l8 8M12 4l-8 8"/></svg></sc-if>
+              <sc-if value="{{ btnRetry }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M15.5 6.5A6 6 0 1 0 16 10"/><path d="M16 3.5V7h-3.5"/></svg></sc-if>
+              {{ scanBtnLabel }}
+            </button>
+          </div>
+        </div>
+
+        <!-- results-only: summary chips + disclaimer -->
+        <sc-if value="{{ isResults }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:14px;margin-top:16px;padding-bottom:16px;border-bottom:1px solid #171c22">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <sc-for list="{{ summary }}" as="s" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:8px;background:#0e1116;border:1px solid #1c2128;border-radius:9px;padding:6px 11px">
+                  <div style="width:8px;height:8px;border-radius:50%;background:{{ s.color }}"></div>
+                  <span style="font:700 14px 'JetBrains Mono';color:{{ s.color }}">{{ s.count }}</span>
+                  <span style="font:600 11.5px 'Hanken Grotesk';color:#aeb6bf">{{ s.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="flex:1"></div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:11.5px;color:#6b7178">
+              <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="#5b626b" stroke-width="1.6"><circle cx="10" cy="10" r="7.5"/><path d="M10 6.5v4.2l2.6 1.8"/></svg>
+              Findings are evidence-backed hypotheses — investigation is a separate, explicit step.
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- ================= RESULTS / PARTIAL ================= -->
+      <sc-if value="{{ isResults }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+
+          <!-- partial banner -->
+          <sc-if value="{{ isPartial }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:none;display:flex;align-items:center;gap:11px;margin:14px 30px 0;background:#14130f;border:1px solid rgba(230,180,80,.3);border-radius:10px;padding:10px 14px">
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="#e6b450" stroke-width="1.7"><path d="M10 3.5l7 12.5H3z"/><path d="M10 8.5v3.2"/><circle cx="10" cy="13.6" r=".6" fill="#e6b450" stroke="none"/></svg>
+              <span style="font-size:12.5px;color:#e9ddc4;flex:1"><b style="color:#f1e8d6">Partial scan.</b> Agent transcripts were unavailable — findings that rely on transcript evidence may be missing.</span>
+              <button style="background:transparent;border:1px solid rgba(230,180,80,.35);border-radius:7px;padding:5px 11px;color:#e6b450;font:600 11.5px 'Hanken Grotesk';cursor:pointer" style-hover="background:rgba(230,180,80,.1)">Re-run full scan</button>
+            </div>
+          </sc-if>
+
+          <div style="flex:1;min-height:0;display:flex">
+
+            <!-- LEFT · master list -->
+            <div style="width:400px;flex:none;border-right:1px solid #171c22;overflow-y:auto;padding:16px 14px 40px">
+              <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+                <div style="margin-bottom:16px">
+                  <div onClick="{{ g.toggle }}" style="display:flex;align-items:center;gap:9px;padding:4px 4px 10px;cursor:pointer">
+                    <span style="font:600 10px 'JetBrains Mono';color:#5b626b;width:9px;flex:none">{{ g.chevron }}</span>
+                    <div style="width:7px;height:7px;border-radius:50%;background:{{ g.color }}"></div>
+                    <span style="font:700 10px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:{{ g.color }}">{{ g.label }}</span>
+                    <span style="font:600 10px 'JetBrains Mono';color:#8b939d;background:{{ g.tint }};border-radius:20px;padding:2px 8px">{{ g.count }}</span>
+                    <div style="flex:1;height:1px;background:#171c22"></div>
+                    <span style="font-size:10.5px;color:#5b626b">{{ g.hint }}</span>
+                  </div>
+                  <sc-if value="{{ g.open }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <sc-for list="{{ g.findings }}" as="f" hint-placeholder-count="2">
+                        <div onClick="{{ f.select }}" style="position:relative;background:{{ f.bg }};border:1px solid {{ f.border }};border-radius:11px;padding:11px 12px 11px 14px;cursor:pointer;overflow:hidden;opacity:{{ f.dim }}" style-hover="border-color:#2c333d">
+                          <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:{{ f.railColor }}"></div>
+                          <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px">
+                            <span style="font:700 8px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ f.sevColor }};background:{{ f.sevTint }};border-radius:4px;padding:2px 6px">{{ f.sevLabel }}</span>
+                            <span style="font:600 10px 'JetBrains Mono';color:#5b626b">{{ f.subsystem }}</span>
+                            <div style="flex:1"></div>
+                            <sc-if value="{{ f.showStrength }}" hint-placeholder-val="{{ true }}">
+                              <div style="display:flex;align-items:center;gap:5px">
+                                <div style="display:flex;gap:2px">
+                                  <sc-for list="{{ f.pips }}" as="p" hint-placeholder-count="3"><div style="width:4px;height:9px;border-radius:1px;background:{{ p.bg }}"></div></sc-for>
+                                </div>
+                                <span style="font:600 9px 'JetBrains Mono';letter-spacing:.04em;text-transform:uppercase;color:{{ f.strengthColor }}">{{ f.strengthLabel }}</span>
+                              </div>
+                            </sc-if>
+                          </div>
+                          <div style="font-size:13px;line-height:1.4;color:{{ f.riskColor }};font-weight:500;margin-bottom:8px" hint-placeholder-chars="70">{{ f.risk }}</div>
+                          <div style="display:flex;align-items:center;gap:9px;font:500 10px 'JetBrains Mono';color:#6b7178">
+                            <span>{{ f.fileMeta }}</span>
+                            <span style="color:#3f4751">·</span>
+                            <span>{{ f.signalMeta }}</span>
+                            <div style="flex:1"></div>
+                            <span style="color:{{ f.deltaColor }}">{{ f.delta }}</span>
+                          </div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+
+            <!-- RIGHT · detail -->
+            <div style="flex:1;min-width:0;overflow-y:auto;padding:24px 32px 56px">
+              <div style="max-width:720px">
+
+                <!-- status row -->
+                <div style="display:flex;align-items:center;gap:9px;margin-bottom:13px;flex-wrap:wrap">
+                  <span style="display:inline-flex;align-items:center;gap:6px;font:700 9px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:{{ f.statusColor }};background:{{ f.statusTint }};border:1px solid {{ f.statusBorder }};border-radius:5px;padding:3px 9px"><span style="width:6px;height:6px;border-radius:50%;background:{{ f.statusColor }}"></span>{{ f.statusLabel }}</span>
+                  <span style="font:700 9px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ f.sevColor }};background:{{ f.sevTint }};border:1px solid {{ f.sevBorder }};border-radius:5px;padding:3px 9px">{{ f.sevLabel }} severity</span>
+                  <sc-if value="{{ f.showStrength }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:center;gap:8px;background:#0e1116;border:1px solid #1c2128;border-radius:5px;padding:4px 10px">
+                      <span style="font-size:10.5px;color:#8b939d">evidence</span>
+                      <div style="display:flex;gap:2px">
+                        <sc-for list="{{ f.pips }}" as="p" hint-placeholder-count="3"><div style="width:5px;height:11px;border-radius:1px;background:{{ p.bg }}"></div></sc-for>
+                      </div>
+                      <span style="font:700 10px 'JetBrains Mono';letter-spacing:.04em;text-transform:uppercase;color:{{ f.strengthColor }}">{{ f.strengthLabel }}</span>
+                    </div>
+                  </sc-if>
+                  <div style="flex:1"></div>
+                  <span style="font:600 10.5px 'JetBrains Mono';color:#6b7178">{{ f.subsystem }}</span>
+                </div>
+
+                <!-- risk statement -->
+                <h2 style="font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.25;color:#f0f3f6;margin-bottom:10px" hint-placeholder-chars="60">{{ f.risk }}</h2>
+                <sc-if value="{{ f.showStrength }}" hint-placeholder-val="{{ true }}">
+                  <p style="font-size:12px;color:#8b939d;margin-bottom:14px">{{ f.strengthNote }}</p>
+                </sc-if>
+
+                <!-- delta note -->
+                <sc-if value="{{ f.hasNote }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:flex-start;gap:9px;background:{{ f.noteTint }};border:1px solid {{ f.noteBorder }};border-radius:10px;padding:10px 13px;margin-bottom:16px">
+                    <div style="width:6px;height:6px;border-radius:50%;background:{{ f.noteColor }};margin-top:5px;flex:none"></div>
+                    <span style="font-size:12.5px;line-height:1.5;color:{{ f.noteColor }}">{{ f.note }}</span>
+                  </div>
+                </sc-if>
+
+                <!-- why it matters -->
+                <div style="font:700 9px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:#5b626b;margin:6px 0 8px">Why it matters</div>
+                <p style="font-size:14px;line-height:1.65;color:#c2c9d1;margin-bottom:24px" hint-placeholder-chars="220">{{ f.why }}</p>
+
+                <!-- EVIDENCE header -->
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+                  <div style="font:700 10px 'JetBrains Mono';letter-spacing:.14em;text-transform:uppercase;color:#7c95ff">Supporting evidence</div>
+                  <span style="font:600 10px 'JetBrains Mono';color:#8b939d;background:#0e1116;border:1px solid #1c2128;border-radius:20px;padding:2px 9px">{{ f.evidenceMeta }}</span>
+                  <div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(124,149,255,.2),transparent)"></div>
+                </div>
+
+                <!-- linked chips -->
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+                  <sc-for list="{{ f.chips }}" as="c" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:9px;background:#0e1116;border:1px solid #1c2128;border-radius:9px;padding:7px 11px 7px 9px;cursor:pointer" style-hover="border-color:#2c333d">
+                      <span style="font:700 8px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ c.color }};background:{{ c.tint }};border-radius:4px;padding:3px 6px">{{ c.kind }}</span>
+                      <div>
+                        <div style="font:600 11.5px 'JetBrains Mono';color:#d4dae0;line-height:1.2">{{ c.label }}</div>
+                        <div style="font-size:10px;color:#6b7178;line-height:1.3">{{ c.sub }}</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <!-- files -->
+                <div style="border:1px solid #1a1f26;border-radius:12px;background:#0b0d10;overflow:hidden;margin-bottom:18px">
+                  <div style="display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid #161a20;background:#0e1116">
+                    <span style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#7a828c">Affected files</span>
+                    <span style="font:600 10px 'JetBrains Mono';color:#5b626b">{{ f.fileCount }}</span>
+                    <div style="flex:1"></div>
+                    <span style="font:500 9.5px 'JetBrains Mono';color:#5b626b">change counts · last 14 days</span>
+                  </div>
+                  <sc-for list="{{ f.files }}" as="fl" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:11px;padding:9px 13px;border-bottom:1px solid #12161b">
+                      <span style="font:500 12px 'JetBrains Mono';color:{{ fl.pathColor }};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ fl.path }}</span>
+                      <sc-if value="{{ fl.unchanged }}" hint-placeholder-val="{{ false }}"><span style="font:700 9px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:#e0726c;background:rgba(224,114,108,.12);border-radius:5px;padding:2px 7px;flex:none">no test diff</span></sc-if>
+                      <sc-if value="{{ fl.changed }}" hint-placeholder-val="{{ true }}">
+                        <span style="font:600 11px 'JetBrains Mono';color:#7bd9b0;flex:none">+{{ fl.adds }}</span>
+                        <span style="font:600 11px 'JetBrains Mono';color:#e0726c;flex:none">−{{ fl.dels }}</span>
+                        <span style="font:600 10px 'JetBrains Mono';color:#8b939d;background:#13171d;border:1px solid #232a32;border-radius:5px;padding:2px 7px;flex:none">{{ fl.changes }}× changed</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <!-- signals timeline -->
+                <sc-if value="{{ f.showTimeline }}" hint-placeholder-val="{{ true }}">
+                  <div style="border:1px solid #1a1f26;border-radius:12px;background:#0b0d10;padding:14px 16px 6px;margin-bottom:18px">
+                    <div style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#7a828c;margin-bottom:14px">Signals timeline</div>
+                    <sc-for list="{{ f.timeline }}" as="t" hint-placeholder-count="4">
+                      <div style="display:flex;gap:13px">
+                        <div style="display:flex;flex-direction:column;align-items:center;width:10px;flex:none">
+                          <div style="width:9px;height:9px;border-radius:50%;background:{{ t.color }};flex:none;margin-top:3px;box-shadow:0 0 0 3px {{ t.ring }}"></div>
+                          <sc-if value="{{ t.notLast }}" hint-placeholder-val="{{ true }}"><div style="width:2px;flex:1;min-height:14px;background:#1a1f26;margin:3px 0"></div></sc-if>
+                        </div>
+                        <div style="flex:1;min-width:0;padding-bottom:15px">
+                          <div style="font:600 10px 'JetBrains Mono';color:{{ t.color }};margin-bottom:2px">{{ t.date }}</div>
+                          <div style="font-size:12.5px;line-height:1.5;color:#bcc3cb" hint-placeholder-chars="60">{{ t.text }}</div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+
+                <!-- diff specimen (verbatim) + separated Radar annotation -->
+                <sc-if value="{{ f.hasDiff }}" hint-placeholder-val="{{ false }}">
+                  <div style="border:1px solid #1a1f26;border-radius:8px;overflow:hidden;background:#0b0d10;margin-bottom:12px">
+                    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px 8px 13px;background:#0e1116;border-bottom:1px solid #161a20">
+                      <span style="font:700 8px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:#5b626b">Verbatim diff</span>
+                      <span style="font:500 11px 'JetBrains Mono';color:#8b939d;flex:1">{{ f.diffPath }}</span>
+                      <span style="font:700 10px 'JetBrains Mono';color:#54c79a">+{{ f.diffAdds }}</span>
+                      <span style="font:700 10px 'JetBrains Mono';color:#e0726c">−{{ f.diffDels }}</span>
+                    </div>
+                    <div style="padding:6px 0;font:400 12px 'JetBrains Mono';line-height:1.7">
+                      <sc-for list="{{ f.diffLines }}" as="l" hint-placeholder-count="6">
+                        <div style="display:flex;background:{{ l.bg }}">
+                          <span style="width:34px;flex:none;text-align:right;padding:0 8px;color:#3f4751;user-select:none">{{ l.gNew }}</span>
+                          <span style="width:16px;flex:none;text-align:center;color:{{ l.signColor }}">{{ l.sign }}</span>
+                          <span style="white-space:pre;padding-right:24px;color:{{ l.textColor }}">{{ l.text }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <!-- Radar interpretation, visually distinct from the diff -->
+                  <div style="display:flex;gap:11px;align-items:flex-start;border:1px dashed rgba(124,149,255,.35);border-radius:10px;background:rgba(124,149,255,.05);padding:11px 14px;margin-bottom:22px">
+                    <span style="font:700 8px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:#8da3ff;background:rgba(124,149,255,.14);border-radius:5px;padding:3px 7px;flex:none;margin-top:1px">Radar reads</span>
+                    <div>
+                      <p style="font-size:12.5px;line-height:1.55;color:#c2c9d1;font-family:'Hanken Grotesk'">{{ f.diffNote }}</p>
+                      <p style="font-size:10.5px;color:#6b7178;margin-top:5px">Interpretation generated by Radar — not part of the committed diff above.</p>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <!-- suggested mission -->
+                <div style="border:1px solid rgba(124,149,255,.24);border-radius:14px;background:linear-gradient(180deg,rgba(124,149,255,.06),rgba(124,149,255,.02));padding:16px 18px;margin-bottom:16px">
+                  <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+                    <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="#7c95ff" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><circle cx="10" cy="10" r="3"/><path d="M10 10l4.6-4.6"/></svg>
+                    <span style="font:700 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#8da3ff">Suggested investigation</span>
+                    <div style="flex:1"></div>
+                    <span style="font:600 10px 'JetBrains Mono';color:#8089b0;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.22);border-radius:6px;padding:3px 9px">{{ f.scope }}</span>
+                  </div>
+                  <p style="font-size:13.5px;line-height:1.6;color:#d4dae0" hint-placeholder-chars="140">{{ f.mission }}</p>
+                </div>
+
+                <!-- actions -->
+                <sc-if value="{{ f.isOpen }}" hint-placeholder-val="{{ true }}">
+                  <!-- handoff contract -->
+                  <div style="border:1px solid #1a1f26;border-radius:12px;background:#0b0d10;padding:12px 14px;margin-bottom:14px">
+                    <div style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#7a828c;margin-bottom:9px">Starting an investigation opens a normal Run with</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:7px">
+                      <sc-for list="{{ f.handoff }}" as="h" hint-placeholder-count="5">
+                        <span style="display:inline-flex;align-items:center;gap:6px;font:500 10.5px 'JetBrains Mono';color:#9aa3ad;background:#13171d;border:1px solid #232a32;border-radius:6px;padding:4px 9px"><span style="color:#5b626b">{{ h.k }}</span>{{ h.v }}</span>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                    <button style="display:flex;align-items:center;gap:7px;background:#7c95ff;color:#0b0e14;border:0;border-radius:9px;padding:9px 15px;font:700 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="background:#8da3ff"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h10M9 4l4 4-4 4"/></svg>Start investigation</button>
+                    <button style="display:flex;align-items:center;gap:7px;background:#13171d;border:1px solid #232a32;border-radius:9px;padding:9px 14px;color:#aeb6bf;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#2f3742;color:#e6e9ed">Inspect evidence</button>
+                  </div>
+
+                  <!-- dismiss vs suppress -->
+                  <div style="display:flex;gap:12px;margin-top:16px">
+                    <div style="flex:1;border:1px solid #1a1f26;border-radius:11px;background:#0b0d10;padding:12px 14px">
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+                        <span style="font:700 12px 'Hanken Grotesk';color:#cfd5db">Dismiss</span>
+                        <span style="font:500 10px 'JetBrains Mono';color:#5b626b">this finding</span>
+                      </div>
+                      <p style="font-size:11px;color:#7a828c;line-height:1.45;margin-bottom:9px">Closes this one finding with a reason. Re-appears if new evidence arrives.</p>
+                      <div style="display:flex;flex-wrap:wrap;gap:6px">
+                        <span style="font:500 10.5px 'JetBrains Mono';color:#9aa3ad;border:1px solid #262d36;border-radius:6px;padding:4px 9px;cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">False positive</span>
+                        <span style="font:500 10.5px 'JetBrains Mono';color:#9aa3ad;border:1px solid #262d36;border-radius:6px;padding:4px 9px;cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">Low priority</span>
+                        <span style="font:500 10.5px 'JetBrains Mono';color:#9aa3ad;border:1px solid #262d36;border-radius:6px;padding:4px 9px;cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">Resolved elsewhere</span>
+                      </div>
+                    </div>
+                    <div style="flex:1;border:1px solid #1a1f26;border-radius:11px;background:#0b0d10;padding:12px 14px">
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+                        <span style="font:700 12px 'Hanken Grotesk';color:#cfd5db">Suppress pattern</span>
+                        <span style="font:500 10px 'JetBrains Mono';color:#5b626b">fingerprint {{ f.fingerprint }}</span>
+                      </div>
+                      <p style="font-size:11px;color:#7a828c;line-height:1.45;margin-bottom:9px">Hides future findings with this stable fingerprint until materially different evidence appears.</p>
+                      <button style="background:transparent;border:1px solid #262d36;border-radius:6px;padding:5px 11px;color:#9aa3ad;font:600 10.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">Suppress this pattern</button>
+                    </div>
+                  </div>
+                  <p style="font-size:11px;color:#5b626b;margin-top:12px;line-height:1.5">Radar does not edit files, run tests, or launch agents on its own — starting an investigation is the only action that spins up a Run.</p>
+                </sc-if>
+
+                <sc-if value="{{ f.isGone }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <button style="display:flex;align-items:center;gap:7px;background:#13171d;border:1px solid #232a32;border-radius:9px;padding:9px 14px;color:#aeb6bf;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#2f3742;color:#e6e9ed">Reopen finding</button>
+                    <button style="background:transparent;border:1px solid #262d36;border-radius:9px;padding:9px 14px;color:#9aa3ad;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">Inspect prior evidence</button>
+                  </div>
+                  <p style="font-size:11px;color:#5b626b;margin-top:12px;line-height:1.5">“No longer detected” means the supporting evidence disappeared — not a confirmed fix. Reopen if it resurfaces, or start an investigation to confirm.</p>
+                </sc-if>
+
+                <sc-if value="{{ f.isSuppressed }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <button style="display:flex;align-items:center;gap:7px;background:#13171d;border:1px solid #232a32;border-radius:9px;padding:9px 14px;color:#aeb6bf;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#2f3742;color:#e6e9ed">Unsuppress pattern</button>
+                    <button style="background:transparent;border:1px solid #262d36;border-radius:9px;padding:9px 14px;color:#9aa3ad;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">Inspect evidence</button>
+                  </div>
+                </sc-if>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ================= PANEL STATES ================= -->
+      <sc-if value="{{ isPanel }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:40px">
+          <div style="width:100%;max-width:560px;display:flex;flex-direction:column;align-items:center;text-align:center">
+
+            <div style="width:60px;height:60px;border-radius:16px;display:flex;align-items:center;justify-content:center;background:{{ panel.iconTint }};border:1px solid {{ panel.iconBorder }};margin-bottom:20px">
+              <sc-if value="{{ panel.iconRadar }}" hint-placeholder-val="{{ true }}"><svg width="30" height="30" viewBox="0 0 20 20" fill="none" stroke="#8da3ff" stroke-width="1.4"><circle cx="10" cy="10" r="7.4"/><circle cx="10" cy="10" r="4"/><circle cx="10" cy="10" r="1.2" fill="#8da3ff" stroke="none"/><path d="M10 10l5.2-5.2"/></svg></sc-if>
+              <sc-if value="{{ panel.iconSpinner }}" hint-placeholder-val="{{ false }}"><svg width="34" height="34" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7.4" stroke="#1c2431" stroke-width="1.4"/><circle cx="10" cy="10" r="4" stroke="#1c2431" stroke-width="1.4"/><g style="transform-origin:10px 10px;animation:rr-sweep 1.6s linear infinite"><path d="M10 10l6.6-1.4" stroke="#8da3ff" stroke-width="1.6" stroke-linecap="round"/></g><circle cx="10" cy="10" r="1.2" fill="#8da3ff"/></svg></sc-if>
+              <sc-if value="{{ panel.iconCheck }}" hint-placeholder-val="{{ false }}"><svg width="30" height="30" viewBox="0 0 20 20" fill="none" stroke="#54c79a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.4"/><path d="M6.4 10.2l2.4 2.4 4.8-5.2"/></svg></sc-if>
+              <sc-if value="{{ panel.iconAlert }}" hint-placeholder-val="{{ false }}"><svg width="30" height="30" viewBox="0 0 20 20" fill="none" stroke="#e0726c" stroke-width="1.6" stroke-linecap="round"><path d="M10 3.2l7.2 12.8H2.8z" stroke-linejoin="round"/><path d="M10 8v3.4"/><circle cx="10" cy="13.6" r=".7" fill="#e0726c" stroke="none"/></svg></sc-if>
+              <sc-if value="{{ panel.iconCancel }}" hint-placeholder-val="{{ false }}"><svg width="30" height="30" viewBox="0 0 20 20" fill="none" stroke="#8b939d" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="7.4"/><path d="M7 7l6 6M13 7l-6 6"/></svg></sc-if>
+            </div>
+
+            <h2 style="font-size:22px;font-weight:700;letter-spacing:-.02em;color:#f0f3f6;margin-bottom:10px" hint-placeholder-chars="40">{{ panel.heading }}</h2>
+            <p style="font-size:13.5px;line-height:1.6;color:#8b939d;max-width:460px;margin-bottom:20px" hint-placeholder-chars="160">{{ panel.message }}</p>
+
+            <sc-if value="{{ panel.hasStat }}" hint-placeholder-val="{{ false }}">
+              <div style="display:inline-flex;align-items:center;gap:8px;font:600 11.5px 'JetBrains Mono';color:{{ panel.statColor }};background:#0e1116;border:1px solid #1c2128;border-radius:8px;padding:8px 13px;margin-bottom:22px">{{ panel.stat }}</div>
+            </sc-if>
+
+            <!-- collector checklist -->
+            <sc-if value="{{ panel.hasChecklist }}" hint-placeholder-val="{{ false }}">
+              <div style="width:100%;max-width:400px;border:1px solid #1a1f26;border-radius:12px;background:#0b0d10;overflow:hidden;margin-bottom:24px;text-align:left">
+                <sc-for list="{{ panel.checklist }}" as="ci" hint-placeholder-count="6">
+                  <div style="display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid #12161b">
+                    <div style="width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center">
+                      <sc-if value="{{ ci.isDone }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#54c79a" stroke-width="1.8" stroke-linecap="round"><path d="M3.5 8.5 6.5 11.5 12.5 5"/></svg></sc-if>
+                      <sc-if value="{{ ci.isActive }}" hint-placeholder-val="{{ false }}"><div style="width:9px;height:9px;border-radius:50%;background:#8da3ff;animation:rr-pulse 1.3s infinite"></div></sc-if>
+                      <sc-if value="{{ ci.isPending }}" hint-placeholder-val="{{ false }}"><div style="width:8px;height:8px;border-radius:50%;border:1.5px solid #2a313a"></div></sc-if>
+                    </div>
+                    <span style="font-size:12.5px;color:{{ ci.color }};flex:1">{{ ci.label }}</span>
+                    <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.05em;text-transform:uppercase;color:{{ ci.tagColor }}">{{ ci.tag }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- what radar examines (never scanned) -->
+            <sc-if value="{{ panel.hasBullets }}" hint-placeholder-val="{{ false }}">
+              <div style="width:100%;border:1px solid #1a1f26;border-radius:12px;background:#0b0d10;padding:16px 18px;margin-bottom:24px;text-align:left">
+                <div style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#7a828c;margin-bottom:12px">What Radar examines</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px 18px">
+                  <sc-for list="{{ panel.bullets }}" as="b" hint-placeholder-count="6">
+                    <div style="display:flex;gap:9px;align-items:flex-start">
+                      <div style="width:5px;height:5px;border-radius:1px;background:#7c95ff;flex:none;margin-top:6px"></div>
+                      <span style="font-size:12px;color:#aeb6bf;line-height:1.4">{{ b }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="display:flex;align-items:center;gap:10px">
+              <sc-if value="{{ panel.hasPrimary }}" hint-placeholder-val="{{ true }}">
+                <button style="display:flex;align-items:center;gap:8px;background:#7c95ff;color:#0b0e14;border:0;border-radius:9px;padding:9px 16px;font:700 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="background:#8da3ff">{{ panel.primaryLabel }}</button>
+              </sc-if>
+              <sc-if value="{{ panel.hasSecondary }}" hint-placeholder-val="{{ false }}">
+                <button style="background:#13171d;border:1px solid #232a32;border-radius:9px;padding:9px 15px;color:#aeb6bf;font:600 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#2f3742;color:#e6e9ed">{{ panel.secondaryLabel }}</button>
+              </sc-if>
+            </div>
+
+          </div>
+        </div>
+      </sc-if>
+
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;scanState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;results&quot;,&quot;partial&quot;,&quot;never-scanned&quot;,&quot;collecting&quot;,&quot;clustering&quot;,&quot;no-findings&quot;,&quot;model-failed&quot;,&quot;cancelled&quot;],&quot;default&quot;:&quot;results&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Scan state&quot;},&quot;listFilter&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;all&quot;,&quot;attention&quot;,&quot;high&quot;],&quot;default&quot;:&quot;all&quot;,&quot;tsType&quot;:&quot;'all'|'attention'|'high'&quot;,&quot;section&quot;:&quot;Findings&quot;},&quot;showTimeline&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Findings&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 'f1', collapsed: { nolonger: true, suppressed: true } };
+
+  SEV() {
+    return {
+      high:   { label:'High',   color:'#e0726c', tint:'rgba(224,114,108,.13)', border:'rgba(224,114,108,.3)' },
+      medium: { label:'Medium', color:'#e6b450', tint:'rgba(230,180,80,.12)',  border:'rgba(230,180,80,.28)' },
+      low:    { label:'Low',    color:'#7c95ff', tint:'rgba(124,149,255,.12)', border:'rgba(124,149,255,.26)' },
+    };
+  }
+  GM() {
+    return {
+      new:        { label:'New',                color:'#7c95ff', tint:'rgba(124,149,255,.12)', border:'rgba(124,149,255,.26)', hint:'since last scan' },
+      recurring:  { label:'Recurring',          color:'#e6b450', tint:'rgba(230,180,80,.12)',  border:'rgba(230,180,80,.26)',  hint:'evidence strengthened' },
+      nolonger:   { label:'No longer detected', color:'#54c79a', tint:'rgba(84,199,154,.13)',  border:'rgba(84,199,154,.26)',  hint:'evidence disappeared' },
+      suppressed: { label:'Suppressed',         color:'#5b626b', tint:'rgba(120,130,140,.12)', border:'#232a32',               hint:'marked intentional' },
+    };
+  }
+  STR() {
+    return {
+      strong:   { label:'Strong',   pips:3, color:'#8da3ff' },
+      moderate: { label:'Moderate', pips:2, color:'#aeb6bf' },
+      limited:  { label:'Limited',  pips:1, color:'#7a828c' },
+    };
+  }
+  CHIP() {
+    return {
+      commit:    { kind:'commit',    color:'#7c95ff', tint:'rgba(124,149,255,.12)', src:'git' },
+      run:       { kind:'run',       color:'#54c79a', tint:'rgba(84,199,154,.13)',  src:'runs' },
+      agent:     { kind:'agent',     color:'#e6b450', tint:'rgba(230,180,80,.12)',  src:'transcripts' },
+      migration: { kind:'migration', color:'#c9a4ff', tint:'rgba(201,164,255,.13)', src:'git' },
+      memory:    { kind:'memory',    color:'#8089b0', tint:'rgba(128,137,176,.14)', src:'memory' },
+    };
+  }
+
+  FINDINGS() {
+    return [
+      {
+        id:'f1', fingerprint:'RAD-4c1a', group:'new', sev:'high', strength:'strong', subsystem:'checkout · coupons',
+        strengthNote:'Strong — 4 independent signals across 3 sources (git, runs, transcripts).',
+        risk:'Coupon validation gained three branches with no covering tests',
+        why:'validate.ts sits on the checkout write path and changed 7 times in the last two weeks. The new expiry and usage-limit branches shipped with no test deltas, and three agents needed correction around this exact boundary while a test mocks beneath it — the shape of a silent regression waiting on the next edit.',
+        chips:[
+          { t:'commit', label:'a3f9c1', sub:'coupon expiry rules' },
+          { t:'commit', label:'7b20e4', sub:'usage-limit guard' },
+          { t:'run',    label:'Harden coupon validation', sub:'Run · corrected 2×' },
+          { t:'agent',  label:'3 agent corrections', sub:'around this boundary' },
+        ],
+        files:[
+          { path:'src/coupons/validate.ts', adds:5, dels:1, changes:7 },
+          { path:'src/checkout/cart.ts',    adds:3, dels:2, changes:4 },
+          { path:'tests/coupons.test.ts',   unchanged:true },
+        ],
+        timeline:[
+          { date:'Jun 28', kind:'amber', text:'validate.ts rewritten in run “Harden coupon validation” — no matching test diff' },
+          { date:'Jul 02', kind:'indigo', text:'Agent mocked validateCoupon itself, later corrected to mock the DB beneath it' },
+          { date:'Jul 05', kind:'amber', text:'Bug-fix run touched validate.ts + cart.ts for “coupon edge cases”' },
+          { date:'Jul 08', kind:'red', text:'2 agents failed applying the usage-limit patch, retried twice' },
+        ],
+        diffPath:'src/coupons/validate.ts', diffAdds:5, diffDels:1,
+        diff:[
+          ['ctx','12','export function validateCoupon(code: string) {'],
+          ['del','13','  return code.length > 0;'],
+          ['add','13','  const c = normalize(code);'],
+          ['add','14','  if (isExpired(c)) return false;'],
+          ['add','15','  if (!withinUsageLimit(c)) return false;'],
+          ['add','16','  return true;'],
+          ['ctx','17','}'],
+        ],
+        diffNote:'Lines 14–15 add two decision branches (expiry and usage-limit). No assertion in tests/coupons.test.ts exercises either path, and the existing test mocks validateCoupon rather than calling it — so both branches are currently uncovered.',
+        mission:'Add expiry and usage-limit coverage to tests/coupons.test.ts, then verify cart.ts integrates against the real validateCoupon rather than the current mock.',
+        scope:'2 files · focused',
+      },
+      {
+        id:'f2', fingerprint:'RAD-91e0', group:'new', sev:'high', strength:'moderate', subsystem:'auth · session',
+        strengthNote:'Moderate — 3 signals across 2 sources (git, runs); no transcript corroboration yet.',
+        risk:'Session TTL migration has no rollback or startup coverage',
+        why:'The 0007_session_ttl migration altered the session table, but no down-migration or startup check accompanies it. If a deploy half-applies, the app boots against a schema no test exercises.',
+        chips:[
+          { t:'migration', label:'0007_session_ttl', sub:'altered sessions table' },
+          { t:'commit',    label:'e91b0d', sub:'set SESSION_TTL = 24h' },
+          { t:'run',       label:'Migrate session store', sub:'Run · no rollback step' },
+        ],
+        files:[
+          { path:'migrations/0007_session_ttl.sql', adds:9, dels:0, changes:1 },
+          { path:'src/auth/session.ts',             adds:4, dels:1, changes:3 },
+          { path:'tests/migrations/*.test.ts',      unchanged:true },
+        ],
+        timeline:[
+          { date:'Jul 01', kind:'amber', text:'Migration added without a paired down() or startup assertion' },
+          { date:'Jul 03', kind:'indigo', text:'session.ts began reading TTL from the new column' },
+        ],
+        mission:'Write a rollback for 0007_session_ttl and a startup assertion that the TTL column exists before serving traffic.',
+        scope:'3 files · focused',
+      },
+      {
+        id:'f3', fingerprint:'RAD-2d77', group:'new', sev:'medium', strength:'moderate', subsystem:'payments · webhooks',
+        strengthNote:'Moderate — 3 signals across git and memory; conflicts with a stale memory note.',
+        risk:'Webhook retry assumes an idempotency key the config no longer sets',
+        why:'stripe.ts retries on an idempotency key, but a recent config change stopped populating STRIPE_IDEMPOTENCY_HEADER. Retries may double-charge under load — a path only exercised in production.',
+        chips:[
+          { t:'commit', label:'2c88fa', sub:'removed idempotency header' },
+          { t:'memory', label:'“retries are idempotent”', sub:'project memory · now stale' },
+          { t:'agent',  label:'1 abandoned approach', sub:'gave up wiring the key' },
+        ],
+        files:[
+          { path:'src/payments/stripe.ts', adds:2, dels:6, changes:3 },
+          { path:'config/production.yaml', adds:0, dels:1, changes:1 },
+        ],
+        timeline:[
+          { date:'Jul 04', kind:'red', text:'Config change dropped STRIPE_IDEMPOTENCY_HEADER' },
+          { date:'Jul 06', kind:'gray', text:'Agent abandoned an approach to re-derive the key' },
+        ],
+        mission:'Confirm whether Stripe retries still receive an idempotency key; if not, restore it or make retries safe without one.',
+        scope:'2 files · focused',
+      },
+      {
+        id:'f4', fingerprint:'RAD-8b34', group:'recurring', sev:'medium', strength:'strong', subsystem:'session · cache',
+        strengthNote:'Strong — seen in three consecutive scans; evidence has grown each time.',
+        note:'Strengthened since the last scan — one more agent hit this boundary and the mock now sits two layers above the real failure.',
+        risk:'Tests mock Redis beneath the layer where real failures occur',
+        why:'The session tests mock the Redis client, so serialization and connection-drop paths — the ones that broke twice in Runs — are never exercised. Evidence for this pattern has grown across the last three scans.',
+        chips:[
+          { t:'run',    label:'Investigate session drop', sub:'Run · reproduced live only' },
+          { t:'agent',  label:'2 corrections', sub:'both re-added the mock' },
+          { t:'commit', label:'b47c02', sub:'widened the redis mock' },
+        ],
+        files:[
+          { path:'tests/session.test.ts', adds:12, dels:3, changes:5 },
+          { path:'src/session/store.ts',  adds:1, dels:1, changes:2 },
+        ],
+        timeline:[
+          { date:'Jun 20', kind:'gray', text:'First seen: mock covers the client, not the connection' },
+          { date:'Jul 02', kind:'amber', text:'Live session-drop reproduced that tests can’t' },
+          { date:'Jul 09', kind:'red', text:'Mock widened again in b47c02 — evidence strengthened' },
+        ],
+        mission:'Introduce a fake Redis at the connection layer so drop and serialization paths run under test.',
+        scope:'2 files · moderate',
+      },
+      {
+        id:'f5', fingerprint:'RAD-05af', group:'nolonger', sev:'high', strength:'limited', subsystem:'checkout · limiter',
+        note:'No longer detected — the supporting signals disappeared after run “Serialize the limiter”. This is not a confirmed fix; no agent has touched the boundary since.',
+        risk:'Rate-limiter race on concurrent checkout submits',
+        why:'Two scans ago, concurrent checkouts intermittently bypassed the limiter and agents kept patching around it. After the serialize run landed, both the failure signals and the repeated corrections stopped appearing.',
+        chips:[
+          { t:'run',    label:'Serialize the limiter', sub:'Run · merged, signals gone' },
+          { t:'commit', label:'9f0a71', sub:'single-flight lock' },
+        ],
+        files:[
+          { path:'src/checkout/limiter.ts', adds:8, dels:5, changes:1 },
+        ],
+        showTimeline:false,
+        mission:'No action required. Start an investigation only if you want to confirm the fix, or reopen if the race resurfaces in a later scan.',
+        scope:'monitor',
+      },
+      {
+        id:'f6', fingerprint:'RAD-6710', group:'suppressed', sev:'low', strength:'limited', subsystem:'legacy · v1 api',
+        note:'Suppressed by you on Jul 05 — the /v1 surface is deprecated and intentionally frozen without tests.',
+        risk:'Legacy /v1 endpoints have no test coverage',
+        why:'The /v1 routes are scheduled for removal and receive no new commits. You marked this pattern intentional, so Radar keeps it out of the New and Recurring groups until the fingerprint sees materially different evidence.',
+        chips:[
+          { t:'memory', label:'“/v1 is frozen”', sub:'project memory' },
+        ],
+        files:[
+          { path:'src/api/v1/*.ts', unchanged:true },
+        ],
+        showTimeline:false,
+        mission:'No action while suppressed. Unsuppress if /v1 is revived or starts taking commits again.',
+        scope:'suppressed',
+      },
+    ];
+  }
+
+  STATE(name) {
+    const cov = (transcripts) => [
+      { label:'Git', glyph:'✓', color:'#54c79a' },
+      { label:'Runs', glyph:'✓', color:'#54c79a' },
+      { label:'Transcripts', glyph: transcripts, color: transcripts === '✓' ? '#54c79a' : (transcripts === '◐' ? '#e6b450' : '#e0726c') },
+      { label:'Memory', glyph:'✓', color:'#54c79a' },
+    ];
+    const P = { iconTint:'rgba(124,149,255,.09)', iconBorder:'rgba(124,149,255,.22)' };
+    const map = {
+      'results': { mode:'results', headerSub:'Scanned payments-api · today 11:52', coverage:cov('◐'), showBudget:true, scanBtn:['Scan repository','scan'] },
+      'partial': { mode:'partial', headerSub:'Scanned payments-api · today 11:52 · partial', coverage:cov('✗'), showBudget:true, scanBtn:['Re-run full scan','retry'] },
+      'never-scanned': { mode:'panel', headerSub:'Not yet scanned', coverage:[], showBudget:false, scanBtn:['Scan repository','scan'],
+        panel:{ icon:'radar', tint:'rgba(124,149,255,.09)', border:'rgba(124,149,255,.22)',
+          heading:"This repository hasn't been scanned yet",
+          message:'Radar examines the current tree plus recent engineering activity, converts it into compact signals, and groups them into evidence-backed findings. Nothing runs until you scan.',
+          bullets:['Source & test structure','Recent commits & changed files','Recent Runs and outcomes','Agent failures, retries & corrections','Project memory','Config & migration boundaries'],
+          primary:'Scan repository', secondary:'' } },
+      'collecting': { mode:'panel', headerSub:'Collecting deterministic signals…', coverage:[], showBudget:false, scanBtn:['Cancel scan','cancel'],
+        panel:{ icon:'spinner', tint:'rgba(124,149,255,.09)', border:'rgba(124,149,255,.22)',
+          heading:'Collecting deterministic signals',
+          message:'Local collectors are converting the current tree and recent activity into compact signals. No model budget is spent yet.',
+          checklist:[
+            { label:'Source & test structure', state:'done' },
+            { label:'Recent commits & changed files', state:'done' },
+            { label:'Runs & outcomes', state:'done' },
+            { label:'Agent transcripts', state:'active' },
+            { label:'Project memory', state:'pending' },
+            { label:'Config & migrations', state:'pending' },
+          ],
+          primary:'', secondary:'Cancel scan' } },
+      'clustering': { mode:'panel', headerSub:'Clustering candidate risks…', coverage:[], showBudget:true, scanBtn:['Cancel scan','cancel'],
+        panel:{ icon:'spinner', tint:'rgba(124,149,255,.09)', border:'rgba(124,149,255,.22)',
+          heading:'Clustering candidate risks',
+          message:'Signals collected and compared with the previous scan — unchanged evidence is ignored. A single bounded model call is grouping the rest into findings.',
+          stat:'Model budget · 18.2k / 40k tokens', statColor:'#8da3ff',
+          primary:'', secondary:'Cancel scan' } },
+      'no-findings': { mode:'panel', headerSub:'Scanned payments-api · today 11:52', coverage:cov('✓'), showBudget:true, scanBtn:['Scan repository','scan'],
+        panel:{ icon:'check', tint:'rgba(84,199,154,.08)', border:'rgba(84,199,154,.24)',
+          heading:'No new correctness risks found',
+          message:'Radar clustered the collected signals and found nothing that meets the evidence bar. This is a snapshot of the current tree, not a guarantee.',
+          stat:'Compared with scan from yesterday 16:03 — 2 findings no longer detected', statColor:'#7fbd9f',
+          primary:'', secondary:'View no longer detected (2)' } },
+      'model-failed': { mode:'panel', headerSub:'Scan incomplete', coverage:[], showBudget:true, scanBtn:['Retry clustering','retry'],
+        panel:{ icon:'alert', tint:'rgba(224,114,108,.08)', border:'rgba(224,114,108,.24)',
+          heading:'The model step failed — collected signals were kept',
+          message:'Signals are cached from this scan. Retrying reuses them and only spends budget on clustering, so you won’t re-collect from scratch.',
+          stat:'Signals cached · 1,284 · expires in 24h', statColor:'#c58f8b',
+          primary:'Retry clustering', secondary:'Discard signals' } },
+      'cancelled': { mode:'panel', headerSub:'Scan cancelled', coverage:[], showBudget:false, scanBtn:['Scan repository','scan'],
+        panel:{ icon:'cancel', tint:'rgba(120,130,140,.08)', border:'#232a32',
+          heading:'Scan cancelled',
+          message:'Signals collected before you cancelled were discarded. Findings from your previous scan (yesterday 16:03) are unchanged and still available.',
+          primary:'Scan repository', secondary:'View previous findings' } },
+    };
+    return map[name] || map['results'];
+  }
+
+  renderVals() {
+    const SEV = this.SEV(), GM = this.GM(), STR = this.STR(), CM = this.CHIP();
+    const scanState = this.props.scanState ?? 'results';
+    const filter = this.props.listFilter ?? 'all';
+    const showSignals = this.props.showTimeline ?? true;
+    const cfg = this.STATE(scanState);
+    const isResults = cfg.mode === 'results' || cfg.mode === 'partial';
+    const isPanel = cfg.mode === 'panel';
+
+    // --- header / state chrome ---
+    const btnKind = cfg.scanBtn[1];
+    const scanChrome = {
+      headerSub: cfg.headerSub,
+      coverage: cfg.coverage, showCoverage: (cfg.coverage || []).length > 0,
+      showBudget: cfg.showBudget, budget: { used:'18.2k', cap:'40k tokens', pct:'45%' },
+      scanBtnLabel: cfg.scanBtn[0],
+      btnScan: btnKind === 'scan', btnCancel: btnKind === 'cancel', btnRetry: btnKind === 'retry',
+      scanBtnBg: btnKind === 'cancel' ? 'transparent' : '#7c95ff',
+      scanBtnColor: btnKind === 'cancel' ? '#c58f8b' : '#0b0e14',
+      scanBtnBorder: btnKind === 'cancel' ? '1px solid #2a222a' : '0',
+      isResults, isPartial: cfg.mode === 'partial', isPanel,
+    };
+
+    // --- panel view model ---
+    let panel = {};
+    if (isPanel) {
+      const p = cfg.panel;
+      const chk = (p.checklist || []).map(ci => ({
+        label: ci.label,
+        isDone: ci.state === 'done', isActive: ci.state === 'active', isPending: ci.state === 'pending',
+        color: ci.state === 'pending' ? '#6b7178' : '#cfd5db',
+        tag: ci.state === 'done' ? 'done' : ci.state === 'active' ? 'collecting' : 'queued',
+        tagColor: ci.state === 'done' ? '#7fbd9f' : ci.state === 'active' ? '#8da3ff' : '#5b626b',
+      }));
+      panel = {
+        iconTint:p.tint, iconBorder:p.border,
+        iconRadar:p.icon==='radar', iconSpinner:p.icon==='spinner', iconCheck:p.icon==='check', iconAlert:p.icon==='alert', iconCancel:p.icon==='cancel',
+        heading:p.heading, message:p.message,
+        hasStat: !!p.stat, stat:p.stat, statColor:p.statColor || '#8da3ff',
+        hasChecklist: chk.length > 0, checklist: chk,
+        hasBullets: (p.bullets||[]).length > 0, bullets: p.bullets || [],
+        hasPrimary: !!p.primary, primaryLabel: p.primary,
+        hasSecondary: !!p.secondary, secondaryLabel: p.secondary,
+      };
+    }
+
+    // --- findings (results/partial) ---
+    const all = this.FINDINGS();
+    const sel = this.state.sel;
+    const collapsed = this.state.collapsed;
+    const passes = (fd) => filter === 'attention' ? (fd.group === 'new' || fd.group === 'recurring')
+                        : filter === 'high' ? fd.sev === 'high' : true;
+
+    const pipsOf = (strength) => {
+      const s = STR[strength]; const arr = [];
+      for (let i = 0; i < 3; i++) arr.push({ bg: i < s.pips ? s.color : '#20262e' });
+      return arr;
+    };
+
+    const cardOf = (fd) => {
+      const sv = SEV[fd.sev], active = fd.id === sel;
+      const isOpen = fd.group === 'new' || fd.group === 'recurring';
+      const files = fd.files || [], chips = fd.chips || [], tl = fd.timeline || [];
+      const signals = chips.length + files.length + tl.length + (fd.diff ? 1 : 0);
+      let delta = 'new', deltaColor = '#7c95ff';
+      if (fd.group === 'recurring') { delta = '↑ strengthened'; deltaColor = '#e6b450'; }
+      else if (fd.group === 'nolonger') { delta = 'no longer detected'; deltaColor = '#54c79a'; }
+      else if (fd.group === 'suppressed') { delta = 'muted'; deltaColor = '#5b626b'; }
+      const muted = fd.group === 'suppressed' || fd.group === 'nolonger';
+      const st = STR[fd.strength];
+      return {
+        id:fd.id, risk:fd.risk, subsystem:fd.subsystem,
+        sevLabel:sv.label, sevColor:sv.color, sevTint:sv.tint,
+        showStrength:isOpen, pips:pipsOf(fd.strength), strengthLabel:st.label, strengthColor:st.color,
+        fileMeta: files.length + (files.length === 1 ? ' file' : ' files'),
+        signalMeta: signals + ' signals',
+        delta, deltaColor,
+        railColor: active ? sv.color : 'transparent',
+        bg: active ? '#141922' : '#0e1116',
+        border: active ? '#2c3550' : '#1a1f26',
+        riskColor: active ? '#f0f3f6' : '#c7ccd2',
+        dim: muted && !active ? '0.72' : '1',
+        select: () => this.setState({ sel: fd.id }),
+      };
+    };
+
+    const order = ['new','recurring','nolonger','suppressed'];
+    const groups = order.map(key => {
+      const fds = all.filter(fd => fd.group === key && passes(fd));
+      if (!fds.length) return null;
+      const g = GM[key], open = !collapsed[key];
+      return { key, label:g.label, color:g.color, tint:g.tint, hint:g.hint, count:fds.length,
+        open, chevron: open ? '▾' : '▸',
+        toggle: () => this.setState(s => ({ collapsed: { ...s.collapsed, [key]: !s.collapsed[key] } })),
+        findings: fds.map(cardOf) };
+    }).filter(Boolean);
+
+    const summary = order.map(key => {
+      const c = all.filter(fd => fd.group === key).length;
+      return { label: GM[key].label, count: c, color: GM[key].color };
+    });
+
+    // --- detail ---
+    let fd = all.find(x => x.id === sel);
+    if (fd && !passes(fd)) fd = null;
+    if (!fd) fd = all.find(x => passes(x)) || all[0];
+
+    const sv = SEV[fd.sev], gm = GM[fd.group], st = STR[fd.strength];
+    const tlColor = { amber:['#e6b450','rgba(230,180,80,.14)'], red:['#e0726c','rgba(224,114,108,.14)'], indigo:['#7c95ff','rgba(124,149,255,.14)'], green:['#54c79a','rgba(84,199,154,.14)'], gray:['#6b7178','rgba(120,130,140,.12)'] };
+    const timeline = (fd.timeline || []).map((t, i, a) => { const c = tlColor[t.kind] || tlColor.gray; return { date:t.date, text:t.text, color:c[0], ring:c[1], notLast:i < a.length - 1 }; });
+    const chips = (fd.chips || []).map(c => { const m = CM[c.t] || CM.commit; return { kind:m.kind, color:m.color, tint:m.tint, label:c.label, sub:c.sub }; });
+    const files = (fd.files || []).map(fl => ({ path:fl.path, pathColor: fl.unchanged ? '#8b939d' : '#c7ccd2', unchanged:!!fl.unchanged, changed:!fl.unchanged, adds:fl.adds, dels:fl.dels, changes:fl.changes }));
+    const diffCfg = { add:['rgba(84,199,154,.10)','+','#54c79a','#bfe9d3'], del:['rgba(224,114,108,.10)','−','#e0726c','#e9b9b6'], ctx:['transparent','','#3f4751','#c8cdd3'] };
+    const diffLines = (fd.diff || []).map(([k,g,t]) => { const c = diffCfg[k] || diffCfg.ctx; return { bg:c[0], sign:c[1], signColor:c[2], textColor:c[3], gNew:g, text:t }; });
+
+    const srcSet = {};
+    (fd.chips || []).forEach(c => { const m = CM[c.t]; if (m) srcSet[m.src] = 1; });
+    if (files.length || diffLines.length) srcSet['git'] = 1;
+    const signalN = chips.length + files.length + timeline.length + (diffLines.length ? 1 : 0);
+    const sourceN = Object.keys(srcSet).length;
+
+    const noteCol = { recurring:['#e6b450','rgba(230,180,80,.08)','rgba(230,180,80,.24)'], nolonger:['#7fbd9f','rgba(84,199,154,.07)','rgba(84,199,154,.22)'], suppressed:['#8b939d','#0e1116','#1c2128'] };
+    const nc = noteCol[fd.group] || noteCol.suppressed;
+    const isOpen = fd.group === 'new' || fd.group === 'recurring';
+
+    const f = {
+      risk:fd.risk, why:fd.why, subsystem:fd.subsystem, mission:fd.mission, scope:fd.scope, fingerprint:fd.fingerprint,
+      statusLabel:gm.label, statusColor:gm.color, statusTint:gm.tint, statusBorder:gm.border,
+      sevLabel:sv.label, sevColor:sv.color, sevTint:sv.tint, sevBorder:sv.border,
+      showStrength:isOpen, pips: isOpen ? [] : [], strengthLabel:st.label, strengthColor:st.color, strengthNote:fd.strengthNote || '',
+      hasNote:!!fd.note, note:fd.note, noteColor:nc[0], noteTint:nc[1], noteBorder:nc[2],
+      chips, evidenceMeta: signalN + ' signals · ' + sourceN + ' sources',
+      files, fileCount: files.length + (files.length === 1 ? ' file' : ' files'),
+      showTimeline: showSignals && fd.showTimeline !== false && timeline.length > 0, timeline,
+      hasDiff: diffLines.length > 0, diffLines, diffPath:fd.diffPath, diffAdds:fd.diffAdds, diffDels:fd.diffDels, diffNote:fd.diffNote,
+      isOpen, isGone: fd.group === 'nolonger', isSuppressed: fd.group === 'suppressed',
+      handoff: [
+        { k:'id', v:fd.fingerprint },
+        { k:'mission', v:'suggested' },
+        { k:'files', v:(fd.files||[]).length + '' },
+        { k:'evidence', v:signalN + ' refs' },
+        { k:'origin', v:'radar-scan-2f9c' },
+      ],
+    };
+    f.pips = pipsOf(fd.strength);
+
+    return Object.assign({ summary, groups, f, panel }, scanChrome);
+  }
+}
+</script>
+</body>
+</html>
