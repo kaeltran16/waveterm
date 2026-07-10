@@ -74,6 +74,11 @@ export class AgentsViewModel implements ViewModel {
     answerSelAtom = atom<Record<string, Record<number, Set<number>>>>({}) as PrimitiveAtom<
         Record<string, Record<number, Set<number>>>
     >;
+    // free-text answers, keyed like answerSelAtom: agentId -> (questionIndex -> text). Mutually
+    // exclusive with a selection for the same question (see setAnswerText).
+    answerTextAtom = atom<Record<string, Record<number, string>>>({}) as PrimitiveAtom<
+        Record<string, Record<number, string>>
+    >;
     answerTabAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
     sentIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
     focusIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
@@ -151,12 +156,30 @@ export class AgentsViewModel implements ViewModel {
         }
         const qs = agent.ask?.questions ?? [];
         const sel = globalStore.get(this.answerSelAtom)[agentId] ?? {};
+        const txt = globalStore.get(this.answerTextAtom)[agentId] ?? {};
         const oref = agent.ask?.oref;
-        if (!canSubmitAsk(qs, sel) || !oref) {
+        if (!canSubmitAsk(qs, sel, txt) || !oref) {
             return;
         }
-        fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers: buildAskAnswers(qs, sel) }));
+        fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers: buildAskAnswers(qs, sel, txt) }));
         globalStore.set(this.sentIdsAtom, new Set(sent).add(agentId));
+    }
+
+    // Set the free text for one question. Typing (non-empty) clears any selected option for that
+    // question so the answer is never ambiguous; buildAskAnswers then emits { text }. Called with ""
+    // by the option-toggle sites to clear text when a selection is made (the reverse exclusion).
+    setAnswerText(agentId: string, qi: number, value: string) {
+        const prev = globalStore.get(this.answerTextAtom);
+        const forAgent = { ...(prev[agentId] ?? {}), [qi]: value };
+        globalStore.set(this.answerTextAtom, { ...prev, [agentId]: forAgent });
+        if (value.trim() !== "") {
+            const sel = globalStore.get(this.answerSelAtom);
+            const forSel = { ...(sel[agentId] ?? {}) };
+            if (forSel[qi]?.size) {
+                forSel[qi] = new Set<number>();
+                globalStore.set(this.answerSelAtom, { ...sel, [agentId]: forSel });
+            }
+        }
     }
 
     get viewComponent(): ViewComponent {

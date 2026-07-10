@@ -48,6 +48,8 @@ function QuestionGroup({
     hideQuestion,
     selections,
     onClickOption,
+    text,
+    onText,
 }: {
     question: AgentAskQuestion;
     accent: Accent;
@@ -55,6 +57,8 @@ function QuestionGroup({
     hideQuestion?: boolean;
     selections: Set<number>;
     onClickOption: (oi: number) => void;
+    text?: string;
+    onText?: (value: string) => void;
 }) {
     const options = question.options ?? [];
     // rich asks (any option has a description) read better as stacked rows; bare label-only asks
@@ -173,6 +177,19 @@ function QuestionGroup({
                     })}
                 </div>
             )}
+            {onText ? (
+                <input
+                    type="text"
+                    value={text ?? ""}
+                    onChange={(e) => onText(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="or type your own answer…"
+                    className={cn(
+                        "mt-2 w-full rounded-[8px] border bg-black/20 px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:outline-none",
+                        (text ?? "").trim() !== "" ? accent.selected : "border-border focus:border-accent/60"
+                    )}
+                />
+            ) : null}
         </div>
     );
 }
@@ -183,22 +200,26 @@ function QuestionGroup({
 export function AnswerBar({
     agent,
     selections,
+    texts,
     sent,
     numbered,
     hideQuestion,
     activeQuestion,
     onToggle,
+    onText,
     onSubmit,
     onSelectQuestion,
     className,
 }: {
     agent: AgentVM;
     selections: Record<number, Set<number>>;
+    texts?: Record<number, string>;
     sent?: boolean;
     numbered?: boolean;
     hideQuestion?: boolean;
     activeQuestion?: number;
     onToggle: (qi: number, oi: number) => void;
+    onText?: (qi: number, value: string) => void;
     onSubmit: () => void;
     onSelectQuestion?: (qi: number) => void;
     className?: string;
@@ -210,7 +231,13 @@ export function AnswerBar({
     }
     if (sent) {
         const chosen = questions
-            .flatMap((q, qi) => Array.from(selections[qi] ?? []).map((oi) => cleanLabel(q.options?.[oi]?.label ?? "")))
+            .flatMap((q, qi) => {
+                const t = (texts?.[qi] ?? "").trim();
+                if (t) {
+                    return [t];
+                }
+                return Array.from(selections[qi] ?? []).map((oi) => cleanLabel(q.options?.[oi]?.label ?? ""));
+            })
             .filter(Boolean);
         return (
             <div className={cn("text-[12px] text-secondary", className)}>
@@ -225,13 +252,17 @@ export function AnswerBar({
             numbered={numbered}
             hideQuestion={hideQuestion}
             selections={selections[qi] ?? new Set()}
+            text={texts?.[qi]}
+            onText={onText ? (value: string) => onText(qi, value) : undefined}
             onClickOption={(oi) => {
                 onToggle(qi, oi);
                 if (questions[qi].multiSelect) {
                     return;
                 }
-                // single-select: jump to the next still-unanswered question, else submit
-                const next = questions.findIndex((_, j) => j !== qi && (selections[j]?.size ?? 0) === 0);
+                // single-select: jump to the next still-unanswered question (selection or text), else submit
+                const next = questions.findIndex(
+                    (_, j) => j !== qi && (selections[j]?.size ?? 0) === 0 && (texts?.[j] ?? "").trim() === ""
+                );
                 if (next === -1) {
                     onSubmit();
                 } else {
@@ -258,7 +289,7 @@ export function AnswerBar({
         <div className={className}>
             <div className="flex flex-wrap gap-1.5">
                 {questions.map((q, qi) => {
-                    const answered = (selections[qi]?.size ?? 0) > 0;
+                    const answered = (selections[qi]?.size ?? 0) > 0 || (texts?.[qi] ?? "").trim() !== "";
                     const active = qi === idx;
                     return (
                         <button

@@ -92,19 +92,23 @@ export function Tag({ label, tone }: { label: string; tone: "muted" | "asking" }
 export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const answerSel = useAtomValue(model.answerSelAtom);
     const setAnswerSel = useSetAtom(model.answerSelAtom);
+    const answerText = useAtomValue(model.answerTextAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
     const toggle = (qi: number, oi: number) => {
         const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
         setAnswerSel((prev) => ({ ...prev, [agent.id]: toggleSelection(prev[agent.id] ?? {}, qi, oi, multi) }));
+        model.setAnswerText(agent.id, qi, ""); // selecting clears this question's free text (exclusive)
     };
     return (
         <div className="rounded-[9px] border border-asking/40 bg-lane-asking p-3">
             <AnswerBar
                 agent={agent}
                 selections={answerSel[agent.id] ?? {}}
+                texts={answerText[agent.id] ?? {}}
                 sent={sentIds.has(agent.id)}
                 numbered
                 onToggle={toggle}
+                onText={(qi, value) => model.setAnswerText(agent.id, qi, value)}
                 onSubmit={() => model.submitAnswer(agent.id)}
             />
         </div>

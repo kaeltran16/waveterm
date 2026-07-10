@@ -321,6 +321,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // cursor + answer selection (lifted onto the model); help/pulse stay ephemeral surface-local
     const [cursorId, setCursorId] = useModelAtom(model.cursorIdAtom);
     const [answerSel, setAnswerSel] = useModelAtom(model.answerSelAtom);
+    const answerText = useAtomValue(model.answerTextAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
     const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
     const openComposerId = useAtomValue(model.openComposerIdAtom);
@@ -580,6 +581,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         const a = agents.find((x) => x.id === id);
         const multi = a?.ask?.questions?.[qi]?.multiSelect ?? false;
         setAnswerSel((prev) => ({ ...prev, [id]: toggleSelection(prev[id] ?? {}, qi, oi, multi) }));
+        model.setAnswerText(id, qi, ""); // selecting an option clears this question's free text (exclusive)
     };
 
     const submitAnswer = (id: string) => model.submitAnswer(id);
@@ -735,6 +737,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 isCursor={cursorId === a.id}
                 pulse={pulseId === a.id}
                 selections={answerSel[a.id] ?? {}}
+                texts={answerText[a.id] ?? {}}
                 sent={sentIds.has(a.id)}
                 activeQuestion={answerTab[a.id] ?? 0}
                 composerOpen={openComposerId === a.id}
@@ -744,6 +747,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 onOpenDiff={() => openDiff(a.id)}
                 onOpenComposer={() => setOpenComposerId(a.id)}
                 onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
+                onAnswerText={(qi, value) => model.setAnswerText(a.id, qi, value)}
                 onSubmitAnswer={() => submitAnswer(a.id)}
                 onSelectQuestion={(qi) => selectQuestion(a.id, qi)}
                 onComposerEscape={() => {

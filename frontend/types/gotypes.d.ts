@@ -83,6 +83,7 @@ declare global {
     // baseds.AgentAnswerItem
     type AgentAnswerItem = {
         selectedindexes?: number[];
+        text?: string;
     };
 
     // baseds.AgentAskData

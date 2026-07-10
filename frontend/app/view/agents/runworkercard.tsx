@@ -18,6 +18,7 @@ import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./live
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
+import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 
 // The current-activity line: reporter's live line while working, else the latest assistant message.
 function currentLine(agent: AgentVM, entries: AgentEntry[]): string | undefined {
@@ -31,6 +32,7 @@ export function RunWorkerCard({ model, agent, now }: { model: AgentsViewModel; a
     const tasksById = useAtomValue(tasksByIdAtom);
 
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
+    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const tasks = tasksById[agent.id];
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const working = agent.state === "working";
@@ -105,8 +107,11 @@ export function RunWorkerCard({ model, agent, now }: { model: AgentsViewModel; a
 
                     {/* live feed — capped so a chatty worker doesn't unbalance the rail; scrolls within */}
                     {entries.length > 0 ? (
-                        <div className="sc max-h-[260px] overflow-y-auto px-3 pb-2">
-                            <NarrationTimeline entries={entries} accentLatest active={working} />
+                        <div className="relative">
+                            <div ref={scrollRef} onScroll={onScroll} className="sc max-h-[260px] overflow-y-auto px-3 pb-2">
+                                <NarrationTimeline entries={entries} accentLatest active={working} />
+                            </div>
+                            {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
                         </div>
                     ) : null}
 

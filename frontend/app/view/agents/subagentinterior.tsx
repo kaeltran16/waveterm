@@ -10,6 +10,7 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
+import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { focusSubagentAtom, type FocusSubagent } from "./subagentsstore";
 
 export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; parentName: string }) {
@@ -31,6 +32,7 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
     }, []);
 
     const entries = useAtomValue(liveEntriesByIdAtom)[streamId] ?? [];
+    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-2 font-mono text-[11px]">
@@ -40,14 +42,17 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
                 <span className="text-edge-strong">›</span>
                 <span className="text-accent">{sub.label}</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-                {entries.length > 0 ? (
-                    <NarrationTimeline entries={entries} accentLatest active />
-                ) : (
-                    <div className="flex h-full items-center justify-center text-[12px] text-muted">
-                        Loading subagent transcript…
-                    </div>
-                )}
+            <div className="relative min-h-0 flex-1">
+                <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-3 py-2">
+                    {entries.length > 0 ? (
+                        <NarrationTimeline entries={entries} accentLatest active />
+                    ) : (
+                        <div className="flex h-full items-center justify-center text-[12px] text-muted">
+                            Loading subagent transcript…
+                        </div>
+                    )}
+                </div>
+                {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
             </div>
         </div>
     );

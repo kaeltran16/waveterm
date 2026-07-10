@@ -46,14 +46,25 @@ func EncodeAnswer(questions []baseds.AgentAskQuestion, answers []baseds.AgentAns
 		return nil, fmt.Errorf("expected %d answers, got %d", len(questions), len(answers))
 	}
 	if len(questions) == 1 {
-		return encodeSingleQuestion(questions[0], answers[0].SelectedIndexes)
+		return encodeSingleQuestion(questions[0], answers[0])
 	}
 	return encodeMultiQuestion(questions, answers)
 }
 
-// encodeSingleQuestion drives a standalone one-question picker: single-select confirms + closes on
-// enter; multi-select uses its inline Submit row + review. Output is unchanged from the original.
-func encodeSingleQuestion(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
+// encodeSingleQuestion drives a standalone one-question picker: free text types into the "Type
+// something" row; single-select confirms + closes on enter; multi-select uses its inline Submit row +
+// review. Select output is unchanged from the original.
+func encodeSingleQuestion(q baseds.AgentAskQuestion, a baseds.AgentAnswerItem) ([][]byte, error) {
+	if a.Text != "" {
+		if len(a.SelectedIndexes) > 0 {
+			return nil, fmt.Errorf("answer has both text and selected indexes")
+		}
+		if err := validateFreeText(a.Text); err != nil {
+			return nil, err
+		}
+		return freeTextKeys(len(q.Options), a.Text), nil
+	}
+	sel := a.SelectedIndexes
 	if q.MultiSelect {
 		return encodeMultiSelect(q, sel)
 	}
@@ -65,6 +76,47 @@ func encodeSingleQuestion(q baseds.AgentAskQuestion, sel []int) ([][]byte, error
 		return nil, fmt.Errorf("selected index %d out of range (%d options)", idx, len(q.Options))
 	}
 	return singleSelectKeys(idx), nil
+}
+
+// validateFreeText rejects shapes we can't drive: empty text, or any control character. A literal Tab
+// would advance the picker's tab bar, ESC would cancel, and CR/LF would submit — so v1 free text is
+// restricted to single-line printable input.
+func validateFreeText(text string) error {
+	if text == "" {
+		return fmt.Errorf("free-text answer is empty")
+	}
+	for _, r := range text {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("free-text answer must be single-line printable text (found control char %q)", r)
+		}
+	}
+	return nil
+}
+
+// typeBytes turns a string into one keystroke element per rune so DeliverAnswer spaces each with
+// KeystrokeDelay. A multi-byte rune is written atomically (all its bytes in one element) so ConPTY
+// can't mis-decode a UTF-8 sequence split across two delayed writes. Verified: printable ASCII lands
+// in the CC input intact and in order at 60ms (CC v2.1.206), so no bracketed paste is needed.
+func typeBytes(s string) [][]byte {
+	out := make([][]byte, 0, len(s))
+	for _, r := range s {
+		out = append(out, []byte(string(r)))
+	}
+	return out
+}
+
+// freeTextKeys drives CC's "Type something" row for a standalone single-question ask: descend past
+// the nOpts options to the input row (index nOpts), type the text inline, then submit with one Enter.
+// There is no "open" Enter (Enter on the empty row declines) and no review gate for a single
+// question. Verified live against CC v2.1.206 (2026-07-10) with a node-pty harness.
+func freeTextKeys(nOpts int, text string) [][]byte {
+	keys := make([][]byte, 0, nOpts+len([]rune(text))+1)
+	for i := 0; i < nOpts; i++ {
+		keys = append(keys, downArrow) // -> "Type something" (index nOpts)
+	}
+	keys = append(keys, typeBytes(text)...)
+	keys = append(keys, []byte{enter}) // type-then-Enter submits directly
+	return keys
 }
 
 // singleSelectKeys moves the highlight from option 0 down to idx and presses enter.
@@ -136,10 +188,29 @@ func encodeMultiSelect(q baseds.AgentAskQuestion, sel []int) ([][]byte, error) {
 // the last question the auto-advance (single) or tab (multi) lands on the Submit tab, which shows a
 // "Ready to submit your answers?" review defaulting to "Submit answers" -> the final enter confirms
 // it. Verified live against CC v2.1.205 (2026-07-09) with a PTY harness driving both trailing types.
+//
+// A free-text tab types into its "Type something" row, then Enter — which, like a single-select,
+// confirms the text AND auto-advances to the next tab (not Tab). Verified live against CC v2.1.206
+// (2026-07-10) for [select][free-text] and [free-text][select] batches.
 func encodeMultiQuestion(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) ([][]byte, error) {
 	var keys [][]byte
 	for i, q := range questions {
-		sel := answers[i].SelectedIndexes
+		a := answers[i]
+		if a.Text != "" {
+			if len(a.SelectedIndexes) > 0 {
+				return nil, fmt.Errorf("question %d: answer has both text and selected indexes", i)
+			}
+			if err := validateFreeText(a.Text); err != nil {
+				return nil, fmt.Errorf("question %d: %w", i, err)
+			}
+			for d := 0; d < len(q.Options); d++ {
+				keys = append(keys, downArrow) // -> "Type something" (index len(options))
+			}
+			keys = append(keys, typeBytes(a.Text)...)
+			keys = append(keys, []byte{enter}) // Enter confirms the text AND auto-advances (like single-select)
+			continue
+		}
+		sel := a.SelectedIndexes
 		if q.MultiSelect {
 			toggles, _, err := multiToggleKeys(sel, len(q.Options))
 			if err != nil {

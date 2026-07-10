@@ -246,3 +246,88 @@ func TestEncodeMultiQuestionRejectsEmptyMultiSelect(t *testing.T) {
 		t.Fatalf("expected error for empty multi-select selection in a batch, got nil")
 	}
 }
+
+func freeAns(text string) []baseds.AgentAnswerItem {
+	return []baseds.AgentAnswerItem{{Text: text}}
+}
+
+// Free-text single-question (CC v2.1.206): descend past the N options to "Type something" (index N),
+// type the string (one element per rune), submit with one Enter. No open-Enter, no review gate.
+func TestEncodeFreeTextSingleQuestion(t *testing.T) {
+	got, err := EncodeAnswer(singleSelect(2), freeAns("hi"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	want := [][]byte{
+		down, down, // -> "Type something" (index len(options)=2)
+		{'h'}, {'i'}, // type the text
+		{'\r'}, // submit directly
+	}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEncodeFreeTextRejectsBothTextAndIndexes(t *testing.T) {
+	ans := []baseds.AgentAnswerItem{{Text: "x", SelectedIndexes: []int{0}}}
+	if _, err := EncodeAnswer(singleSelect(2), ans); err == nil {
+		t.Fatalf("expected error when both text and selectedindexes are set, got nil")
+	}
+}
+
+// Control characters would corrupt the picker (Tab advances a tab, ESC cancels, CR/LF submit), so
+// validateFreeText rejects them for the single-line v1.
+func TestEncodeFreeTextRejectsControlChars(t *testing.T) {
+	for _, bad := range []string{"a\nb", "a\rb", "a\tb", "a\x1bb", ""} {
+		if _, err := EncodeAnswer(singleSelect(2), freeAns(bad)); err == nil {
+			t.Fatalf("expected error for control/empty text %q, got nil", bad)
+		}
+	}
+}
+
+// [select][free-text] (CC v2.1.206): Q1 single-select idx0 (Enter auto-advances); Q2 free text
+// (down to "Type something", type, Enter confirms + advances to Submit); final Enter confirms.
+func TestEncodeMultiQuestionSelectThenFreeText(t *testing.T) {
+	got, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(2, false)},
+		[]baseds.AgentAnswerItem{item(0), {Text: "hi"}},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	want := [][]byte{
+		{'\r'},     // Q1 idx0: enter (auto-advance)
+		down, down, // Q2: -> "Type something" (idx 2)
+		{'h'}, {'i'}, // type
+		{'\r'}, // confirm free-text + advance to Submit
+		{'\r'}, // Submit confirm
+	}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// [free-text][select] (CC v2.1.206): Q1 free text advances on Enter to Q2; Q2 single-select idx1
+// (down + enter) advances to Submit; final Enter confirms.
+func TestEncodeMultiQuestionFreeTextThenSelect(t *testing.T) {
+	got, err := EncodeAnswer(
+		[]baseds.AgentAskQuestion{qn(2, false), qn(2, false)},
+		[]baseds.AgentAnswerItem{{Text: "hi"}, item(1)},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	down := []byte{0x1b, '[', 'B'}
+	want := [][]byte{
+		down, down, // Q1: -> "Type something" (idx 2)
+		{'h'}, {'i'}, // type
+		{'\r'},       // confirm + advance to Q2
+		down, {'\r'}, // Q2 idx1: down + enter (select + advance to Submit)
+		{'\r'}, // Submit confirm
+	}
+	if !keysEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
