@@ -154,7 +154,7 @@ export interface PhaseThread {
 }
 
 // The recorded worker tab ids for a phase (the "tab:" orefs, unprefixed).
-function recordedWorkerTabs(phase: RunPhase): string[] {
+export function recordedWorkerTabs(phase: RunPhase): string[] {
     return (phase.workerorefs ?? []).filter((o) => o.startsWith("tab:")).map((o) => o.slice(4));
 }
 

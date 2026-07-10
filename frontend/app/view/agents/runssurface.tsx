@@ -8,12 +8,13 @@
 
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
+import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
-import { AskRow, jumpToAgent, WorkerRow } from "./channelsprimitives";
-import type { WorkerState } from "./jarvisderive";
+import { AskRow, jumpToAgent } from "./channelsprimitives";
+import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
+import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { approveGate, cancelRun, createRun, sendBackGate } from "./runactions";
 import {
     composerSummary,
@@ -24,6 +25,7 @@ import {
     phaseStateView,
     phaseThread,
     phaseWorkers,
+    recordedWorkerTabs,
     runStatusView,
 } from "./runmodel";
 import { ProfilePanel } from "./profilepanel";
@@ -40,11 +42,6 @@ const TONE_CLASS: Record<string, string> = {
     failed: "text-error",
     cancelled: "text-muted",
 };
-
-// adapt a live roster row to the WorkerRow shape (oref is the tab: form used by WorkerRow's open-jump)
-function toWorkerState(a: AgentVM): WorkerState {
-    return { oref: `tab:${a.id}`, name: a.name, state: a.state, task: a.task, dispatchTask: undefined };
-}
 
 const PHASE_TONE_CLASS: Record<string, string> = {
     pending: "text-muted",
@@ -229,7 +226,7 @@ function SubagentRows({ leadId }: { leadId: string }) {
     );
 }
 
-function PhaseRail({ model, run, agents, channelId, liveTabIds }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string> }) {
+function PhaseRail({ model, run, agents, channelId, liveTabIds, now }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number }) {
     const phases = run.phases ?? [];
     return (
         <div>
@@ -267,15 +264,16 @@ function PhaseRail({ model, run, agents, channelId, liveTabIds }: { model: Agent
                                     </div>
                                 ))}
                                 {thread.showWorkers ? (
-                                    <div className="mt-2.5 flex flex-col gap-1.5">
+                                    <div className="mt-2.5 flex flex-col gap-2">
                                         {workers.map((w) => (
                                             <div key={w.id}>
-                                                <WorkerRow model={model} w={toWorkerState(w)} />
+                                                <RunWorkerCard model={model} agent={w} now={now} />
                                                 {isOrchestrator(run) ? <SubagentRows leadId={w.id} /> : null}
                                             </div>
                                         ))}
                                     </div>
                                 ) : null}
+                                {p.state === "done" ? <PhaseHistory tabIds={recordedWorkerTabs(p)} /> : null}
                                 {thread.showGate ? <ReviewGateCard channelId={channelId} run={run} gateIdx={i} /> : null}
                                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
@@ -328,6 +326,58 @@ export function RunsView({
     }, [channel.oid, runs.length]);
 
     const run = runs.find((r) => r.id === activeRunId);
+
+    // live workers of the active run's running phases — the set we open transcript streams for so the
+    // phase rail can narrate them inline. Filtered to those actually streamable (have a transcript and
+    // are working/asking/recently-idle), matching the cockpit's driver.
+    const runWorkers = run ? (run.phases ?? []).filter((p) => p.state === "running").flatMap((p) => phaseWorkers(p, agents)) : [];
+
+    // clock for liveness cues (quiet >45s) + elapsed labels; also re-runs the stream diff below
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const t = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(t);
+    }, []);
+
+    // own transcript streams for the active run's workers (mirrors cockpitsurface: start what's wanted,
+    // stop what's no longer wanted, tear all down on unmount). Streams are module-level and idempotent;
+    // this surface and the cockpit grid never co-mount, so ownership doesn't collide.
+    const streamable = streamableTranscriptAgents(runWorkers, now);
+    const wantedKey = streamable.map((a) => a.id).join(",");
+    const streamedRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        const wanted = new Map<string, { path: string; agent?: string }>();
+        for (const a of streamable) {
+            if (a.transcriptPath) {
+                wanted.set(a.id, { path: a.transcriptPath, agent: a.agent });
+            }
+        }
+        for (const [id, { path, agent }] of wanted) {
+            if (!streamedRef.current.has(id)) {
+                startTranscriptStream(id, path, agent);
+                streamedRef.current.add(id);
+            }
+        }
+        for (const id of [...streamedRef.current]) {
+            if (!wanted.has(id)) {
+                stopTranscriptStream(id);
+                streamedRef.current.delete(id);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wantedKey]);
+    useEffect(
+        () => () => {
+            for (const id of streamedRef.current) {
+                stopTranscriptStream(id);
+            }
+            streamedRef.current.clear();
+        },
+        []
+    );
+
+    // the run's primary active worker drives the header "now" rollup
+    const primaryWorker = runWorkers.find((w) => w.state === "working") ?? runWorkers.find((w) => w.state === "asking") ?? runWorkers[0];
 
     const startRun = () => {
         const goal = draft.trim();
@@ -416,9 +466,13 @@ export function RunsView({
                                 </div>
                             </div>
 
+                            {run.status === "executing" && primaryWorker ? (
+                                <RunRollup agent={primaryWorker} now={now} />
+                            ) : null}
+
                             <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
                             {expanded ? (
-                                <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} />
+                                <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} />
                             ) : null}
 
                             {!isTerminal(run.status) ? (
