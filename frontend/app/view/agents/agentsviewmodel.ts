@@ -574,9 +574,20 @@ export function cycleId(ids: string[], current: string | undefined, delta: numbe
     return ids[(idx + delta + ids.length) % ids.length];
 }
 
-/** Pure: one AgentAnswerItem per question, carrying that question's selected option indexes (ascending). */
-export function buildAskAnswers(questions: AgentAskQuestion[], selections: Record<number, Set<number>>): AgentAnswerItem[] {
-    return questions.map((_, qi) => ({ selectedindexes: Array.from(selections[qi] ?? []).sort((a, b) => a - b) }));
+/** Pure: one AgentAnswerItem per question. A non-empty trimmed text wins over the selection and
+ *  emits { text }; otherwise emits { selectedindexes } (ascending). */
+export function buildAskAnswers(
+    questions: AgentAskQuestion[],
+    selections: Record<number, Set<number>>,
+    texts: Record<number, string> = {}
+): AgentAnswerItem[] {
+    return questions.map((_, qi) => {
+        const text = (texts[qi] ?? "").trim();
+        if (text !== "") {
+            return { text };
+        }
+        return { selectedindexes: Array.from(selections[qi] ?? []).sort((a, b) => a - b) };
+    });
 }
 
 /** Pure: toggle option `oi` of question `qi` in a selection map. Single-select replaces the
@@ -604,9 +615,16 @@ export function toggleSelection(
     return next;
 }
 
-/** Pure: submittable only when every question has at least one selected option. */
-export function canSubmitAsk(questions: AgentAskQuestion[], selections: Record<number, Set<number>>): boolean {
-    return questions.length > 0 && questions.every((_, qi) => (selections[qi]?.size ?? 0) >= 1);
+/** Pure: submittable only when every question has at least one selected option or non-empty text. */
+export function canSubmitAsk(
+    questions: AgentAskQuestion[],
+    selections: Record<number, Set<number>>,
+    texts: Record<number, string> = {}
+): boolean {
+    return (
+        questions.length > 0 &&
+        questions.every((_, qi) => (selections[qi]?.size ?? 0) >= 1 || (texts[qi] ?? "").trim() !== "")
+    );
 }
 
 /** Pure: the single muted footer hint for an ask, so one consistent line always renders.

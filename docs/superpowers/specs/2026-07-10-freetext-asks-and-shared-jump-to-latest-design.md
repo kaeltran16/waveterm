@@ -87,6 +87,32 @@ Exit criterion: CC echoes back the exact typed string for a single-question ask 
 `[select][free-text]` and `[free-text][select]` multi-question batch. The verified sequence is
 encoded and frozen with a comment citing the CC version.
 
+### Free-text protocol — VERIFIED (CC v2.1.206, 2026-07-10)
+
+Driven by outcome under a `node-pty` + headless-xterm harness at the real 60ms `KeystrokeDelay`.
+Picker layout (single question, N options): rows `0..N-1` are the options, index `N` is
+`Type something.`, then a separator and `Chat about this` at `N+1`. Multi-question renders a tab bar
+`←  ☐ Q1  ☐ Q2  ✔ Submit  →`; each tab's list carries the same `Type something.` at index N.
+
+Confirmed sequence (corrects two assumptions in the original plan template):
+
+- **Single-question free-text:** `ESC[B × N` (highlight `Type something.`) → **type the string directly**
+  → one `\r` submits. There is **no "open" Enter** — pressing Enter on the *empty* `Type something.`
+  row *declines the question*; you type while the row is highlighted (it becomes an inline input),
+  then Enter submits. **No review gate** for a single question.
+- **Multi-question free-text tab:** `ESC[B × N` → type → one `\r` **confirms the text and
+  auto-advances to the next tab** — i.e. Enter, *not* Tab (Tab was the plan's guess; a free-text tab
+  behaves like a single-select tab, whose Enter both confirms and advances). The trailing final `\r`
+  after the last question confirms the `Ready to submit your answers?` Submit review (unchanged).
+- **Delivery:** one write per character at `KeystrokeDelay`; ASCII lands intact and in order (no
+  bracketed paste needed). `typeBytes` iterates runes so a multi-byte char is written atomically.
+- **Escaping:** reject control characters — a literal `\t` would advance the tab bar, `\x1b` cancels,
+  `\r`/`\n` submit. v1 is single-line printable text.
+
+Verified outcomes: single-question `quokka-hex-42` echoed exactly (`You picked quokka-hex-42`);
+`[select][free-text]` delivered `Zephyr` + `zzq-freetext-7`; `[free-text][select]` delivered
+`aardvark-tab-3` + `Green`.
+
 ### Frontend — `frontend/app/view/agents/answerbar.tsx`
 
 - Add an always-available "type your own answer" input per question (mirrors CC's ever-present

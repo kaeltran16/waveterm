@@ -281,6 +281,16 @@ describe("buildAskAnswers", () => {
     it("emits empty indexes for an unanswered question", () => {
         expect(buildAskAnswers([q()], {})).toEqual([{ selectedindexes: [] }]);
     });
+
+    it("emits text over selection when a question has free text", () => {
+        const questions = [q(), q()];
+        const selections = { 0: new Set([1]) };
+        const texts = { 1: "  custom answer " };
+        expect(buildAskAnswers(questions, selections, texts)).toEqual([
+            { selectedindexes: [1] },
+            { text: "custom answer" }, // trimmed
+        ]);
+    });
 });
 
 describe("canSubmitAsk", () => {
@@ -290,6 +300,12 @@ describe("canSubmitAsk", () => {
         expect(canSubmitAsk([q(), q()], { 0: new Set([0]), 1: new Set([0]) })).toBe(true);
         expect(canSubmitAsk([q(), q()], { 0: new Set([0]) })).toBe(false);
         expect(canSubmitAsk([], {})).toBe(false);
+    });
+
+    it("accepts a text-only answer and rejects a blank question", () => {
+        const questions = [q(), q()];
+        expect(canSubmitAsk(questions, { 0: new Set([0]) }, { 1: "typed" })).toBe(true);
+        expect(canSubmitAsk(questions, { 0: new Set([0]) }, { 1: "   " })).toBe(false);
     });
 });
 

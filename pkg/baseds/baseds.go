@@ -112,8 +112,10 @@ type AgentAskData struct {
 	Cleared   bool               `json:"cleared,omitempty"`
 }
 
-// AgentAnswerItem is one question's answer in a panel-submitted reply. SelectedIndexes
-// indexes into that question's Options (MVP: exactly one for single-select).
+// AgentAnswerItem is one question's answer in a panel-submitted reply. Exactly one of Text or
+// SelectedIndexes is set: SelectedIndexes indexes into that question's Options (single-select uses
+// one); Text is a free-text answer delivered to Claude Code's "Type something" row.
 type AgentAnswerItem struct {
-	SelectedIndexes []int `json:"selectedindexes,omitempty"`
+	SelectedIndexes []int  `json:"selectedindexes,omitempty"`
+	Text            string `json:"text,omitempty"`
 }

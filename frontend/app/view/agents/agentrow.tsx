@@ -113,6 +113,7 @@ export function AgentRow({
     now,
     isCursor,
     selections,
+    texts,
     sent,
     activeQuestion,
     composerOpen,
@@ -122,6 +123,7 @@ export function AgentRow({
     onOpenDiff,
     onOpenComposer,
     onToggleAnswer,
+    onAnswerText,
     onSubmitAnswer,
     onSelectQuestion,
     onComposerEscape,
@@ -144,6 +146,7 @@ export function AgentRow({
     now: number;
     isCursor: boolean;
     selections: Record<number, Set<number>>;
+    texts: Record<number, string>;
     sent: boolean;
     activeQuestion?: number;
     composerOpen: boolean;
@@ -153,6 +156,7 @@ export function AgentRow({
     onOpenDiff: () => void;
     onOpenComposer: () => void;
     onToggleAnswer: (qi: number, oi: number) => void;
+    onAnswerText: (qi: number, value: string) => void;
     onSubmitAnswer: () => void;
     onSelectQuestion?: (qi: number) => void;
     onComposerEscape?: () => void;
@@ -439,11 +443,13 @@ export function AgentRow({
                     <AnswerBar
                         agent={agent}
                         selections={selections}
+                        texts={texts}
                         sent={sent}
                         numbered
                         hideQuestion
                         activeQuestion={activeQuestion}
                         onToggle={onToggleAnswer}
+                        onText={onAnswerText}
                         onSubmit={onSubmitAnswer}
                         onSelectQuestion={onSelectQuestion}
                         className="shrink-0 border-t border-edge-mid px-3 py-2"
