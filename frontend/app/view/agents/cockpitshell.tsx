@@ -6,7 +6,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
-import { ActivitySurface } from "./activitysurface";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
 import { ChannelsSurface } from "./channelssurface";
@@ -63,8 +62,6 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <CockpitSurface model={model} />
                         ) : surface === "channels" ? (
                             <ChannelsSurface model={model} />
-                        ) : surface === "activity" ? (
-                            <ActivitySurface model={model} />
                         ) : surface === "files" ? (
                             <FilesSurface model={model} />
                         ) : surface === "sessions" ? (

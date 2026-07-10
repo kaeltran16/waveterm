@@ -1542,6 +1542,27 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
 }
 
+func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc.CommandGetSessionsActivityData) (*wshrpc.CommandGetSessionsActivityRtnData, error) {
+	sessions, err := agentsessions.ScanSessions(data.WindowDays, data.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("scanning sessions: %w", err)
+	}
+	out := make([]wshrpc.SessionActivity, len(sessions))
+	for i, s := range sessions {
+		evs := make([]wshrpc.SessionEvent, len(s.Events))
+		for j, e := range s.Events {
+			evs[j] = wshrpc.SessionEvent{Type: e.Type, Ts: e.Ts, Text: e.Text}
+		}
+		out[i] = wshrpc.SessionActivity{
+			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
+			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
+			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand, TranscriptPath: s.TranscriptPath,
+			Status: s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
+		}
+	}
+	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out}, nil
+}
+
 func cutoffFromEpoch(sec int64) time.Time {
 	if sec <= 0 {
 		return time.Time{}

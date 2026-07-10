@@ -15,7 +15,6 @@ function b(id: string, keys = "j"): Binding {
 const SURFACES: SurfaceKey[] = [
     "cockpit",
     "agent",
-    "activity",
     "channels",
     "sessions",
     "files",

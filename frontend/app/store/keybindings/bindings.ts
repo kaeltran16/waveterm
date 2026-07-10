@@ -15,7 +15,6 @@ const DOUBLE_CTRL_C_MS = 500;
 const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
     { letter: "a", surface: "agent", label: "Agent" },
-    { letter: "v", surface: "activity", label: "Activity" },
     { letter: "c", surface: "channels", label: "Channels" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Files" },

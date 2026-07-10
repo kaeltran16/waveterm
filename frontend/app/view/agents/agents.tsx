@@ -18,14 +18,13 @@ import {
     type PendingLaunch,
 } from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
-import type { ActivityType } from "./activityevents";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
+import type { SessionStatusFilter } from "./sessionsarchivestore";
 import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
 
 export type SurfaceKey =
     | "cockpit"
     | "agent"
-    | "activity"
     | "channels"
     | "sessions"
     | "files"
@@ -37,7 +36,6 @@ export type SurfaceKey =
 export const SURFACE_ORDER: SurfaceKey[] = [
     "cockpit",
     "agent",
-    "activity",
     "channels",
     "sessions",
     "files",
@@ -85,10 +83,10 @@ export class AgentsViewModel implements ViewModel {
     focusReplyAtom = atom(false);
     railOpenAtom = atom(true);
     chipFilterAtom = atom<ChipFilter>("all");
-    // Activity surface: selected type filter chip (spec §4.1). Default "all".
-    activityFilterAtom = atom<ActivityType | "all">("all");
-    // Activity surface: selected project scope ("all" | <project>), independent of the type chip.
-    activityProjectFilterAtom = atom<string>("all");
+    // Sessions surface: status filter chip (All / Live / Done / Needs attention). Default "all".
+    sessionsStatusFilterAtom = atom<SessionStatusFilter>("all");
+    // Sessions surface: selected left-list entry. "all" = merged feed; else "${runtime}:${id}".
+    sessionsSelAtom = atom<string>("all");
 
     // New Project / New Agent modal + command-palette visibility (gated overlays rendered from the cockpit root).
     newProjectOpenAtom = atom(false);

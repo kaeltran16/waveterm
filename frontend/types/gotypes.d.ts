@@ -642,6 +642,17 @@ declare global {
         label: string;
     };
 
+    // wshrpc.CommandGetSessionsActivityData
+    type CommandGetSessionsActivityData = {
+        windowdays?: number;
+        limit?: number;
+    };
+
+    // wshrpc.CommandGetSessionsActivityRtnData
+    type CommandGetSessionsActivityRtnData = {
+        sessions: SessionActivity[];
+    };
+
     // wshrpc.CommandGetSubagentsData
     type CommandGetSubagentsData = {
         path: string;
@@ -1993,6 +2004,32 @@ declare global {
     type SecretMeta = {
         desc: string;
         optional: boolean;
+    };
+
+    // wshrpc.SessionActivity
+    type SessionActivity = {
+        id: string;
+        runtime: string;
+        projectpath: string;
+        projectname: string;
+        branch: string;
+        task: string;
+        model: string;
+        tokenstotal: number;
+        lastactivets: number;
+        resumecommand: string;
+        transcriptpath: string;
+        status: string;
+        startedts: number;
+        durationms: number;
+        events: SessionEvent[];
+    };
+
+    // wshrpc.SessionEvent
+    type SessionEvent = {
+        type: string;
+        ts: number;
+        text: string;
     };
 
     // wshrpc.SessionInfo

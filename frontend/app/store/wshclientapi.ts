@@ -576,6 +576,12 @@ export class RpcApiType {
         return client.wshRpcCall("getsessiongroup", data, opts);
     }
 
+    // command "getsessionsactivity" [call]
+    GetSessionsActivityCommand(client: WshClient, data: CommandGetSessionsActivityData, opts?: RpcOpts): Promise<CommandGetSessionsActivityRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getsessionsactivity", data, opts);
+        return client.wshRpcCall("getsessionsactivity", data, opts);
+    }
+
     // command "getsubagents" [call]
     GetSubagentsCommand(client: WshClient, data: CommandGetSubagentsData, opts?: RpcOpts): Promise<CommandGetSubagentsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getsubagents", data, opts);

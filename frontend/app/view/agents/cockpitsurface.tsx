@@ -627,7 +627,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             const surfaceOrder: SurfaceKey[] = [
                 "cockpit",
                 "agent",
-                "activity",
                 "channels",
                 "sessions",
                 "files",
@@ -1048,9 +1047,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     ...(recent.length > 0
                         ? [
                               {
-                                  id: "activity",
+                                  id: "recent-activity",
                                   label: "Recent activity",
-                                  icon: ICON.activity,
+                                  icon: ICON.sessions,
                                   content: (
                                       <div>
                                           <div className="mb-3 flex items-center justify-between">
@@ -1059,7 +1058,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                               </h3>
                                               <button
                                                   type="button"
-                                                  onClick={() => globalStore.set(model.surfaceAtom, "activity")}
+                                                  onClick={() => globalStore.set(model.surfaceAtom, "sessions")}
                                                   className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
                                               >
                                                   View all →

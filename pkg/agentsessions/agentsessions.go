@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -36,6 +37,12 @@ type SessionInfo struct {
 	TokensTotal   int
 	LastActiveTs  int64  // file mtime, UnixMilli
 	ResumeCommand string // runtime resume invocation; empty means not resumable
+
+	TranscriptPath string // on-disk JSONL path; FE matches this against the live roster
+	Status         string // "done" | "failed" | "waiting" (FE overlays "running" for live)
+	StartedTs      int64  // first event ts, UnixMilli
+	DurationMs     int64  // last event ts - first event ts
+	Events         []SessionEvent
 }
 
 type claudeLine struct {
@@ -89,6 +96,128 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 		return nil
 	}
 	return s
+}
+
+type claudeEventLine struct {
+	Type      string `json:"type"`
+	Timestamp string `json:"timestamp"`
+	Message   struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+}
+
+type claudeBlock struct {
+	Type  string `json:"type"`
+	Text  string `json:"text"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input struct {
+		Command   string `json:"command"`
+		Questions []struct {
+			Question string `json:"question"`
+			Header   string `json:"header"`
+		} `json:"questions"`
+	} `json:"input"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
+}
+
+func askText(b claudeBlock) string {
+	if len(b.Input.Questions) > 0 {
+		q := b.Input.Questions[0]
+		if q.Question != "" {
+			return clipText(q.Question)
+		}
+		if q.Header != "" {
+			return clipText(q.Header)
+		}
+	}
+	return "asked a question"
+}
+
+// extractClaudeEvents ports frontend/app/view/agents/activityevents.ts:extractClaudeEvents. It does
+// NOT gate the synthetic "finished" on liveness (Go can't know the live roster); assembleEvents only
+// appends "finished" for done sessions, and the frontend strips it for live ones.
+func extractClaudeEvents(lines []string) sessionEvents {
+	var raw []SessionEvent
+	cmdByID := map[string]string{}
+	var firstTs, lastTs int64
+	var firstUser, lastAssistant string
+	for _, line := range lines {
+		var rec claudeEventLine
+		if json.Unmarshal([]byte(line), &rec) != nil {
+			continue
+		}
+		if ts := parseTs(rec.Timestamp); ts > 0 {
+			if firstTs == 0 {
+				firstTs = ts
+			}
+			lastTs = ts
+		}
+		ts := parseTs(rec.Timestamp)
+		switch rec.Type {
+		case "assistant":
+			var blocks []claudeBlock
+			if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+				continue
+			}
+			for _, b := range blocks {
+				switch b.Type {
+				case "text":
+					if strings.TrimSpace(b.Text) != "" {
+						lastAssistant = b.Text
+					}
+				case "tool_use":
+					cmd := b.Input.Command
+					if b.ID != "" {
+						if cmd != "" {
+							cmdByID[b.ID] = cmd
+						} else {
+							cmdByID[b.ID] = b.Name
+						}
+					}
+					if b.Name == "AskUserQuestion" {
+						raw = append(raw, SessionEvent{Type: "asked", Ts: ts, Text: askText(b)})
+					} else if b.Name == "Bash" && commitRe.MatchString(cmd) {
+						raw = append(raw, SessionEvent{Type: "committed", Ts: ts, Text: commitSubject(cmd)})
+					}
+				}
+			}
+		case "user":
+			var str string
+			if json.Unmarshal(rec.Message.Content, &str) == nil {
+				if firstUser == "" && strings.TrimSpace(str) != "" {
+					firstUser = str
+				}
+				continue
+			}
+			var blocks []claudeBlock
+			if json.Unmarshal(rec.Message.Content, &blocks) != nil {
+				continue
+			}
+			for _, b := range blocks {
+				if b.Type == "text" && firstUser == "" && strings.TrimSpace(b.Text) != "" {
+					firstUser = b.Text
+				}
+				if b.Type == "tool_result" && b.IsError && b.ToolUseID != "" {
+					cmd := cmdByID[b.ToolUseID]
+					if cmd == "" {
+						cmd = "a command"
+					}
+					raw = append(raw, SessionEvent{Type: "errored", Ts: ts, Text: "failed: " + clipText(cmd)})
+				}
+			}
+		}
+	}
+	startedText := "started session"
+	if firstUser != "" {
+		startedText = clipText(firstUser)
+	}
+	finishedText := "finished"
+	if lastAssistant != "" {
+		finishedText = clipText(lastAssistant)
+	}
+	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
 }
 
 type codexLine struct {
@@ -148,6 +277,137 @@ func extractCodexSession(_ string, lines []string) *SessionInfo {
 	return s
 }
 
+type codexEventLine struct {
+	Type      string          `json:"type"`
+	Timestamp string          `json:"timestamp"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type codexPayload struct {
+	Type         string          `json:"type"`
+	ThreadSource string          `json:"thread_source"`
+	Role         string          `json:"role"`
+	Name         string          `json:"name"`
+	Arguments    string          `json:"arguments"`
+	CallID       string          `json:"call_id"`
+	Output       json.RawMessage `json:"output"`
+	Content      []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+}
+
+func codexShellCommand(argsRaw string) string {
+	if argsRaw == "" {
+		return ""
+	}
+	var a struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal([]byte(argsRaw), &a) != nil {
+		return ""
+	}
+	return a.Command
+}
+
+func codexOutputIsError(raw json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return false // ported TS only inspects string output
+	}
+	if m := exitCodeRe.FindStringSubmatch(s); m != nil {
+		return m[1] != "0"
+	}
+	var p struct {
+		Metadata struct {
+			ExitCode *int `json:"exit_code"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal([]byte(s), &p) == nil && p.Metadata.ExitCode != nil {
+		return *p.Metadata.ExitCode != 0
+	}
+	return false
+}
+
+// extractCodexEvents ports frontend/app/view/agents/activityevents.ts:extractCodexEvents.
+func extractCodexEvents(lines []string) sessionEvents {
+	var raw []SessionEvent
+	cmdByID := map[string]string{}
+	var firstTs, lastTs int64
+	var firstUser, lastAssistant string
+	isSubagent := false
+	for _, line := range lines {
+		var rec codexEventLine
+		if json.Unmarshal([]byte(line), &rec) != nil {
+			continue
+		}
+		if ts := parseTs(rec.Timestamp); ts > 0 {
+			if firstTs == 0 {
+				firstTs = ts
+			}
+			lastTs = ts
+		}
+		ts := parseTs(rec.Timestamp)
+		var p codexPayload
+		if len(rec.Payload) == 0 || json.Unmarshal(rec.Payload, &p) != nil {
+			continue
+		}
+		if rec.Type == "session_meta" {
+			if p.ThreadSource == "subagent" {
+				isSubagent = true
+			}
+			continue
+		}
+		if rec.Type != "response_item" {
+			continue
+		}
+		switch p.Type {
+		case "message":
+			for _, b := range p.Content {
+				if p.Role == "assistant" && b.Type == "output_text" && strings.TrimSpace(b.Text) != "" {
+					lastAssistant = b.Text
+				}
+				if p.Role == "user" && b.Type == "input_text" && firstUser == "" && strings.TrimSpace(b.Text) != "" &&
+					!strings.HasPrefix(b.Text, "<environment_context") && !strings.HasPrefix(b.Text, "<skill>") {
+					firstUser = b.Text
+				}
+			}
+		case "function_call":
+			cmd := codexShellCommand(p.Arguments)
+			if p.CallID != "" {
+				if cmd != "" {
+					cmdByID[p.CallID] = cmd
+				} else {
+					cmdByID[p.CallID] = p.Name
+				}
+			}
+			if p.Name == "shell_command" && commitRe.MatchString(cmd) {
+				raw = append(raw, SessionEvent{Type: "committed", Ts: ts, Text: commitSubject(cmd)})
+			}
+		case "function_call_output", "custom_tool_call_output":
+			if p.CallID != "" && codexOutputIsError(p.Output) {
+				cmd := cmdByID[p.CallID]
+				if cmd == "" {
+					cmd = "a command"
+				}
+				raw = append(raw, SessionEvent{Type: "errored", Ts: ts, Text: "failed: " + clipText(cmd)})
+			}
+		}
+	}
+	if isSubagent {
+		return sessionEvents{Status: "done"}
+	}
+	startedText := "started session"
+	if firstUser != "" {
+		startedText = clipText(firstUser)
+	}
+	finishedText := "finished"
+	if lastAssistant != "" {
+		finishedText = clipText(lastAssistant)
+	}
+	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
+}
+
 // stringContent returns trimmed text when message.content is a plain string (a human prompt).
 // Returns "" for array content (tool results) or anything else.
 func stringContent(raw json.RawMessage) string {
@@ -167,6 +427,98 @@ func trimTo(s string, max int) string {
 		return s
 	}
 	return strings.TrimSpace(s[:max]) + "…"
+}
+
+// SessionEvent is one lifecycle event extracted from a transcript (ported from
+// frontend/app/view/agents/activityevents.ts). Type ∈ started|asked|committed|errored|finished.
+type SessionEvent struct {
+	Type string `json:"type"`
+	Ts   int64  `json:"ts"`
+	Text string `json:"text"`
+}
+
+// sessionEvents is an extractor's full result: the ordered events plus derived summary fields.
+type sessionEvents struct {
+	Events     []SessionEvent
+	Status     string
+	StartedTs  int64
+	DurationMs int64
+}
+
+const maxEventText = 100
+
+var (
+	wsRe        = regexp.MustCompile(`\s+`)
+	commitRe    = regexp.MustCompile(`\bgit\s+commit\b`)
+	commitMsgRe = regexp.MustCompile(`-m\s+["']([^"']+)["']`)
+	exitCodeRe  = regexp.MustCompile(`Exit code:\s*(\d+)`)
+)
+
+// clipText collapses whitespace, trims, and caps at maxEventText runes with an ellipsis.
+func clipText(s string) string {
+	s = strings.TrimSpace(wsRe.ReplaceAllString(s, " "))
+	r := []rune(s)
+	if len(r) > maxEventText {
+		return strings.TrimSpace(string(r[:maxEventText-1])) + "…"
+	}
+	return s
+}
+
+// parseTs parses an ISO-8601 timestamp to UnixMilli, or 0 when absent/unparseable.
+func parseTs(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+func commitSubject(cmd string) string {
+	if m := commitMsgRe.FindStringSubmatch(cmd); m != nil {
+		return clipText(m[1])
+	}
+	return "committed"
+}
+
+// assembleEvents sorts the raw events, derives status from the last real event, prepends a synthetic
+// "started" and (only for done sessions) appends a synthetic "finished", and computes duration.
+func assembleEvents(raw []SessionEvent, firstTs, lastTs int64, startedText, finishedText string) sessionEvents {
+	var real []SessionEvent
+	for _, e := range raw {
+		if e.Ts > 0 {
+			real = append(real, e)
+		}
+	}
+	sort.SliceStable(real, func(i, j int) bool { return real[i].Ts < real[j].Ts })
+
+	status := "done"
+	if n := len(real); n > 0 {
+		switch real[n-1].Type {
+		case "asked":
+			status = "waiting"
+		case "errored":
+			status = "failed"
+		}
+	}
+
+	var events []SessionEvent
+	if firstTs > 0 {
+		events = append(events, SessionEvent{Type: "started", Ts: firstTs, Text: startedText})
+	}
+	events = append(events, real...)
+	if status == "done" && lastTs > 0 {
+		events = append(events, SessionEvent{Type: "finished", Ts: lastTs, Text: finishedText})
+	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
+
+	var dur int64
+	if firstTs > 0 && lastTs > firstTs {
+		dur = lastTs - firstTs
+	}
+	return sessionEvents{Events: events, Status: status, StartedTs: firstTs, DurationMs: dur}
 }
 
 // readLines reads non-blank lines from a transcript file. A package var so tests can assert
@@ -191,6 +543,7 @@ type provider struct {
 	matches   func(name string) bool
 	extract   func(stem string, lines []string) *SessionInfo
 	resumeCmd func(s *SessionInfo) string
+	events    func(lines []string) sessionEvents
 }
 
 func claudeProvider(root string) provider {
@@ -200,6 +553,7 @@ func claudeProvider(root string) provider {
 		matches:   func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
 		extract:   extractClaudeSession,
 		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
+		events:    extractClaudeEvents,
 	}
 }
 
@@ -212,6 +566,7 @@ func codexProvider(root string) provider {
 		},
 		extract:   extractCodexSession,
 		resumeCmd: func(s *SessionInfo) string { return "codex resume " + s.ID },
+		events:    extractCodexEvents,
 	}
 }
 
@@ -249,13 +604,20 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		s := p.extract(c.stem, readLines(c.path))
+		lines := readLines(c.path)
+		s := p.extract(c.stem, lines)
 		if s == nil {
 			continue
 		}
 		s.Runtime = p.runtime
 		s.LastActiveTs = c.mtime.UnixMilli()
 		s.ResumeCommand = p.resumeCmd(s)
+		s.TranscriptPath = c.path
+		se := p.events(lines)
+		s.Events = se.Events
+		s.Status = se.Status
+		s.StartedTs = se.StartedTs
+		s.DurationMs = se.DurationMs
 		out = append(out, *s)
 	}
 	return out

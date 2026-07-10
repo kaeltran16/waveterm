@@ -10,6 +10,12 @@ import { SURFACE_ORDER, type SurfaceKey } from "./agents";
 // Which surface opens on launch. Defaults to the cockpit overview (matches prior hardcoded behavior).
 export const startupSurfaceAtom = atomWithStorage<SurfaceKey>("cockpit.startup.surface", "cockpit");
 
+// A persisted "activity" (the retired surface) coerces to "sessions" — its successor. Callers that seed
+// surfaceAtom from the stored value must route through this so a stale key never renders a blank surface.
+export function coerceStartupSurface(k: SurfaceKey | "activity"): SurfaceKey {
+    return (k as string) === "activity" ? "sessions" : (k as SurfaceKey);
+}
+
 // Surfaces offered as a startup choice: the numbered workflow set minus "agent" (it needs a live
 // agent to be meaningful). "settings" is naturally absent — it was never in SURFACE_ORDER.
 export function startupSurfaceOptions(): SurfaceKey[] {

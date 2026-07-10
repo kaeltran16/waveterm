@@ -4,7 +4,6 @@
 import { cn } from "@/util/util";
 import { useAtom } from "jotai";
 import {
-    Activity,
     Bot,
     Gauge,
     GitCompare,
@@ -23,7 +22,6 @@ const iconProps = { size: 20, strokeWidth: 1.8 } as const;
 export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: <LayoutDashboard {...iconProps} />,
     agent: <Bot {...iconProps} />,
-    activity: <Activity {...iconProps} />,
     channels: <MessagesSquare {...iconProps} />,
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
@@ -35,7 +33,6 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
 export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
     { key: "agent", label: "Agent" },
-    { key: "activity", label: "Activity" },
     { key: "channels", label: "Channels" },
     { key: "sessions", label: "Sessions" },
     { key: "files", label: "Diff" },

@@ -100,6 +100,7 @@ type WshRpcInterface interface {
 	GitRevertCommand(ctx context.Context, data CommandGitRevertData) error
 	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
+	GetSessionsActivityCommand(ctx context.Context, data CommandGetSessionsActivityData) (*CommandGetSessionsActivityRtnData, error)
 	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
@@ -873,6 +874,39 @@ type CommandGetRecentSessionsData struct {
 
 type CommandGetRecentSessionsRtnData struct {
 	Sessions []SessionInfo `json:"sessions"`
+}
+
+type SessionEvent struct {
+	Type string `json:"type"`
+	Ts   int64  `json:"ts"`
+	Text string `json:"text"`
+}
+
+type SessionActivity struct {
+	ID             string         `json:"id"`
+	Runtime        string         `json:"runtime"`
+	ProjectPath    string         `json:"projectpath"`
+	ProjectName    string         `json:"projectname"`
+	Branch         string         `json:"branch"`
+	Task           string         `json:"task"`
+	Model          string         `json:"model"`
+	TokensTotal    int            `json:"tokenstotal"`
+	LastActiveTs   int64          `json:"lastactivets"`
+	ResumeCommand  string         `json:"resumecommand"`
+	TranscriptPath string         `json:"transcriptpath"`
+	Status         string         `json:"status"`
+	StartedTs      int64          `json:"startedts"`
+	DurationMs     int64          `json:"durationms"`
+	Events         []SessionEvent `json:"events"`
+}
+
+type CommandGetSessionsActivityData struct {
+	WindowDays int `json:"windowdays,omitempty"`
+	Limit      int `json:"limit,omitempty"`
+}
+
+type CommandGetSessionsActivityRtnData struct {
+	Sessions []SessionActivity `json:"sessions"`
 }
 
 type CommandGetTranscriptTokensData struct {

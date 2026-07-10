@@ -9,7 +9,7 @@ import { initKeybindingDispatcher } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
-import { startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
+import { coerceStartupSurface, startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
 import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
 import { useApplyCockpitFonts } from "@/app/view/agents/fontstore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
@@ -54,7 +54,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             waveEnv,
         });
         // Open the user's chosen startup surface (defaults to "cockpit", matching prior behavior).
-        globalStore.set(model.surfaceAtom, globalStore.get(startupSurfaceAtom));
+        globalStore.set(model.surfaceAtom, coerceStartupSurface(globalStore.get(startupSurfaceAtom)));
         agentsModelRef.current = model;
     }
     const model = agentsModelRef.current;

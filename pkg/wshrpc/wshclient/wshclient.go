@@ -573,6 +573,12 @@ func GetSessionGroupCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSessionGrou
 	return resp, err
 }
 
+// command "getsessionsactivity", wshserver.GetSessionsActivityCommand
+func GetSessionsActivityCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSessionsActivityData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetSessionsActivityRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetSessionsActivityRtnData](w, "getsessionsactivity", data, opts)
+	return resp, err
+}
+
 // command "getsubagents", wshserver.GetSubagentsCommand
 func GetSubagentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSubagentsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetSubagentsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetSubagentsRtnData](w, "getsubagents", data, opts)
