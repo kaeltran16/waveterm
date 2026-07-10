@@ -132,6 +132,11 @@ type WshRpcInterface interface {
 	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                           // complete a phase / approve or send back a gate (spawns the next worker)
 	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                             // cancel a Run
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                   // lead self-reports hold/complete; resolves run/phase from its own oref
+	StartRadarScanCommand(ctx context.Context, data CommandStartRadarScanData) (*CommandStartRadarScanRtnData, error) // validate scope + start a manual repo scan
+	CancelRadarScanCommand(ctx context.Context, data CommandCancelRadarScanData) error                                // cancel an in-flight scan
+	ListRadarReportsCommand(ctx context.Context, data CommandListRadarReportsData) (*CommandListRadarReportsRtnData, error)
+	SetRadarFindingDispositionCommand(ctx context.Context, data CommandSetRadarFindingDispositionData) error // dismiss/suppress/reopen/unsuppress a finding
+	RetryRadarClusteringCommand(ctx context.Context, data CommandRetryRadarClusteringData) error             // re-run synthesis from retained candidates
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                   // write a channel's per-project profile override (empty clears it)
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
@@ -819,6 +824,38 @@ type CommandReportRunPhaseData struct {
 	ORef      string   `json:"oref"`                // caller's tab oref ("tab:<id>")
 	Action    string   `json:"action"`              // hold | complete
 	Artifacts []string `json:"artifacts,omitempty"` // recorded on complete
+}
+
+type CommandStartRadarScanData struct {
+	ProjectPath string `json:"projectpath"`
+}
+
+type CommandStartRadarScanRtnData struct {
+	Report *waveobj.RadarReport `json:"report"`
+}
+
+type CommandCancelRadarScanData struct {
+	ReportId string `json:"reportid"`
+}
+
+type CommandListRadarReportsData struct {
+	ProjectPath string `json:"projectpath,omitempty"`
+}
+
+type CommandListRadarReportsRtnData struct {
+	Reports []*waveobj.RadarReport `json:"reports"`
+}
+
+type CommandSetRadarFindingDispositionData struct {
+	ReportId  string `json:"reportid"`
+	FindingId string `json:"findingid"`
+	Action    string `json:"action"` // dismiss|suppress|reopen|unsuppress
+	Reason    string `json:"reason,omitempty"`
+	Note      string `json:"note,omitempty"`
+}
+
+type CommandRetryRadarClusteringData struct {
+	ReportId string `json:"reportid"`
 }
 
 type CommandGetJarvisProfileData struct {

@@ -114,6 +114,12 @@ export class RpcApiType {
         return client.wshRpcCall("blockslist", data, opts);
     }
 
+    // command "cancelradarscan" [call]
+    CancelRadarScanCommand(client: WshClient, data: CommandCancelRadarScanData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "cancelradarscan", data, opts);
+        return client.wshRpcCall("cancelradarscan", data, opts);
+    }
+
     // command "cancelrun" [call]
     CancelRunCommand(client: WshClient, data: CommandCancelRunData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "cancelrun", data, opts);
@@ -798,6 +804,12 @@ export class RpcApiType {
         return client.wshRpcCall("listconsultruntimes", null, opts);
     }
 
+    // command "listradarreports" [call]
+    ListRadarReportsCommand(client: WshClient, data: CommandListRadarReportsData, opts?: RpcOpts): Promise<CommandListRadarReportsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listradarreports", data, opts);
+        return client.wshRpcCall("listradarreports", data, opts);
+    }
+
     // command "macosversion" [call]
     MacOSVersionCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "macosversion", null, opts);
@@ -1086,6 +1098,12 @@ export class RpcApiType {
         return client.wshRpcCall("restartbuilderandwait", data, opts);
     }
 
+    // command "retryradarclustering" [call]
+    RetryRadarClusteringCommand(client: WshClient, data: CommandRetryRadarClusteringData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "retryradarclustering", data, opts);
+        return client.wshRpcCall("retryradarclustering", data, opts);
+    }
+
     // command "routeannounce" [call]
     RouteAnnounceCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "routeannounce", null, opts);
@@ -1164,6 +1182,12 @@ export class RpcApiType {
         return client.wshRpcCall("setpeerinfo", data, opts);
     }
 
+    // command "setradarfindingdisposition" [call]
+    SetRadarFindingDispositionCommand(client: WshClient, data: CommandSetRadarFindingDispositionData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setradarfindingdisposition", data, opts);
+        return client.wshRpcCall("setradarfindingdisposition", data, opts);
+    }
+
     // command "setrtinfo" [call]
     SetRTInfoCommand(client: WshClient, data: CommandSetRTInfoData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setrtinfo", data, opts);
@@ -1192,6 +1216,12 @@ export class RpcApiType {
     StartJobCommand(client: WshClient, data: CommandStartJobData, opts?: RpcOpts): Promise<CommandStartJobRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startjob", data, opts);
         return client.wshRpcCall("startjob", data, opts);
+    }
+
+    // command "startradarscan" [call]
+    StartRadarScanCommand(client: WshClient, data: CommandStartRadarScanData, opts?: RpcOpts): Promise<CommandStartRadarScanRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startradarscan", data, opts);
+        return client.wshRpcCall("startradarscan", data, opts);
     }
 
     // command "stopbuilder" [call]

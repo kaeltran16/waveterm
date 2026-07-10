@@ -375,6 +375,11 @@ declare global {
         termsize?: TermSize;
     };
 
+    // wshrpc.CommandCancelRadarScanData
+    type CommandCancelRadarScanData = {
+        reportid: string;
+    };
+
     // wshrpc.CommandCancelRunData
     type CommandCancelRunData = {
         channelid: string;
@@ -844,6 +849,16 @@ declare global {
         runtimes: ConsultRuntimeInfo[];
     };
 
+    // wshrpc.CommandListRadarReportsData
+    type CommandListRadarReportsData = {
+        projectpath?: string;
+    };
+
+    // wshrpc.CommandListRadarReportsRtnData
+    type CommandListRadarReportsRtnData = {
+        reports: RadarReport[];
+    };
+
     // wshrpc.CommandMakeDraftFromLocalData
     type CommandMakeDraftFromLocalData = {
         localappid: string;
@@ -1110,6 +1125,11 @@ declare global {
         builderid: string;
     };
 
+    // wshrpc.CommandRetryRadarClusteringData
+    type CommandRetryRadarClusteringData = {
+        reportid: string;
+    };
+
     // wshrpc.CommandSetChannelGatekeeperData
     type CommandSetChannelGatekeeperData = {
         channelid: string;
@@ -1155,6 +1175,15 @@ declare global {
         delete?: boolean;
     };
 
+    // wshrpc.CommandSetRadarFindingDispositionData
+    type CommandSetRadarFindingDispositionData = {
+        reportid: string;
+        findingid: string;
+        action: string;
+        reason?: string;
+        note?: string;
+    };
+
     // wshrpc.CommandStartBuilderData
     type CommandStartBuilderData = {
         builderid: string;
@@ -1175,6 +1204,16 @@ declare global {
         cmdstartts: number;
         jobmanagerpid: number;
         jobmanagerstartts: number;
+    };
+
+    // wshrpc.CommandStartRadarScanData
+    type CommandStartRadarScanData = {
+        projectpath: string;
+    };
+
+    // wshrpc.CommandStartRadarScanRtnData
+    type CommandStartRadarScanRtnData = {
+        report: RadarReport;
     };
 
     // wshrpc.CommandStreamAckData
@@ -1908,6 +1947,78 @@ declare global {
     // wconfig.ProjectKeywords
     type ProjectKeywords = {
         path?: string;
+    };
+
+    // waveobj.RadarDisposition
+    type RadarDisposition = {
+        action: string;
+        reason?: string;
+        note?: string;
+        ts: number;
+        user?: string;
+        evidencerev?: string;
+    };
+
+    // waveobj.RadarFinding
+    type RadarFinding = {
+        id: string;
+        fingerprint: string;
+        group: string;
+        riskkind: string;
+        subsystem: string;
+        boundarylabel?: string;
+        risk: string;
+        why: string;
+        severity: string;
+        strength: string;
+        signalids: string[];
+        files: string[];
+        mission: string;
+        disposition?: RadarDisposition;
+    };
+
+    // waveobj.RadarReport
+    type RadarReport = WaveObj & {
+        projectname: string;
+        projectpath: string;
+        status: string;
+        phase?: string;
+        starthead?: string;
+        endhead?: string;
+        startdirty?: string;
+        enddirty?: string;
+        prevreportid?: string;
+        prevhead?: string;
+        windowstartts?: number;
+        windowendts?: number;
+        startedts: number;
+        completedts?: number;
+        coverage?: {[key: string]: string};
+        partialsources?: string[];
+        fatalerror?: string;
+        clustererror?: string;
+        configuredmodel?: string;
+        resolvedmodel?: string;
+        payloadtokens?: number;
+        totaltokens?: number;
+        totaltokensestimated?: boolean;
+        candidates?: RadarSignal[];
+        signals?: RadarSignal[];
+        findings?: RadarFinding[];
+    };
+
+    // waveobj.RadarSignal
+    type RadarSignal = {
+        id: string;
+        collector: string;
+        sourceref: string;
+        observedts: number;
+        paths?: string[];
+        subsystem?: string;
+        summary: string;
+        facts?: {[key: string]: any};
+        snippet?: string;
+        contenthash: string;
     };
 
     // uctypes.RateLimitInfo

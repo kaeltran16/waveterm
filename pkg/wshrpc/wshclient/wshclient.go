@@ -113,6 +113,12 @@ func BlocksListCommand(w *wshutil.WshRpc, data wshrpc.BlocksListRequest, opts *w
 	return resp, err
 }
 
+// command "cancelradarscan", wshserver.CancelRadarScanCommand
+func CancelRadarScanCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRadarScanData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "cancelradarscan", data, opts)
+	return err
+}
+
 // command "cancelrun", wshserver.CancelRunCommand
 func CancelRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCancelRunData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "cancelrun", data, opts)
@@ -794,6 +800,12 @@ func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrp
 	return resp, err
 }
 
+// command "listradarreports", wshserver.ListRadarReportsCommand
+func ListRadarReportsCommand(w *wshutil.WshRpc, data wshrpc.CommandListRadarReportsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRadarReportsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRadarReportsRtnData](w, "listradarreports", data, opts)
+	return resp, err
+}
+
 // command "macosversion", wshserver.MacOSVersionCommand
 func MacOSVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "macosversion", nil, opts)
@@ -1080,6 +1092,12 @@ func RestartBuilderAndWaitCommand(w *wshutil.WshRpc, data wshrpc.CommandRestartB
 	return resp, err
 }
 
+// command "retryradarclustering", wshserver.RetryRadarClusteringCommand
+func RetryRadarClusteringCommand(w *wshutil.WshRpc, data wshrpc.CommandRetryRadarClusteringData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "retryradarclustering", data, opts)
+	return err
+}
+
 // command "routeannounce", wshserver.RouteAnnounceCommand
 func RouteAnnounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "routeannounce", nil, opts)
@@ -1158,6 +1176,12 @@ func SetPeerInfoCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
+// command "setradarfindingdisposition", wshserver.SetRadarFindingDispositionCommand
+func SetRadarFindingDispositionCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRadarFindingDispositionData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setradarfindingdisposition", data, opts)
+	return err
+}
+
 // command "setrtinfo", wshserver.SetRTInfoCommand
 func SetRTInfoCommand(w *wshutil.WshRpc, data wshrpc.CommandSetRTInfoData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setrtinfo", data, opts)
@@ -1185,6 +1209,12 @@ func StartBuilderCommand(w *wshutil.WshRpc, data wshrpc.CommandStartBuilderData,
 // command "startjob", wshserver.StartJobCommand
 func StartJobCommand(w *wshutil.WshRpc, data wshrpc.CommandStartJobData, opts *wshrpc.RpcOpts) (*wshrpc.CommandStartJobRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandStartJobRtnData](w, "startjob", data, opts)
+	return resp, err
+}
+
+// command "startradarscan", wshserver.StartRadarScanCommand
+func StartRadarScanCommand(w *wshutil.WshRpc, data wshrpc.CommandStartRadarScanData, opts *wshrpc.RpcOpts) (*wshrpc.CommandStartRadarScanRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandStartRadarScanRtnData](w, "startradarscan", data, opts)
 	return resp, err
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
+	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/secretstore"
 	"github.com/wavetermdev/waveterm/pkg/service"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
@@ -543,6 +544,7 @@ func main() {
 	if firstLaunch {
 		log.Printf("first launch detected")
 	}
+	reporadar.RecoverInterruptedScans(context.Background())
 	err = clearTempFiles()
 	if err != nil {
 		log.Printf("error clearing temp files: %v\n", err)

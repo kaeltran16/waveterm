@@ -33,6 +33,7 @@ const (
 	OType_Job         = "job"
 	OType_Temp        = "temp"
 	OType_Builder     = "builder" // not persisted to DB
+	OType_RadarReport = "radarreport"
 )
 
 var ValidOTypes = map[string]bool{
@@ -47,6 +48,7 @@ var ValidOTypes = map[string]bool{
 	OType_Job:         true,
 	OType_Temp:        true,
 	OType_Builder:     true,
+	OType_RadarReport: true,
 }
 
 type WaveObjUpdate struct {
@@ -269,6 +271,81 @@ func (*Channel) GetOType() string {
 	return OType_Channel
 }
 
+type RadarSignal struct {
+	ID          string         `json:"id"`
+	Collector   string         `json:"collector"` // structure|git|runs|transcript|memory|config
+	SourceRef   string         `json:"sourceref"`
+	ObservedTs  int64          `json:"observedts"`
+	Paths       []string       `json:"paths,omitempty"`
+	Subsystem   string         `json:"subsystem,omitempty"`
+	Summary     string         `json:"summary"`
+	Facts       map[string]any `json:"facts,omitempty"`
+	Snippet     string         `json:"snippet,omitempty"`
+	ContentHash string         `json:"contenthash"`
+}
+
+type RadarDisposition struct {
+	Action      string `json:"action"` // dismiss|suppress
+	Reason      string `json:"reason,omitempty"`
+	Note        string `json:"note,omitempty"`
+	Ts          int64  `json:"ts"`
+	User        string `json:"user,omitempty"`
+	EvidenceRev string `json:"evidencerev,omitempty"`
+}
+
+type RadarFinding struct {
+	ID            string            `json:"id"`
+	Fingerprint   string            `json:"fingerprint"`
+	Group         string            `json:"group"` // new|recurring|nolonger|dismissed|suppressed
+	RiskKind      string            `json:"riskkind"`
+	Subsystem     string            `json:"subsystem"`               // deterministic canonical subsystem
+	BoundaryLabel string            `json:"boundarylabel,omitempty"` // model advisory display label
+	Risk          string            `json:"risk"`
+	Why           string            `json:"why"`
+	Severity      string            `json:"severity"` // low|medium|high
+	Strength      string            `json:"strength"` // strong|moderate|limited
+	SignalIDs     []string          `json:"signalids"`
+	Files         []string          `json:"files"`
+	Mission       string            `json:"mission"`
+	Disposition   *RadarDisposition `json:"disposition,omitempty"`
+}
+
+type RadarReport struct {
+	OID                  string            `json:"oid"`
+	Version              int               `json:"version"`
+	ProjectName          string            `json:"projectname"`
+	ProjectPath          string            `json:"projectpath"`
+	Status               string            `json:"status"` // collecting|clustering|completed|partial|failed|cancelled
+	Phase                string            `json:"phase,omitempty"`
+	StartHead            string            `json:"starthead,omitempty"`
+	EndHead              string            `json:"endhead,omitempty"`
+	StartDirty           string            `json:"startdirty,omitempty"`
+	EndDirty             string            `json:"enddirty,omitempty"`
+	PrevReportId         string            `json:"prevreportid,omitempty"`
+	PrevHead             string            `json:"prevhead,omitempty"`
+	WindowStartTs        int64             `json:"windowstartts,omitempty"`
+	WindowEndTs          int64             `json:"windowendts,omitempty"`
+	StartedTs            int64             `json:"startedts"`
+	CompletedTs          int64             `json:"completedts,omitempty"`
+	Coverage             map[string]string `json:"coverage,omitempty"` // collector -> ok|partial|failed
+	PartialSources       []string          `json:"partialsources,omitempty"`
+	FatalError           string            `json:"fatalerror,omitempty"`
+	ClusterError         string            `json:"clustererror,omitempty"`
+	ConfiguredModel      string            `json:"configuredmodel,omitempty"`
+	ResolvedModel        string            `json:"resolvedmodel,omitempty"`
+	PayloadTokens        int               `json:"payloadtokens,omitempty"`
+	TotalTokens          int               `json:"totaltokens,omitempty"`
+	TotalTokensEstimated bool              `json:"totaltokensestimated,omitempty"`
+	Candidates           []RadarSignal     `json:"candidates,omitempty"` // retained while clustering is retryable
+	Signals              []RadarSignal     `json:"signals,omitempty"`    // referenced-by-findings after prune
+	Findings             []RadarFinding    `json:"findings,omitempty"`
+	Meta                 MetaMapType       `json:"meta"`
+}
+
+func (*RadarReport) GetOType() string {
+	return OType_RadarReport
+}
+
 func (t *Tab) GetBlockORefs() []ORef {
 	rtn := make([]ORef, 0, len(t.BlockIds))
 	for _, blockId := range t.BlockIds {
@@ -431,6 +508,7 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&Workspace{}),
 		reflect.TypeOf(&Tab{}),
 		reflect.TypeOf(&Channel{}),
+		reflect.TypeOf(&RadarReport{}),
 		reflect.TypeOf(&Block{}),
 		reflect.TypeOf(&LayoutState{}),
 		reflect.TypeOf(&MainServer{}),
