@@ -26,6 +26,26 @@ export function filterChannels(channels: Channel[], query: string): Channel[] {
     return q ? channels.filter((c) => c.name.toLowerCase().includes(q)) : channels;
 }
 
+export interface ChannelPartition {
+    active: Channel[];
+    archived: Channel[];
+}
+
+// Split channels into active vs archived by the "archived" meta flag (see wstore.MetaKey_Archived). The
+// rail shows active rows and tucks archived ones under a collapsible "Archived · N" disclosure. Order-preserving.
+export function partitionChannels(channels: Channel[]): ChannelPartition {
+    const active: Channel[] = [];
+    const archived: Channel[] = [];
+    for (const c of channels) {
+        if ((c.meta as Record<string, unknown> | undefined)?.["archived"] === true) {
+            archived.push(c);
+        } else {
+            active.push(c);
+        }
+    }
+    return { active, archived };
+}
+
 export function avatarColor(name: string): string {
     if (name.toLowerCase() === "you") {
         return "var(--color-accent)";

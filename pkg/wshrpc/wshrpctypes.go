@@ -124,6 +124,7 @@ type WshRpcInterface interface {
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
 	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error // stamps a channel's last-read timestamp for unread counts
 	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error // renames a channel (its rail display name)
+	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
 	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
@@ -777,6 +778,11 @@ type CommandSetChannelReadData struct {
 type CommandRenameChannelData struct {
 	ChannelId string `json:"channelid"`
 	Name      string `json:"name"`
+}
+
+type CommandArchiveChannelData struct {
+	ChannelId string `json:"channelid"`
+	Archived  bool   `json:"archived"`
 }
 
 type CommandSetChannelMessagePickData struct {

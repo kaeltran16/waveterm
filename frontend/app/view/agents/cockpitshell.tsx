@@ -3,12 +3,13 @@
 
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
-import { cn } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
 import { ChannelsSurface } from "./channelssurface";
+import { primeChannels } from "./channelsstore";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { MemorySurface } from "./memorysurface";
@@ -45,6 +46,11 @@ function usePrunePendingLaunches(model: AgentsViewModel) {
 
 export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     usePrunePendingLaunches(model);
+    // prime the channel snapshot at boot so the nav-rail needs-you badge + Cockpit counters dedup
+    // correctly even before the Channels surface is first opened.
+    useEffect(() => {
+        fireAndForget(primeChannels);
+    }, []);
     const surface = useAtomValue(model.surfaceAtom);
     return (
         <div className="flex h-full w-full">

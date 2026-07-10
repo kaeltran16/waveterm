@@ -10,8 +10,12 @@ package consult
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -114,9 +118,24 @@ func SupportedRuntimes() []string {
 	return []string{"claude", "codex", "antigravity"}
 }
 
-// BuildPrompt folds a capped tail of channel history into the user's prompt as context. Returns the
-// prompt verbatim when there is no usable history.
-func BuildPrompt(history []waveobj.ChannelMessage, userPrompt string) string {
+// OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A
+// missing file is normal (not every operator keeps global principles); only a real read error propagates.
+func OperatorPrinciples() (string, error) {
+	path := filepath.Join(wavebase.GetHomeDir(), ".claude", "CLAUDE.md")
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// BuildPrompt folds a capped tail of channel history into the user's prompt as context, and — when
+// principles is non-empty — prepends the operator's global principles verbatim (not capped: truncating
+// a principles document mid-sentence would mislead the consulted agent).
+func BuildPrompt(history []waveobj.ChannelMessage, userPrompt, principles string) string {
 	start := 0
 	if len(history) > maxContextMessages {
 		start = len(history) - maxContextMessages
@@ -135,8 +154,14 @@ func BuildPrompt(history []waveobj.ChannelMessage, userPrompt string) string {
 			ctxStr = ctxStr[i+1:] // drop the partial leading line after slicing
 		}
 	}
+	var body string
 	if strings.TrimSpace(ctxStr) == "" {
-		return userPrompt
+		body = userPrompt
+	} else {
+		body = "Recent channel conversation for context:\n" + ctxStr + "\nRequest:\n" + userPrompt
 	}
-	return "Recent channel conversation for context:\n" + ctxStr + "\nRequest:\n" + userPrompt
+	if strings.TrimSpace(principles) != "" {
+		return "Operator principles (follow these):\n" + principles + "\n\n" + body
+	}
+	return body
 }

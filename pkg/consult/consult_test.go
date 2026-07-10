@@ -41,7 +41,7 @@ func TestSpecFor_unsupported(t *testing.T) {
 }
 
 func TestBuildPrompt_emptyHistoryReturnsPromptVerbatim(t *testing.T) {
-	got := BuildPrompt(nil, "what is 2+2?")
+	got := BuildPrompt(nil, "what is 2+2?", "")
 	if got != "what is 2+2?" {
 		t.Errorf("expected verbatim prompt, got %q", got)
 	}
@@ -52,7 +52,7 @@ func TestBuildPrompt_includesRecentHistoryAndRequest(t *testing.T) {
 		{Author: "you", Text: "we are refactoring auth"},
 		{Author: "codex", Text: "done, +40 -10"},
 	}
-	got := BuildPrompt(hist, "does it have races?")
+	got := BuildPrompt(hist, "does it have races?", "")
 	if !strings.Contains(got, "you: we are refactoring auth") {
 		t.Errorf("missing history line: %q", got)
 	}
@@ -67,7 +67,7 @@ func TestBuildPrompt_capsMessageCount(t *testing.T) {
 		hist = append(hist, waveobj.ChannelMessage{Author: "you", Text: "OLDLINE"})
 	}
 	hist = append(hist, waveobj.ChannelMessage{Author: "you", Text: "NEWEST"})
-	got := BuildPrompt(hist, "q")
+	got := BuildPrompt(hist, "q", "")
 	// only the last maxContextMessages are kept; with 51 total, the count of OLDLINE is bounded
 	if strings.Count(got, "OLDLINE") > maxContextMessages {
 		t.Errorf("kept too many history lines: %d", strings.Count(got, "OLDLINE"))
@@ -170,6 +170,33 @@ func TestSpecFor_streamingModes(t *testing.T) {
 	agy, _ := SpecFor("antigravity")
 	if !agy.UsePty {
 		t.Error("agy must run under a pty (upstream non-TTY stdout bug antigravity-cli#76)")
+	}
+}
+
+func TestBuildPromptNoPrinciplesMatchesLegacy(t *testing.T) {
+	history := []waveobj.ChannelMessage{{Author: "you", Text: "hello"}}
+	got := BuildPrompt(history, "do the thing", "")
+	if !strings.Contains(got, "Recent channel conversation") || !strings.Contains(got, "do the thing") {
+		t.Fatalf("expected context + request body, got: %q", got)
+	}
+	if strings.Contains(got, "Operator principles") {
+		t.Fatalf("empty principles must not add a preamble, got: %q", got)
+	}
+}
+
+func TestBuildPromptEmptyHistoryEmptyPrinciplesIsBarePrompt(t *testing.T) {
+	if got := BuildPrompt(nil, "just this", ""); got != "just this" {
+		t.Fatalf("expected bare prompt, got: %q", got)
+	}
+}
+
+func TestBuildPromptPrependsPrinciples(t *testing.T) {
+	got := BuildPrompt(nil, "review this", "Always prefer KISS.")
+	if !strings.HasPrefix(got, "Operator principles (follow these):\nAlways prefer KISS.") {
+		t.Fatalf("expected principles preamble first, got: %q", got)
+	}
+	if !strings.Contains(got, "review this") {
+		t.Fatalf("expected the request to survive, got: %q", got)
 	}
 }
 

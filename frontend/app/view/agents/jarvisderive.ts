@@ -6,6 +6,7 @@
 // timeline into the prompt handed to a headless `claude -p`. No React, no Wave runtime imports.
 
 import type { AgentVM } from "./agentsviewmodel";
+import { answeredAskORefs } from "./jarviscards";
 
 export interface WorkerState {
     oref: string; // "tab:<id>"
@@ -26,6 +27,8 @@ const MAX_TIMELINE = 12;
 export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerState[] {
     const orefs: string[] = [];
     const dispatchInfo = new Map<string, { name: string; task?: string }>();
+    const activeTs = new Map<string, number>(); // latest dispatch/directive ts per oref
+    const dismissTs = new Map<string, number>(); // latest dismiss ts per oref
     for (const m of channel.messages ?? []) {
         if (!m.reforef?.startsWith(OREF_PREFIX)) {
             continue;
@@ -33,28 +36,38 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
         if (m.kind === "dispatch" && !dispatchInfo.has(m.reforef)) {
             dispatchInfo.set(m.reforef, { name: m.author, task: m.text || undefined });
         }
-        if ((m.kind === "dispatch" || m.kind === "directive") && !orefs.includes(m.reforef)) {
-            orefs.push(m.reforef);
+        if (m.kind === "dispatch" || m.kind === "directive") {
+            if (!orefs.includes(m.reforef)) {
+                orefs.push(m.reforef);
+            }
+            activeTs.set(m.reforef, Math.max(activeTs.get(m.reforef) ?? 0, m.ts ?? 0));
+        }
+        if (m.kind === "dismiss") {
+            dismissTs.set(m.reforef, Math.max(dismissTs.get(m.reforef) ?? 0, m.ts ?? 0));
         }
     }
-    return orefs.map((oref) => {
-        const id = oref.slice(OREF_PREFIX.length);
-        const dispatchTask = dispatchInfo.get(oref)?.task;
-        const live = agents.find((a) => a.id === id);
-        if (live) {
-            return {
-                oref,
-                name: live.name,
-                state: live.state,
-                task: live.task || undefined,
-                dispatchTask,
-                askText: live.state === "asking" ? live.ask?.questions?.[0]?.question : undefined,
-                askORef: live.state === "asking" ? live.ask?.oref : undefined,
-            };
-        }
-        const info = dispatchInfo.get(oref);
-        return { oref, name: info?.name ?? "worker", state: "gone" as const, task: info?.task, dispatchTask };
-    });
+    return orefs
+        .map((oref): WorkerState => {
+            const id = oref.slice(OREF_PREFIX.length);
+            const dispatchTask = dispatchInfo.get(oref)?.task;
+            const live = agents.find((a) => a.id === id);
+            if (live) {
+                return {
+                    oref,
+                    name: live.name,
+                    state: live.state,
+                    task: live.task || undefined,
+                    dispatchTask,
+                    askText: live.state === "asking" ? live.ask?.questions?.[0]?.question : undefined,
+                    askORef: live.state === "asking" ? live.ask?.oref : undefined,
+                };
+            }
+            const info = dispatchInfo.get(oref);
+            return { oref, name: info?.name ?? "worker", state: "gone" as const, task: info?.task, dispatchTask };
+        })
+        // a gone worker dismissed after its last dispatch/directive drops out; a later re-dispatch
+        // (newer activeTs) brings it back. live workers are never hidden.
+        .filter((w) => w.state !== "gone" || (dismissTs.get(w.oref) ?? 0) <= (activeTs.get(w.oref) ?? 0));
 }
 
 // Compose the fleet snapshot + a capped recent timeline into the prompt for `claude -p`. focus is the
@@ -90,4 +103,27 @@ export function buildJarvisPrompt(snapshot: WorkerState[], channel: Channel, foc
         `Recent channel messages:`,
         timeline || "(none)",
     ].join("\n");
+}
+
+// the set of ask orefs Jarvis has auto-answered across all channels (drives every "needs you" surface).
+export function answeredAskORefsAcross(channels: Channel[]): Set<string> {
+    const answered = new Set<string>();
+    for (const ch of channels) {
+        for (const o of answeredAskORefs(ch.messages ?? [])) {
+            answered.add(o);
+        }
+    }
+    return answered;
+}
+
+// whether a worker is genuinely blocked on the human: asking, and not already answered by Jarvis.
+export function needsHuman(a: AgentVM, answered: Set<string>): boolean {
+    return a.state === "asking" && !(a.ask?.oref && answered.has(a.ask.oref));
+}
+
+// Fleet-wide count of workers genuinely blocked on the human, deduped against Jarvis-answered asks across
+// ALL channels. Single source of truth for the nav-rail badge and the Cockpit "need you" counters.
+export function pendingAskCount(channels: Channel[], agents: AgentVM[]): number {
+    const answered = answeredAskORefsAcross(channels);
+    return agents.filter((a) => needsHuman(a, answered)).length;
 }

@@ -9,7 +9,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentVM } from "./agentsviewmodel";
-import { channelHasAsk, filterChannels } from "./channelderive";
+import { channelHasAsk, filterChannels, partitionChannels } from "./channelderive";
 import { tierFromMeta, type JarvisTier } from "./channelmessages";
 import { READ_TS_META, tierChip, unreadCount } from "./jarviscards";
 
@@ -25,6 +25,7 @@ export function ChannelRail({
     onDeleteChannel,
     onSetTier,
     onRenameChannel,
+    onArchiveChannel,
 }: {
     channels: Channel[] | null;
     activeId: string | undefined;
@@ -37,11 +38,16 @@ export function ChannelRail({
     onDeleteChannel: (id: string) => void;
     onSetTier: (id: string, tier: JarvisTier) => void;
     onRenameChannel: (id: string, name: string) => void;
+    onArchiveChannel: (id: string, archived: boolean) => void;
 }) {
     // oid of the channel awaiting a delete confirmation (two-click, no blocking dialog)
     const [confirmId, setConfirmId] = useState<string | undefined>(undefined);
     const [query, setQuery] = useState("");
-    const filtered = useMemo(() => filterChannels(channels ?? [], query), [channels, query]);
+    const { active, archived } = useMemo(
+        () => partitionChannels(filterChannels(channels ?? [], query)),
+        [channels, query]
+    );
+    const [showArchived, setShowArchived] = useState(false);
     const [renamingId, setRenamingId] = useState<string | undefined>(undefined);
     const [renameDraft, setRenameDraft] = useState("");
     // when Enter/Escape unmounts the focused rename input, its onBlur can fire and re-commit; this
@@ -78,8 +84,8 @@ export function ChannelRail({
                         autonomy
                     </span>
                 </div>
-                {filtered.map((c) => {
-                    const active = c.oid === activeId;
+                {active.map((c) => {
+                    const isActive = c.oid === activeId;
                     const tier = tierFromMeta(c.meta as Record<string, unknown> | undefined);
                     const chip = tierChip(tier);
                     const unread = unreadCount(c.messages, c.meta?.[READ_TS_META] as number | undefined);
@@ -111,6 +117,10 @@ export function ChannelRail({
                                                 setRenameDraft(c.name);
                                                 setRenamingId(c.oid);
                                             },
+                                        },
+                                        {
+                                            label: "Archive channel",
+                                            click: () => onArchiveChannel(c.oid, true),
                                         },
                                         { type: "separator" },
                                         { label: "Delete channel", click: () => onDeleteChannel(c.oid) },
@@ -162,13 +172,13 @@ export function ChannelRail({
                                     onClick={() => onSelect(c.oid)}
                                     className={cn(
                                         "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left transition-colors duration-[140ms]",
-                                        active ? "bg-accentbg" : "hover:bg-surface-hover"
+                                        isActive ? "bg-accentbg" : "hover:bg-surface-hover"
                                     )}
                                 >
                                     <span
                                         className={cn(
                                             "font-mono text-[13px] font-semibold",
-                                            active ? "text-accent" : "text-muted"
+                                            isActive ? "text-accent" : "text-muted"
                                         )}
                                     >
                                         #
@@ -176,7 +186,7 @@ export function ChannelRail({
                                     <span
                                         className={cn(
                                             "flex-1 truncate text-[13px]",
-                                            active ? "font-semibold text-primary" : "font-medium text-ink-mid"
+                                            isActive ? "font-semibold text-primary" : "font-medium text-ink-mid"
                                         )}
                                     >
                                         {c.name}
@@ -271,6 +281,42 @@ export function ChannelRail({
                         </div>
                     );
                 })}
+                {archived.length > 0 ? (
+                    <div className="mt-2 border-t border-edge-faint pt-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowArchived((v) => !v)}
+                            className="mb-1 flex w-full cursor-pointer items-center gap-1.5 px-2 font-mono text-[10px] uppercase tracking-[.09em] text-muted hover:text-secondary"
+                        >
+                            <span>{showArchived ? "▾" : "▸"}</span> Archived · {archived.length}
+                        </button>
+                        {showArchived
+                            ? archived.map((c) => (
+                                  <div
+                                      key={c.oid}
+                                      className="group flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 hover:bg-surface-hover"
+                                  >
+                                      <button
+                                          type="button"
+                                          onClick={() => onSelect(c.oid)}
+                                          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                                      >
+                                          <span className="font-mono text-[12px] text-muted">#</span>
+                                          <span className="flex-1 truncate text-[12px] text-muted">{c.name}</span>
+                                      </button>
+                                      <button
+                                          type="button"
+                                          title="Unarchive"
+                                          onClick={() => onArchiveChannel(c.oid, false)}
+                                          className="flex-none cursor-pointer rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-0.5 font-mono text-[9px] font-semibold text-ink-mid opacity-0 hover:border-accent hover:text-accent group-hover:opacity-100"
+                                      >
+                                          Unarchive
+                                      </button>
+                                  </div>
+                              ))
+                            : null}
+                    </div>
+                ) : null}
                 <button
                     type="button"
                     onClick={onToggleNew}

@@ -47,6 +47,12 @@ func AnswerAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentData, o
 	return err
 }
 
+// command "archivechannel", wshserver.ArchiveChannelCommand
+func ArchiveChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveChannelData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "archivechannel", data, opts)
+	return err
+}
+
 // command "ask", wshserver.AskCommand
 func AskCommand(w *wshutil.WshRpc, data wshrpc.CommandAskData, opts *wshrpc.RpcOpts) (wshrpc.AskRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.AskRtnData](w, "ask", data, opts)

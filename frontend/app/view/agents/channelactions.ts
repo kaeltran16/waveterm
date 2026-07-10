@@ -41,6 +41,12 @@ async function post(channelId: string, kind: string, author: string, text: strin
     });
 }
 
+// Dismiss a finished ("gone") worker from a channel's fleet panel by posting a dismiss message; the
+// snapshot subtracts it (a later re-dispatch of the same oref supersedes the dismiss). Fire-and-forget.
+export async function dismissWorker(channelId: string, workerORef: string): Promise<void> {
+    await post(channelId, "dismiss", "you", "", workerORef);
+}
+
 export async function sendChannelMessage(args: {
     model: AgentsViewModel;
     channelId: string;

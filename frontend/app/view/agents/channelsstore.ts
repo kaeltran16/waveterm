@@ -20,15 +20,22 @@ export const activeChannelAtom: Atom<Channel | null> = atom((get) => {
 
 let loading = false;
 
+// fetch the channel list into the snapshot atom (sorted newest-first). shared by loadChannels (which then
+// auto-selects) and primeChannels (which must not select).
+async function fetchChannelsInto(): Promise<Channel[]> {
+    const rtn = await RpcApi.GetChannelsCommand(TabRpcClient);
+    const list = (rtn.channels ?? []).sort((a, b) => b.createdts - a.createdts);
+    globalStore.set(channelsAtom, list);
+    return list;
+}
+
 export async function loadChannels(): Promise<void> {
     if (loading) {
         return;
     }
     loading = true;
     try {
-        const rtn = await RpcApi.GetChannelsCommand(TabRpcClient);
-        const list = (rtn.channels ?? []).sort((a, b) => b.createdts - a.createdts);
-        globalStore.set(channelsAtom, list);
+        const list = await fetchChannelsInto();
         const cur = globalStore.get(activeChannelIdAtom);
         if (!cur && list.length > 0) {
             await selectChannel(list[0].oid);
@@ -38,6 +45,17 @@ export async function loadChannels(): Promise<void> {
         globalStore.set(channelsAtom, []);
     } finally {
         loading = false;
+    }
+}
+
+// prime the channel snapshot at boot so the nav-rail badge + Cockpit "need you" counters dedup against
+// Jarvis-answered asks before the Channels surface is ever opened. deliberately does NOT auto-select a
+// channel (selection belongs to entering the surface, and would prematurely stamp read-ts).
+export async function primeChannels(): Promise<void> {
+    try {
+        await fetchChannelsInto();
+    } catch (err) {
+        console.error("priming channels failed", err);
     }
 }
 
@@ -75,6 +93,13 @@ export async function setChannelTier(channelId: string, tier: string, mode: stri
 
 export async function renameChannel(channelId: string, name: string): Promise<void> {
     await RpcApi.RenameChannelCommand(TabRpcClient, { channelid: channelId, name });
+    await loadChannels();
+}
+
+// Archive/unarchive a channel (a Channel.Meta flag), then refresh the snapshot-fed rail. Mirrors
+// setChannelTier/renameChannel — the rail reads the channelsAtom snapshot, so it needs a re-fetch.
+export async function archiveChannel(channelId: string, archived: boolean): Promise<void> {
+    await RpcApi.ArchiveChannelCommand(TabRpcClient, { channelid: channelId, archived });
     await loadChannels();
 }
 

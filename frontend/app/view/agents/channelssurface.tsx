@@ -19,7 +19,7 @@ import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
 import { type AgentVM } from "./agentsviewmodel";
-import { sendChannelMessage, steerWorker } from "./channelactions";
+import { dismissWorker, sendChannelMessage, steerWorker } from "./channelactions";
 import {
     activeMentionQuery,
     highlightSegments,
@@ -40,6 +40,7 @@ import { computeEntrances, initialEntranceState } from "./channelsmotion";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
+    archiveChannel,
     channelsAtom,
     consultStreamsAtom,
     createChannel,
@@ -808,7 +809,17 @@ function ContextPanel({
                                     >
                                         <span>{showGone ? "▾" : "▸"}</span> Done · {goneWorkers.length}
                                     </button>
-                                    {showGone ? goneWorkers.map((w) => <WorkerRow key={w.oref} model={model} w={w} />) : null}
+                                    {showGone
+                                        ? goneWorkers.map((w) => (
+                                              <WorkerRow
+                                                  key={w.oref}
+                                                  model={model}
+                                                  w={w}
+                                                  channelId={channel?.oid}
+                                                  onDismiss={(cid, oref) => fireAndForget(() => dismissWorker(cid, oref))}
+                                              />
+                                          ))
+                                        : null}
                                 </div>
                             ) : null}
                         </>
@@ -1027,6 +1038,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                         )
                     }
                     onRenameChannel={(id, name) => fireAndForget(() => renameChannel(id, name))}
+                    onArchiveChannel={(id, archived) => fireAndForget(() => archiveChannel(id, archived))}
                 />
 
                 <div className="@container flex min-w-0 flex-1">

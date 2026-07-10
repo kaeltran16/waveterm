@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
     Bot,
     Gauge,
@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
+import { channelsAtom } from "./channelsstore";
+import { pendingAskCount } from "./jarvisderive";
 
 const iconProps = { size: 20, strokeWidth: 1.8 } as const;
 
@@ -42,7 +44,10 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
 
 export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
-    const renderItem = (key: SurfaceKey, label: string) => {
+    const channels = useAtomValue(channelsAtom);
+    const agents = useAtomValue(model.agentsAtom);
+    const needsYou = pendingAskCount(channels ?? [], agents);
+    const renderItem = (key: SurfaceKey, label: string, badge = 0) => {
         const isActive = active === key;
         return (
             <button
@@ -60,14 +65,21 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
                         <span className="absolute left-[-8px] top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-[3px] bg-accent" />
                     </>
                 ) : null}
-                <span className="relative z-[1]">{ICON[key]}</span>
+                <span className="relative z-[1]">
+                    {ICON[key]}
+                    {badge > 0 ? (
+                        <span className="absolute -right-2 -top-1.5 flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-asking px-1 font-mono text-[9px] font-bold text-background">
+                            {badge}
+                        </span>
+                    ) : null}
+                </span>
                 <span className="relative z-[1] text-[10px] font-semibold">{label}</span>
             </button>
         );
     };
     return (
         <nav className="flex w-[78px] shrink-0 flex-col gap-[3px] border-r border-border bg-surface py-2.5">
-            {ITEMS.map(({ key, label }) => renderItem(key, label))}
+            {ITEMS.map(({ key, label }) => renderItem(key, label, key === "channels" ? needsYou : 0))}
             <div className="flex-1" />
             {renderItem("settings", "Settings")}
         </nav>

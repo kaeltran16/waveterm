@@ -48,6 +48,12 @@ export class RpcApiType {
         return client.wshRpcCall("answeragent", data, opts);
     }
 
+    // command "archivechannel" [call]
+    ArchiveChannelCommand(client: WshClient, data: CommandArchiveChannelData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "archivechannel", data, opts);
+        return client.wshRpcCall("archivechannel", data, opts);
+    }
+
     // command "ask" [call]
     AskCommand(client: WshClient, data: CommandAskData, opts?: RpcOpts): Promise<AskRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "ask", data, opts);

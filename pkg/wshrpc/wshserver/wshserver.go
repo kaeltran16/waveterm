@@ -1848,6 +1848,23 @@ func (ws *WshServer) RenameChannelCommand(ctx context.Context, data wshrpc.Comma
 	return nil
 }
 
+func (ws *WshServer) ArchiveChannelCommand(ctx context.Context, data wshrpc.CommandArchiveChannelData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+		if ch.Meta == nil {
+			ch.Meta = make(waveobj.MetaMapType)
+		}
+		ch.Meta[wstore.MetaKey_Archived] = data.Archived
+	})
+	if err != nil {
+		return fmt.Errorf("updating channel archived flag: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshrpc.CommandSetChannelMessagePickData) error {
 	if data.ChannelId == "" || data.MessageId == "" {
 		return fmt.Errorf("channelid and messageid are required")
@@ -2193,7 +2210,18 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: fmt.Errorf("unsupported runtime: %s", data.Runtime)}
 			return
 		}
-		prompt := consult.BuildPrompt(ch.Messages, data.Prompt)
+		// claude discovers ~/.claude/CLAUDE.md itself (it runs with cwd = project path); other runtimes
+		// don't, so inject the operator's global principles for them. a read failure must not fail the
+		// consult — log and continue with none.
+		var principles string
+		if data.Runtime != "claude" {
+			p, perr := consult.OperatorPrinciples()
+			if perr != nil {
+				log.Printf("consult: reading operator principles: %v", perr)
+			}
+			principles = p
+		}
+		prompt := consult.BuildPrompt(ch.Messages, data.Prompt, principles)
 		runCtx, cancel := context.WithTimeout(ctx, consultTimeout)
 		defer cancel()
 		full, runErr := consult.Run(runCtx, spec, ch.ProjectPath, prompt, func(chunk string) {

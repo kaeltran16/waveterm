@@ -10,6 +10,7 @@ import {
     filterChannels,
     highlightSegments,
     mentionCandidates,
+    partitionChannels,
 } from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
 
@@ -201,5 +202,26 @@ describe("filterChannels", () => {
     });
     it("returns empty when nothing matches", () => {
         expect(filterChannels(list, "zzz")).toHaveLength(0);
+    });
+});
+
+describe("partitionChannels", () => {
+    const ch = (name: string, archived?: boolean): Channel =>
+        ({ oid: name, name, createdts: 0, messages: [], meta: archived ? { archived: true } : {} }) as unknown as Channel;
+    it("puts everything in active when nothing is archived", () => {
+        const { active, archived } = partitionChannels([ch("a"), ch("b")]);
+        expect(active.map((c) => c.name)).toEqual(["a", "b"]);
+        expect(archived).toHaveLength(0);
+    });
+    it("splits archived out of active, preserving order", () => {
+        const { active, archived } = partitionChannels([ch("a"), ch("b", true), ch("c")]);
+        expect(active.map((c) => c.name)).toEqual(["a", "c"]);
+        expect(archived.map((c) => c.name)).toEqual(["b"]);
+    });
+    it("composes with filterChannels (filter first, then partition)", () => {
+        const list = [ch("wave"), ch("wave-old", true), ch("other")];
+        const { active, archived } = partitionChannels(filterChannels(list, "wave"));
+        expect(active.map((c) => c.name)).toEqual(["wave"]);
+        expect(archived.map((c) => c.name)).toEqual(["wave-old"]);
     });
 });

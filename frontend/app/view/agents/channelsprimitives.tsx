@@ -115,7 +115,17 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
     );
 }
 
-export function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState }) {
+export function WorkerRow({
+    model,
+    w,
+    channelId,
+    onDismiss,
+}: {
+    model: AgentsViewModel;
+    w: WorkerState;
+    channelId?: string;
+    onDismiss?: (channelId: string, oref: string) => void;
+}) {
     return (
         <div
             className="mb-2.5"
@@ -127,6 +137,9 @@ export function WorkerRow({ model, w }: { model: AgentsViewModel; w: WorkerState
                             enabled: w.state !== "gone",
                             click: () => jumpToAgent(model, w.oref.slice("tab:".length)),
                         },
+                        ...(w.state === "gone" && channelId && onDismiss
+                            ? [{ label: "Dismiss", click: () => onDismiss(channelId, w.oref) }]
+                            : []),
                     ],
                     ev
                 )

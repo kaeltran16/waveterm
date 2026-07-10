@@ -330,6 +330,12 @@ declare global {
         answers: AgentAnswerItem[];
     };
 
+    // wshrpc.CommandArchiveChannelData
+    type CommandArchiveChannelData = {
+        channelid: string;
+        archived: boolean;
+    };
+
     // wshrpc.CommandAskData
     type CommandAskData = {
         oref: string;

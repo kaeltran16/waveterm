@@ -133,6 +133,9 @@ func GetRun(ctx context.Context, channelId, runId string) (*waveobj.Run, error) 
 // MetaKey_ReadTs stores the per-channel last-read timestamp (ms) used to derive unread counts.
 const MetaKey_ReadTs = "read:ts"
 
+// MetaKey_Archived hides a channel from the active rail list. Reversible; the channel is kept, not deleted.
+const MetaKey_Archived = "archived"
+
 // SetChannelRead stamps the channel's last-read timestamp.
 func SetChannelRead(ctx context.Context, channelId string, ts int64) error {
 	return DBUpdateFn(ctx, channelId, func(ch *waveobj.Channel) {

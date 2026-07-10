@@ -44,6 +44,8 @@ import {
 } from "./agentsviewmodel";
 import { BackgroundedSection } from "./backgroundedsection";
 import { dropCardGit, refreshCardGit, scheduleCardGit } from "./cardgitstore";
+import { channelsAtom } from "./channelsstore";
+import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
 import { IdleSection } from "./idlesection";
 import { ensurePreviousInfo } from "./liveagents";
 import { ICON } from "./navrail";
@@ -219,6 +221,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     useSubagentTracking(agents);
     const { asking, working, idle } = groupAgents(agents);
+
+    // channel-aware "needs you": excludes asks Jarvis already auto-answered, so it matches the Channels
+    // rail dot and nav badge (raw asking historically over-counted). one answered set feeds both the
+    // header counter and the sticky-bar counter (liveAsking) below.
+    const channels = useAtomValue(channelsAtom);
+    const answeredAsks = answeredAskORefsAcross(channels ?? []);
+    const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
 
     // 1s tick so the liveness cue (age / quiet) stays current; drives the model's nowAtom
     const now = useAtomValue(model.nowAtom);
@@ -534,7 +543,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         setIsResizing(false);
     };
     const liveCount = visibleOrdered.length;
-    const liveAsking = visibleOrdered.filter((a) => a.state === "asking").length;
+    const liveAsking = visibleOrdered.filter((a) => needsHuman(a, answeredAsks)).length;
     const liveWorking = visibleOrdered.filter((a) => a.state === "working").length;
     const projectCount = projectsFromAgents(agents).length;
     // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
@@ -784,7 +793,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         <p className="text-[12.5px] text-muted">
                             {agents.length} agents · {projectCount} projects ·{" "}
                             <span className="font-semibold text-warning">
-                                <RollingCount value={asking.length} /> need you
+                                <RollingCount value={needsYou} /> need you
                             </span>
                         </p>
                         <div className="ml-auto flex shrink-0 items-center gap-2">
