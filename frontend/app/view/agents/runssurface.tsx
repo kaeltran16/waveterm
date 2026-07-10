@@ -6,7 +6,9 @@
 // and worker liveness off the live agent roster. Human decisions (approve/send-back/cancel/steer) call
 // existing RPCs; phase completion arrives via the external hook. See runmodel.ts for all derivations.
 
-import { fireAndForget } from "@/util/util";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { base64ToString, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -14,6 +16,7 @@ import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
+import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { approveGate, cancelRun, createRun, sendBackGate } from "./runactions";
 import {
@@ -26,6 +29,7 @@ import {
     phaseThread,
     phaseWorkers,
     recordedWorkerTabs,
+    resolveArtifactPath,
     runStatusView,
 } from "./runmodel";
 import { ProfilePanel } from "./profilepanel";
@@ -62,6 +66,60 @@ function StatusPill({ status }: { status: string }) {
     );
 }
 
+// The plan document being approved, read from the gated phase's artifact and rendered inline so you
+// can review it without leaving Runs. Read-only and non-blocking: a missing/unreadable file shows a
+// subtle line and never disables the gate's actions. One read per gate (only one gate is ever live).
+function PlanPreview({ path }: { path: string }) {
+    const [open, setOpen] = useState(true);
+    const [load, setLoad] = useState<{ status: "loading" | "error" | "ok"; text: string }>({ status: "loading", text: "" });
+    useEffect(() => {
+        let alive = true;
+        setLoad({ status: "loading", text: "" });
+        fireAndForget(async () => {
+            try {
+                const fileData = await RpcApi.FileReadCommand(TabRpcClient, { info: { path } });
+                const text = fileData?.data64 ? base64ToString(fileData.data64) : "";
+                if (alive) {
+                    setLoad(text.trim() ? { status: "ok", text } : { status: "error", text: "" });
+                }
+            } catch {
+                if (alive) {
+                    setLoad({ status: "error", text: "" });
+                }
+            }
+        });
+        return () => {
+            alive = false;
+        };
+    }, [path]);
+
+    const filename = path.split(/[/\\]/).pop() ?? path;
+    return (
+        <div className="border-b border-asking/20">
+            <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-lane-asking"
+            >
+                <span className="font-mono text-[8px] text-asking">{open ? "▼" : "▶"}</span>
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Plan</span>
+                <span className="truncate font-mono text-[10.5px] text-muted">{filename}</span>
+            </button>
+            {open ? (
+                <div className="sc max-h-[320px] overflow-y-auto px-3.5 pb-3">
+                    {load.status === "loading" ? (
+                        <span className="text-[12px] text-muted">Loading plan…</span>
+                    ) : load.status === "error" ? (
+                        <span className="text-[12px] text-muted">Couldn't read plan · {filename}</span>
+                    ) : (
+                        <MarkdownMessage text={load.text} className="text-[12.5px] leading-[1.55] text-secondary" />
+                    )}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: Run; gateIdx: number }) {
     const gatePhase = run.phases[gateIdx];
     const artifact = (gatePhase.artifacts ?? [])[0];
@@ -75,6 +133,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
                 </span>
                 {artifact ? <span className="font-mono text-[10.5px] text-muted">{artifact}</span> : null}
             </div>
+            {artifact ? <PlanPreview path={resolveArtifactPath(run.projectpath, artifact)} /> : null}
             <div className="flex items-center gap-2.5 px-3.5 py-3">
                 <button
                     type="button"
