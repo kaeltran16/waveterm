@@ -34,6 +34,7 @@ func TestIsManagedCommand(t *testing.T) {
 		`"C:\a\bin\wsh.exe" ask`:                           true,
 		`"/usr/local/bin/wsh" ask --clear`:                 true,
 		`wsh agent-hook`:                                   true,
+		`"C:\a\bin\wsh.exe" agent-memory-hook`:             true,
 		`"C:\a\bin\wsh.exe" ask --other`:                   false,
 		`node /x/ask-hook.js`:                              false,
 		`mytool agent-hook`:                                false,
@@ -48,16 +49,16 @@ func TestIsManagedCommand(t *testing.T) {
 
 func TestMergeAgentHooksEmpty(t *testing.T) {
 	got := mergeAgentHooks(map[string]any{}, testWsh)
-	if n := countManaged(t, got); n != 8 {
-		t.Fatalf("managed entries = %d, want 8", n)
+	if n := countManaged(t, got); n != 9 {
+		t.Fatalf("managed entries = %d, want 9", n)
 	}
 }
 
 func TestMergeAgentHooksIdempotent(t *testing.T) {
 	once := mergeAgentHooks(map[string]any{}, testWsh)
 	twice := mergeAgentHooks(once, testWsh)
-	if n := countManaged(t, twice); n != 8 {
-		t.Fatalf("managed entries after 2x = %d, want 8", n)
+	if n := countManaged(t, twice); n != 9 {
+		t.Fatalf("managed entries after 2x = %d, want 9", n)
 	}
 }
 
@@ -97,16 +98,16 @@ func TestMergeAgentHooksPreservesUnrelated(t *testing.T) {
 	if !foundUser {
 		t.Fatal("user hook was clobbered")
 	}
-	if n := countManaged(t, got); n != 8 {
-		t.Fatalf("managed entries = %d, want 8", n)
+	if n := countManaged(t, got); n != 9 {
+		t.Fatalf("managed entries = %d, want 9", n)
 	}
 }
 
 func TestMergeAgentHooksRefreshesStalePath(t *testing.T) {
 	old := mergeAgentHooks(map[string]any{}, `C:\old\bin\wsh-0.14.4-windows.x64.exe`)
 	refreshed := mergeAgentHooks(old, testWsh)
-	if n := countManaged(t, refreshed); n != 8 {
-		t.Fatalf("managed entries = %d, want 8 (stale not replaced)", n)
+	if n := countManaged(t, refreshed); n != 9 {
+		t.Fatalf("managed entries = %d, want 9 (stale not replaced)", n)
 	}
 	// no command should still reference the old path
 	hooks := refreshed["hooks"].(map[string]any)

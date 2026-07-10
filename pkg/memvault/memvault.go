@@ -31,6 +31,11 @@ type Note struct {
 	Path        string   `json:"path"`        // absolute file path
 	Links       []string `json:"links"`       // [[targets]] from the body, in order, deduped
 	UpdatedTs   int64    `json:"updatedts"`   // file mtime, UnixMilli
+
+	Reviewed       bool   `json:"reviewed"`       // metadata.reviewed; false = machine-written, awaiting human review
+	CapturedAt     string `json:"capturedat"`     // metadata.captured_at (RFC3339) for agent-written notes
+	SupersededBy   string `json:"supersededby"`   // metadata.superseded_by: slug of the note that replaced this one
+	LastReferenced string `json:"lastreferenced"` // metadata.last_referenced (RFC3339): last session that used this note
 }
 
 type Edge struct {
@@ -47,10 +52,14 @@ type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Metadata    struct {
-		Type       string `yaml:"type"`
-		Scope      string `yaml:"scope"`
-		Source     string `yaml:"source"`
-		SourceHash string `yaml:"source_hash"`
+		Type           string `yaml:"type"`
+		Scope          string `yaml:"scope"`
+		Source         string `yaml:"source"`
+		SourceHash     string `yaml:"source_hash"`
+		Reviewed       bool   `yaml:"reviewed"`
+		CapturedAt     string `yaml:"captured_at"`
+		SupersededBy   string `yaml:"superseded_by"`
+		LastReferenced string `yaml:"last_referenced"`
 	} `yaml:"metadata"`
 }
 
@@ -76,6 +85,10 @@ func parseNote(path string, data []byte, source string) (Note, string) {
 				n.Type = fm.Metadata.Type
 				n.Scope = fm.Metadata.Scope
 				n.SourceHash = fm.Metadata.SourceHash
+				n.Reviewed = fm.Metadata.Reviewed
+				n.CapturedAt = fm.Metadata.CapturedAt
+				n.SupersededBy = fm.Metadata.SupersededBy
+				n.LastReferenced = fm.Metadata.LastReferenced
 				if fm.Metadata.Source != "" {
 					n.Source = fm.Metadata.Source // frontmatter provenance overrides the root tag
 				}
@@ -295,4 +308,56 @@ func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = slugRe.ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
+}
+
+// setMetadataField upserts "  <key>: <value>" inside the frontmatter metadata block, preserving the
+// body and all other frontmatter. value is written verbatim — the caller quotes it if YAML requires.
+// If there is no metadata: block, one is created before the closing ---. Content without frontmatter
+// is returned unchanged.
+func setMetadataField(content, key, value string) string {
+	if !strings.HasPrefix(content, "---\n") {
+		return content
+	}
+	end := strings.Index(content[4:], "\n---")
+	if end < 0 {
+		return content
+	}
+	fmText := content[4 : 4+end]
+	rest := content[4+end:] // starts at "\n---"
+	lines := strings.Split(fmText, "\n")
+	newLine := "  " + key + ": " + value
+	metaIdx := -1
+	for i, l := range lines {
+		if l == "metadata:" || strings.HasPrefix(l, "metadata:") {
+			metaIdx = i
+			break
+		}
+	}
+	if metaIdx < 0 {
+		lines = append(lines, "metadata:", newLine)
+		return "---\n" + strings.Join(lines, "\n") + rest
+	}
+	// scan the indented block under metadata: for an existing key
+	replaced := false
+	lastMeta := metaIdx
+	for i := metaIdx + 1; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], "  ") {
+			break
+		}
+		lastMeta = i
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, key+":") {
+			lines[i] = newLine
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		out := make([]string, 0, len(lines)+1)
+		out = append(out, lines[:lastMeta+1]...)
+		out = append(out, newLine)
+		out = append(out, lines[lastMeta+1:]...)
+		lines = out
+	}
+	return "---\n" + strings.Join(lines, "\n") + rest
 }

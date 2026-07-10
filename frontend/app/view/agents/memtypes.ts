@@ -8,12 +8,16 @@ export type MemNote = {
     id: string;
     title: string;
     description: string;
-    type: string; // Claude schema: user|feedback|project|reference (verbatim; may be "" or unknown)
+    type: string; // Claude schema: user|feedback|project|reference|learning (verbatim; may be "" or unknown)
     scope: string;
-    source: string; // vault|claude|codex
+    source: string; // vault|claude|codex|agent
     path: string;
     links: string[];
     updatedts: number;
+    reviewed: boolean;
+    capturedat: string;
+    supersededby: string;
+    lastreferenced: string;
 };
 
 export type MemEdge = { from: string; to: string };
@@ -26,6 +30,7 @@ const META: Record<string, TypeMeta> = {
     project: { label: "Project", dotClass: "bg-mem-project", pillClass: "text-mem-project" },
     reference: { label: "Reference", dotClass: "bg-mem-reference", pillClass: "text-mem-reference" },
     feedback: { label: "Feedback", dotClass: "bg-mem-feedback", pillClass: "text-mem-feedback" },
+    learning: { label: "Learning", dotClass: "bg-mem-feedback", pillClass: "text-mem-feedback" },
     user: { label: "User", dotClass: "bg-mem-user", pillClass: "text-mem-user" },
 };
 

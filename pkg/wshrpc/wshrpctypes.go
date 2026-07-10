@@ -111,6 +111,10 @@ type WshRpcInterface interface {
 	MemoryProjectCommand(ctx context.Context, data CommandMemoryProjectData) error
 	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
 	MemoryHarvestCommand(ctx context.Context, data CommandMemoryHarvestData) (*CommandMemoryHarvestRtnData, error)
+	MemoryLearnCommand(ctx context.Context, data CommandMemoryLearnData) (*CommandMemoryLearnRtnData, error)
+	MemoryReviewListCommand(ctx context.Context) (*CommandMemoryReviewListRtnData, error)
+	MemoryReviewAcceptCommand(ctx context.Context, data CommandMemoryReviewAcceptData) error
+	MemoryPruneListCommand(ctx context.Context) (*CommandMemoryPruneListRtnData, error)
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	DeleteChannelCommand(ctx context.Context, data CommandDeleteChannelData) error
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
@@ -907,6 +911,11 @@ type MemoryNote struct {
 	Path        string   `json:"path"`
 	Links       []string `json:"links"`
 	UpdatedTs   int64    `json:"updatedts"`
+
+	Reviewed       bool   `json:"reviewed"`
+	CapturedAt     string `json:"capturedat"`
+	SupersededBy   string `json:"supersededby"`
+	LastReferenced string `json:"lastreferenced"`
 }
 
 type MemoryEdge struct {
@@ -973,6 +982,52 @@ type CommandMemoryHarvestData struct {
 type CommandMemoryHarvestRtnData struct {
 	Ingested int `json:"ingested"`
 	Skipped  int `json:"skipped"`
+}
+
+type MemoryLearnCandidate struct {
+	Type         string `json:"type"`
+	Scope        string `json:"scope,omitempty"`
+	Body         string `json:"body"`
+	IsCorrection bool   `json:"iscorrection,omitempty"`
+	Supersedes   string `json:"supersedes,omitempty"`
+}
+
+type CommandMemoryLearnData struct {
+	Cwd        string                 `json:"cwd"`
+	Candidates []MemoryLearnCandidate `json:"candidates"`
+	References []string               `json:"references,omitempty"` // slugs of existing notes the session used
+}
+
+type CommandMemoryLearnRtnData struct {
+	Committed int `json:"committed"`
+	Queued    int `json:"queued"`
+}
+
+type MemoryPendingNote struct {
+	Path  string `json:"path"`
+	Type  string `json:"type"`
+	Scope string `json:"scope"`
+	Body  string `json:"body"`
+	Cwd   string `json:"cwd"`
+}
+
+type CommandMemoryReviewListRtnData struct {
+	Pending []MemoryPendingNote `json:"pending"`
+}
+
+type CommandMemoryReviewAcceptData struct {
+	Path string `json:"path"`
+}
+
+type MemoryPruneCandidate struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+	Path   string `json:"path"`
+}
+
+type CommandMemoryPruneListRtnData struct {
+	Candidates []MemoryPruneCandidate `json:"candidates"`
 }
 
 type CommandStreamAgentTranscriptData struct {

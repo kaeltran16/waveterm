@@ -818,6 +818,12 @@ func MemoryHarvestCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryHarvestDat
 	return resp, err
 }
 
+// command "memorylearn", wshserver.MemoryLearnCommand
+func MemoryLearnCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryLearnData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryLearnRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryLearnRtnData](w, "memorylearn", data, opts)
+	return resp, err
+}
+
 // command "memoryproject", wshserver.MemoryProjectCommand
 func MemoryProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryProjectData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "memoryproject", data, opts)
@@ -830,9 +836,27 @@ func MemoryProjectionStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*ws
 	return resp, err
 }
 
+// command "memoryprunelist", wshserver.MemoryPruneListCommand
+func MemoryPruneListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryPruneListRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryPruneListRtnData](w, "memoryprunelist", nil, opts)
+	return resp, err
+}
+
 // command "memoryread", wshserver.MemoryReadCommand
 func MemoryReadCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryReadRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryReadRtnData](w, "memoryread", data, opts)
+	return resp, err
+}
+
+// command "memoryreviewaccept", wshserver.MemoryReviewAcceptCommand
+func MemoryReviewAcceptCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryReviewAcceptData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "memoryreviewaccept", data, opts)
+	return err
+}
+
+// command "memoryreviewlist", wshserver.MemoryReviewListCommand
+func MemoryReviewListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryReviewListRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryReviewListRtnData](w, "memoryreviewlist", nil, opts)
 	return resp, err
 }
 

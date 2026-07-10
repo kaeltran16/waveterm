@@ -215,3 +215,66 @@ func TestParseNoteFrontmatterSourceOverride(t *testing.T) {
 		t.Fatalf("plain SourceHash = %q, want empty", p.SourceHash)
 	}
 }
+
+func TestParseNoteAppliedLearningFields(t *testing.T) {
+	md := "---\n" +
+		"name: fix-the-thing\n" +
+		"description: a learning\n" +
+		"metadata:\n" +
+		"  type: feedback\n" +
+		"  source: agent\n" +
+		"  reviewed: false\n" +
+		"  captured_at: \"2026-07-10T12:00:00Z\"\n" +
+		"  superseded_by: old-approach\n" +
+		"  last_referenced: \"2026-07-09T08:00:00Z\"\n" +
+		"---\n\nbody text\n"
+	n, body := parseNote("/tmp/fix-the-thing.md", []byte(md), "claude")
+	if n.Source != "agent" {
+		t.Fatalf("source = %q, want agent", n.Source)
+	}
+	if n.Reviewed != false {
+		t.Fatalf("reviewed = %v, want false", n.Reviewed)
+	}
+	if n.CapturedAt != "2026-07-10T12:00:00Z" {
+		t.Fatalf("capturedAt = %q", n.CapturedAt)
+	}
+	if n.SupersededBy != "old-approach" {
+		t.Fatalf("supersededBy = %q", n.SupersededBy)
+	}
+	if n.LastReferenced != "2026-07-09T08:00:00Z" {
+		t.Fatalf("lastReferenced = %q", n.LastReferenced)
+	}
+	if body != "body text\n" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestSetMetadataField(t *testing.T) {
+	// upsert into existing metadata block (replace)
+	in := "---\nname: n\nmetadata:\n  type: feedback\n  reviewed: false\n---\n\nbody\n"
+	out := setMetadataField(in, "reviewed", "true")
+	if !strings.Contains(out, "  reviewed: true\n") || strings.Contains(out, "reviewed: false") {
+		t.Fatalf("replace failed:\n%s", out)
+	}
+	if !strings.Contains(out, "\nbody\n") {
+		t.Fatalf("body dropped:\n%s", out)
+	}
+	// append a new key into an existing metadata block
+	out = setMetadataField(in, "superseded_by", "old-slug")
+	if !strings.Contains(out, "  superseded_by: old-slug\n") {
+		t.Fatalf("append failed:\n%s", out)
+	}
+	if !strings.Contains(out, "  type: feedback\n") {
+		t.Fatalf("existing metadata lost:\n%s", out)
+	}
+	// no metadata block yet -> create one
+	in2 := "---\nname: n\ndescription: d\n---\n\nbody\n"
+	out = setMetadataField(in2, "last_referenced", "\"2026-07-10T00:00:00Z\"")
+	if !strings.Contains(out, "metadata:\n  last_referenced: \"2026-07-10T00:00:00Z\"\n") {
+		t.Fatalf("create-block failed:\n%s", out)
+	}
+	// no frontmatter -> unchanged
+	if got := setMetadataField("plain body\n", "x", "y"); got != "plain body\n" {
+		t.Fatalf("no-frontmatter changed: %q", got)
+	}
+}

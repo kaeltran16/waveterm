@@ -882,6 +882,19 @@ declare global {
         skipped: number;
     };
 
+    // wshrpc.CommandMemoryLearnData
+    type CommandMemoryLearnData = {
+        cwd: string;
+        candidates: MemoryLearnCandidate[];
+        references?: string[];
+    };
+
+    // wshrpc.CommandMemoryLearnRtnData
+    type CommandMemoryLearnRtnData = {
+        committed: number;
+        queued: number;
+    };
+
     // wshrpc.CommandMemoryProjectData
     type CommandMemoryProjectData = {
         cwd: string;
@@ -890,6 +903,11 @@ declare global {
     // wshrpc.CommandMemoryProjectionStatusRtnData
     type CommandMemoryProjectionStatusRtnData = {
         runtimes: {[key: string]: string};
+    };
+
+    // wshrpc.CommandMemoryPruneListRtnData
+    type CommandMemoryPruneListRtnData = {
+        candidates: MemoryPruneCandidate[];
     };
 
     // wshrpc.CommandMemoryReadData
@@ -902,6 +920,16 @@ declare global {
     type CommandMemoryReadRtnData = {
         note: MemoryNote;
         body: string;
+    };
+
+    // wshrpc.CommandMemoryReviewAcceptData
+    type CommandMemoryReviewAcceptData = {
+        path: string;
+    };
+
+    // wshrpc.CommandMemoryReviewListRtnData
+    type CommandMemoryReviewListRtnData = {
+        pending: MemoryPendingNote[];
     };
 
     // wshrpc.CommandMemoryScanRtnData
@@ -1601,6 +1629,15 @@ declare global {
         to: string;
     };
 
+    // wshrpc.MemoryLearnCandidate
+    type MemoryLearnCandidate = {
+        type: string;
+        scope?: string;
+        body: string;
+        iscorrection?: boolean;
+        supersedes?: string;
+    };
+
     // wshrpc.MemoryNote
     type MemoryNote = {
         id: string;
@@ -1612,6 +1649,27 @@ declare global {
         path: string;
         links: string[];
         updatedts: number;
+        reviewed: boolean;
+        capturedat: string;
+        supersededby: string;
+        lastreferenced: string;
+    };
+
+    // wshrpc.MemoryPendingNote
+    type MemoryPendingNote = {
+        path: string;
+        type: string;
+        scope: string;
+        body: string;
+        cwd: string;
+    };
+
+    // wshrpc.MemoryPruneCandidate
+    type MemoryPruneCandidate = {
+        id: string;
+        title: string;
+        reason: string;
+        path: string;
     };
 
     // waveobj.MetaTSType

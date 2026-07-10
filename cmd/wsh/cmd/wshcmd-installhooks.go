@@ -32,6 +32,7 @@ var managedHooks = []managedHook{
 	{"Stop", "", "agent-hook", 10},
 	{"SubagentStop", "", "agent-hook", 10},
 	{"UserPromptSubmit", "", "agent-hook", 10},
+	{"SessionEnd", "", "agent-memory-hook", 120},
 }
 
 func managedEventOrder() []string {
@@ -59,7 +60,7 @@ func isManagedCommand(command string) bool {
 		return false
 	}
 	switch strings.TrimSpace(rest) {
-	case "agent-hook", "ask", "ask --clear":
+	case "agent-hook", "ask", "ask --clear", "agent-memory-hook":
 		return true
 	}
 	return false

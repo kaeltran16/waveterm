@@ -119,3 +119,46 @@ export async function deleteNote(path: string): Promise<void> {
     globalStore.set(memBodyAtom, null);
     await loadMemory();
 }
+
+// Review tray: agent-distilled candidates not auto-committed, awaiting a human accept/reject.
+// MemoryPendingNote is an ambient generated wire type (frontend/types/gotypes.d.ts).
+export const memPendingAtom = atom<MemoryPendingNote[]>([]) as PrimitiveAtom<MemoryPendingNote[]>;
+
+export async function loadReview(): Promise<void> {
+    try {
+        const r = await RpcApi.MemoryReviewListCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
+        globalStore.set(memPendingAtom, r.pending ?? []);
+    } catch {
+        globalStore.set(memPendingAtom, []);
+    }
+}
+
+export async function acceptPending(path: string): Promise<void> {
+    await RpcApi.MemoryReviewAcceptCommand(TabRpcClient, { path });
+    globalStore.set(memReflowAnimatedAtom, true);
+    await Promise.all([loadReview(), loadMemory()]);
+}
+
+export async function rejectPending(path: string): Promise<void> {
+    await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
+    await loadReview();
+}
+
+// Cleanup queue: hub notes the distiller flagged as superseded (strong) or stale (weak).
+// MemoryPruneCandidate is an ambient generated wire type (frontend/types/gotypes.d.ts).
+export const memPruneAtom = atom<MemoryPruneCandidate[]>([]) as PrimitiveAtom<MemoryPruneCandidate[]>;
+
+export async function loadPrune(): Promise<void> {
+    try {
+        const r = await RpcApi.MemoryPruneListCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
+        globalStore.set(memPruneAtom, r.candidates ?? []);
+    } catch {
+        globalStore.set(memPruneAtom, []);
+    }
+}
+
+// Confirmed removal (human action). Reuses deleteNote (rescans the graph) then refreshes the queue.
+export async function prune(path: string): Promise<void> {
+    await deleteNote(path);
+    await loadPrune();
+}

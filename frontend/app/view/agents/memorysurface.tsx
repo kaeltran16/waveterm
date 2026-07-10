@@ -20,11 +20,15 @@ import { resolveCwd } from "./agentcwdresolve";
 import { MarkdownMessage } from "./markdownmessage";
 import { MemGraph } from "./memgraph";
 import { NewMemoryModal } from "./newmemorymodal";
+import { CleanupQueue } from "./cleanupqueue";
 import { RAIL_ICON } from "./railicons";
+import { ReviewTray } from "./reviewtray";
 import { SyncStrip } from "./syncstrip";
 import {
     deleteNote,
     loadMemory,
+    loadPrune,
+    loadReview,
     memBodyAtom,
     memConflictAtom,
     memDraftAtom,
@@ -446,6 +450,8 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const vaultPath = useAtomValue(getSettingsKeyAtom("memory:vaultpath"));
     useEffect(() => {
         fireAndForget(() => loadMemory());
+        fireAndForget(() => loadReview());
+        fireAndForget(() => loadPrune());
     }, [vaultPath]);
 
     const q = search.trim().toLowerCase();
@@ -472,6 +478,8 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                 <div className="flex min-w-0 flex-1 flex-col">
                     <Header count={notes.length} onNew={() => setNewOpen(true)} />
                     <SyncStrip focusedCwd={focusedCwd} />
+                    <ReviewTray />
+                    <CleanupQueue />
                     <div className="relative min-h-0 flex-1 overflow-hidden">
                         {!loaded ? (
                             <MemorySkeleton />

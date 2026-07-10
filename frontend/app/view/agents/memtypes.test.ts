@@ -6,7 +6,8 @@ import { groupByScope, typeMeta, type MemNote } from "./memtypes";
 
 const note = (over: Partial<MemNote>): MemNote => ({
     id: "x", title: "X", description: "", type: "project", scope: "shared",
-    source: "vault", path: "/v/x.md", links: [], updatedts: 0, ...over,
+    source: "vault", path: "/v/x.md", links: [], updatedts: 0,
+    reviewed: false, capturedat: "", supersededby: "", lastreferenced: "", ...over,
 });
 
 describe("typeMeta", () => {
@@ -14,6 +15,9 @@ describe("typeMeta", () => {
         expect(typeMeta("project").label).toBe("Project");
         expect(typeMeta("project").dotClass).toBe("bg-mem-project");
         expect(typeMeta("user").label).toBe("User");
+    });
+    it("maps the learning type to its own label", () => {
+        expect(typeMeta("learning").label).toBe("Learning");
     });
     it("falls back for unknown/empty types", () => {
         expect(typeMeta("").label).toBe("Note");

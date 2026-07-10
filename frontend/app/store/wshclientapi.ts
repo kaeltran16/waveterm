@@ -822,6 +822,12 @@ export class RpcApiType {
         return client.wshRpcCall("memoryharvest", data, opts);
     }
 
+    // command "memorylearn" [call]
+    MemoryLearnCommand(client: WshClient, data: CommandMemoryLearnData, opts?: RpcOpts): Promise<CommandMemoryLearnRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memorylearn", data, opts);
+        return client.wshRpcCall("memorylearn", data, opts);
+    }
+
     // command "memoryproject" [call]
     MemoryProjectCommand(client: WshClient, data: CommandMemoryProjectData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryproject", data, opts);
@@ -834,10 +840,28 @@ export class RpcApiType {
         return client.wshRpcCall("memoryprojectionstatus", null, opts);
     }
 
+    // command "memoryprunelist" [call]
+    MemoryPruneListCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryPruneListRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryprunelist", null, opts);
+        return client.wshRpcCall("memoryprunelist", null, opts);
+    }
+
     // command "memoryread" [call]
     MemoryReadCommand(client: WshClient, data: CommandMemoryReadData, opts?: RpcOpts): Promise<CommandMemoryReadRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryread", data, opts);
         return client.wshRpcCall("memoryread", data, opts);
+    }
+
+    // command "memoryreviewaccept" [call]
+    MemoryReviewAcceptCommand(client: WshClient, data: CommandMemoryReviewAcceptData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryreviewaccept", data, opts);
+        return client.wshRpcCall("memoryreviewaccept", data, opts);
+    }
+
+    // command "memoryreviewlist" [call]
+    MemoryReviewListCommand(client: WshClient, opts?: RpcOpts): Promise<CommandMemoryReviewListRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "memoryreviewlist", null, opts);
+        return client.wshRpcCall("memoryreviewlist", null, opts);
     }
 
     // command "memoryscan" [call]

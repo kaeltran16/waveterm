@@ -72,6 +72,7 @@ function useThemeColors() {
             project: c("--color-mem-project"),
             reference: c("--color-mem-reference"),
             feedback: c("--color-mem-feedback"),
+            learning: c("--color-mem-feedback"), // learning shares feedback's color (mirrors typeMeta)
             user: c("--color-mem-user"),
         };
         return {
@@ -519,7 +520,7 @@ export function MemGraph({
 
             {/* type legend — pinned overlay */}
             <div className="pointer-events-none absolute bottom-[10px] left-[12px] flex gap-[15px] rounded-[9px] border border-edge-faint bg-surface/80 px-[13px] py-[8px]">
-                {(["project", "reference", "feedback", "user"] as const).map((t) => (
+                {(["project", "reference", "feedback", "learning", "user"] as const).map((t) => (
                     <div key={t} className="flex items-center gap-[6px]">
                         <div className="h-[8px] w-[8px] rounded-full" style={{ background: colors.fill(t) }} />
                         <span className="font-mono text-[10.5px] capitalize text-ink-mid">{t}</span>
