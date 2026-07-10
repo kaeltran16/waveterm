@@ -79,10 +79,23 @@ disable or hide the gate's actions.
 
 **Component shape.** A small `PlanPreview({ path }: { path: string })`
 co-located in `runssurface.tsx` next to `ReviewGateCard`. Local
-`useState<{ status: "loading" | "error" | "ok"; text: string }>` + a
-`useEffect` keyed on `path` that fetches once on mount (fetch-eager: only one
-gate is ever live, so it's a single read). `ReviewGateCard` computes the
-resolved path and renders `<PlanPreview/>` only when an artifact exists.
+`useState<{ status; text; lines }>` + a `useEffect` keyed on `path` that
+fetches once on mount (fetch-eager: only one gate is ever live, so it's a
+single read). `ReviewGateCard` computes the resolved path and renders
+`<PlanPreview/>` only when an artifact exists.
+
+**Large plans (plans run to ~2000 lines).** The read is safe as-is —
+`wshfs.Read` returns the whole file up to a 32MB transfer limit, far above a
+~100KB plan, and we pass no byte range, so nothing is silently truncated. The
+layout is safe too — the body is a fixed `max-h-[320px]` scroll box. The only
+cost is eager rendering of a long markdown DOM. So above
+`PLAN_PREVIEW_COLLAPSE_LINES` (400), the preview starts **collapsed** with a
+`· N lines` hint and renders on demand; small plans stay open. Open-state is
+**derived** (`override ?? !large`) so a long plan never renders its DOM before
+collapsing, and an explicit user toggle still wins. We deliberately do **not**
+truncate rendered content (no "open full file" affordance exists yet — the
+gate's "Edit plan" button is a future piece — so truncation would strand a
+reviewer mid-plan).
 
 ## Scope guard
 

@@ -66,25 +66,39 @@ function StatusPill({ status }: { status: string }) {
     );
 }
 
+// Above this many lines, the plan preview starts collapsed (with a line-count hint) so a long plan
+// (plans run to ~2000 lines) doesn't render its whole DOM eagerly on every gate — you expand on
+// demand. Small plans stay open. The read itself is unbounded up to wshfs's 32MB transfer limit.
+const PLAN_PREVIEW_COLLAPSE_LINES = 400;
+
 // The plan document being approved, read from the gated phase's artifact and rendered inline so you
 // can review it without leaving Runs. Read-only and non-blocking: a missing/unreadable file shows a
 // subtle line and never disables the gate's actions. One read per gate (only one gate is ever live).
 function PlanPreview({ path }: { path: string }) {
-    const [open, setOpen] = useState(true);
-    const [load, setLoad] = useState<{ status: "loading" | "error" | "ok"; text: string }>({ status: "loading", text: "" });
+    const [load, setLoad] = useState<{ status: "loading" | "error" | "ok"; text: string; lines: number }>({
+        status: "loading",
+        text: "",
+        lines: 0,
+    });
+    const [override, setOverride] = useState<boolean | null>(null); // user's explicit toggle; null = auto
     useEffect(() => {
         let alive = true;
-        setLoad({ status: "loading", text: "" });
+        setLoad({ status: "loading", text: "", lines: 0 });
+        setOverride(null);
         fireAndForget(async () => {
             try {
                 const fileData = await RpcApi.FileReadCommand(TabRpcClient, { info: { path } });
                 const text = fileData?.data64 ? base64ToString(fileData.data64) : "";
                 if (alive) {
-                    setLoad(text.trim() ? { status: "ok", text } : { status: "error", text: "" });
+                    setLoad(
+                        text.trim()
+                            ? { status: "ok", text, lines: text.split("\n").length }
+                            : { status: "error", text: "", lines: 0 }
+                    );
                 }
             } catch {
                 if (alive) {
-                    setLoad({ status: "error", text: "" });
+                    setLoad({ status: "error", text: "", lines: 0 });
                 }
             }
         });
@@ -93,17 +107,22 @@ function PlanPreview({ path }: { path: string }) {
         };
     }, [path]);
 
+    const large = load.status === "ok" && load.lines > PLAN_PREVIEW_COLLAPSE_LINES;
+    const open = override ?? !large; // auto-collapse a long plan; a user toggle overrides
     const filename = path.split(/[/\\]/).pop() ?? path;
     return (
         <div className="border-b border-asking/20">
             <button
                 type="button"
-                onClick={() => setOpen((o) => !o)}
+                onClick={() => setOverride(!open)}
                 className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-lane-asking"
             >
                 <span className="font-mono text-[8px] text-asking">{open ? "▼" : "▶"}</span>
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Plan</span>
-                <span className="truncate font-mono text-[10.5px] text-muted">{filename}</span>
+                <span className="truncate font-mono text-[10.5px] text-muted">
+                    {filename}
+                    {load.status === "ok" ? ` · ${load.lines} lines` : ""}
+                </span>
             </button>
             {open ? (
                 <div className="sc max-h-[320px] overflow-y-auto px-3.5 pb-3">
