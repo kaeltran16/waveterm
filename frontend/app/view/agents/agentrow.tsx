@@ -13,7 +13,6 @@ import { confirmCloseAgent } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     hasAnswerableAsk,
-    isNearBottom,
     isQuiet,
     nextFullWidth,
     projectOf,
@@ -28,6 +27,7 @@ import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./live
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
+import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
@@ -196,14 +196,12 @@ export function AgentRow({
             springSeeded.current = true;
         }
     });
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const stickRef = useRef(true);
     const [tasksOpen, setTasksOpen] = useState(false);
-    const [atBottom, setAtBottom] = useState(true);
 
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
+    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const quiet = isQuiet(lastActivity[agent.id], now);
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
@@ -237,34 +235,6 @@ export function AgentRow({
         items.push({ type: "separator" });
         items.push({ label: "Close agent", click: () => confirmCloseAgent(agent.id, agent.name) });
         ContextMenuModel.getInstance().showContextMenu(items, e);
-    };
-
-    // in-row narration sticks to the latest line unless the user scrolls up to read history.
-    // layout-effect (not effect) so the pin lands before paint — otherwise each chunk paints the
-    // taller feed at the old scrollTop, then snaps down a frame later, which reads as a jump.
-    useLayoutEffect(() => {
-        const el = scrollRef.current;
-        if (el && stickRef.current) {
-            el.scrollTop = el.scrollHeight;
-        }
-    }, [entries]);
-    const onNarrationScroll = () => {
-        const el = scrollRef.current;
-        if (!el) {
-            return;
-        }
-        const near = isNearBottom(el);
-        stickRef.current = near;
-        setAtBottom(near);
-    };
-    const jumpToBottom = () => {
-        const el = scrollRef.current;
-        if (!el) {
-            return;
-        }
-        el.scrollTop = el.scrollHeight;
-        stickRef.current = true;
-        setAtBottom(true);
     };
 
     // one-shot "settle" when this agent finishes (working -> idle); cleared after it plays
@@ -442,7 +412,7 @@ export function AgentRow({
             <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scrollRef}
-                onScroll={onNarrationScroll}
+                onScroll={onScroll}
                 className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden"
             >
                 {/* feed */}
@@ -519,19 +489,7 @@ export function AgentRow({
                     )}
                 </div>
             </div>
-                {!atBottom ? (
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            jumpToBottom();
-                        }}
-                        title="Jump to latest"
-                        className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-edge-strong bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-secondary shadow-[0_10px_28px_rgba(0,0,0,0.5)] hover:border-accent hover:text-primary"
-                    >
-                        <span className="text-[12px] leading-none">↓</span> Latest
-                    </button>
-                ) : null}
+                {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
             </div>
 
             {/* bottom-right corner grip: drag down = taller, drag out (±48px) = full-width span */}
