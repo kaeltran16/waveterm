@@ -400,7 +400,11 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
                 <AttentionCard glow={pending && chosen == null}>
-                    <AttentionBanner label="Answer" pulse={pending && chosen == null} />
+                    <AttentionBanner
+                        label="Escalated to you — a decision Jarvis can't make"
+                        pulse={pending && chosen == null}
+                        right={<BannerChip>from {workerName}</BannerChip>}
+                    />
                     <div className="px-3.5 py-3">
                         {card ? (
                             <>
