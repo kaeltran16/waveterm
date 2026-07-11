@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { fireAndForget } from "@/util/util";
-import { buildRunDraft } from "./radarmodel";
+import { globalStore } from "@/app/store/jotaiStore";
+import type { AgentsViewModel } from "./agents";
+import { toPendingRunDraft } from "./radarmodel";
+import { pendingRunDraftAtom } from "./runactions";
 import { setDisposition } from "./radarstore";
 
 // Diff-renderer decision (plan D3 Step 1): RadarSignal.snippet is a plain unified-diff string, and the
@@ -22,14 +25,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     );
 }
 
-export function RadarFindingDetail({ report, finding }: { report: RadarReport; finding: RadarFinding }) {
+export function RadarFindingDetail({ model, report, finding }: { model: AgentsViewModel; report: RadarReport; finding: RadarFinding }) {
     const signalsById = new Map((report.signals ?? []).map((s) => [s.id, s]));
     const referenced = finding.signalids.map((id) => signalsById.get(id)).filter(Boolean) as RadarSignal[];
     const dismissed = finding.disposition?.action === "dismiss";
     const suppressed = finding.disposition?.action === "suppress";
-    const draft = buildRunDraft(report, finding); // built for the deferred handoff; payload is ready
 
     const dispose = (action: string) => fireAndForget(() => setDisposition(report.oid, finding.id, action));
+
+    const startInvestigation = () => {
+        globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, finding));
+        globalStore.set(model.surfaceAtom, "channels");
+    };
 
     return (
         <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
@@ -78,13 +85,10 @@ export function RadarFindingDetail({ report, finding }: { report: RadarReport; f
             </div>
 
             <div className="flex items-center gap-2">
-                {/* Start investigation is deferred (docs/deferred.md): draft is built but the Channels composer isn't wired */}
                 <button
                     type="button"
-                    disabled
-                    title="Start investigation opens a prefilled Run in Channels — coming soon"
-                    className="cursor-not-allowed rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background opacity-50"
-                    data-run-draft-finding={draft.findingId}
+                    onClick={startInvestigation}
+                    className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background hover:bg-accent/90"
                 >
                     Start investigation
                 </button>

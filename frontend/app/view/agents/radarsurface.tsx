@@ -71,7 +71,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                         ) : null}
                         <RadarFindingsList findings={findings} selectedId={effectiveSelected} onSelect={setSelectedId} />
                         {selectedFinding ? (
-                            <RadarFindingDetail report={report} finding={selectedFinding} />
+                            <RadarFindingDetail model={model} report={report} finding={selectedFinding} />
                         ) : (
                             <div className="flex flex-1 items-center justify-center text-muted-foreground">Select a finding</div>
                         )}
