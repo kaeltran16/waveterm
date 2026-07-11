@@ -27,6 +27,7 @@ import {
     type MentionCandidate,
 } from "./channelderive";
 import { AskRow, Avatar, jumpToAgent, STATE_DOT, Tag, timeLabel, WorkerRow, workerFor } from "./channelsprimitives";
+import { ComposerShell } from "./composer-shell";
 import {
     describePlan,
     planMessage,
@@ -616,32 +617,37 @@ function Composer({
 
     return (
         <div className="flex-none px-6 pb-[18px] pt-2">
-            <div className="relative">
-                {open ? (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-[240px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-lg">
-                        {matches.map((c, i) => (
-                            <button
-                                key={c.name}
-                                type="button"
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    accept(c);
-                                }}
-                                onMouseEnter={() => setSel(i)}
-                                className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left ${
-                                    i === sel ? "bg-accentbg" : ""
-                                }`}
-                            >
-                                <span className="font-mono text-[12.5px] text-primary">@{c.name}</span>
-                                <span className="ml-auto font-mono text-[9px] uppercase tracking-[.06em] text-muted">
-                                    {c.kind}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                ) : null}
-                <div className="rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
-                    <div className="relative">
+            <ComposerShell
+                onSubmit={onSend}
+                disabled={disabled}
+                sendLabel="Send ⏎"
+                overlay={
+                    open ? (
+                        <div className="absolute bottom-full left-0 mb-1.5 w-[240px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-lg">
+                            {matches.map((c, i) => (
+                                <button
+                                    key={c.name}
+                                    type="button"
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        accept(c);
+                                    }}
+                                    onMouseEnter={() => setSel(i)}
+                                    className={`flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left ${
+                                        i === sel ? "bg-accentbg" : ""
+                                    }`}
+                                >
+                                    <span className="font-mono text-[12.5px] text-primary">@{c.name}</span>
+                                    <span className="ml-auto font-mono text-[9px] uppercase tracking-[.06em] text-muted">
+                                        {c.kind}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null
+                }
+                inputRegion={
+                    <>
                         <div
                             aria-hidden
                             className="pointer-events-none min-h-[22px] whitespace-pre-wrap break-words text-[14px] leading-[1.5] text-primary"
@@ -678,41 +684,34 @@ function Composer({
                             className="absolute inset-0 h-full w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent text-[14px] leading-[1.5] text-transparent placeholder:text-muted focus:outline-none disabled:opacity-50"
                             style={{ caretColor: "var(--color-primary)" }}
                         />
-                    </div>
-                    <div className="mt-2.5 flex items-center gap-2.5">
-                        <button
-                            type="button"
-                            onMouseDown={(e) => {
-                                e.preventDefault();
-                                insertAt();
-                            }}
-                            disabled={disabled}
-                            className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11.5px] text-ink-mid hover:border-edge-strong disabled:opacity-50"
+                    </>
+                }
+                footerLeft={
+                    <button
+                        type="button"
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            insertAt();
+                        }}
+                        disabled={disabled}
+                        className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11.5px] text-ink-mid hover:border-edge-strong disabled:opacity-50"
+                    >
+                        @ mention agent
+                    </button>
+                }
+                footerRight={
+                    chip ? (
+                        <span
+                            className={cn(
+                                "shrink-0 truncate font-mono text-[11px]",
+                                chip.tone === "warn" ? "text-asking" : "text-muted"
+                            )}
                         >
-                            @ mention agent
-                        </button>
-                        <div className="flex-1" />
-                        {chip ? (
-                            <span
-                                className={cn(
-                                    "shrink-0 truncate font-mono text-[11px]",
-                                    chip.tone === "warn" ? "text-asking" : "text-muted"
-                                )}
-                            >
-                                {chip.label}
-                            </span>
-                        ) : null}
-                        <button
-                            type="button"
-                            onClick={onSend}
-                            disabled={disabled}
-                            className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
-                        >
-                            Send ⏎
-                        </button>
-                    </div>
-                </div>
-            </div>
+                            {chip.label}
+                        </span>
+                    ) : null
+                }
+            />
             <CommandHint />
         </div>
     );

@@ -8,11 +8,16 @@ import {
     isOrchestrator,
     isTerminal,
     phaseStateView,
+    phaseProgressDots,
+    phaseRailIds,
     phaseThread,
     phaseWorkers,
+    planDirty,
+    resolveActiveRunId,
     resolveArtifactPath,
     reviewGate,
     runStatusView,
+    steerTarget,
 } from "./runmodel";
 
 function phase(over: Partial<RunPhase> = {}): RunPhase {
@@ -188,6 +193,67 @@ describe("phaseThread", () => {
     it("shows ship on the last phase when the run is done", () => {
         const run = base({ status: "done", phases: [{ kind: "execute", state: "done" }] });
         expect(phaseThread(run, 0, []).showShip).toBe(true);
+    });
+});
+
+describe("resolveActiveRunId", () => {
+    it("keeps the current id when still visible", () => {
+        expect(resolveActiveRunId([run({ id: "a" }), run({ id: "b" })], "b")).toBe("b");
+    });
+    it("falls back to the default when the current id is gone", () => {
+        expect(resolveActiveRunId([run({ id: "a", createdts: 5, status: "executing" })], "b")).toBe("a");
+    });
+    it("returns undefined when nothing is visible", () => {
+        expect(resolveActiveRunId([], "b")).toBeUndefined();
+    });
+});
+
+describe("phaseProgressDots", () => {
+    it("maps each phase to its tone in order", () => {
+        const r = run({ phases: [phase({ state: "done" }), phase({ state: "running" }), phase({ state: "pending" })] });
+        expect(phaseProgressDots(r)).toEqual(["done", "running", "pending"]);
+    });
+    it("is empty for a run with no phases", () => {
+        expect(phaseProgressDots(run({ phases: [] }))).toEqual([]);
+    });
+});
+
+describe("phaseRailIds", () => {
+    it("returns one stable id per phase", () => {
+        expect(phaseRailIds(run({ phases: [phase(), phase(), phase()] }))).toEqual(["p0", "p1", "p2"]);
+    });
+    it("is empty for no phases", () => {
+        expect(phaseRailIds(run({ phases: [] }))).toEqual([]);
+    });
+});
+
+describe("steerTarget", () => {
+    it("returns the first worker of the current phase", () => {
+        const r = run({
+            status: "executing",
+            phases: [phase({ state: "running", workerorefs: ["tab:t1"] })],
+        });
+        expect(steerTarget(r, [agent({ id: "t1" })])?.id).toBe("t1");
+    });
+    it("returns undefined when the run is terminal", () => {
+        const r = run({
+            status: "done",
+            phases: [phase({ state: "done", workerorefs: ["tab:t1"] })],
+        });
+        expect(steerTarget(r, [agent({ id: "t1" })])).toBeUndefined();
+    });
+    it("returns undefined when the current phase has no live worker", () => {
+        const r = run({ status: "executing", phases: [phase({ state: "running" })] });
+        expect(steerTarget(r, [])).toBeUndefined();
+    });
+});
+
+describe("planDirty", () => {
+    it("is false when edited equals saved", () => {
+        expect(planDirty("abc", "abc")).toBe(false);
+    });
+    it("is true when edited differs from saved", () => {
+        expect(planDirty("abc x", "abc")).toBe(true);
     });
 });
 

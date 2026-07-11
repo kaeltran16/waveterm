@@ -187,6 +187,44 @@ export function phaseThread(run: Run, idx: number, agents: AgentVM[], liveTabIds
     };
 }
 
+// True when the plan editor holds unsaved changes; Approve must flush these first so no edit is lost.
+export function planDirty(edited: string, saved: string): boolean {
+    return edited !== saved;
+}
+
+// The run id to select given the currently-visible tabs: keep the current selection if it is still
+// visible, else land on the default (most-recent non-terminal). Undefined selects the new-run state.
+export function resolveActiveRunId(visibleRuns: Run[], current: string | undefined): string | undefined {
+    if (current && visibleRuns.some((r) => r.id === current)) {
+        return current;
+    }
+    return defaultRunId(visibleRuns);
+}
+
+// One tone per phase, for a run tab's compact progress dots.
+export function phaseProgressDots(run: Run): PhaseTone[] {
+    return (run.phases ?? []).map((p) => phaseStateView(p.state).tone);
+}
+
+// Stable per-phase ids for the shared no-cascade entrance guard: a newly-appended phase animates in,
+// a run switch/first mount is silent (the guard treats a new scope id as already-present).
+export function phaseRailIds(run: Run): string[] {
+    return (run.phases ?? []).map((_, i) => `p${i}`);
+}
+
+// The worker a Steer targets: the first worker of the current phase. Undefined on a terminal run or when
+// that phase has no live worker (the Steer affordance is hidden/disabled in those cases).
+export function steerTarget(run: Run, agents: AgentVM[]): AgentVM | undefined {
+    if (isTerminal(run.status)) {
+        return undefined;
+    }
+    const phase = (run.phases ?? [])[currentPhaseIndex(run)];
+    if (!phase) {
+        return undefined;
+    }
+    return phaseWorkers(phase, agents)[0];
+}
+
 // Resolve a phase artifact (normally a project-relative path, occasionally absolute) to a full path
 // for FileReadCommand. Absolute paths pass through (POSIX /…, Windows X:\… / X:/…); a relative path
 // joins under projectPath with a single separator. A Windows projectPath joined to a POSIX-relative

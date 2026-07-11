@@ -6,31 +6,39 @@
 // and worker liveness off the live agent roster. Human decisions (approve/send-back/cancel/steer) call
 // existing RPCs; phase completion arrives via the external hook. See runmodel.ts for all derivations.
 
+import { useSettle } from "@/app/element/motionhooks";
+import { cardVariants, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { base64ToString, fireAndForget } from "@/util/util";
+import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
+import { ComposerShell } from "./composer-shell";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { approveGate, cancelRun, createRun, sendBackGate } from "./runactions";
 import {
     composerSummary,
-    currentPhaseIndex,
     defaultRunId,
     isOrchestrator,
     isTerminal,
+    planDirty,
+    phaseProgressDots,
+    phaseRailIds,
     phaseStateView,
     phaseThread,
     phaseWorkers,
     recordedWorkerTabs,
+    resolveActiveRunId,
     resolveArtifactPath,
     runStatusView,
+    steerTarget,
 } from "./runmodel";
 import { ProfilePanel } from "./profilepanel";
 import { sessionSidebarViewModelAtom } from "./session-models/sessionsidebarmodel";
@@ -75,17 +83,23 @@ const PLAN_PREVIEW_COLLAPSE_LINES = 400;
 // The plan document being approved, read from the gated phase's artifact and rendered inline so you
 // can review it without leaving Runs. Read-only and non-blocking: a missing/unreadable file shows a
 // subtle line and never disables the gate's actions. One read per gate (only one gate is ever live).
-function PlanPreview({ path }: { path: string }) {
+function PlanPreview({ path, onEditorReady }: { path: string; onEditorReady?: (flush: () => Promise<void>) => void }) {
     const [load, setLoad] = useState<{ status: "loading" | "error" | "ok"; text: string; lines: number }>({
         status: "loading",
         text: "",
         lines: 0,
     });
-    const [override, setOverride] = useState<boolean | null>(null); // user's explicit toggle; null = auto
+    const [override, setOverride] = useState<boolean | null>(null); // user's explicit collapse toggle; null = auto
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState("");
+    const [saveErr, setSaveErr] = useState(false);
+
     useEffect(() => {
         let alive = true;
         setLoad({ status: "loading", text: "", lines: 0 });
         setOverride(null);
+        setEditing(false);
+        setSaveErr(false);
         fireAndForget(async () => {
             try {
                 const fileData = await RpcApi.FileReadCommand(TabRpcClient, { info: { path } });
@@ -108,32 +122,79 @@ function PlanPreview({ path }: { path: string }) {
         };
     }, [path]);
 
+    const save = async () => {
+        try {
+            await RpcApi.FileWriteCommand(TabRpcClient, { info: { path }, data64: stringToBase64(draft) });
+            setLoad({ status: "ok", text: draft, lines: draft.split("\n").length });
+            setSaveErr(false);
+            setEditing(false);
+        } catch {
+            setSaveErr(true); // keep the edit in the textarea; never silently drop it
+        }
+    };
+
+    // let the gate flush a pending edit before it advances the run
+    useEffect(() => {
+        onEditorReady?.(async () => {
+            if (editing && planDirty(draft, load.text)) {
+                await save();
+            }
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editing, draft, load.text]);
+
     const large = load.status === "ok" && load.lines > PLAN_PREVIEW_COLLAPSE_LINES;
-    const open = override ?? !large; // auto-collapse a long plan; a user toggle overrides
+    const open = editing || (override ?? !large); // editing forces the section open
     const filename = path.split(/[/\\]/).pop() ?? path;
     return (
         <div className="border-b border-asking/20">
-            <button
-                type="button"
-                onClick={() => setOverride(!open)}
-                className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-lane-asking"
-            >
-                <span className="font-mono text-[8px] text-asking">{open ? "▼" : "▶"}</span>
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Plan</span>
-                <span className="truncate font-mono text-[10.5px] text-muted">
-                    {filename}
-                    {load.status === "ok" ? ` · ${load.lines} lines` : ""}
-                </span>
-            </button>
+            <div className="flex w-full items-center gap-2 px-3.5 py-2">
+                <button type="button" onClick={() => setOverride(!open)} className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80">
+                    <span className="font-mono text-[8px] text-asking">{open ? "▼" : "▶"}</span>
+                    <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Plan</span>
+                    <span className="truncate font-mono text-[10.5px] text-muted">
+                        {filename}
+                        {load.status === "ok" ? ` · ${load.lines} lines` : ""}
+                    </span>
+                </button>
+                {load.status === "ok" && !editing ? (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setDraft(load.text);
+                            setEditing(true);
+                        }}
+                        className="flex-none rounded-[6px] border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-ink-mid hover:border-edge-strong"
+                    >
+                        Edit
+                    </button>
+                ) : null}
+                {editing ? (
+                    <button
+                        type="button"
+                        onClick={() => fireAndForget(save)}
+                        className="flex-none rounded-[6px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[10px] text-accent-soft hover:bg-accentbg/60"
+                    >
+                        Save
+                    </button>
+                ) : null}
+            </div>
             {open ? (
                 <div className="sc max-h-[320px] overflow-y-auto px-3.5 pb-3">
-                    {load.status === "loading" ? (
+                    {editing ? (
+                        <textarea
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            className="h-[300px] w-full resize-none rounded-[8px] border border-edge-mid bg-background px-3 py-2 font-mono text-[12px] leading-[1.5] text-secondary focus:outline-none"
+                        />
+                    ) : load.status === "loading" ? (
                         <span className="text-[12px] text-muted">Loading plan…</span>
                     ) : load.status === "error" ? (
                         <span className="text-[12px] text-muted">Couldn't read plan · {filename}</span>
                     ) : (
                         <MarkdownMessage text={load.text} className="text-[12.5px] leading-[1.55] text-secondary" />
                     )}
+                    {saveErr ? <div className="mt-1.5 text-[11px] text-error">Couldn't save the plan — try again.</div> : null}
                 </div>
             ) : null}
         </div>
@@ -143,6 +204,7 @@ function PlanPreview({ path }: { path: string }) {
 function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: Run; gateIdx: number }) {
     const gatePhase = run.phases[gateIdx];
     const artifact = (gatePhase.artifacts ?? [])[0];
+    const flushRef = useRef<() => Promise<void>>(async () => {});
     return (
         <div className="mt-3 max-w-[760px] overflow-hidden rounded-[12px] border border-asking/40 bg-lane-asking">
             <div className="flex items-center gap-2 border-b border-asking/20 px-3.5 py-2.5">
@@ -153,22 +215,26 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
                 </span>
                 {artifact ? <span className="font-mono text-[10.5px] text-muted">{artifact}</span> : null}
             </div>
-            {artifact ? <PlanPreview path={resolveArtifactPath(run.projectpath, artifact)} /> : null}
+            {artifact ? (
+                <PlanPreview
+                    path={resolveArtifactPath(run.projectpath, artifact)}
+                    onEditorReady={(flush) => {
+                        flushRef.current = flush;
+                    }}
+                />
+            ) : null}
             <div className="flex items-center gap-2.5 px-3.5 py-3">
                 <button
                     type="button"
-                    onClick={() => fireAndForget(() => approveGate(channelId, run.id, gateIdx))}
+                    onClick={() =>
+                        fireAndForget(async () => {
+                            await flushRef.current(); // persist any unsaved plan edit first
+                            await approveGate(channelId, run.id, gateIdx);
+                        })
+                    }
                     className="rounded-[8px] bg-accent px-4 py-2 text-[12px] font-bold text-background hover:bg-accent/90"
                 >
                     {run.mode === "orchestrator" ? "Approve & proceed" : "Approve & execute"}
-                </button>
-                <button
-                    type="button"
-                    disabled
-                    title="Edit plan is coming in a later piece"
-                    className="rounded-[8px] border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary opacity-40"
-                >
-                    Edit plan
                 </button>
                 <div className="flex-1" />
                 <button
@@ -206,14 +272,6 @@ function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel
             </div>
             <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">The worker for this phase is no longer running. Take control to inspect it, or cancel the run.</p>
             <div className="flex items-center gap-2">
-                <button
-                    type="button"
-                    disabled
-                    title="Re-dispatch is coming in a later piece"
-                    className="rounded-[8px] border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary opacity-40"
-                >
-                    Re-dispatch
-                </button>
                 {worker ? (
                     <button
                         type="button"
@@ -311,19 +369,44 @@ function SubagentRows({ leadId }: { leadId: string }) {
     );
 }
 
-function PhaseRail({ model, run, agents, channelId, liveTabIds, now }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number }) {
+// The phase-rail node (icon disc + connector). Plays a one-shot settle when the phase completes.
+function PhaseNode({ tone, icon, done, notLast }: { tone: string; icon: string; done: boolean; notLast: boolean }) {
+    const settling = useSettle(done);
+    return (
+        <div className="flex w-9 flex-none flex-col items-center">
+            <div
+                className={
+                    "flex h-9 w-9 flex-none items-center justify-center rounded-[10px] border border-current font-mono text-[14px] font-bold " +
+                    (PHASE_TONE_CLASS[tone] ?? "text-muted") +
+                    (settling ? " animate-[settle_0.5s_ease-out] motion-reduce:animate-none" : "")
+                }
+            >
+                {icon}
+            </div>
+            {notLast ? <div className="my-1 min-h-[22px] w-0.5 flex-1 bg-edge-mid" /> : null}
+        </div>
+    );
+}
+
+function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entranceIds }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number; entranceIds: Set<string> }) {
     const phases = run.phases ?? [];
     const trackedWorkers = isOrchestrator(run) ? phases.flatMap((p) => phaseWorkers(p, agents)) : [];
     useSubagentTracking(trackedWorkers);
     return (
-        <div>
+        <AnimatePresence initial={false}>
             {phases.map((p, i) => {
                 const v = phaseStateView(p.state);
                 const thread = phaseThread(run, i, agents, liveTabIds);
                 const workers = phaseWorkers(p, agents);
                 const notLast = i < phases.length - 1;
                 return (
-                    <div key={i}>
+                    <motion.div
+                        key={i}
+                        layout
+                        variants={cardVariants}
+                        initial={entranceIds.has(`p${i}`) ? "initial" : false}
+                        animate="animate"
+                    >
                         {thread.showBoundary ? (
                             <div className="my-2 flex items-center gap-3">
                                 <div className="h-px flex-1 bg-[repeating-linear-gradient(90deg,var(--color-edge-mid)_0_5px,transparent_5px_10px)]" />
@@ -332,12 +415,7 @@ function PhaseRail({ model, run, agents, channelId, liveTabIds, now }: { model: 
                             </div>
                         ) : null}
                         <div className="flex gap-4">
-                            <div className="flex w-9 flex-none flex-col items-center">
-                                <div className={"flex h-9 w-9 flex-none items-center justify-center rounded-[10px] border border-current font-mono text-[14px] font-bold " + (PHASE_TONE_CLASS[v.tone] ?? "text-muted")}>
-                                    {v.icon}
-                                </div>
-                                {notLast ? <div className="my-1 min-h-[22px] w-0.5 flex-1 bg-edge-mid" /> : null}
-                            </div>
+                            <PhaseNode tone={v.tone} icon={v.icon} done={p.state === "done"} notLast={notLast} />
                             <div className="min-w-0 flex-1 pb-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-[14px] font-bold text-primary">{p.kind}</span>
@@ -372,10 +450,10 @@ function PhaseRail({ model, run, agents, channelId, liveTabIds, now }: { model: 
                                 {thread.showShip ? <ShipMarker /> : null}
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
                 );
             })}
-        </div>
+        </AnimatePresence>
     );
 }
 
@@ -392,7 +470,8 @@ export function RunsView({
     runMode: string;
     planGate: boolean;
 }) {
-    const runs = channel.runs ?? [];
+    const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+    const runs = (channel.runs ?? []).filter((r) => !dismissed.has(r.id));
     // tab ids of every live session that owns a running term block — read straight from the session
     // model so it includes an agent session that hasn't reported its first agent:status yet (that
     // worker is neither in the roster nor in `terminals`, since it's an agent, not a plain shell).
@@ -403,16 +482,47 @@ export function RunsView({
     const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
     const [draft, setDraft] = useState("");
     const [expanded, setExpanded] = useState(true);
+    const [steering, setSteering] = useState(false);
+    const [steerDraft, setSteerDraft] = useState("");
 
-    // when the channel changes or runs first arrive, land on the channel's default run
+    // dismissals are view-local, per-channel — drop them when the channel changes
     useEffect(() => {
-        if (!activeRunId || !runs.some((r) => r.id === activeRunId)) {
-            setActiveRunId(defaultRunId(runs));
-        }
+        setDismissed(new Set());
+    }, [channel.oid]);
+
+    // when the channel changes or the visible runs change, keep a valid selection (or the new-run state)
+    useEffect(() => {
+        setActiveRunId((cur) => resolveActiveRunId(runs, cur));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [channel.oid, runs.length]);
 
+    // close the inline steer composer when the selected run changes
+    useEffect(() => {
+        setSteering(false);
+        setSteerDraft("");
+    }, [activeRunId]);
+
+    // hide a run tab from the strip (view-local; does not cancel the run). Reselect if it was active.
+    const dismissTab = (id: string) => {
+        const next = new Set(dismissed);
+        next.add(id);
+        setDismissed(next);
+        const visible = (channel.runs ?? []).filter((r) => !next.has(r.id));
+        setActiveRunId((cur) => (cur === id ? defaultRunId(visible) : cur));
+    };
+
     const run = runs.find((r) => r.id === activeRunId);
+
+    // no-cascade entrance guard for the phase rail: switching runs / first mount is silent, a newly
+    // appended phase animates in once. Scoped to the active run id (see motiontokens.computeEntrances).
+    const railIds = run ? phaseRailIds(run) : [];
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entranceIds } = computeEntrances(entranceRef.current, activeRunId, railIds);
+    const railKey = railIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, activeRunId, railIds).state;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeRunId, railKey]);
 
     // live workers of the active run's running phases — the set we open transcript streams for so the
     // phase rail can narrate them inline. Filtered to those actually streamable (have a transcript and
@@ -479,25 +589,50 @@ export function RunsView({
     };
 
     return (
+        <MotionConfig reducedMotion="user">
         <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
             {/* run tabs */}
             <div className="sc flex flex-none gap-2 overflow-x-auto border-b border-border bg-background px-[22px] py-2.5">
                 {runs.map((r) => {
                     const { tone } = runStatusView(r.status);
+                    const dots = phaseProgressDots(r);
+                    const isActive = r.id === activeRunId;
                     return (
-                        <button
+                        <div
                             key={r.id}
-                            type="button"
-                            onClick={() => setActiveRunId(r.id)}
                             className={
-                                "flex max-w-[230px] flex-none items-center gap-2 rounded-[9px] border px-3 py-2 " +
-                                (r.id === activeRunId ? "border-accent/50 bg-accentbg/40" : "border-edge-mid hover:border-edge-strong")
+                                "group flex max-w-[250px] flex-none items-center gap-2 rounded-[9px] border px-3 py-2 " +
+                                (isActive ? "border-accent/50 bg-accentbg/40" : "border-edge-mid hover:border-edge-strong")
                             }
                         >
-                            <span className={"h-[7px] w-[7px] flex-none rounded-full bg-current " + (TONE_CLASS[tone] ?? "text-muted")} />
-                            <span className="truncate text-[12px] font-semibold text-primary">{r.goal}</span>
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveRunId(r.id)}
+                                className="flex min-w-0 items-center gap-2"
+                            >
+                                <span className={"h-[7px] w-[7px] flex-none rounded-full bg-current " + (TONE_CLASS[tone] ?? "text-muted")} />
+                                <span className="truncate text-[12px] font-semibold text-primary">{r.goal}</span>
+                            </button>
+                            {dots.length > 0 ? (
+                                <span className="flex flex-none items-center gap-0.5">
+                                    {dots.map((t, i) => (
+                                        <span
+                                            key={i}
+                                            className={"h-[4px] w-[4px] rounded-full bg-current " + (PHASE_TONE_CLASS[t] ?? "text-muted")}
+                                        />
+                                    ))}
+                                </span>
+                            ) : null}
+                            <button
+                                type="button"
+                                onClick={() => dismissTab(r.id)}
+                                title="Dismiss from this list (does not cancel the run)"
+                                className="flex-none font-mono text-[13px] leading-none text-muted opacity-0 hover:text-secondary group-hover:opacity-100"
+                            >
+                                ×
+                            </button>
+                        </div>
                     );
                 })}
                 <button
@@ -524,34 +659,43 @@ export function RunsView({
                                 <div className="flex flex-none gap-1.5">
                                     <button
                                         type="button"
-                                        disabled={isTerminal(run.status)}
-                                        onClick={() => {
-                                            const idx = currentPhaseIndex(run);
-                                            const worker = phaseWorkers(run.phases[idx], agents)[0];
-                                            if (!worker) {
-                                                return;
-                                            }
-                                            const text = window.prompt(`Steer ${worker.name}:`);
-                                            if (text) {
-                                                fireAndForget(() =>
-                                                    steerWorker({ channelId: channel.oid, workerORef: `tab:${worker.id}`, agents, text })
-                                                );
-                                            }
-                                        }}
+                                        disabled={!steerTarget(run, agents)}
+                                        onClick={() => setSteering((v) => !v)}
                                         className="rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong disabled:opacity-40"
                                     >
                                         Steer
                                     </button>
-                                    <button
-                                        type="button"
-                                        disabled
-                                        title="Pause is coming in a later piece"
-                                        className="rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary opacity-40"
-                                    >
-                                        Pause
-                                    </button>
                                 </div>
                             </div>
+
+                            {steering && steerTarget(run, agents) ? (
+                                <div className="mb-4 max-w-[760px]">
+                                    <ComposerShell
+                                        value={steerDraft}
+                                        onChange={setSteerDraft}
+                                        autoFocus
+                                        placeholder={`Steer ${steerTarget(run, agents)?.name}…`}
+                                        sendLabel="Steer ⏎"
+                                        onSubmit={() => {
+                                            const target = steerTarget(run, agents);
+                                            const text = steerDraft.trim();
+                                            if (!target || !text) {
+                                                return;
+                                            }
+                                            setSteerDraft("");
+                                            setSteering(false);
+                                            fireAndForget(() =>
+                                                steerWorker({
+                                                    channelId: channel.oid,
+                                                    workerORef: `tab:${target.id}`,
+                                                    agents,
+                                                    text,
+                                                })
+                                            );
+                                        }}
+                                    />
+                                </div>
+                            ) : null}
 
                             {run.status === "executing" && primaryWorker ? (
                                 <RunRollup agent={primaryWorker} now={now} />
@@ -559,7 +703,7 @@ export function RunsView({
 
                             <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
                             {expanded ? (
-                                <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} />
+                                <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
                             ) : null}
 
                             {!isTerminal(run.status) ? (
@@ -573,42 +717,27 @@ export function RunsView({
                             ) : null}
                         </>
                     ) : (
-                        <div className="mt-10 text-center text-[13px] text-muted">
-                            {runs.length === 0 ? "No runs yet." : "Select a run above, or start a new one."} Give Jarvis a goal below to start one.
+                        <div className="mx-auto mt-10 w-full max-w-[620px]">
+                            <div className="mb-1 text-center text-[17px] font-bold text-primary">Start a run</div>
+                            <div className="mb-5 text-center text-[13px] text-muted">Give Jarvis a goal for #{channel.name}</div>
+                            <ComposerShell
+                                value={draft}
+                                onChange={setDraft}
+                                onSubmit={startRun}
+                                autoFocus
+                                placeholder="Give Jarvis a goal to start a run…"
+                                sendLabel="Start run ⏎"
+                                footerLeft={
+                                    <span className="font-mono text-[11.5px] text-ink-mid">{composerSummary(runMode, planGate)}</span>
+                                }
+                            />
                         </div>
                     )}
-                </div>
-            </div>
-
-            {/* start-run composer — mirrors the chat Composer's shell so the two feel like one system */}
-            <div className="flex-none px-6 pb-[18px] pt-2">
-                <div className="rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
-                    <input
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                                startRun();
-                            }
-                        }}
-                        placeholder="Give Jarvis a goal to start a run…"
-                        className="w-full bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
-                    />
-                    <div className="mt-2.5 flex items-center gap-2.5">
-                        <span className="font-mono text-[11.5px] text-ink-mid">{composerSummary(runMode, planGate)}</span>
-                        <div className="flex-1" />
-                        <button
-                            type="button"
-                            onClick={startRun}
-                            className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
-                        >
-                            Start run ⏎
-                        </button>
-                    </div>
                 </div>
             </div>
             </div>
             <ProfilePanel channelId={channel.oid} />
         </div>
+        </MotionConfig>
     );
 }
