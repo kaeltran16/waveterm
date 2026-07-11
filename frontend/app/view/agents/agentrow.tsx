@@ -427,7 +427,6 @@ export function AgentRow({
                         glyph="diamond"
                         label="Waiting on you"
                         meta={formatAge(agent.activeMs)}
-                        pulse
                         right={
                             prog ? (
                                 <button

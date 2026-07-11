@@ -211,7 +211,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
     const artifact = (gatePhase.artifacts ?? [])[0];
     const flushRef = useRef<() => Promise<void>>(async () => {});
     return (
-        <AttentionCard className="mt-3 max-w-[760px]" >
+        <AttentionCard className="mt-3 max-w-[760px]">
             <AttentionBanner
                 glyph="diamond"
                 label="Review gate — your approval needed"
@@ -260,7 +260,6 @@ function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent: AgentV
             <AttentionBanner
                 glyph="diamond"
                 label={kind === "clarify" ? "Clarifying question" : "Escalated to you — a decision Jarvis can't make"}
-                pulse
             />
             <div className="px-3.5 py-3">
                 <AskRow model={model} agent={agent} />
