@@ -9,11 +9,17 @@ import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { atom, type PrimitiveAtom } from "jotai";
+import type { PendingRunDraft } from "./radarmodel";
+
+// The pending Run draft handed from Radar's "Start investigation" to the Channels Run composer. Ephemeral
+// (lost on reload, which is fine for a review step); cleared on explicit Start or Discard.
+export const pendingRunDraftAtom = atom<PendingRunDraft | null>(null) as PrimitiveAtom<PendingRunDraft | null>;
 
 export async function createRun(
     channelId: string,
     goal: string,
-    opts?: { mode?: string; planGate?: boolean }
+    opts?: { mode?: string; planGate?: boolean; radarOrigin?: { reportid: string; findingid: string; fingerprint: string } }
 ): Promise<Run> {
     const workspaceId = globalStore.get(atoms.workspaceId);
     const rtn = await RpcApi.CreateRunCommand(TabRpcClient, {
@@ -22,6 +28,7 @@ export async function createRun(
         goal,
         mode: opts?.mode,
         plangate: opts?.planGate,
+        radarorigin: opts?.radarOrigin,
     });
     return rtn.run;
 }
