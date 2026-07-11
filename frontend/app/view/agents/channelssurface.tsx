@@ -28,6 +28,7 @@ import {
     type MentionCandidate,
 } from "./channelderive";
 import { AskRow, Avatar, jumpToAgent, STATE_DOT, Tag, timeLabel, WorkerRow, workerFor } from "./channelsprimitives";
+import { AttentionCard, AttentionBanner, BannerChip } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
 import {
     describePlan,
@@ -399,42 +400,42 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
                     <Tag label="escalation" tone="asking" />
                     <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
                 </div>
-                <div
-                    className={cn(
-                        "rounded-[9px] border border-asking/40 bg-lane-asking px-3.5 py-3",
-                        pending &&
-                            chosen == null &&
-                            "animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
-                    )}
-                >
-                    {card ? (
-                        <>
-                            {card.reason ? (
-                                <p className="mb-2 text-[12.5px] leading-[1.55] text-ink-mid">
-                                    <span className="text-muted">Why I'm not deciding this: </span>
-                                    {card.reason}
-                                </p>
-                            ) : null}
-                            <p className="mb-3 text-[14px] font-semibold leading-[1.5] text-primary">{card.question}</p>
-                            {pending && chosen == null ? (
-                                <OptionList options={card.options} onPick={deliver} />
-                            ) : chosen != null ? (
-                                <div className="flex items-center gap-2 text-[12px] text-secondary">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                                    You chose <b className="text-primary">{card.options[chosen]?.label}</b> — sent to{" "}
-                                    {workerName}, resuming.
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2 text-[12px] text-secondary">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                                    {worker ? `Answered — ${workerName} resumed.` : `${workerName} has exited.`}
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
-                    )}
-                </div>
+                <AttentionCard glow={pending && chosen == null}>
+                    <AttentionBanner
+                        label="Escalated to you — a decision Jarvis can't make"
+                        pulse={pending && chosen == null}
+                        right={<BannerChip>from {workerName}</BannerChip>}
+                    />
+                    <div className="px-3.5 py-3">
+                        {card ? (
+                            <>
+                                {card.reason ? (
+                                    <p className="mb-2 text-[12.5px] leading-[1.55] text-ink-mid">
+                                        <span className="text-muted">Why I'm not deciding this: </span>
+                                        {card.reason}
+                                    </p>
+                                ) : null}
+                                <p className="mb-3 text-[14px] font-semibold leading-[1.5] text-primary">{card.question}</p>
+                                {pending && chosen == null ? (
+                                    <OptionList options={card.options} onPick={deliver} />
+                                ) : chosen != null ? (
+                                    <div className="flex items-center gap-2 text-[12px] text-secondary">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                        You chose <b className="text-primary">{card.options[chosen]?.label}</b> — sent to{" "}
+                                        {workerName}, resuming.
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-[12px] text-secondary">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                        {worker ? `Answered — ${workerName} resumed.` : `${workerName} has exited.`}
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{msg.text}</div>
+                        )}
+                    </div>
+                </AttentionCard>
             </div>
         </div>
     );
@@ -485,9 +486,12 @@ function MessageRow({
                     </div>
                 ) : null}
                 {isDispatch && worker && worker.state === "asking" ? (
-                    <div className="mt-2">
-                        <AskRow model={model} agent={worker} />
-                    </div>
+                    <AttentionCard glow className="mt-2">
+                        <AttentionBanner label="Awaiting your reply" pulse />
+                        <div className="px-3.5 py-3">
+                            <AskRow model={model} agent={worker} />
+                        </div>
+                    </AttentionCard>
                 ) : null}
             </div>
         </div>
@@ -840,7 +844,7 @@ function ContextPanel({
                                   {asking.map((w) => (
                                       <div
                                           key={w.oref}
-                                          className="rounded-[7px] border border-asking/40 bg-lane-asking px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
+                                          className="rounded-[7px] border border-asking/40 bg-warning/10 px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
                                       >
                                           <span className="font-mono text-accent-soft">{w.name}</span>
                                           {w.askText ? ` — ${w.askText}` : ""}
@@ -1132,7 +1136,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                 </div>
                             ) : null}
                             {active && view === "chat" && confirmDelegator ? (
-                                <div className="flex flex-none items-center gap-2 rounded-[7px] border border-asking/50 bg-lane-asking px-2.5 py-1">
+                                <div className="flex flex-none items-center gap-2 rounded-[7px] border border-asking/50 bg-warning/10 px-2.5 py-1">
                                     <span className="font-mono text-[11px] text-ink-mid">
                                         Jarvis will spawn &amp; run workers on its own.
                                     </span>
