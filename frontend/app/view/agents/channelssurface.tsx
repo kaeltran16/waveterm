@@ -884,6 +884,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const projects = useAtomValue(projectsAtom); // Record<string, { path?: string }>
     const consultStreams = useAtomValue(consultStreamsAtom);
     const pendingDraft = useAtomValue(pendingRunDraftAtom);
+    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
     const [draft, setDraft] = useState("");
     const [confirmDelegator, setConfirmDelegator] = useState(false);
@@ -928,21 +929,20 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         fireAndForget(loadChannels);
     }, []);
-    // land a Radar handoff: on a NEW pending draft, resolve its project to a channel, select it, and
-    // switch to the Runs view once. Keyed to the finding id so it fires per handoff, not per render.
-    const landedDraftRef = useRef<string | null>(null);
+    // land a Radar handoff exactly once: resolve its project to a channel, select it, switch to Runs, and
+    // stamp `landed` on the atom. The guard lives on the atom (not a ref) so it survives ChannelsSurface
+    // unmounting on navigation — otherwise a lingering draft would re-hijack every return to Channels.
     useEffect(() => {
-        const key = pendingDraft?.radarOrigin?.findingid ?? null;
-        if (!key || landedDraftRef.current === key) {
+        if (!pendingDraft || pendingDraft.landed) {
             return;
         }
-        landedDraftRef.current = key;
-        const target = resolveTargetChannel(channels ?? [], pendingDraft?.projectPath);
+        const target = resolveTargetChannel(channels ?? [], pendingDraft.projectPath);
         if (target) {
             fireAndForget(() => selectChannel(target.oid));
             setView("runs");
+            setPendingDraft({ ...pendingDraft, landed: true });
         } else {
-            setPicking(true); // no channel for this project yet — offer the create flow; draft persists
+            setPicking(true); // no channel for this project yet — stays unlanded so it retries once one exists
         }
     }, [pendingDraft, channels]);
     useEffect(() => {

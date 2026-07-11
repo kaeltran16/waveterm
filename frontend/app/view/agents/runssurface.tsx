@@ -692,16 +692,6 @@ export function RunsView({
         setDismissed(new Set());
     }, [channel.oid]);
 
-    // a Radar handoff seeds the composer: prefill the goal and drop to the new-run panel. Keyed to the
-    // finding id so editing the goal afterwards is not overwritten on every render.
-    useEffect(() => {
-        if (pendingDraft) {
-            setDraft(pendingDraft.goal);
-            setActiveRunId(undefined);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pendingDraft?.radarOrigin?.findingid]);
-
     // when the channel changes or the visible runs change, keep a valid selection (or the new-run state)
     useEffect(() => {
         setActiveRunId((cur) => resolveActiveRunId(runs, cur));
@@ -790,14 +780,21 @@ export function RunsView({
     // the run's primary active worker drives the header "now" rollup
     const primaryWorker = runWorkers.find((w) => w.state === "working") ?? runWorkers.find((w) => w.state === "asking") ?? runWorkers[0];
 
+    // while a radar draft is pending, the goal lives on the atom so edits survive a surface remount; a
+    // normal run uses the local draft state.
+    const goalValue = pendingDraft ? pendingDraft.goal : draft;
+    const onGoalChange = pendingDraft
+        ? (v: string) => setPendingDraft((d) => (d ? { ...d, goal: v } : d))
+        : setDraft;
+
     const startRun = () => {
-        const goal = draft.trim();
+        const goal = goalValue.trim();
         if (!goal) {
             return;
         }
-        setDraft("");
         const radarOrigin = pendingDraft?.radarOrigin;
-        setPendingDraft(null); // consumed
+        setDraft("");
+        setPendingDraft(null);
         fireAndForget(async () => {
             const created = await createRun(channel.oid, goal, { mode: runMode, planGate, radarOrigin });
             setActiveRunId(created.id);
@@ -860,7 +857,7 @@ export function RunsView({
                 </button>
             </div>
 
-            {run && isOrchestrator(run) ? (
+            {run && !pendingDraft && isOrchestrator(run) ? (
                 <OrchestratorBody
                     model={model}
                     channel={channel}
@@ -877,7 +874,7 @@ export function RunsView({
             ) : (
                 <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
                     <div>
-                        {run ? (
+                        {run && !pendingDraft ? (
                             <>
                                 <RunHeader
                                     run={run}
@@ -953,8 +950,8 @@ export function RunsView({
                                     </div>
                                 ) : null}
                                 <ComposerShell
-                                    value={draft}
-                                    onChange={setDraft}
+                                    value={goalValue}
+                                    onChange={onGoalChange}
                                     onSubmit={startRun}
                                     autoFocus
                                     placeholder="Give Jarvis a goal to start a run…"

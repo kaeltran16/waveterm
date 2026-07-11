@@ -142,6 +142,7 @@ export interface PendingRunDraft {
     evidenceRefs: string[]; // context, read-only in the composer
     radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
     projectPath?: string; // resolves the target channel on landing
+    landed?: boolean; // one-shot guard: set once Channels has navigated to this draft (survives surface remount)
 }
 
 // composeRunGoal turns a finding into an editable goal: the suggested mission, then (when present) the
