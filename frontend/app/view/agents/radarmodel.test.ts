@@ -9,12 +9,19 @@ import {
     coverageEntries,
     DEFAULT_OPEN_GROUPS,
     findingSignalCount,
+    findingSourceCount,
+    groupMeta,
+    groupSummary,
     GROUP_ORDER,
     groupFindings,
     hasCoverageFailure,
+    isMutedGroup,
+    referencedSignals,
     reportSignalCount,
     reportSourceCount,
     resolveSelection,
+    strengthPips,
+    timelineEntries,
     toPendingRunDraft,
 } from "./radarmodel";
 
@@ -97,6 +104,62 @@ describe("canonical counts", () => {
             findings: [finding("a", "new", { signalids: ["s1", "s2", "s3"] })],
         });
         expect(reportSourceCount(r)).toBe(2);
+    });
+});
+
+describe("evidence resolution", () => {
+    it("resolves referenced signals in id order, dropping unknown ids", () => {
+        const r = report({ signals: [signal("s1", "git"), signal("s3", "runs")] });
+        const f = finding("a", "new", { signalids: ["s3", "s2", "s1"] });
+        expect(referencedSignals(f, r).map((s) => s.id)).toEqual(["s3", "s1"]);
+    });
+
+    it("counts distinct collectors for a single finding", () => {
+        const r = report({ signals: [signal("s1", "git"), signal("s2", "git"), signal("s3", "runs")] });
+        expect(findingSourceCount(finding("a", "new", { signalids: ["s1", "s2", "s3"] }), r)).toBe(2);
+    });
+
+    it("builds a timeline sorted oldest-first from referenced signals", () => {
+        const r = report({
+            signals: [
+                { ...signal("s1", "git"), observedts: 300 },
+                { ...signal("s2", "runs"), observedts: 100 },
+            ],
+        });
+        const tl = timelineEntries(finding("a", "new", { signalids: ["s1", "s2"] }), r);
+        expect(tl.map((t) => t.ts)).toEqual([100, 300]);
+        expect(tl.map((t) => t.collector)).toEqual(["runs", "git"]);
+    });
+});
+
+describe("presentation helpers", () => {
+    it("maps strength to filled pip counts", () => {
+        expect(strengthPips("strong")).toBe(3);
+        expect(strengthPips("moderate")).toBe(2);
+        expect(strengthPips("limited")).toBe(1);
+        expect(strengthPips("bogus")).toBe(0);
+    });
+
+    it("exposes group label/hint/delta, defaulting unknown groups to new", () => {
+        expect(groupMeta("recurring").delta).toBe("↑ strengthened");
+        expect(groupMeta("nolonger").tone).toBe("nolonger");
+        expect(groupMeta("bogus").label).toBe(groupMeta("new").label);
+    });
+
+    it("marks history groups as muted", () => {
+        expect(isMutedGroup("new")).toBe(false);
+        expect(isMutedGroup("recurring")).toBe(false);
+        expect(isMutedGroup("nolonger")).toBe(true);
+        expect(isMutedGroup("dismissed")).toBe(true);
+        expect(isMutedGroup("suppressed")).toBe(true);
+    });
+
+    it("summarizes counts for every group in canonical order", () => {
+        const s = groupSummary([finding("a", "new"), finding("b", "new"), finding("c", "recurring")]);
+        expect(s.map((x) => x.group)).toEqual(GROUP_ORDER);
+        expect(s.find((x) => x.group === "new")?.count).toBe(2);
+        expect(s.find((x) => x.group === "recurring")?.count).toBe(1);
+        expect(s.find((x) => x.group === "suppressed")?.count).toBe(0);
     });
 });
 

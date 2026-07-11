@@ -58,6 +58,81 @@ export function reportSourceCount(report: RadarReport): number {
     return collectors.size;
 }
 
+// referencedSignals resolves a finding's signal ids to the report's signal objects, in id order,
+// dropping ids with no matching signal. This is the single source for the detail pane's evidence.
+export function referencedSignals(finding: RadarFinding, report: RadarReport): RadarSignal[] {
+    const byId = new Map((report.signals ?? []).map((s) => [s.id, s]));
+    const out: RadarSignal[] = [];
+    for (const id of finding.signalids ?? []) {
+        const s = byId.get(id);
+        if (s) {
+            out.push(s);
+        }
+    }
+    return out;
+}
+
+// findingSourceCount counts distinct collectors among a finding's referenced signals.
+export function findingSourceCount(finding: RadarFinding, report: RadarReport): number {
+    return new Set(referencedSignals(finding, report).map((s) => s.collector)).size;
+}
+
+// timelineEntries derives the signals timeline from referenced signals, oldest first.
+export interface TimelineEntry {
+    ts: number;
+    collector: string;
+    summary: string;
+    sourceref: string;
+}
+
+export function timelineEntries(finding: RadarFinding, report: RadarReport): TimelineEntry[] {
+    return referencedSignals(finding, report)
+        .map((s) => ({ ts: s.observedts, collector: s.collector, summary: s.summary, sourceref: s.sourceref }))
+        .sort((a, b) => a.ts - b.ts);
+}
+
+// STRENGTH_PIPS maps the qualitative strength to filled pip count (of 3).
+const STRENGTH_PIPS: Record<string, number> = { strong: 3, moderate: 2, limited: 1 };
+
+export function strengthPips(strength: string): number {
+    return STRENGTH_PIPS[strength] ?? 0;
+}
+
+// Group presentation metadata (label + lifecycle hint + delta indicator), shared by the master list
+// and the detail pane so the two never drift. Tone drives color choice in the components.
+export type RadarTone = "new" | "recurring" | "nolonger" | "muted";
+
+export interface GroupMeta {
+    label: string;
+    hint: string;
+    delta: string;
+    tone: RadarTone;
+}
+
+export const GROUP_META: Record<RadarGroup, GroupMeta> = {
+    new: { label: "New", hint: "since last scan", delta: "new", tone: "new" },
+    recurring: { label: "Recurring", hint: "evidence strengthened", delta: "↑ strengthened", tone: "recurring" },
+    nolonger: { label: "No longer detected", hint: "evidence disappeared", delta: "no longer detected", tone: "nolonger" },
+    dismissed: { label: "Dismissed", hint: "closed with a reason", delta: "dismissed", tone: "muted" },
+    suppressed: { label: "Suppressed", hint: "marked intentional", delta: "muted", tone: "muted" },
+};
+
+export function groupMeta(group: string): GroupMeta {
+    return GROUP_META[(KNOWN_GROUPS.has(group) ? group : "new") as RadarGroup];
+}
+
+// Findings in the muted (history) lifecycle groups render dimmed and closed by default.
+export function isMutedGroup(group: string): boolean {
+    return group === "nolonger" || group === "dismissed" || group === "suppressed";
+}
+
+// groupSummary returns per-group counts in canonical order (all groups, including empty ones) for the
+// results-header summary chips.
+export function groupSummary(findings: RadarFinding[]): { group: RadarGroup; label: string; count: number }[] {
+    const grouped = groupFindings(findings);
+    return GROUP_ORDER.map((g) => ({ group: g, label: GROUP_META[g].label, count: grouped[g].length }));
+}
+
 export type RadarScanState =
     | "never-scanned"
     | "collecting"
