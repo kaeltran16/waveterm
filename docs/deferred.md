@@ -3,6 +3,29 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Repo Radar — "Start investigation" handoff composer (2026-07-11)
+
+Deferred while building the **Radar frontend surface** (spec `docs/superpowers/specs/2026-07-10-repo-radar-design.md`
+§"Start investigation handoff" + §"Frontend integration"). The Radar surface itself ships complete
+(all 8 scan states, findings list/detail, evidence rendering, dismiss/suppress/undo, scan/cancel/retry),
+but the finding→Run handoff is **not** wired end-to-end.
+
+- **What's deferred:** the **pending Run composer** in the *Channels* surface. Per spec §370-386,
+  "Start investigation" must navigate to Channels and open a *prefilled, reviewable Run draft*
+  (report ID, finding ID, fingerprint, suggested mission, affected files, evidence refs, Radar origin
+  metadata) that the user edits and explicitly starts. This composer does not exist today: `createRun`
+  starts a run **immediately** with no draft/review step. Building the draft-then-review affordance is
+  new work in a *different* surface (Channels), so it's split out.
+- **What ships in the meantime:** the "Start investigation" action is present in the finding detail but
+  does not perform the full handoff. `radarmodel.ts` still builds the Run-draft payload (unit-tested per
+  spec §468 — report/finding/fingerprint IDs kept distinct), so the data contract is ready; only the
+  Channels consumer is missing. Exact interim behavior (disabled w/ tooltip vs. navigate-to-Channels
+  without prefill) is fixed in the Radar frontend design doc.
+- **Where it plugs in:** the Channels surface + `createRun` flow. Needs a "pending Run" concept
+  (draft persisted or held in FE state) and a composer UI, then Radar's Run-draft payload feeds it.
+- **To resume:** brainstorm/spec the pending-Run composer as its own slice, add it to the Channels
+  surface, then wire Radar's existing draft payload into it and make "Start investigation" open it.
+
 ## Subagent interior view — v1 exclusions (2026-07-09)
 
 Shipped the focused-view subagent interior (click a tree child → its live-tailing transcript swaps

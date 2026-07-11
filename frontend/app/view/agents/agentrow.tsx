@@ -21,6 +21,7 @@ import {
     type CardRect,
     type CardTask,
 } from "./agentsviewmodel";
+import { AttentionBanner, BannerChip } from "./attentioncard";
 import { AnswerBar } from "./answerbar";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscript";
@@ -332,7 +333,7 @@ export function AgentRow({
                 // card fills its spring-driven height (h); overflow clipped
                 "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
                 asking
-                    ? "border-warning/40 bg-lane-asking animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
+                    ? "border-warning/40 bg-lane animate-[breatheGlow_2.4s_ease-in-out_infinite] motion-reduce:animate-none"
                     : "border-edge-mid bg-lane",
                 isCursor &&
                     (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
@@ -371,11 +372,6 @@ export function AgentRow({
                         <span className="text-success">+{diff.adds}</span>
                         <span className="text-error">−{diff.dels}</span>
                     </button>
-                ) : null}
-                {asking ? (
-                    <span className="shrink-0 rounded-[4px] bg-warning px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.05em] text-on-warning">
-                        needs you
-                    </span>
                 ) : null}
                 <button
                     type="button"
@@ -423,20 +419,37 @@ export function AgentRow({
                 </div>
             ) : null}
 
-            {/* asking band */}
+            {/* asking banner (4b) — amber strip carries the "your turn" signal; question reads neutral */}
             {asking ? (
-                <div className="shrink-0 border-b border-edge-mid px-3.5 py-2.5">
-                    <div className="mb-1.5 flex items-center gap-2">
-                        <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-ask-label">
-                            Waiting on you
-                        </span>
-                        <div className="flex-1" />
-                        {prog ? <TaskChip done={prog.done} total={prog.total} onClick={() => setTasksOpen((v) => !v)} /> : null}
-                    </div>
+                <>
+                    <AttentionBanner
+                        glyph="diamond"
+                        label="Waiting on you"
+                        meta={formatAge(agent.activeMs)}
+                        right={
+                            prog ? (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setTasksOpen((v) => !v);
+                                    }}
+                                    title="Show task list"
+                                    className="cursor-pointer"
+                                >
+                                    <BannerChip>
+                                        {prog.done}/{prog.total}
+                                    </BannerChip>
+                                </button>
+                            ) : null
+                        }
+                    />
                     {question ? (
-                        <p className="text-[14px] font-semibold leading-[1.5] text-ask-question">{question}</p>
+                        <p className="shrink-0 border-b border-edge-mid px-3.5 py-2.5 text-[14px] font-semibold leading-[1.5] text-primary">
+                            {question}
+                        </p>
                     ) : null}
-                </div>
+                </>
             ) : null}
 
             {/* task popover */}
