@@ -16,7 +16,6 @@
     --color-panel: rgba(19, 23, 29, 0.6);
     --color-modalbg: #13171d;
     --color-lane: #12161b; /* agent-card lane fill (handoff laneBg) */
-    --color-lane-asking: #14130e; /* warm-dark asking-lane fill (handoff laneBg, asking) */
 
     /* Text (handoff ink ramp) */
     --color-foreground: #e6e9ed;
@@ -61,8 +60,6 @@
     --color-success: #54c79a;
     --color-cacheread: #5b6675; /* usage split: cache-read segment (low-value, high-volume) */
     /* handoff card-body colors (Wave-cockpit-live.dc.html) */
-    --color-ask-question: #fcf7ec; /* asking-band question prose (bright warm-white for readability) */
-    --color-ask-label: #c79a3f; /* "waiting on you" label */
     --color-on-warning: #1a1306; /* text on the filled needs-you badge */
     /* Provider brand identity (not theme-derived; single source for the plan-strip dots) */
     --color-provider-claude: #d97757;

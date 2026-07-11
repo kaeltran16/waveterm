@@ -211,8 +211,6 @@ export function buildThemeVars(palette: ThemePalette, overrides: Partial<Record<
         "--color-success-soft": lighten(p.success, 0.4),
         "--color-warning": p.warning,
         "--color-asking": p.warning,
-        "--color-ask-question": lighten(p.warning, 0.89),
-        "--color-ask-label": darken(p.warning, 0.28),
         "--color-on-warning": darken(p.warning, 0.9),
         "--color-error": p.error,
     };
