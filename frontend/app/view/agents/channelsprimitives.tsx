@@ -100,7 +100,7 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
         model.setAnswerText(agent.id, qi, ""); // selecting clears this question's free text (exclusive)
     };
     return (
-        <div className="rounded-[9px] border border-asking/40 bg-lane-asking p-3">
+        <div className="rounded-[9px] border border-edge-mid bg-lane p-3">
             <AnswerBar
                 agent={agent}
                 selections={answerSel[agent.id] ?? {}}

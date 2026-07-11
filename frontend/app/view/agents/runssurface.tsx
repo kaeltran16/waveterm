@@ -256,15 +256,16 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
 
 function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent: AgentVM; kind: "clarify" | "fork" }) {
     return (
-        <div className="mt-3 max-w-[760px]">
-            <div className="mb-1.5 flex items-center gap-2">
-                <span className="h-[7px] w-[7px] rounded-full bg-asking" />
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-asking">
-                    {kind === "clarify" ? "Clarifying question" : "Escalated to you"}
-                </span>
+        <AttentionCard className="mt-3 max-w-[760px]" glow>
+            <AttentionBanner
+                glyph="diamond"
+                label={kind === "clarify" ? "Clarifying question" : "Escalated to you — a decision Jarvis can't make"}
+                pulse
+            />
+            <div className="px-3.5 py-3">
+                <AskRow model={model} agent={agent} />
             </div>
-            <AskRow model={model} agent={agent} />
-        </div>
+        </AttentionCard>
     );
 }
 
@@ -314,7 +315,7 @@ function StartingCard() {
 // via `wsh jarvis triage`). Informational — quick reads as go-ahead (success), plan as deliberate (asking).
 function TriageChip({ triage }: { triage: PhaseTriage }) {
     const quick = triage.verdict === "quick";
-    const tone = quick ? "text-success border-success/40 bg-success/10" : "text-asking border-asking/40 bg-lane-asking";
+    const tone = quick ? "text-success border-success/40 bg-success/10" : "text-asking border-asking/40 bg-warning/10";
     return (
         <div className={"mt-2 inline-flex max-w-[760px] items-center gap-2 rounded-[8px] border px-2.5 py-1.5 " + tone}>
             <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em]">Triage · {triage.verdict}</span>

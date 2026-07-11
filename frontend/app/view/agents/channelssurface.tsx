@@ -485,9 +485,12 @@ function MessageRow({
                     </div>
                 ) : null}
                 {isDispatch && worker && worker.state === "asking" ? (
-                    <div className="mt-2">
-                        <AskRow model={model} agent={worker} />
-                    </div>
+                    <AttentionCard glow className="mt-2">
+                        <AttentionBanner label="Awaiting your reply" pulse />
+                        <div className="px-3.5 py-3">
+                            <AskRow model={model} agent={worker} />
+                        </div>
+                    </AttentionCard>
                 ) : null}
             </div>
         </div>
