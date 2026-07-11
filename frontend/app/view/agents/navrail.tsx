@@ -10,6 +10,7 @@ import {
     LayoutDashboard,
     MessagesSquare,
     Network,
+    Radar,
     Settings,
     SquareStack,
 } from "lucide-react";
@@ -25,6 +26,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: <LayoutDashboard {...iconProps} />,
     agent: <Bot {...iconProps} />,
     channels: <MessagesSquare {...iconProps} />,
+    radar: <Radar {...iconProps} />,
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
     memory: <Network {...iconProps} />,
@@ -36,6 +38,7 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
     { key: "agent", label: "Agent" },
     { key: "channels", label: "Channels" },
+    { key: "radar", label: "Radar" },
     { key: "sessions", label: "Sessions" },
     { key: "files", label: "Diff" },
     { key: "memory", label: "Memory" },

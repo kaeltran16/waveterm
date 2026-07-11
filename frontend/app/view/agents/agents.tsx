@@ -26,6 +26,7 @@ export type SurfaceKey =
     | "cockpit"
     | "agent"
     | "channels"
+    | "radar"
     | "sessions"
     | "files"
     | "memory"
@@ -37,6 +38,7 @@ export const SURFACE_ORDER: SurfaceKey[] = [
     "cockpit",
     "agent",
     "channels",
+    "radar",
     "sessions",
     "files",
     "memory",
