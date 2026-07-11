@@ -233,16 +233,25 @@ type RunPhase struct {
 }
 
 type Run struct {
-	ID          string     `json:"id"`
-	Goal        string     `json:"goal"`
-	PlaybookId  string     `json:"playbookid,omitempty"`
-	Mode        string     `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
-	WorkspaceId string     `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
-	ProjectPath string     `json:"projectpath"`          // worker cwd (copied from the channel)
-	Principles  string     `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
-	Status      string     `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
-	Phases      []RunPhase `json:"phases"`
-	CreatedTs   int64      `json:"createdts"`
+	ID          string          `json:"id"`
+	Goal        string          `json:"goal"`
+	PlaybookId  string          `json:"playbookid,omitempty"`
+	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
+	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
+	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
+	Principles  string          `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
+	Status      string          `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
+	Phases      []RunPhase      `json:"phases"`
+	RadarOrigin *RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
+	CreatedTs   int64           `json:"createdts"`
+}
+
+// RunRadarOrigin links a Run back to the Radar finding it was started from. Carried for a future
+// finding-linked-outcome feature; v1 stores it but does not act on it.
+type RunRadarOrigin struct {
+	ReportID    string `json:"reportid"`
+	FindingID   string `json:"findingid"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 // JarvisProfile is a resolved (or the global) Jarvis profile: the playbook (phase pipeline) and the

@@ -1952,6 +1952,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
 	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
+	run.RadarOrigin = data.RadarOrigin // nil for normal runs; set only from a Radar handoff
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}

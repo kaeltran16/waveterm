@@ -120,26 +120,26 @@ type WshRpcInterface interface {
 	DeleteChannelCommand(ctx context.Context, data CommandDeleteChannelData) error
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
-	SetChannelGatekeeperCommand(ctx context.Context, data CommandSetChannelGatekeeperData) error // toggles Jarvis Gatekeeper (auto-answer routine asks) for a channel
-	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
-	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error // stamps a channel's last-read timestamp for unread counts
-	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error // renames a channel (its rail display name)
-	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
-	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
-	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk] // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
-	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]     // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
+	SetChannelGatekeeperCommand(ctx context.Context, data CommandSetChannelGatekeeperData) error                         // toggles Jarvis Gatekeeper (auto-answer routine asks) for a channel
+	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error                                     // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
+	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error                                     // stamps a channel's last-read timestamp for unread counts
+	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error                                       // renames a channel (its rail display name)
+	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error                                     // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
+	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error                       // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
+	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                     // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
+	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                        // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error) // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
-	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error) // create + start a goal Run (spawns phase 1's worker)
-	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                           // complete a phase / approve or send back a gate (spawns the next worker)
-	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                             // cancel a Run
-	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                   // lead self-reports hold/complete; resolves run/phase from its own oref
-	StartRadarScanCommand(ctx context.Context, data CommandStartRadarScanData) (*CommandStartRadarScanRtnData, error) // validate scope + start a manual repo scan
-	CancelRadarScanCommand(ctx context.Context, data CommandCancelRadarScanData) error                                // cancel an in-flight scan
+	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error)                   // create + start a goal Run (spawns phase 1's worker)
+	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                             // complete a phase / approve or send back a gate (spawns the next worker)
+	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                               // cancel a Run
+	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                     // lead self-reports hold/complete; resolves run/phase from its own oref
+	StartRadarScanCommand(ctx context.Context, data CommandStartRadarScanData) (*CommandStartRadarScanRtnData, error)    // validate scope + start a manual repo scan
+	CancelRadarScanCommand(ctx context.Context, data CommandCancelRadarScanData) error                                   // cancel an in-flight scan
 	ListRadarReportsCommand(ctx context.Context, data CommandListRadarReportsData) (*CommandListRadarReportsRtnData, error)
-	SetRadarFindingDispositionCommand(ctx context.Context, data CommandSetRadarFindingDispositionData) error // dismiss/suppress/reopen/unsuppress a finding
-	RetryRadarClusteringCommand(ctx context.Context, data CommandRetryRadarClusteringData) error             // re-run synthesis from retained candidates
+	SetRadarFindingDispositionCommand(ctx context.Context, data CommandSetRadarFindingDispositionData) error                // dismiss/suppress/reopen/unsuppress a finding
+	RetryRadarClusteringCommand(ctx context.Context, data CommandRetryRadarClusteringData) error                            // re-run synthesis from retained candidates
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
-	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                   // write a channel's per-project profile override (empty clears it)
+	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                  // write a channel's per-project profile override (empty clears it)
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
@@ -801,12 +801,13 @@ type CommandJarvisDecomposeRtnData struct {
 }
 
 type CommandCreateRunData struct {
-	ChannelId   string `json:"channelid"`
-	WorkspaceId string `json:"workspaceid"` // where phase-worker tabs are created
-	Goal        string `json:"goal"`
-	PlaybookId  string `json:"playbookid,omitempty"`
-	Mode        string `json:"mode,omitempty"`     // pipeline | orchestrator (empty = resolved profile default)
-	PlanGate    *bool  `json:"plangate,omitempty"` // orchestrator plan gate; nil = resolved profile default
+	ChannelId   string                  `json:"channelid"`
+	WorkspaceId string                  `json:"workspaceid"` // where phase-worker tabs are created
+	Goal        string                  `json:"goal"`
+	PlaybookId  string                  `json:"playbookid,omitempty"`
+	Mode        string                  `json:"mode,omitempty"`        // pipeline | orchestrator (empty = resolved profile default)
+	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
+	RadarOrigin *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
 }
 
 type CommandCreateRunRtnData struct {
@@ -817,7 +818,7 @@ type CommandAdvanceRunData struct {
 	ChannelId string   `json:"channelid"`
 	RunId     string   `json:"runid"`
 	PhaseIdx  int      `json:"phaseidx"`            // the phase being completed (ignored for approve/sendback)
-	Action    string   `json:"action"`             // complete | approve | sendback | hold | triage
+	Action    string   `json:"action"`              // complete | approve | sendback | hold | triage
 	Artifacts []string `json:"artifacts,omitempty"` // artifacts to record on complete
 	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
 	Note      string   `json:"note,omitempty"`      // triage: one-line reason

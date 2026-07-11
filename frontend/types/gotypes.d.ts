@@ -466,6 +466,7 @@ declare global {
         playbookid?: string;
         mode?: string;
         plangate?: boolean;
+        radarorigin?: RunRadarOrigin;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -2106,6 +2107,7 @@ declare global {
         principles?: string;
         status: string;
         phases: RunPhase[];
+        radarorigin?: RunRadarOrigin;
         createdts: number;
     };
 
@@ -2120,6 +2122,13 @@ declare global {
         triage?: PhaseTriage;
         workerorefs?: string[];
         artifacts?: string[];
+    };
+
+    // waveobj.RunRadarOrigin
+    type RunRadarOrigin = {
+        reportid: string;
+        findingid: string;
+        fingerprint: string;
     };
 
     // waveobj.RuntimeOpts
