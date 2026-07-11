@@ -6,6 +6,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 
 export interface RadarScope {
     name: string;
@@ -23,6 +24,36 @@ export function resolveScope(filter: string, projects: Record<string, ProjectKey
         return null;
     }
     return { name: filter, path };
+}
+
+// The project Radar is scoped to, persisted across reloads. Stores the project NAME only — the path is
+// re-resolved from the registry so the registry stays the single source of truth for paths.
+export const lastRadarProjectAtom = atomWithStorage<string | null>("radar.scope.project", null);
+
+export type InitScopeDecision = { action: "keep" } | { action: "wait" } | { action: "set"; scope: RadarScope | null };
+
+// pickInitialScope decides how RadarSurface should initialize its scope on mount. An already-owned scope
+// is kept untouched (a remount must not re-derive it — that clobbered the current scan). Otherwise it
+// prefers the persisted project, then the cockpit's global filter, resolving name->path via the registry;
+// it waits when a desired project can't be resolved yet (registry not loaded, or the project was removed).
+export function pickInitialScope(
+    owned: RadarScope | null,
+    persisted: string | null,
+    filter: string,
+    projects: Record<string, ProjectKeywords>
+): InitScopeDecision {
+    if (owned != null) {
+        return { action: "keep" };
+    }
+    const desired = persisted ?? (filter !== "all" ? filter : null);
+    if (!desired) {
+        return { action: "set", scope: null };
+    }
+    const scope = resolveScope(desired, projects);
+    if (!scope) {
+        return { action: "wait" };
+    }
+    return { action: "set", scope };
 }
 
 export const radarScopeAtom = atom<RadarScope | null>(null) as PrimitiveAtom<RadarScope | null>;
@@ -78,8 +109,10 @@ export async function selectReport(reportId: string): Promise<void> {
 }
 
 // initRadarScope sets the owned scope and loads its reports. Clearing scope (null) empties the list.
+// The scoped project name is persisted (across reloads) so a return to Radar restores the same scan.
 export async function initRadarScope(scope: RadarScope | null): Promise<void> {
     globalStore.set(radarScopeAtom, scope);
+    globalStore.set(lastRadarProjectAtom, scope?.name ?? null);
     if (!scope) {
         globalStore.set(radarReportsAtom, null);
         globalStore.set(currentReportIdAtom, undefined);

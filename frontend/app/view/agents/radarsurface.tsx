@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AlertTriangle, ChevronDown } from "lucide-react";
@@ -16,8 +17,9 @@ import { TONE_DOT } from "./radarstyles";
 import {
     currentReportAtom,
     initRadarScope,
+    lastRadarProjectAtom,
+    pickInitialScope,
     radarScopeAtom,
-    resolveScope,
     startScan,
     type RadarScope,
 } from "./radarstore";
@@ -80,19 +82,28 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     const report = useAtomValue(currentReportAtom);
     const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
 
-    // Initialize the owned scope once from the cockpit's global project selection; after that the
-    // header selector owns it (so a projects/config reload never clobbers an explicit pick).
+    // Initialize the owned scope from the persisted pick (falling back to the cockpit's global project
+    // selection); after that the header selector owns it. An already-owned scope is kept as-is so a
+    // remount — RadarSurface unmounts on every navigation away — never re-derives and wipes the scan.
     const initialized = useRef(false);
     useEffect(() => {
         if (initialized.current) {
             return;
         }
-        const next = resolveScope(filter, projects);
-        if (filter !== "all" && !next) {
-            return; // registry not loaded yet — wait for it to resolve the path
+        const decision = pickInitialScope(
+            globalStore.get(radarScopeAtom),
+            globalStore.get(lastRadarProjectAtom),
+            filter,
+            projects
+        );
+        if (decision.action === "wait") {
+            return; // desired project not resolvable yet — wait for the registry
         }
         initialized.current = true;
-        fireAndForget(() => initRadarScope(next));
+        if (decision.action === "keep") {
+            return;
+        }
+        fireAndForget(() => initRadarScope(decision.scope));
     }, [filter, projects]);
 
     const selectScope = (s: RadarScope) => {
