@@ -73,7 +73,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
                     "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms]",
                     // m3 attention: a static amber tint marks an asking row (the pulse lives in the dot, not the row);
                     // selection wins the background so the focused row still reads as focused.
-                    selected ? "bg-accentbg" : asking ? "bg-lane-asking" : "hover:bg-surface-hover",
+                    selected ? "bg-accentbg" : asking ? "bg-warning/[0.06]" : "hover:bg-surface-hover",
                     settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                 )}
             >

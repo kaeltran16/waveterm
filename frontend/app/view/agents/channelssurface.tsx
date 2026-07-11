@@ -843,7 +843,7 @@ function ContextPanel({
                                   {asking.map((w) => (
                                       <div
                                           key={w.oref}
-                                          className="rounded-[7px] border border-asking/40 bg-lane-asking px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
+                                          className="rounded-[7px] border border-asking/40 bg-warning/10 px-2.5 py-2 text-[11px] leading-[1.45] text-secondary"
                                       >
                                           <span className="font-mono text-accent-soft">{w.name}</span>
                                           {w.askText ? ` — ${w.askText}` : ""}
@@ -1114,7 +1114,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                 </div>
                             ) : null}
                             {active && view === "chat" && confirmDelegator ? (
-                                <div className="flex flex-none items-center gap-2 rounded-[7px] border border-asking/50 bg-lane-asking px-2.5 py-1">
+                                <div className="flex flex-none items-center gap-2 rounded-[7px] border border-asking/50 bg-warning/10 px-2.5 py-1">
                                     <span className="font-mono text-[11px] text-ink-mid">
                                         Jarvis will spawn &amp; run workers on its own.
                                     </span>
