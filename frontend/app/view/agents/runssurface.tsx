@@ -19,6 +19,7 @@ import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
+import { AttentionCard, AttentionBanner } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { MarkdownMessage } from "./markdownmessage";
@@ -210,14 +211,14 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
     const artifact = (gatePhase.artifacts ?? [])[0];
     const flushRef = useRef<() => Promise<void>>(async () => {});
     return (
-        <div className="mt-3 max-w-[760px] overflow-hidden rounded-[12px] border border-asking/40 bg-lane-asking">
-            <div className="flex items-center gap-2 border-b border-asking/20 px-3.5 py-2.5">
-                <span className="h-[7px] w-[7px] rounded-full bg-asking" />
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Review gate</span>
-                <span className="flex-1 text-[11.5px] text-ink-mid">
-                    {run.mode === "orchestrator" ? "plan ready — approve to let the lead proceed" : "approve before execution starts"}
-                </span>
-                {artifact ? <span className="font-mono text-[10.5px] text-muted">{artifact}</span> : null}
+        <AttentionCard className="mt-3 max-w-[760px]" >
+            <AttentionBanner
+                glyph="diamond"
+                label="Review gate — your approval needed"
+                meta={artifact ?? undefined}
+            />
+            <div className="px-3.5 pt-2.5 text-[11.5px] text-ink-mid">
+                {run.mode === "orchestrator" ? "Plan ready — approve to let the lead proceed." : "Approve before execution starts."}
             </div>
             {artifact ? (
                 <PlanPreview
@@ -249,7 +250,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
                     Send back
                 </button>
             </div>
-        </div>
+        </AttentionCard>
     );
 }
 
