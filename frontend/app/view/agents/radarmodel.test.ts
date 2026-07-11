@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
     buildRunDraft,
     classifyScanState,
+    composeRunGoal,
     coverageEntries,
     DEFAULT_OPEN_GROUPS,
     findingSignalCount,
@@ -14,6 +15,7 @@ import {
     reportSignalCount,
     reportSourceCount,
     resolveSelection,
+    toPendingRunDraft,
 } from "./radarmodel";
 
 const finding = (id: string, group: string, extra: Partial<RadarFinding> = {}): RadarFinding => ({
@@ -157,5 +159,44 @@ describe("buildRunDraft", () => {
         expect(draft.files).toEqual(["a.ts"]);
         expect(draft.evidenceRefs).toEqual(["s1"]);
         expect(draft.origin).toBe("radar");
+    });
+});
+
+describe("composeRunGoal", () => {
+    it("includes the mission, affected files, and evidence refs", () => {
+        const f = finding("finding-1", "new", {
+            mission: "add tests for the coupon boundary",
+            files: ["src/coupon.ts", "src/coupon.test.ts"],
+            signalids: ["s1", "s2"],
+        });
+        const goal = composeRunGoal(f);
+        expect(goal).toContain("add tests for the coupon boundary");
+        expect(goal).toContain("src/coupon.ts");
+        expect(goal).toContain("src/coupon.test.ts");
+        expect(goal).toContain("s1");
+        expect(goal).toContain("s2");
+    });
+
+    it("omits the files and evidence sections when empty", () => {
+        const f = finding("finding-2", "new", { mission: "look into X", files: [], signalids: [] });
+        expect(composeRunGoal(f)).toBe("look into X");
+    });
+});
+
+describe("toPendingRunDraft", () => {
+    it("maps origin ids distinctly and carries the project path", () => {
+        const r = report({ oid: "report-1", projectpath: "/repo/demo" });
+        const f = finding("finding-1", "new", {
+            fingerprint: "fp-9",
+            mission: "add tests",
+            files: ["a.ts"],
+            signalids: ["s1"],
+        });
+        const draft = toPendingRunDraft(r, f);
+        expect(draft.radarOrigin).toEqual({ reportid: "report-1", findingid: "finding-1", fingerprint: "fp-9" });
+        expect(draft.files).toEqual(["a.ts"]);
+        expect(draft.evidenceRefs).toEqual(["s1"]);
+        expect(draft.projectPath).toBe("/repo/demo");
+        expect(draft.goal).toContain("add tests");
     });
 });

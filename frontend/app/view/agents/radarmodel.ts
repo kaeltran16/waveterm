@@ -133,3 +133,39 @@ export function buildRunDraft(report: RadarReport, finding: RadarFinding): Radar
         origin: "radar",
     };
 }
+
+// The composer draft handed from a Radar finding to the Channels Run composer. Origin-agnostic on
+// purpose: the composer never imports Radar concepts, it just renders goal + optional context + origin.
+export interface PendingRunDraft {
+    goal: string; // prefilled, editable
+    files: string[]; // context, read-only in the composer
+    evidenceRefs: string[]; // context, read-only in the composer
+    radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
+    projectPath?: string; // resolves the target channel on landing
+}
+
+// composeRunGoal turns a finding into an editable goal: the suggested mission, then (when present) the
+// affected files and the evidence signal ids, so the user reviews the full context in one text field.
+export function composeRunGoal(finding: RadarFinding): string {
+    const parts = [finding.mission];
+    const files = finding.files ?? [];
+    if (files.length > 0) {
+        parts.push(`\nAffected files:\n${files.map((f) => `- ${f}`).join("\n")}`);
+    }
+    const refs = finding.signalids ?? [];
+    if (refs.length > 0) {
+        parts.push(`\nEvidence: ${refs.join(", ")}`);
+    }
+    return parts.join("\n");
+}
+
+export function toPendingRunDraft(report: RadarReport, finding: RadarFinding): PendingRunDraft {
+    const d = buildRunDraft(report, finding);
+    return {
+        goal: composeRunGoal(finding),
+        files: d.files,
+        evidenceRefs: d.evidenceRefs,
+        radarOrigin: { reportid: d.reportId, findingid: d.findingId, fingerprint: d.fingerprint },
+        projectPath: report.projectpath,
+    };
+}
