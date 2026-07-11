@@ -12,7 +12,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -23,7 +23,8 @@ import { ComposerShell } from "./composer-shell";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
-import { approveGate, cancelRun, createRun, sendBackGate } from "./runactions";
+import { approveGate, cancelRun, createRun, pendingRunDraftAtom, sendBackGate } from "./runactions";
+import type { PendingRunDraft } from "./radarmodel";
 import {
     composerSummary,
     currentPhaseIndex,
@@ -661,12 +662,14 @@ export function RunsView({
     agents,
     runMode,
     planGate,
+    pendingDraft,
 }: {
     model: AgentsViewModel;
     channel: Channel;
     agents: AgentVM[];
     runMode: string;
     planGate: boolean;
+    pendingDraft: PendingRunDraft | null;
 }) {
     const [dismissed, setDismissed] = useState<Set<string>>(new Set());
     const runs = (channel.runs ?? []).filter((r) => !dismissed.has(r.id));
@@ -682,11 +685,22 @@ export function RunsView({
     const [expanded, setExpanded] = useState(true);
     const [steering, setSteering] = useState(false);
     const [steerDraft, setSteerDraft] = useState("");
+    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
 
     // dismissals are view-local, per-channel — drop them when the channel changes
     useEffect(() => {
         setDismissed(new Set());
     }, [channel.oid]);
+
+    // a Radar handoff seeds the composer: prefill the goal and drop to the new-run panel. Keyed to the
+    // finding id so editing the goal afterwards is not overwritten on every render.
+    useEffect(() => {
+        if (pendingDraft) {
+            setDraft(pendingDraft.goal);
+            setActiveRunId(undefined);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingDraft?.radarOrigin?.findingid]);
 
     // when the channel changes or the visible runs change, keep a valid selection (or the new-run state)
     useEffect(() => {
@@ -782,8 +796,10 @@ export function RunsView({
             return;
         }
         setDraft("");
+        const radarOrigin = pendingDraft?.radarOrigin;
+        setPendingDraft(null); // consumed
         fireAndForget(async () => {
-            const created = await createRun(channel.oid, goal, { mode: runMode, planGate });
+            const created = await createRun(channel.oid, goal, { mode: runMode, planGate, radarOrigin });
             setActiveRunId(created.id);
         });
     };
@@ -895,8 +911,47 @@ export function RunsView({
                             </>
                         ) : (
                             <div className="mx-auto mt-10 w-full max-w-[620px]">
-                                <div className="mb-1 text-center text-[17px] font-bold text-primary">Start a run</div>
-                                <div className="mb-5 text-center text-[13px] text-muted">Give Jarvis a goal for #{channel.name}</div>
+                                <div className="mb-1 text-center text-[17px] font-bold text-primary">
+                                    {pendingDraft ? "Start investigation" : "Start a run"}
+                                </div>
+                                <div className="mb-5 text-center text-[13px] text-muted">
+                                    {pendingDraft ? "Review the draft, then start it" : `Give Jarvis a goal for #${channel.name}`}
+                                </div>
+                                {pendingDraft ? (
+                                    <div className="mb-3 rounded-[10px] border border-accent/30 bg-accentbg/15 px-3.5 py-3">
+                                        <div className="mb-2 flex items-center gap-2">
+                                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-accent-soft">
+                                                From Radar finding
+                                            </span>
+                                            <span className="flex-1" />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setPendingDraft(null);
+                                                    setDraft("");
+                                                }}
+                                                className="rounded-[6px] border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-muted hover:border-edge-strong hover:text-secondary"
+                                            >
+                                                Discard
+                                            </button>
+                                        </div>
+                                        {pendingDraft.files.length > 0 ? (
+                                            <div className="mb-1.5 flex flex-wrap gap-1.5">
+                                                {pendingDraft.files.map((f) => (
+                                                    <span key={f} className="rounded-full border border-edge-mid px-2 py-0.5 font-mono text-[10.5px] text-muted">
+                                                        {f}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                        {pendingDraft.evidenceRefs.length > 0 ? (
+                                            <div className="font-mono text-[10.5px] text-muted">
+                                                {pendingDraft.evidenceRefs.length} evidence signal
+                                                {pendingDraft.evidenceRefs.length === 1 ? "" : "s"}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                                 <ComposerShell
                                     value={draft}
                                     onChange={setDraft}

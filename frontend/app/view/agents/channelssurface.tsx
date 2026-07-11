@@ -1201,7 +1201,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                         </div>
 
                         {view === "runs" && active ? (
-                            <RunsView model={model} channel={active} agents={agents} runMode={runMode} planGate={planGate} />
+                            <RunsView model={model} channel={active} agents={agents} runMode={runMode} planGate={planGate} pendingDraft={pendingDraft} />
                         ) : (
                             <>
                         <div
