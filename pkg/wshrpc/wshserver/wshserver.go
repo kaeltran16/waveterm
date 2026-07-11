@@ -1724,7 +1724,16 @@ func (ws *WshServer) MemoryReviewListCommand(ctx context.Context) (*wshrpc.Comma
 	pns := memvault.ListPending(memvault.PendingDir())
 	out := make([]wshrpc.MemoryPendingNote, len(pns))
 	for i, p := range pns {
-		out[i] = wshrpc.MemoryPendingNote{Path: p.Path, Type: p.Type, Scope: p.Scope, Body: p.Body, Cwd: p.Cwd}
+		out[i] = wshrpc.MemoryPendingNote{
+			Path:       p.Path,
+			Title:      p.Title,
+			Type:       p.Type,
+			Scope:      p.Scope,
+			Source:     p.Source,
+			Body:       p.Body,
+			Cwd:        p.Cwd,
+			CapturedAt: p.CapturedAt,
+		}
 	}
 	return &wshrpc.CommandMemoryReviewListRtnData{Pending: out}, nil
 }

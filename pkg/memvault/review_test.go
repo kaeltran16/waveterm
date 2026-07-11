@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPendingWriteListAccept(t *testing.T) {
@@ -37,4 +38,51 @@ func TestPendingWriteListAccept(t *testing.T) {
 		t.Fatalf("created note missing type:\n%s", string(data))
 	}
 	_ = filepath.Dir(created)
+}
+
+func TestListPendingEnrichedFields(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := WritePending(dir, LearnCandidate{
+		Type:  "feedback",
+		Scope: "payments-api",
+		Body:  "Never auto-commit without approval\nThe global CLAUDE.md forbids it.",
+	}, "/home/dk/code/auth-refactor"); err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	pns := ListPending(dir)
+	if len(pns) != 1 {
+		t.Fatalf("len = %d, want 1", len(pns))
+	}
+	p := pns[0]
+	if p.Title != "Never auto-commit without approval" {
+		t.Fatalf("Title = %q", p.Title)
+	}
+	if p.Source != "auth-refactor" {
+		t.Fatalf("Source = %q, want auth-refactor", p.Source)
+	}
+	if p.CapturedAt == "" {
+		t.Fatalf("CapturedAt is empty, want an RFC3339 stamp")
+	}
+	if _, err := time.Parse(time.RFC3339, p.CapturedAt); err != nil {
+		t.Fatalf("CapturedAt %q not RFC3339: %v", p.CapturedAt, err)
+	}
+}
+
+func TestPendingCapturedAt(t *testing.T) {
+	got := pendingCapturedAt("20260712T101500.000-slug.md")
+	if got != "2026-07-12T10:15:00Z" {
+		t.Fatalf("pendingCapturedAt = %q, want 2026-07-12T10:15:00Z", got)
+	}
+	if s := pendingCapturedAt("no-stamp.md"); s != "" {
+		t.Fatalf("stampless = %q, want empty", s)
+	}
+}
+
+func TestPendingSourceFallback(t *testing.T) {
+	if s := pendingSource(""); s != "agent" {
+		t.Fatalf("pendingSource(\"\") = %q, want agent", s)
+	}
+	if s := pendingSource("/a/b/web-dashboard"); s != "web-dashboard" {
+		t.Fatalf("pendingSource = %q, want web-dashboard", s)
+	}
 }

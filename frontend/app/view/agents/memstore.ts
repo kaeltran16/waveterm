@@ -22,6 +22,24 @@ export const memEdgesAtom = atom<MemEdge[]>([]) as PrimitiveAtom<MemEdge[]>;
 export const memLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const memViewAtom = atom<MemView>("list") as PrimitiveAtom<MemView>;
 export const memSelectedIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// Non-null when a pending candidate is the current detail selection. Pending takes precedence over
+// memSelectedIdAtom; selecting a saved note (selectNote) clears this, and vice versa.
+export const memSelectedPendingPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// Next selection after `removedPath` leaves the pending queue: the note that shifts into its index,
+// else the previous, else the first saved note. Pure so it unit-tests without RPC.
+export function advanceSelection(
+    pendingPaths: string[],
+    removedPath: string,
+    firstSavedId: string | null
+): { pendingPath: string | null; savedId: string | null } {
+    const idx = pendingPaths.indexOf(removedPath);
+    const remaining = pendingPaths.filter((p) => p !== removedPath);
+    const next = remaining[idx] ?? remaining[idx - 1] ?? remaining[0];
+    if (next) return { pendingPath: next, savedId: null };
+    return { pendingPath: null, savedId: firstSavedId };
+}
 export const memBodyAtom = atom<{ body: string; mtime: number } | null>(null) as PrimitiveAtom<{
     body: string;
     mtime: number;
@@ -66,6 +84,7 @@ function noteById(id: string): MemNote | undefined {
 }
 
 export async function selectNote(id: string): Promise<void> {
+    globalStore.set(memSelectedPendingPathAtom, null); // selecting a saved note leaves pending mode
     globalStore.set(memSelectedIdAtom, id);
     globalStore.set(memBodyAtom, null);
     globalStore.set(memRailOpenAtom, true); // selecting a note opens a collapsed drawer
@@ -133,15 +152,64 @@ export async function loadReview(): Promise<void> {
     }
 }
 
-export async function acceptPending(path: string): Promise<void> {
+export function selectPending(path: string): void {
+    globalStore.set(memSelectedPendingPathAtom, path);
+    globalStore.set(memSelectedIdAtom, null);
+    globalStore.set(memBodyAtom, null);
+    globalStore.set(memRailOpenAtom, true); // open the detail rail on selection
+}
+
+function applyPendingSelection(pendingPath: string | null, savedId: string | null): void {
+    globalStore.set(memSelectedPendingPathAtom, pendingPath);
+    if (pendingPath) {
+        globalStore.set(memSelectedIdAtom, null);
+        globalStore.set(memBodyAtom, null);
+    } else if (savedId) {
+        void selectNote(savedId);
+    }
+}
+
+// Compute the next selection from the CURRENT atoms before the async mutation lands.
+function nextAfterPending(path: string): { pendingPath: string | null; savedId: string | null } {
+    const paths = globalStore.get(memPendingAtom).map((p) => p.path);
+    const firstSaved = globalStore.get(memNotesAtom)[0]?.id ?? null;
+    return advanceSelection(paths, path, firstSaved);
+}
+
+export async function keepPending(path: string): Promise<void> {
+    const next = nextAfterPending(path);
     await RpcApi.MemoryReviewAcceptCommand(TabRpcClient, { path });
     globalStore.set(memReflowAnimatedAtom, true);
     await Promise.all([loadReview(), loadMemory()]);
+    applyPendingSelection(next.pendingPath, next.savedId);
 }
 
-export async function rejectPending(path: string): Promise<void> {
+export async function dismissPending(path: string): Promise<void> {
+    const next = nextAfterPending(path);
     await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
-    await loadReview();
+    globalStore.set(memReflowAnimatedAtom, true);
+    await Promise.all([loadReview(), loadMemory()]);
+    applyPendingSelection(next.pendingPath, next.savedId);
+}
+
+export async function keepAllPending(): Promise<void> {
+    const pend = globalStore.get(memPendingAtom);
+    for (const p of pend) {
+        await RpcApi.MemoryReviewAcceptCommand(TabRpcClient, { path: p.path });
+    }
+    globalStore.set(memReflowAnimatedAtom, true);
+    globalStore.set(memSelectedPendingPathAtom, null);
+    await Promise.all([loadReview(), loadMemory()]);
+}
+
+export async function dismissAllPending(): Promise<void> {
+    const pend = globalStore.get(memPendingAtom);
+    for (const p of pend) {
+        await RpcApi.MemoryDeleteCommand(TabRpcClient, { path: p.path });
+    }
+    globalStore.set(memReflowAnimatedAtom, true);
+    globalStore.set(memSelectedPendingPathAtom, null);
+    await Promise.all([loadReview(), loadMemory()]);
 }
 
 // Cleanup queue: hub notes the distiller flagged as superseded (strong) or stale (weak).

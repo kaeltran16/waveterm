@@ -14,6 +14,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { Check } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { resolveCwd } from "./agentcwdresolve";
@@ -21,11 +22,13 @@ import { MarkdownMessage } from "./markdownmessage";
 import { MemGraph } from "./memgraph";
 import { NewMemoryModal } from "./newmemorymodal";
 import { CleanupQueue } from "./cleanupqueue";
+import { PendingBand } from "./pendingband";
 import { RAIL_ICON } from "./railicons";
-import { ReviewTray } from "./reviewtray";
 import { SyncStrip } from "./syncstrip";
 import {
     deleteNote,
+    dismissPending,
+    keepPending,
     loadMemory,
     loadPrune,
     loadReview,
@@ -36,24 +39,31 @@ import {
     memEdgesAtom,
     memLoadedAtom,
     memNotesAtom,
+    memPendingAtom,
     memRailOpenAtom,
     memReflowAnimatedAtom,
     memSearchAtom,
     memSelectedIdAtom,
+    memSelectedPendingPathAtom,
     memViewAtom,
     saveNote,
     selectNote,
 } from "./memstore";
-import { groupByScope, typeMeta, type MemNote } from "./memtypes";
+import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
 
-function Header({ count, onNew }: { count: number; onNew: () => void }) {
+function Header({ count, pending, onNew }: { count: number; pending: number; onNew: () => void }) {
     const view = useAtomValue(memViewAtom);
     const search = useAtomValue(memSearchAtom);
     return (
         <div className="flex flex-none items-center gap-[14px] px-[28px] pb-[16px] pt-[24px]">
             <div>
                 <h1 className="mb-[4px] text-[25px] font-bold tracking-[-0.02em]">Memory</h1>
-                <p className="text-[13.5px] text-ink-mid">What your agents remember · {count} entries</p>
+                <p className="text-[13.5px] text-ink-mid">
+                    What your agents remember · <span className="font-semibold text-ink-hi">{count} saved</span>
+                    {pending > 0 && (
+                        <> · <span className="font-semibold text-asking">{pending} pending review</span></>
+                    )}
+                </p>
             </div>
             <div className="flex-1" />
             <input
@@ -114,6 +124,7 @@ function ListView({
             transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
             className="mx-auto max-w-[780px] px-[28px] pb-[60px] pt-[10px]"
         >
+            <PendingBand />
             <AnimatePresence mode="popLayout" initial={false}>
                 {groups.map((g) => (
                     <motion.div
@@ -340,11 +351,63 @@ function DetailBody({
     );
 }
 
+function PendingDetail({ note, index, total }: { note: MemoryPendingNote; index: number; total: number }) {
+    const m = typeMeta(note.type);
+    const age = relativeAge(note.capturedat);
+    return (
+        <>
+            <div className="mb-[15px] flex items-center gap-[8px]">
+                <span className="inline-flex items-center gap-[5px] rounded-[20px] bg-asking px-[9px] py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[0.06em] text-background">
+                    <span className="text-[8px]">◆</span>Pending review
+                </span>
+                <div className="flex-1" />
+                <span className="font-mono text-[10.5px] text-ink-faint">{index} of {total}</span>
+            </div>
+            <div className="mb-[13px] flex items-center gap-[9px]">
+                <span className={cn("rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase", m.pillClass)} style={{ background: "rgba(255,255,255,0.05)" }}>
+                    {m.label}
+                </span>
+                <div className="flex-1" />
+                <span className="font-mono text-[10.5px] text-ink-faint">{note.scope || "shared"}</span>
+            </div>
+            <h2 className="mb-[15px] line-clamp-3 text-[18px] font-bold leading-[1.3] text-foreground">{note.title}</h2>
+            <div className="mb-[8px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mid">Content</div>
+            <div className="mb-[14px] rounded-[10px] border border-edge-faint bg-background px-[15px] py-[13px] text-[13.5px] leading-[1.62] text-ink-hi">
+                <MarkdownMessage text={note.body} />
+            </div>
+            <div className="mb-[22px] flex gap-[8px]">
+                <button
+                    onClick={() => fireAndForget(() => keepPending(note.path))}
+                    className="flex flex-1 items-center justify-center gap-[7px] rounded-[9px] bg-success py-[11px] text-[13px] font-bold text-background hover:bg-success/90"
+                >
+                    <Check size={15} strokeWidth={3} />Keep
+                </button>
+                <button
+                    onClick={() => fireAndForget(() => dismissPending(note.path))}
+                    className="flex flex-none items-center justify-center rounded-[9px] border border-error/32 px-[15px] py-[11px] text-[13px] font-semibold text-error hover:bg-error/10"
+                >
+                    Dismiss
+                </button>
+            </div>
+            <div className="mb-[6px] flex flex-col">
+                <MetaRow label="Scope" value={note.scope || "shared"} border />
+                <MetaRow label="Learned by" value={note.source} border />
+                <MetaRow label="Captured" value={age || "—"} />
+            </div>
+        </>
+    );
+}
+
 function DetailRail({ notes }: { notes: MemNote[] }) {
     const selectedId = useAtomValue(memSelectedIdAtom);
+    const selectedPending = useAtomValue(memSelectedPendingPathAtom);
+    const pending = useAtomValue(memPendingAtom);
     const body = useAtomValue(memBodyAtom);
     const edges = useAtomValue(memEdgesAtom);
     const sel = notes.find((n) => n.id === selectedId);
+
+    const pendingNote = selectedPending ? pending.find((p) => p.path === selectedPending) : undefined;
+    const pendingIndex = pendingNote ? pending.findIndex((p) => p.path === pendingNote.path) + 1 : 0;
 
     const relatedIds = new Set<string>();
     if (sel) {
@@ -363,12 +426,14 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
             content: (
                 <AnimatePresence mode="wait">
                     <motion.div
-                        key={sel ? sel.id : "empty"}
+                        key={pendingNote ? pendingNote.path : sel ? sel.id : "empty"}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
                         exit={{ opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } }}
                     >
-                        {!sel ? (
+                        {pendingNote ? (
+                            <PendingDetail note={pendingNote} index={pendingIndex} total={pending.length} />
+                        ) : !sel ? (
                             <div className="text-[13px] text-ink-mid">Select a memory to see its content.</div>
                         ) : (
                             <DetailBody sel={sel} body={body} related={related} />
@@ -418,6 +483,7 @@ function MemorySkeleton() {
 
 export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const notes = useAtomValue(memNotesAtom);
+    const pending = useAtomValue(memPendingAtom);
     const loaded = useAtomValue(memLoadedAtom);
     const view = useAtomValue(memViewAtom);
     const selectedId = useAtomValue(memSelectedIdAtom);
@@ -476,14 +542,13 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
         <MotionConfig reducedMotion="user">
             <div className="absolute inset-0 flex">
                 <div className="flex min-w-0 flex-1 flex-col">
-                    <Header count={notes.length} onNew={() => setNewOpen(true)} />
+                    <Header count={notes.length} pending={pending.length} onNew={() => setNewOpen(true)} />
                     <SyncStrip focusedCwd={focusedCwd} />
-                    <ReviewTray />
                     <CleanupQueue />
                     <div className="relative min-h-0 flex-1 overflow-hidden">
                         {!loaded ? (
                             <MemorySkeleton />
-                        ) : notes.length === 0 ? (
+                        ) : notes.length === 0 && pending.length === 0 ? (
                             <div className="p-[28px] text-[13px] text-ink-mid">
                                 No memory yet. Create one with “New memory”, or point{" "}
                                 <span className="font-mono">memory:vaultpath</span> at an existing vault.
@@ -503,7 +568,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                                             <ListView notes={filtered} selectedId={selectedId} rp={rp} mountedEmpty={mountedEmpty} />
                                         </div>
                                     ) : (
-                                        <MemGraph notes={notes} filteredIds={graphFilterIds} selectedId={selectedId} />
+                                        <MemGraph notes={notes} pending={pending} filteredIds={graphFilterIds} selectedId={selectedId} />
                                     )}
                                 </motion.div>
                             </AnimatePresence>

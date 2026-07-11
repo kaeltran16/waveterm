@@ -11,7 +11,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { memConflictAtom, memEditingAtom, memNotesAtom, memRailOpenAtom, selectNote } from "./memstore";
+import { advanceSelection, memConflictAtom, memEditingAtom, memNotesAtom, memRailOpenAtom, selectNote } from "./memstore";
 import type { MemNote } from "./memtypes";
 
 const note = (id: string): MemNote =>
@@ -31,5 +31,21 @@ describe("memstore drawer + edit state", () => {
         expect(globalStore.get(memRailOpenAtom)).toBe(true);
         expect(globalStore.get(memEditingAtom)).toBe(false);
         expect(globalStore.get(memConflictAtom)).toBe(false);
+    });
+});
+
+describe("advanceSelection", () => {
+    const paths = ["a", "b", "c"];
+    it("picks the note that shifts into the removed index", () => {
+        expect(advanceSelection(paths, "b", "s1")).toEqual({ pendingPath: "c", savedId: null });
+    });
+    it("falls back to the previous when the last is removed", () => {
+        expect(advanceSelection(paths, "c", "s1")).toEqual({ pendingPath: "b", savedId: null });
+    });
+    it("falls back to the first saved when the queue empties", () => {
+        expect(advanceSelection(["a"], "a", "s1")).toEqual({ pendingPath: null, savedId: "s1" });
+    });
+    it("returns null saved when nothing remains", () => {
+        expect(advanceSelection(["a"], "a", null)).toEqual({ pendingPath: null, savedId: null });
     });
 });

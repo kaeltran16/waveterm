@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { groupByScope, typeMeta, type MemNote } from "./memtypes";
+import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
 
 const note = (over: Partial<MemNote>): MemNote => ({
     id: "x", title: "X", description: "", type: "project", scope: "shared",
@@ -34,5 +34,19 @@ describe("groupByScope", () => {
         ]);
         expect(groups.map((g) => g.name)).toEqual(["shared", "payments-api"]);
         expect(groups[1].count).toBe(2);
+    });
+});
+
+describe("relativeAge", () => {
+    const now = Date.parse("2026-07-12T12:00:00Z");
+    it("returns empty for missing or unparseable input", () => {
+        expect(relativeAge("", now)).toBe("");
+        expect(relativeAge("not-a-date", now)).toBe("");
+    });
+    it("buckets recent times", () => {
+        expect(relativeAge("2026-07-12T11:59:30Z", now)).toBe("just now");
+        expect(relativeAge("2026-07-12T11:56:00Z", now)).toBe("4m ago");
+        expect(relativeAge("2026-07-12T11:00:00Z", now)).toBe("1h ago");
+        expect(relativeAge("2026-07-10T12:00:00Z", now)).toBe("2d ago");
     });
 });

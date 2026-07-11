@@ -56,3 +56,18 @@ export function groupByScope(notes: MemNote[]): ScopeGroup[] {
     });
     return names.map((name) => ({ name, count: byScope.get(name)!.length, items: byScope.get(name)! }));
 }
+
+// Relative "age" for pending cards ("4m ago" / "1h ago" / "2d ago"). Empty on unparseable input.
+// `now` is injectable for deterministic tests.
+export function relativeAge(iso: string, now: number = Date.now()): string {
+    if (!iso) return "";
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return "";
+    const s = Math.max(0, Math.floor((now - then) / 1000));
+    if (s < 45) return "just now";
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+}

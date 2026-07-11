@@ -25,7 +25,7 @@ import {
     truncateTitle,
     type XY,
 } from "./memgraphlayout";
-import { memEdgesAtom, selectNote } from "./memstore";
+import { memEdgesAtom, selectNote, selectPending } from "./memstore";
 import type { MemNote } from "./memtypes";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
@@ -45,7 +45,7 @@ const PARTICLE_WIDTH = 3;
 const PULSE_PERIOD = 1500; // ms for one breath of the hover/selection halo
 const nodeRadius = (deg: number) => 3 + Math.min(Math.sqrt(deg) * 2.2, 12);
 
-type GNode = { id: string; title: string; type: string; deg: number; x?: number; y?: number };
+type GNode = { id: string; title: string; type: string; deg: number; pending?: boolean; x?: number; y?: number };
 type GLink = { source: string | GNode; target: string | GNode };
 
 const idOf = (e: string | GNode) => (typeof e === "object" ? e.id : e);
@@ -85,6 +85,7 @@ function useThemeColors() {
             edgeHot: c("--color-accent"),
             ring: c("--color-foreground"),
             bg: c("--color-background"),
+            pending: c("--color-mem-feedback"),
         };
     }, []);
 }
@@ -112,10 +113,12 @@ function CtrlBtn({ label, onClick, children }: { label: string; onClick: () => v
 
 export function MemGraph({
     notes,
+    pending,
     filteredIds,
     selectedId,
 }: {
     notes: MemNote[];
+    pending?: MemoryPendingNote[];
     filteredIds: ReadonlySet<string> | null;
     selectedId: string | null;
 }) {
@@ -195,7 +198,7 @@ export function MemGraph({
     // render): reuse the same node/link objects — and thus the sim's live x/y — whenever the set is
     // unchanged. Nodes seed from the position cache so structural changes wobble locally.
     const sig = graphSignature(
-        notes.map((n) => n.id),
+        [...notes.map((n) => n.id), ...(pending ?? []).map((p) => "pending:" + p.path)],
         allEdges
     );
     const data = useMemo(() => {
@@ -206,8 +209,15 @@ export function MemGraph({
             const seed = seedPosition(n.id, edges, posCache);
             return { id: n.id, title: n.title, type: n.type, deg: deg.get(n.id) ?? 0, ...(seed ?? {}) };
         });
+        // pending (distiller) candidates are isolated — no [[links]] yet, so degree 0 / no edges
+        const pendingNodes: GNode[] = (pending ?? []).map((p) => {
+            const id = "pending:" + p.path;
+            const seed = seedPosition(id, edges, posCache);
+            return { id, title: p.title, type: p.type, deg: 0, pending: true, ...(seed ?? {}) };
+        });
+        const allNodes = [...nodes, ...pendingNodes];
         const links: GLink[] = edges.map((e) => ({ source: e.from, target: e.to }));
-        return { nodes, links, rank: degreeRank(nodes) };
+        return { nodes: allNodes, links, rank: degreeRank(allNodes) };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sig]);
     const dataRef = useRef(data);
@@ -313,6 +323,11 @@ export function MemGraph({
             ctx.arc(node.x!, node.y!, r, 0, 2 * Math.PI);
             ctx.fillStyle = colors.fill(node.type);
             ctx.fill();
+            if (node.pending) {
+                ctx.lineWidth = 1.5 / scale;
+                ctx.strokeStyle = colors.pending;
+                ctx.stroke();
+            }
             if (sel) {
                 ctx.lineWidth = 1.5 / scale;
                 ctx.strokeStyle = colors.ring;
@@ -482,7 +497,10 @@ export function MemGraph({
                         linkDirectionalParticleWidth={PARTICLE_WIDTH}
                         linkDirectionalParticleColor={particleColor as any}
                         onNodeHover={onNodeHover as any}
-                        onNodeClick={((node: GNode) => fireAndForget(() => selectNote(node.id))) as any}
+                        onNodeClick={((node: GNode) => {
+                            if (node.pending) selectPending(node.id.slice("pending:".length));
+                            else fireAndForget(() => selectNote(node.id));
+                        }) as any}
                         onNodeDragEnd={(() => savePositions()) as any}
                         onRenderFramePre={(() => {
                             labelBoxes.current = []; // reset de-collision boxes at the start of each frame
@@ -526,6 +544,13 @@ export function MemGraph({
                         <span className="font-mono text-[10.5px] capitalize text-ink-mid">{t}</span>
                     </div>
                 ))}
+                <div className="flex items-center gap-[6px]">
+                    <div
+                        className="h-[8px] w-[8px] rounded-full border-[1.5px]"
+                        style={{ borderColor: colors.pending }}
+                    />
+                    <span className="font-mono text-[10.5px] text-ink-mid">Pending</span>
+                </div>
             </div>
         </div>
     );

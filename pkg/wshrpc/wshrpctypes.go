@@ -1087,11 +1087,14 @@ type CommandMemoryLearnRtnData struct {
 }
 
 type MemoryPendingNote struct {
-	Path  string `json:"path"`
-	Type  string `json:"type"`
-	Scope string `json:"scope"`
-	Body  string `json:"body"`
-	Cwd   string `json:"cwd"`
+	Path       string `json:"path"`
+	Title      string `json:"title"`
+	Type       string `json:"type"`
+	Scope      string `json:"scope"`
+	Source     string `json:"source"`
+	Body       string `json:"body"`
+	Cwd        string `json:"cwd"`
+	CapturedAt string `json:"capturedat"`
 }
 
 type CommandMemoryReviewListRtnData struct {

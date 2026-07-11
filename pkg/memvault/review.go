@@ -17,11 +17,14 @@ import (
 
 // PendingNote is one queued candidate awaiting human review.
 type PendingNote struct {
-	Path  string `json:"path"`
-	Type  string `json:"type"`
-	Scope string `json:"scope"`
-	Body  string `json:"body"`
-	Cwd   string `json:"cwd"`
+	Path       string `json:"path"`
+	Title      string `json:"title"`
+	Type       string `json:"type"`
+	Scope      string `json:"scope"`
+	Source     string `json:"source"`
+	Body       string `json:"body"`
+	Cwd        string `json:"cwd"`
+	CapturedAt string `json:"capturedat"`
 }
 
 // PendingDir is the review-queue directory: a sibling of the vault root, never a scan root.
@@ -87,7 +90,18 @@ func ListPending(dir string) []PendingNote {
 			continue
 		}
 		n, body := parseNote(p, data, "pending")
-		out = append(out, PendingNote{Path: p, Type: n.Type, Scope: n.Scope, Body: strings.TrimSpace(body), Cwd: pendingCwd(data)})
+		trimmed := strings.TrimSpace(body)
+		cwd := pendingCwd(data)
+		out = append(out, PendingNote{
+			Path:       p,
+			Title:      firstLine(trimmed),
+			Type:       n.Type,
+			Scope:      n.Scope,
+			Source:     pendingSource(cwd),
+			Body:       trimmed,
+			Cwd:        cwd,
+			CapturedAt: pendingCapturedAt(e.Name()),
+		})
 	}
 	return out
 }
@@ -106,6 +120,29 @@ func pendingCwd(data []byte) string {
 		}
 	}
 	return ""
+}
+
+// pendingSource labels where a candidate was learned: the project dir's basename, or "agent" when
+// no cwd was recorded.
+func pendingSource(cwd string) string {
+	if cwd == "" {
+		return "agent"
+	}
+	return filepath.Base(cwd)
+}
+
+// pendingCapturedAt parses the "20060102T150405.000" stamp WritePending prefixes onto the filename
+// and returns it as RFC3339 UTC. Empty when the name has no parseable stamp.
+func pendingCapturedAt(filename string) string {
+	base := filepath.Base(filename)
+	if len(base) < 19 {
+		return ""
+	}
+	t, err := time.Parse("20060102T150405.000", base[:19])
+	if err != nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // AcceptPending commits a queued candidate into its recorded project hub (or the default vault when

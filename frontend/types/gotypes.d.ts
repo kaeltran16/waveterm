@@ -1710,10 +1710,13 @@ declare global {
     // wshrpc.MemoryPendingNote
     type MemoryPendingNote = {
         path: string;
+        title: string;
         type: string;
         scope: string;
+        source: string;
         body: string;
         cwd: string;
+        capturedat: string;
     };
 
     // wshrpc.MemoryPruneCandidate
