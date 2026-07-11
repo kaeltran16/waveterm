@@ -26,6 +26,18 @@ export function filterChannels(channels: Channel[], query: string): Channel[] {
     return q ? channels.filter((c) => c.name.toLowerCase().includes(q)) : channels;
 }
 
+// resolveTargetChannel finds the channel a Radar finding should hand off to: the first whose bound
+// project path matches. Paths come from the same project registry, so an exact (trailing-slash-
+// insensitive) compare is sufficient — no fuzzy matching.
+export function resolveTargetChannel(channels: Channel[], projectPath: string | undefined): Channel | undefined {
+    if (!projectPath) {
+        return undefined;
+    }
+    const norm = (p: string) => p.replace(/[/\\]+$/, "");
+    const want = norm(projectPath);
+    return channels.find((c) => c.projectpath != null && norm(c.projectpath) === want);
+}
+
 export interface ChannelPartition {
     active: Channel[];
     archived: Channel[];

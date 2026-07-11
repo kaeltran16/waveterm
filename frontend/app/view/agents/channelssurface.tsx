@@ -24,6 +24,7 @@ import {
     activeMentionQuery,
     highlightSegments,
     mentionCandidates,
+    resolveTargetChannel,
     type MentionCandidate,
 } from "./channelderive";
 import { AskRow, Avatar, jumpToAgent, STATE_DOT, Tag, timeLabel, WorkerRow, workerFor } from "./channelsprimitives";
@@ -59,7 +60,7 @@ import { projectsAtom } from "./projectsstore";
 import { RAIL_ICON } from "./railicons";
 import { channelRailOpenAtom } from "./railstore";
 import { profileRailOpenAtom } from "./profilepanel";
-import { getJarvisProfile, setChannelProfile } from "./runactions";
+import { getJarvisProfile, pendingRunDraftAtom, setChannelProfile } from "./runactions";
 import { defaultView } from "./runmodel";
 import { RunsView } from "./runssurface";
 
@@ -882,6 +883,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.nowAtom);
     const projects = useAtomValue(projectsAtom); // Record<string, { path?: string }>
     const consultStreams = useAtomValue(consultStreamsAtom);
+    const pendingDraft = useAtomValue(pendingRunDraftAtom);
     const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
     const [draft, setDraft] = useState("");
     const [confirmDelegator, setConfirmDelegator] = useState(false);
@@ -926,6 +928,23 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         fireAndForget(loadChannels);
     }, []);
+    // land a Radar handoff: on a NEW pending draft, resolve its project to a channel, select it, and
+    // switch to the Runs view once. Keyed to the finding id so it fires per handoff, not per render.
+    const landedDraftRef = useRef<string | null>(null);
+    useEffect(() => {
+        const key = pendingDraft?.radarOrigin?.findingid ?? null;
+        if (!key || landedDraftRef.current === key) {
+            return;
+        }
+        landedDraftRef.current = key;
+        const target = resolveTargetChannel(channels ?? [], pendingDraft?.projectPath);
+        if (target) {
+            fireAndForget(() => selectChannel(target.oid));
+            setView("runs");
+        } else {
+            setPicking(true); // no channel for this project yet — offer the create flow; draft persists
+        }
+    }, [pendingDraft, channels]);
     useEffect(() => {
         fireAndForget(async () => {
             const rtn = await RpcApi.ListConsultRuntimesCommand(TabRpcClient);

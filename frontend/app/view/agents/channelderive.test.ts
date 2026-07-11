@@ -11,6 +11,7 @@ import {
     highlightSegments,
     mentionCandidates,
     partitionChannels,
+    resolveTargetChannel,
 } from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
 
@@ -223,5 +224,22 @@ describe("partitionChannels", () => {
         const { active, archived } = partitionChannels(filterChannels(list, "wave"));
         expect(active.map((c) => c.name)).toEqual(["wave"]);
         expect(archived.map((c) => c.name)).toEqual(["wave-old"]);
+    });
+});
+
+const ch = (oid: string, projectpath: string): Channel => ({ oid, projectpath } as Channel);
+
+describe("resolveTargetChannel", () => {
+    it("returns the first channel matching the project path", () => {
+        const channels = [ch("c1", "/repo/a"), ch("c2", "/repo/b"), ch("c3", "/repo/b")];
+        expect(resolveTargetChannel(channels, "/repo/b")?.oid).toBe("c2");
+    });
+    it("ignores a trailing slash on either side", () => {
+        expect(resolveTargetChannel([ch("c1", "/repo/a/")], "/repo/a")?.oid).toBe("c1");
+        expect(resolveTargetChannel([ch("c1", "/repo/a")], "/repo/a/")?.oid).toBe("c1");
+    });
+    it("returns undefined when nothing matches or the path is missing", () => {
+        expect(resolveTargetChannel([ch("c1", "/repo/a")], "/repo/z")).toBeUndefined();
+        expect(resolveTargetChannel([ch("c1", "/repo/a")], undefined)).toBeUndefined();
     });
 });
