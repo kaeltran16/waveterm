@@ -909,7 +909,10 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
               ]
             : undefined;
     useEffect(() => {
-        setView(defaultView(active));
+        // a pending radar draft means the composer belongs on the Runs view; otherwise a channel switch
+        // resets to its default view. defaultView returns "chat" for a run-less channel, which would
+        // otherwise clobber the handoff's setView("runs") when landing selects a different/new channel.
+        setView(pendingDraft ? "runs" : defaultView(active));
         setConfirmDelegator(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeId]);
