@@ -25,7 +25,7 @@ function currentLine(agent: AgentVM, entries: AgentEntry[]): string | undefined 
     return agent.activity ?? latestMessageText(entries);
 }
 
-export function RunWorkerCard({ model, agent, now }: { model: AgentsViewModel; agent: AgentVM; now: number }) {
+export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewModel; agent: AgentVM; now: number; fill?: boolean }) {
     const [open, setOpen] = useState(true);
     const liveEntries = useAtomValue(liveEntriesByIdAtom);
     const lastActivity = useAtomValue(lastActivityByIdAtom);
@@ -42,7 +42,7 @@ export function RunWorkerCard({ model, agent, now }: { model: AgentsViewModel; a
     const quietSecs = quiet ? Math.floor(Math.max(0, now - (lastActivity[agent.id] ?? now)) / 1000) : 0;
 
     return (
-        <div className="overflow-hidden rounded-[12px] border border-edge-mid bg-lane">
+        <div className={cn("overflow-hidden rounded-[12px] border border-edge-mid bg-lane", fill && "flex min-h-0 flex-1 flex-col")}>
             {/* worker header — click to collapse */}
             <div
                 onClick={() => setOpen((o) => !o)}
@@ -105,14 +105,17 @@ export function RunWorkerCard({ model, agent, now }: { model: AgentsViewModel; a
                         </div>
                     ) : null}
 
-                    {/* live feed — capped so a chatty worker doesn't unbalance the rail; scrolls within */}
+                    {/* live feed — capped in pipeline (many stacked cards); fills in the orchestrator body */}
                     {entries.length > 0 ? (
-                        <div className="relative">
-                            <div ref={scrollRef} onScroll={onScroll} className="sc max-h-[260px] overflow-y-auto px-3 pb-2">
+                        <div className={cn("relative", fill && "min-h-0 flex-1")}>
+                            <div ref={scrollRef} onScroll={onScroll} className={cn("sc overflow-y-auto px-3 pb-2", fill ? "h-full" : "max-h-[260px]")}>
                                 <NarrationTimeline entries={entries} accentLatest active={working} />
                             </div>
                             {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
                         </div>
+                    ) : fill ? (
+                        // hold the vertical space so the lead card still fills before its first entries stream in
+                        <div className="min-h-0 flex-1" />
                     ) : null}
 
                     {/* task progress */}
