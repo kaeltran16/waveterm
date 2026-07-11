@@ -817,8 +817,10 @@ type CommandAdvanceRunData struct {
 	ChannelId string   `json:"channelid"`
 	RunId     string   `json:"runid"`
 	PhaseIdx  int      `json:"phaseidx"`            // the phase being completed (ignored for approve/sendback)
-	Action    string   `json:"action"`             // complete | approve | sendback
+	Action    string   `json:"action"`             // complete | approve | sendback | hold | triage
 	Artifacts []string `json:"artifacts,omitempty"` // artifacts to record on complete
+	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
+	Note      string   `json:"note,omitempty"`      // triage: one-line reason
 }
 
 type CommandCancelRunData struct {
@@ -828,8 +830,10 @@ type CommandCancelRunData struct {
 
 type CommandReportRunPhaseData struct {
 	ORef      string   `json:"oref"`                // caller's tab oref ("tab:<id>")
-	Action    string   `json:"action"`              // hold | complete
+	Action    string   `json:"action"`              // hold | complete | triage
 	Artifacts []string `json:"artifacts,omitempty"` // recorded on complete
+	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
+	Note      string   `json:"note,omitempty"`      // triage: one-line reason
 }
 
 type CommandStartRadarScanData struct {

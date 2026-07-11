@@ -81,7 +81,7 @@ export function isOrchestrator(run: Run): boolean {
 // One-line summary of what "Start run" will do, shown under the composer.
 export function composerSummary(mode: string, planGate: boolean): string {
     if (mode === "orchestrator") {
-        return planGate ? "orchestrator · plan gate on" : "orchestrator · hands-off";
+        return planGate ? "orchestrator · plan gate on" : "orchestrator · adaptive";
     }
     return "pipeline · Superpowers default";
 }
@@ -212,17 +212,24 @@ export function phaseRailIds(run: Run): string[] {
     return (run.phases ?? []).map((_, i) => `p${i}`);
 }
 
-// The worker a Steer targets: the first worker of the current phase. Undefined on a terminal run or when
-// that phase has no live worker (the Steer affordance is hidden/disabled in those cases).
-export function steerTarget(run: Run, agents: AgentVM[]): AgentVM | undefined {
-    if (isTerminal(run.status)) {
-        return undefined;
-    }
+// The lead worker of the run's current phase (orchestrator: the single long-lived lead; pipeline: the
+// current phase's worker). Undefined when that phase has no live worker. Not terminal-gated so a
+// finished run can still surface its last lead's transcript.
+export function leadWorker(run: Run, agents: AgentVM[]): AgentVM | undefined {
     const phase = (run.phases ?? [])[currentPhaseIndex(run)];
     if (!phase) {
         return undefined;
     }
     return phaseWorkers(phase, agents)[0];
+}
+
+// The worker a Steer targets: the current phase's lead. Undefined on a terminal run (Steer is
+// hidden/disabled there) or when that phase has no live worker.
+export function steerTarget(run: Run, agents: AgentVM[]): AgentVM | undefined {
+    if (isTerminal(run.status)) {
+        return undefined;
+    }
+    return leadWorker(run, agents);
 }
 
 // Resolve a phase artifact (normally a project-relative path, occasionally absolute) to a full path

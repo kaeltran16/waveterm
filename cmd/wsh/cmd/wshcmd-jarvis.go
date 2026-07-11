@@ -20,28 +20,43 @@ var jarvisCmd = &cobra.Command{
 var jarvisHoldCmd = &cobra.Command{
 	Use:     "hold",
 	Short:   "pause the current run at its plan gate for review",
-	RunE:    func(cmd *cobra.Command, args []string) error { return reportRunPhase("hold") },
+	RunE:    func(cmd *cobra.Command, args []string) error { return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "hold"}) },
 	PreRunE: preRunSetupRpcClient,
 }
 
 var jarvisCompleteCmd = &cobra.Command{
 	Use:     "complete",
 	Short:   "mark the current run's phase complete",
-	RunE:    func(cmd *cobra.Command, args []string) error { return reportRunPhase("complete") },
+	RunE:    func(cmd *cobra.Command, args []string) error { return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"}) },
+	PreRunE: preRunSetupRpcClient,
+}
+
+var jarvisTriageCmd = &cobra.Command{
+	Use:     "triage <quick|plan> [reason]",
+	Short:   "announce the adaptive lead's quick-vs-plan call for this run (non-blocking)",
+	Args:    cobra.RangeArgs(1, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		note := ""
+		if len(args) > 1 {
+			note = args[1]
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "triage", Verdict: args[0], Note: note})
+	},
 	PreRunE: preRunSetupRpcClient,
 }
 
 func init() {
 	jarvisCmd.AddCommand(jarvisHoldCmd)
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
+	jarvisCmd.AddCommand(jarvisTriageCmd)
 	rootCmd.AddCommand(jarvisCmd)
 }
 
-func reportRunPhase(action string) error {
+func reportRunPhase(data wshrpc.CommandReportRunPhaseData) error {
 	tabId := getTabIdFromEnv()
 	if tabId == "" {
 		return fmt.Errorf("no WAVETERM_TABID env var set")
 	}
-	oref := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
-	return wshclient.ReportRunPhaseCommand(RpcClient, wshrpc.CommandReportRunPhaseData{ORef: oref, Action: action}, nil)
+	data.ORef = waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
+	return wshclient.ReportRunPhaseCommand(RpcClient, data, nil)
 }

@@ -305,6 +305,19 @@ function StartingCard() {
     );
 }
 
+// The adaptive lead's announced quick-vs-plan call for an orchestrate phase (non-blocking; recorded
+// via `wsh jarvis triage`). Informational — quick reads as go-ahead (success), plan as deliberate (asking).
+function TriageChip({ triage }: { triage: PhaseTriage }) {
+    const quick = triage.verdict === "quick";
+    const tone = quick ? "text-success border-success/40 bg-success/10" : "text-asking border-asking/40 bg-lane-asking";
+    return (
+        <div className={"mt-2 inline-flex max-w-[760px] items-center gap-2 rounded-[8px] border px-2.5 py-1.5 " + tone}>
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em]">Triage · {triage.verdict}</span>
+            {triage.note ? <span className="text-[11.5px] leading-[1.4] text-secondary">{triage.note}</span> : null}
+        </div>
+    );
+}
+
 function ShipMarker() {
     return (
         <div className="mt-2 inline-flex items-center gap-2 rounded-[9px] border border-success/30 bg-success/10 px-3 py-2">
@@ -422,6 +435,7 @@ function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entranceIds
                                     <span className={"font-mono text-[9px] font-semibold uppercase tracking-[.06em] " + (PHASE_TONE_CLASS[v.tone] ?? "text-muted")}>{v.label}</span>
                                 </div>
                                 {p.skill ? <div className="mt-0.5 font-mono text-[11px] text-muted">{p.skill}</div> : null}
+                                {p.triage ? <TriageChip triage={p.triage} /> : null}
                                 {(p.artifacts ?? []).map((art) => (
                                     <div key={art} className="mt-2 inline-flex items-center gap-1.5 rounded-[7px] border border-border bg-background px-2.5 py-1">
                                         <span className="text-[11px] text-muted">▸</span>

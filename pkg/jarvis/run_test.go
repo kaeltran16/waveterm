@@ -271,3 +271,41 @@ func TestBuildOrchestratePrompt(t *testing.T) {
 		t.Fatal("no-gate prompt must not tell the lead to hold")
 	}
 }
+
+func TestBuildOrchestratePromptGateOffTriages(t *testing.T) {
+	// gate off = adaptive: the lead sizes up the goal and announces a verdict before proceeding.
+	off := BuildOrchestratePrompt("do X", "", false)
+	for _, want := range []string{"wsh jarvis triage", "quick", "plan"} {
+		if !strings.Contains(off, want) {
+			t.Errorf("gate-off prompt missing triage guidance %q:\n%s", want, off)
+		}
+	}
+	// gate on = always plan + hold; no triage choice to make.
+	if strings.Contains(BuildOrchestratePrompt("do X", "", true), "wsh jarvis triage") {
+		t.Error("gate-on prompt must not offer a triage choice")
+	}
+}
+
+func TestRecordTriageIsNonBlocking(t *testing.T) {
+	r := orchRun(false) // phase 0 running, status executing
+	if r.Status != RunStatus_Executing {
+		t.Fatalf("setup: want executing, got %q", r.Status)
+	}
+	r, err := RecordTriage(r, 0, "quick", "one-line config change")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r.Phases[0].Triage == nil || r.Phases[0].Triage.Verdict != "quick" || r.Phases[0].Triage.Note != "one-line config change" {
+		t.Errorf("triage not recorded: %+v", r.Phases[0].Triage)
+	}
+	if r.Phases[0].State != PhaseState_Running || r.Status != RunStatus_Executing {
+		t.Errorf("triage must not change progress: state=%q status=%q", r.Phases[0].State, r.Status)
+	}
+}
+
+func TestRecordTriageRejectsOutOfRange(t *testing.T) {
+	r := orchRun(false)
+	if _, err := RecordTriage(r, 9, "quick", ""); err == nil {
+		t.Error("expected error for out-of-range index")
+	}
+}

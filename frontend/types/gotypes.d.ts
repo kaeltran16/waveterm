@@ -322,6 +322,8 @@ declare global {
         phaseidx: number;
         action: string;
         artifacts?: string[];
+        verdict?: string;
+        note?: string;
     };
 
     // wshrpc.CommandAnswerAgentData
@@ -1113,6 +1115,8 @@ declare global {
         oref: string;
         action: string;
         artifacts?: string[];
+        verdict?: string;
+        note?: string;
     };
 
     // wshrpc.CommandResolveIdsData
@@ -1898,6 +1902,12 @@ declare global {
         tabid: string;
     };
 
+    // waveobj.PhaseTriage
+    type PhaseTriage = {
+        verdict: string;
+        note?: string;
+    };
+
     // waveobj.Point
     type Point = {
         x: number;
@@ -2107,6 +2117,7 @@ declare global {
         gate?: boolean;
         freshctx?: boolean;
         held?: boolean;
+        triage?: PhaseTriage;
         workerorefs?: string[];
         artifacts?: string[];
     };

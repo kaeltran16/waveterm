@@ -52,6 +52,13 @@ const (
 	RunAction_Approve  = "approve"
 	RunAction_SendBack = "sendback"
 	RunAction_Hold     = "hold"
+	RunAction_Triage   = "triage"
+)
+
+// Triage verdicts (adaptive orchestrator).
+const (
+	TriageVerdict_Quick = "quick"
+	TriageVerdict_Plan  = "plan"
 )
 
 // DefaultPlaybook is the hardcoded superpowers pipeline (spec §"default playbook"): brainstorm -> plan
@@ -167,6 +174,20 @@ func HoldPhase(run waveobj.Run, phaseIdx int) (waveobj.Run, error) {
 	return run, nil
 }
 
+// RecordTriage stores an adaptive lead's quick-vs-plan verdict on a running phase. Non-blocking: it
+// touches only the Triage field, so the run stays executing (recomputeStatus is unaffected). Out of
+// range / not-running fail safe so a stray report is a no-op at the caller.
+func RecordTriage(run waveobj.Run, phaseIdx int, verdict, note string) (waveobj.Run, error) {
+	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
+		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
+	}
+	if run.Phases[phaseIdx].State != PhaseState_Running {
+		return run, fmt.Errorf("phase %d is %q, not running", phaseIdx, run.Phases[phaseIdx].State)
+	}
+	run.Phases[phaseIdx].Triage = &waveobj.PhaseTriage{Verdict: verdict, Note: note}
+	return run, nil
+}
+
 // heldPhaseIndex returns the index of a held running phase (orchestrator plan gate), or -1.
 func heldPhaseIndex(run waveobj.Run) int {
 	for i := range run.Phases {
@@ -264,9 +285,16 @@ func BuildOrchestratePrompt(goal, principles string, gate bool) string {
 	if strings.TrimSpace(principles) != "" {
 		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", principles)
 	}
-	b.WriteString("You are the lead orchestrator for this goal. Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
+	b.WriteString("You are the lead orchestrator for this goal.\n")
 	if gate {
+		b.WriteString("Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
 		b.WriteString("First write the plan, then run `wsh jarvis hold` and wait — do not dispatch any subagents until you are told to proceed.\n")
+	} else {
+		// adaptive: size up the goal first and announce the call (non-blocking) before doing the work.
+		b.WriteString("First size up the goal, then announce your call:\n")
+		b.WriteString("- If it is a small, well-understood change, run `wsh jarvis triage quick \"<one-line reason>\"` and just make the fix directly — no plan document, and dispatch subagents only if the work genuinely needs them.\n")
+		b.WriteString("- If it is larger or ambiguous, run `wsh jarvis triage plan \"<one-line reason>\"`, then plan it with the superpowers:writing-plans approach and execute adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
+		b.WriteString("Do not wait after triaging — proceed straight into the work you chose.\n")
 	}
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, run `wsh jarvis complete`.\n")

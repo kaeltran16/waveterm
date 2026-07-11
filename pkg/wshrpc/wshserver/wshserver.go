@@ -1983,6 +1983,25 @@ func steerRunLead(ctx context.Context, tabORef, text string) {
 	}
 }
 
+// applyRunAction dispatches a run action to the matching engine transition (pure; no persistence).
+// Triage is non-blocking — it records the lead's verdict and leaves progress untouched.
+func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData) (waveobj.Run, error) {
+	switch data.Action {
+	case jarvis.RunAction_Complete:
+		return jarvis.CompletePhase(r, data.PhaseIdx, data.Artifacts)
+	case jarvis.RunAction_Approve:
+		return jarvis.ApproveGate(r)
+	case jarvis.RunAction_SendBack:
+		return jarvis.SendBackGate(r)
+	case jarvis.RunAction_Hold:
+		return jarvis.HoldPhase(r, data.PhaseIdx)
+	case jarvis.RunAction_Triage:
+		return jarvis.RecordTriage(r, data.PhaseIdx, data.Verdict, data.Note)
+	default:
+		return r, fmt.Errorf("unknown run action %q", data.Action)
+	}
+}
+
 func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandAdvanceRunData) error {
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
@@ -2000,20 +2019,7 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		}
 	}
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-		var next waveobj.Run
-		var e error
-		switch data.Action {
-		case jarvis.RunAction_Complete:
-			next, e = jarvis.CompletePhase(*r, data.PhaseIdx, data.Artifacts)
-		case jarvis.RunAction_Approve:
-			next, e = jarvis.ApproveGate(*r)
-		case jarvis.RunAction_SendBack:
-			next, e = jarvis.SendBackGate(*r)
-		case jarvis.RunAction_Hold:
-			next, e = jarvis.HoldPhase(*r, data.PhaseIdx)
-		default:
-			e = fmt.Errorf("unknown run action %q", data.Action)
-		}
+		next, e := applyRunAction(*r, data)
 		if e != nil {
 			return e
 		}
@@ -2057,6 +2063,8 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 		PhaseIdx:  m.PhaseIdx,
 		Action:    data.Action,
 		Artifacts: data.Artifacts,
+		Verdict:   data.Verdict,
+		Note:      data.Note,
 	})
 }
 

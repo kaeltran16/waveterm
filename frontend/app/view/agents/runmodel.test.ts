@@ -7,6 +7,7 @@ import {
     defaultView,
     isOrchestrator,
     isTerminal,
+    leadWorker,
     phaseStateView,
     phaseProgressDots,
     phaseRailIds,
@@ -227,24 +228,41 @@ describe("phaseRailIds", () => {
     });
 });
 
-describe("steerTarget", () => {
+describe("leadWorker", () => {
     it("returns the first worker of the current phase", () => {
         const r = run({
             status: "executing",
             phases: [phase({ state: "running", workerorefs: ["tab:t1"] })],
         });
-        expect(steerTarget(r, [agent({ id: "t1" })])?.id).toBe("t1");
+        expect(leadWorker(r, [agent({ id: "t1" })])?.id).toBe("t1");
     });
-    it("returns undefined when the run is terminal", () => {
+    it("returns undefined when the current phase has no live worker", () => {
+        const r = run({ status: "executing", phases: [phase({ state: "running" })] });
+        expect(leadWorker(r, [])).toBeUndefined();
+    });
+    it("still resolves the lead on a terminal run (not terminal-gated)", () => {
+        const r = run({
+            status: "done",
+            phases: [phase({ state: "done", workerorefs: ["tab:t1"] })],
+        });
+        expect(leadWorker(r, [agent({ id: "t1" })])?.id).toBe("t1");
+    });
+});
+
+describe("steerTarget (regression after refactor)", () => {
+    it("returns undefined on a terminal run even though a worker exists", () => {
         const r = run({
             status: "done",
             phases: [phase({ state: "done", workerorefs: ["tab:t1"] })],
         });
         expect(steerTarget(r, [agent({ id: "t1" })])).toBeUndefined();
     });
-    it("returns undefined when the current phase has no live worker", () => {
-        const r = run({ status: "executing", phases: [phase({ state: "running" })] });
-        expect(steerTarget(r, [])).toBeUndefined();
+    it("returns the current phase worker on a live run", () => {
+        const r = run({
+            status: "executing",
+            phases: [phase({ state: "running", workerorefs: ["tab:t1"] })],
+        });
+        expect(steerTarget(r, [agent({ id: "t1" })])?.id).toBe("t1");
     });
 });
 
@@ -296,7 +314,7 @@ describe("orchestrator derivations", () => {
 
     it("composerSummary describes mode + gate", () => {
         expect(composerSummary("orchestrator", true)).toBe("orchestrator · plan gate on");
-        expect(composerSummary("orchestrator", false)).toBe("orchestrator · hands-off");
+        expect(composerSummary("orchestrator", false)).toBe("orchestrator · adaptive");
         expect(composerSummary("pipeline", true)).toBe("pipeline · Superpowers default");
     });
 });

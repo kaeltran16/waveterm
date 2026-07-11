@@ -213,15 +213,23 @@ type ChannelMessage struct {
 	Data    string `json:"data,omitempty"` // optional JSON payload for rich rendering (e.g. JarvisCardData)
 }
 
+// PhaseTriage is an adaptive orchestrator lead's self-reported sizing of the goal: quick (do it
+// directly) vs plan (plan first). Recorded on the orchestrate phase, non-blocking — informational.
+type PhaseTriage struct {
+	Verdict string `json:"verdict"`        // quick | plan
+	Note    string `json:"note,omitempty"` // one-line reason
+}
+
 type RunPhase struct {
-	Kind        string   `json:"kind"`               // brainstorm | plan | execute | orchestrate | custom
-	Skill       string   `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
-	State       string   `json:"state"`              // pending | running | blocked | done | failed | skipped
-	Gate        bool     `json:"gate,omitempty"`     // pipeline: halt after this phase; orchestrator: the lead was told to hold
-	FreshCtx    bool     `json:"freshctx,omitempty"` // this phase runs in its own fresh worker (clear-context boundary)
-	Held        bool     `json:"held,omitempty"`     // orchestrator: the lead paused itself at the plan gate (runtime)
-	WorkerOrefs []string `json:"workerorefs,omitempty"`
-	Artifacts   []string `json:"artifacts,omitempty"`
+	Kind        string       `json:"kind"`               // brainstorm | plan | execute | orchestrate | custom
+	Skill       string       `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
+	State       string       `json:"state"`              // pending | running | blocked | done | failed | skipped
+	Gate        bool         `json:"gate,omitempty"`     // pipeline: halt after this phase; orchestrator: the lead was told to hold
+	FreshCtx    bool         `json:"freshctx,omitempty"` // this phase runs in its own fresh worker (clear-context boundary)
+	Held        bool         `json:"held,omitempty"`     // orchestrator: the lead paused itself at the plan gate (runtime)
+	Triage      *PhaseTriage `json:"triage,omitempty"`   // orchestrator (adaptive): the lead's quick-vs-plan call (runtime)
+	WorkerOrefs []string     `json:"workerorefs,omitempty"`
+	Artifacts   []string     `json:"artifacts,omitempty"`
 }
 
 type Run struct {
