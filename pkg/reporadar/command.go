@@ -76,6 +76,13 @@ func Start(ctx context.Context, projectPath string) (*waveobj.RadarReport, error
 	return wstore.GetRadarReport(ctx, rpt.OID)
 }
 
+// ListReports returns the reports for projectPath (newest-first), canonicalizing the query path so a
+// caller passing a non-canonical form (e.g. a Windows backslash path from the frontend) still matches
+// the canonicalized path Start persisted.
+func ListReports(ctx context.Context, projectPath string) ([]*waveobj.RadarReport, error) {
+	return wstore.GetRadarReports(ctx, canonPath(projectPath))
+}
+
 // rejectConcurrent errors if a report for projectPath is still collecting/clustering.
 func rejectConcurrent(ctx context.Context, projectPath string) error {
 	reports, err := wstore.GetRadarReports(ctx, canonPath(projectPath))

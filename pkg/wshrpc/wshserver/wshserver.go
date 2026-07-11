@@ -2100,7 +2100,7 @@ func (ws *WshServer) CancelRadarScanCommand(ctx context.Context, data wshrpc.Com
 }
 
 func (ws *WshServer) ListRadarReportsCommand(ctx context.Context, data wshrpc.CommandListRadarReportsData) (*wshrpc.CommandListRadarReportsRtnData, error) {
-	reports, err := wstore.GetRadarReports(ctx, data.ProjectPath)
+	reports, err := reporadar.ListReports(ctx, data.ProjectPath)
 	if err != nil {
 		return nil, fmt.Errorf("listing radar reports: %w", err)
 	}
