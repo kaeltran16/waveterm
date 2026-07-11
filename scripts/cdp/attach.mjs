@@ -12,8 +12,8 @@ import { basename, dirname } from "node:path";
 export const SURFACE_LABEL = {
     cockpit: "Cockpit",
     agent: "Agent",
-    activity: "Activity",
     channels: "Channels",
+    radar: "Radar",
     sessions: "Sessions",
     files: "Diff",
     memory: "Memory",

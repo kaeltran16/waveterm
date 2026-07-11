@@ -112,7 +112,7 @@ const runsLifecycle = {
 // Navigate each key surface, screenshot it, and assert (a) the active nav label matches and (b) the
 // content region rendered non-empty text — which catches a surface that blanks out on render. No
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
-const SMOKE_SURFACES = ["cockpit", "channels", "usage", "memory", "activity", "files", "settings"];
+const SMOKE_SURFACES = ["cockpit", "channels", "radar", "usage", "memory", "files", "settings"];
 
 const surfaceSmoke = {
     name: "surface-smoke",
