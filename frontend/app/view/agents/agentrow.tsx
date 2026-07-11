@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { confirmCloseAgent } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
+    formatAge,
     hasAnswerableAsk,
     isQuiet,
     nextFullWidth,
