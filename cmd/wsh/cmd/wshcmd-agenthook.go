@@ -13,6 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
@@ -316,6 +319,14 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		hookDebugLine("skip: resolveBlockArg failed event=" + ev.HookEventName)
 		return nil
+	}
+	// stamp the transcript path so a gone-worker exit can derive its outcome from the transcript.
+	// best-effort: a hook must never fail the turn.
+	if ev.TranscriptPath != "" {
+		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{
+			ORef: *oref,
+			Meta: waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: ev.TranscriptPath},
+		}, &wshrpc.RpcOpts{Timeout: 2000})
 	}
 	if em.State != "" {
 		data := baseds.AgentStatusData{

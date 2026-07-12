@@ -151,6 +151,20 @@ export function WorkerRow({
                     style={{ backgroundColor: STATE_DOT[w.state] ?? "var(--color-muted)" }}
                 />
                 <span className="font-mono text-[12.5px] text-primary">{w.name}</span>
+                {w.outcome ? (
+                    <span
+                        title={`outcome: ${w.outcome.status}`}
+                        className={
+                            w.outcome.status === "failed"
+                                ? "text-[11px] text-asking"
+                                : w.outcome.status === "waiting"
+                                  ? "text-[11px] text-warning"
+                                  : "text-[11px] text-success"
+                        }
+                    >
+                        {w.outcome.status === "failed" ? "✗" : w.outcome.status === "waiting" ? "⏸" : "✓"}
+                    </span>
+                ) : null}
                 {w.state !== "gone" && w.costUsd != null && w.costUsd > 0 ? (
                     <span
                         title={w.contextPct != null ? `context ${Math.round(w.contextPct)}%` : undefined}
@@ -171,9 +185,12 @@ export function WorkerRow({
                     </button>
                 )}
             </div>
-            {(w.dispatchTask ?? w.task) ? (
-                <div title={w.dispatchTask ?? w.task} className="mt-0.5 truncate pl-4 text-[11px] text-muted">
-                    {w.dispatchTask ?? w.task}
+            {(w.outcome?.summary || w.dispatchTask || w.task) ? (
+                <div
+                    title={w.outcome?.summary || w.dispatchTask || w.task}
+                    className="mt-0.5 truncate pl-4 text-[11px] text-muted"
+                >
+                    {w.outcome?.summary || w.dispatchTask || w.task}
                 </div>
             ) : null}
             {w.state !== "gone" && w.activity ? (

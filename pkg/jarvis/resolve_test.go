@@ -144,3 +144,19 @@ func TestResolveProfile_DefaultModeAndGate(t *testing.T) {
 		t.Fatalf("override: got mode=%q gate=%v", got.DefaultMode, got.DefaultPlanGate)
 	}
 }
+
+func TestResolveDispatchChannelFindsConciergeChannel(t *testing.T) {
+	// concierge (gatekeeper OFF) channel still owns its dispatch
+	c := ch("c1", false, dispatch("tab:w1", "do a thing"))
+	got := ResolveDispatchChannel([]*waveobj.Channel{c}, "tab:w1")
+	if got == nil || got.OID != "c1" {
+		t.Fatalf("got %v, want c1", got)
+	}
+}
+
+func TestResolveDispatchChannelNoMatch(t *testing.T) {
+	c := ch("c1", false, waveobj.ChannelMessage{Kind: "human", RefORef: ""})
+	if got := ResolveDispatchChannel([]*waveobj.Channel{c}, "tab:w1"); got != nil {
+		t.Fatalf("got %v, want nil", got)
+	}
+}

@@ -619,6 +619,9 @@ func (bc *ShellController) manageRunningShellProcess(shellProc *shellexec.ShellP
 		bc.writeMutedMessageToTerminal("[" + msg + "]")
 		go checkCloseOnExit(bc.BlockId, exitCode)
 		go emitAgentIdleOnExit(bc.BlockId)
+		if AgentOutcomeHook != nil {
+			go AgentOutcomeHook(bc.BlockId, exitCode)
+		}
 	}()
 	return nil
 }
@@ -659,6 +662,10 @@ func idleOnExitEvent(blockId string, tabMeta waveobj.MetaMapType, ts int64) *wps
 	ev := AgentStatusEvent(blockId, baseds.AgentState_Idle, agent, ts)
 	return &ev
 }
+
+// AgentOutcomeHook, when set (by pkg/jarvis at init), posts a gone-worker outcome for an exited
+// agent worker. Injected to keep blockcontroller free of a jarvis import (jarvis imports blockcontroller).
+var AgentOutcomeHook func(blockId string, exitCode int)
 
 // emitAgentIdleOnExit publishes idle for a run/agent worker whose process just exited, so the
 // cockpit roster stops showing it as "working" even if the reporter hook never fires. No-op for

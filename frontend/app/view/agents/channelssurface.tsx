@@ -458,6 +458,49 @@ function EscalationRow({ msg, agents, now }: { msg: ChannelMessage; agents: Agen
     );
 }
 
+// A worker's terminal outcome (done/failed/needs you), posted once the worker goes "gone". Parses the
+// structured `data` payload for status/summary; falls back to the flat text for legacy/malformed data.
+const OUTCOME_PILL: Record<string, { label: string; cls: string }> = {
+    done: { label: "done", cls: "bg-success text-background" },
+    failed: { label: "failed", cls: "bg-asking text-background" },
+    waiting: { label: "needs you", cls: "bg-warning text-background" },
+};
+
+function OutcomeRow({ msg, now }: { msg: ChannelMessage; now: number }) {
+    let status = "done";
+    let summary = msg.text;
+    try {
+        const d = msg.data ? JSON.parse(msg.data) : {};
+        status = d.status ?? status;
+        summary = d.summary ?? summary;
+    } catch {
+        // legacy/malformed data — fall back to the flat text
+    }
+    const pill = OUTCOME_PILL[status] ?? OUTCOME_PILL.done;
+    return (
+        <div className="flex items-start gap-3">
+            <Avatar name={msg.author} />
+            <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-semibold text-primary">{msg.author}</span>
+                    <Tag label="outcome" tone="muted" />
+                    <span className="font-mono text-[10.5px] text-muted">{timeLabel(msg.ts, now)}</span>
+                </div>
+                <div className="rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-3">
+                    <div className="mb-1.5">
+                        <span
+                            className={`rounded-[4px] px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-[.08em] ${pill.cls}`}
+                        >
+                            {pill.label}
+                        </span>
+                    </div>
+                    <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{summary}</div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // A dispatch / directive / human message row: avatar + author + optional tag + body, plus (for a
 // dispatch) the live worker status pill, open link, and — when asking — the inline AnswerBar.
 function MessageRow({
@@ -1299,6 +1342,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                                     <GatekeeperRow model={model} agents={agents} msg={m} now={now} />
                                                 ) : m.kind === "jarvis-escalation" ? (
                                                     <EscalationRow agents={agents} msg={m} now={now} />
+                                                ) : m.kind === "outcome" ? (
+                                                    <OutcomeRow msg={m} now={now} />
                                                 ) : (
                                                     <MessageRow model={model} agents={agents} msg={m} now={now} />
                                                 )}

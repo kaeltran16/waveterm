@@ -90,6 +90,24 @@ describe("buildFleetSnapshot", () => {
         expect(snap[0].costUsd).toBeUndefined();
         expect(snap[0].contextPct).toBeUndefined();
     });
+
+    it("folds an outcome message onto its worker", () => {
+        const c = chan([
+            { kind: "dispatch", author: "claude", text: "go", reforef: "tab:t1", ts: 1 },
+            { kind: "outcome", author: "claude", text: "hardened webhooks", reforef: "tab:t1", ts: 2, data: JSON.stringify({ status: "done", summary: "hardened webhooks" }) },
+        ]);
+        const snap = buildFleetSnapshot(c, []);
+        expect(snap[0].outcome).toEqual({ status: "done", summary: "hardened webhooks" });
+    });
+
+    it("ignores an outcome older than the latest dispatch (re-dispatched worker)", () => {
+        const c = chan([
+            { kind: "outcome", author: "claude", text: "old", reforef: "tab:t1", ts: 1, data: JSON.stringify({ status: "failed", summary: "old" }) },
+            { kind: "dispatch", author: "claude", text: "go again", reforef: "tab:t1", ts: 2 },
+        ]);
+        const snap = buildFleetSnapshot(c, []);
+        expect(snap[0].outcome).toBeUndefined();
+    });
 });
 
 describe("buildJarvisPrompt", () => {
