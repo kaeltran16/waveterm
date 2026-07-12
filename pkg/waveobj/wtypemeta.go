@@ -168,6 +168,9 @@ type MetaTSType struct {
 	// for loom git client (Wave Agent Sessions fork)
 	AppLoom bool `json:"app:loom,omitempty"` // block (marks the live loom block for toggle)
 
+	// for agent hook-stamped metadata (Wave Agent Sessions fork)
+	AgentTranscriptPath string `json:"agent:transcriptpath,omitempty"` // block (path to the running agent's transcript file)
+
 	Count int `json:"count,omitempty"` // temp for cpu plot. will remove later
 }
 

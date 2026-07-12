@@ -19,6 +19,7 @@ export interface WorkerState {
     activity?: string; // live activity line (AgentVM.activity); undefined when gone
     costUsd?: number; // session cost so far (AgentVM.usage?.costusd); undefined when gone/unreported
     contextPct?: number; // context-window fill % (AgentVM.usage?.contextpct); undefined when gone
+    outcome?: { status: string; summary: string }; // finished-worker outcome (from an "outcome" message)
 }
 
 const OREF_PREFIX = "tab:";
@@ -32,6 +33,7 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
     const dispatchInfo = new Map<string, { name: string; task?: string }>();
     const activeTs = new Map<string, number>(); // latest dispatch/directive ts per oref
     const dismissTs = new Map<string, number>(); // latest dismiss ts per oref
+    const outcomeByOref = new Map<string, { ts: number; outcome: { status: string; summary: string } }>();
     for (const m of channel.messages ?? []) {
         if (!m.reforef?.startsWith(OREF_PREFIX)) {
             continue;
@@ -48,11 +50,28 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
         if (m.kind === "dismiss") {
             dismissTs.set(m.reforef, Math.max(dismissTs.get(m.reforef) ?? 0, m.ts ?? 0));
         }
+        if (m.kind === "outcome") {
+            const prev = outcomeByOref.get(m.reforef);
+            if (!prev || (m.ts ?? 0) > prev.ts) {
+                let parsed: { status?: string; summary?: string } = {};
+                try {
+                    parsed = m.data ? JSON.parse(m.data) : {};
+                } catch {
+                    parsed = {};
+                }
+                outcomeByOref.set(m.reforef, {
+                    ts: m.ts ?? 0,
+                    outcome: { status: parsed.status ?? "done", summary: parsed.summary ?? m.text ?? "" },
+                });
+            }
+        }
     }
     return orefs
         .map((oref): WorkerState => {
             const id = oref.slice(OREF_PREFIX.length);
             const dispatchTask = dispatchInfo.get(oref)?.task;
+            const oc = outcomeByOref.get(oref);
+            const outcome = oc && oc.ts > (activeTs.get(oref) ?? 0) ? oc.outcome : undefined;
             const live = agents.find((a) => a.id === id);
             if (live) {
                 return {
@@ -66,10 +85,11 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
                     activity: live.activity || undefined,
                     costUsd: live.usage?.costusd,
                     contextPct: live.usage?.contextpct,
+                    outcome,
                 };
             }
             const info = dispatchInfo.get(oref);
-            return { oref, name: info?.name ?? "worker", state: "gone" as const, task: info?.task, dispatchTask };
+            return { oref, name: info?.name ?? "worker", state: "gone" as const, task: info?.task, dispatchTask, outcome };
         })
         // a gone worker dismissed after its last dispatch/directive drops out; a later re-dispatch
         // (newer activeTs) brings it back. live workers are never hidden.

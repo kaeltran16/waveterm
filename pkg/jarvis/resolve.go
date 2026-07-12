@@ -52,6 +52,20 @@ func ResolveGatekeeperChannel(channels []*waveobj.Channel, askingORef string) *w
 	return nil
 }
 
+// ResolveDispatchChannel returns the channel that dispatched the worker at workerORef ("tab:<id>"),
+// or nil. Unlike ResolveGatekeeperChannel it is NOT gated by MetaKey_GatekeeperEnabled: a worker's
+// outcome belongs in its channel regardless of the channel's autonomy tier. First dispatch owner wins.
+func ResolveDispatchChannel(channels []*waveobj.Channel, workerORef string) *waveobj.Channel {
+	for _, ch := range channels {
+		for _, m := range ch.Messages {
+			if m.Kind == "dispatch" && m.RefORef == workerORef {
+				return ch
+			}
+		}
+	}
+	return nil
+}
+
 // workerTaskFor returns the dispatch text for a worker oref (its task), or "" if not found.
 func workerTaskFor(ch *waveobj.Channel, askingORef string) string {
 	for _, m := range ch.Messages {

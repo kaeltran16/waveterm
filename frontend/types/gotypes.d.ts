@@ -1856,6 +1856,7 @@ declare global {
         "session:project"?: string;
         "session:collapsedgroups"?: string[];
         "app:loom"?: boolean;
+        "agent:transcriptpath"?: string;
         count?: number;
     };
 

@@ -8,6 +8,7 @@ package agentsessions
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -621,6 +622,35 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 		out = append(out, *s)
 	}
 	return out
+}
+
+// ExtractSession folds a single transcript file into a SessionInfo, selecting the parser by runtime.
+// Returns (nil, nil) when the file carries no session (e.g. a tool-only subagent file). Reuses the
+// same extract/events the scanner uses, so status/summary derivation cannot drift from the Agent surfaces.
+func ExtractSession(path, runtime string) (*SessionInfo, error) {
+	var p provider
+	switch runtime {
+	case "claude":
+		p = claudeProvider("")
+	case "codex":
+		p = codexProvider("")
+	default:
+		return nil, fmt.Errorf("agentsessions: unknown runtime %q", runtime)
+	}
+	lines := readLines(path)
+	stem := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	s := p.extract(stem, lines)
+	if s == nil {
+		return nil, nil
+	}
+	s.Runtime = runtime
+	s.TranscriptPath = path
+	se := p.events(lines)
+	s.Events = se.Events
+	s.Status = se.Status
+	s.StartedTs = se.StartedTs
+	s.DurationMs = se.DurationMs
+	return s, nil
 }
 
 // ScanSessions lists recent resumable sessions across runtime providers, newest-first.
