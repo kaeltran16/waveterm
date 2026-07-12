@@ -16,6 +16,9 @@ export interface WorkerState {
     dispatchTask?: string; // the literal task typed into this channel's dispatch message (ground truth)
     askText?: string; // first pending question, when asking
     askORef?: string; // the worker's current ask oref (when asking), used to drop Jarvis-answered asks
+    activity?: string; // live activity line (AgentVM.activity); undefined when gone
+    costUsd?: number; // session cost so far (AgentVM.usage?.costusd); undefined when gone/unreported
+    contextPct?: number; // context-window fill % (AgentVM.usage?.contextpct); undefined when gone
 }
 
 const OREF_PREFIX = "tab:";
@@ -60,6 +63,9 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
                     dispatchTask,
                     askText: live.state === "asking" ? live.ask?.questions?.[0]?.question : undefined,
                     askORef: live.state === "asking" ? live.ask?.oref : undefined,
+                    activity: live.activity || undefined,
+                    costUsd: live.usage?.costusd,
+                    contextPct: live.usage?.contextpct,
                 };
             }
             const info = dispatchInfo.get(oref);
@@ -68,6 +74,12 @@ export function buildFleetSnapshot(channel: Channel, agents: AgentVM[]): WorkerS
         // a gone worker dismissed after its last dispatch/directive drops out; a later re-dispatch
         // (newer activeTs) brings it back. live workers are never hidden.
         .filter((w) => w.state !== "gone" || (dismissTs.get(w.oref) ?? 0) <= (activeTs.get(w.oref) ?? 0));
+}
+
+// Live-fleet spend: sum of each live worker's session cost. A gone worker carries no usage (its AgentVM
+// left the roster), so the total reflects currently-running workers, not lifetime channel spend.
+export function fleetCostUsd(snapshot: WorkerState[]): number {
+    return snapshot.reduce((sum, w) => sum + (w.costUsd ?? 0), 0);
 }
 
 // Compose the fleet snapshot + a capped recent timeline into the prompt for `claude -p`. focus is the

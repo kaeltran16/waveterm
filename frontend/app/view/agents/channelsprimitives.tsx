@@ -151,6 +151,14 @@ export function WorkerRow({
                     style={{ backgroundColor: STATE_DOT[w.state] ?? "var(--color-muted)" }}
                 />
                 <span className="font-mono text-[12.5px] text-primary">{w.name}</span>
+                {w.state !== "gone" && w.costUsd != null && w.costUsd > 0 ? (
+                    <span
+                        title={w.contextPct != null ? `context ${Math.round(w.contextPct)}%` : undefined}
+                        className="font-mono text-[10px] text-muted"
+                    >
+                        ${w.costUsd.toFixed(2)}
+                    </span>
+                ) : null}
                 {w.state === "gone" ? (
                     <span className="ml-auto font-mono text-[10px] text-muted">gone</span>
                 ) : (
@@ -166,6 +174,11 @@ export function WorkerRow({
             {(w.dispatchTask ?? w.task) ? (
                 <div title={w.dispatchTask ?? w.task} className="mt-0.5 truncate pl-4 text-[11px] text-muted">
                     {w.dispatchTask ?? w.task}
+                </div>
+            ) : null}
+            {w.state !== "gone" && w.activity ? (
+                <div title={w.activity} className="mt-0.5 truncate pl-4 text-[10.5px] text-accent-soft/80">
+                    {w.activity}
                 </div>
             ) : null}
         </div>

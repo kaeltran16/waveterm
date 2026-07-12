@@ -24,6 +24,7 @@ import {
     activeMentionQuery,
     highlightSegments,
     mentionCandidates,
+    promoteConsultText,
     resolveTargetChannel,
     type MentionCandidate,
 } from "./channelderive";
@@ -55,7 +56,7 @@ import {
     type ConsultStream,
 } from "./channelsstore";
 import { autonomyExplainer, escalationPending, fleetCounts, parseCardData, pendingAsks } from "./jarviscards";
-import { buildFleetSnapshot } from "./jarvisderive";
+import { buildFleetSnapshot, fleetCostUsd } from "./jarvisderive";
 import { MarkdownMessage } from "./markdownmessage";
 import { projectsAtom } from "./projectsstore";
 import { RAIL_ICON } from "./railicons";
@@ -71,6 +72,10 @@ function consultIdOf(refORef?: string): string | undefined {
 
 function jarvisReqIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("jarvis:") ? refORef.slice("jarvis:".length) : undefined;
+}
+
+function formatUsd(n: number): string {
+    return `$${n.toFixed(2)}`;
 }
 
 // one-shot completion settle (moment 4): plays @keyframes settle once when a streaming reply resolves
@@ -138,11 +143,13 @@ function ConsultRow({
     allMessages,
     streams,
     now,
+    onPromote,
 }: {
     msg: ChannelMessage;
     allMessages: ChannelMessage[];
     streams: Record<string, ConsultStream>;
     now: number;
+    onPromote: (runtime: string, question: string) => void;
 }) {
     const consultId = consultIdOf(msg.reforef);
     const replies = consultId
@@ -172,7 +179,17 @@ function ConsultRow({
                 >
                     {replies.map((r) => (
                         <div key={r.id} className="rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-2.5">
-                            <div className="mb-1 font-mono text-[11px] font-semibold text-accent-soft">{r.author}</div>
+                            <div className="mb-1 flex items-center gap-2">
+                                <span className="font-mono text-[11px] font-semibold text-accent-soft">{r.author}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => onPromote(r.author, msg.text)}
+                                    className="ml-auto cursor-pointer font-mono text-[10px] text-accent-soft hover:text-accent"
+                                    title={`Dispatch a ${r.author} worker to act on this`}
+                                >
+                                    Dispatch ↗
+                                </button>
+                            </div>
                             <div className="whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">
                                 {r.text}
                             </div>
@@ -485,6 +502,11 @@ function MessageRow({
                         </button>
                     </div>
                 ) : null}
+                {isDispatch && worker && worker.activity ? (
+                    <div title={worker.activity} className="mt-1 truncate font-mono text-[10.5px] text-accent-soft/80">
+                        {worker.activity}
+                    </div>
+                ) : null}
                 {isDispatch && worker && worker.state === "asking" ? (
                     <AttentionCard glow className="mt-2">
                         <AttentionBanner label="Awaiting your reply" pulse />
@@ -739,6 +761,7 @@ function ContextPanel({
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
     const asking = pendingAsks(snapshot, channel?.messages ?? []);
     const counts = fleetCounts(snapshot);
+    const costUsd = fleetCostUsd(snapshot);
     const [showGone, setShowGone] = useState(false);
     const liveWorkers = snapshot.filter((w) => w.state !== "gone");
     const goneWorkers = snapshot.filter((w) => w.state === "gone");
@@ -794,6 +817,7 @@ function ContextPanel({
                 <div>
                     <div className={label}>
                         Fleet here · {counts.working} working · {counts.waiting} waiting
+                        {costUsd > 0 ? ` · ${formatUsd(costUsd)}` : ""}
                     </div>
                     {snapshot.length === 0 ? (
                         <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
@@ -1030,6 +1054,23 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
+    const promote = (runtime: string, question: string) => {
+        if (!activeId) {
+            return;
+        }
+        fireAndForget(() =>
+            sendChannelMessage({
+                model,
+                channelId: activeId,
+                projectPath: active?.projectpath ?? "",
+                projectName: active?.name ?? "agent",
+                roster,
+                agents,
+                text: promoteConsultText(runtime, question),
+            })
+        );
+    };
+
     // A channel is bound to a project at creation, so every dispatch has a valid cwd (no unbound state).
     const pickProject = (name: string, path: string) => {
         setPicking(false);
@@ -1245,6 +1286,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                                         allMessages={messages}
                                                         streams={consultStreams}
                                                         now={now}
+                                                        onPromote={promote}
                                                     />
                                                 ) : m.kind === "jarvis" ? (
                                                     <JarvisRow

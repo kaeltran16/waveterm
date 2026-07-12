@@ -26,6 +26,12 @@ export function filterChannels(channels: Channel[], query: string): Channel[] {
     return q ? channels.filter((c) => c.name.toLowerCase().includes(q)) : channels;
 }
 
+// Turn a consult reply into a dispatch line: re-pose the consult question as an @runtime task. The
+// caller feeds this straight to sendChannelMessage, which routes it through the normal dispatch verb.
+export function promoteConsultText(runtime: string, question: string): string {
+    return `@${runtime} ${question.trim()}`;
+}
+
 // resolveTargetChannel finds the channel a Radar finding should hand off to: the first whose bound
 // project path matches. Paths come from the same project registry, so an exact (trailing-slash-
 // insensitive) compare is sufficient — no fuzzy matching.

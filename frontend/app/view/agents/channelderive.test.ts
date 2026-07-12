@@ -11,6 +11,7 @@ import {
     highlightSegments,
     mentionCandidates,
     partitionChannels,
+    promoteConsultText,
     resolveTargetChannel,
 } from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
@@ -203,6 +204,15 @@ describe("filterChannels", () => {
     });
     it("returns empty when nothing matches", () => {
         expect(filterChannels(list, "zzz")).toHaveLength(0);
+    });
+});
+
+describe("promoteConsultText", () => {
+    it("composes an @runtime dispatch from a consult question", () => {
+        expect(promoteConsultText("claude", "how do I fix the auth race?")).toBe("@claude how do I fix the auth race?");
+    });
+    it("trims surrounding whitespace on the question", () => {
+        expect(promoteConsultText("codex", "  do the thing  ")).toBe("@codex do the thing");
     });
 });
 
