@@ -27,9 +27,6 @@ export function blockViewToIcon(view: string): string {
     if (view == "term") {
         return "terminal";
     }
-    if (view == "preview") {
-        return "file";
-    }
     if (view == "web") {
         return "globe";
     }
@@ -38,12 +35,6 @@ export function blockViewToIcon(view: string): string {
     }
     if (view == "help") {
         return "circle-question";
-    }
-    if (view == "tips") {
-        return "lightbulb";
-    }
-    if (view == "processviewer") {
-        return "microchip";
     }
     return "square";
 }
@@ -55,9 +46,6 @@ export function blockViewToName(view: string): string {
     if (view == "term") {
         return "Terminal";
     }
-    if (view == "preview") {
-        return "Preview";
-    }
     if (view == "web") {
         return "Web";
     }
@@ -66,12 +54,6 @@ export function blockViewToName(view: string): string {
     }
     if (view == "help") {
         return "Help";
-    }
-    if (view == "tips") {
-        return "Tips";
-    }
-    if (view == "processviewer") {
-        return "Processes";
     }
     return view;
 }

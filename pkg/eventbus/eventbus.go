@@ -4,16 +4,10 @@
 package eventbus
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"os"
 	"sync"
 )
 
 const (
-	WSEvent_ElectronCloseWindow     = "electron:closewindow"
-	WSEvent_ElectronUpdateActiveTab = "electron:updateactivetab"
 	WSEvent_Rpc                     = "rpc"
 )
 
@@ -44,15 +38,4 @@ func UnregisterWSChannel(connId string) {
 	globalLock.Lock()
 	defer globalLock.Unlock()
 	delete(wsMap, connId)
-}
-
-func SendEventToElectron(event WSEventType) {
-	barr, err := json.Marshal(event)
-	if err != nil {
-		log.Printf("cannot marshal electron message: %v\n", err)
-		return
-	}
-	// send to electron
-	log.Printf("sending event to electron: %q\n", event.EventType)
-	fmt.Fprintf(os.Stderr, "\nWAVESRV-EVENT:%s\n", string(barr))
 }

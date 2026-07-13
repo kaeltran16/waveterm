@@ -11,7 +11,6 @@ import { PlatformLinux, PlatformMacOS, PlatformWindows } from "@/util/platformut
 import { NullAtom } from "@/util/util";
 import { Atom, atom, PrimitiveAtom, useAtomValue } from "jotai";
 import { showPreviewContextMenu } from "../preview-contextmenu";
-import { MockSysinfoConnection } from "../previews/sysinfo.preview-util";
 import { DefaultFullConfig } from "./defaultconfig";
 import { DefaultMockFilesystem } from "./mockfilesystem";
 import { previewElectronApi } from "./preview-electron-api";
@@ -21,8 +20,6 @@ export const PreviewWindowId = crypto.randomUUID();
 export const PreviewWorkspaceId = crypto.randomUUID();
 export const PreviewClientId = crypto.randomUUID();
 export const WebBlockId = crypto.randomUUID();
-export const SysinfoBlockId = crypto.randomUUID();
-export const ProcessViewerBlockId = crypto.randomUUID();
 
 // What works "out of the box" in the mock environment (no MockEnv overrides needed):
 //
@@ -37,7 +34,6 @@ export const ProcessViewerBlockId = crypto.randomUUID();
 //   - rpc.SetMetaCommand                -- writes .meta to the mock WOS atom (null values delete keys)
 //   - rpc.SetConfigCommand              -- merges settings into fullConfigAtom (null values delete keys)
 //   - rpc.SetSecretsCommand             -- writes/deletes secrets in the in-memory mock secret store
-//   - rpc.UpdateTabNameCommand          -- updates .name on the Tab WaveObj in the mock WOS
 //   - rpc.UpdateWorkspaceTabIdsCommand  -- updates .tabids on the Workspace WaveObj in the mock WOS
 //
 // Any other RPC call falls through to a console.log and resolves null.
@@ -246,15 +242,6 @@ export function makeMockRpc(
         wos.mockSetWaveObj(data.oref, updated);
         return null;
     });
-    setCallHandler("updatetabname", async (_client, data: { args: [string, string] }) => {
-        const [tabId, newName] = data.args;
-        const tabORef = "tab:" + tabId;
-        const objAtom = wos.getWaveObjectAtom(tabORef);
-        const current = globalStore.get(objAtom) as Tab;
-        const updated = { ...current, name: newName };
-        wos.mockSetWaveObj(tabORef, updated);
-        return null;
-    });
     setCallHandler("setconfig", async (_client, data: SettingsType) => {
         const current = globalStore.get(wos.fullConfigAtom);
         const updatedSettings = { ...(current?.settings ?? {}) };
@@ -387,7 +374,7 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
             oid: PreviewTabId,
             version: 1,
             name: "Preview Tab",
-            blockids: [WebBlockId, SysinfoBlockId, ProcessViewerBlockId],
+            blockids: [WebBlockId],
             meta: {},
         } as Tab,
         [`block:${WebBlockId}`]: {
@@ -396,25 +383,6 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
             version: 1,
             meta: {
                 view: "web",
-            },
-        } as Block,
-        [`block:${SysinfoBlockId}`]: {
-            otype: "block",
-            oid: SysinfoBlockId,
-            version: 1,
-            meta: {
-                view: "sysinfo",
-                connection: MockSysinfoConnection,
-                "sysinfo:type": "CPU + Mem",
-                "graph:numpoints": 90,
-            },
-        } as Block,
-        [`block:${ProcessViewerBlockId}`]: {
-            otype: "block",
-            oid: ProcessViewerBlockId,
-            version: 1,
-            meta: {
-                view: "processviewer",
             },
         } as Block,
     };

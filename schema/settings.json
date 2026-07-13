@@ -277,15 +277,6 @@
         "window:tilegapsize": {
           "type": "integer"
         },
-        "window:showmenubar": {
-          "type": "boolean"
-        },
-        "window:nativetitlebar": {
-          "type": "boolean"
-        },
-        "window:disablehardwareacceleration": {
-          "type": "boolean"
-        },
         "window:maxtabcachesize": {
           "type": "integer"
         },

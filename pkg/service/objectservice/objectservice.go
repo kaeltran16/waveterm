@@ -11,7 +11,6 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/tsgen/tsgenmeta"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -48,68 +47,6 @@ func (svc *ObjectService) GetObject(orefStr string) (waveobj.WaveObj, error) {
 		return nil, fmt.Errorf("error getting object: %w", err)
 	}
 	return obj, nil
-}
-
-func (svc *ObjectService) GetObjects_Meta() tsgenmeta.MethodMeta {
-	return tsgenmeta.MethodMeta{
-		ArgNames:   []string{"orefs"},
-		ReturnDesc: "objects",
-	}
-}
-
-func (svc *ObjectService) GetObjects(orefStrArr []string) ([]waveobj.WaveObj, error) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancelFn()
-
-	var orefArr []waveobj.ORef
-	for _, orefStr := range orefStrArr {
-		orefObj, err := parseORef(orefStr)
-		if err != nil {
-			return nil, err
-		}
-		orefArr = append(orefArr, *orefObj)
-	}
-	return wstore.DBSelectORefs(ctx, orefArr)
-}
-
-func (svc *ObjectService) CreateBlock_Meta() tsgenmeta.MethodMeta {
-	return tsgenmeta.MethodMeta{
-		ArgNames:   []string{"uiContext", "blockDef", "rtOpts"},
-		ReturnDesc: "blockId",
-	}
-}
-
-func (svc *ObjectService) CreateBlock(uiContext waveobj.UIContext, blockDef *waveobj.BlockDef, rtOpts *waveobj.RuntimeOpts) (string, waveobj.UpdatesRtnType, error) {
-	if uiContext.ActiveTabId == "" {
-		return "", nil, fmt.Errorf("no active tab")
-	}
-	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancelFn()
-	ctx = waveobj.ContextWithUpdates(ctx)
-
-	blockData, err := wcore.CreateBlock(ctx, uiContext.ActiveTabId, blockDef, rtOpts)
-	if err != nil {
-		return "", nil, err
-	}
-
-	return blockData.OID, waveobj.ContextGetUpdatesRtn(ctx), nil
-}
-
-func (svc *ObjectService) DeleteBlock_Meta() tsgenmeta.MethodMeta {
-	return tsgenmeta.MethodMeta{
-		ArgNames: []string{"uiContext", "blockId"},
-	}
-}
-
-func (svc *ObjectService) DeleteBlock(uiContext waveobj.UIContext, blockId string) (waveobj.UpdatesRtnType, error) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancelFn()
-	ctx = waveobj.ContextWithUpdates(ctx)
-	err := wcore.DeleteBlock(ctx, blockId, true)
-	if err != nil {
-		return nil, fmt.Errorf("error deleting block: %w", err)
-	}
-	return waveobj.ContextGetUpdatesRtn(ctx), nil
 }
 
 func (svc *ObjectService) UpdateObjectMeta_Meta() tsgenmeta.MethodMeta {

@@ -184,11 +184,10 @@ func DeleteBlock(ctx context.Context, blockId string, recursive bool) error {
 		if err != nil {
 			return fmt.Errorf("error finding workspace for tab to delete %s: %w", parentORef.OID, err)
 		}
-		newActiveTabId, err := DeleteTab(ctx, parentWorkspaceId, parentORef.OID, true)
+		_, err = DeleteTab(ctx, parentWorkspaceId, parentORef.OID, true)
 		if err != nil {
 			return fmt.Errorf("error deleting tab %s: %w", parentORef.OID, err)
 		}
-		SendActiveTabUpdate(ctx, parentWorkspaceId, newActiveTabId)
 	}
 	sendBlockCloseEvent(blockId)
 	return nil

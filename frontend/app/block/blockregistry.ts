@@ -5,27 +5,16 @@ import { BlockNodeModel } from "@/app/block/blocktypes";
 import type { TabModel } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { AiFileDiffViewModel } from "@/app/view/aifilediff/aifilediff";
-import { PreviewModel } from "@/app/view/preview/preview-model";
-import { ProcessViewerViewModel } from "@/app/view/processviewer/processviewer";
-import { SysinfoViewModel } from "@/app/view/sysinfo/sysinfo";
 import { VDomModel } from "@/app/view/vdom/vdom-model";
 import { WaveEnv } from "@/app/waveenv/waveenv";
 import { atom } from "jotai";
-import { QuickTipsViewModel } from "../view/quicktipsview/quicktipsview";
-import { WaveConfigViewModel } from "../view/waveconfig/waveconfig-model";
 import { blockViewToIcon, blockViewToName } from "./blockutil";
 import { TermViewModel } from "@/view/term/term-model";
 
 const BlockRegistry: Map<string, ViewModelClass> = new Map();
 BlockRegistry.set("term", TermViewModel);
-BlockRegistry.set("preview", PreviewModel);
-BlockRegistry.set("cpuplot", SysinfoViewModel);
-BlockRegistry.set("sysinfo", SysinfoViewModel);
 BlockRegistry.set("vdom", VDomModel);
-BlockRegistry.set("tips", QuickTipsViewModel);
 BlockRegistry.set("aifilediff", AiFileDiffViewModel);
-BlockRegistry.set("waveconfig", WaveConfigViewModel);
-BlockRegistry.set("processviewer", ProcessViewerViewModel);
 BlockRegistry.set("agents", AgentsViewModel);
 
 function makeDefaultViewModel(viewType: string): ViewModel {

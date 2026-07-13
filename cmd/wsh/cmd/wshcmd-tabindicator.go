@@ -29,7 +29,6 @@ var (
 	tabIndicatorColor    string
 	tabIndicatorPriority float64
 	tabIndicatorClear    bool
-	tabIndicatorBeep     bool
 )
 
 func init() {
@@ -38,7 +37,6 @@ func init() {
 	tabIndicatorCmd.Flags().StringVar(&tabIndicatorColor, "color", "", "indicator color")
 	tabIndicatorCmd.Flags().Float64Var(&tabIndicatorPriority, "priority", 10, "indicator priority")
 	tabIndicatorCmd.Flags().BoolVar(&tabIndicatorClear, "clear", false, "clear the indicator")
-	tabIndicatorCmd.Flags().BoolVar(&tabIndicatorBeep, "beep", false, "play system bell sound")
 }
 
 func tabIndicatorRun(cmd *cobra.Command, args []string) (rtnErr error) {
@@ -89,13 +87,6 @@ func tabIndicatorRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	err := wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
 	if err != nil {
 		return fmt.Errorf("publishing badge event: %v", err)
-	}
-
-	if tabIndicatorBeep {
-		err = wshclient.ElectronSystemBellCommand(RpcClient, &wshrpc.RpcOpts{Route: "electron"})
-		if err != nil {
-			return fmt.Errorf("playing system bell: %v", err)
-		}
 	}
 
 	if tabIndicatorClear {

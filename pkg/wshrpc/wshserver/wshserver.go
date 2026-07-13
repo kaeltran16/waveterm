@@ -8,7 +8,6 @@ package wshserver
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -25,14 +24,11 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/aiusechat"
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/chatstore"
-	"github.com/wavetermdev/waveterm/pkg/aiusechat/uctypes"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/buildercontroller"
 	"github.com/wavetermdev/waveterm/pkg/consult"
-	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
@@ -122,37 +118,6 @@ func (ws *WshServer) StreamTestCommand(ctx context.Context) chan wshrpc.RespOrEr
 	return rtn
 }
 
-func MakePlotData(ctx context.Context, blockId string) error {
-	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
-	if err != nil {
-		return err
-	}
-	viewName := block.Meta.GetString(waveobj.MetaKey_View, "")
-	if viewName != "cpuplot" && viewName != "sysinfo" {
-		return fmt.Errorf("invalid view type: %s", viewName)
-	}
-	return filestore.WFS.MakeFile(ctx, blockId, "cpuplotdata", nil, wshrpc.FileOpts{})
-}
-
-func SavePlotData(ctx context.Context, blockId string, history string) error {
-	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
-	if err != nil {
-		return err
-	}
-	viewName := block.Meta.GetString(waveobj.MetaKey_View, "")
-	if viewName != "cpuplot" && viewName != "sysinfo" {
-		return fmt.Errorf("invalid view type: %s", viewName)
-	}
-	// todo: interpret the data being passed
-	// for now, this is just to throw an error if the block was closed
-	historyBytes, err := json.Marshal(history)
-	if err != nil {
-		return fmt.Errorf("unable to serialize plot data: %v", err)
-	}
-	// ignore MakeFile error (already exists is ok)
-	return filestore.WFS.WriteFile(ctx, blockId, "cpuplotdata", historyBytes)
-}
-
 func (ws *WshServer) GetMetaCommand(ctx context.Context, data wshrpc.CommandGetMetaData) (waveobj.MetaMapType, error) {
 	obj, err := wstore.DBGetORef(ctx, data.ORef)
 	if err != nil {
@@ -162,16 +127,6 @@ func (ws *WshServer) GetMetaCommand(ctx context.Context, data wshrpc.CommandGetM
 		return nil, fmt.Errorf("object not found: %s", data.ORef)
 	}
 	return waveobj.GetMeta(obj), nil
-}
-
-func (ws *WshServer) UpdateTabNameCommand(ctx context.Context, tabId string, newName string) error {
-	oref := waveobj.ORef{OType: waveobj.OType_Tab, OID: tabId}
-	err := wstore.UpdateTabName(ctx, tabId, newName)
-	if err != nil {
-		return fmt.Errorf("error updating tab name: %w", err)
-	}
-	wcore.SendWaveObjUpdate(oref)
-	return nil
 }
 
 func (ws *WshServer) UpdateWorkspaceTabIdsCommand(ctx context.Context, workspaceId string, tabIds []string) error {
@@ -418,33 +373,6 @@ func (ws *WshServer) FileJoinCommand(ctx context.Context, paths []string) (*wshr
 	return wshfs.Join(ctx, paths[0], paths[1:]...)
 }
 
-func (ws *WshServer) FileRestoreBackupCommand(ctx context.Context, data wshrpc.CommandFileRestoreBackupData) error {
-	expandedBackupPath, err := wavebase.ExpandHomeDir(data.BackupFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to expand backup file path: %w", err)
-	}
-	expandedRestorePath, err := wavebase.ExpandHomeDir(data.RestoreToFileName)
-	if err != nil {
-		return fmt.Errorf("failed to expand restore file path: %w", err)
-	}
-	return filebackup.RestoreBackup(expandedBackupPath, expandedRestorePath)
-}
-
-func (ws *WshServer) GetTempDirCommand(ctx context.Context, data wshrpc.CommandGetTempDirData) (string, error) {
-	tempDir := os.TempDir()
-	if data.FileName != "" {
-		// Reduce to a simple file name to avoid absolute paths or traversal
-		name := filepath.Base(data.FileName)
-		// Normalize/trim any stray separators and whitespace
-		name = strings.Trim(name, `/\`+" ")
-		if name == "" || name == "." {
-			return tempDir, nil
-		}
-		return filepath.Join(tempDir, name), nil
-	}
-	return tempDir, nil
-}
-
 func (ws *WshServer) WriteTempFileCommand(ctx context.Context, data wshrpc.CommandWriteTempFileData) (string, error) {
 	if data.FileName == "" {
 		return "", fmt.Errorf("filename is required")
@@ -552,15 +480,6 @@ func (ws *WshServer) EventUnsubCommand(ctx context.Context, data string) error {
 		return fmt.Errorf("no rpc source set")
 	}
 	wps.Broker.Unsubscribe(rpcSource, data)
-	return nil
-}
-
-func (ws *WshServer) EventUnsubAllCommand(ctx context.Context) error {
-	rpcSource := wshutil.GetRpcSourceFromContext(ctx)
-	if rpcSource == "" {
-		return fmt.Errorf("no rpc source set")
-	}
-	wps.Broker.UnsubscribeAll(rpcSource)
 	return nil
 }
 
@@ -824,38 +743,6 @@ func (ws *WshServer) WslDefaultDistroCommand(ctx context.Context) (string, error
 		return "", fmt.Errorf("unable to determine default distro")
 	}
 	return distro.Name(), nil
-}
-
-/**
- * Dismisses the WshFail Command in runtime memory on the backend
- */
-func (ws *WshServer) DismissWshFailCommand(ctx context.Context, connName string) error {
-	if strings.HasPrefix(connName, "wsl://") {
-		distroName := strings.TrimPrefix(connName, "wsl://")
-		conn := wslconn.GetWslConn(distroName)
-		if conn == nil {
-			return fmt.Errorf("connection not found: %s", connName)
-		}
-		conn.ClearWshError()
-		conn.FireConnChangeEvent()
-		return nil
-	}
-	opts, err := remote.ParseOpts(connName)
-	if err != nil {
-		return err
-	}
-	conn := conncontroller.GetConn(opts)
-	if conn == nil {
-		return fmt.Errorf("connection %s not found", connName)
-	}
-	conn.ClearWshError()
-	conn.FireConnChangeEvent()
-	return nil
-}
-
-func (ws *WshServer) NotifySystemResumeCommand(ctx context.Context) error {
-	log.Printf("NotifySystemResumeCommand called\n")
-	return nil
 }
 
 func (ws *WshServer) FindGitBashCommand(ctx context.Context, rescan bool) (string, error) {
@@ -1325,52 +1212,6 @@ func (ws WshServer) SendTelemetryCommand(ctx context.Context) error {
 	return wcloud.SendAllTelemetry(wstore.GetClientId())
 }
 
-func (ws *WshServer) WaveAIEnableTelemetryCommand(ctx context.Context) error {
-	// Enable telemetry in config
-	meta := waveobj.MetaMapType{
-		wconfig.ConfigKey_TelemetryEnabled: true,
-	}
-	err := wconfig.SetBaseConfigValue(meta)
-	if err != nil {
-		return fmt.Errorf("error setting telemetry enabled: %w", err)
-	}
-
-	// Record the telemetry event
-	event := telemetrydata.MakeTEvent("waveai:enabletelemetry", telemetrydata.TEventProps{})
-	err = telemetry.RecordTEvent(ctx, event)
-	if err != nil {
-		log.Printf("error recording waveai:enabletelemetry event: %v", err)
-	}
-
-	// Immediately send telemetry to cloud
-	err = wcloud.SendAllTelemetry(wstore.GetClientId())
-	if err != nil {
-		log.Printf("error sending telemetry after enabling: %v", err)
-	}
-
-	return nil
-}
-
-func (ws *WshServer) GetWaveAIChatCommand(ctx context.Context, data wshrpc.CommandGetWaveAIChatData) (*uctypes.UIChat, error) {
-	aiChat := chatstore.DefaultChatStore.Get(data.ChatId)
-	if aiChat == nil {
-		return nil, nil
-	}
-	uiChat, err := aiusechat.ConvertAIChatToUIChat(aiChat)
-	if err != nil {
-		return nil, fmt.Errorf("error converting AI chat to UI chat: %w", err)
-	}
-	return uiChat, nil
-}
-
-func (ws *WshServer) GetWaveAIRateLimitCommand(ctx context.Context) (*uctypes.RateLimitInfo, error) {
-	return aiusechat.GetGlobalRateLimit(), nil
-}
-
-func (ws *WshServer) WaveAIToolApproveCommand(ctx context.Context, data wshrpc.CommandWaveAIToolApproveData) error {
-	return aiusechat.UpdateToolApproval(data.ToolCallId, data.Approval)
-}
-
 func (ws *WshServer) WaveAIGetToolDiffCommand(ctx context.Context, data wshrpc.CommandWaveAIGetToolDiffData) (*wshrpc.CommandWaveAIGetToolDiffRtnData, error) {
 	originalContent, modifiedContent, err := aiusechat.CreateWriteTextFileDiff(ctx, data.ChatId, data.ToolCallId)
 	if err != nil {
@@ -1415,11 +1256,6 @@ func (ws *WshServer) WshActivityCommand(ctx context.Context, data map[string]int
 		Event: telemetry.WshRunEventName,
 		Props: props,
 	})
-	return nil
-}
-
-func (ws *WshServer) ActivityCommand(ctx context.Context, activity wshrpc.ActivityUpdate) error {
-	telemetry.GoUpdateActivityWrap(activity, "wshrpc-activity")
 	return nil
 }
 
@@ -1785,23 +1621,6 @@ func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return stored, nil
-}
-
-func (ws *WshServer) SetChannelGatekeeperCommand(ctx context.Context, data wshrpc.CommandSetChannelGatekeeperData) error {
-	if data.ChannelId == "" {
-		return fmt.Errorf("channelid is required")
-	}
-	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
-		if ch.Meta == nil {
-			ch.Meta = make(waveobj.MetaMapType)
-		}
-		ch.Meta[jarvis.MetaKey_GatekeeperEnabled] = data.Enabled
-	})
-	if err != nil {
-		return fmt.Errorf("updating channel gatekeeper flag: %w", err)
-	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-	return nil
 }
 
 func (ws *WshServer) SetChannelTierCommand(ctx context.Context, data wshrpc.CommandSetChannelTierData) error {
@@ -2405,14 +2224,6 @@ func (ws *WshServer) FetchSuggestionsCommand(ctx context.Context, data wshrpc.Fe
 func (ws *WshServer) DisposeSuggestionsCommand(ctx context.Context, widgetId string) error {
 	suggestion.DisposeSuggestions(ctx, widgetId)
 	return nil
-}
-
-func (ws *WshServer) GetTabCommand(ctx context.Context, tabId string) (*waveobj.Tab, error) {
-	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
-	if err != nil {
-		return nil, fmt.Errorf("error getting tab: %w", err)
-	}
-	return tab, nil
 }
 
 func (ws *WshServer) GetAllBadgesCommand(ctx context.Context) ([]baseds.BadgeEvent, error) {

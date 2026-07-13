@@ -258,11 +258,6 @@ export class TermWrap {
                     return true;
                 }
                 console.log("BEL received in terminal", this.blockId);
-                const bellSoundEnabled =
-                    globalStore.get(getOverrideConfigAtom(this.blockId, "term:bellsound")) ?? false;
-                if (bellSoundEnabled) {
-                    fireAndForget(() => RpcApi.ElectronSystemBellCommand(TabRpcClient, { route: "electron" }));
-                }
                 const bellIndicatorEnabled =
                     globalStore.get(getOverrideConfigAtom(this.blockId, "term:bellindicator")) ?? false;
                 if (bellIndicatorEnabled) {

@@ -1,10 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Runs view of a channel: run tabs (multiple runs per channel) + New run, a run header, and a
-// vertical phase rail threading each phase's activity. Reads runs off the channel object (WOS-mirrored)
-// and worker liveness off the live agent roster. Human decisions (approve/send-back/cancel/steer) call
-// existing RPCs; phase completion arrives via the external hook. See runmodel.ts for all derivations.
+// The run body: the inner render of a single selected run — header (status + goal), rollup, compact
+// stepper, phase rail (pipeline) or orchestrator body, and the gate/ask/blocked/ship/cancel cards.
+// Extracted out of RunsView so the merged Channels surface can own the surrounding chrome (run strip,
+// two-face composer, profile drawer, context panel) while reusing the phase-rail internals unchanged.
+// RunBody owns the run-scoped live machinery: the liveness clock, the transcript streams for the run's
+// running-phase workers (what makes the rail narrate live), and the phase-rail entrance guard. Given a
+// selected `run` as a prop; steering is the merged surface's composer Talk face, so the body hides the
+// old inline Steer affordance (hideSteer). See runmodel.ts for all derivations.
 
 import { useSettle } from "@/app/element/motionhooks";
 import { cardVariants, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
@@ -12,8 +16,8 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
-import { useAtomValue, useSetAtom } from "jotai";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
@@ -24,35 +28,29 @@ import { ComposerShell } from "./composer-shell";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
-import { approveGate, cancelRun, createRun, pendingRunDraftAtom, sendBackGate } from "./runactions";
-import type { PendingRunDraft } from "./radarmodel";
+import { approveGate, cancelRun, sendBackGate } from "./runactions";
 import {
-    composerSummary,
     currentPhaseIndex,
-    defaultRunId,
     isOrchestrator,
     isTerminal,
     leadWorker,
     planDirty,
-    phaseProgressDots,
     phaseRailIds,
     phaseStateView,
     phaseThread,
     phaseWorkers,
     recordedWorkerTabs,
-    resolveActiveRunId,
     resolveArtifactPath,
     runStatusView,
     steerTarget,
 } from "./runmodel";
-import { ProfilePanel } from "./profilepanel";
 import { sessionSidebarViewModelAtom } from "./session-models/sessionsidebarmodel";
 import { flattenVisualOrder } from "./session-models/sessionviewmodel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
 
-const TONE_CLASS: Record<string, string> = {
+export const TONE_CLASS: Record<string, string> = {
     planning: "text-muted",
     review: "text-asking",
     running: "text-success",
@@ -62,7 +60,7 @@ const TONE_CLASS: Record<string, string> = {
     cancelled: "text-muted",
 };
 
-const PHASE_TONE_CLASS: Record<string, string> = {
+export const PHASE_TONE_CLASS: Record<string, string> = {
     pending: "text-muted",
     running: "text-success",
     blocked: "text-error",
@@ -333,7 +331,7 @@ function ShipMarker() {
     );
 }
 
-function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded: boolean; onToggle: () => void }) {
+export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded: boolean; onToggle: () => void }) {
     return (
         <div className="mb-4 flex items-center gap-3 rounded-[11px] border border-border bg-background px-3.5 py-2.5">
             <button type="button" onClick={onToggle} className="w-3.5 flex-none text-[11px] text-muted">
@@ -357,11 +355,12 @@ function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded: boole
     );
 }
 
-// The run header (status + goal + Steer toggle) and the inline steer composer, shared by the pipeline
-// rail body and the orchestrator body. Steer state is owned by RunsView and passed down so it resets
-// on run switch. The steer target is the current phase's lead (steerTarget); the button is disabled
-// when there is none (terminal run / no live worker).
-function RunHeader({
+// The run header (status + goal) and, unless hidden, the old inline Steer affordance shared by the
+// pipeline rail body and the orchestrator body. Steer state is owned by the caller and passed down so it
+// resets on run switch. The steer target is the current phase's lead (steerTarget); the button is
+// disabled when there is none (terminal run / no live worker). The merged surface passes hideSteer — its
+// composer Talk face replaces the inline Steer affordance entirely.
+export function RunHeader({
     run,
     agents,
     channel,
@@ -370,6 +369,7 @@ function RunHeader({
     setSteerDraft,
     onSteerToggle,
     onSteerClose,
+    hideSteer,
 }: {
     run: Run;
     agents: AgentVM[];
@@ -379,6 +379,7 @@ function RunHeader({
     setSteerDraft: (s: string) => void;
     onSteerToggle: () => void;
     onSteerClose: () => void;
+    hideSteer?: boolean;
 }) {
     const target = steerTarget(run, agents);
     return (
@@ -390,18 +391,20 @@ function RunHeader({
                     </div>
                     <div className="text-[19px] font-bold leading-tight tracking-[-0.01em] text-primary">{run.goal}</div>
                 </div>
-                <div className="flex flex-none gap-1.5">
-                    <button
-                        type="button"
-                        disabled={!target}
-                        onClick={onSteerToggle}
-                        className="rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong disabled:opacity-40"
-                    >
-                        Steer
-                    </button>
-                </div>
+                {!hideSteer ? (
+                    <div className="flex flex-none gap-1.5">
+                        <button
+                            type="button"
+                            disabled={!target}
+                            onClick={onSteerToggle}
+                            className="rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong disabled:opacity-40"
+                        >
+                            Steer
+                        </button>
+                    </div>
+                ) : null}
             </div>
-            {steering && target ? (
+            {!hideSteer && steering && target ? (
                 <div className="mb-4 max-w-[760px]">
                     <ComposerShell
                         value={steerDraft}
@@ -503,7 +506,7 @@ function DispatchedAgents({ model, leadId }: { model: AgentsViewModel; leadId: s
 // lead transcript grows to the viewport (RunWorkerCard fill), with its dispatched subagents beneath it.
 // Reuses the same header/gate/ask/blocked/ship/cancel pieces as the pipeline rail — only the layout is
 // orchestrator-specific. Not wrapped in the surface's scroll container: the transcript owns scrolling.
-function OrchestratorBody({
+export function OrchestratorBody({
     model,
     channel,
     agents,
@@ -515,6 +518,7 @@ function OrchestratorBody({
     setSteerDraft,
     onSteerToggle,
     onSteerClose,
+    hideSteer,
 }: {
     model: AgentsViewModel;
     channel: Channel;
@@ -527,6 +531,7 @@ function OrchestratorBody({
     setSteerDraft: (s: string) => void;
     onSteerToggle: () => void;
     onSteerClose: () => void;
+    hideSteer?: boolean;
 }) {
     const idx = currentPhaseIndex(run);
     const thread = phaseThread(run, idx, agents, liveTabIds);
@@ -544,6 +549,7 @@ function OrchestratorBody({
                 setSteerDraft={setSteerDraft}
                 onSteerToggle={onSteerToggle}
                 onSteerClose={onSteerClose}
+                hideSteer={hideSteer}
             />
             {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
             {thread.showAsk && thread.askAgent && thread.askKind ? (
@@ -590,7 +596,7 @@ function PhaseNode({ tone, icon, done, notLast }: { tone: string; icon: string; 
     );
 }
 
-function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entranceIds }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number; entranceIds: Set<string> }) {
+export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entranceIds }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number; entranceIds: Set<string> }) {
     const phases = run.phases ?? [];
     const trackedWorkers = isOrchestrator(run) ? phases.flatMap((p) => phaseWorkers(p, agents)) : [];
     useSubagentTracking(trackedWorkers);
@@ -657,82 +663,17 @@ function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entranceIds
     );
 }
 
-export function RunsView({
-    model,
-    channel,
-    agents,
-    runMode,
-    planGate,
-    pendingDraft,
-}: {
+// The inner render of a single selected run — owns the run-scoped live machinery (liveness clock, the
+// transcript streams for the run's running-phase workers, and the phase-rail entrance guard) so the
+// merged surface just renders <RunBody run={selected} /> and gets the same live behavior RunsView had.
+// Steering is the merged surface's composer Talk face, so the body hides the old inline Steer affordance.
+export function RunBody({ model, channel, agents, run }: {
     model: AgentsViewModel;
     channel: Channel;
     agents: AgentVM[];
-    runMode: string;
-    planGate: boolean;
-    pendingDraft: PendingRunDraft | null;
+    run: Run;
 }) {
-    const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-    const runs = (channel.runs ?? []).filter((r) => !dismissed.has(r.id));
-    // tab ids of every live session that owns a running term block — read straight from the session
-    // model so it includes an agent session that hasn't reported its first agent:status yet (that
-    // worker is neither in the roster nor in `terminals`, since it's an agent, not a plain shell).
-    // Lets the phase rail tell a *starting* worker (its tab still exists) from a *gone* one (tab
-    // destroyed), so a freshly-spawned run doesn't render the false "worker exited" card.
-    const sidebarVM = useAtomValue(sessionSidebarViewModelAtom);
-    const liveTabIds = new Set<string>(flattenVisualOrder(sidebarVM).filter((r) => r.termBlockOref).map((r) => r.tabId));
-    const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
-    const [draft, setDraft] = useState("");
     const [expanded, setExpanded] = useState(true);
-    const [steering, setSteering] = useState(false);
-    const [steerDraft, setSteerDraft] = useState("");
-    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
-
-    // dismissals are view-local, per-channel — drop them when the channel changes
-    useEffect(() => {
-        setDismissed(new Set());
-    }, [channel.oid]);
-
-    // when the channel changes or the visible runs change, keep a valid selection (or the new-run state)
-    useEffect(() => {
-        setActiveRunId((cur) => resolveActiveRunId(runs, cur));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [channel.oid, runs.length]);
-
-    // close the inline steer composer when the selected run changes
-    useEffect(() => {
-        setSteering(false);
-        setSteerDraft("");
-    }, [activeRunId]);
-
-    // hide a run tab from the strip (view-local; does not cancel the run). Reselect if it was active.
-    const dismissTab = (id: string) => {
-        const next = new Set(dismissed);
-        next.add(id);
-        setDismissed(next);
-        const visible = (channel.runs ?? []).filter((r) => !next.has(r.id));
-        setActiveRunId((cur) => (cur === id ? defaultRunId(visible) : cur));
-    };
-
-    const run = runs.find((r) => r.id === activeRunId);
-    const onSteerToggle = () => setSteering((v) => !v);
-    const onSteerClose = () => setSteering(false);
-
-    // no-cascade entrance guard for the phase rail: switching runs / first mount is silent, a newly
-    // appended phase animates in once. Scoped to the active run id (see motiontokens.computeEntrances).
-    const railIds = run ? phaseRailIds(run) : [];
-    const entranceRef = useRef(initialEntranceState());
-    const { animate: entranceIds } = computeEntrances(entranceRef.current, activeRunId, railIds);
-    const railKey = railIds.join(",");
-    useLayoutEffect(() => {
-        entranceRef.current = computeEntrances(entranceRef.current, activeRunId, railIds).state;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeRunId, railKey]);
-
-    // live workers of the active run's running phases — the set we open transcript streams for so the
-    // phase rail can narrate them inline. Filtered to those actually streamable (have a transcript and
-    // are working/asking/recently-idle), matching the cockpit's driver.
-    const runWorkers = run ? (run.phases ?? []).filter((p) => p.state === "running").flatMap((p) => phaseWorkers(p, agents)) : [];
 
     // clock for liveness cues (quiet >45s) + elapsed labels; also re-runs the stream diff below
     const [now, setNow] = useState(() => Date.now());
@@ -741,7 +682,28 @@ export function RunsView({
         return () => clearInterval(t);
     }, []);
 
-    // own transcript streams for the active run's workers (mirrors cockpitsurface: start what's wanted,
+    // tab ids of every live session that owns a running term block — read straight from the session
+    // model so it includes an agent session that hasn't reported its first agent:status yet. Lets the
+    // phase rail tell a *starting* worker (its tab still exists) from a *gone* one (tab destroyed).
+    const sidebarVM = useAtomValue(sessionSidebarViewModelAtom);
+    const liveTabIds = new Set<string>(flattenVisualOrder(sidebarVM).filter((r) => r.termBlockOref).map((r) => r.tabId));
+
+    // no-cascade entrance guard for the phase rail: switching runs / first mount is silent, a newly
+    // appended phase animates in once. Scoped to the run id (see motiontokens.computeEntrances).
+    const railIds = phaseRailIds(run);
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entranceIds } = computeEntrances(entranceRef.current, run.id, railIds);
+    const railKey = railIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, run.id, railIds).state;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [run.id, railKey]);
+
+    // live workers of the running phases — the set we open transcript streams for so the rail narrates
+    // them inline. Filtered to those actually streamable (transcript + working/asking/recently-idle).
+    const runWorkers = (run.phases ?? []).filter((p) => p.state === "running").flatMap((p) => phaseWorkers(p, agents));
+
+    // own transcript streams for the run's workers (mirrors RunsView/cockpitsurface: start what's wanted,
     // stop what's no longer wanted, tear all down on unmount). Streams are module-level and idempotent;
     // this surface and the cockpit grid never co-mount, so ownership doesn't collide.
     const streamable = streamableTranscriptAgents(runWorkers, now);
@@ -781,194 +743,54 @@ export function RunsView({
     // the run's primary active worker drives the header "now" rollup
     const primaryWorker = runWorkers.find((w) => w.state === "working") ?? runWorkers.find((w) => w.state === "asking") ?? runWorkers[0];
 
-    // while a radar draft is pending, the goal lives on the atom so edits survive a surface remount; a
-    // normal run uses the local draft state.
-    const goalValue = pendingDraft ? pendingDraft.goal : draft;
-    const onGoalChange = pendingDraft
-        ? (v: string) => setPendingDraft((d) => (d ? { ...d, goal: v } : d))
-        : setDraft;
-
-    const startRun = () => {
-        const goal = goalValue.trim();
-        if (!goal) {
-            return;
-        }
-        const radarOrigin = pendingDraft?.radarOrigin;
-        setDraft("");
-        setPendingDraft(null);
-        fireAndForget(async () => {
-            const created = await createRun(channel.oid, goal, { mode: runMode, planGate, radarOrigin });
-            setActiveRunId(created.id);
-        });
-    };
-
+    const noop = () => {};
+    if (isOrchestrator(run)) {
+        return (
+            <OrchestratorBody
+                model={model}
+                channel={channel}
+                agents={agents}
+                run={run}
+                now={now}
+                liveTabIds={liveTabIds}
+                steering={false}
+                steerDraft=""
+                setSteerDraft={noop}
+                onSteerToggle={noop}
+                onSteerClose={noop}
+                hideSteer
+            />
+        );
+    }
     return (
-        <MotionConfig reducedMotion="user">
-        <div className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
-            {/* run tabs */}
-            <div className="sc flex flex-none gap-2 overflow-x-auto border-b border-border bg-background px-[22px] py-2.5">
-                {runs.map((r) => {
-                    const { tone } = runStatusView(r.status);
-                    const dots = phaseProgressDots(r);
-                    const isActive = r.id === activeRunId;
-                    return (
-                        <div
-                            key={r.id}
-                            className={
-                                "group flex max-w-[250px] flex-none items-center gap-2 rounded-[9px] border px-3 py-2 " +
-                                (isActive ? "border-accent/50 bg-accentbg/40" : "border-edge-mid hover:border-edge-strong")
-                            }
-                        >
-                            <button
-                                type="button"
-                                onClick={() => setActiveRunId(r.id)}
-                                className="flex min-w-0 items-center gap-2"
-                            >
-                                <span className={"h-[7px] w-[7px] flex-none rounded-full bg-current " + (TONE_CLASS[tone] ?? "text-muted")} />
-                                <span className="truncate text-[12px] font-semibold text-primary">{r.goal}</span>
-                            </button>
-                            {dots.length > 0 ? (
-                                <span className="flex flex-none items-center gap-0.5">
-                                    {dots.map((t, i) => (
-                                        <span
-                                            key={i}
-                                            className={"h-[4px] w-[4px] rounded-full bg-current " + (PHASE_TONE_CLASS[t] ?? "text-muted")}
-                                        />
-                                    ))}
-                                </span>
-                            ) : null}
-                            <button
-                                type="button"
-                                onClick={() => dismissTab(r.id)}
-                                title="Dismiss from this list (does not cancel the run)"
-                                className="flex-none font-mono text-[13px] leading-none text-muted opacity-0 hover:text-secondary group-hover:opacity-100"
-                            >
-                                ×
-                            </button>
-                        </div>
-                    );
-                })}
-                <button
-                    type="button"
-                    onClick={() => setActiveRunId(undefined)}
-                    className="flex-none rounded-[9px] border border-dashed border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:text-secondary"
-                >
-                    + New run
-                </button>
-            </div>
-
-            {run && !pendingDraft && isOrchestrator(run) ? (
-                <OrchestratorBody
-                    model={model}
-                    channel={channel}
-                    agents={agents}
+        <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
+            <div>
+                <RunHeader
                     run={run}
-                    now={now}
-                    liveTabIds={liveTabIds}
-                    steering={steering}
-                    steerDraft={steerDraft}
-                    setSteerDraft={setSteerDraft}
-                    onSteerToggle={onSteerToggle}
-                    onSteerClose={onSteerClose}
+                    agents={agents}
+                    channel={channel}
+                    steering={false}
+                    steerDraft=""
+                    setSteerDraft={noop}
+                    onSteerToggle={noop}
+                    onSteerClose={noop}
+                    hideSteer
                 />
-            ) : (
-                <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-                    <div>
-                        {run && !pendingDraft ? (
-                            <>
-                                <RunHeader
-                                    run={run}
-                                    agents={agents}
-                                    channel={channel}
-                                    steering={steering}
-                                    steerDraft={steerDraft}
-                                    setSteerDraft={setSteerDraft}
-                                    onSteerToggle={onSteerToggle}
-                                    onSteerClose={onSteerClose}
-                                />
-
-                                {run.status === "executing" && primaryWorker ? (
-                                    <RunRollup agent={primaryWorker} now={now} />
-                                ) : null}
-
-                                <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
-                                {expanded ? (
-                                    <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
-                                ) : null}
-
-                                {!isTerminal(run.status) ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => fireAndForget(() => cancelRun(channel.oid, run.id))}
-                                        className="mt-4 rounded-[8px] border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
-                                    >
-                                        Cancel run
-                                    </button>
-                                ) : null}
-                            </>
-                        ) : (
-                            <div className="mx-auto mt-10 w-full max-w-[620px]">
-                                <div className="mb-1 text-center text-[17px] font-bold text-primary">
-                                    {pendingDraft ? "Start investigation" : "Start a run"}
-                                </div>
-                                <div className="mb-5 text-center text-[13px] text-muted">
-                                    {pendingDraft ? "Review the draft, then start it" : `Give Jarvis a goal for #${channel.name}`}
-                                </div>
-                                {pendingDraft ? (
-                                    <div className="mb-3 rounded-[10px] border border-accent/30 bg-accentbg/15 px-3.5 py-3">
-                                        <div className="mb-2 flex items-center gap-2">
-                                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-accent-soft">
-                                                From Radar finding
-                                            </span>
-                                            <span className="flex-1" />
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setPendingDraft(null);
-                                                    setDraft("");
-                                                }}
-                                                className="rounded-[6px] border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-muted hover:border-edge-strong hover:text-secondary"
-                                            >
-                                                Discard
-                                            </button>
-                                        </div>
-                                        {pendingDraft.files.length > 0 ? (
-                                            <div className="mb-1.5 flex flex-wrap gap-1.5">
-                                                {pendingDraft.files.map((f) => (
-                                                    <span key={f} className="rounded-full border border-edge-mid px-2 py-0.5 font-mono text-[10.5px] text-muted">
-                                                        {f}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                        {pendingDraft.evidenceRefs.length > 0 ? (
-                                            <div className="font-mono text-[10.5px] text-muted">
-                                                {pendingDraft.evidenceRefs.length} evidence signal
-                                                {pendingDraft.evidenceRefs.length === 1 ? "" : "s"}
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                ) : null}
-                                <ComposerShell
-                                    value={goalValue}
-                                    onChange={onGoalChange}
-                                    onSubmit={startRun}
-                                    autoFocus
-                                    placeholder="Give Jarvis a goal to start a run…"
-                                    sendLabel="Start run ⏎"
-                                    footerLeft={
-                                        <span className="font-mono text-[11.5px] text-ink-mid">{composerSummary(runMode, planGate)}</span>
-                                    }
-                                />
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+                {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
+                <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
+                {expanded ? (
+                    <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
+                ) : null}
+                {!isTerminal(run.status) ? (
+                    <button
+                        type="button"
+                        onClick={() => fireAndForget(() => cancelRun(channel.oid, run.id))}
+                        className="mt-4 rounded-[8px] border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                    >
+                        Cancel run
+                    </button>
+                ) : null}
             </div>
-            <ProfilePanel channelId={channel.oid} />
         </div>
-        </MotionConfig>
     );
 }

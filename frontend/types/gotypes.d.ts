@@ -42,44 +42,6 @@ declare global {
         configs: {[key: string]: AIModeConfigType};
     };
 
-    // wshrpc.ActivityDisplayType
-    type ActivityDisplayType = {
-        width: number;
-        height: number;
-        dpr: number;
-        internal?: boolean;
-    };
-
-    // wshrpc.ActivityUpdate
-    type ActivityUpdate = {
-        fgminutes?: number;
-        activeminutes?: number;
-        openminutes?: number;
-        waveaifgminutes?: number;
-        waveaiactiveminutes?: number;
-        numtabs?: number;
-        newtab?: number;
-        numblocks?: number;
-        numwindows?: number;
-        numws?: number;
-        numwsnamed?: number;
-        numsshconn?: number;
-        numwslconn?: number;
-        nummagnify?: number;
-        termcommandsrun?: number;
-        numpanics?: number;
-        numaireqs?: number;
-        startup?: number;
-        shutdown?: number;
-        settabtheme?: number;
-        buildtime?: string;
-        displays?: ActivityDisplayType[];
-        renderers?: {[key: string]: number};
-        blocks?: {[key: string]: number};
-        wshcmds?: {[key: string]: number};
-        conn?: {[key: string]: number};
-    };
-
     // baseds.AgentAnswerItem
     type AgentAnswerItem = {
         selectedindexes?: number[];
@@ -136,11 +98,6 @@ declare global {
         fivehourreset?: number;
         weekpct?: number;
         weekreset?: number;
-    };
-
-    // wshrpc.AiMessageData
-    type AiMessageData = {
-        message?: string;
     };
 
     // wshrpc.AppInfo
@@ -530,11 +487,6 @@ declare global {
         name: string;
     };
 
-    // wshrpc.CommandDisposeData
-    type CommandDisposeData = {
-        routeid: string;
-    };
-
     // wshrpc.CommandElectronDecryptData
     type CommandElectronDecryptData = {
         ciphertext: string;
@@ -569,12 +521,6 @@ declare global {
         srcuri: string;
         desturi: string;
         opts?: FileCopyOpts;
-    };
-
-    // wshrpc.CommandFileRestoreBackupData
-    type CommandFileRestoreBackupData = {
-        backupfilepath: string;
-        restoretofilename: string;
     };
 
     // wshrpc.CommandFileStreamData
@@ -677,11 +623,6 @@ declare global {
         subagents: SubagentFileInfo[];
     };
 
-    // wshrpc.CommandGetTempDirData
-    type CommandGetTempDirData = {
-        filename?: string;
-    };
-
     // wshrpc.CommandGetTranscriptTokensData
     type CommandGetTranscriptTokensData = {
         path: string;
@@ -700,11 +641,6 @@ declare global {
     // wshrpc.CommandGetUsageStatsRtnData
     type CommandGetUsageStatsRtnData = {
         buckets: UsageBucket[];
-    };
-
-    // wshrpc.CommandGetWaveAIChatData
-    type CommandGetWaveAIChatData = {
-        chatid: string;
     };
 
     // wshrpc.CommandGetWindowTokensData
@@ -1043,24 +979,6 @@ declare global {
         fileinfo?: FileInfo[];
     };
 
-    // wshrpc.CommandRemoteProcessListData
-    type CommandRemoteProcessListData = {
-        widgetid?: string;
-        sortby?: string;
-        sortdesc?: boolean;
-        start?: number;
-        limit?: number;
-        textsearch?: string;
-        lastpidorder?: boolean;
-        keepalive?: boolean;
-    };
-
-    // wshrpc.CommandRemoteProcessSignalData
-    type CommandRemoteProcessSignalData = {
-        pid: number;
-        signal: string;
-    };
-
     // wshrpc.CommandRemoteReconnectToJobManagerData
     type CommandRemoteReconnectToJobManagerData = {
         jobid: string;
@@ -1139,12 +1057,6 @@ declare global {
     // wshrpc.CommandRetryRadarClusteringData
     type CommandRetryRadarClusteringData = {
         reportid: string;
-    };
-
-    // wshrpc.CommandSetChannelGatekeeperData
-    type CommandSetChannelGatekeeperData = {
-        channelid: string;
-        enabled: boolean;
     };
 
     // wshrpc.CommandSetChannelMessagePickData
@@ -1310,26 +1222,11 @@ declare global {
         modifiedcontents64: string;
     };
 
-    // wshrpc.CommandWaveAIToolApproveData
-    type CommandWaveAIToolApproveData = {
-        toolcallid: string;
-        approval?: string;
-    };
-
     // wshrpc.CommandWaveFileReadStreamData
     type CommandWaveFileReadStreamData = {
         zoneid: string;
         name: string;
         streammeta: StreamMeta;
-    };
-
-    // wshrpc.CommandWebSelectorData
-    type CommandWebSelectorData = {
-        workspaceid: string;
-        blockid: string;
-        tabid: string;
-        selector: string;
-        opts?: WebSelectorOpts;
     };
 
     // wshrpc.CommandWriteAppFileData
@@ -1455,12 +1352,6 @@ declare global {
         version?: string;
     };
 
-    // wshrpc.CpuDataRequest
-    type CpuDataRequest = {
-        id: string;
-        count: number;
-    };
-
     // wshrpc.DirEntryOut
     type DirEntryOut = {
         name: string;
@@ -1567,19 +1458,6 @@ declare global {
         ijsonbudget?: number;
         truncate?: boolean;
         append?: boolean;
-    };
-
-    // wshrpc.FocusedBlockData
-    type FocusedBlockData = {
-        blockid: string;
-        viewtype: string;
-        controller: string;
-        connname: string;
-        blockmeta: MetaType;
-        termjobstatus?: BlockJobStatusData;
-        connstatus?: ConnStatus;
-        termshellintegrationstatus?: string;
-        termlastcommand?: string;
     };
 
     // wconfig.FullConfigType
@@ -1919,44 +1797,6 @@ declare global {
         y: number;
     };
 
-    // wshrpc.ProcessInfo
-    type ProcessInfo = {
-        pid: number;
-        ppid?: number;
-        command?: string;
-        status?: string;
-        user?: string;
-        mem: number;
-        mempct: number;
-        cpu: number;
-        numthreads: number;
-        gone?: boolean;
-    };
-
-    // wshrpc.ProcessListResponse
-    type ProcessListResponse = {
-        processes: ProcessInfo[];
-        summary: ProcessSummary;
-        ts: number;
-        hascpu?: boolean;
-        platform?: string;
-        totalcount?: number;
-        filteredcount?: number;
-    };
-
-    // wshrpc.ProcessSummary
-    type ProcessSummary = {
-        total: number;
-        load1?: number;
-        load5?: number;
-        load15?: number;
-        memtotal?: number;
-        memused?: number;
-        memfree?: number;
-        numcpu?: number;
-        cpusum?: number;
-    };
-
     // waveobj.ProfileOverride
     type ProfileOverride = {
         playbook?: RunPhase[];
@@ -2273,9 +2113,6 @@ declare global {
         "window:bgcolor"?: string;
         "window:reducedmotion"?: boolean;
         "window:tilegapsize"?: number;
-        "window:showmenubar"?: boolean;
-        "window:nativetitlebar"?: boolean;
-        "window:disablehardwareacceleration"?: boolean;
         "window:maxtabcachesize"?: number;
         "window:magnifiedblockopacity"?: number;
         "window:magnifiedblocksize"?: number;
@@ -2549,47 +2386,10 @@ declare global {
         values: {[key: string]: number};
     };
 
-    // uctypes.UIChat
-    type UIChat = {
-        chatid: string;
-        apitype: string;
-        model: string;
-        apiversion: string;
-        messages: UIMessage[];
-    };
-
     // waveobj.UIContext
     type UIContext = {
         windowid: string;
         activetabid: string;
-    };
-
-    // uctypes.UIMessage
-    type UIMessage = {
-        id: string;
-        role: string;
-        metadata?: any;
-        parts?: UIMessagePart[];
-    };
-
-    // uctypes.UIMessagePart
-    type UIMessagePart = {
-        type: string;
-        text?: string;
-        state?: string;
-        toolCallId?: string;
-        input?: any;
-        output?: any;
-        errorText?: string;
-        providerExecuted?: boolean;
-        sourceId?: string;
-        url?: string;
-        title?: string;
-        filename?: string;
-        mediaType?: string;
-        id?: string;
-        data?: any;
-        providerMetadata?: {[key: string]: any};
     };
 
     // wshrpc.UsageBucket
@@ -2899,13 +2699,6 @@ declare global {
         option?: boolean;
     };
 
-    // wshrpc.WaveNotificationOptions
-    type WaveNotificationOptions = {
-        title?: string;
-        body?: string;
-        silent?: boolean;
-    };
-
     // waveobj.WaveObj
     type WaveObj = {
         otype: string;
@@ -2977,12 +2770,6 @@ declare global {
         updates?: WaveObjUpdate[];
     };
 
-    // wshrpc.WebSelectorOpts
-    type WebSelectorOpts = {
-        all?: boolean;
-        inner?: boolean;
-    };
-
     // wconfig.WidgetConfigType
     type WidgetConfigType = {
         "display:order"?: number;
@@ -3015,12 +2802,6 @@ declare global {
     type WorkspaceInfoData = {
         windowid: string;
         workspacedata: Workspace;
-    };
-
-    // waveobj.WorkspaceListEntry
-    type WorkspaceListEntry = {
-        workspaceid: string;
-        windowid: string;
     };
 
     // wshrpc.WshServerCommandMeta

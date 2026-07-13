@@ -18,12 +18,6 @@ export class RpcApiType {
         this.mockClient = client;
     }
 
-    // command "activity" [call]
-    ActivityCommand(client: WshClient, data: ActivityUpdate, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "activity", data, opts);
-        return client.wshRpcCall("activity", data, opts);
-    }
-
     // command "advancerun" [call]
     AdvanceRunCommand(client: WshClient, data: CommandAdvanceRunData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "advancerun", data, opts);
@@ -34,12 +28,6 @@ export class RpcApiType {
     AgentAskClearCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentaskclear", data, opts);
         return client.wshRpcCall("agentaskclear", data, opts);
-    }
-
-    // command "aisendmessage" [call]
-    AiSendMessageCommand(client: WshClient, data: AiMessageData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "aisendmessage", data, opts);
-        return client.wshRpcCall("aisendmessage", data, opts);
     }
 
     // command "answeragent" [call]
@@ -306,18 +294,6 @@ export class RpcApiType {
         return client.wshRpcCall("deletesubblock", data, opts);
     }
 
-    // command "dismisswshfail" [call]
-    DismissWshFailCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dismisswshfail", data, opts);
-        return client.wshRpcCall("dismisswshfail", data, opts);
-    }
-
-    // command "dispose" [call]
-    DisposeCommand(client: WshClient, data: CommandDisposeData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dispose", data, opts);
-        return client.wshRpcCall("dispose", data, opts);
-    }
-
     // command "disposesuggestions" [call]
     DisposeSuggestionsCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "disposesuggestions", data, opts);
@@ -334,12 +310,6 @@ export class RpcApiType {
     ElectronEncryptCommand(client: WshClient, data: CommandElectronEncryptData, opts?: RpcOpts): Promise<CommandElectronEncryptRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronencrypt", data, opts);
         return client.wshRpcCall("electronencrypt", data, opts);
-    }
-
-    // command "electronsystembell" [call]
-    ElectronSystemBellCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electronsystembell", null, opts);
-        return client.wshRpcCall("electronsystembell", null, opts);
     }
 
     // command "eventpublish" [call]
@@ -370,12 +340,6 @@ export class RpcApiType {
     EventUnsubCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "eventunsub", data, opts);
         return client.wshRpcCall("eventunsub", data, opts);
-    }
-
-    // command "eventunsuball" [call]
-    EventUnsubAllCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "eventunsuball", null, opts);
-        return client.wshRpcCall("eventunsuball", null, opts);
     }
 
     // command "fetchsuggestions" [call]
@@ -450,12 +414,6 @@ export class RpcApiType {
         return client.wshRpcCall("fileread", data, opts);
     }
 
-    // command "filerestorebackup" [call]
-    FileRestoreBackupCommand(client: WshClient, data: CommandFileRestoreBackupData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "filerestorebackup", data, opts);
-        return client.wshRpcCall("filerestorebackup", data, opts);
-    }
-
     // command "filestream" [call]
     FileStreamCommand(client: WshClient, data: CommandFileStreamData, opts?: RpcOpts): Promise<FileInfo> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "filestream", data, opts);
@@ -472,12 +430,6 @@ export class RpcApiType {
     FindGitBashCommand(client: WshClient, data: boolean, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "findgitbash", data, opts);
         return client.wshRpcCall("findgitbash", data, opts);
-    }
-
-    // command "focuswindow" [call]
-    FocusWindowCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "focuswindow", data, opts);
-        return client.wshRpcCall("focuswindow", data, opts);
     }
 
     // command "getagenttranscript" [call]
@@ -520,12 +472,6 @@ export class RpcApiType {
     GetChannelsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandGetChannelsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannels", null, opts);
         return client.wshRpcCall("getchannels", null, opts);
-    }
-
-    // command "getfocusedblockdata" [call]
-    GetFocusedBlockDataCommand(client: WshClient, opts?: RpcOpts): Promise<FocusedBlockData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getfocusedblockdata", null, opts);
-        return client.wshRpcCall("getfocusedblockdata", null, opts);
     }
 
     // command "getfullconfig" [call]
@@ -600,28 +546,10 @@ export class RpcApiType {
         return client.wshRpcCall("getsubagents", data, opts);
     }
 
-    // command "gettab" [call]
-    GetTabCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<Tab> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettab", data, opts);
-        return client.wshRpcCall("gettab", data, opts);
-    }
-
-    // command "gettempdir" [call]
-    GetTempDirCommand(client: WshClient, data: CommandGetTempDirData, opts?: RpcOpts): Promise<string> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettempdir", data, opts);
-        return client.wshRpcCall("gettempdir", data, opts);
-    }
-
     // command "gettranscripttokens" [call]
     GetTranscriptTokensCommand(client: WshClient, data: CommandGetTranscriptTokensData, opts?: RpcOpts): Promise<CommandGetTranscriptTokensRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettranscripttokens", data, opts);
         return client.wshRpcCall("gettranscripttokens", data, opts);
-    }
-
-    // command "getupdatechannel" [call]
-    GetUpdateChannelCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getupdatechannel", null, opts);
-        return client.wshRpcCall("getupdatechannel", null, opts);
     }
 
     // command "getusagestats" [call]
@@ -636,22 +564,10 @@ export class RpcApiType {
         return client.wshRpcCall("getvar", data, opts);
     }
 
-    // command "getwaveaichat" [call]
-    GetWaveAIChatCommand(client: WshClient, data: CommandGetWaveAIChatData, opts?: RpcOpts): Promise<UIChat> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getwaveaichat", data, opts);
-        return client.wshRpcCall("getwaveaichat", data, opts);
-    }
-
     // command "getwaveaimodeconfig" [call]
     GetWaveAIModeConfigCommand(client: WshClient, opts?: RpcOpts): Promise<AIModeConfigUpdate> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getwaveaimodeconfig", null, opts);
         return client.wshRpcCall("getwaveaimodeconfig", null, opts);
-    }
-
-    // command "getwaveairatelimit" [call]
-    GetWaveAIRateLimitCommand(client: WshClient, opts?: RpcOpts): Promise<RateLimitInfo> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getwaveairatelimit", null, opts);
-        return client.wshRpcCall("getwaveairatelimit", null, opts);
     }
 
     // command "getwindowtokens" [call]
@@ -906,24 +822,6 @@ export class RpcApiType {
         return client.wshRpcCall("message", data, opts);
     }
 
-    // command "networkonline" [call]
-    NetworkOnlineCommand(client: WshClient, opts?: RpcOpts): Promise<boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "networkonline", null, opts);
-        return client.wshRpcCall("networkonline", null, opts);
-    }
-
-    // command "notify" [call]
-    NotifyCommand(client: WshClient, data: WaveNotificationOptions, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "notify", data, opts);
-        return client.wshRpcCall("notify", data, opts);
-    }
-
-    // command "notifysystemresume" [call]
-    NotifySystemResumeCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "notifysystemresume", null, opts);
-        return client.wshRpcCall("notifysystemresume", null, opts);
-    }
-
     // command "path" [call]
     PathCommand(client: WshClient, data: PathCommandData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "path", data, opts);
@@ -1032,18 +930,6 @@ export class RpcApiType {
         return client.wshRpcCall("remotemkdir", data, opts);
     }
 
-    // command "remoteprocesslist" [call]
-    RemoteProcessListCommand(client: WshClient, data: CommandRemoteProcessListData, opts?: RpcOpts): Promise<ProcessListResponse> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remoteprocesslist", data, opts);
-        return client.wshRpcCall("remoteprocesslist", data, opts);
-    }
-
-    // command "remoteprocesssignal" [call]
-    RemoteProcessSignalCommand(client: WshClient, data: CommandRemoteProcessSignalData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remoteprocesssignal", data, opts);
-        return client.wshRpcCall("remoteprocesssignal", data, opts);
-    }
-
     // command "remotereconnecttojobmanager" [call]
     RemoteReconnectToJobManagerCommand(client: WshClient, data: CommandRemoteReconnectToJobManagerData, opts?: RpcOpts): Promise<CommandRemoteReconnectToJobManagerRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotereconnecttojobmanager", data, opts);
@@ -1054,12 +940,6 @@ export class RpcApiType {
     RemoteStartJobCommand(client: WshClient, data: CommandRemoteStartJobData, opts?: RpcOpts): Promise<CommandStartJobRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotestartjob", data, opts);
         return client.wshRpcCall("remotestartjob", data, opts);
-    }
-
-    // command "remotestreamcpudata" [responsestream]
-	RemoteStreamCpuDataCommand(client: WshClient, opts?: RpcOpts): AsyncGenerator<TimeSeriesData, void, boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "remotestreamcpudata", null, opts);
-        return client.wshRpcStream("remotestreamcpudata", null, opts);
     }
 
     // command "remoteterminatejobmanager" [call]
@@ -1132,12 +1012,6 @@ export class RpcApiType {
     SetBlockFocusCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setblockfocus", data, opts);
         return client.wshRpcCall("setblockfocus", data, opts);
-    }
-
-    // command "setchannelgatekeeper" [call]
-    SetChannelGatekeeperCommand(client: WshClient, data: CommandSetChannelGatekeeperData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelgatekeeper", data, opts);
-        return client.wshRpcCall("setchannelgatekeeper", data, opts);
     }
 
     // command "setchannelmessagepick" [call]
@@ -1242,12 +1116,6 @@ export class RpcApiType {
         return client.wshRpcStream("streamagenttranscript", data, opts);
     }
 
-    // command "streamcpudata" [responsestream]
-	StreamCpuDataCommand(client: WshClient, data: CpuDataRequest, opts?: RpcOpts): AsyncGenerator<TimeSeriesData, void, boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "streamcpudata", data, opts);
-        return client.wshRpcStream("streamcpudata", data, opts);
-    }
-
     // command "streamdata" [call]
     StreamDataCommand(client: WshClient, data: CommandStreamData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "streamdata", data, opts);
@@ -1282,12 +1150,6 @@ export class RpcApiType {
     TestMultiArgCommand(client: WshClient, arg1: string, arg2: number, arg3: boolean, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "testmultiarg", { args: [arg1, arg2, arg3] }, opts);
         return client.wshRpcCall("testmultiarg", { args: [arg1, arg2, arg3] }, opts);
-    }
-
-    // command "updatetabname" [call]
-    UpdateTabNameCommand(client: WshClient, arg1: string, arg2: string, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "updatetabname", { args: [arg1, arg2] }, opts);
-        return client.wshRpcCall("updatetabname", { args: [arg1, arg2] }, opts);
     }
 
     // command "updateworkspacetabids" [call]
@@ -1332,22 +1194,10 @@ export class RpcApiType {
         return client.wshRpcCall("waveaiaddcontext", data, opts);
     }
 
-    // command "waveaienabletelemetry" [call]
-    WaveAIEnableTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "waveaienabletelemetry", null, opts);
-        return client.wshRpcCall("waveaienabletelemetry", null, opts);
-    }
-
     // command "waveaigettooldiff" [call]
     WaveAIGetToolDiffCommand(client: WshClient, data: CommandWaveAIGetToolDiffData, opts?: RpcOpts): Promise<CommandWaveAIGetToolDiffRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "waveaigettooldiff", data, opts);
         return client.wshRpcCall("waveaigettooldiff", data, opts);
-    }
-
-    // command "waveaitoolapprove" [call]
-    WaveAIToolApproveCommand(client: WshClient, data: CommandWaveAIToolApproveData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "waveaitoolapprove", data, opts);
-        return client.wshRpcCall("waveaitoolapprove", data, opts);
     }
 
     // command "wavefilereadstream" [call]
@@ -1360,12 +1210,6 @@ export class RpcApiType {
     WaveInfoCommand(client: WshClient, opts?: RpcOpts): Promise<WaveInfoData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "waveinfo", null, opts);
         return client.wshRpcCall("waveinfo", null, opts);
-    }
-
-    // command "webselector" [call]
-    WebSelectorCommand(client: WshClient, data: CommandWebSelectorData, opts?: RpcOpts): Promise<string[]> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "webselector", data, opts);
-        return client.wshRpcCall("webselector", data, opts);
     }
 
     // command "workspacelist" [call]
