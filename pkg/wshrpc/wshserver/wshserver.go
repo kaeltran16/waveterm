@@ -8,7 +8,6 @@ package wshserver
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -117,37 +116,6 @@ func (ws *WshServer) StreamTestCommand(ctx context.Context) chan wshrpc.RespOrEr
 		close(rtn)
 	}()
 	return rtn
-}
-
-func MakePlotData(ctx context.Context, blockId string) error {
-	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
-	if err != nil {
-		return err
-	}
-	viewName := block.Meta.GetString(waveobj.MetaKey_View, "")
-	if viewName != "cpuplot" && viewName != "sysinfo" {
-		return fmt.Errorf("invalid view type: %s", viewName)
-	}
-	return filestore.WFS.MakeFile(ctx, blockId, "cpuplotdata", nil, wshrpc.FileOpts{})
-}
-
-func SavePlotData(ctx context.Context, blockId string, history string) error {
-	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
-	if err != nil {
-		return err
-	}
-	viewName := block.Meta.GetString(waveobj.MetaKey_View, "")
-	if viewName != "cpuplot" && viewName != "sysinfo" {
-		return fmt.Errorf("invalid view type: %s", viewName)
-	}
-	// todo: interpret the data being passed
-	// for now, this is just to throw an error if the block was closed
-	historyBytes, err := json.Marshal(history)
-	if err != nil {
-		return fmt.Errorf("unable to serialize plot data: %v", err)
-	}
-	// ignore MakeFile error (already exists is ok)
-	return filestore.WFS.WriteFile(ctx, blockId, "cpuplotdata", historyBytes)
 }
 
 func (ws *WshServer) GetMetaCommand(ctx context.Context, data wshrpc.CommandGetMetaData) (waveobj.MetaMapType, error) {

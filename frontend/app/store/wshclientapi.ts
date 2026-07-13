@@ -960,18 +960,6 @@ export class RpcApiType {
         return client.wshRpcCall("remotemkdir", data, opts);
     }
 
-    // command "remoteprocesslist" [call]
-    RemoteProcessListCommand(client: WshClient, data: CommandRemoteProcessListData, opts?: RpcOpts): Promise<ProcessListResponse> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remoteprocesslist", data, opts);
-        return client.wshRpcCall("remoteprocesslist", data, opts);
-    }
-
-    // command "remoteprocesssignal" [call]
-    RemoteProcessSignalCommand(client: WshClient, data: CommandRemoteProcessSignalData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remoteprocesssignal", data, opts);
-        return client.wshRpcCall("remoteprocesssignal", data, opts);
-    }
-
     // command "remotereconnecttojobmanager" [call]
     RemoteReconnectToJobManagerCommand(client: WshClient, data: CommandRemoteReconnectToJobManagerData, opts?: RpcOpts): Promise<CommandRemoteReconnectToJobManagerRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotereconnecttojobmanager", data, opts);
@@ -982,12 +970,6 @@ export class RpcApiType {
     RemoteStartJobCommand(client: WshClient, data: CommandRemoteStartJobData, opts?: RpcOpts): Promise<CommandStartJobRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotestartjob", data, opts);
         return client.wshRpcCall("remotestartjob", data, opts);
-    }
-
-    // command "remotestreamcpudata" [responsestream]
-	RemoteStreamCpuDataCommand(client: WshClient, opts?: RpcOpts): AsyncGenerator<TimeSeriesData, void, boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "remotestreamcpudata", null, opts);
-        return client.wshRpcStream("remotestreamcpudata", null, opts);
     }
 
     // command "remoteterminatejobmanager" [call]
@@ -1162,12 +1144,6 @@ export class RpcApiType {
 	StreamAgentTranscriptCommand(client: WshClient, data: CommandStreamAgentTranscriptData, opts?: RpcOpts): AsyncGenerator<AgentTranscriptUpdate, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "streamagenttranscript", data, opts);
         return client.wshRpcStream("streamagenttranscript", data, opts);
-    }
-
-    // command "streamcpudata" [responsestream]
-	StreamCpuDataCommand(client: WshClient, data: CpuDataRequest, opts?: RpcOpts): AsyncGenerator<TimeSeriesData, void, boolean> {
-        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "streamcpudata", data, opts);
-        return client.wshRpcStream("streamcpudata", data, opts);
     }
 
     // command "streamdata" [call]

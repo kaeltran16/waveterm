@@ -11,7 +11,6 @@ import { PlatformLinux, PlatformMacOS, PlatformWindows } from "@/util/platformut
 import { NullAtom } from "@/util/util";
 import { Atom, atom, PrimitiveAtom, useAtomValue } from "jotai";
 import { showPreviewContextMenu } from "../preview-contextmenu";
-import { MockSysinfoConnection } from "../previews/sysinfo.preview-util";
 import { DefaultFullConfig } from "./defaultconfig";
 import { DefaultMockFilesystem } from "./mockfilesystem";
 import { previewElectronApi } from "./preview-electron-api";
@@ -21,8 +20,6 @@ export const PreviewWindowId = crypto.randomUUID();
 export const PreviewWorkspaceId = crypto.randomUUID();
 export const PreviewClientId = crypto.randomUUID();
 export const WebBlockId = crypto.randomUUID();
-export const SysinfoBlockId = crypto.randomUUID();
-export const ProcessViewerBlockId = crypto.randomUUID();
 
 // What works "out of the box" in the mock environment (no MockEnv overrides needed):
 //
@@ -377,7 +374,7 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
             oid: PreviewTabId,
             version: 1,
             name: "Preview Tab",
-            blockids: [WebBlockId, SysinfoBlockId, ProcessViewerBlockId],
+            blockids: [WebBlockId],
             meta: {},
         } as Tab,
         [`block:${WebBlockId}`]: {
@@ -386,25 +383,6 @@ export function makeMockWaveEnv(mockEnv?: MockEnv): MockWaveEnv {
             version: 1,
             meta: {
                 view: "web",
-            },
-        } as Block,
-        [`block:${SysinfoBlockId}`]: {
-            otype: "block",
-            oid: SysinfoBlockId,
-            version: 1,
-            meta: {
-                view: "sysinfo",
-                connection: MockSysinfoConnection,
-                "sysinfo:type": "CPU + Mem",
-                "graph:numpoints": 90,
-            },
-        } as Block,
-        [`block:${ProcessViewerBlockId}`]: {
-            otype: "block",
-            oid: ProcessViewerBlockId,
-            version: 1,
-            meta: {
-                view: "processviewer",
             },
         } as Block,
     };
