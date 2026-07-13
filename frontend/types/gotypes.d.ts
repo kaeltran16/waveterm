@@ -42,44 +42,6 @@ declare global {
         configs: {[key: string]: AIModeConfigType};
     };
 
-    // wshrpc.ActivityDisplayType
-    type ActivityDisplayType = {
-        width: number;
-        height: number;
-        dpr: number;
-        internal?: boolean;
-    };
-
-    // wshrpc.ActivityUpdate
-    type ActivityUpdate = {
-        fgminutes?: number;
-        activeminutes?: number;
-        openminutes?: number;
-        waveaifgminutes?: number;
-        waveaiactiveminutes?: number;
-        numtabs?: number;
-        newtab?: number;
-        numblocks?: number;
-        numwindows?: number;
-        numws?: number;
-        numwsnamed?: number;
-        numsshconn?: number;
-        numwslconn?: number;
-        nummagnify?: number;
-        termcommandsrun?: number;
-        numpanics?: number;
-        numaireqs?: number;
-        startup?: number;
-        shutdown?: number;
-        settabtheme?: number;
-        buildtime?: string;
-        displays?: ActivityDisplayType[];
-        renderers?: {[key: string]: number};
-        blocks?: {[key: string]: number};
-        wshcmds?: {[key: string]: number};
-        conn?: {[key: string]: number};
-    };
-
     // baseds.AgentAnswerItem
     type AgentAnswerItem = {
         selectedindexes?: number[];
@@ -530,11 +492,6 @@ declare global {
         name: string;
     };
 
-    // wshrpc.CommandDisposeData
-    type CommandDisposeData = {
-        routeid: string;
-    };
-
     // wshrpc.CommandElectronDecryptData
     type CommandElectronDecryptData = {
         ciphertext: string;
@@ -569,12 +526,6 @@ declare global {
         srcuri: string;
         desturi: string;
         opts?: FileCopyOpts;
-    };
-
-    // wshrpc.CommandFileRestoreBackupData
-    type CommandFileRestoreBackupData = {
-        backupfilepath: string;
-        restoretofilename: string;
     };
 
     // wshrpc.CommandFileStreamData
@@ -675,11 +626,6 @@ declare global {
     // wshrpc.CommandGetSubagentsRtnData
     type CommandGetSubagentsRtnData = {
         subagents: SubagentFileInfo[];
-    };
-
-    // wshrpc.CommandGetTempDirData
-    type CommandGetTempDirData = {
-        filename?: string;
     };
 
     // wshrpc.CommandGetTranscriptTokensData
@@ -1141,12 +1087,6 @@ declare global {
         reportid: string;
     };
 
-    // wshrpc.CommandSetChannelGatekeeperData
-    type CommandSetChannelGatekeeperData = {
-        channelid: string;
-        enabled: boolean;
-    };
-
     // wshrpc.CommandSetChannelMessagePickData
     type CommandSetChannelMessagePickData = {
         channelid: string;
@@ -1567,19 +1507,6 @@ declare global {
         ijsonbudget?: number;
         truncate?: boolean;
         append?: boolean;
-    };
-
-    // wshrpc.FocusedBlockData
-    type FocusedBlockData = {
-        blockid: string;
-        viewtype: string;
-        controller: string;
-        connname: string;
-        blockmeta: MetaType;
-        termjobstatus?: BlockJobStatusData;
-        connstatus?: ConnStatus;
-        termshellintegrationstatus?: string;
-        termlastcommand?: string;
     };
 
     // wconfig.FullConfigType

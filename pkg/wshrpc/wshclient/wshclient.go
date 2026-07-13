@@ -17,12 +17,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
-// command "activity", wshserver.ActivityCommand
-func ActivityCommand(w *wshutil.WshRpc, data wshrpc.ActivityUpdate, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "activity", data, opts)
-	return err
-}
-
 // command "advancerun", wshserver.AdvanceRunCommand
 func AdvanceRunCommand(w *wshutil.WshRpc, data wshrpc.CommandAdvanceRunData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "advancerun", data, opts)
@@ -304,18 +298,6 @@ func DeleteSubBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData
 	return err
 }
 
-// command "dismisswshfail", wshserver.DismissWshFailCommand
-func DismissWshFailCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "dismisswshfail", data, opts)
-	return err
-}
-
-// command "dispose", wshserver.DisposeCommand
-func DisposeCommand(w *wshutil.WshRpc, data wshrpc.CommandDisposeData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "dispose", data, opts)
-	return err
-}
-
 // command "disposesuggestions", wshserver.DisposeSuggestionsCommand
 func DisposeSuggestionsCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "disposesuggestions", data, opts)
@@ -367,12 +349,6 @@ func EventSubCommand(w *wshutil.WshRpc, data wps.SubscriptionRequest, opts *wshr
 // command "eventunsub", wshserver.EventUnsubCommand
 func EventUnsubCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "eventunsub", data, opts)
-	return err
-}
-
-// command "eventunsuball", wshserver.EventUnsubAllCommand
-func EventUnsubAllCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "eventunsuball", nil, opts)
 	return err
 }
 
@@ -447,12 +423,6 @@ func FileReadCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrpc.RpcOp
 	return resp, err
 }
 
-// command "filerestorebackup", wshserver.FileRestoreBackupCommand
-func FileRestoreBackupCommand(w *wshutil.WshRpc, data wshrpc.CommandFileRestoreBackupData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "filerestorebackup", data, opts)
-	return err
-}
-
 // command "filestream", wshserver.FileStreamCommand
 func FileStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandFileStreamData, opts *wshrpc.RpcOpts) (*wshrpc.FileInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.FileInfo](w, "filestream", data, opts)
@@ -516,12 +486,6 @@ func GetCacheStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandGetCacheStatusD
 // command "getchannels", wshserver.GetChannelsCommand
 func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelsRtnData](w, "getchannels", nil, opts)
-	return resp, err
-}
-
-// command "getfocusedblockdata", wshserver.GetFocusedBlockDataCommand
-func GetFocusedBlockDataCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.FocusedBlockData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.FocusedBlockData](w, "getfocusedblockdata", nil, opts)
 	return resp, err
 }
 
@@ -594,18 +558,6 @@ func GetSessionsActivityCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSession
 // command "getsubagents", wshserver.GetSubagentsCommand
 func GetSubagentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSubagentsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetSubagentsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetSubagentsRtnData](w, "getsubagents", data, opts)
-	return resp, err
-}
-
-// command "gettab", wshserver.GetTabCommand
-func GetTabCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) (*waveobj.Tab, error) {
-	resp, err := sendRpcRequestCallHelper[*waveobj.Tab](w, "gettab", data, opts)
-	return resp, err
-}
-
-// command "gettempdir", wshserver.GetTempDirCommand
-func GetTempDirCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTempDirData, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "gettempdir", data, opts)
 	return resp, err
 }
 
@@ -914,12 +866,6 @@ func NotifyCommand(w *wshutil.WshRpc, data wshrpc.WaveNotificationOptions, opts 
 	return err
 }
 
-// command "notifysystemresume", wshserver.NotifySystemResumeCommand
-func NotifySystemResumeCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "notifysystemresume", nil, opts)
-	return err
-}
-
 // command "path", wshserver.PathCommand
 func PathCommand(w *wshutil.WshRpc, data wshrpc.PathCommandData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "path", data, opts)
@@ -1128,12 +1074,6 @@ func SetBlockFocusCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 	return err
 }
 
-// command "setchannelgatekeeper", wshserver.SetChannelGatekeeperCommand
-func SetChannelGatekeeperCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelGatekeeperData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "setchannelgatekeeper", data, opts)
-	return err
-}
-
 // command "setchannelmessagepick", wshserver.SetChannelMessagePickCommand
 func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelMessagePickData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelmessagepick", data, opts)
@@ -1273,12 +1213,6 @@ func TestCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
 func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "testmultiarg", wshrpc.MultiArg{Args: []any{arg1, arg2, arg3}}, opts)
 	return resp, err
-}
-
-// command "updatetabname", wshserver.UpdateTabNameCommand
-func UpdateTabNameCommand(w *wshutil.WshRpc, arg1 string, arg2 string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "updatetabname", wshrpc.MultiArg{Args: []any{arg1, arg2}}, opts)
-	return err
 }
 
 // command "updateworkspacetabids", wshserver.UpdateWorkspaceTabIdsCommand

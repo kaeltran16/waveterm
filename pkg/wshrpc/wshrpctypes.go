@@ -40,7 +40,6 @@ type WshRpcInterface interface {
 	AuthenticateTokenVerifyCommand(ctx context.Context, data CommandAuthenticateTokenData) (CommandAuthenticateRtnData, error) // (special) validates token without binding, root router only
 	AuthenticateJobManagerCommand(ctx context.Context, data CommandAuthenticateJobManagerData) error
 	AuthenticateJobManagerVerifyCommand(ctx context.Context, data CommandAuthenticateJobManagerData) error // (special) validates job auth token without binding, root router only
-	DisposeCommand(ctx context.Context, data CommandDisposeData) error
 	RouteAnnounceCommand(ctx context.Context) error               // (special) announces a new route to the main router
 	RouteUnannounceCommand(ctx context.Context) error             // (special) unannounces a route to the main router
 	ControlGetRouteIdCommand(ctx context.Context) (string, error) // (special) gets the route for the link that we're on
@@ -64,11 +63,8 @@ type WshRpcInterface interface {
 	EventPublishCommand(ctx context.Context, data wps.WaveEvent) error
 	EventSubCommand(ctx context.Context, data wps.SubscriptionRequest) error
 	EventUnsubCommand(ctx context.Context, data string) error
-	EventUnsubAllCommand(ctx context.Context) error
 	EventReadHistoryCommand(ctx context.Context, data CommandEventReadHistoryData) ([]*wps.WaveEvent, error)
 
-	FileRestoreBackupCommand(ctx context.Context, data CommandFileRestoreBackupData) error
-	GetTempDirCommand(ctx context.Context, data CommandGetTempDirData) (string, error)
 	WriteTempFileCommand(ctx context.Context, data CommandWriteTempFileData) (string, error)
 	StreamTestCommand(ctx context.Context) chan RespOrErrorUnion[int]
 	StreamCpuDataCommand(ctx context.Context, request CpuDataRequest) chan RespOrErrorUnion[TimeSeriesData]
@@ -88,7 +84,6 @@ type WshRpcInterface interface {
 	WaveInfoCommand(ctx context.Context) (*WaveInfoData, error)
 	MacOSVersionCommand(ctx context.Context) (string, error)
 	WshActivityCommand(ct context.Context, data map[string]int) error
-	ActivityCommand(ctx context.Context, data ActivityUpdate) error
 	RecordTEventCommand(ctx context.Context, data telemetrydata.TEvent) error
 	GetVarCommand(ctx context.Context, data CommandVarData) (*CommandVarResponseData, error)
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
@@ -120,7 +115,6 @@ type WshRpcInterface interface {
 	DeleteChannelCommand(ctx context.Context, data CommandDeleteChannelData) error
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
-	SetChannelGatekeeperCommand(ctx context.Context, data CommandSetChannelGatekeeperData) error                         // toggles Jarvis Gatekeeper (auto-answer routine asks) for a channel
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error                                     // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
 	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error                                     // stamps a channel's last-read timestamp for unread counts
 	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error                                       // renames a channel (its rail display name)
@@ -147,8 +141,6 @@ type WshRpcInterface interface {
 	SendTelemetryCommand(ctx context.Context) error
 	FetchSuggestionsCommand(ctx context.Context, data FetchSuggestionsData) (*FetchSuggestionsResponse, error)
 	DisposeSuggestionsCommand(ctx context.Context, widgetId string) error
-	GetTabCommand(ctx context.Context, tabId string) (*waveobj.Tab, error)
-	UpdateTabNameCommand(ctx context.Context, tabId string, newName string) error
 	UpdateWorkspaceTabIdsCommand(ctx context.Context, workspaceId string, tabIds []string) error
 	GetAllBadgesCommand(ctx context.Context) ([]baseds.BadgeEvent, error)
 
@@ -162,11 +154,9 @@ type WshRpcInterface interface {
 	ConnListCommand(ctx context.Context) ([]string, error)
 	WslListCommand(ctx context.Context) ([]string, error)
 	WslDefaultDistroCommand(ctx context.Context) (string, error)
-	DismissWshFailCommand(ctx context.Context, connName string) error
 	ConnUpdateWshCommand(ctx context.Context, remoteInfo RemoteInfo) (bool, error)
 	FindGitBashCommand(ctx context.Context, rescan bool) (string, error)
 	ConnServerInitCommand(ctx context.Context, data CommandConnServerInitData) error
-	NotifySystemResumeCommand(ctx context.Context) error
 
 	// eventrecv is special, it's handled internally by WshRpc with EventListener
 	EventRecvCommand(ctx context.Context, data wps.WaveEvent) error
@@ -220,7 +210,6 @@ type WshRpcInterface interface {
 
 	// block focus
 	SetBlockFocusCommand(ctx context.Context, blockId string) error
-	GetFocusedBlockDataCommand(ctx context.Context) (*FocusedBlockData, error)
 
 	// rtinfo
 	GetRTInfoCommand(ctx context.Context, data CommandGetRTInfoData) (*waveobj.ObjRTInfo, error)
@@ -314,11 +303,6 @@ type CommandAuthenticateTokenData struct {
 	Token string `json:"token"`
 }
 
-type CommandDisposeData struct {
-	RouteId string `json:"routeid"`
-	// auth token travels in the packet directly
-}
-
 type CommandMessageData struct {
 	Message string `json:"message"`
 }
@@ -408,15 +392,6 @@ type CpuDataRequest struct {
 type CpuDataType struct {
 	Time  int64   `json:"time"`
 	Value float64 `json:"value"`
-}
-
-type CommandFileRestoreBackupData struct {
-	BackupFilePath    string `json:"backupfilepath"`
-	RestoreToFileName string `json:"restoretofilename"`
-}
-
-type CommandGetTempDirData struct {
-	FileName string `json:"filename,omitempty"`
 }
 
 type CommandWriteTempFileData struct {
@@ -757,11 +732,6 @@ type CommandPostChannelMessageData struct {
 	Author    string `json:"author"`
 	Text      string `json:"text"`
 	RefORef   string `json:"reforef,omitempty"`
-}
-
-type CommandSetChannelGatekeeperData struct {
-	ChannelId string `json:"channelid"`
-	Enabled   bool   `json:"enabled"`
 }
 
 type CommandSetChannelTierData struct {
@@ -1444,18 +1414,6 @@ type BlockJobStatusData struct {
 	CmdExitTs     int64  `json:"cmdexitts,omitempty"`
 	CmdExitCode   *int   `json:"cmdexitcode,omitempty"`
 	CmdExitSignal string `json:"cmdexitsignal,omitempty"`
-}
-
-type FocusedBlockData struct {
-	BlockId                    string              `json:"blockid"`
-	ViewType                   string              `json:"viewtype"`
-	Controller                 string              `json:"controller"`
-	ConnName                   string              `json:"connname"`
-	BlockMeta                  waveobj.MetaMapType `json:"blockmeta"`
-	TermJobStatus              *BlockJobStatusData `json:"termjobstatus,omitempty"`
-	ConnStatus                 *ConnStatus         `json:"connstatus,omitempty"`
-	TermShellIntegrationStatus string              `json:"termshellintegrationstatus,omitempty"`
-	TermLastCommand            string              `json:"termlastcommand,omitempty"`
 }
 
 // ProcessInfo holds per-process information for the process viewer.

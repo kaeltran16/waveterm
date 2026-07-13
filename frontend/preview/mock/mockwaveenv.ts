@@ -37,7 +37,6 @@ export const ProcessViewerBlockId = crypto.randomUUID();
 //   - rpc.SetMetaCommand                -- writes .meta to the mock WOS atom (null values delete keys)
 //   - rpc.SetConfigCommand              -- merges settings into fullConfigAtom (null values delete keys)
 //   - rpc.SetSecretsCommand             -- writes/deletes secrets in the in-memory mock secret store
-//   - rpc.UpdateTabNameCommand          -- updates .name on the Tab WaveObj in the mock WOS
 //   - rpc.UpdateWorkspaceTabIdsCommand  -- updates .tabids on the Workspace WaveObj in the mock WOS
 //
 // Any other RPC call falls through to a console.log and resolves null.
@@ -244,15 +243,6 @@ export function makeMockRpc(
         }
         const updated = { ...current, meta: updatedMeta };
         wos.mockSetWaveObj(data.oref, updated);
-        return null;
-    });
-    setCallHandler("updatetabname", async (_client, data: { args: [string, string] }) => {
-        const [tabId, newName] = data.args;
-        const tabORef = "tab:" + tabId;
-        const objAtom = wos.getWaveObjectAtom(tabORef);
-        const current = globalStore.get(objAtom) as Tab;
-        const updated = { ...current, name: newName };
-        wos.mockSetWaveObj(tabORef, updated);
         return null;
     });
     setCallHandler("setconfig", async (_client, data: SettingsType) => {
