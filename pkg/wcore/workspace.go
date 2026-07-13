@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/wavetermdev/waveterm/pkg/eventbus"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
@@ -364,13 +363,6 @@ func SetActiveTab(ctx context.Context, workspaceId string, tabId string) error {
 		wstore.DBUpdate(ctx, workspace)
 	}
 	return nil
-}
-
-func SendActiveTabUpdate(ctx context.Context, workspaceId string, newActiveTabId string) {
-	eventbus.SendEventToElectron(eventbus.WSEventType{
-		EventType: eventbus.WSEvent_ElectronUpdateActiveTab,
-		Data:      &waveobj.ActiveTabUpdate{WorkspaceId: workspaceId, NewActiveTabId: newActiveTabId},
-	})
 }
 
 func UpdateWorkspaceTabIds(ctx context.Context, workspaceId string, tabIds []string) error {

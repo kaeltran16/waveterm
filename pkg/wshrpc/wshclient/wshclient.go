@@ -309,12 +309,6 @@ func ElectronEncryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronEncryp
 	return resp, err
 }
 
-// command "electronsystembell", wshserver.ElectronSystemBellCommand
-func ElectronSystemBellCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "electronsystembell", nil, opts)
-	return err
-}
-
 // command "eventpublish", wshserver.EventPublishCommand
 func EventPublishCommand(w *wshutil.WshRpc, data wps.WaveEvent, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "eventpublish", data, opts)
@@ -434,12 +428,6 @@ func FindGitBashCommand(w *wshutil.WshRpc, data bool, opts *wshrpc.RpcOpts) (str
 	return resp, err
 }
 
-// command "focuswindow", wshserver.FocusWindowCommand
-func FocusWindowCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "focuswindow", data, opts)
-	return err
-}
-
 // command "getagenttranscript", wshserver.GetAgentTranscriptCommand
 func GetAgentTranscriptCommand(w *wshutil.WshRpc, data wshrpc.CommandGetAgentTranscriptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetAgentTranscriptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetAgentTranscriptRtnData](w, "getagenttranscript", data, opts)
@@ -557,12 +545,6 @@ func GetSubagentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSubagentsData,
 // command "gettranscripttokens", wshserver.GetTranscriptTokensCommand
 func GetTranscriptTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscriptTokensData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTranscriptTokensRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTranscriptTokensRtnData](w, "gettranscripttokens", data, opts)
-	return resp, err
-}
-
-// command "getupdatechannel", wshserver.GetUpdateChannelCommand
-func GetUpdateChannelCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
-	resp, err := sendRpcRequestCallHelper[string](w, "getupdatechannel", nil, opts)
 	return resp, err
 }
 
@@ -832,18 +814,6 @@ func MemoryWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryWriteData, o
 // command "message", wshserver.MessageCommand
 func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "message", data, opts)
-	return err
-}
-
-// command "networkonline", wshserver.NetworkOnlineCommand
-func NetworkOnlineCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (bool, error) {
-	resp, err := sendRpcRequestCallHelper[bool](w, "networkonline", nil, opts)
-	return resp, err
-}
-
-// command "notify", wshserver.NotifyCommand
-func NotifyCommand(w *wshutil.WshRpc, data wshrpc.WaveNotificationOptions, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "notify", data, opts)
 	return err
 }
 
@@ -1229,12 +1199,6 @@ func WaveFileReadStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandWaveFileRea
 // command "waveinfo", wshserver.WaveInfoCommand
 func WaveInfoCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.WaveInfoData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.WaveInfoData](w, "waveinfo", nil, opts)
-	return resp, err
-}
-
-// command "webselector", wshserver.WebSelectorCommand
-func WebSelectorCommand(w *wshutil.WshRpc, data wshrpc.CommandWebSelectorData, opts *wshrpc.RpcOpts) ([]string, error) {
-	resp, err := sendRpcRequestCallHelper[[]string](w, "webselector", data, opts)
 	return resp, err
 }
 

@@ -170,13 +170,8 @@ type WshRpcInterface interface {
 	BadgeWatchPidCommand(ctx context.Context, data CommandBadgeWatchPidData) error
 
 	// emain
-	WebSelectorCommand(ctx context.Context, data CommandWebSelectorData) ([]string, error)
-	NotifyCommand(ctx context.Context, notificationOptions WaveNotificationOptions) error
-	FocusWindowCommand(ctx context.Context, windowId string) error
 	ElectronEncryptCommand(ctx context.Context, data CommandElectronEncryptData) (*CommandElectronEncryptRtnData, error)
 	ElectronDecryptCommand(ctx context.Context, data CommandElectronDecryptData) (*CommandElectronDecryptRtnData, error)
-	NetworkOnlineCommand(ctx context.Context) (bool, error)
-	ElectronSystemBellCommand(ctx context.Context) error
 
 	// secrets
 	GetSecretsCommand(ctx context.Context, names []string) (map[string]string, error)
@@ -185,7 +180,6 @@ type WshRpcInterface interface {
 	GetSecretsLinuxStorageBackendCommand(ctx context.Context) (string, error)
 
 	WorkspaceListCommand(ctx context.Context) ([]WorkspaceInfoData, error)
-	GetUpdateChannelCommand(ctx context.Context) (string, error)
 
 	// terminal
 	VDomCreateContextCommand(ctx context.Context, data vdom.VDomCreateContext) (*waveobj.ORef, error)

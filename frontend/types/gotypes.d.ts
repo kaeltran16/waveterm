@@ -1229,15 +1229,6 @@ declare global {
         streammeta: StreamMeta;
     };
 
-    // wshrpc.CommandWebSelectorData
-    type CommandWebSelectorData = {
-        workspaceid: string;
-        blockid: string;
-        tabid: string;
-        selector: string;
-        opts?: WebSelectorOpts;
-    };
-
     // wshrpc.CommandWriteAppFileData
     type CommandWriteAppFileData = {
         appid: string;
@@ -2711,13 +2702,6 @@ declare global {
         option?: boolean;
     };
 
-    // wshrpc.WaveNotificationOptions
-    type WaveNotificationOptions = {
-        title?: string;
-        body?: string;
-        silent?: boolean;
-    };
-
     // waveobj.WaveObj
     type WaveObj = {
         otype: string;
@@ -2787,12 +2771,6 @@ declare global {
         error?: string;
         data?: any;
         updates?: WaveObjUpdate[];
-    };
-
-    // wshrpc.WebSelectorOpts
-    type WebSelectorOpts = {
-        all?: boolean;
-        inner?: boolean;
     };
 
     // wconfig.WidgetConfigType

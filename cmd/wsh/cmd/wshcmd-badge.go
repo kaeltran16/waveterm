@@ -29,7 +29,6 @@ var (
 	badgeColor    string
 	badgePriority float64
 	badgeClear    bool
-	badgeBeep     bool
 	badgePid      int
 )
 
@@ -38,7 +37,6 @@ func init() {
 	badgeCmd.Flags().StringVar(&badgeColor, "color", "", "badge color")
 	badgeCmd.Flags().Float64Var(&badgePriority, "priority", 10, "badge priority")
 	badgeCmd.Flags().BoolVar(&badgeClear, "clear", false, "clear the badge")
-	badgeCmd.Flags().BoolVar(&badgeBeep, "beep", false, "play system bell sound")
 	badgeCmd.Flags().IntVar(&badgePid, "pid", 0, "watch a pid and automatically clear the badge when it exits (default priority 5)")
 }
 
@@ -94,13 +92,6 @@ func badgeRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	err = wshclient.EventPublishCommand(RpcClient, event, &wshrpc.RpcOpts{NoResponse: true})
 	if err != nil {
 		return fmt.Errorf("publishing badge event: %v", err)
-	}
-
-	if badgeBeep {
-		err = wshclient.ElectronSystemBellCommand(RpcClient, &wshrpc.RpcOpts{Route: "electron"})
-		if err != nil {
-			return fmt.Errorf("playing system bell: %v", err)
-		}
 	}
 
 	if badgePid > 0 && eventData.Badge != nil {

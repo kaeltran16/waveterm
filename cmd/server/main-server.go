@@ -159,11 +159,6 @@ func sendDiagnosticPing() bool {
 	ctx, cancelFn := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFn()
 
-	rpcClient := wshclient.GetBareRpcClient()
-	isOnline, err := wshclient.NetworkOnlineCommand(rpcClient, &wshrpc.RpcOpts{Route: "electron", Timeout: 2000})
-	if err != nil || !isOnline {
-		return false
-	}
 	clientId := wstore.GetClientId()
 	usageTelemetry := telemetry.IsTelemetryEnabled()
 	wcloud.SendDiagnosticPing(ctx, clientId, usageTelemetry)
