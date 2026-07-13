@@ -25,7 +25,6 @@ import { steerWorker } from "./channelactions";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { AttentionCard, AttentionBanner } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
-import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { approveGate, cancelRun, sendBackGate } from "./runactions";
@@ -49,6 +48,7 @@ import { flattenVisualOrder } from "./session-models/sessionviewmodel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
+import { useCardStreams } from "./usecardstreams";
 
 export const TONE_CLASS: Record<string, string> = {
     planning: "text-muted",
@@ -703,41 +703,14 @@ export function RunBody({ model, channel, agents, run }: {
     // them inline. Filtered to those actually streamable (transcript + working/asking/recently-idle).
     const runWorkers = (run.phases ?? []).filter((p) => p.state === "running").flatMap((p) => phaseWorkers(p, agents));
 
-    // own transcript streams for the run's workers (mirrors RunsView/cockpitsurface: start what's wanted,
-    // stop what's no longer wanted, tear all down on unmount). Streams are module-level and idempotent;
-    // this surface and the cockpit grid never co-mount, so ownership doesn't collide.
+    // own transcript streams for the run's workers via the shared card-stream hook (transcript only;
+    // no git tracking here). Streams are module-level and idempotent; this surface and the cockpit grid
+    // never co-mount, so ownership doesn't collide.
     const streamable = streamableTranscriptAgents(runWorkers, now);
-    const wantedKey = streamable.map((a) => a.id).join(",");
-    const streamedRef = useRef<Set<string>>(new Set());
-    useEffect(() => {
-        const wanted = new Map<string, { path: string; agent?: string }>();
-        for (const a of streamable) {
-            if (a.transcriptPath) {
-                wanted.set(a.id, { path: a.transcriptPath, agent: a.agent });
-            }
-        }
-        for (const [id, { path, agent }] of wanted) {
-            if (!streamedRef.current.has(id)) {
-                startTranscriptStream(id, path, agent);
-                streamedRef.current.add(id);
-            }
-        }
-        for (const id of [...streamedRef.current]) {
-            if (!wanted.has(id)) {
-                stopTranscriptStream(id);
-                streamedRef.current.delete(id);
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [wantedKey]);
-    useEffect(
-        () => () => {
-            for (const id of streamedRef.current) {
-                stopTranscriptStream(id);
-            }
-            streamedRef.current.clear();
-        },
-        []
+    useCardStreams(
+        streamable
+            .filter((a) => a.transcriptPath)
+            .map((a) => ({ id: a.id, path: a.transcriptPath!, agent: a.agent })),
     );
 
     // the run's primary active worker drives the header "now" rollup
