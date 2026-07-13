@@ -5,7 +5,6 @@ package clientservice
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wslconn"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 type ClientService struct{}
@@ -28,34 +26,8 @@ func (cs *ClientService) GetClientData() (*waveobj.Client, error) {
 	return wcore.GetClientData(ctx)
 }
 
-func (cs *ClientService) GetTab(tabId string) (*waveobj.Tab, error) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancelFn()
-	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
-	if err != nil {
-		return nil, fmt.Errorf("error getting tab: %w", err)
-	}
-	return tab, nil
-}
-
 func (cs *ClientService) GetAllConnStatus(ctx context.Context) ([]wshrpc.ConnStatus, error) {
 	sshStatuses := conncontroller.GetAllConnStatus()
 	wslStatuses := wslconn.GetAllConnStatus()
 	return append(sshStatuses, wslStatuses...), nil
-}
-
-func (cs *ClientService) AgreeTos(ctx context.Context) (waveobj.UpdatesRtnType, error) {
-	ctx = waveobj.ContextWithUpdates(ctx)
-	clientData, err := wstore.DBGetSingleton[*waveobj.Client](ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error getting client data: %w", err)
-	}
-	timestamp := time.Now().UnixMilli()
-	clientData.TosAgreed = timestamp
-	err = wstore.DBUpdate(ctx, clientData)
-	if err != nil {
-		return nil, fmt.Errorf("error updating client data: %w", err)
-	}
-	wcore.BootstrapStarterLayout(ctx)
-	return waveobj.ContextGetUpdatesRtn(ctx), nil
 }

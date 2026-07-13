@@ -2113,9 +2113,6 @@ declare global {
         "window:bgcolor"?: string;
         "window:reducedmotion"?: boolean;
         "window:tilegapsize"?: number;
-        "window:showmenubar"?: boolean;
-        "window:nativetitlebar"?: boolean;
-        "window:disablehardwareacceleration"?: boolean;
         "window:maxtabcachesize"?: number;
         "window:magnifiedblockopacity"?: number;
         "window:magnifiedblocksize"?: number;

@@ -46,18 +46,11 @@ export class ClientServiceType {
         this.waveEnv = waveEnv;
     }
 
-    // @returns object updates
-    AgreeTos(): Promise<void> {
-        return callBackendService(this?.waveEnv, "client", "AgreeTos", Array.from(arguments))
-    }
     GetAllConnStatus(): Promise<ConnStatus[]> {
         return callBackendService(this?.waveEnv, "client", "GetAllConnStatus", Array.from(arguments))
     }
     GetClientData(): Promise<Client> {
         return callBackendService(this?.waveEnv, "client", "GetClientData", Array.from(arguments))
-    }
-    GetTab(arg1: string): Promise<Tab> {
-        return callBackendService(this?.waveEnv, "client", "GetTab", Array.from(arguments))
     }
 }
 
