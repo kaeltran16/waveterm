@@ -5,6 +5,12 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 
 ## Channel notes (merged surface) (2026-07-13)
 
+> **Spec + plan written 2026-07-14 — not yet built.** Both follow-ups below are now designed:
+> `docs/superpowers/specs/2026-07-14-channel-notes-quick-run-design.md` +
+> `docs/superpowers/plans/2026-07-14-channel-notes-quick-run.md`. Decisions locked: notes store at
+> `Channel.Meta["channel:notes"]` via a `SetChannelNotesCommand` (clone of `SetChannelTierCommand`);
+> Quick becomes a bare single-phase `RunMode_Quick` run object. Remove this entry once the plan lands.
+
 The merged Channels surface (`docs/superpowers/plans/2026-07-13-channels-runs-merged-surface.md`) shows a
 "Channel notes" area in its collapsible overview strip, but `waveobj.Channel` has no notes field and no
 set-notes RPC exists (backend out of scope for that plan). v1 renders it as a **disabled placeholder**
@@ -56,6 +62,12 @@ live subsystem or an ambiguous call that needs a deliberate decision, not mechan
      verified-live and kept. Grep-verify before removing any config key or telemetry field.
 
 ## Repo Radar — "Start investigation" handoff composer (2026-07-11)
+
+> **Resolved / stale — verified shipped 2026-07-14.** The full handoff is wired end-to-end:
+> `radarfindingdetail.tsx` `startInvestigation()` sets `pendingRunDraftAtom` (`runactions.ts`) →
+> the Channels surface (`channelssurface.tsx`) lands it as a reviewable Run draft (editable goal,
+> file chips, evidence count, "From Radar finding" badge) and `send()` calls `createRun` only on
+> explicit Start. Spec/plan `docs/superpowers/{specs,plans}/2026-07-11-radar-start-investigation-composer*.md`.
 
 Deferred while building the **Radar frontend surface** (spec `docs/superpowers/specs/2026-07-10-repo-radar-design.md`
 §"Start investigation handoff" + §"Frontend integration"). The Radar surface itself ships complete
@@ -144,21 +156,24 @@ launcher). The residual **not-built** items, ranked by leverage:
    lands on the Submit tab, it shows a "Ready to submit your answers?" review defaulting to "Submit
    answers", so one final Enter confirms. Both labels echoed back exactly for `[single][multi]` and
    `[multi][single]` batches. FE + `DeliverAnswer` were already multi-question capable.
-   **Remaining gap:** free-text ("Type something") answering is still not delivered from the panel.
+   **Remaining gap:** ~~free-text ("Type something") answering is still not delivered from the panel.~~
+   **RESOLVED — verified shipped 2026-07-14.** Free-text is delivered end-to-end: `answerbar.tsx`
+   text input → `buildAskAnswers` (emits `{text}`) → `encode.go` (`encodeSingleQuestion`/`encodeMultiQuestion`
+   free-text keys + `validateFreeText`), TDD'd in `encode_test.go`. Only intentional limit: single-line
+   printable text (control chars drive the picker).
 2. **Sub-agent tree in the cockpit** (M→H) — the one residual item that advances the orchestration
    thesis and undoes a regression (old session sidebar had `SubagentStart`/`SubagentStop` lifecycle;
    the cockpit has zero subagent code). Best "real feature" investment.
 3. **Cheap-polish bundle** — smaller and less "cheap" than the triage implied under Tauri:
-   - **Open in External Editor:** the `launch-editor` npm dep is a **dead end in Tauri** (Node /
-     main-process module; the cockpit is a WebView with no Node). Must ride the existing
-     `open_external` Tauri command (`getApi().openExternal` — opens a path in the OS *default*
-     handler, i.e. a folder opens in the file explorer, not an editor) or spawn `code`/`$EDITOR` via
-     a terminal/`wsh` command. Needs an open-semantics decision before it's buildable.
-   - **Jump-to-bottom pill:** the Agent *focus* surface center pane is a **live Claude Code TUI
-     terminal** (`CockpitFocusPane`), not a narrated transcript, so the pill target is either xterm
-     scrollback (shared `view/term`) or the cockpit **narration card** (`agentrow.tsx`, which already
-     has a scroll container + `scrollToBottom`). The narration-card pill is the most self-contained,
-     TDD-able piece of the whole residue.
+   - **Open in External Editor:** ~~needs an open-semantics decision before it's buildable.~~
+     **RESOLVED — verified shipped 2026-07-14.** Rides the `open_external` Tauri command via
+     `getApi().openExternal` (OS default handler), wired in `filessurface.tsx:238` (row click) and
+     `:444` ("Open in editor" context-menu item). No `$EDITOR`/`launch-editor` path (Node dead-end
+     as noted); the OS-default-handler semantics is the shipped behavior.
+   - **Jump-to-bottom pill:** ~~the most self-contained, TDD-able piece of the whole residue.~~
+     **RESOLVED — verified shipped 2026-07-14.** `JumpToLatestPill` + `useStickToBottom`
+     (`sticktobottom.tsx`) render the "↓ Latest" pill when scrolled up; wired into the narration card
+     (`agentrow.tsx:560`) and reused in `subagentinterior.tsx` + `runworkercard.tsx`.
    - Remaining T-items (send-file, terminal path-insert, hover preview) are a later second pass.
 
 **Deferred / skip now:** Light/System theme + editor (cosmetic M, off-thesis — Settings surface
