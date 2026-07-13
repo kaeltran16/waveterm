@@ -165,6 +165,7 @@ function LaunchComposer({
         <ComposerShell
             onSubmit={onSubmit}
             sendLabel={sendLabel}
+            sendDisabled={!value.trim()}
             overlay={
                 open ? (
                     <div className="absolute bottom-full left-0 mb-1.5 w-[300px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-lg">
@@ -235,6 +236,7 @@ function TalkComposer({
         <ComposerShell
             onSubmit={onSubmit}
             sendLabel="Send ⏎"
+            sendDisabled={!value.trim()}
             inputRegion={
                 <>
                     <div className="mb-2.5 flex items-center gap-2 border-b border-edge-mid pb-2.5">
@@ -280,12 +282,19 @@ function TalkComposer({
 
 // One compact attention card for the Needs-you list. Clicking it selects the owning run so the full
 // gate/ask card in the run body is one navigation away.
-function NeedsRow({ kind, source, text, action, onGo }: { kind: string; source: string; text: string; action: string; onGo: () => void }) {
+function NeedsRow({ kind, source, text, action, onGo }: { kind: string; source: string; text: string; action: string; onGo?: () => void }) {
+    // no onGo → the owning run couldn't be resolved (e.g. a bare @quick worker in no run); render the
+    // card as static info, not a clickable-looking affordance that silently no-ops.
+    const interactive = !!onGo;
     return (
         <button
             type="button"
             onClick={onGo}
-            className="relative w-full overflow-hidden rounded-[11px] border border-asking/40 bg-warning/10 px-3 py-2.5 text-left hover:border-asking/60"
+            disabled={!interactive}
+            className={
+                "relative w-full overflow-hidden rounded-[11px] border border-asking/40 bg-warning/10 px-3 py-2.5 text-left " +
+                (interactive ? "cursor-pointer hover:border-asking/60" : "cursor-default")
+            }
         >
             <span className="absolute inset-y-0 left-0 w-[3px] bg-asking" />
             <div className="mb-1.5 flex items-center gap-2">
@@ -385,6 +394,9 @@ function ContextPanel({
 }) {
     const [dispatched, setDispatched] = useState<Set<string>>(new Set());
     const [showGone, setShowGone] = useState(false);
+    // the dispatched-consult set is view-local; drop it on channel switch so a "Promoted to a run"
+    // marker from one channel never bleeds into another
+    useEffect(() => setDispatched(new Set()), [channel?.oid]);
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
     const messages = channel?.messages ?? [];
     const counts = fleetCounts(snapshot);
@@ -450,7 +462,7 @@ function ContextPanel({
                                     source={n.source}
                                     text={n.text}
                                     action={n.action}
-                                    onGo={() => n.runId && onSelectRun(n.runId)}
+                                    onGo={n.runId ? () => onSelectRun(n.runId!) : undefined}
                                 />
                             ))}
                         </div>
@@ -942,7 +954,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                                         <span className="flex-none font-mono text-[8px] font-bold uppercase tracking-[.05em] text-accent-soft">Q</span>
                                                     ) : null}
                                                     <span className={"h-[7px] w-[7px] flex-none rounded-full bg-current " + (TONE_CLASS[tone] ?? "text-muted")} />
-                                                    <span className="truncate text-[12px] font-semibold text-primary">{r.goal}</span>
+                                                    <span title={r.goal} className="truncate text-[12px] font-semibold text-primary">{r.goal}</span>
                                                 </button>
                                                 {dots.length > 0 ? (
                                                     <span className="flex flex-none items-center gap-0.5">

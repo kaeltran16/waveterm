@@ -65,7 +65,17 @@ export function ChannelRail({
         <div className="flex w-[244px] flex-none flex-col border-r border-border bg-surface">
             <div className="border-b border-edge-faint px-3.5 py-3">
                 <div className="flex items-center gap-2 rounded border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-muted focus-within:border-accent">
-                    <span className="h-[11px] w-[11px] rounded-full border-[1.4px] border-current" />
+                    <svg
+                        className="h-3 w-3 flex-none"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                    >
+                        <circle cx="9" cy="9" r="5.5" />
+                        <path d="M16.5 16.5l-3.2-3.2" />
+                    </svg>
                     <input
                         type="text"
                         value={query}
