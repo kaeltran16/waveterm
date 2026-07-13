@@ -802,7 +802,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 type="button"
                                 onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
                                 className={cn(
-                                    "flex cursor-pointer items-center gap-[7px] rounded-[8px] border px-2.5 py-1.5 text-[12px] font-medium",
+                                    "flex cursor-pointer items-center gap-[7px] rounded border px-2.5 py-1.5 text-[12px] font-medium",
                                     liveOnly
                                         ? "border-success/60 bg-success/10 text-success"
                                         : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
@@ -815,7 +815,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 <button
                                     type="button"
                                     onClick={() => setCardPrefs({})}
-                                    className="cursor-pointer rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
+                                    className="cursor-pointer rounded border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
                                 >
                                     Reset layout
                                 </button>
@@ -836,7 +836,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                 type="button"
                                 onClick={() => setChip(key)}
                                 className={cn(
-                                    "grid cursor-pointer grid-cols-[minmax(0,auto)_1.25rem] items-center rounded-[8px] border px-3 py-1.5 text-[12.5px]",
+                                    "grid cursor-pointer grid-cols-[minmax(0,auto)_1.25rem] items-center rounded border px-3 py-1.5 text-[12.5px]",
                                     chip === key
                                         ? cn(CHIP_ACTIVE[key], "text-primary")
                                         : "border-border text-muted hover:border-edge-mid"
@@ -902,13 +902,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                                             boxShadow:
                                                 "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), inset 0 1px 0 rgba(255,255,255,0.28)",
                                         }}
-                                        className="flex cursor-pointer items-center gap-[11px] rounded-[12px] bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background hover:bg-accenthover"
+                                        className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background hover:bg-accenthover"
                                     >
                                         <span className="flex h-6 w-6 items-center justify-center rounded-[7px] bg-background/15 font-mono text-[12px]">
                                             &gt;_
                                         </span>
                                         <span>New terminal agent</span>
-                                        <span className="ml-0.5 rounded-[6px] bg-background/15 px-[7px] py-[3px] font-mono text-[11px] font-semibold">
+                                        <span className="ml-0.5 rounded-sm bg-background/15 px-[7px] py-[3px] font-mono text-[11px] font-semibold">
                                             ⌘N
                                         </span>
                                     </motion.button>

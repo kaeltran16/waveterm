@@ -79,7 +79,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
             >
                 <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
                 <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-[12px] font-semibold text-[#dfe4ea]">{agent.name}</div>
+                    <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{agent.name}</div>
                     {/* PLACEHOLDER (1b): git branch has no data source — see spec §8 */}
                     <div className="truncate text-[10.5px] text-muted">main</div>
                 </div>
@@ -91,7 +91,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
                             toggleSubagentExpand(oref, expanded);
                         }}
                         title="Toggle subagents"
-                        className="flex items-center gap-[3px] rounded-[6px] border border-edge-mid bg-[#161b21] px-[6px] py-[2px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
+                        className="flex items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[6px] py-[2px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
                     >
                         <span className="text-[8px] leading-none">{expanded ? "▾" : "▸"}</span>
                         {subs.length}
@@ -126,7 +126,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
                                     s.transcriptPath && "cursor-pointer"
                                 )}
                             >
-                                <span className="absolute left-[13px] top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-[#3c4450]">
+                                <span className="absolute left-[13px] top-1/2 -translate-y-1/2 font-mono text-[11px] font-semibold text-ink-faint">
                                     ↳
                                 </span>
                                 <span
@@ -134,10 +134,10 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
                                     style={{ background: SUB_COLOR[s.state] }}
                                 />
                                 <div className="min-w-0 flex-1">
-                                    <div className="truncate font-mono text-[11px] font-semibold text-[#bdc4cc]">
+                                    <div className="truncate font-mono text-[11px] font-semibold text-muted-foreground">
                                         {s.type || "subagent"}
                                     </div>
-                                    <div className="truncate text-[9.5px] text-[#5f666f]">{s.model ?? ""}</div>
+                                    <div className="truncate text-[9.5px] text-muted">{s.model ?? ""}</div>
                                 </div>
                                 <span
                                     className="whitespace-nowrap font-mono text-[9.5px] font-medium"
@@ -178,7 +178,7 @@ function TerminalRow({ model, terminal, animateEntrance }: { model: AgentsViewMo
         >
             <span className="w-[7px] shrink-0 text-center font-mono text-[11px] leading-none text-muted">›_</span>
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[12px] font-semibold text-[#dfe4ea]">{terminal.name}</div>
+                <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{terminal.name}</div>
             </div>
             <span className="font-mono text-[10px] font-medium text-muted">terminal</span>
         </motion.div>
@@ -205,10 +205,10 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
     }, [idsKey]);
 
     return (
-        <div className="flex w-[248px] shrink-0 flex-col border-r border-[#1a1f26] bg-surface">
-            <div className="border-b border-[#181d23] px-[16px] pb-[12px] pt-[16px]">
+        <div className="flex w-[248px] shrink-0 flex-col border-r border-border bg-surface">
+            <div className="border-b border-edge-faint px-[16px] pb-[12px] pt-[16px]">
                 <div className="flex items-center justify-between">
-                    <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-[#8b939d]">Agents</h3>
+                    <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">Agents</h3>
                     <span className="font-mono text-[11px] font-semibold text-muted">{agents.length}</span>
                 </div>
             </div>
@@ -224,13 +224,13 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                 <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
                                     {r.project}
                                 </span>
-                                <div className="h-px flex-1 bg-[#181d23]" />
+                                <div className="h-px flex-1 bg-edge-faint" />
                                 {r.attn > 0 ? (
                                     <span className="rounded-[5px] bg-warning/10 px-[6px] py-[1px] font-mono text-[9.5px] font-semibold text-warning">
                                         {r.attn}
                                     </span>
                                 ) : null}
-                                <span className="font-mono text-[10px] font-semibold text-[#4d545d]">{r.count}</span>
+                                <span className="font-mono text-[10px] font-semibold text-feed-time">{r.count}</span>
                             </motion.div>
                         ) : (
                             <ParentRow key={r.agent.id} model={model} agent={r.agent} animateEntrance={entranceIds.has(r.agent.id)} />
@@ -245,8 +245,8 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                             <span className="truncate font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
                                 Terminals
                             </span>
-                            <div className="h-px flex-1 bg-[#181d23]" />
-                            <span className="font-mono text-[10px] font-semibold text-[#4d545d]">{terminals.length}</span>
+                            <div className="h-px flex-1 bg-edge-faint" />
+                            <span className="font-mono text-[10px] font-semibold text-feed-time">{terminals.length}</span>
                         </motion.div>
                     ) : null}
                     {terminals.map((t) => (

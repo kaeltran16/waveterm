@@ -289,7 +289,7 @@ function AppearanceSection() {
                         <button
                             type="button"
                             onClick={() => setOverrides({})}
-                            className="cursor-pointer rounded-[8px] border border-edge-mid px-[11px] py-1.5 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
+                            className="cursor-pointer rounded border border-edge-mid px-[11px] py-1.5 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
                         >
                             Reset to preset
                         </button>
@@ -308,7 +308,7 @@ function AppearanceSection() {
                                 type="button"
                                 title={hex}
                                 onClick={() => setOverride("accent", hex)}
-                                className="h-[22px] w-[22px] cursor-pointer rounded-[6px] border-2 p-0"
+                                className="h-[22px] w-[22px] cursor-pointer rounded-sm border-2 p-0"
                                 style={{
                                     background: hex,
                                     borderColor:
@@ -320,7 +320,7 @@ function AppearanceSection() {
                         ))}
                         <label
                             title="Custom hex"
-                            className="relative flex h-[22px] w-[22px] flex-none cursor-pointer items-center justify-center overflow-hidden rounded-[6px] border border-edge-mid"
+                            className="relative flex h-[22px] w-[22px] flex-none cursor-pointer items-center justify-center overflow-hidden rounded-sm border border-edge-mid"
                         >
                             <span className="pointer-events-none absolute font-mono text-[12px] font-bold text-muted">
                                 +
@@ -432,7 +432,7 @@ function NewAgentDefaultsSection() {
                         type="button"
                         onClick={() => setRuntime(r.id)}
                         className={cn(
-                            "cursor-pointer rounded-[8px] border px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors",
+                            "cursor-pointer rounded border px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors",
                             runtime === r.id
                                 ? "border-accent-700 bg-accentbg text-accent"
                                 : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
@@ -555,7 +555,7 @@ function TermThemeDropdown({
                                 setOpen(false);
                             }}
                             className={cn(
-                                "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-[9px] py-2 text-left transition-colors hover:bg-surface-hover",
+                                "flex w-full cursor-pointer items-center gap-2.5 rounded px-[9px] py-2 text-left transition-colors hover:bg-surface-hover",
                                 sel ? "bg-surface-raised" : "bg-transparent"
                             )}
                         >
@@ -737,7 +737,7 @@ function MemorySection() {
                         onClick={() => void browse()}
                         title="Browse for folder"
                         aria-label="Browse for folder"
-                        className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-muted transition-colors hover:bg-surface-hover hover:text-primary"
+                        className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-muted transition-colors hover:bg-surface-hover hover:text-primary"
                     >
                         <Folder size={15} />
                     </button>

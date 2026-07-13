@@ -40,7 +40,7 @@ const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow fo
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
     return (
-        <div className="flex items-baseline justify-between border-b border-[#161a20] py-[8px] last:border-b-0">
+        <div className="flex items-baseline justify-between border-b border-edge-faint py-[8px] last:border-b-0">
             <span className="text-[12.5px] text-muted">{label}</span>
             <span className="font-mono text-[12px] font-medium text-secondary">{value}</span>
         </div>
@@ -48,7 +48,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-[#8b939d]">{children}</h3>;
+    return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
 }
 
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -145,7 +145,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                       {Math.round(ctxPct)}%
                                   </span>
                               </div>
-                              <div className="h-[7px] overflow-hidden rounded-[4px] bg-[#1a1f25]">
+                              <div className="h-[7px] overflow-hidden rounded-[4px] bg-surface-hover">
                                   <span
                                       className={cn("block h-full rounded-[4px]", GAUGE_FILL[usageLevel(ctxPct)])}
                                       style={{ width: `${Math.min(100, ctxPct)}%` }}
@@ -174,7 +174,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                   {subs.map((s) => (
                                       <div
                                           key={s.id}
-                                          className="flex items-center gap-[10px] rounded-[10px] border border-[#1c2128] bg-[#0f1217] px-[11px] py-[9px]"
+                                          className="flex items-center gap-[10px] rounded-[10px] border border-border bg-surface px-[11px] py-[9px]"
                                       >
                                           <span
                                               className="h-[6px] w-[6px] shrink-0 rounded-full"
@@ -219,7 +219,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                   {tools.map((t) => (
                                       <span
                                           key={t.verb}
-                                          className="rounded-[6px] border border-edge-mid bg-surface-raised px-[9px] py-[4px] font-mono text-[11px] font-medium text-[#9aa3ad]"
+                                          className="rounded-sm border border-edge-mid bg-surface-raised px-[9px] py-[4px] font-mono text-[11px] font-medium text-ink-mid"
                                       >
                                           {t.verb} ×{t.count}
                                       </span>
@@ -252,7 +252,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                     type="button"
                                     key={f.path}
                                     onClick={() => openDiff(f.path)}
-                                    className="flex cursor-pointer items-center gap-[8px] rounded-[6px] px-[5px] py-[3px] text-left font-mono text-[11.5px] font-medium text-secondary hover:bg-surface-hover hover:text-primary"
+                                    className="flex cursor-pointer items-center gap-[8px] rounded-sm px-[5px] py-[3px] text-left font-mono text-[11.5px] font-medium text-secondary hover:bg-surface-hover hover:text-primary"
                                 >
                                     <span className={cn("flex-none font-bold", statusColor(f.status))}>{f.status}</span>
                                     <span className="min-w-0 truncate">{f.path}</span>
@@ -262,7 +262,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                 <button
                                     type="button"
                                     onClick={() => openDiff()}
-                                    className="w-fit cursor-pointer rounded-[6px] px-[5px] py-[3px] text-[11px] text-muted hover:bg-surface-hover hover:text-secondary"
+                                    className="w-fit cursor-pointer rounded-sm px-[5px] py-[3px] text-[11px] text-muted hover:bg-surface-hover hover:text-secondary"
                                 >
                                     +{moreFiles} more
                                 </button>
@@ -286,7 +286,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         onClick={() => drive("continue\r")}
                         disabled={noTerminal}
                         title={noTerminal ? "no live terminal" : "nudge the agent to continue from idle"}
-                        className="flex-1 rounded-[8px] border border-edge-mid bg-surface-raised py-[8px] text-[12px] font-medium text-secondary hover:border-edge-strong disabled:cursor-not-allowed disabled:text-muted disabled:opacity-50"
+                        className="flex-1 rounded border border-edge-mid bg-surface-raised py-[8px] text-[12px] font-medium text-secondary hover:border-edge-strong disabled:cursor-not-allowed disabled:text-muted disabled:opacity-50"
                     >
                         Resume
                     </button>
@@ -295,7 +295,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         onClick={() => drive("\x1b")}
                         disabled={noTerminal}
                         title={noTerminal ? "no live terminal" : "interrupt the current turn"}
-                        className="flex-1 rounded-[8px] border border-error/30 bg-transparent py-[8px] text-[12px] font-medium text-error hover:bg-error/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex-1 rounded border border-error/30 bg-transparent py-[8px] text-[12px] font-medium text-error hover:bg-error/10 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         Stop
                     </button>

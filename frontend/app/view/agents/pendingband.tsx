@@ -73,14 +73,14 @@ export function PendingBand() {
                                 <button
                                     title="Keep"
                                     onClick={(e) => { e.stopPropagation(); fireAndForget(() => keepPending(p.path)); }}
-                                    className="flex h-[30px] w-[30px] items-center justify-center rounded-[8px] border border-success/30 bg-success/10 text-success hover:bg-success/20"
+                                    className="flex h-[30px] w-[30px] items-center justify-center rounded border border-success/30 bg-success/10 text-success hover:bg-success/20"
                                 >
                                     <Check size={14} strokeWidth={3} />
                                 </button>
                                 <button
                                     title="Dismiss"
                                     onClick={(e) => { e.stopPropagation(); fireAndForget(() => dismissPending(p.path)); }}
-                                    className="flex h-[30px] w-[30px] items-center justify-center rounded-[8px] border border-edge-mid text-ink-mid hover:border-error/40 hover:bg-error/8 hover:text-error"
+                                    className="flex h-[30px] w-[30px] items-center justify-center rounded border border-edge-mid text-ink-mid hover:border-error/40 hover:bg-error/8 hover:text-error"
                                 >
                                     <X size={13} strokeWidth={2.6} />
                                 </button>

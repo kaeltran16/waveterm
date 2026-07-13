@@ -85,12 +85,12 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
     return (
         <div
             onContextMenu={onContextMenu}
-            className="flex shrink-0 items-center gap-[13px] border-b border-[#1a1f26] bg-background px-[22px] py-[14px]"
+            className="flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
         >
             <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[9px] !w-[9px]" />
             <div className="min-w-0">
                 <div className="flex items-center gap-[9px]">
-                    <span className="whitespace-nowrap font-mono text-[15px] font-semibold text-[#eef1f4]">
+                    <span className="whitespace-nowrap font-mono text-[15px] font-semibold text-foreground">
                         {agent.name}
                     </span>
                     <span

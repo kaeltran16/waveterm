@@ -297,7 +297,7 @@ function NeedsRow({ kind, source, text, action, onGo }: { kind: string; source: 
                 </span>
             </div>
             <p className="mb-2 text-[12.5px] font-medium leading-[1.45] text-primary">{text}</p>
-            <span className="inline-block rounded-[6px] bg-asking px-2.5 py-1 font-mono text-[10.5px] font-bold text-background">
+            <span className="inline-block rounded-sm bg-asking px-2.5 py-1 font-mono text-[10.5px] font-bold text-background">
                 {action}
             </span>
         </button>
@@ -848,7 +848,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                         type="button"
                                         onClick={() => setProfileOpen((o) => !o)}
                                         title="Channel profile — run engine (pipeline vs. adaptive lead) & plan gate live here"
-                                        className="flex h-8 w-8 flex-none items-center justify-center rounded-[8px] border border-edge-mid bg-background text-[15px] text-muted hover:border-edge-strong hover:text-secondary"
+                                        className="flex h-8 w-8 flex-none items-center justify-center rounded border border-edge-mid bg-background text-[15px] text-muted hover:border-edge-strong hover:text-secondary"
                                     >
                                         ⚙
                                     </button>
@@ -992,7 +992,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                                             setPendingDraft(null);
                                                             setDraft("");
                                                         }}
-                                                        className="rounded-[6px] border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-muted hover:border-edge-strong hover:text-secondary"
+                                                        className="rounded-sm border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-muted hover:border-edge-strong hover:text-secondary"
                                                     >
                                                         Discard
                                                     </button>

@@ -35,7 +35,7 @@ import type { SubagentState, SubagentVM } from "./session-models/sessionviewmode
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
-    "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-edge-mid text-secondary hover:border-edge-strong hover:bg-white/[0.04]";
+    "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-edge-mid text-secondary hover:border-edge-strong hover:bg-white/[0.04]";
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",

@@ -88,13 +88,13 @@ function Segmented<T extends string>({
     onChange: (v: T) => void;
 }) {
     return (
-        <div className="flex flex-none rounded-[8px] border border-border bg-surface-raised p-[3px]">
+        <div className="flex flex-none rounded border border-border bg-surface-raised p-[3px]">
             {options.map((o) => (
                 <button
                     key={o.key}
                     onClick={() => onChange(o.key)}
                     className={cn(
-                        "cursor-pointer rounded-[6px] border-0 px-[12px] py-[5px] font-mono text-[11px] font-semibold",
+                        "cursor-pointer rounded-sm border-0 px-[12px] py-[5px] font-mono text-[11px] font-semibold",
                         value === o.key ? "bg-accentbg text-primary" : "bg-transparent text-muted"
                     )}
                 >
@@ -107,7 +107,7 @@ function Segmented<T extends string>({
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
     return (
-        <div className="rounded-[12px] border border-border bg-surface-raised px-[17px] py-[15px]">
+        <div className="rounded-lg border border-border bg-surface-raised px-[17px] py-[15px]">
             <div className="mb-[9px] font-mono text-[11px] font-medium text-muted">{label}</div>
             <div className="mb-[6px] font-mono text-[23px] font-bold text-primary">{value}</div>
             {sub ? <div className="font-mono text-[10px] text-muted">{sub}</div> : null}
@@ -423,7 +423,7 @@ function UsageHistorySkeleton() {
         <div>
             <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
                 {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className="rounded-[12px] border border-border bg-surface-raised px-[17px] py-[15px]">
+                    <div key={i} className="rounded-lg border border-border bg-surface-raised px-[17px] py-[15px]">
                         <SkeletonLine className="mb-[12px] h-[11px] w-[72px]" />
                         <SkeletonLine className="mb-[9px] h-[23px] w-[92px]" />
                         <SkeletonLine className="h-[10px] w-[118px]" />

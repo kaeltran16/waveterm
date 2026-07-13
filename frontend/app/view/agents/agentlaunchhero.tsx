@@ -61,7 +61,7 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
                 </button>
 
                 {sessions != null && sessions.length > 0 ? (
-                    <div className="mt-6 w-full overflow-hidden rounded-[12px] border border-border bg-surface text-left">
+                    <div className="mt-6 w-full overflow-hidden rounded-lg border border-border bg-surface text-left">
                         <div className="flex items-center gap-2 px-[14px] pb-[9px] pt-[11px] font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">
                             <span>Recent sessions</span>
                             <span className="opacity-60">{sessions.length}</span>

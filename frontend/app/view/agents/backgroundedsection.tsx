@@ -37,7 +37,7 @@ export function BackgroundedSection({ agents, onRestore }: { agents: AgentVM[]; 
                                 exit="exit"
                                 onClick={() => onRestore(a.id)}
                                 title="Restore to working"
-                                className="flex cursor-pointer items-center gap-2.5 rounded-[6px] px-2 py-1.5 hover:bg-white/[0.04]"
+                                className="flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 hover:bg-white/[0.04]"
                             >
                                 <span className="h-2 w-2 shrink-0 rounded-full bg-accent/50" />
                                 <b className="shrink-0 text-[12px] text-secondary">{a.name}</b>

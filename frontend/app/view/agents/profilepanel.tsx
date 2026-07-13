@@ -65,12 +65,12 @@ function PhaseEditor({
     onMove: (dir: -1 | 1) => void;
 }) {
     return (
-        <div className="rounded-[8px] border border-edge-mid bg-surface p-2">
+        <div className="rounded border border-edge-mid bg-surface p-2">
             <div className="flex items-center gap-1.5">
                 <select
                     value={phase.kind}
                     onChange={(e) => onChange({ ...phase, kind: e.target.value })}
-                    className="rounded-[6px] border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
+                    className="rounded-sm border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
                 >
                     {PHASE_KINDS.map((k) => (
                         <option key={k} value={k}>
@@ -92,7 +92,7 @@ function PhaseEditor({
                 value={phase.skill ?? ""}
                 onChange={(e) => onChange({ ...phase, skill: e.target.value })}
                 placeholder="skill (e.g. superpowers:writing-plans)"
-                className="mt-1.5 w-full rounded-[6px] border border-edge-mid bg-background px-1.5 py-1 font-mono text-[11px] text-primary placeholder:text-muted focus:outline-none"
+                className="mt-1.5 w-full rounded-sm border border-edge-mid bg-background px-1.5 py-1 font-mono text-[11px] text-primary placeholder:text-muted focus:outline-none"
             />
             <div className="mt-1.5 flex gap-3">
                 <label className="flex cursor-pointer items-center gap-1 text-[10.5px] text-secondary">
@@ -224,10 +224,10 @@ function PrinciplesSection({
                     value={value}
                     onChange={(e) => setDraft((d) => ({ ...d, principles: e.target.value }))}
                     rows={6}
-                    className="w-full rounded-[8px] border border-edge-mid bg-background p-2 text-[11.5px] leading-[1.5] text-primary focus:outline-none"
+                    className="w-full rounded border border-edge-mid bg-background p-2 text-[11.5px] leading-[1.5] text-primary focus:outline-none"
                 />
             ) : (
-                <div className="whitespace-pre-wrap rounded-[8px] border border-edge-mid bg-surface p-2 text-[11px] leading-[1.5] text-muted">
+                <div className="whitespace-pre-wrap rounded border border-edge-mid bg-surface p-2 text-[11px] leading-[1.5] text-muted">
                     {value || "—"}
                 </div>
             )}
@@ -267,7 +267,7 @@ function DefaultsSection({
                 <select
                     value={mode}
                     onChange={(e) => setDraft((d) => ({ ...d, defaultmode: e.target.value }))}
-                    className="rounded-[6px] border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
+                    className="rounded-sm border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
                 >
                     <option value="pipeline">pipeline</option>
                     <option value="orchestrator">orchestrator</option>
@@ -348,7 +348,7 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
             type="button"
             disabled={saving || !isDirty(draft, loaded.override)}
             onClick={save}
-            className="w-full rounded-[8px] bg-accent py-2 text-[12px] font-semibold text-background hover:bg-accenthover disabled:opacity-40"
+            className="w-full rounded bg-accent py-2 text-[12px] font-semibold text-background hover:bg-accenthover disabled:opacity-40"
         >
             {saving ? "Saving…" : "Save"}
         </button>

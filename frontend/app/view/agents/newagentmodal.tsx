@@ -278,7 +278,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                             onClick={() => setProject(p.name)}
                                             title={failed ? "No working directory found for this project" : undefined}
                                             className={cn(
-                                                "flex items-center gap-[7px] rounded-[8px] border bg-surface px-[11px] py-[7px]",
+                                                "flex items-center gap-[7px] rounded border bg-surface px-[11px] py-[7px]",
                                                 failed
                                                     ? "cursor-not-allowed opacity-40"
                                                     : "cursor-pointer hover:border-edge-strong",
@@ -317,7 +317,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         </Section>
                     ) : null}
                     <Section label="Startup command · optional">
-                        <div className="flex items-center gap-[9px] rounded-[8px] border border-edge-mid bg-surface px-3 py-[9px]">
+                        <div className="flex items-center gap-[9px] rounded border border-edge-mid bg-surface px-3 py-[9px]">
                             <span className="font-mono text-[12.5px] font-semibold text-success">›</span>
                             <input
                                 value={startup}
@@ -482,7 +482,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                             </div>
                             {useWorktree ? (
                                 <div className="relative mt-[11px]">
-                                    <div className="flex items-center rounded-[8px] border border-edge-mid bg-surface focus-within:border-accent-700">
+                                    <div className="flex items-center rounded border border-edge-mid bg-surface focus-within:border-accent-700">
                                         <input
                                             value={effectiveBranch}
                                             onChange={(e) => {
@@ -506,7 +506,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                     <PopoverReveal
                                         open={branchListOpen && branches.length > 0}
                                         origin="bottom left"
-                                        className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded-[8px] border border-edge-mid bg-modalbg py-1 shadow-popover"
+                                        className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-[168px] overflow-y-auto rounded border border-edge-mid bg-modalbg py-1 shadow-popover"
                                     >
                                         {branches.map((b) => (
                                             <button
@@ -560,13 +560,13 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                     <div className="flex-1" />
                     <button
                         onClick={close}
-                        className="cursor-pointer rounded-[8px] border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
+                        className="cursor-pointer rounded border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
                     >
                         Cancel
                     </button>
                     <button
                         onClick={() => void launch()}
-                        className="flex cursor-pointer items-center gap-[7px] rounded-[8px] border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover"
+                        className="flex cursor-pointer items-center gap-[7px] rounded border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover"
                     >
                         {runtimeLaunchLabel(runtime)}
                         <span className="font-mono text-[10.5px] opacity-70">⌘↵</span>

@@ -25,7 +25,7 @@ export function CleanupQueue() {
             {open && (
                 <ul className="mt-[6px] flex flex-col gap-[4px]">
                     {candidates.map((c) => (
-                        <li key={c.path} className="flex items-center gap-[8px] rounded-[6px] bg-surface/60 px-[8px] py-[6px]">
+                        <li key={c.path} className="flex items-center gap-[8px] rounded-sm bg-surface/60 px-[8px] py-[6px]">
                             <span className="min-w-0 flex-1 truncate text-[12px] text-ink-high">{c.title}</span>
                             <span className="shrink-0 text-[10px] font-mono uppercase text-ink-mid">{c.reason}</span>
                             <button title="Remove" className="text-ink-mid hover:text-error" onClick={() => void prune(c.path)}>

@@ -52,8 +52,8 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                 className={cn(
                     "flex cursor-pointer items-center gap-1.5",
                     variant === "bar"
-                        ? "rounded-[6px] px-[7px] py-1 text-[13px] font-medium text-secondary hover:bg-surface-hover hover:text-primary"
-                        : "rounded-[8px] border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-edge-strong"
+                        ? "rounded-sm px-[7px] py-1 text-[13px] font-medium text-secondary hover:bg-surface-hover hover:text-primary"
+                        : "rounded border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-edge-strong"
                 )}
             >
                 {label}
@@ -63,7 +63,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
             <PopoverReveal
                 open={open}
                 origin="top left"
-                className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-[12px] border border-edge-strong bg-surface-raised shadow-popover"
+                className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-lg border border-edge-strong bg-surface-raised shadow-popover"
             >
                         <div className="px-3 pb-1.5 pt-[9px]">
                             <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
@@ -75,7 +75,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                 type="button"
                                 onClick={() => select("all")}
                                 className={cn(
-                                    "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2 py-2 text-left hover:bg-surface-hover",
+                                    "flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-2 text-left hover:bg-surface-hover",
                                     filter === "all" && "bg-accent/10"
                                 )}
                             >
@@ -90,7 +90,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                 <div
                                     key={p.name}
                                     className={cn(
-                                        "group flex items-center gap-2.5 rounded-[8px] px-2 hover:bg-surface-hover",
+                                        "group flex items-center gap-2.5 rounded px-2 hover:bg-surface-hover",
                                         filter === p.name && "bg-accent/10"
                                     )}
                                 >

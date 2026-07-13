@@ -174,7 +174,7 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
             <div
                 onClick={onClick}
                 className={cn(
-                    "flex items-center gap-1.5 rounded-[6px] px-1.5 py-[3px]",
+                    "flex items-center gap-1.5 rounded-sm px-1.5 py-[3px]",
                     detail ? "cursor-pointer opacity-[0.72] hover:bg-lane hover:opacity-100" : "opacity-[0.68]"
                 )}
             >
@@ -328,7 +328,7 @@ function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; 
         <div>
             <div
                 onClick={onClick}
-                className="flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1.5 py-[3px] opacity-[0.72] hover:bg-lane hover:opacity-100"
+                className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-[3px] opacity-[0.72] hover:bg-lane hover:opacity-100"
             >
                 <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] bg-success/15 text-[8px] text-success">
                     ✓
@@ -384,7 +384,7 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
         <div className="mt-2 flex gap-2.5">
             <span
                 className={cn(
-                    "mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border font-mono text-[10px]",
+                    "mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border font-mono text-[10px]",
                     ok ? "border-success/30 bg-success/[0.12] text-success" : "border-warning/30 bg-warning/[0.12] text-warning"
                 )}
             >
@@ -396,7 +396,7 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
                     disabled={!canExpand}
                     onClick={() => setOpen((v) => !v)}
                     className={cn(
-                        "flex w-full items-center gap-2 rounded-[8px] border border-edge-faint bg-surface px-2.5 py-1.5 text-left",
+                        "flex w-full items-center gap-2 rounded border border-edge-faint bg-surface px-2.5 py-1.5 text-left",
                         canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
                     )}
                 >
@@ -481,7 +481,7 @@ export function NarrationTimeline({
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border border-accent/30 bg-accent/[0.13]">
+                            <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-accent/30 bg-accent/[0.13]">
                                 <span className="h-[7px] w-[7px] rounded-full bg-accent-soft" />
                             </span>
                             <div

@@ -64,7 +64,7 @@ export function ChannelRail({
     return (
         <div className="flex w-[244px] flex-none flex-col border-r border-border bg-surface">
             <div className="border-b border-edge-faint px-3.5 py-3">
-                <div className="flex items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-muted focus-within:border-accent">
+                <div className="flex items-center gap-2 rounded border border-edge-mid bg-surface-raised px-2.5 py-1.5 text-muted focus-within:border-accent">
                     <span className="h-[11px] w-[11px] rounded-full border-[1.4px] border-current" />
                     <input
                         type="text"
@@ -130,7 +130,7 @@ export function ChannelRail({
                             }
                         >
                             {renaming ? (
-                                <div className="flex w-full items-center gap-2.5 rounded-[8px] bg-accentbg px-2.5 py-2">
+                                <div className="flex w-full items-center gap-2.5 rounded bg-accentbg px-2.5 py-2">
                                     <span className="font-mono text-[13px] font-semibold text-accent">#</span>
                                     <input
                                         autoFocus
@@ -171,7 +171,7 @@ export function ChannelRail({
                                     type="button"
                                     onClick={() => onSelect(c.oid)}
                                     className={cn(
-                                        "flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left transition-colors duration-[140ms]",
+                                        "flex w-full cursor-pointer items-center gap-2.5 rounded px-2.5 py-2 text-left transition-colors duration-[140ms]",
                                         isActive ? "bg-accentbg" : "hover:bg-surface-hover"
                                     )}
                                 >
@@ -294,7 +294,7 @@ export function ChannelRail({
                             ? archived.map((c) => (
                                   <div
                                       key={c.oid}
-                                      className="group flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 hover:bg-surface-hover"
+                                      className="group flex w-full items-center gap-2 rounded px-2.5 py-1.5 hover:bg-surface-hover"
                                   >
                                       <button
                                           type="button"
@@ -320,7 +320,7 @@ export function ChannelRail({
                 <button
                     type="button"
                     onClick={onToggleNew}
-                    className="mt-2 flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left text-ink-mid hover:bg-surface-hover"
+                    className="mt-2 flex w-full cursor-pointer items-center gap-2.5 rounded px-2.5 py-2 text-left text-ink-mid hover:bg-surface-hover"
                 >
                     <span className="font-mono text-[13px] font-semibold text-muted">+</span>
                     <span className="flex-1 text-[13px] font-medium">New channel</span>

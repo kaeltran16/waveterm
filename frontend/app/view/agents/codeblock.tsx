@@ -56,7 +56,7 @@ export function CodeBlock({ code, lang, path }: { code: string; lang?: string; p
 
 function cnCopy(copied: boolean): string {
     return (
-        "flex items-center gap-[5px] rounded-[6px] border border-edge-mid px-2 py-[3px] font-mono " +
+        "flex items-center gap-[5px] rounded-sm border border-edge-mid px-2 py-[3px] font-mono " +
         "text-[9.5px] tracking-[0.03em] hover:border-edge-strong " +
         (copied ? "text-success" : "text-muted")
     );

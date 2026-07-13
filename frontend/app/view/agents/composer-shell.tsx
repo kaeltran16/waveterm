@@ -56,7 +56,7 @@ export function ComposerShell({
     return (
         <div className="relative">
             {overlay}
-            <div className="rounded-[12px] border border-edge-mid bg-surface-raised px-[15px] py-3">
+            <div className="rounded-lg border border-edge-mid bg-surface-raised px-[15px] py-3">
                 <div className="relative">
                     {inputRegion ?? (
                         <textarea
@@ -81,7 +81,7 @@ export function ComposerShell({
                         type="button"
                         onClick={onSubmit}
                         disabled={sendDisabled ?? disabled}
-                        className="shrink-0 cursor-pointer rounded-[8px] bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
+                        className="shrink-0 cursor-pointer rounded bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"
                     >
                         {sendLabel}
                     </button>

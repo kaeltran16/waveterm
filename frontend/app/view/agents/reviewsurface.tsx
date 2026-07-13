@@ -167,7 +167,7 @@ function HunkBlock({ f, h, d }: { f: ReviewFile; h: ReviewFile["hunks"][number];
     return (
         <div
             className={cn(
-                "mb-[10px] overflow-hidden rounded-[8px] border border-border border-l-2 transition-[border-color,opacity] duration-[140ms]",
+                "mb-[10px] overflow-hidden rounded border border-border border-l-2 transition-[border-color,opacity] duration-[140ms]",
                 rail,
                 settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
             )}
@@ -179,8 +179,8 @@ function HunkBlock({ f, h, d }: { f: ReviewFile; h: ReviewFile["hunks"][number];
                 <span className="flex-none font-mono text-[10px] font-bold text-error">−{h.dels}</span>
                 {dec === null ? (
                     <>
-                        <button onClick={() => decide(key, "reject")} className="rounded-[6px] border border-border px-[9px] py-[3px] text-[10.5px] font-[600] text-ink-mid hover:border-error hover:text-error">Reject</button>
-                        <button onClick={() => decide(key, "accept")} className="rounded-[6px] border border-border px-[9px] py-[3px] text-[10.5px] font-[600] text-ink-mid hover:border-success hover:text-success">Accept</button>
+                        <button onClick={() => decide(key, "reject")} className="rounded-sm border border-border px-[9px] py-[3px] text-[10.5px] font-[600] text-ink-mid hover:border-error hover:text-error">Reject</button>
+                        <button onClick={() => decide(key, "accept")} className="rounded-sm border border-border px-[9px] py-[3px] text-[10.5px] font-[600] text-ink-mid hover:border-success hover:text-success">Accept</button>
                     </>
                 ) : (
                     <>

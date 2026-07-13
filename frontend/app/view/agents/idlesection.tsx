@@ -39,7 +39,7 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
                                     initial="initial"
                                     animate="animate"
                                     exit="exit"
-                                    className="flex flex-col rounded-[6px] hover:bg-white/[0.04]"
+                                    className="flex flex-col rounded-sm hover:bg-white/[0.04]"
                                 >
                                     <div
                                         onClick={() => onOpen(a.id)}

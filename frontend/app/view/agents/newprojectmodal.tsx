@@ -73,7 +73,7 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="my-service"
-                            className="w-full rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 text-[13.5px] font-medium text-primary outline-none focus:border-accent-700"
+                            className="w-full rounded border border-edge-mid bg-surface px-[13px] py-2.5 text-[13.5px] font-medium text-primary outline-none focus:border-accent-700"
                         />
                     </div>
                     <div>
@@ -85,12 +85,12 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                                 value={path}
                                 onChange={(e) => setPath(e.target.value)}
                                 placeholder="~/code/my-service"
-                                className="flex-1 rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 font-mono text-[12.5px] text-secondary outline-none focus:border-accent-700"
+                                className="flex-1 rounded border border-edge-mid bg-surface px-[13px] py-2.5 font-mono text-[12.5px] text-secondary outline-none focus:border-accent-700"
                             />
                             <button
                                 type="button"
                                 onClick={() => void browse()}
-                                className="shrink-0 cursor-pointer rounded-[8px] border border-edge-mid bg-surface px-[13px] py-2.5 text-[12.5px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
+                                className="shrink-0 cursor-pointer rounded border border-edge-mid bg-surface px-[13px] py-2.5 text-[12.5px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
                             >
                                 Browse…
                             </button>
@@ -102,14 +102,14 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                     <div className="flex-1" />
                     <button
                         onClick={close}
-                        className="cursor-pointer rounded-[8px] border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
+                        className="cursor-pointer rounded border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
                     >
                         Cancel
                     </button>
                     <button
                         onClick={() => void create()}
                         disabled={!canCreate}
-                        className="cursor-pointer rounded-[8px] border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-not-allowed disabled:bg-edge-strong disabled:text-muted"
+                        className="cursor-pointer rounded border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-not-allowed disabled:bg-edge-strong disabled:text-muted"
                     >
                         Create project
                     </button>

@@ -97,7 +97,7 @@ function Header({ count, pending, onNew }: { count: number; pending: number; onN
             </div>
             <button
                 onClick={onNew}
-                className="flex items-center gap-[6px] rounded-[8px] bg-accent px-[13px] py-[8px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
+                className="flex items-center gap-[6px] rounded bg-accent px-[13px] py-[8px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
             >
                 <span className="-mt-px text-[15px] leading-none">+</span>New memory
             </button>
@@ -275,14 +275,14 @@ function DetailBody({
                 </motion.div>
             </AnimatePresence>
             {conflict && (
-                <div className="mb-[10px] rounded-[8px] border border-warning/40 bg-warning/10 px-[11px] py-[8px] text-[12px] text-warning">
+                <div className="mb-[10px] rounded border border-warning/40 bg-warning/10 px-[11px] py-[8px] text-[12px] text-warning">
                     This note changed on disk since you opened it. Reload to see the latest before saving.
                 </div>
             )}
             <div className="mb-[22px] flex gap-[8px]">
                 {editing ? (
                     <>
-                        <button onClick={doSave} className="flex-1 rounded-[8px] bg-accent py-[8px] text-[12px] font-semibold text-background hover:bg-accenthover">
+                        <button onClick={doSave} className="flex-1 rounded bg-accent py-[8px] text-[12px] font-semibold text-background hover:bg-accenthover">
                             Save
                         </button>
                         <button
@@ -290,14 +290,14 @@ function DetailBody({
                                 setEditing(false);
                                 setConflict(false);
                             }}
-                            className="flex-1 rounded-[8px] border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong"
+                            className="flex-1 rounded border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong"
                         >
                             Cancel
                         </button>
                         {conflict && (
                             <button
                                 onClick={() => fireAndForget(() => selectNote(sel.id))}
-                                className="rounded-[8px] border border-edge-mid px-[10px] py-[8px] text-[12px] text-ink-mid"
+                                className="rounded border border-edge-mid px-[10px] py-[8px] text-[12px] text-ink-mid"
                             >
                                 Reload
                             </button>
@@ -305,12 +305,12 @@ function DetailBody({
                     </>
                 ) : (
                     <>
-                        <button onClick={startEdit} className="flex-1 rounded-[8px] border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong">
+                        <button onClick={startEdit} className="flex-1 rounded border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong">
                             Edit
                         </button>
                         <button
                             onClick={() => fireAndForget(() => deleteNote(sel.path))}
-                            className="rounded-[8px] border border-error/30 px-[12px] py-[8px] text-[12px] text-error hover:bg-error/10"
+                            className="rounded border border-error/30 px-[12px] py-[8px] text-[12px] text-error hover:bg-error/10"
                         >
                             Delete
                         </button>

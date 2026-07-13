@@ -86,20 +86,20 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                 <div className="mb-1 flex items-center gap-[11px]">
                     <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">Sessions</h1>
                     {liveCount > 0 ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-[6px] border border-accent bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-soft">
+                        <span className="inline-flex items-center gap-1.5 rounded-sm border border-accent bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-soft">
                             <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                             {liveCount} live
                         </span>
                     ) : null}
                     <div className="flex-1" />
-                    <div className="flex items-center gap-1 rounded-[8px] border border-border bg-surface p-0.5">
+                    <div className="flex items-center gap-1 rounded border border-border bg-surface p-0.5">
                         {FILTERS.map((f) => (
                             <button
                                 key={f.key}
                                 type="button"
                                 onClick={() => setFilter(f.key)}
                                 className={cn(
-                                    "cursor-pointer rounded-[6px] px-[11px] py-[5px] text-[11px] font-semibold",
+                                    "cursor-pointer rounded-sm px-[11px] py-[5px] text-[11px] font-semibold",
                                     filter === f.key ? "bg-accentbg text-primary" : "text-ink-mid hover:text-primary"
                                 )}
                             >
@@ -337,7 +337,7 @@ function SessionDetail({ model, session, now }: { model: AgentsViewModel; sessio
                     onClick={act}
                     disabled={!session.live && !session.resumecommand}
                     className={cn(
-                        "flex-none cursor-pointer rounded-[8px] px-[13px] py-[7px] text-[12px] font-semibold",
+                        "flex-none cursor-pointer rounded px-[13px] py-[7px] text-[12px] font-semibold",
                         session.live
                             ? "bg-accent text-background hover:opacity-90"
                             : "border border-border text-ink-mid hover:border-accent hover:text-accent-soft disabled:cursor-default disabled:opacity-40"

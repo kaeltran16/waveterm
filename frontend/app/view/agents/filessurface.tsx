@@ -67,7 +67,7 @@ function SourcePicker({
             <button
                 onClick={() => setOpen((v) => !v)}
                 disabled={!hasAny}
-                className="flex w-full items-center gap-[8px] rounded-[8px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
+                className="flex w-full items-center gap-[8px] rounded border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
             >
                 {currentAgent ? (
                     <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[currentAgent.state])} />
@@ -81,7 +81,7 @@ function SourcePicker({
             <PopoverReveal
                 open={open && hasAny}
                 origin="top"
-                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded-[8px] border border-border bg-modalbg py-1 shadow-popover"
+                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-[280px] overflow-y-auto rounded border border-border bg-modalbg py-1 shadow-popover"
             >
                         {agents.length > 0 ? (
                             <div className="px-[10px] pb-[3px] pt-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-faint">
@@ -236,7 +236,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                         {cwd && (
                             <button
                                 onClick={() => getApi().openExternal(`${cwd}/${path}`)}
-                                className="flex-none rounded-[8px] border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
+                                className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
                             >
                                 Open in editor ↗
                             </button>
@@ -402,7 +402,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         key={f.path}
                                         onClick={() => globalStore.set(reviewSelectedAtom, f.path)}
                                         className={cn(
-                                            "flex w-full items-center gap-[8px] rounded-[8px] px-[9px] py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
+                                            "flex w-full items-center gap-[8px] rounded px-[9px] py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
                                             f.path === rSelPath && "bg-surface-selected"
                                         )}
                                     >

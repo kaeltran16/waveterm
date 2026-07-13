@@ -168,7 +168,7 @@ function PlanPreview({ path, onEditorReady }: { path: string; onEditorReady?: (f
                             setDraft(load.text);
                             setEditing(true);
                         }}
-                        className="flex-none rounded-[6px] border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-ink-mid hover:border-edge-strong"
+                        className="flex-none rounded-sm border border-edge-mid px-2 py-0.5 font-mono text-[10px] text-ink-mid hover:border-edge-strong"
                     >
                         Edit
                     </button>
@@ -177,7 +177,7 @@ function PlanPreview({ path, onEditorReady }: { path: string; onEditorReady?: (f
                     <button
                         type="button"
                         onClick={() => fireAndForget(save)}
-                        className="flex-none rounded-[6px] border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[10px] text-accent-soft hover:bg-accentbg/60"
+                        className="flex-none rounded-sm border border-accent/50 bg-accentbg/40 px-2 py-0.5 font-mono text-[10px] text-accent-soft hover:bg-accentbg/60"
                     >
                         Save
                     </button>
@@ -189,7 +189,7 @@ function PlanPreview({ path, onEditorReady }: { path: string; onEditorReady?: (f
                         <textarea
                             value={draft}
                             onChange={(e) => setDraft(e.target.value)}
-                            className="h-[300px] w-full resize-none rounded-[8px] border border-edge-mid bg-background px-3 py-2 font-mono text-[12px] leading-[1.5] text-secondary focus:outline-none"
+                            className="h-[300px] w-full resize-none rounded border border-edge-mid bg-background px-3 py-2 font-mono text-[12px] leading-[1.5] text-secondary focus:outline-none"
                         />
                     ) : load.status === "loading" ? (
                         <span className="text-[12px] text-muted">Loading plan…</span>
@@ -236,7 +236,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
                             await approveGate(channelId, run.id, gateIdx);
                         })
                     }
-                    className="rounded-[8px] bg-accent px-4 py-2 text-[12px] font-bold text-background hover:bg-accent/90"
+                    className="rounded bg-accent px-4 py-2 text-[12px] font-bold text-background hover:bg-accent/90"
                 >
                     {run.mode === "orchestrator" ? "Approve & proceed" : "Approve & execute"}
                 </button>
@@ -244,7 +244,7 @@ function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: R
                 <button
                     type="button"
                     onClick={() => fireAndForget(() => sendBackGate(channelId, run.id, gateIdx))}
-                    className="rounded-[8px] border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary hover:border-asking hover:text-asking"
+                    className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary hover:border-asking hover:text-asking"
                 >
                     Send back
                 </button>
@@ -269,7 +269,7 @@ function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent: AgentV
 
 function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel; channelId: string; run: Run; worker?: AgentVM }) {
     return (
-        <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-[12px] border border-error/40 bg-error/10 px-4 py-3">
+        <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
                 <span className="font-mono text-[12px] font-bold text-error">!</span>
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">Blocked · worker exited</span>
@@ -280,7 +280,7 @@ function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel
                     <button
                         type="button"
                         onClick={() => jumpToAgent(model, worker.id)}
-                        className="rounded-[8px] border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary hover:border-edge-strong"
+                        className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-secondary hover:border-edge-strong"
                     >
                         Take control
                     </button>
@@ -289,7 +289,7 @@ function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel
                 <button
                     type="button"
                     onClick={() => fireAndForget(() => cancelRun(channelId, run.id))}
-                    className="rounded-[8px] border border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:border-error hover:text-error"
+                    className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:border-error hover:text-error"
                 >
                     Cancel run
                 </button>
@@ -315,7 +315,7 @@ function TriageChip({ triage }: { triage: PhaseTriage }) {
     const quick = triage.verdict === "quick";
     const tone = quick ? "text-success border-success/40 bg-success/10" : "text-asking border-asking/40 bg-warning/10";
     return (
-        <div className={"mt-2 inline-flex max-w-[760px] items-center gap-2 rounded-[8px] border px-2.5 py-1.5 " + tone}>
+        <div className={"mt-2 inline-flex max-w-[760px] items-center gap-2 rounded border px-2.5 py-1.5 " + tone}>
             <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em]">Triage · {triage.verdict}</span>
             {triage.note ? <span className="text-[11.5px] leading-[1.4] text-secondary">{triage.note}</span> : null}
         </div>
@@ -397,7 +397,7 @@ export function RunHeader({
                             type="button"
                             disabled={!target}
                             onClick={onSteerToggle}
-                            className="rounded-[8px] border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong disabled:opacity-40"
+                            className="rounded border border-edge-mid px-2.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong disabled:opacity-40"
                         >
                             Steer
                         </button>
@@ -568,7 +568,7 @@ export function OrchestratorBody({
                 <button
                     type="button"
                     onClick={() => fireAndForget(() => cancelRun(channel.oid, run.id))}
-                    className="mt-4 flex-none self-start rounded-[8px] border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                    className="mt-4 flex-none self-start rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
                 >
                     Cancel run
                 </button>
@@ -785,7 +785,7 @@ export function RunBody({ model, channel, agents, run }: {
                     <button
                         type="button"
                         onClick={() => fireAndForget(() => cancelRun(channel.oid, run.id))}
-                        className="mt-4 rounded-[8px] border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                        className="mt-4 rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
                     >
                         Cancel run
                     </button>

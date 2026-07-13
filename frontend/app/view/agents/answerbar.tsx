@@ -87,7 +87,7 @@ function QuestionGroup({
                                 type="button"
                                 onClick={() => onClickOption(oi)}
                                 className={cn(
-                                    "flex w-full cursor-pointer items-start gap-2.5 rounded-[8px] border px-3 py-2 text-left",
+                                    "flex w-full cursor-pointer items-start gap-2.5 rounded border px-3 py-2 text-left",
                                     isSelected
                                         ? accent.selected
                                         : isRecommended
@@ -153,7 +153,7 @@ function QuestionGroup({
                                 type="button"
                                 onClick={() => onClickOption(oi)}
                                 className={cn(
-                                    "flex cursor-pointer items-center gap-2 rounded-[6px] border px-3 py-1 text-[12px]",
+                                    "flex cursor-pointer items-center gap-2 rounded-sm border px-3 py-1 text-[12px]",
                                     isSelected
                                         ? cn(accent.selected, "font-semibold text-primary")
                                         : isRecommended
@@ -185,7 +185,7 @@ function QuestionGroup({
                     onClick={(e) => e.stopPropagation()}
                     placeholder="or type your own answer…"
                     className={cn(
-                        "mt-2 w-full rounded-[8px] border bg-black/20 px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:outline-none",
+                        "mt-2 w-full rounded border bg-black/20 px-3 py-2 text-[12.5px] text-primary placeholder:text-muted focus:outline-none",
                         (text ?? "").trim() !== "" ? accent.selected : "border-border focus:border-accent/60"
                     )}
                 />
@@ -297,7 +297,7 @@ export function AnswerBar({
                             type="button"
                             onClick={() => onSelectQuestion?.(qi)}
                             className={cn(
-                                "flex cursor-pointer items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-[12px]",
+                                "flex cursor-pointer items-center gap-1.5 rounded-sm border px-2.5 py-1 text-[12px]",
                                 active ? accent.tab : "border-border text-secondary hover:bg-white/[0.04]"
                             )}
                         >

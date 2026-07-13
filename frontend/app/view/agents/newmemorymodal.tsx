@@ -73,7 +73,7 @@ export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: st
                                         key={t}
                                         onClick={() => setType(t)}
                                         className={cn(
-                                            "flex items-center gap-[7px] rounded-[8px] border px-[11px] py-[7px] text-[12.5px]",
+                                            "flex items-center gap-[7px] rounded border px-[11px] py-[7px] text-[12.5px]",
                                             type === t ? "border-accent text-foreground" : "border-border text-ink-mid"
                                         )}
                                     >
@@ -92,7 +92,7 @@ export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: st
                             value={scope}
                             onChange={(e) => setScope(e.target.value)}
                             placeholder="shared, or a project name"
-                            className="w-full rounded-[8px] border border-border bg-background px-[12px] py-[9px] font-mono text-[12.5px] text-foreground outline-none placeholder:text-ink-mid"
+                            className="w-full rounded border border-border bg-background px-[12px] py-[9px] font-mono text-[12.5px] text-foreground outline-none placeholder:text-ink-mid"
                         />
                     </div>
                     <div>
@@ -114,14 +114,14 @@ export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: st
                     <div className="flex-1" />
                     <button
                         onClick={onClose}
-                        className="rounded-[8px] border border-border px-[15px] py-[8px] text-[12.5px] font-semibold text-ink-mid hover:text-foreground"
+                        className="rounded border border-border px-[15px] py-[8px] text-[12.5px] font-semibold text-ink-mid hover:text-foreground"
                     >
                         Cancel
                     </button>
                     <button
                         onClick={save}
                         disabled={!canSave}
-                        className="rounded-[8px] bg-accent px-[16px] py-[8px] text-[12.5px] font-semibold text-background disabled:opacity-50"
+                        className="rounded bg-accent px-[16px] py-[8px] text-[12.5px] font-semibold text-background disabled:opacity-50"
                     >
                         Save memory
                     </button>
