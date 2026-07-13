@@ -2891,12 +2891,6 @@ declare global {
         workspacedata: Workspace;
     };
 
-    // waveobj.WorkspaceListEntry
-    type WorkspaceListEntry = {
-        workspaceid: string;
-        windowid: string;
-    };
-
     // wshrpc.WshServerCommandMeta
     type WshServerCommandMeta = {
         commandtype: string;
