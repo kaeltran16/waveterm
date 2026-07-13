@@ -100,11 +100,6 @@ declare global {
         weekreset?: number;
     };
 
-    // wshrpc.AiMessageData
-    type AiMessageData = {
-        message?: string;
-    };
-
     // wshrpc.AppInfo
     type AppInfo = {
         appid: string;
@@ -646,11 +641,6 @@ declare global {
     // wshrpc.CommandGetUsageStatsRtnData
     type CommandGetUsageStatsRtnData = {
         buckets: UsageBucket[];
-    };
-
-    // wshrpc.CommandGetWaveAIChatData
-    type CommandGetWaveAIChatData = {
-        chatid: string;
     };
 
     // wshrpc.CommandGetWindowTokensData
@@ -1248,12 +1238,6 @@ declare global {
     type CommandWaveAIGetToolDiffRtnData = {
         originalcontents64: string;
         modifiedcontents64: string;
-    };
-
-    // wshrpc.CommandWaveAIToolApproveData
-    type CommandWaveAIToolApproveData = {
-        toolcallid: string;
-        approval?: string;
     };
 
     // wshrpc.CommandWaveFileReadStreamData
@@ -2476,47 +2460,10 @@ declare global {
         values: {[key: string]: number};
     };
 
-    // uctypes.UIChat
-    type UIChat = {
-        chatid: string;
-        apitype: string;
-        model: string;
-        apiversion: string;
-        messages: UIMessage[];
-    };
-
     // waveobj.UIContext
     type UIContext = {
         windowid: string;
         activetabid: string;
-    };
-
-    // uctypes.UIMessage
-    type UIMessage = {
-        id: string;
-        role: string;
-        metadata?: any;
-        parts?: UIMessagePart[];
-    };
-
-    // uctypes.UIMessagePart
-    type UIMessagePart = {
-        type: string;
-        text?: string;
-        state?: string;
-        toolCallId?: string;
-        input?: any;
-        output?: any;
-        errorText?: string;
-        providerExecuted?: boolean;
-        sourceId?: string;
-        url?: string;
-        title?: string;
-        filename?: string;
-        mediaType?: string;
-        id?: string;
-        data?: any;
-        providerMetadata?: {[key: string]: any};
     };
 
     // wshrpc.UsageBucket
