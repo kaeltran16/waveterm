@@ -3,6 +3,22 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Channel notes (merged surface) (2026-07-13)
+
+The merged Channels surface (`docs/superpowers/plans/2026-07-13-channels-runs-merged-surface.md`) shows a
+"Channel notes" area in its collapsible overview strip, but `waveobj.Channel` has no notes field and no
+set-notes RPC exists (backend out of scope for that plan). v1 renders it as a **disabled placeholder**
+("Channel notes — coming soon") so the UI is honest.
+
+- **To resume:** add `Channel.meta["channel:notes"]` (or a dedicated field) + a `SetChannelNotesCommand`,
+  regenerate types (`task generate`), then wire the notes area in `channelssurface.tsx`'s overview strip
+  to a controlled textarea persisting through that RPC.
+
+Also deferred from the same plan: a true one-phase **Quick** backend Run mode. `CreateRunCommand` still
+accepts only `pipeline|orchestrator`, so `@quick` maps to the existing dispatch path (`launchAgent` + a
+dispatch record) — a bare worker-tab that surfaces in the **Fleet here** rail, not the run strip. A real
+one-phase Run object (which would give Quick its own run-strip tab + `Q` badge) is a backend follow-up.
+
 ## Backend legacy cleanup — deferred removals (2026-07-13)
 
 Deferred out of the backend legacy-cleanup effort (`0cb4e42d`..`508b96aa` on `main`; plan

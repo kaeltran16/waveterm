@@ -5,7 +5,7 @@
 // sibling of the Agents-tab card (agentrow.tsx): current activity + the shared NarrationTimeline feed
 // + task progress, so you can tell "is it working or stuck?" without leaving Runs. RunRollup is the
 // one-line "now" strip under the run header. Both read the live transcript atoms (keyed by tab id)
-// that runssurface.tsx streams for the active run's workers. Adapts Wave-runs.dc.html Turn 3 (3a + C)
+// that runbody.tsx streams for the active run's workers. Adapts Wave-runs.dc.html Turn 3 (3a + C)
 // to our @theme tokens — no raw hex; working = accent (StatusDot is the source of truth).
 
 import { cn } from "@/util/util";
