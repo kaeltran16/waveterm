@@ -229,25 +229,28 @@ func TestDefaultOrchestratorPlaybook(t *testing.T) {
 
 func TestHoldPhase_AwaitingReview(t *testing.T) {
 	r := orchRun(true) // phase 0 running, gated
-	r, err := HoldPhase(r, 0)
+	r, err := HoldPhase(r, 0, []string{"docs/plan.md"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !r.Phases[0].Held || r.Status != RunStatus_AwaitingReview {
 		t.Fatalf("held=%v status=%q", r.Phases[0].Held, r.Status)
 	}
+	if len(r.Phases[0].Artifacts) != 1 || r.Phases[0].Artifacts[0] != "docs/plan.md" {
+		t.Fatalf("hold should record the plan artifact, got %v", r.Phases[0].Artifacts)
+	}
 }
 
 func TestHoldPhase_RejectsUngated(t *testing.T) {
 	r := orchRun(false)
-	if _, err := HoldPhase(r, 0); err == nil {
+	if _, err := HoldPhase(r, 0, nil); err == nil {
 		t.Fatal("expected error holding an ungated phase")
 	}
 }
 
 func TestApproveGate_ResumesHeldInPlace(t *testing.T) {
 	r := orchRun(true)
-	r, _ = HoldPhase(r, 0)
+	r, _ = HoldPhase(r, 0, nil)
 	r, err := ApproveGate(r)
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +265,7 @@ func TestApproveGate_ResumesHeldInPlace(t *testing.T) {
 
 func TestBuildOrchestratePrompt(t *testing.T) {
 	p := BuildOrchestratePrompt("do X", "be clean", true)
-	for _, want := range []string{"do X", "be clean", "wsh jarvis hold", "wsh jarvis complete", "subagent"} {
+	for _, want := range []string{"do X", "be clean", "wsh jarvis hold <plan-file-path>", "wsh jarvis complete", "subagent"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}

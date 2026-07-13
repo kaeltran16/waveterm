@@ -18,9 +18,16 @@ var jarvisCmd = &cobra.Command{
 }
 
 var jarvisHoldCmd = &cobra.Command{
-	Use:     "hold",
-	Short:   "pause the current run at its plan gate for review",
-	RunE:    func(cmd *cobra.Command, args []string) error { return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "hold"}) },
+	Use:   "hold [plan-file-path]",
+	Short: "pause the current run at its plan gate for review",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var artifacts []string
+		if len(args) > 0 && args[0] != "" {
+			artifacts = []string{args[0]} // the plan path the reviewer previews
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "hold", Artifacts: artifacts})
+	},
 	PreRunE: preRunSetupRpcClient,
 }
 

@@ -1823,7 +1823,7 @@ func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData) (waveobj.R
 	case jarvis.RunAction_SendBack:
 		return jarvis.SendBackGate(r)
 	case jarvis.RunAction_Hold:
-		return jarvis.HoldPhase(r, data.PhaseIdx)
+		return jarvis.HoldPhase(r, data.PhaseIdx, data.Artifacts)
 	case jarvis.RunAction_Triage:
 		return jarvis.RecordTriage(r, data.PhaseIdx, data.Verdict, data.Note)
 	default:

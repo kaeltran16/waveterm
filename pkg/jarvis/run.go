@@ -157,9 +157,11 @@ func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string) (waveobj.R
 	return run, nil
 }
 
-// HoldPhase marks a gated running phase as held (the lead paused itself for plan review). recomputeStatus
-// derives awaiting-review. Errors (out of range / not running / not gated) fail safe — the caller no-ops.
-func HoldPhase(run waveobj.Run, phaseIdx int) (waveobj.Run, error) {
+// HoldPhase marks a gated running phase as held (the lead paused itself for plan review) and records the
+// plan artifact(s) it reported, so the review gate can preview the plan (the orchestrator lead writes the
+// plan to a file and passes its path; unlike pipeline, there is no completion hook to record it).
+// recomputeStatus derives awaiting-review. Errors (out of range / not running / not gated) fail safe.
+func HoldPhase(run waveobj.Run, phaseIdx int, artifacts []string) (waveobj.Run, error) {
 	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
 		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
 	}
@@ -170,6 +172,7 @@ func HoldPhase(run waveobj.Run, phaseIdx int) (waveobj.Run, error) {
 		return run, fmt.Errorf("phase %d is not gated; nothing to hold", phaseIdx)
 	}
 	run.Phases[phaseIdx].Held = true
+	run.Phases[phaseIdx].Artifacts = append(run.Phases[phaseIdx].Artifacts, artifacts...)
 	recomputeStatus(&run)
 	return run, nil
 }
@@ -288,7 +291,7 @@ func BuildOrchestratePrompt(goal, principles string, gate bool) string {
 	b.WriteString("You are the lead orchestrator for this goal.\n")
 	if gate {
 		b.WriteString("Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
-		b.WriteString("First write the plan, then run `wsh jarvis hold` and wait — do not dispatch any subagents until you are told to proceed.\n")
+		b.WriteString("First write the plan to a file, then run `wsh jarvis hold <plan-file-path>` (pass the path so it can be reviewed) and wait — do not dispatch any subagents until you are told to proceed.\n")
 	} else {
 		// adaptive: size up the goal first and announce the call (non-blocking) before doing the work.
 		b.WriteString("First size up the goal, then announce your call:\n")
