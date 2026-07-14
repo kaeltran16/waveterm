@@ -77,7 +77,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
         });
         if (blockId != null) {
             items.push({ type: "separator" });
-            items.push({ label: "Close agent", click: closeTerminal });
+            items.push({ label: "Close agent", danger: true, click: closeTerminal });
         }
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };

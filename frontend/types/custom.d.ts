@@ -160,6 +160,7 @@ declare global {
         visible?: boolean;
         enabled?: boolean;
         sublabel?: string;
+        danger?: boolean; // destructive action — renderer styles it red
     };
 
     type KeyPressDecl = {

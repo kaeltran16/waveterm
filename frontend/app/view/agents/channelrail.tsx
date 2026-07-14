@@ -6,6 +6,7 @@
 // project picker. Replaces the old top-bar channel pills.
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentVM } from "./agentsviewmodel";
@@ -114,7 +115,7 @@ export function ChannelRail({
                                             submenu: (["concierge", "gatekeeper", "delegator"] as JarvisTier[]).map(
                                                 (t): ContextMenuItem => ({
                                                     label: t.charAt(0).toUpperCase() + t.slice(1),
-                                                    type: "checkbox",
+                                                    type: "radio",
                                                     checked: tier === t,
                                                     click: () => onSetTier(c.oid, t),
                                                 })
@@ -133,7 +134,18 @@ export function ChannelRail({
                                             click: () => onArchiveChannel(c.oid, true),
                                         },
                                         { type: "separator" },
-                                        { label: "Delete channel", click: () => onDeleteChannel(c.oid) },
+                                        {
+                                            label: "Delete channel",
+                                            danger: true,
+                                            click: () =>
+                                                modalsModel.pushModal("ConfirmModal", {
+                                                    title: "Delete channel",
+                                                    message: `Delete #${c.name}? This can't be undone.`,
+                                                    confirmLabel: "Delete channel",
+                                                    destructive: true,
+                                                    onConfirm: () => onDeleteChannel(c.oid),
+                                                }),
+                                        },
                                     ],
                                     ev
                                 )

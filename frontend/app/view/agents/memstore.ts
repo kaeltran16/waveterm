@@ -6,8 +6,10 @@
 // Mutations rescan so the graph/list stay consistent (no live fsnotify watch in this phase).
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { MemEdge, MemNote } from "./memtypes";
 
@@ -137,6 +139,18 @@ export async function deleteNote(path: string): Promise<void> {
     globalStore.set(memSelectedIdAtom, null);
     globalStore.set(memBodyAtom, null);
     await loadMemory();
+}
+
+// Confirm before deleting a note — shared by the memory list context menu and the
+// detail-pane Delete button, matching the confirmCloseAgent pattern.
+export function confirmDeleteNote(path: string, title: string): void {
+    modalsModel.pushModal("ConfirmModal", {
+        title: "Delete note",
+        message: `Delete "${title}"? This removes the file and can't be undone.`,
+        confirmLabel: "Delete",
+        destructive: true,
+        onConfirm: () => fireAndForget(() => deleteNote(path)),
+    });
 }
 
 // Review tray: agent-distilled candidates not auto-committed, awaiting a human accept/reject.

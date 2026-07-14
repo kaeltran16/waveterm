@@ -286,7 +286,7 @@ export function AgentRow({
         }
         items.push({ label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) });
         items.push({ type: "separator" });
-        items.push({ label: "Close agent", click: () => confirmCloseAgent(agent.id, agent.name) });
+        items.push({ label: "Close agent", danger: true, click: () => confirmCloseAgent(agent.id, agent.name) });
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 

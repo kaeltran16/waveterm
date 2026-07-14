@@ -838,7 +838,7 @@ export class TermViewModel implements ViewModel {
             }
             if (hoveredURL) {
                 menu.push({
-                    label: "Open URL in External Browser",
+                    label: "Open URL in external browser",
                     click: () => {
                         getApi().openExternal(hoveredURL.toString());
                     },
@@ -858,7 +858,7 @@ export class TermViewModel implements ViewModel {
 
         const magnified = globalStore.get(this.nodeModel.isMagnified);
         menu.push({
-            label: magnified ? "Un-Magnify Block" : "Magnify Block",
+            label: magnified ? "Un-magnify block" : "Magnify block",
             click: () => {
                 this.nodeModel.toggleMagnify();
             },
@@ -889,7 +889,7 @@ export class TermViewModel implements ViewModel {
         const fullMenu: ContextMenuItem[] = [];
 
         fullMenu.push({
-            label: "Save Session As...",
+            label: "Save session as...",
             click: () => {
                 if (this.termRef.current) {
                     const content = this.termRef.current.getScrollbackContent();
@@ -921,21 +921,21 @@ export class TermViewModel implements ViewModel {
         const submenu: ContextMenuItem[] = termThemeKeys.map((themeName) => {
             return {
                 label: termThemes[themeName]["display:name"] ?? themeName,
-                type: "checkbox",
+                type: "radio",
                 checked: curThemeName == themeName,
                 click: () => this.setTerminalTheme(themeName),
             };
         });
         submenu.unshift({
             label: "Default",
-            type: "checkbox",
+            type: "radio",
             checked: curThemeName == null,
             click: () => this.setTerminalTheme(null),
         });
         const transparencySubMenu: ContextMenuItem[] = [];
         transparencySubMenu.push({
             label: "Default",
-            type: "checkbox",
+            type: "radio",
             checked: transparencyMeta == null,
             click: () => {
                 RpcApi.SetMetaCommand(TabRpcClient, {
@@ -945,8 +945,8 @@ export class TermViewModel implements ViewModel {
             },
         });
         transparencySubMenu.push({
-            label: "Transparent Background",
-            type: "checkbox",
+            label: "Transparent background",
+            type: "radio",
             checked: transparencyMeta == 0.5,
             click: () => {
                 RpcApi.SetMetaCommand(TabRpcClient, {
@@ -956,8 +956,8 @@ export class TermViewModel implements ViewModel {
             },
         });
         transparencySubMenu.push({
-            label: "No Transparency",
-            type: "checkbox",
+            label: "No transparency",
+            type: "radio",
             checked: transparencyMeta == 0,
             click: () => {
                 RpcApi.SetMetaCommand(TabRpcClient, {
@@ -971,7 +971,7 @@ export class TermViewModel implements ViewModel {
             (fontSize: number) => {
                 return {
                     label: fontSize.toString() + "px",
-                    type: "checkbox",
+                    type: "radio",
                     checked: overrideFontSize == fontSize,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -984,7 +984,7 @@ export class TermViewModel implements ViewModel {
         );
         fontSizeSubMenu.unshift({
             label: "Default (" + defaultFontSize + "px)",
-            type: "checkbox",
+            type: "radio",
             checked: overrideFontSize == null,
             click: () => {
                 RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1002,7 +1002,7 @@ export class TermViewModel implements ViewModel {
         const cursorSubMenu: ContextMenuItem[] = [
             {
                 label: "Default",
-                type: "checkbox",
+                type: "radio",
                 checked: isCursorDefault,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1013,7 +1013,7 @@ export class TermViewModel implements ViewModel {
             },
             {
                 label: "Block",
-                type: "checkbox",
+                type: "radio",
                 checked: !isCursorDefault && effectiveCursor === "block" && !effectiveCursorBlink,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1023,8 +1023,8 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Block (Blinking)",
-                type: "checkbox",
+                label: "Block (blinking)",
+                type: "radio",
                 checked: !isCursorDefault && effectiveCursor === "block" && effectiveCursorBlink,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1035,7 +1035,7 @@ export class TermViewModel implements ViewModel {
             },
             {
                 label: "Bar",
-                type: "checkbox",
+                type: "radio",
                 checked: !isCursorDefault && effectiveCursor === "bar" && !effectiveCursorBlink,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1045,8 +1045,8 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Bar (Blinking)",
-                type: "checkbox",
+                label: "Bar (blinking)",
+                type: "radio",
                 checked: !isCursorDefault && effectiveCursor === "bar" && effectiveCursorBlink,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1057,7 +1057,7 @@ export class TermViewModel implements ViewModel {
             },
             {
                 label: "Underline",
-                type: "checkbox",
+                type: "radio",
                 checked: !isCursorDefault && effectiveCursor === "underline" && !effectiveCursorBlink,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1067,8 +1067,8 @@ export class TermViewModel implements ViewModel {
                 },
             },
             {
-                label: "Underline (Blinking)",
-                type: "checkbox",
+                label: "Underline (blinking)",
+                type: "radio",
                 checked: !isCursorDefault && effectiveCursor === "underline" && effectiveCursorBlink,
                 click: () => {
                     RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1083,7 +1083,7 @@ export class TermViewModel implements ViewModel {
             submenu: submenu,
         });
         fullMenu.push({
-            label: "Font Size",
+            label: "Font size",
             submenu: fontSizeSubMenu,
         });
         fullMenu.push({
@@ -1098,11 +1098,11 @@ export class TermViewModel implements ViewModel {
         const advancedSubmenu: ContextMenuItem[] = [];
         const allowBracketedPaste = blockData?.meta?.["term:allowbracketedpaste"];
         advancedSubmenu.push({
-            label: "Allow Bracketed Paste Mode",
+            label: "Allow bracketed paste mode",
             submenu: [
                 {
                     label: "Default (" + (defaultAllowBracketedPaste ? "On" : "Off") + ")",
-                    type: "checkbox",
+                    type: "radio",
                     checked: allowBracketedPaste == null,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1113,7 +1113,7 @@ export class TermViewModel implements ViewModel {
                 },
                 {
                     label: "On",
-                    type: "checkbox",
+                    type: "radio",
                     checked: allowBracketedPaste === true,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1124,7 +1124,7 @@ export class TermViewModel implements ViewModel {
                 },
                 {
                     label: "Off",
-                    type: "checkbox",
+                    type: "radio",
                     checked: allowBracketedPaste === false,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1136,16 +1136,16 @@ export class TermViewModel implements ViewModel {
             ],
         });
         advancedSubmenu.push({
-            label: "Force Restart Controller",
+            label: "Force restart controller",
             click: () => fireAndForget(() => this.forceRestartController()),
         });
         const isClearOnStart = blockData?.meta?.["cmd:clearonstart"];
         advancedSubmenu.push({
-            label: "Clear Output On Restart",
+            label: "Clear output on restart",
             submenu: [
                 {
                     label: "On",
-                    type: "checkbox",
+                    type: "radio",
                     checked: isClearOnStart,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1156,7 +1156,7 @@ export class TermViewModel implements ViewModel {
                 },
                 {
                     label: "Off",
-                    type: "checkbox",
+                    type: "radio",
                     checked: !isClearOnStart,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1169,11 +1169,11 @@ export class TermViewModel implements ViewModel {
         });
         const runOnStart = blockData?.meta?.["cmd:runonstart"];
         advancedSubmenu.push({
-            label: "Run On Startup",
+            label: "Run on startup",
             submenu: [
                 {
                     label: "On",
-                    type: "checkbox",
+                    type: "radio",
                     checked: runOnStart,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1184,7 +1184,7 @@ export class TermViewModel implements ViewModel {
                 },
                 {
                     label: "Off",
-                    type: "checkbox",
+                    type: "radio",
                     checked: !runOnStart,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1197,11 +1197,11 @@ export class TermViewModel implements ViewModel {
         });
         const debugConn = blockData?.meta?.["term:conndebug"];
         advancedSubmenu.push({
-            label: "Debug Connection",
+            label: "Debug connection",
             submenu: [
                 {
                     label: "Off",
-                    type: "checkbox",
+                    type: "radio",
                     checked: !debugConn,
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1212,7 +1212,7 @@ export class TermViewModel implements ViewModel {
                 },
                 {
                     label: "Info",
-                    type: "checkbox",
+                    type: "radio",
                     checked: debugConn == "info",
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1223,7 +1223,7 @@ export class TermViewModel implements ViewModel {
                 },
                 {
                     label: "Verbose",
-                    type: "checkbox",
+                    type: "radio",
                     checked: debugConn == "debug",
                     click: () => {
                         RpcApi.SetMetaCommand(TabRpcClient, {
@@ -1238,20 +1238,20 @@ export class TermViewModel implements ViewModel {
         const isDurable = globalStore.get(getBlockTermDurableAtom(this.blockId));
         if (isDurable) {
             advancedSubmenu.push({
-                label: "Session Durability",
+                label: "Session durability",
                 submenu: [
                     {
-                        label: "Restart Session in Standard Mode",
+                        label: "Restart session in standard mode",
                         click: () => fireAndForget(() => this.restartSessionWithDurability(false)),
                     },
                 ],
             });
         } else if (isDurable === false) {
             advancedSubmenu.push({
-                label: "Session Durability",
+                label: "Session durability",
                 submenu: [
                     {
-                        label: "Restart Session in Durable Mode",
+                        label: "Restart session in durable mode",
                         click: () => fireAndForget(() => this.restartSessionWithDurability(true)),
                     },
                 ],

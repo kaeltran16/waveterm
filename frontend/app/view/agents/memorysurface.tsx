@@ -26,7 +26,7 @@ import { PendingBand } from "./pendingband";
 import { RAIL_ICON } from "./railicons";
 import { SyncStrip } from "./syncstrip";
 import {
-    deleteNote,
+    confirmDeleteNote,
     dismissPending,
     keepPending,
     loadMemory,
@@ -169,7 +169,7 @@ function ListView({
                                                     { label: "Copy title", click: () => void navigator.clipboard.writeText(n.title) },
                                                     { label: "Copy path", click: () => void navigator.clipboard.writeText(n.path) },
                                                     { type: "separator" },
-                                                    { label: "Delete", click: () => fireAndForget(() => deleteNote(n.path)) },
+                                                    { label: "Delete", danger: true, click: () => confirmDeleteNote(n.path, n.title) },
                                                 ],
                                                 ev
                                             )
@@ -314,7 +314,7 @@ function DetailBody({
                             Edit
                         </button>
                         <button
-                            onClick={() => fireAndForget(() => deleteNote(sel.path))}
+                            onClick={() => confirmDeleteNote(sel.path, sel.title)}
                             className="rounded border border-error/30 px-[12px] py-[8px] text-[12px] text-error hover:bg-error/10"
                         >
                             Delete

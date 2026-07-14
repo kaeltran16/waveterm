@@ -57,7 +57,7 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
             { label: "Duplicate", click: () => duplicateSession(model, agent.id) },
             { label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) },
             { type: "separator" },
-            { label: "Close agent", click: () => confirmCloseAgent(agent.id, agent.name) },
+            { label: "Close agent", danger: true, click: () => confirmCloseAgent(agent.id, agent.name) },
         ];
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
