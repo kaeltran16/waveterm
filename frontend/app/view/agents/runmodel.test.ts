@@ -8,6 +8,7 @@ import {
     isOrchestrator,
     isTerminal,
     leadWorker,
+    liveWorkers,
     phaseStateView,
     phaseProgressDots,
     phaseRailIds,
@@ -290,6 +291,28 @@ describe("resolveArtifactPath", () => {
     });
     it("joins under a Windows project path (mixed separators read fine)", () => {
         expect(resolveArtifactPath("C:\\proj", "docs/plan.md")).toBe("C:\\proj/docs/plan.md");
+    });
+});
+
+describe("liveWorkers", () => {
+    it("returns recorded workers whose roster row is not idle, deduped across phases", () => {
+        const r = run({
+            phases: [
+                { kind: "plan", state: "done", workerorefs: ["tab:a"] },
+                { kind: "execute", state: "running", workerorefs: ["tab:b", "tab:c"] },
+                { kind: "custom", state: "running", workerorefs: ["tab:b"] }, // b recurs → must dedup, not repeat
+            ],
+        });
+        const agents = [
+            agent({ id: "a", state: "idle" }),
+            agent({ id: "b", state: "working" }),
+            agent({ id: "c", state: "asking" }),
+        ];
+        expect(liveWorkers(r, agents).map((w) => w.id)).toEqual(["b", "c"]);
+    });
+    it("is empty when every recorded worker is idle or gone (blocked · worker exited)", () => {
+        const r = run({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:a", "tab:gone"] }] });
+        expect(liveWorkers(r, [agent({ id: "a", state: "idle" })])).toEqual([]);
     });
 });
 

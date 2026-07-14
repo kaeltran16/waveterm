@@ -1758,6 +1758,37 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	return spawnErr // surfaced but non-fatal to already-persisted state
 }
 
+// stopRunWorkers terminates every live worker the run owns: for each phase WorkerOref (tab:<id>) it
+// flips the block's cmd:runonstart off (so a later ResyncController can't relaunch the command) then
+// destroys the block controller, which kills the claude process (the idle-on-exit backstop in
+// shellcontroller then flips the roster row working->idle). Best-effort: an already-exited worker, a
+// bad oref, or a meta-write failure is a logged no-op, never fatal — the run's cancelled state is
+// already persisted. Workers spawn with cmd:runonstart defaulting true and no cmd:runonce, so the flip
+// is required: without it, opening the tab (or a reload) would resync the block and revive the worker.
+func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
+	for i := range run.Phases {
+		for _, workerORef := range run.Phases[i].WorkerOrefs {
+			oref, err := waveobj.ParseORef(workerORef)
+			if err != nil || oref.OType != waveobj.OType_Tab {
+				log.Printf("stopRunWorkers: bad worker oref %q: %v", workerORef, err)
+				continue
+			}
+			tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
+			if err != nil {
+				log.Printf("stopRunWorkers: loading tab %q: %v", workerORef, err)
+				continue
+			}
+			for _, blockId := range tab.BlockIds {
+				meta := waveobj.MetaMapType{waveobj.MetaKey_CmdRunOnStart: false}
+				if merr := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); merr != nil {
+					log.Printf("stopRunWorkers: clearing runonstart on block %s: %v", blockId, merr)
+				}
+				blockcontroller.DestroyBlockController(blockId)
+			}
+		}
+	}
+}
+
 // resolveRunPlan derives the effective mode + playbook for a new run from the resolved profile and the
 // request's optional overrides. Precedence: request > profile default > built-in (pipeline; gate on).
 func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate *bool) (string, []waveobj.RunPhase) {
@@ -1923,6 +1954,12 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	})
 	if err != nil {
 		return fmt.Errorf("cancelling run: %w", err)
+	}
+	// stop the live workers the run spawned; state is already persisted, so this is best-effort.
+	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil {
+		stopRunWorkers(ctx, run)
+	} else {
+		log.Printf("CancelRun: reload for worker stop failed: %v", gerr)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil

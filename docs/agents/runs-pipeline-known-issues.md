@@ -88,8 +88,10 @@ can move the status is the backend). Read the block's persisted `agent:status` v
 - **Kill (`controllerdestroy`):** `working → idle` immediately.
 Both confirm the backstop fires on graceful exit and kill alike. (A real run worker runs
 `claude` *interactively*, so its process lingers past turn-end and only exits on
-finish/cancel/crash; `CancelRun` deletes the worker tab, in which case the roster row is
-removed rather than idled — either way no stale "working" survives.)
+finish/cancel/crash; `CancelRun` now stops each live worker's process (`stopRunWorkers`:
+`cmd:runonstart=false` + `DestroyBlockController`) and **keeps** the worker tab so its
+transcript stays inspectable; the idle-on-exit backstop flips the roster row `working → idle`
+— either way no stale "working" survives.)
 
 **Touchpoints:** `pkg/jarvis/runexec.go` (`SpawnClaudeWorker`, `initialWorkerStatusEvent` →
 `AgentStatusEvent`); `pkg/blockcontroller/{blockcontroller.go,shellcontroller.go}`

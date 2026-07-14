@@ -27,12 +27,13 @@ import { AttentionCard, AttentionBanner } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
-import { approveGate, cancelRun, sendBackGate } from "./runactions";
+import { approveGate, cancellingRunIdsAtom, confirmCancelRun, sendBackGate } from "./runactions";
 import {
     currentPhaseIndex,
     isOrchestrator,
     isTerminal,
     leadWorker,
+    liveWorkers,
     planDirty,
     phaseRailIds,
     phaseStateView,
@@ -267,7 +268,24 @@ function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent: AgentV
     );
 }
 
-function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel; channelId: string; run: Run; worker?: AgentVM }) {
+// The run's Cancel control: confirms before stopping live workers, and shows a transient "Cancelling…"
+// (disabled) while the synchronous CancelRunCommand waits out each worker. `className` carries each call
+// site's own styling; the disabled affordance is shared.
+function CancelRunButton({ channelId, run, agents, className }: { channelId: string; run: Run; agents: AgentVM[]; className: string }) {
+    const cancelling = useAtomValue(cancellingRunIdsAtom).has(run.id);
+    return (
+        <button
+            type="button"
+            disabled={cancelling}
+            onClick={() => confirmCancelRun(channelId, run.id, liveWorkers(run, agents).length)}
+            className={`${className} disabled:opacity-60`}
+        >
+            {cancelling ? "Cancelling…" : "Cancel run"}
+        </button>
+    );
+}
+
+function BlockedCard({ model, channelId, run, worker, agents }: { model: AgentsViewModel; channelId: string; run: Run; worker?: AgentVM; agents: AgentVM[] }) {
     return (
         <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
@@ -286,13 +304,12 @@ function BlockedCard({ model, channelId, run, worker }: { model: AgentsViewModel
                     </button>
                 ) : null}
                 <div className="flex-1" />
-                <button
-                    type="button"
-                    onClick={() => fireAndForget(() => cancelRun(channelId, run.id))}
+                <CancelRunButton
+                    channelId={channelId}
+                    run={run}
+                    agents={agents}
                     className="rounded border border-edge-mid px-3 py-2 text-[12px] font-semibold text-muted hover:border-error hover:text-error"
-                >
-                    Cancel run
-                </button>
+                />
             </div>
         </div>
     );
@@ -562,16 +579,15 @@ export function OrchestratorBody({
                 </div>
             ) : null}
             {thread.showStarting ? <StartingCard /> : null}
-            {thread.showBlocked ? <BlockedCard model={model} channelId={channel.oid} run={run} worker={lead} /> : null}
+            {thread.showBlocked ? <BlockedCard model={model} channelId={channel.oid} run={run} worker={lead} agents={agents} /> : null}
             {thread.showShip ? <ShipMarker /> : null}
             {!isTerminal(run.status) ? (
-                <button
-                    type="button"
-                    onClick={() => fireAndForget(() => cancelRun(channel.oid, run.id))}
+                <CancelRunButton
+                    channelId={channel.oid}
+                    run={run}
+                    agents={agents}
                     className="mt-4 flex-none self-start rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
-                >
-                    Cancel run
-                </button>
+                />
             ) : null}
         </div>
     );
@@ -651,7 +667,7 @@ export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entr
                                 ) : null}
                                 {thread.showStarting ? <StartingCard /> : null}
                                 {thread.showBlocked ? (
-                                    <BlockedCard model={model} channelId={channelId} run={run} worker={workers[0]} />
+                                    <BlockedCard model={model} channelId={channelId} run={run} worker={workers[0]} agents={agents} />
                                 ) : null}
                                 {thread.showShip ? <ShipMarker /> : null}
                             </div>
@@ -755,13 +771,12 @@ export function RunBody({ model, channel, agents, run }: {
                     <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
                 ) : null}
                 {!isTerminal(run.status) ? (
-                    <button
-                        type="button"
-                        onClick={() => fireAndForget(() => cancelRun(channel.oid, run.id))}
+                    <CancelRunButton
+                        channelId={channel.oid}
+                        run={run}
+                        agents={agents}
                         className="mt-4 rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
-                    >
-                        Cancel run
-                    </button>
+                    />
                 ) : null}
             </div>
         </div>

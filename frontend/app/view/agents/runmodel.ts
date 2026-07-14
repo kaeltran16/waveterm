@@ -141,6 +141,21 @@ export function phaseWorkers(phase: RunPhase, agents: AgentVM[]): AgentVM[] {
     return out;
 }
 
+// Live workers a cancel would stop: recorded workers with a roster row whose state is not idle (an
+// exited worker reports idle via the backend backstop; a torn-down one has no row at all). Deduped by
+// id across phases. Gates the cancel confirmation (zero → cancel directly) and sizes its copy.
+export function liveWorkers(run: Run, agents: AgentVM[]): AgentVM[] {
+    const out: AgentVM[] = [];
+    for (const phase of run.phases ?? []) {
+        for (const w of phaseWorkers(phase, agents)) {
+            if (w.state !== "idle" && !out.some((o) => o.id === w.id)) {
+                out.push(w);
+            }
+        }
+    }
+    return out;
+}
+
 export interface PhaseThread {
     showAsk: boolean;
     askKind: "clarify" | "fork" | null;
