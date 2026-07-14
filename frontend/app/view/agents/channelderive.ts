@@ -85,6 +85,23 @@ export function channelHasAsk(channel: Channel, agents: AgentVM[]): boolean {
     return pendingAsks(buildFleetSnapshot(channel, agents), channel.messages ?? []).length > 0;
 }
 
+// Count of workers ANY channel dispatched/steered that are blocked on you (asking, not Jarvis-answered),
+// deduped by worker oref. Drives the Channels nav-rail badge: an agent no channel dispatched — launched
+// straight from the cockpit or Agent tab — is not a channel's "needs you", so it must not light the badge.
+// Sums the exact per-channel path channelHasAsk uses, so the tab badge equals the count of lit rail dots.
+export function channelPendingAskCount(channels: Channel[], agents: AgentVM[]): number {
+    if (!agents.some((a) => a.state === "asking")) {
+        return 0;
+    }
+    const orefs = new Set<string>();
+    for (const c of channels) {
+        for (const w of pendingAsks(buildFleetSnapshot(c, agents), c.messages ?? [])) {
+            orefs.add(w.oref);
+        }
+    }
+    return orefs.size;
+}
+
 // --- composer @mentions ------------------------------------------------------
 // A single mentionable target for the composer's highlight + suggestion dropdown.
 export interface MentionCandidate {

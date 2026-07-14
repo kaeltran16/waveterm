@@ -16,8 +16,8 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
+import { channelPendingAskCount } from "./channelderive";
 import { channelsAtom } from "./channelsstore";
-import { pendingAskCount } from "./jarvisderive";
 
 const iconProps = { size: 20, strokeWidth: 1.8 } as const;
 
@@ -49,7 +49,7 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
     const channels = useAtomValue(channelsAtom);
     const agents = useAtomValue(model.agentsAtom);
-    const needsYou = pendingAskCount(channels ?? [], agents);
+    const needsYou = channelPendingAskCount(channels ?? [], agents);
     const renderItem = (key: SurfaceKey, label: string, badge = 0) => {
         const isActive = active === key;
         return (

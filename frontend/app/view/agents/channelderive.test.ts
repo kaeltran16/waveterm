@@ -7,6 +7,7 @@ import {
     activeMentionQuery,
     avatarColor,
     channelHasAsk,
+    channelPendingAskCount,
     filterChannels,
     highlightSegments,
     mentionCandidates,
@@ -68,6 +69,36 @@ describe("channelHasAsk", () => {
 
     it("is false for a channel with no messages", () => {
         expect(channelHasAsk(chan([]), [agent("a1", "asking")])).toBe(false);
+    });
+});
+
+describe("channelPendingAskCount", () => {
+    it("counts an asking worker a channel dispatched", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        expect(channelPendingAskCount([ch], [agent("a1", "asking")])).toBe(1);
+    });
+
+    it("does NOT count an asking agent no channel dispatched (the nav-badge bug)", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        // a1 is only working here; a2 is asking but was never dispatched/steered by any channel
+        expect(channelPendingAskCount([ch], [agent("a1", "working"), agent("a2", "asking")])).toBe(0);
+    });
+
+    it("sums asking workers across channels", () => {
+        const ch1 = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        const ch2 = chan([{ kind: "dispatch", reforef: "tab:a2" }]);
+        expect(channelPendingAskCount([ch1, ch2], [agent("a1", "asking"), agent("a2", "asking")])).toBe(2);
+    });
+
+    it("dedupes the same worker dispatched in two channels", () => {
+        const ch1 = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        const ch2 = chan([{ kind: "directive", reforef: "tab:a1" }]);
+        expect(channelPendingAskCount([ch1, ch2], [agent("a1", "asking")])).toBe(1);
+    });
+
+    it("is 0 when nothing is asking", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        expect(channelPendingAskCount([ch], [agent("a1", "working")])).toBe(0);
     });
 });
 

@@ -16,6 +16,7 @@ import { RadarScanStatePanel } from "./radarscanstatepanel";
 import { TONE_DOT } from "./radarstyles";
 import {
     currentReportAtom,
+    findNewestScannedProject,
     initRadarScope,
     lastRadarProjectAtom,
     pickInitialScope,
@@ -104,7 +105,13 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
         if (decision.action === "keep") {
             return;
         }
-        fireAndForget(() => initRadarScope(decision.scope));
+        if (decision.scope != null) {
+            fireAndForget(() => initRadarScope(decision.scope));
+            return;
+        }
+        // No persisted/filter project to scope to: prefer landing on the most-recently-scanned project so
+        // the surface opens on real findings, falling back to the empty picker only when nothing was scanned.
+        fireAndForget(async () => initRadarScope(await findNewestScannedProject()));
     }, [filter, projects]);
 
     const selectScope = (s: RadarScope) => {

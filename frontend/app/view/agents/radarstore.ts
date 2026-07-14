@@ -56,6 +56,24 @@ export function pickInitialScope(
     return { action: "set", scope };
 }
 
+// findNewestScannedProject asks the backend for every radar report (newest-first) and returns a scope for
+// the most-recently-scanned project, so a fresh Radar tab lands on real results instead of an empty picker.
+// Built straight from the report's stored name+path — no registry dependency, so it works before the
+// project registry has loaded. Returns null when nothing has ever been scanned (or the query fails).
+export async function findNewestScannedProject(): Promise<RadarScope | null> {
+    try {
+        const rtn = await RpcApi.ListRadarReportsCommand(TabRpcClient, { projectpath: "" });
+        const newest = (rtn.reports ?? []).slice().sort((a, b) => b.startedts - a.startedts)[0];
+        if (!newest?.projectpath) {
+            return null;
+        }
+        return { name: newest.projectname || newest.projectpath, path: newest.projectpath };
+    } catch (err) {
+        console.error("finding newest scanned project failed", err);
+        return null;
+    }
+}
+
 export const radarScopeAtom = atom<RadarScope | null>(null) as PrimitiveAtom<RadarScope | null>;
 export const radarReportsAtom = atom<RadarReport[] | null>(null) as PrimitiveAtom<RadarReport[] | null>;
 export const currentReportIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;

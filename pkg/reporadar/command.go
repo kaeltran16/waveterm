@@ -78,8 +78,12 @@ func Start(ctx context.Context, projectPath string) (*waveobj.RadarReport, error
 
 // ListReports returns the reports for projectPath (newest-first), canonicalizing the query path so a
 // caller passing a non-canonical form (e.g. a Windows backslash path from the frontend) still matches
-// the canonicalized path Start persisted.
+// the canonicalized path Start persisted. An empty projectPath returns reports for ALL projects (used to
+// pre-select the most-recently-scanned project); canonPath is skipped for it since it would turn "" into ".".
 func ListReports(ctx context.Context, projectPath string) ([]*waveobj.RadarReport, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return wstore.GetRadarReports(ctx, "")
+	}
 	return wstore.GetRadarReports(ctx, canonPath(projectPath))
 }
 
