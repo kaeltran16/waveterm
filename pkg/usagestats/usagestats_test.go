@@ -196,6 +196,59 @@ func TestSumTranscript(t *testing.T) {
 	}
 }
 
+func TestTranscriptUsage(t *testing.T) {
+	dir := t.TempDir()
+
+	// Claude file: two models (opus + haiku), opus streamed twice on one id → dedupe keeps output:50.
+	claude := filepath.Join(dir, "claude.jsonl")
+	lines := "" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:00:01.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200}}}` + "\n" +
+		`{"type":"assistant","timestamp":"2026-06-26T10:01:00.000Z","requestId":"r2","message":{"id":"m2","model":"claude-haiku-4-5","usage":{"input_tokens":12,"output_tokens":2}}}` + "\n"
+	if err := os.WriteFile(claude, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := TranscriptUsage(claude)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 buckets (opus, haiku), got %d: %+v", len(got), got)
+	}
+	byModel := map[string]Bucket{}
+	for _, b := range got {
+		byModel[b.Model] = b
+	}
+	opus := byModel["claude-opus-4-8"]
+	if opus.Input != 100 || opus.Output != 50 || opus.CacheRead != 1000 || opus.CacheCreate != 200 || opus.Msgs != 1 {
+		t.Errorf("opus bucket = %+v", opus)
+	}
+	if h := byModel["claude-haiku-4-5"]; h.Input != 12 || h.Output != 2 {
+		t.Errorf("haiku bucket = %+v", h)
+	}
+
+	// Codex rollout: one cumulative record, no cache-write class.
+	codex := filepath.Join(dir, "rollout-x.jsonl")
+	codexLines := "" +
+		`{"timestamp":"2026-06-26T03:07:50.000Z","type":"turn_context","payload":{"model":"gpt-5.5"}}` + "\n" +
+		`{"timestamp":"2026-06-26T03:08:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":9458,"cached_input_tokens":7040,"output_tokens":89,"total_tokens":9547}}}}` + "\n"
+	if err := os.WriteFile(codex, []byte(codexLines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cg, err := TranscriptUsage(codex)
+	if err != nil || len(cg) != 1 {
+		t.Fatalf("codex buckets = %+v, err = %v; want 1", cg, err)
+	}
+	if cg[0].Provider != "codex" || cg[0].Input != 2418 || cg[0].CacheRead != 7040 || cg[0].Output != 89 || cg[0].CacheCreate != 0 {
+		t.Errorf("codex bucket = %+v", cg[0])
+	}
+
+	// Missing/empty → nil, no error.
+	if mg, err := TranscriptUsage(filepath.Join(dir, "nope.jsonl")); err != nil || mg != nil {
+		t.Fatalf("missing = %+v, err = %v; want nil/nil", mg, err)
+	}
+}
+
 func TestLastCacheWrite(t *testing.T) {
 	dir := t.TempDir()
 

@@ -633,6 +633,16 @@ declare global {
         tokens: number;
     };
 
+    // wshrpc.CommandGetTranscriptUsageData
+    type CommandGetTranscriptUsageData = {
+        path: string;
+    };
+
+    // wshrpc.CommandGetTranscriptUsageRtnData
+    type CommandGetTranscriptUsageRtnData = {
+        buckets: UsageBucket[];
+    };
+
     // wshrpc.CommandGetUsageStatsData
     type CommandGetUsageStatsData = {
         windowdays?: number;

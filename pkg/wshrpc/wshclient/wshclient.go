@@ -548,6 +548,12 @@ func GetTranscriptTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscr
 	return resp, err
 }
 
+// command "gettranscriptusage", wshserver.GetTranscriptUsageCommand
+func GetTranscriptUsageCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscriptUsageData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTranscriptUsageRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTranscriptUsageRtnData](w, "gettranscriptusage", data, opts)
+	return resp, err
+}
+
 // command "getusagestats", wshserver.GetUsageStatsCommand
 func GetUsageStatsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetUsageStatsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetUsageStatsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetUsageStatsRtnData](w, "getusagestats", data, opts)

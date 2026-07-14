@@ -1415,6 +1415,22 @@ func (ws *WshServer) GetTranscriptTokensCommand(ctx context.Context, data wshrpc
 	return &wshrpc.CommandGetTranscriptTokensRtnData{Tokens: total}, nil
 }
 
+func (ws *WshServer) GetTranscriptUsageCommand(ctx context.Context, data wshrpc.CommandGetTranscriptUsageData) (*wshrpc.CommandGetTranscriptUsageRtnData, error) {
+	buckets, err := usagestats.TranscriptUsage(data.Path)
+	if err != nil {
+		return nil, fmt.Errorf("scanning transcript usage: %w", err)
+	}
+	out := make([]wshrpc.UsageBucket, len(buckets))
+	for i, b := range buckets {
+		out[i] = wshrpc.UsageBucket{
+			Provider: b.Provider, Model: b.Model, Day: b.Day,
+			Input: b.Input, Output: b.Output, CacheRead: b.CacheRead,
+			CacheCreate: b.CacheCreate, CacheCreate1h: b.CacheCreate1h, Msgs: b.Msgs,
+		}
+	}
+	return &wshrpc.CommandGetTranscriptUsageRtnData{Buckets: out}, nil
+}
+
 func (ws *WshServer) GetCacheStatusCommand(ctx context.Context, data wshrpc.CommandGetCacheStatusData) (*wshrpc.CommandGetCacheStatusRtnData, error) {
 	cw, err := usagestats.LastCacheWrite(data.Path)
 	if err != nil {

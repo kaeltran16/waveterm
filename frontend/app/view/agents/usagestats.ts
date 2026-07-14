@@ -65,8 +65,8 @@ const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const MAX_DAILY_DAYS = 30;
-const CLASS_ORDER: TokenClass[] = ["cacheRead", "output", "cacheWrite", "input"];
-const CLASS_LABEL: Record<TokenClass, string> = {
+export const CLASS_ORDER: TokenClass[] = ["cacheRead", "output", "cacheWrite", "input"];
+export const CLASS_LABEL: Record<TokenClass, string> = {
     cacheRead: "Cache read",
     output: "Output",
     cacheWrite: "Cache write",

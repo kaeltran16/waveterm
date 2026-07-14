@@ -552,6 +552,12 @@ export class RpcApiType {
         return client.wshRpcCall("gettranscripttokens", data, opts);
     }
 
+    // command "gettranscriptusage" [call]
+    GetTranscriptUsageCommand(client: WshClient, data: CommandGetTranscriptUsageData, opts?: RpcOpts): Promise<CommandGetTranscriptUsageRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gettranscriptusage", data, opts);
+        return client.wshRpcCall("gettranscriptusage", data, opts);
+    }
+
     // command "getusagestats" [call]
     GetUsageStatsCommand(client: WshClient, data: CommandGetUsageStatsData, opts?: RpcOpts): Promise<CommandGetUsageStatsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getusagestats", data, opts);

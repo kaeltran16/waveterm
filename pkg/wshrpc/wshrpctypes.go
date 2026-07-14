@@ -95,6 +95,7 @@ type WshRpcInterface interface {
 	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
 	GetSessionsActivityCommand(ctx context.Context, data CommandGetSessionsActivityData) (*CommandGetSessionsActivityRtnData, error)
 	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
+	GetTranscriptUsageCommand(ctx context.Context, data CommandGetTranscriptUsageData) (*CommandGetTranscriptUsageRtnData, error)
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
 	MemoryScanCommand(ctx context.Context) (*CommandMemoryScanRtnData, error)
@@ -904,6 +905,14 @@ type CommandGetTranscriptTokensData struct {
 
 type CommandGetTranscriptTokensRtnData struct {
 	Tokens int `json:"tokens"`
+}
+
+type CommandGetTranscriptUsageData struct {
+	Path string `json:"path"`
+}
+
+type CommandGetTranscriptUsageRtnData struct {
+	Buckets []UsageBucket `json:"buckets"`
 }
 
 type CommandGetWindowTokensData struct {

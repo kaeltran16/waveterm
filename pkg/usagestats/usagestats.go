@@ -306,6 +306,22 @@ func SumTranscript(path string) (int, error) {
 	return sumRecords(recs), nil
 }
 
+// TranscriptUsage parses one transcript file into per-(provider, model, day) buckets, reusing the
+// same dedup + bucket accounting as the Usage surface — the per-session analogue of ScanUsage.
+// Claude parser first, Codex fallback (mirrors SumTranscript). Empty/unreadable/unknown-shape
+// files return nil, no error.
+func TranscriptUsage(path string) ([]Bucket, error) {
+	lines := readLines(path)
+	if len(lines) == 0 {
+		return nil, nil
+	}
+	recs := extractClaude(lines)
+	if len(recs) == 0 {
+		recs = extractCodex(lines)
+	}
+	return bucket(dedupe(recs)), nil
+}
+
 // CacheWrite is the most recent prompt-cache-writing message in a transcript.
 type CacheWrite struct {
 	TS      time.Time

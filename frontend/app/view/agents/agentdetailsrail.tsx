@@ -12,7 +12,6 @@ import { diffNavIntent } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import {
     formatAge,
-    formatTokens,
     projectOf,
     recentActions,
     summarizeActions,
@@ -28,7 +27,8 @@ import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { runtimeMeta } from "./runtimemeta";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { subagentsByIdAtom } from "./subagentsstore";
-import { agentTokensAtom, loadTokensForAgent } from "./tokenstore";
+import { TokenUsageSection } from "./tokenusagesection";
+import { loadSessionUsage } from "./transcriptusagestore";
 
 const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
     ok: "bg-accent",
@@ -61,14 +61,18 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const ctxPct = usage?.contextpct;
     const tools = summarizeActions(recentActions(entries, 0)).byVerb;
     const railState = useAtomValue(railStateAtom);
-    const tokensTotal = useAtomValue(agentTokensAtom);
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
-        fireAndForget(() => loadTokensForAgent(agent.id, agent.transcriptPath));
+        fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath));
         fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
+        const refresh = setInterval(
+            () => fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath, { silent: true })),
+            15_000
+        );
+        return () => clearInterval(refresh);
     }, [agent.id, agent.transcriptPath, agent.blockId]);
 
     const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
@@ -95,10 +99,8 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     };
 
     const running = agent.state === "idle" ? `${formatAge(agent.activeMs)} idle` : formatAge(agent.activeMs);
-    const tokens = tokensTotal != null ? formatTokens(tokensTotal) : "—";
     const cacheCountdown = formatCacheCountdown(cacheStatus, now);
     const isClaude = (agent.agent || "claude") === "claude";
-    const cost = usage?.costusd ? `$${usage.costusd.toFixed(2)}` : "—";
 
     const sections: RailSection[] = [
         {
@@ -124,8 +126,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         <DetailRow label="Branch" value={railState?.branch || "—"} />
                         <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
                         <DetailRow label="Running" value={running} />
-                        <DetailRow label="Tokens" value={tokens} />
-                        <DetailRow label="Cost" value={cost} />
                         {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
                     </div>
                 </div>
@@ -156,6 +156,12 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                   } as RailSection,
               ]
             : []),
+        {
+            id: "usage",
+            label: "Token usage",
+            icon: RAIL_ICON.usage,
+            content: <TokenUsageSection />,
+        },
         ...(subs.length > 0
             ? [
                   {
