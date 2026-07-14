@@ -36,7 +36,7 @@ const SUB_COLOR: Record<SubagentState, string> = {
     done: "var(--color-muted)",
 };
 
-function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; agent: AgentVM; animateEntrance: boolean }) {
+function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const oref = `block:${agent.blockId}`;
     // drop children that finished (success/done) so a completed fan-out doesn't linger in the tree
@@ -62,10 +62,10 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
-    // layout="position" so a subagent expand (composerReveal below) doesn't scale-distort the row —
-    // only its position animates when siblings reflow. Entrance/exit via cardVariants (opacity+scale).
+    // The animating motion.div wrapper lives in AgentTree (direct AnimatePresence child, required for
+    // popLayout to pop an exiting row out of flow). This is just the row body + subagent reveal.
     return (
-        <motion.div layout="position" variants={cardVariants} initial={animateEntrance ? "initial" : false} animate="animate" exit="exit">
+        <>
             <div
                 onClick={select}
                 onContextMenu={onContextMenu}
@@ -150,13 +150,13 @@ function ParentRow({ model, agent, animateEntrance }: { model: AgentsViewModel; 
                     </motion.div>
                 ) : null}
             </AnimatePresence>
-        </motion.div>
+        </>
     );
 }
 
 // A background terminal row: no agent chrome (no status dot / model / subagents) — just a glyph +
 // name that focuses the terminal's block in the surface's focus pane.
-function TerminalRow({ model, terminal, animateEntrance }: { model: AgentsViewModel; terminal: AgentVM; animateEntrance: boolean }) {
+function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: AgentVM }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const selected = focusId === terminal.id;
     const select = () => {
@@ -164,12 +164,7 @@ function TerminalRow({ model, terminal, animateEntrance }: { model: AgentsViewMo
         globalStore.set(model.focusReplyAtom, false);
     };
     return (
-        <motion.div
-            layout="position"
-            variants={cardVariants}
-            initial={animateEntrance ? "initial" : false}
-            animate="animate"
-            exit="exit"
+        <div
             onClick={select}
             className={cn(
                 "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms]",
@@ -181,7 +176,7 @@ function TerminalRow({ model, terminal, animateEntrance }: { model: AgentsViewMo
                 <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{terminal.name}</div>
             </div>
             <span className="font-mono text-[10px] font-medium text-muted">terminal</span>
-        </motion.div>
+        </div>
     );
 }
 
@@ -233,7 +228,19 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                                 <span className="font-mono text-[10px] font-semibold text-feed-time">{r.count}</span>
                             </motion.div>
                         ) : (
-                            <ParentRow key={r.agent.id} model={model} agent={r.agent} animateEntrance={entranceIds.has(r.agent.id)} />
+                            // layout="position" so a subagent expand doesn't scale-distort the row — only its
+                            // position animates on reflow. Must be the direct AnimatePresence child: popLayout
+                            // measures it via ref to pop an exiting row out of flow (else its space lingers).
+                            <motion.div
+                                key={r.agent.id}
+                                layout="position"
+                                variants={cardVariants}
+                                initial={entranceIds.has(r.agent.id) ? "initial" : false}
+                                animate="animate"
+                                exit="exit"
+                            >
+                                <ParentRow model={model} agent={r.agent} />
+                            </motion.div>
                         )
                     )}
                     {terminals.length > 0 ? (
@@ -250,7 +257,16 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
                         </motion.div>
                     ) : null}
                     {terminals.map((t) => (
-                        <TerminalRow key={t.id} model={model} terminal={t} animateEntrance={entranceIds.has(t.id)} />
+                        <motion.div
+                            key={t.id}
+                            layout="position"
+                            variants={cardVariants}
+                            initial={entranceIds.has(t.id) ? "initial" : false}
+                            animate="animate"
+                            exit="exit"
+                        >
+                            <TerminalRow model={model} terminal={t} />
+                        </motion.div>
                     ))}
                 </AnimatePresence>
             </div>
