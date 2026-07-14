@@ -145,7 +145,7 @@ export function LaunchComposer({
                     rows={1}
                     autoFocus
                     placeholder="Give Jarvis a goal…"
-                    className="max-h-[160px] w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
+                    className="field-sizing-content max-h-[160px] w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
                     style={{ caretColor: "var(--color-primary)" }}
                 />
             }
@@ -206,7 +206,7 @@ export function TalkComposer({
                         rows={1}
                         autoFocus
                         placeholder={`Message ${worker.name}…`}
-                        className="max-h-[160px] w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
+                        className="field-sizing-content max-h-[160px] w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none"
                         style={{ caretColor: "var(--color-primary)" }}
                     />
                 </>

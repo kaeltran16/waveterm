@@ -271,12 +271,13 @@ func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []stri
 	if strings.TrimSpace(principles) != "" {
 		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", principles)
 	}
-	fmt.Fprintf(&b, "Use the %s skill to work this goal, then stop when the phase's deliverable is written.\n", phase.Skill)
+	fmt.Fprintf(&b, "Use the %s skill to work this goal until the phase's deliverable is written.\n", phase.Skill)
 	b.WriteString("You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the AskUserQuestion tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n")
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	if len(priorArtifacts) > 0 {
 		fmt.Fprintf(&b, "Prior artifacts to build on: %s\n", strings.Join(priorArtifacts, ", "))
 	}
+	b.WriteString("When the deliverable is fully written, run `wsh jarvis complete <deliverable-path>` (pass the path to the file you produced) to record it and hand the run off to the next phase. Run it only once the deliverable actually exists.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 

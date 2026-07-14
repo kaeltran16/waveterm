@@ -42,7 +42,7 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
     const quietSecs = quiet ? Math.floor(Math.max(0, now - (lastActivity[agent.id] ?? now)) / 1000) : 0;
 
     return (
-        <div className={cn("overflow-hidden rounded-lg border border-edge-mid bg-lane", fill && "flex min-h-0 flex-1 flex-col")}>
+        <div className={cn("overflow-hidden rounded-[13px] border border-edge-mid bg-lane", fill && "flex min-h-0 flex-1 flex-col")}>
             {/* worker header — click to collapse */}
             <div
                 onClick={() => setOpen((o) => !o)}

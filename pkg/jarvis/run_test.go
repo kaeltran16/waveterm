@@ -197,6 +197,14 @@ func TestBuildPhasePromptTellsWorkerToSelfServeAndEscalate(t *testing.T) {
 	}
 }
 
+func TestBuildPhasePromptTellsWorkerToSelfReportComplete(t *testing.T) {
+	p := waveobj.RunPhase{Kind: PhaseKind_Brainstorm, Skill: "superpowers:brainstorming"}
+	got := BuildPhasePrompt(p, "write a haiku", nil, "")
+	if !strings.Contains(got, "wsh jarvis complete") {
+		t.Errorf("prompt missing self-report instruction: %s", got)
+	}
+}
+
 func TestBuildPhasePromptIncludesPrinciplesWhenPresent(t *testing.T) {
 	p := waveobj.RunPhase{Kind: PhaseKind_Execute, Skill: "superpowers:executing-plans"}
 	got := BuildPhasePrompt(p, "ship coupons", nil, "prefer the clean fix")

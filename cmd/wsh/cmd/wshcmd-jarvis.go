@@ -32,9 +32,16 @@ var jarvisHoldCmd = &cobra.Command{
 }
 
 var jarvisCompleteCmd = &cobra.Command{
-	Use:     "complete",
-	Short:   "mark the current run's phase complete",
-	RunE:    func(cmd *cobra.Command, args []string) error { return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete"}) },
+	Use:   "complete [deliverable-path]",
+	Short: "mark the current run's phase complete (optionally recording its deliverable)",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var artifacts []string
+		if len(args) > 0 && args[0] != "" {
+			artifacts = []string{args[0]} // the deliverable path the next phase builds on / the gate previews
+		}
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts})
+	},
 	PreRunE: preRunSetupRpcClient,
 }
 

@@ -18,8 +18,12 @@ func TestPhasePrompt_ModeAware(t *testing.T) {
 	}
 
 	pipe := NewRun("do X", "ws", "/p", "be clean", RunMode_Pipeline, DefaultPlaybook(), 1)
-	if p := phasePrompt(&pipe, 0); strings.Contains(p, "wsh jarvis") {
-		t.Fatalf("pipeline prompt should not use orchestrate verbs:\n%s", p)
+	pp := phasePrompt(&pipe, 0)
+	if !strings.Contains(pp, "wsh jarvis complete") {
+		t.Fatalf("pipeline prompt should tell the worker to self-report completion:\n%s", pp)
+	}
+	if strings.Contains(pp, "wsh jarvis hold") {
+		t.Fatalf("pipeline prompt must not hold-gate (gate is structural):\n%s", pp)
 	}
 }
 

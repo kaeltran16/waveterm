@@ -25,8 +25,10 @@ import { steerWorker } from "./channelactions";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { AttentionCard, AttentionBanner } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
+import { InlineMarkdown } from "./inlinemarkdown";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
+import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { approveGate, cancellingRunIdsAtom, confirmCancelRun, sendBackGate } from "./runactions";
 import {
     currentPhaseIndex,
@@ -399,6 +401,7 @@ export function RunHeader({
     hideSteer?: boolean;
 }) {
     const target = steerTarget(run, agents);
+    const [goalExpanded, setGoalExpanded] = useState(false);
     return (
         <>
             <div className="mb-4 flex items-start gap-3">
@@ -406,7 +409,19 @@ export function RunHeader({
                     <div className="mb-1.5">
                         <StatusPill status={run.status} />
                     </div>
-                    <div className="text-[19px] font-bold leading-tight tracking-[-0.01em] text-primary">{run.goal}</div>
+                    <div
+                        onClick={() => setGoalExpanded((v) => !v)}
+                        title={goalExpanded ? "Collapse" : "Expand"}
+                        className="w-full cursor-pointer text-[19px] font-bold leading-tight tracking-[-0.01em] text-primary hover:opacity-90"
+                    >
+                        {goalExpanded ? (
+                            <MarkdownMessage text={run.goal} className="text-[15px] font-semibold leading-snug text-primary" />
+                        ) : (
+                            <div className="line-clamp-2">
+                                <InlineMarkdown text={run.goal} />
+                            </div>
+                        )}
+                    </div>
                 </div>
                 {!hideSteer ? (
                     <div className="flex flex-none gap-1.5">
@@ -501,7 +516,13 @@ function DispatchedAgents({ model, leadId }: { model: AgentsViewModel; leadId: s
                             }
                         >
                             <span className="font-mono text-[11px] font-semibold text-edge-strong">↳</span>
-                            <span className={"h-[6px] w-[6px] flex-none rounded-full bg-current " + tone} />
+                            <span
+                                className={
+                                    "h-2 w-2 flex-none rounded-full bg-current " +
+                                    tone +
+                                    (s.state === "working" ? " animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" : "")
+                                }
+                            />
                             <div className="min-w-0 flex-1">
                                 <div className="truncate font-mono text-[11.5px] font-semibold text-secondary">
                                     {s.type || "subagent"}
@@ -732,6 +753,10 @@ export function RunBody({ model, channel, agents, run }: {
     // the run's primary active worker drives the header "now" rollup
     const primaryWorker = runWorkers.find((w) => w.state === "working") ?? runWorkers.find((w) => w.state === "asking") ?? runWorkers[0];
 
+    // auto-follow the run as it grows so the newest phase/worker card clears the composer below. A fresh
+    // signature array each render re-pins while the user is at the bottom (releases on scroll-up).
+    const stick = useStickToBottom([run.status, railKey, now]);
+
     const noop = () => {};
     if (isOrchestrator(run)) {
         return (
@@ -752,33 +777,36 @@ export function RunBody({ model, channel, agents, run }: {
         );
     }
     return (
-        <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-            <div>
-                <RunHeader
-                    run={run}
-                    agents={agents}
-                    channel={channel}
-                    steering={false}
-                    steerDraft=""
-                    setSteerDraft={noop}
-                    onSteerToggle={noop}
-                    onSteerClose={noop}
-                    hideSteer
-                />
-                {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
-                <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
-                {expanded ? (
-                    <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
-                ) : null}
-                {!isTerminal(run.status) ? (
-                    <CancelRunButton
-                        channelId={channel.oid}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+            <div ref={stick.scrollRef} onScroll={stick.onScroll} className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
+                <div>
+                    <RunHeader
                         run={run}
                         agents={agents}
-                        className="mt-4 rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                        channel={channel}
+                        steering={false}
+                        steerDraft=""
+                        setSteerDraft={noop}
+                        onSteerToggle={noop}
+                        onSteerClose={noop}
+                        hideSteer
                     />
-                ) : null}
+                    {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
+                    <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
+                    {expanded ? (
+                        <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
+                    ) : null}
+                    {!isTerminal(run.status) ? (
+                        <CancelRunButton
+                            channelId={channel.oid}
+                            run={run}
+                            agents={agents}
+                            className="mt-4 rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                        />
+                    ) : null}
+                </div>
             </div>
+            {!stick.atBottom ? <JumpToLatestPill onClick={stick.jumpToBottom} /> : null}
         </div>
     );
 }
