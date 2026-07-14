@@ -23,6 +23,7 @@ import {
     startScan,
     type RadarScope,
 } from "./radarstore";
+import { SurfaceHeader } from "./surfacescaffold";
 
 // Scan-scope selector: the Radar surface owns its scanned repo, initialized from the cockpit's global
 // project but explicitly selectable here (the handoff's "# repo ▾" control) so the surface is
@@ -129,18 +130,18 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <div className="flex h-full w-full flex-col bg-background">
-            <header className="flex items-start justify-between gap-5 border-b border-border px-6 py-4">
-                <div className="min-w-0">
-                    <div className="mb-1 flex items-center gap-2.5">
-                        <h1 className="text-2xl font-bold tracking-tight text-primary">Repo Radar</h1>
-                        <span className="rounded border border-accent/25 bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent-soft">
-                            Correctness risk
-                        </span>
-                    </div>
+            <SurfaceHeader
+                title="Repo Radar"
+                badge={
+                    <span className="rounded border border-accent/25 bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent-soft">
+                        Correctness risk
+                    </span>
+                }
+                subtitle={
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <p className="text-xs text-muted-foreground">
+                        <span className="text-muted">
                             {scope ? `Scanning ${scope.name}` : "Select a registered project to scan"}
-                        </p>
+                        </span>
                         {coverage.length > 0 ? (
                             <div className="flex items-center gap-2">
                                 <span className="font-mono text-[9px] uppercase tracking-widest text-muted">Coverage</span>
@@ -158,20 +159,22 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                             </div>
                         ) : null}
                     </div>
-                </div>
-                <div className="flex items-end gap-3">
-                    <ScopeSelector scope={scope} onSelect={selectScope} />
-                    {isResults && scope ? (
-                        <button
-                            type="button"
-                            onClick={() => fireAndForget(() => startScan(scope.path))}
-                            className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
-                        >
-                            {state === "partial" ? "Re-run full scan" : "Re-scan"}
-                        </button>
-                    ) : null}
-                </div>
-            </header>
+                }
+                actions={
+                    <>
+                        <ScopeSelector scope={scope} onSelect={selectScope} />
+                        {isResults && scope ? (
+                            <button
+                                type="button"
+                                onClick={() => fireAndForget(() => startScan(scope.path))}
+                                className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
+                            >
+                                {state === "partial" ? "Re-run full scan" : "Re-scan"}
+                            </button>
+                        ) : null}
+                    </>
+                }
+            />
 
             <div className="min-h-0 flex-1">
                 {isResults && report ? (

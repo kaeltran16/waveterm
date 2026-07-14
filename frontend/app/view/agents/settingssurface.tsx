@@ -19,6 +19,7 @@ import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
 import { railVisibleAtom } from "./railstore";
+import { SurfaceHeader } from "./surfacescaffold";
 import { ACCENT_SWATCHES, activePalette, colorOf, PICKER_THEMES, type OverrideRole } from "./themes";
 import { themeOverridesAtom, themePresetAtom } from "./themestore";
 
@@ -45,10 +46,13 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     animate={{ opacity: 1 }}
                     transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
                 >
-                    <h1 className="text-[26px] font-extrabold tracking-[-0.025em] text-primary">Settings</h1>
-                    <p className="mb-9 mt-1.5 text-[13.5px] text-muted">
-                        Cockpit preferences, appearance, and New Agent defaults.
-                    </p>
+                    <div className="mb-9 -mx-[28px]">
+                        <SurfaceHeader
+                            title="Settings"
+                            subtitle="Cockpit preferences, appearance, and New Agent defaults."
+                            border={false}
+                        />
+                    </div>
                     <AppearanceSection />
                     <SectionGap />
                     <FontsSection />

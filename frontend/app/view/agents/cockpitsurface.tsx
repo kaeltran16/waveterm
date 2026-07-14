@@ -47,6 +47,7 @@ import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { useSubagentTracking } from "./subagenttracking";
+import { SurfaceHeader } from "./surfacescaffold";
 
 // Filter-chip palette (handoff mkChip, dc.html:1945-1981): an active chip takes its status color for the
 // border + a soft tint, and the count renders in that color; the label brightens to primary. Inactive
@@ -362,39 +363,46 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         >
             <div className="flex min-w-0 flex-1 flex-col bg-background">
                 <div className="sticky top-0 z-[5] shrink-0 border-b border-border bg-background px-[30px] pb-3 pt-4">
-                    <div className="mb-3 flex items-baseline gap-3">
-                        <h1 className="text-[20px] font-bold tracking-[-0.02em] text-primary">Cockpit</h1>
-                        <p className="text-[12.5px] text-muted">
-                            {agents.length} agents · {projectCount} projects ·{" "}
-                            <span className="font-semibold text-warning">
-                                <RollingCount value={needsYou} /> need you
-                            </span>
-                        </p>
-                        <div className="ml-auto flex shrink-0 items-center gap-2">
-                            <ProjectSwitcher model={model} variant="header" />
-                            <button
-                                type="button"
-                                onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
-                                className={cn(
-                                    "flex cursor-pointer items-center gap-[7px] rounded border px-2.5 py-1.5 text-[12px] font-medium",
-                                    liveOnly
-                                        ? "border-success/60 bg-success/10 text-success"
-                                        : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
-                                )}
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                                Live only
-                            </button>
-                            {Object.values(cardPrefs).some((p) => p.fullWidth || p.heightWeight != null) ? (
-                                <button
-                                    type="button"
-                                    onClick={() => setCardPrefs({})}
-                                    className="cursor-pointer rounded border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
-                                >
-                                    Reset layout
-                                </button>
-                            ) : null}
-                        </div>
+                    <div className="mb-3 -mx-[30px] -mt-4">
+                        <SurfaceHeader
+                            border={false}
+                            title="Cockpit"
+                            subtitle={
+                                <>
+                                    {agents.length} agents · {projectCount} projects ·{" "}
+                                    <span className="font-semibold text-warning">
+                                        <RollingCount value={needsYou} /> need you
+                                    </span>
+                                </>
+                            }
+                            actions={
+                                <>
+                                    <ProjectSwitcher model={model} variant="header" />
+                                    <button
+                                        type="button"
+                                        onClick={() => globalStore.set(model.liveOnlyAtom, !liveOnly)}
+                                        className={cn(
+                                            "flex cursor-pointer items-center gap-[7px] rounded border px-2.5 py-1.5 text-[12px] font-medium",
+                                            liveOnly
+                                                ? "border-success/60 bg-success/10 text-success"
+                                                : "border-edge-mid bg-surface-raised text-muted-foreground hover:border-edge-strong"
+                                        )}
+                                    >
+                                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                                        Live only
+                                    </button>
+                                    {Object.values(cardPrefs).some((p) => p.fullWidth || p.heightWeight != null) ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setCardPrefs({})}
+                                            className="cursor-pointer rounded border border-edge-mid px-2.5 py-1.5 text-[12px] text-muted hover:border-edge-strong"
+                                        >
+                                            Reset layout
+                                        </button>
+                                    ) : null}
+                                </>
+                            }
+                        />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         {(

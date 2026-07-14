@@ -40,6 +40,7 @@ import { profileRailOpenAtom, ProfilePanel } from "./profilepanel";
 import { createRun, getJarvisProfile, pendingRunDraftAtom } from "./runactions";
 import { currentPhaseIndex, defaultRunId, resolveActiveRunId } from "./runmodel";
 import { RunBody } from "./runbody";
+import { SurfaceEmptyState } from "./surfacescaffold";
 import { useFleetSummary } from "./usefleetsummary";
 
 // ── The surface ──────────────────────────────────────────────────────────────────────────────────────
@@ -237,7 +238,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div className="absolute inset-0 flex">
+            <div className="absolute inset-0 flex bg-background">
                 <ChannelRail
                     channels={channels}
                     activeId={activeId}
@@ -370,17 +371,21 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     </div>
                                 </div>
                             </>
-                        ) : (
+                        ) : channels == null ? (
                             <div className="flex min-h-0 flex-1 items-start justify-center">
-                                <div className="mt-16 text-center text-[13px] text-muted">
-                                    {channels == null ? (
-                                        "Loading…"
-                                    ) : (
+                                <div className="mt-16 text-center text-[13px] text-muted">Loading…</div>
+                            </div>
+                        ) : (
+                            <div className="min-h-0 flex-1">
+                                <SurfaceEmptyState
+                                    title="No channel yet"
+                                    body={
                                         <>
-                                            No channel yet — click <span className="text-secondary">＋ New channel</span> to create one bound to a project.
+                                            Click <span className="text-secondary">＋ New channel</span> to create one
+                                            bound to a project.
                                         </>
-                                    )}
-                                </div>
+                                    }
+                                />
                             </div>
                         )}
                     </div>

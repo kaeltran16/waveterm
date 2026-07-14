@@ -24,6 +24,7 @@ import { projectsAtom } from "./projectsstore";
 import { ReviewSurface } from "./reviewsurface";
 import { decisionsAtom, fileDecision, hunkKey, loadReview, progressOf, reviewModelAtom, reviewSelectedAtom } from "./reviewstore";
 import { sourceKey } from "./filesmotion";
+import { SurfaceEmptyState } from "./surfacescaffold";
 
 // Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
 const STATE_DOT: Record<AgentState, string> = { asking: "bg-warning", working: "bg-success", idle: "bg-muted" };
@@ -132,7 +133,7 @@ function SourcePicker({
 }
 
 function EmptyCenter({ msg }: { msg: string }) {
-    return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">{msg}</div>;
+    return <div className="flex h-full items-center justify-center text-[13px] text-muted">{msg}</div>;
 }
 
 function FileListSkeleton() {
@@ -326,7 +327,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     }, [mode, state?.cwd]);
 
     if (agents.length === 0 && projects.length === 0) {
-        return <EmptyCenter msg="No agents or projects yet — start an agent to see its changed files" />;
+        return (
+            <SurfaceEmptyState
+                title="No changes to show"
+                body="Start an agent or pick a project to see its changed files here."
+            />
+        );
     }
     const dirLabel = state?.cwd ? baseName(state.cwd) : "—";
     const changes = state?.changes;

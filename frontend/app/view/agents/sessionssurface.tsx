@@ -7,6 +7,7 @@
 // primary action is Jump (live) or Resume (ended). @theme tokens only — no hardcoded colors.
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -31,6 +32,7 @@ import {
     type LiveSession,
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
+import { SurfaceEmptyState, SurfaceHeader } from "./surfacescaffold";
 import { projectTranscript } from "./transcriptprojection";
 
 const EVENT_COLOR: Record<string, string> = {
@@ -81,17 +83,18 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-background">
-            {/* header */}
-            <div className="flex-none border-b border-edge-faint px-[26px] pb-[15px] pt-5">
-                <div className="mb-1 flex items-center gap-[11px]">
-                    <h1 className="text-[25px] font-bold tracking-[-0.02em] text-primary">Sessions</h1>
-                    {liveCount > 0 ? (
+            <SurfaceHeader
+                title="Sessions"
+                badge={
+                    liveCount > 0 ? (
                         <span className="inline-flex items-center gap-1.5 rounded-sm border border-accent bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-soft">
                             <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                             {liveCount} live
                         </span>
-                    ) : null}
-                    <div className="flex-1" />
+                    ) : null
+                }
+                subtitle="Every agent session and its activity — one timeline per run, or the full feed across all of them."
+                actions={
                     <div className="flex items-center gap-1 rounded border border-border bg-surface p-0.5">
                         {FILTERS.map((f) => (
                             <button
@@ -107,11 +110,8 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             </button>
                         ))}
                     </div>
-                </div>
-                <p className="text-[13px] text-secondary">
-                    Every agent session and its activity — one timeline per run, or the full feed across all of them.
-                </p>
-            </div>
+                }
+            />
 
             {/* body: list + detail */}
             <div className="flex min-h-0 flex-1">
@@ -136,9 +136,15 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     </button>
 
                     {base == null ? (
-                        <div className="mt-8 text-center text-[13px] text-muted">Loading…</div>
+                        <div className="mt-4 flex flex-col gap-[7px]">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <SkeletonLine key={i} className="h-[58px] rounded-[11px]" />
+                            ))}
+                        </div>
                     ) : groups.length === 0 ? (
-                        <div className="mt-8 text-center text-[13px] text-muted">No sessions found.</div>
+                        <div className="mt-6">
+                            <SurfaceEmptyState title="No sessions found" body="Sessions appear here as agents run." />
+                        </div>
                     ) : (
                         groups.map((g) => (
                             <div key={g.key} className="mb-3.5">

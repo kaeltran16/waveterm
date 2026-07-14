@@ -19,6 +19,7 @@ import type { AgentsViewModel } from "./agents";
 import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
 import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
+import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { modelGridClass } from "./usagestats";
 import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
 import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
@@ -501,26 +502,31 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         <MotionConfig reducedMotion="user">
             <div className="absolute inset-0 overflow-y-auto">
                 <div className="mx-auto max-w-[1060px] px-[30px] pb-[90px] pt-[28px]">
-                    <div className="mb-[22px] flex items-end gap-[18px]">
-                        <div className="min-w-0 flex-1">
-                            <h1 className="mb-[5px] text-[25px] font-bold tracking-[-0.02em] text-primary">Usage</h1>
-                            <p className="max-w-[640px] text-[13.5px] leading-[1.5] text-secondary">
-                                Durable history from transcripts, plus live quota while agents run. Spend is an{" "}
-                                <span className="text-muted-foreground">≈ API-equivalent</span> estimate from a bundled price
-                                table — never a bill.
-                            </p>
-                            {loadError ? (
-                                <p className="mt-1 text-[12px] text-warning">Couldn’t refresh — showing the last loaded usage.</p>
-                            ) : null}
-                        </div>
-                        <Segmented<"7d" | "all">
-                            value={usageWindow}
-                            onChange={setUsageWindow}
-                            options={[
-                                { key: "7d", label: "7 days" },
-                                { key: "all", label: "All time" },
-                            ]}
+                    <div className="mb-[22px]">
+                        <SurfaceHeader
+                            border={false}
+                            title="Usage"
+                            subtitle={
+                                <span className="max-w-[640px] leading-[1.5]">
+                                    Durable history from transcripts, plus live quota while agents run. Spend is an{" "}
+                                    <span className="text-muted-foreground">≈ API-equivalent</span> estimate from a bundled
+                                    price table — never a bill.
+                                </span>
+                            }
+                            actions={
+                                <Segmented<"7d" | "all">
+                                    value={usageWindow}
+                                    onChange={setUsageWindow}
+                                    options={[
+                                        { key: "7d", label: "7 days" },
+                                        { key: "all", label: "All time" },
+                                    ]}
+                                />
+                            }
                         />
+                        {loadError ? (
+                            <SurfaceError message="Couldn’t refresh — showing the last loaded usage." />
+                        ) : null}
                     </div>
 
                     {/* LIVE LIMITS */}

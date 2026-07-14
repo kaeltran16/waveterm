@@ -50,58 +50,63 @@ import {
     selectNote,
 } from "./memstore";
 import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
+import { SurfaceEmptyState, SurfaceHeader } from "./surfacescaffold";
 
 function Header({ count, pending, onNew }: { count: number; pending: number; onNew: () => void }) {
     const view = useAtomValue(memViewAtom);
     const search = useAtomValue(memSearchAtom);
     return (
-        <div className="flex flex-none items-center gap-[14px] px-[28px] pb-[16px] pt-[24px]">
-            <div>
-                <h1 className="mb-[4px] text-[25px] font-bold tracking-[-0.02em]">Memory</h1>
-                <p className="text-[13.5px] text-ink-mid">
-                    What your agents remember · <span className="font-semibold text-ink-hi">{count} saved</span>
+        <SurfaceHeader
+            border={false}
+            title="Memory"
+            subtitle={
+                <>
+                    What your agents remember · <span className="font-semibold text-primary">{count} saved</span>
                     {pending > 0 && (
                         <> · <span className="font-semibold text-asking">{pending} pending review</span></>
                     )}
-                </p>
-            </div>
-            <div className="flex-1" />
-            <input
-                value={search}
-                onChange={(e) => {
-                    globalStore.set(memSearchAtom, e.target.value);
-                    globalStore.set(memReflowAnimatedAtom, false); // search filters instantly, never reflow-animated
-                }}
-                placeholder="Search memory…"
-                className="w-[230px] rounded-[9px] border border-border bg-surface px-[12px] py-[8px] text-[13px] text-foreground outline-none placeholder:text-ink-mid"
-            />
-            <div className="flex rounded-[9px] border border-edge-mid bg-surface p-[3px]">
-                <button
-                    onClick={() => globalStore.set(memViewAtom, "graph")}
-                    className={cn(
-                        "rounded-[7px] px-[14px] py-[6px] text-[12px] font-semibold",
-                        view === "graph" ? "bg-accentbg text-accent-soft" : "text-ink-mid"
-                    )}
-                >
-                    Graph
-                </button>
-                <button
-                    onClick={() => globalStore.set(memViewAtom, "list")}
-                    className={cn(
-                        "rounded-[7px] px-[14px] py-[6px] text-[12px] font-semibold",
-                        view === "list" ? "bg-accentbg text-accent-soft" : "text-ink-mid"
-                    )}
-                >
-                    List
-                </button>
-            </div>
-            <button
-                onClick={onNew}
-                className="flex items-center gap-[6px] rounded bg-accent px-[13px] py-[8px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
-            >
-                <span className="-mt-px text-[15px] leading-none">+</span>New memory
-            </button>
-        </div>
+                </>
+            }
+            actions={
+                <>
+                    <input
+                        value={search}
+                        onChange={(e) => {
+                            globalStore.set(memSearchAtom, e.target.value);
+                            globalStore.set(memReflowAnimatedAtom, false);
+                        }}
+                        placeholder="Search memory…"
+                        className="w-[230px] rounded-[9px] border border-border bg-surface px-[12px] py-[8px] text-[13px] text-foreground outline-none placeholder:text-muted"
+                    />
+                    <div className="flex rounded-[9px] border border-edge-mid bg-surface p-[3px]">
+                        <button
+                            onClick={() => globalStore.set(memViewAtom, "graph")}
+                            className={cn(
+                                "rounded-[7px] px-[14px] py-[6px] text-[12px] font-semibold",
+                                view === "graph" ? "bg-accentbg text-accent-soft" : "text-muted"
+                            )}
+                        >
+                            Graph
+                        </button>
+                        <button
+                            onClick={() => globalStore.set(memViewAtom, "list")}
+                            className={cn(
+                                "rounded-[7px] px-[14px] py-[6px] text-[12px] font-semibold",
+                                view === "list" ? "bg-accentbg text-accent-soft" : "text-muted"
+                            )}
+                        >
+                            List
+                        </button>
+                    </div>
+                    <button
+                        onClick={onNew}
+                        className="flex items-center gap-[6px] rounded bg-accent px-[13px] py-[8px] text-[12.5px] font-semibold text-background hover:bg-accenthover"
+                    >
+                        <span className="-mt-px text-[15px] leading-none">+</span>New memory
+                    </button>
+                </>
+            }
+        />
     );
 }
 
@@ -540,7 +545,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div className="absolute inset-0 flex">
+            <div className="absolute inset-0 flex bg-background">
                 <div className="flex min-w-0 flex-1 flex-col">
                     <Header count={notes.length} pending={pending.length} onNew={() => setNewOpen(true)} />
                     <SyncStrip focusedCwd={focusedCwd} />
@@ -549,10 +554,10 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                         {!loaded ? (
                             <MemorySkeleton />
                         ) : notes.length === 0 && pending.length === 0 ? (
-                            <div className="p-[28px] text-[13px] text-ink-mid">
-                                No memory yet. Create one with “New memory”, or point{" "}
-                                <span className="font-mono">memory:vaultpath</span> at an existing vault.
-                            </div>
+                            <SurfaceEmptyState
+                                title="No memory yet"
+                                body="Notes your agents save show up here — nothing to review yet."
+                            />
                         ) : (
                             <AnimatePresence mode="wait" initial={false}>
                                 <motion.div
