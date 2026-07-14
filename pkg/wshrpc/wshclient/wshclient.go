@@ -1086,6 +1086,12 @@ func SetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.R
 	return err
 }
 
+// command "sharpentask", wshserver.SharpenTaskCommand
+func SharpenTaskCommand(w *wshutil.WshRpc, data wshrpc.CommandSharpenTaskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandSharpenTaskRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandSharpenTaskRtnData](w, "sharpentask", data, opts)
+	return resp, err
+}
+
 // command "startbuilder", wshserver.StartBuilderCommand
 func StartBuilderCommand(w *wshutil.WshRpc, data wshrpc.CommandStartBuilderData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "startbuilder", data, opts)

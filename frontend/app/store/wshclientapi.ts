@@ -1092,6 +1092,12 @@ export class RpcApiType {
         return client.wshRpcCall("setvar", data, opts);
     }
 
+    // command "sharpentask" [call]
+    SharpenTaskCommand(client: WshClient, data: CommandSharpenTaskData, opts?: RpcOpts): Promise<CommandSharpenTaskRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sharpentask", data, opts);
+        return client.wshRpcCall("sharpentask", data, opts);
+    }
+
     // command "startbuilder" [call]
     StartBuilderCommand(client: WshClient, data: CommandStartBuilderData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startbuilder", data, opts);

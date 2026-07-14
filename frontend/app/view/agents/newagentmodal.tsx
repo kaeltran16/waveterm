@@ -11,7 +11,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { agentCwd } from "./agentcwd";
 import { liveProjectsForLaunch } from "./agentsviewmodel";
@@ -27,6 +27,7 @@ import {
     type Runtime,
 } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
+import { canSharpen, isCurrentRequest, undoAvailable, type SharpenMode, type SharpenState } from "./sharpen";
 import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
 
 const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
@@ -58,6 +59,8 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [branchListOpen, setBranchListOpen] = useState(false);
     const [resolvedPaths, setResolvedPaths] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
+    const reqIdRef = useRef(0);
+    const [sharpen, setSharpen] = useState<SharpenState>({ kind: "idle" });
     // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones.
     const candidates = useMemo(() => launchCandidates(registry, liveProjectsForLaunch(agents)), [registry, agents]);
     const pathFor = (c: LaunchCandidate | undefined): string => (c ? c.path || resolvedPaths[c.name] || "" : "");
@@ -87,6 +90,8 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const close = () => {
         globalStore.set(model.newAgentOpenAtom, false);
         setError(null);
+        reqIdRef.current++;
+        setSharpen({ kind: "idle" });
     };
     // Resolve a launch cwd for live (un-registered) projects from a representative agent's transcript
     // (the same source the Files surface uses). Registered projects already carry a stored path.
@@ -178,9 +183,47 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         setBranchEdited(false);
     }, [selectedPath]);
+    useEffect(() => {
+        reqIdRef.current++;
+        setSharpen({ kind: "idle" });
+    }, [runtime, selectedProject]);
     const pickRuntime = (r: Runtime) => {
         setRuntime(r);
         setStartup(runtimeStartupCommand(r));
+    };
+    const runSharpen = async (mode: SharpenMode) => {
+        const input = task;
+        if (!canSharpen(runtime, input, sharpen.kind === "loading")) {
+            return;
+        }
+        const reqId = ++reqIdRef.current;
+        setSharpen({ kind: "loading", reqId, mode });
+        try {
+            const res = await RpcApi.SharpenTaskCommand(TabRpcClient, {
+                task: input,
+                projectname: selectedProject,
+                runtime,
+                mode,
+            });
+            if (!isCurrentRequest(reqId, reqIdRef.current)) {
+                return; // stale: context changed or a newer request started
+            }
+            setTask(res.task);
+            setSharpen({ kind: "proposed", undoTask: input, proposedTask: res.task, model: res.model });
+        } catch (e) {
+            if (!isCurrentRequest(reqId, reqIdRef.current)) {
+                return;
+            }
+            setSharpen({ kind: "idle", error: String(e) });
+        }
+    };
+    const undoSharpen = () => {
+        if (sharpen.kind !== "proposed") {
+            return;
+        }
+        setTask(sharpen.undoTask);
+        reqIdRef.current++;
+        setSharpen({ kind: "idle" });
     };
     const launch = async () => {
         const c = candidates.find((p) => p.name === selectedProject);
@@ -307,13 +350,27 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         )}
                     </Section>
                     {runtimeShowsTask(runtime) ? (
-                        <Section label="Task">
+                        <Section
+                            label="Task"
+                            action={
+                                <SharpenControls
+                                    sharpen={sharpen}
+                                    canSharpenNow={canSharpen(runtime, task, sharpen.kind === "loading")}
+                                    undoOk={undoAvailable(sharpen, task)}
+                                    onSharpen={(mode) => void runSharpen(mode)}
+                                    onUndo={undoSharpen}
+                                />
+                            }
+                        >
                             <textarea
                                 value={task}
                                 onChange={(e) => setTask(e.target.value)}
                                 placeholder="Describe what this agent should do…"
                                 className="h-[84px] w-full resize-none rounded-[10px] border border-edge-mid bg-surface px-[13px] py-[11px] text-[13.5px] leading-normal text-primary outline-none focus:border-accent-700"
                             />
+                            {sharpen.kind === "idle" && sharpen.error ? (
+                                <div className="mt-[7px] text-[12px] text-error">Couldn't sharpen. {sharpen.error}</div>
+                            ) : null}
                         </Section>
                     ) : null}
                     <Section label="Startup command · optional">
@@ -578,13 +635,60 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
     return (
         <div>
-            <div className="mb-[9px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-                {label}
+            <div className="mb-[9px] flex min-h-[16px] items-center gap-[9px]">
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+                    {label}
+                </span>
+                {action ? <div className="ml-auto flex items-center">{action}</div> : null}
             </div>
             {children}
         </div>
+    );
+}
+
+function SharpenControls({
+    sharpen,
+    canSharpenNow,
+    undoOk,
+    onSharpen,
+    onUndo,
+}: {
+    sharpen: SharpenState;
+    canSharpenNow: boolean;
+    undoOk: boolean;
+    onSharpen: (mode: SharpenMode) => void;
+    onUndo: () => void;
+}) {
+    const btn =
+        "cursor-pointer rounded-[6px] border border-edge-mid bg-surface px-[9px] py-[3px] text-[11px] font-medium text-secondary hover:border-edge-strong disabled:cursor-not-allowed disabled:opacity-40";
+    if (sharpen.kind === "loading") {
+        return (
+            <span className="flex items-center gap-[6px] text-[11px] text-muted">
+                <span className="inline-block h-[10px] w-[10px] animate-spin rounded-full border border-edge-mid border-t-accent" />
+                Sharpening…
+            </span>
+        );
+    }
+    if (sharpen.kind === "proposed") {
+        return (
+            <div className="flex items-center gap-[7px]">
+                {undoOk ? (
+                    <button type="button" className={btn} onClick={onUndo}>
+                        Undo
+                    </button>
+                ) : null}
+                <button type="button" className={btn} onClick={() => onSharpen("sonnet")}>
+                    Try with Sonnet
+                </button>
+            </div>
+        );
+    }
+    return (
+        <button type="button" className={btn} disabled={!canSharpenNow} onClick={() => onSharpen("fast")}>
+            Sharpen
+        </button>
     );
 }

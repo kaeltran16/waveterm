@@ -1117,6 +1117,20 @@ declare global {
         note?: string;
     };
 
+    // wshrpc.CommandSharpenTaskData
+    type CommandSharpenTaskData = {
+        task: string;
+        projectname: string;
+        runtime: string;
+        mode: string;
+    };
+
+    // wshrpc.CommandSharpenTaskRtnData
+    type CommandSharpenTaskRtnData = {
+        task: string;
+        model: string;
+    };
+
     // wshrpc.CommandStartBuilderData
     type CommandStartBuilderData = {
         builderid: string;
