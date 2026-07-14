@@ -12,13 +12,14 @@ import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useState } from "react";
 import { getJarvisProfile, setChannelProfile } from "./runactions";
-import { isDirty } from "./profilemodel";
+import { isDirty, principlePatchIsEmpty } from "./profilemodel";
+import { PrinciplesEditor } from "./principleseditor";
 
 export const profileRailOpenAtom: PrimitiveAtom<boolean> = atom(false);
 
 const PHASE_KINDS = ["brainstorm", "plan", "execute", "custom"] as const;
 
-type Loaded = { global: JarvisProfile; override: ProfileOverride };
+type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
 
 function omit(d: ProfileOverride, key: keyof ProfileOverride): ProfileOverride {
     const next = { ...d };
@@ -37,7 +38,12 @@ function movePhase(phases: RunPhase[], i: number, dir: -1 | 1): RunPhase[] {
 }
 
 function overrideIsEmpty(o: ProfileOverride): boolean {
-    return o.playbook == null && o.principles == null && o.defaultmode == null && o.defaultplangate == null;
+    return (
+        o.playbook == null &&
+        principlePatchIsEmpty(o.principles) &&
+        o.defaultmode == null &&
+        o.defaultplangate == null
+    );
 }
 
 function Badge({ source }: { source: "global" | "project" }) {
@@ -187,50 +193,35 @@ function PrinciplesSection({
     global,
     draft,
     setDraft,
+    diagnostics,
 }: {
     global: JarvisProfile;
     draft: ProfileOverride;
     setDraft: React.Dispatch<React.SetStateAction<ProfileOverride>>;
+    diagnostics: PrincipleDiagnostic[];
 }) {
-    const overridden = draft.principles != null;
-    const value = draft.principles ?? global.principles ?? "";
+    // send the patch as-is; never copy the resolved list into the override. An empty patch clears principles.
+    const setPrinciples = (patch: PrinciplePatch | undefined) =>
+        setDraft((d) => {
+            const next = { ...d };
+            if (patch == null) {
+                delete next.principles;
+            } else {
+                next.principles = patch;
+            }
+            return next;
+        });
     return (
         <div>
-            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <div className="mb-1.5 flex items-center gap-2">
                 <span className="text-[12px] font-semibold text-primary">Principles</span>
-                <Badge source={overridden ? "project" : "global"} />
-                <span className="font-mono text-[9px] text-muted">(not yet applied · Piece 4)</span>
-                <div className="flex-1" />
-                {overridden ? (
-                    <button
-                        type="button"
-                        onClick={() => setDraft((d) => omit(d, "principles"))}
-                        className="text-[10px] text-muted hover:text-secondary"
-                    >
-                        reset to global
-                    </button>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={() => setDraft((d) => ({ ...d, principles: global.principles ?? "" }))}
-                        className="text-[10px] text-accent-soft hover:text-accent"
-                    >
-                        customize
-                    </button>
-                )}
             </div>
-            {overridden ? (
-                <textarea
-                    value={value}
-                    onChange={(e) => setDraft((d) => ({ ...d, principles: e.target.value }))}
-                    rows={6}
-                    className="w-full rounded border border-edge-mid bg-background p-2 text-[11.5px] leading-[1.5] text-primary focus:outline-none"
-                />
-            ) : (
-                <div className="whitespace-pre-wrap rounded border border-edge-mid bg-surface p-2 text-[11px] leading-[1.5] text-muted">
-                    {value || "—"}
-                </div>
-            )}
+            <PrinciplesEditor
+                global={global.principles ?? []}
+                patch={draft.principles}
+                diagnostics={diagnostics}
+                onChange={setPrinciples}
+            />
         </div>
     );
 }
@@ -305,7 +296,7 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
         fireAndForget(async () => {
             try {
                 const p = await getJarvisProfile(channelId);
-                setLoaded({ global: p.global, override: p.override ?? {} });
+                setLoaded({ global: p.global, override: p.override ?? {}, diagnostics: p.principlediagnostics ?? [] });
                 setDraft(p.override ?? {});
             } catch (e) {
                 setError(String(e));
@@ -334,7 +325,12 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
                 Jarvis profile · merged (global + this project)
             </div>
             <PlaybookSection global={loaded.global} draft={draft} setDraft={setDraft} />
-            <PrinciplesSection global={loaded.global} draft={draft} setDraft={setDraft} />
+            <PrinciplesSection
+                global={loaded.global}
+                draft={draft}
+                setDraft={setDraft}
+                diagnostics={loaded.diagnostics}
+            />
             <DefaultsSection global={loaded.global} draft={draft} setDraft={setDraft} />
         </div>
     ) : error ? (

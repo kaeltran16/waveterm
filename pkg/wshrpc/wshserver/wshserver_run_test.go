@@ -14,7 +14,7 @@ import (
 func bptr(b bool) *bool { return &b }
 
 func TestApplyRunActionTriage(t *testing.T) {
-	r := jarvis.NewRun("do X", "ws", "/p", "", jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	r := jarvis.NewRun("do X", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	next, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Triage, PhaseIdx: 0, Verdict: "quick", Note: "tiny fix"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -28,7 +28,7 @@ func TestApplyRunActionTriage(t *testing.T) {
 }
 
 func TestApplyRunActionUnknown(t *testing.T) {
-	r := jarvis.NewRun("g", "ws", "/p", "", jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	r := jarvis.NewRun("g", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	if _, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: "bogus"}); err == nil {
 		t.Error("expected error for unknown action")
 	}

@@ -8,16 +8,17 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 )
 
 func TestPhasePrompt_ModeAware(t *testing.T) {
-	orch := NewRun("do X", "ws", "/p", "be clean", RunMode_Orchestrator, DefaultOrchestratorPlaybook(true), 1)
+	orch := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Orchestrator, DefaultOrchestratorPlaybook(true), 1)
 	if p := phasePrompt(&orch, 0); !strings.Contains(p, "wsh jarvis hold") {
 		t.Fatalf("orchestrator prompt should hold-gate:\n%s", p)
 	}
 
-	pipe := NewRun("do X", "ws", "/p", "be clean", RunMode_Pipeline, DefaultPlaybook(), 1)
+	pipe := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Pipeline, DefaultPlaybook(), 1)
 	pp := phasePrompt(&pipe, 0)
 	if !strings.Contains(pp, "wsh jarvis complete") {
 		t.Fatalf("pipeline prompt should tell the worker to self-report completion:\n%s", pp)

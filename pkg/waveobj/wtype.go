@@ -239,7 +239,7 @@ type Run struct {
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
-	Principles  string          `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
+	Principles  PrincipleList   `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
 	Status      string          `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
 	Phases      []RunPhase      `json:"phases"`
 	RadarOrigin *RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
@@ -258,19 +258,19 @@ type RunRadarOrigin struct {
 // principles (free-text judgment; consumed in Piece 4, stored/resolved only for now). Playbook reuses
 // RunPhase so a resolved profile feeds NewRun directly (runtime fields are set at run creation).
 type JarvisProfile struct {
-	Playbook        []RunPhase `json:"playbook"`
-	Principles      string     `json:"principles,omitempty"`
-	DefaultMode     string     `json:"defaultmode,omitempty"`     // pipeline | orchestrator (empty = pipeline)
-	DefaultPlanGate *bool      `json:"defaultplangate,omitempty"` // nil = on
+	Playbook        []RunPhase    `json:"playbook"`
+	Principles      PrincipleList `json:"principles,omitempty"`
+	DefaultMode     string        `json:"defaultmode,omitempty"`     // pipeline | orchestrator (empty = pipeline)
+	DefaultPlanGate *bool         `json:"defaultplangate,omitempty"` // nil = on
 }
 
 // ProfileOverride is a channel's per-project override, stored as JSON on channel meta. Pointer fields:
 // nil = inherit the global section, non-nil = replace it (section-level resolution).
 type ProfileOverride struct {
-	Playbook        *[]RunPhase `json:"playbook,omitempty"`
-	Principles      *string     `json:"principles,omitempty"`
-	DefaultMode     *string     `json:"defaultmode,omitempty"`
-	DefaultPlanGate *bool       `json:"defaultplangate,omitempty"`
+	Playbook        *[]RunPhase     `json:"playbook,omitempty"`
+	Principles      *PrinciplePatch `json:"principles,omitempty"`
+	DefaultMode     *string         `json:"defaultmode,omitempty"`
+	DefaultPlanGate *bool           `json:"defaultplangate,omitempty"`
 }
 
 type Channel struct {

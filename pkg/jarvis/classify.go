@@ -29,7 +29,7 @@ type Decision struct {
 // BuildClassifyPrompt composes a JSON-only prompt: the single question + its indexed options, the
 // worker's task, the resolved principles (when any), and a capped recent timeline. The model must
 // return {action, optionindex, reason}. Empty principles reproduce the pre-Piece-4 prompt.
-func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveobj.Channel, principles string) string {
+func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveobj.Channel, principles waveobj.PrincipleList) string {
 	var opts strings.Builder
 	for i, o := range q.Options {
 		opts.WriteString(fmt.Sprintf("  %d: %s", i, o.Label))
@@ -46,11 +46,11 @@ func BuildClassifyPrompt(q baseds.AgentAskQuestion, task string, channel *waveob
 		fmt.Sprintf(`You are Jarvis, gatekeeping a coding agent in the "%s" channel. A worker paused to ask a multiple-choice question. Decide whether it is ROUTINE (safe to auto-answer on the human's behalf) or a genuine FORK that needs the human.`, channel.Name),
 		`Escalate (do NOT answer) if the choice is irreversible, changes product scope or user-facing behavior, is a real judgment call, or you are not confident. When in doubt, escalate.`,
 	}
-	if strings.TrimSpace(principles) != "" {
+	if rendered := RenderPrinciples(principles); rendered != "" {
 		lines = append(lines,
 			"",
 			"Team principles to weigh (escalate a fork that is principle-significant, e.g. a quick patch vs. the clean fix; when you DO auto-answer, prefer the option these principles favor):",
-			principles,
+			rendered,
 		)
 	}
 	lines = append(lines,
@@ -111,7 +111,7 @@ func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQu
 	if !ok {
 		return Decision{Action: "escalate", Reason: "claude CLI unavailable"}
 	}
-	principles := ResolveProfile(LoadGlobalProfile(), OverrideFromMeta(channel)).Principles
+	principles := resolveGatekeeperPrinciples(channel)
 	runCtx, cancel := context.WithTimeout(ctx, classifyTimeout)
 	defer cancel()
 	reply, err := consult.Run(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(q, task, channel, principles), func(string) {})
@@ -119,4 +119,8 @@ func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQu
 		return Decision{Action: "escalate", Reason: "classifier error: " + err.Error()}
 	}
 	return ParseDecision(reply)
+}
+
+func resolveGatekeeperPrinciples(channel *waveobj.Channel) waveobj.PrincipleList {
+	return ResolveProfile(LoadGlobalProfile(), OverrideFromMeta(channel)).Principles
 }

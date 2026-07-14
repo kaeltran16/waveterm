@@ -5,33 +5,37 @@ package jarvis
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// MetaKey_JarvisProfile stores a channel's per-project ProfileOverride (JSON) on channel meta.
 const MetaKey_JarvisProfile = "jarvis:profile"
 
 const globalProfileFileName = "jarvis-profile.json"
 
-// DefaultPrinciples seeds the builtin global profile's judgment text. Stored/resolved only in Piece 3;
-// consumed by the classifier + phase prompts in Piece 4.
-const DefaultPrinciples = `Prefer simple, direct solutions over enterprise over-engineering.
-Apply SOLID, KISS, YAGNI, DRY. Single source of truth for every piece of knowledge.
-No premature optimization or abstraction. Handle errors at boundaries; never swallow them.`
+const (
+	DiagnosticMissingReplacement = "missing-replacement"
+	DiagnosticMissingDisabled    = "missing-disabled"
+)
 
-// BuiltinProfile is the fallback global profile when no global file exists: the default playbook plus
-// the default principles. DefaultPlaybook stays the single source of the default pipeline.
-func BuiltinProfile() waveobj.JarvisProfile {
-	return waveobj.JarvisProfile{Playbook: DefaultPlaybook(), Principles: DefaultPrinciples}
+var DefaultPrinciples = waveobj.PrincipleList{
+	{ID: "simple-solutions", Text: "Prefer simple, direct solutions over enterprise over-engineering."},
+	{ID: "engineering-principles", Text: "Apply SOLID, KISS, YAGNI, and DRY. Keep a single source of truth."},
+	{ID: "measure-first", Text: "Measure before optimizing. Do not abstract for a single implementation."},
+	{ID: "boundary-errors", Text: "Handle errors at boundaries and never silently swallow them."},
 }
 
-// LoadGlobalProfile reads the global profile file from the config home, falling back to BuiltinProfile
-// on a missing or malformed file (logged, never fatal).
+func BuiltinProfile() waveobj.JarvisProfile {
+	return waveobj.JarvisProfile{Playbook: DefaultPlaybook(), Principles: clonePrinciples(DefaultPrinciples)}
+}
+
 func LoadGlobalProfile() waveobj.JarvisProfile {
 	path := filepath.Join(wavebase.GetWaveConfigDir(), globalProfileFileName)
 	data, err := os.ReadFile(path)
@@ -41,24 +45,154 @@ func LoadGlobalProfile() waveobj.JarvisProfile {
 		}
 		return BuiltinProfile()
 	}
-	var p waveobj.JarvisProfile
-	if err := json.Unmarshal(data, &p); err != nil {
+	var profile waveobj.JarvisProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
 		log.Printf("jarvis profile: malformed %s: %v (using builtin)", path, err)
 		return BuiltinProfile()
 	}
-	return p
+	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
+		log.Printf("jarvis profile: invalid principles in %s: %v (using builtin)", path, err)
+		return BuiltinProfile()
+	}
+	return profile
 }
 
-// ResolveProfile applies a per-project override onto the global profile, section by section: a non-nil
-// override section replaces the global's; a nil section inherits. Pure; the single home of the merge rule.
-func ResolveProfile(global waveobj.JarvisProfile, override *waveobj.ProfileOverride) waveobj.JarvisProfile {
+func ValidateGlobalPrinciples(items waveobj.PrincipleList) error {
+	seen := make(map[string]struct{}, len(items))
+	for i, item := range items {
+		if strings.TrimSpace(item.ID) == "" {
+			return fmt.Errorf("principle %d has a blank id", i)
+		}
+		if strings.TrimSpace(item.Text) == "" {
+			return fmt.Errorf("principle %q has blank text", item.ID)
+		}
+		if _, ok := seen[item.ID]; ok {
+			return fmt.Errorf("duplicate principle id %q", item.ID)
+		}
+		seen[item.ID] = struct{}{}
+	}
+	return nil
+}
+
+func ValidatePrinciplePatch(global waveobj.PrincipleList, patch *waveobj.PrinciplePatch) error {
+	if err := ValidateGlobalPrinciples(global); err != nil {
+		return fmt.Errorf("invalid global principles: %w", err)
+	}
+	if patch == nil {
+		return nil
+	}
+	if _, legacy := patch.LegacyReplacement(); legacy {
+		return nil
+	}
+	globalIDs := make(map[string]struct{}, len(global))
+	for _, item := range global {
+		globalIDs[item.ID] = struct{}{}
+	}
+	additionIDs := make(map[string]struct{}, len(patch.Additions))
+	for i, item := range patch.Additions {
+		if strings.TrimSpace(item.ID) == "" {
+			return fmt.Errorf("addition %d has a blank id", i)
+		}
+		if strings.TrimSpace(item.Text) == "" {
+			return fmt.Errorf("addition %q has blank text", item.ID)
+		}
+		if _, ok := globalIDs[item.ID]; ok {
+			return fmt.Errorf("addition id %q collides with a global principle", item.ID)
+		}
+		if _, ok := additionIDs[item.ID]; ok {
+			return fmt.Errorf("duplicate addition id %q", item.ID)
+		}
+		additionIDs[item.ID] = struct{}{}
+	}
+	for id, text := range patch.Replacements {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("replacement has a blank id")
+		}
+		if strings.TrimSpace(text) == "" {
+			return fmt.Errorf("replacement %q has blank text", id)
+		}
+	}
+	for i, id := range patch.Disabled {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("disabled principle %d has a blank id", i)
+		}
+	}
+	return nil
+}
+
+func NormalizePrinciplePatch(global waveobj.PrincipleList, patch *waveobj.PrinciplePatch) *waveobj.PrinciplePatch {
+	if patch == nil {
+		return nil
+	}
+	if legacy, ok := patch.LegacyReplacement(); ok {
+		disabled := make([]string, 0, len(global))
+		for _, item := range global {
+			disabled = append(disabled, item.ID)
+		}
+		return &waveobj.PrinciplePatch{
+			Additions: []waveobj.Principle{{ID: waveobj.LegacyProjectPrincipleID, Text: legacy}},
+			Disabled:  disabled,
+		}
+	}
+	return clonePrinciplePatch(patch)
+}
+
+func ResolvePrinciples(global waveobj.PrincipleList, patch *waveobj.PrinciplePatch) (waveobj.PrincipleList, []waveobj.PrincipleDiagnostic) {
+	if patch == nil {
+		return clonePrinciples(global), nil
+	}
+	if legacy, ok := patch.LegacyReplacement(); ok {
+		return waveobj.PrincipleList{{ID: waveobj.LegacyProjectPrincipleID, Text: legacy}}, nil
+	}
+	if ValidatePrinciplePatch(global, patch) != nil {
+		return clonePrinciples(global), nil
+	}
+
+	globalIDs := make(map[string]struct{}, len(global))
+	for _, item := range global {
+		globalIDs[item.ID] = struct{}{}
+	}
+	diagnostics := make([]waveobj.PrincipleDiagnostic, 0)
+	missingReplacementIDs := make([]string, 0)
+	for id := range patch.Replacements {
+		if _, ok := globalIDs[id]; !ok {
+			missingReplacementIDs = append(missingReplacementIDs, id)
+		}
+	}
+	sort.Strings(missingReplacementIDs)
+	for _, id := range missingReplacementIDs {
+		diagnostics = append(diagnostics, waveobj.PrincipleDiagnostic{Code: DiagnosticMissingReplacement, PrincipleID: id})
+	}
+	disabled := make(map[string]struct{}, len(patch.Disabled))
+	for _, id := range patch.Disabled {
+		if _, ok := globalIDs[id]; !ok {
+			diagnostics = append(diagnostics, waveobj.PrincipleDiagnostic{Code: DiagnosticMissingDisabled, PrincipleID: id})
+			continue
+		}
+		disabled[id] = struct{}{}
+	}
+
+	resolved := make(waveobj.PrincipleList, 0, len(global)+len(patch.Additions))
+	for _, item := range global {
+		if _, ok := disabled[item.ID]; ok {
+			continue
+		}
+		if replacement, ok := patch.Replacements[item.ID]; ok {
+			item.Text = replacement
+		}
+		resolved = append(resolved, item)
+	}
+	resolved = append(resolved, patch.Additions...)
+	return resolved, diagnostics
+}
+
+func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveobj.ProfileOverride) (waveobj.JarvisProfile, []waveobj.PrincipleDiagnostic) {
 	out := global
+	var patch *waveobj.PrinciplePatch
 	if override != nil {
+		patch = override.Principles
 		if override.Playbook != nil {
 			out.Playbook = *override.Playbook
-		}
-		if override.Principles != nil {
-			out.Principles = *override.Principles
 		}
 		if override.DefaultMode != nil {
 			out.DefaultMode = *override.DefaultMode
@@ -67,22 +201,38 @@ func ResolveProfile(global waveobj.JarvisProfile, override *waveobj.ProfileOverr
 			out.DefaultPlanGate = override.DefaultPlanGate
 		}
 	}
-	return out
+	principles, diagnostics := ResolvePrinciples(global.Principles, patch)
+	out.Principles = principles
+	return out, diagnostics
 }
 
-// ResolvePlaybook returns the playbook a new run should use: the resolved profile's playbook, or the
-// default playbook when that is empty (a run always has phases).
+func ResolveProfile(global waveobj.JarvisProfile, override *waveobj.ProfileOverride) waveobj.JarvisProfile {
+	resolved, _ := ResolveProfileWithDiagnostics(global, override)
+	return resolved
+}
+
+func RenderPrinciples(items waveobj.PrincipleList) string {
+	if len(items) == 0 {
+		return ""
+	}
+	if len(items) == 1 && (items[0].ID == waveobj.LegacyGlobalPrincipleID || items[0].ID == waveobj.LegacyProjectPrincipleID) {
+		return items[0].Text
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		lines = append(lines, "- "+item.Text)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func ResolvePlaybook(global waveobj.JarvisProfile, override *waveobj.ProfileOverride) []waveobj.RunPhase {
-	pb := ResolveProfile(global, override).Playbook
-	if len(pb) == 0 {
+	playbook := ResolveProfile(global, override).Playbook
+	if len(playbook) == 0 {
 		return DefaultPlaybook()
 	}
-	return pb
+	return playbook
 }
 
-// OverrideFromMeta extracts a channel's ProfileOverride from meta, or nil when absent or malformed (a
-// bad blob degrades to pure-global, never a crash). Round-trips through JSON because meta values arrive
-// as generic map[string]any after a DB read.
 func OverrideFromMeta(ch *waveobj.Channel) *waveobj.ProfileOverride {
 	if ch == nil || !ch.Meta.HasKey(MetaKey_JarvisProfile) {
 		return nil
@@ -92,10 +242,31 @@ func OverrideFromMeta(ch *waveobj.Channel) *waveobj.ProfileOverride {
 		log.Printf("jarvis profile: marshaling override meta: %v", err)
 		return nil
 	}
-	var ov waveobj.ProfileOverride
-	if err := json.Unmarshal(raw, &ov); err != nil {
+	var override waveobj.ProfileOverride
+	if err := json.Unmarshal(raw, &override); err != nil {
 		log.Printf("jarvis profile: bad override meta, ignoring: %v", err)
 		return nil
 	}
-	return &ov
+	return &override
+}
+
+func clonePrinciples(items waveobj.PrincipleList) waveobj.PrincipleList {
+	return append(waveobj.PrincipleList(nil), items...)
+}
+
+func clonePrinciplePatch(patch *waveobj.PrinciplePatch) *waveobj.PrinciplePatch {
+	if patch == nil {
+		return nil
+	}
+	out := &waveobj.PrinciplePatch{
+		Additions: append([]waveobj.Principle(nil), patch.Additions...),
+		Disabled:  append([]string(nil), patch.Disabled...),
+	}
+	if patch.Replacements != nil {
+		out.Replacements = make(map[string]string, len(patch.Replacements))
+		for id, text := range patch.Replacements {
+			out.Replacements[id] = text
+		}
+	}
+	return out
 }

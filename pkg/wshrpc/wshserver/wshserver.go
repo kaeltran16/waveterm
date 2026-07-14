@@ -2026,16 +2026,37 @@ func (ws *WshServer) GetJarvisProfileCommand(ctx context.Context, data wshrpc.Co
 	}
 	global := jarvis.LoadGlobalProfile()
 	override := jarvis.OverrideFromMeta(ch)
+	resolved, diagnostics := jarvis.ResolveProfileWithDiagnostics(global, override)
+	// surface the override as a structured patch view (a legacy string becomes disable-all + one
+	// legacy-project addition) so the FE never has to reason about the legacy marker.
+	if override != nil && override.Principles != nil {
+		normalized := *override
+		normalized.Principles = jarvis.NormalizePrinciplePatch(global.Principles, override.Principles)
+		override = &normalized
+	}
 	return &wshrpc.CommandGetJarvisProfileRtnData{
-		Global:   global,
-		Override: override,
-		Resolved: jarvis.ResolveProfile(global, override),
+		Global:               global,
+		Override:             override,
+		Resolved:             resolved,
+		PrincipleDiagnostics: diagnostics,
 	}, nil
 }
 
 func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.CommandSetChannelProfileData) error {
 	if data.ChannelId == "" {
 		return fmt.Errorf("channelid is required")
+	}
+	if data.Override != nil && data.Override.Principles != nil {
+		global := jarvis.LoadGlobalProfile()
+		// a legacy string arriving from an old client becomes a structured patch before validation/storage.
+		patch := jarvis.NormalizePrinciplePatch(global.Principles, data.Override.Principles)
+		if err := jarvis.ValidatePrinciplePatch(global.Principles, patch); err != nil {
+			return fmt.Errorf("validating principle patch: %w", err)
+		}
+		if patch.IsEmpty() {
+			patch = nil
+		}
+		data.Override.Principles = patch
 	}
 	empty := data.Override == nil || (data.Override.Playbook == nil && data.Override.Principles == nil &&
 		data.Override.DefaultMode == nil && data.Override.DefaultPlanGate == nil)

@@ -568,6 +568,7 @@ declare global {
         global: JarvisProfile;
         override: ProfileOverride;
         resolved: JarvisProfile;
+        principlediagnostics?: PrincipleDiagnostic[];
     };
 
     // wshrpc.CommandGetMetaData
@@ -1510,7 +1511,7 @@ declare global {
     // waveobj.JarvisProfile
     type JarvisProfile = {
         playbook: RunPhase[];
-        principles?: string;
+        principles?: Principle[];
         defaultmode?: string;
         defaultplangate?: boolean;
     };
@@ -1821,10 +1822,29 @@ declare global {
         y: number;
     };
 
+    // waveobj.Principle
+    type Principle = {
+        id: string;
+        text: string;
+    };
+
+    // waveobj.PrincipleDiagnostic
+    type PrincipleDiagnostic = {
+        code: string;
+        principleid: string;
+    };
+
+    // waveobj.PrinciplePatch
+    type PrinciplePatch = {
+        additions?: Principle[];
+        replacements?: {[key: string]: string};
+        disabled?: string[];
+    };
+
     // waveobj.ProfileOverride
     type ProfileOverride = {
         playbook?: RunPhase[];
-        principles?: string;
+        principles?: PrinciplePatch;
         defaultmode?: string;
         defaultplangate?: boolean;
     };
@@ -1972,7 +1992,7 @@ declare global {
         mode?: string;
         workspaceid: string;
         projectpath: string;
-        principles?: string;
+        principles?: Principle[];
         status: string;
         phases: RunPhase[];
         radarorigin?: RunRadarOrigin;

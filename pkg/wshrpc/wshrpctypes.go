@@ -817,9 +817,10 @@ type CommandGetJarvisProfileData struct {
 }
 
 type CommandGetJarvisProfileRtnData struct {
-	Global   waveobj.JarvisProfile    `json:"global"`
-	Override *waveobj.ProfileOverride `json:"override"`
-	Resolved waveobj.JarvisProfile    `json:"resolved"`
+	Global               waveobj.JarvisProfile         `json:"global"`
+	Override             *waveobj.ProfileOverride      `json:"override"`
+	Resolved             waveobj.JarvisProfile         `json:"resolved"`
+	PrincipleDiagnostics []waveobj.PrincipleDiagnostic `json:"principlediagnostics,omitempty"`
 }
 
 type CommandSetChannelProfileData struct {

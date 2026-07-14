@@ -81,9 +81,10 @@ func DefaultOrchestratorPlaybook(gate bool) []waveobj.RunPhase {
 
 // NewRun builds a run from a playbook: deep-copies the phases, marks the first phase running, derives
 // status. ts is supplied by the caller (mirrors NewChannelMessage) for testability.
-func NewRun(goal, workspaceId, projectPath, principles, mode string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
+func NewRun(goal, workspaceId, projectPath string, principles waveobj.PrincipleList, mode string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
 	phases := make([]waveobj.RunPhase, len(playbook))
 	copy(phases, playbook)
+	principlesSnapshot := append(waveobj.PrincipleList(nil), principles...)
 	if len(phases) > 0 {
 		phases[0].State = PhaseState_Running
 	}
@@ -93,7 +94,7 @@ func NewRun(goal, workspaceId, projectPath, principles, mode string, playbook []
 		Mode:        mode,
 		WorkspaceId: workspaceId,
 		ProjectPath: projectPath,
-		Principles:  principles,
+		Principles:  principlesSnapshot,
 		Status:      RunStatus_Planning,
 		Phases:      phases,
 		CreatedTs:   ts,
@@ -266,10 +267,10 @@ func CancelRun(run waveobj.Run) waveobj.Run {
 // at its terminal) from stalling on a skill's clarifying-question prompts: proceed on reasonable
 // assumptions for low-stakes calls, and reserve AskUserQuestion — which surfaces in the cockpit — for
 // decisions a wrong guess would actually derail.
-func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []string, principles string) string {
+func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []string, principles waveobj.PrincipleList) string {
 	var b strings.Builder
-	if strings.TrimSpace(principles) != "" {
-		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", principles)
+	if rendered := RenderPrinciples(principles); rendered != "" {
+		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", rendered)
 	}
 	fmt.Fprintf(&b, "Use the %s skill to work this goal until the phase's deliverable is written.\n", phase.Skill)
 	b.WriteString("You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the AskUserQuestion tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n")
@@ -284,10 +285,10 @@ func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []stri
 // BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run: plan, then execute
 // adaptively by dispatching subagents, carrying the principles down to each. A gated run tells the lead
 // to hold after planning; every run tells it to report completion. Self-report verbs are wsh commands.
-func BuildOrchestratePrompt(goal, principles string, gate bool) string {
+func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate bool) string {
 	var b strings.Builder
-	if strings.TrimSpace(principles) != "" {
-		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", principles)
+	if rendered := RenderPrinciples(principles); rendered != "" {
+		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
 	}
 	b.WriteString("You are the lead orchestrator for this goal.\n")
 	if gate {
