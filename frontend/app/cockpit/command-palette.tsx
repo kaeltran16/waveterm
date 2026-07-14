@@ -11,7 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
-import { activeChannelAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, channelsAtom, selectChannel } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
 import { ITEMS as SURFACE_ITEMS } from "@/app/view/agents/navrail";
 import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
@@ -21,9 +21,10 @@ import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 import { rankPaletteItems } from "./palette-match";
+import { parseScope, resolveChannelToken } from "./palette-scope";
 import { cheatsheetOpenAtom } from "./shortcuts-cheatsheet";
 
-type PaletteKind = "launch" | "command" | "agent" | "session";
+type PaletteKind = "launch" | "command" | "agent" | "session" | "channel";
 
 interface PaletteItem {
     key: string;
@@ -47,6 +48,7 @@ const GROUP_LABELS: Record<Exclude<PaletteKind, "launch">, string> = {
     command: "Commands",
     agent: "Agents",
     session: "Sessions",
+    channel: "Channels",
 };
 
 export function CommandPalette({ model }: { model: AgentsViewModel }) {
@@ -54,6 +56,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const sessions = useAtomValue(sessionsArchiveAtom);
     const channel = useAtomValue(activeChannelAtom);
+    const channels = useAtomValue(channelsAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
     const [runProfile, setRunProfile] = useState<{ mode?: string; planGate?: boolean } | null>(null);
@@ -61,6 +64,16 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const loadedRef = useRef(false);
 
     const close = () => globalStore.set(model.paletteOpenAtom, false);
+
+    // Sigil scope + launch target. In '#<token> <goal>' mode the launch group targets the
+    // picked channel; otherwise it targets the active channel (today's behavior). Scopes
+    // other than default/channel-launch never show the launch group.
+    const parsed = useMemo(() => parseScope(query), [query]);
+    const channelLaunch = parsed.scope === "channel" ? parsed.channelLaunch : null;
+    const pickedChannel = channelLaunch ? (resolveChannelToken(channelLaunch.token, channels ?? []) ?? null) : null;
+    const targetChannel = channelLaunch ? pickedChannel : channel;
+    const launchGoal = channelLaunch ? channelLaunch.goal : query;
+    const showLaunch = parsed.scope === "default" || (parsed.scope === "channel" && channelLaunch != null);
 
     // Lazy-load the sessions archive on first open (as SessionsSurface does).
     useEffect(() => {
@@ -85,13 +98,13 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // (Run · pipeline / Run · orchestrator). Before it loads the row reads plain "Run" and
     // resolves the strategy at click time (see launch deps below).
     useEffect(() => {
-        if (!open || !channel) {
+        if (!open || !targetChannel) {
             setRunProfile(null);
             return;
         }
         let cancelled = false;
         fireAndForget(async () => {
-            const p = await getJarvisProfile(channel.oid);
+            const p = await getJarvisProfile(targetChannel.oid);
             if (!cancelled) {
                 setRunProfile({ mode: p.resolved?.defaultmode, planGate: p.resolved?.defaultplangate });
             }
@@ -99,7 +112,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         return () => {
             cancelled = true;
         };
-    }, [open, channel?.oid]);
+    }, [open, targetChannel?.oid]);
 
     const items = useMemo<PaletteItem[]>(() => {
         const now = Date.now();
@@ -185,9 +198,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // typed AND a channel is active (buildLaunchItems returns [] otherwise). The user never types
     // "@"/"ask @" — we synthesize that transport string for sendChannelMessage internally.
     const launchItems = useMemo<PaletteItem[]>(() => {
-        if (!channel) {
+        if (!showLaunch || !targetChannel) {
             return [];
         }
+        const ch = targetChannel;
         const fireLaunch = (action: () => Promise<unknown>) => {
             fireAndForget(action);
             globalStore.set(model.surfaceAtom, "channels"); // surface the result, then close
@@ -196,9 +210,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         const sendText = (text: string) =>
             sendChannelMessage({
                 model,
-                channelId: channel.oid,
-                projectPath: channel.projectpath ?? "",
-                projectName: channel.name ?? "agent",
+                channelId: ch.oid,
+                projectPath: ch.projectpath ?? "",
+                projectName: ch.name ?? "agent",
                 roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
                 agents,
                 text,
@@ -207,14 +221,14 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             dispatch: (runtime, goal) => fireLaunch(() => sendText(`@${runtime} ${goal}`)),
             run: (goal) =>
                 fireLaunch(() =>
-                    createRun(channel.oid, goal, {
+                    createRun(ch.oid, goal, {
                         mode: runProfile?.mode ?? "pipeline",
                         planGate: runProfile?.planGate ?? true,
                     })
                 ),
             consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
         };
-        return buildLaunchItems(query, channel.name, runProfile?.mode, deps).map((li) => ({
+        return buildLaunchItems(launchGoal, ch.name, runProfile?.mode, deps).map((li) => ({
             key: li.key,
             kind: "launch" as const,
             search: "",
@@ -226,18 +240,60 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             desc: li.desc,
             footer: li.footer,
         }));
-    }, [query, channel, runProfile, agents, model]);
+    }, [showLaunch, targetChannel, launchGoal, runProfile, agents, model]);
 
-    // rankPaletteItems sorts globally by score; re-grouping by kind preserves per-kind
-    // score order (stable sort). Empty query -> natural order in GROUP_ORDER.
-    const ranked = useMemo(() => rankPaletteItems(items, query), [items, query]);
-    const rankedGroups = GROUP_ORDER.map((kind) => ({ kind, items: ranked.filter((it) => it.kind === kind) })).filter(
-        (g) => g.items.length > 0
+    // Channel picker rows (# scope, no goal). Enter switches the active channel and opens the surface.
+    const channelItems = useMemo<PaletteItem[]>(
+        () =>
+            (channels ?? []).map((c) => ({
+                key: `channel:${c.oid}`,
+                kind: "channel" as const,
+                search: `#${c.name} ${c.projectpath ?? ""}`,
+                title: `#${c.name}`,
+                subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
+                run: () => {
+                    fireAndForget(() => selectChannel(c.oid));
+                    globalStore.set(model.surfaceAtom, "channels");
+                    close();
+                },
+            })),
+        [channels, model]
     );
-    // Launch group leads and is never fuzzy-ranked.
-    const groups: { kind: PaletteKind; items: PaletteItem[] }[] =
-        launchItems.length > 0 ? [{ kind: "launch", items: launchItems }, ...rankedGroups] : rankedGroups;
+
+    // A sigil scope narrows to one group; default keeps today's launch-lead + ranked kinds.
+    let groups: { kind: PaletteKind; items: PaletteItem[] }[];
+    if (parsed.scope === "channel") {
+        if (channelLaunch) {
+            groups = launchItems.length > 0 ? [{ kind: "launch", items: launchItems }] : [];
+        } else {
+            const ranked = rankPaletteItems(channelItems, parsed.sub);
+            groups = ranked.length > 0 ? [{ kind: "channel", items: ranked }] : [];
+        }
+    } else if (parsed.scope === "default") {
+        const ranked = rankPaletteItems(items, query);
+        groups = GROUP_ORDER.map((kind) => ({ kind, items: ranked.filter((it) => it.kind === kind) })).filter(
+            (g) => g.items.length > 0
+        );
+        if (launchItems.length > 0) {
+            groups = [{ kind: "launch", items: launchItems }, ...groups];
+        }
+    } else {
+        const kind = parsed.scope; // "command" | "agent" | "session"
+        const ranked = rankPaletteItems(
+            items.filter((it) => it.kind === kind),
+            parsed.sub
+        );
+        groups = ranked.length > 0 ? [{ kind, items: ranked }] : [];
+    }
     const flat = groups.flatMap((g) => g.items);
+
+    // Scope-aware empty text: a '#<token>' that resolves to nothing vs. an empty channel list.
+    const emptyMessage =
+        parsed.scope === "channel" && channelLaunch
+            ? `No channel matches “${channelLaunch.token}”`
+            : parsed.scope === "channel"
+              ? "No channels."
+              : "No results.";
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
     const flatIndex = new Map(flat.map((it, i) => [it.key, i]));
     const selected = flat[selClamped];
@@ -281,7 +337,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             setSel(0);
                         }}
                         onKeyDown={onKeyDown}
-                        placeholder="Search agents, sessions, commands…"
+                        placeholder="Search, or type &gt; @ # / to scope…"
                         className="flex-1 bg-transparent text-[14px] text-primary outline-none placeholder:text-muted"
                     />
                     <span className="shrink-0 rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
@@ -290,7 +346,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto py-2">
                     {flat.length === 0 ? (
-                        <div className="px-4 py-8 text-center text-[13px] text-muted">No results.</div>
+                        <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
                     ) : (
                         groups.map((g) =>
                             g.kind === "launch" ? (
@@ -301,7 +357,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                     {/* accent rail marks the one group that acts on your typed goal */}
                                     <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
                                     <div className="px-3 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
-                                        Launch in <span className="text-accent-100">#{channel?.name}</span>
+                                        Launch in <span className="text-accent-100">#{targetChannel?.name}</span>
                                     </div>
                                     {g.items.map((it) => {
                                         const myIdx = flatIndex.get(it.key)!;
@@ -416,10 +472,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                 <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{selFooter}</span>
                             </>
                         ) : (
-                            <>
-                                <span className="font-mono text-[10.5px] text-muted">↑↓ navigate</span>
-                                <span className="font-mono text-[10.5px] text-muted">↵ open</span>
-                            </>
+                            <span className="font-mono text-[10.5px] text-muted">
+                                <span className="text-secondary">{">"}</span> commands{"  "}
+                                <span className="text-secondary">@</span> agents{"  "}
+                                <span className="text-secondary">#</span> channels{"  "}
+                                <span className="text-secondary">/</span> sessions
+                            </span>
                         )}
                     </div>
                 ) : null}
