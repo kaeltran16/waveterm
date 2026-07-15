@@ -4275,6 +4275,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-http",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

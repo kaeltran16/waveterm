@@ -18,6 +18,21 @@ use uuid::Uuid;
 // holding wave.lock + its own exe open — blocking the next launch and even reinstalls.
 struct WavesrvChild(Mutex<Option<Child>>);
 
+// Windows Job Object handle, held for the app's lifetime. RunEvent::Exit (below) reaps wavesrv on a
+// graceful quit, but a Ctrl+C in a `task dev` terminal kills wave-tauri via the OS default handler
+// *before* Tauri's event loop can emit RunEvent::Exit, so that path can't run. wavesrv is spawned
+// CREATE_NO_WINDOW (see spawn_wavesrv), so it isn't in the console's Ctrl+C group and never gets the
+// signal itself either — it orphans. Putting wavesrv in a KILL_ON_JOB_CLOSE job closes that gap: the
+// job dies with its last handle, so when wave-tauri exits by ANY means the OS closes this handle and
+// the kernel terminates every process in the job. We never close it ourselves — the OS does at
+// process teardown, which is exactly when we want it to fire.
+#[cfg(windows)]
+struct JobHandle(isize);
+#[cfg(windows)]
+unsafe impl Send for JobHandle {}
+#[cfg(windows)]
+unsafe impl Sync for JobHandle {}
+
 fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state: tauri::State<InitState>) -> Child {
     // Packaged: app_path = resource_dir(); dev: app_path = src-tauri/../dist (paths::resolve_app_path).
     // wavesrv + wsh both live under {app_path}/bin; wavesrv discovers wsh via WAVETERM_APP_PATH.
@@ -72,6 +87,46 @@ fn spawn_wavesrv(auth_key: String, app_path: PathBuf, data_base: PathBuf, state:
     });
 
     child
+}
+
+// Put a freshly-spawned child in a KILL_ON_JOB_CLOSE job so it dies with wave-tauri no matter how
+// wave-tauri exits (graceful quit, crash, or a hard Ctrl+C that skips RunEvent::Exit). Returns the
+// job handle for the caller to keep alive; None if any step fails (non-fatal — RunEvent::Exit still
+// covers the graceful path).
+#[cfg(windows)]
+fn assign_kill_on_close_job(child: &Child) -> Option<JobHandle> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return None;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
+        if SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const _,
+            size,
+        ) == 0
+        {
+            CloseHandle(job);
+            return None;
+        }
+        if AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) == 0 {
+            CloseHandle(job);
+            return None;
+        }
+        Some(JobHandle(job as isize))
+    }
 }
 
 // The bundle ships wsh version-named (e.g. wsh-0.14.5-windows.x64.exe), not a plain
@@ -166,6 +221,12 @@ fn main() {
             install_agent_hooks(&app_path);
             let data_base = paths::data_base_for(&app.path().app_local_data_dir()?, is_dev);
             let child = spawn_wavesrv(auth_key.clone(), app_path, data_base, app.state::<InitState>());
+            // Safety net for the Ctrl+C path RunEvent::Exit can't catch: bind wavesrv's lifetime to
+            // ours via a kill-on-close job. Held in state so the handle (and thus the job) survives.
+            #[cfg(windows)]
+            if let Some(job) = assign_kill_on_close_job(&child) {
+                app.manage(job);
+            }
             app.state::<WavesrvChild>().0.lock().unwrap().replace(child);
             Ok(())
         })
@@ -206,5 +267,43 @@ mod tests {
         fs::write(dir.join("wavesrv.x64.exe"), b"x").unwrap();
         assert!(find_wsh_binary(&dir).is_none());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // Proves the KILL_ON_JOB_CLOSE mechanism: once the last job handle closes, every process in the
+    // job is terminated. Closing the handle here stands in for wave-tauri exiting (Ctrl+C, crash, or
+    // quit) — the OS closes it identically in all three cases.
+    #[cfg(windows)]
+    #[test]
+    fn job_kills_child_when_last_handle_closes() {
+        use std::time::{Duration, Instant};
+        use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+
+        // long-lived child so it can't self-exit inside the test window
+        let mut child = Command::new("cmd")
+            .args(["/c", "ping", "-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn test child");
+
+        let job = assign_kill_on_close_job(&child).expect("assign child to job");
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "child died before the handle was closed"
+        );
+
+        unsafe { CloseHandle(job.0 as HANDLE) };
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut exited = false;
+        while Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = child.kill(); // reap if the assertion is about to fail
+        assert!(exited, "job did not kill child after its last handle closed");
     }
 }
