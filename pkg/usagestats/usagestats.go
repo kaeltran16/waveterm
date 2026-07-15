@@ -289,35 +289,63 @@ func sumRecords(records []Record) int {
 	return total
 }
 
-// SumTranscript reads one transcript file and returns its deduped cumulative token
-// total (Input+Output+CacheRead+CacheCreate), matching the Usage surface's accounting.
-// Runs the Claude parser first and falls back to the Codex parser only when the Claude
-// parse yields no records (a rollout produces no Claude records and vice versa, so this
-// is unambiguous). Empty/unreadable/unknown-shape files return 0.
-func SumTranscript(path string) (int, error) {
-	lines := readLines(path)
-	if len(lines) == 0 {
-		return 0, nil
-	}
-	recs := extractClaude(lines)
-	if len(recs) == 0 {
-		recs = extractCodex(lines)
-	}
-	return sumRecords(recs), nil
+// subagentsDir derives the Claude Code subagents directory for a parent transcript path:
+// <dir>/<basename without .jsonl>/subagents. Mirrors the unexported helper in
+// pkg/wshrpc/wshserver; kept local rather than shared to avoid a cross-package dependency for a
+// two-line path join.
+func subagentsDir(parentPath string) string {
+	base := strings.TrimSuffix(filepath.Base(parentPath), ".jsonl")
+	return filepath.Join(filepath.Dir(parentPath), base, "subagents")
 }
 
-// TranscriptUsage parses one transcript file into per-(provider, model, day) buckets, reusing the
-// same dedup + bucket accounting as the Usage surface — the per-session analogue of ScanUsage.
-// Claude parser first, Codex fallback (mirrors SumTranscript). Empty/unreadable/unknown-shape
-// files return nil, no error.
-func TranscriptUsage(path string) ([]Bucket, error) {
+// subagentRecords parses every subagent transcript a Claude Code parent spawned into raw records.
+// Subagents are separate Claude Code transcript files under the parent's subagents dir, walked
+// recursively so a nested subagent (one that itself spawned children) is included too. A parent
+// that spawned none has no such dir and yields nothing. Subagents are a Claude-only concept, so
+// only the Claude parser runs here.
+func subagentRecords(parentPath string) []Record {
+	var recs []Record
+	_ = filepath.WalkDir(subagentsDir(parentPath), func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		recs = append(recs, extractClaude(readLines(path))...)
+		return nil
+	})
+	return recs
+}
+
+// transcriptRecords parses one transcript file — plus any subagent transcripts a Claude parent
+// spawned — into raw (un-deduped) records. Claude parser first; Codex fallback when the Claude
+// parse is empty. A subagent's tokens bill to the account exactly like the parent's, so a
+// per-session total that omitted them would under-report any session that fanned out to subagents.
+// Codex rollouts have no subagent dir, so the fallback path returns the parent's records unchanged.
+func transcriptRecords(path string) []Record {
 	lines := readLines(path)
 	if len(lines) == 0 {
-		return nil, nil
+		return nil
 	}
 	recs := extractClaude(lines)
 	if len(recs) == 0 {
-		recs = extractCodex(lines)
+		return extractCodex(lines)
+	}
+	return append(recs, subagentRecords(path)...)
+}
+
+// SumTranscript reads one transcript file — and the subagent transcripts it spawned — and returns
+// the deduped cumulative token total (Input+Output+CacheRead+CacheCreate), matching the Usage
+// surface's accounting. Empty/unreadable/unknown-shape files return 0.
+func SumTranscript(path string) (int, error) {
+	return sumRecords(transcriptRecords(path)), nil
+}
+
+// TranscriptUsage parses one transcript file — and the subagent transcripts it spawned — into
+// per-(provider, model, day) buckets, reusing the same dedup + bucket accounting as the Usage
+// surface. The per-session analogue of ScanUsage. Empty/unreadable/unknown-shape files return nil.
+func TranscriptUsage(path string) ([]Bucket, error) {
+	recs := transcriptRecords(path)
+	if len(recs) == 0 {
+		return nil, nil
 	}
 	return bucket(dedupe(recs)), nil
 }

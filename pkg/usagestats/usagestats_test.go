@@ -249,6 +249,62 @@ func TestTranscriptUsage(t *testing.T) {
 	}
 }
 
+func TestTranscriptUsageIncludesSubagents(t *testing.T) {
+	dir := t.TempDir()
+
+	// Parent Claude session: one opus turn.
+	parent := filepath.Join(dir, "sess.jsonl")
+	parentLine := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	if err := os.WriteFile(parent, []byte(parentLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Subagent transcript: <parent-without-.jsonl>/subagents/agent-1.jsonl (one haiku turn).
+	subDir := filepath.Join(dir, "sess", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	subLine := `{"type":"assistant","timestamp":"2026-06-26T10:01:00.000Z","requestId":"r2","message":{"id":"m2","model":"claude-haiku-4-5","usage":{"input_tokens":30,"output_tokens":8}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(subDir, "agent-1.jsonl"), []byte(subLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nested subagent (a subagent that itself spawned one) must be included via the recursive walk.
+	nestedDir := filepath.Join(subDir, "agent-1", "subagents")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nestedLine := `{"type":"assistant","timestamp":"2026-06-26T10:02:00.000Z","requestId":"r3","message":{"id":"m3","model":"claude-haiku-4-5","usage":{"input_tokens":5,"output_tokens":1}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(nestedDir, "agent-2.jsonl"), []byte(nestedLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := TranscriptUsage(parent)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	byModel := map[string]Bucket{}
+	for _, b := range got {
+		byModel[b.Model] = b
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 buckets (parent opus + subagent haiku), got %d: %+v", len(got), got)
+	}
+	if op := byModel["claude-opus-4-8"]; op.Input != 100 || op.Output != 50 || op.Msgs != 1 {
+		t.Errorf("parent opus bucket = %+v", op)
+	}
+	// Both haiku turns (subagent + nested) share model+day → one merged bucket.
+	if h := byModel["claude-haiku-4-5"]; h.Input != 35 || h.Output != 9 || h.Msgs != 2 {
+		t.Errorf("subagent haiku bucket = %+v, want input=35 output=9 msgs=2", h)
+	}
+
+	// SumTranscript folds parent + both subagents: (100+50) + (30+8) + (5+1) = 194.
+	sum, err := SumTranscript(parent)
+	if err != nil || sum != 194 {
+		t.Fatalf("sum = %d, err = %v; want 194", sum, err)
+	}
+}
+
 func TestLastCacheWrite(t *testing.T) {
 	dir := t.TempDir()
 
