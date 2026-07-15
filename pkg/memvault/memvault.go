@@ -267,10 +267,7 @@ func WriteNote(path, content string, baseMtime int64) (*WriteResult, error) {
 // CreateNote writes a new note into vaultDir with a standard frontmatter block. name is slugified
 // into the filename; a collision returns an error (no silent overwrite).
 func CreateNote(vaultDir, name, noteType, scope, body string) (string, error) {
-	slug := slugify(name)
-	if slug == "" {
-		slug = "note"
-	}
+	slug := boundedSlug(name, "note")
 	if err := os.MkdirAll(vaultDir, 0o755); err != nil {
 		return "", err
 	}
@@ -308,6 +305,24 @@ func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = slugRe.ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
+}
+
+// maxSlugLen caps generated note-filename slugs. A body with no short title line slugifies to
+// hundreds of chars; the full path then overruns filesystem limits (Windows MAX_PATH, and the
+// 255-byte per-component limit elsewhere) and os.WriteFile fails silently up the stack.
+const maxSlugLen = 48
+
+// boundedSlug slugifies s, substitutes fallback when empty, and caps the length so every
+// note-file writer (CreateNote, WritePending) shares one bound.
+func boundedSlug(s, fallback string) string {
+	slug := slugify(s)
+	if slug == "" {
+		return fallback
+	}
+	if len(slug) > maxSlugLen {
+		slug = strings.Trim(slug[:maxSlugLen], "-")
+	}
+	return slug
 }
 
 // setMetadataField upserts "  <key>: <value>" inside the frontmatter metadata block, preserving the

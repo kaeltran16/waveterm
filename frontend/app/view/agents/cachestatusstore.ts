@@ -45,7 +45,10 @@ export function formatCacheCountdown(status: CacheStatus | null, nowMs: number):
         return "—";
     }
     const ttlSec = status.oneHour ? 3600 : 300;
-    const remainingSec = ttlSec - (nowMs / 1000 - status.lastWriteTs);
+    // clamp elapsed to >=0 so a stale/behind clock can never inflate the countdown past the TTL
+    // (a frozen now once produced impossible values like "105m left").
+    const elapsedSec = Math.max(0, nowMs / 1000 - status.lastWriteTs);
+    const remainingSec = ttlSec - elapsedSec;
     if (remainingSec <= 0) {
         return "expired";
     }

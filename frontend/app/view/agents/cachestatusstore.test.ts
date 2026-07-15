@@ -28,4 +28,10 @@ describe("formatCacheCountdown", () => {
         const status = { lastWriteTs: 1000, oneHour: true };
         expect(formatCacheCountdown(status, (1000 + 30) * 1000)).toBe("59m left");
     });
+
+    test("stale clock behind last write is clamped to the TTL, never inflated", () => {
+        // now 45m before the last write (frozen clock): remaining must cap at the 60m TTL, not 105m.
+        const status = { lastWriteTs: 1000, oneHour: true };
+        expect(formatCacheCountdown(status, (1000 - 45 * 60) * 1000)).toBe("60m left");
+    });
 });

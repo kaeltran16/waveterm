@@ -383,13 +383,13 @@ function PendingDetail({ note, index, total }: { note: MemoryPendingNote; index:
             <div className="mb-[22px] flex gap-[8px]">
                 <button
                     onClick={() => fireAndForget(() => keepPending(note.path))}
-                    className="flex flex-1 items-center justify-center gap-[7px] rounded-[9px] bg-success py-[11px] text-[13px] font-bold text-background hover:bg-success/90"
+                    className="flex flex-1 items-center justify-center gap-[6px] rounded bg-accent py-[8px] text-[12px] font-semibold text-background hover:bg-accenthover"
                 >
-                    <Check size={15} strokeWidth={3} />Keep
+                    <Check size={13} strokeWidth={2.5} />Keep
                 </button>
                 <button
                     onClick={() => fireAndForget(() => dismissPending(note.path))}
-                    className="flex flex-none items-center justify-center rounded-[9px] border border-error/32 px-[15px] py-[11px] text-[13px] font-semibold text-error hover:bg-error/10"
+                    className="rounded border border-error/30 px-[12px] py-[8px] text-[12px] text-error hover:bg-error/10"
                 >
                     Dismiss
                 </button>

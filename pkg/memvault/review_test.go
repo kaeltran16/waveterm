@@ -40,6 +40,24 @@ func TestPendingWriteListAccept(t *testing.T) {
 	_ = filepath.Dir(created)
 }
 
+func TestAcceptPendingLongBodyBoundedFilename(t *testing.T) {
+	hub := t.TempDir()
+	// a distilled candidate with no short title line: its first line is a long paragraph. The
+	// created filename must stay bounded or os.WriteFile fails (Windows MAX_PATH / 255-byte
+	// component limit) and Keep silently does nothing. Regression for the un-capped CreateNote slug.
+	long := strings.TrimSpace(strings.Repeat("some very long distilled learning sentence ", 20))
+	created, err := acceptPendingInto(PendingNote{Path: filepath.Join(t.TempDir(), "src.md"), Type: "project", Body: long}, hub)
+	if err != nil {
+		t.Fatalf("acceptPendingInto: %v", err)
+	}
+	if base := filepath.Base(created); len(base) > maxSlugLen+len(".md") {
+		t.Fatalf("filename %q length %d, want <= %d", base, len(base), maxSlugLen+len(".md"))
+	}
+	if _, err := os.Stat(created); err != nil {
+		t.Fatalf("created note missing: %v", err)
+	}
+}
+
 func TestListPendingEnrichedFields(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := WritePending(dir, LearnCandidate{

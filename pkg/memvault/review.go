@@ -38,13 +38,7 @@ func WritePending(dir string, c LearnCandidate, cwd string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	slug := slugify(firstLine(c.Body))
-	if slug == "" {
-		slug = "candidate"
-	}
-	if len(slug) > 48 {
-		slug = slug[:48]
-	}
+	slug := boundedSlug(firstLine(c.Body), "candidate")
 	stamp := time.Now().UTC().Format("20060102T150405.000")
 	path := filepath.Join(dir, stamp+"-"+slug+".md")
 	var b strings.Builder

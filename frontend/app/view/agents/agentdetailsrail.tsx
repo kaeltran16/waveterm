@@ -75,6 +75,14 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
         return () => clearInterval(refresh);
     }, [agent.id, agent.transcriptPath, agent.blockId]);
 
+    // keep the shared now-clock ticking while the focus rail is mounted so the cache countdown
+    // stays live — the cockpit/usage surfaces drive nowAtom, but this surface otherwise leaves it
+    // frozen, which stalls (and inflates) the "Cache expires" readout.
+    useEffect(() => {
+        const t = setInterval(() => globalStore.set(model.nowAtom, Date.now()), 1000);
+        return () => clearInterval(t);
+    }, [model]);
+
     const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
 
     const noTerminal = agent.blockId == null;
