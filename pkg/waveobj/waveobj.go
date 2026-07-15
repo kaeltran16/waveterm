@@ -273,6 +273,18 @@ func FromJson(data []byte) (WaveObj, error) {
 	return FromJsonMap(m)
 }
 
+// legacyPrincipleListDecodeHook lets the mapstructure DB-load path accept the pre-structured
+// principles form (a plain string) the same way PrincipleList.UnmarshalJSON does on the JSON path:
+// wrap it as a single legacy-global principle. mapstructure does not call UnmarshalJSON, so without
+// this hook a channel with a run whose principles were persisted as a string fails to load with
+// "source data must be an array or slice, got string".
+func legacyPrincipleListDecodeHook(from reflect.Type, to reflect.Type, data any) (any, error) {
+	if from.Kind() == reflect.String && to == reflect.TypeOf(PrincipleList{}) {
+		return PrincipleList{{ID: LegacyGlobalPrincipleID, Text: reflect.ValueOf(data).String()}}, nil
+	}
+	return data, nil
+}
+
 func FromJsonMap(m map[string]any) (WaveObj, error) {
 	otype, ok := m[OTypeKeyName].(string)
 	if !ok {
@@ -284,8 +296,9 @@ func FromJsonMap(m map[string]any) (WaveObj, error) {
 	}
 	wobj := reflect.Zero(desc.RType).Interface().(WaveObj)
 	dconfig := &mapstructure.DecoderConfig{
-		Result:  &wobj,
-		TagName: "json",
+		Result:     &wobj,
+		TagName:    "json",
+		DecodeHook: mapstructure.DecodeHookFunc(legacyPrincipleListDecodeHook),
 	}
 	decoder, err := mapstructure.NewDecoder(dconfig)
 	if err != nil {

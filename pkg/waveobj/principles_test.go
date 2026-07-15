@@ -45,6 +45,56 @@ func TestPrincipleListUnmarshalJSON(t *testing.T) {
 	}
 }
 
+// FromJsonMap loads WaveObjs from the SQLite store via mapstructure, which does not invoke
+// PrincipleList.UnmarshalJSON. A channel persisted before principles were structured stores
+// runs[].principles as a plain string; loading it must still succeed (legacy-global wrap), and
+// the structured form must pass through untouched.
+func TestFromJsonMapLegacyRunPrinciples(t *testing.T) {
+	tests := []struct {
+		name       string
+		principles any
+		want       PrincipleList
+	}{
+		{
+			name:       "legacy string",
+			principles: "preserve\nthis exact text",
+			want:       PrincipleList{{ID: LegacyGlobalPrincipleID, Text: "preserve\nthis exact text"}},
+		},
+		{
+			name:       "structured passthrough",
+			principles: []any{map[string]any{"id": "simple", "text": "Prefer simple solutions."}},
+			want:       PrincipleList{{ID: "simple", Text: "Prefer simple solutions."}},
+		},
+	}
+	RegisterType(reflect.TypeOf(&Channel{}))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := map[string]any{
+				OTypeKeyName:   OType_Channel,
+				OIDKeyName:     "chan-1",
+				VersionKeyName: 1,
+				"runs": []any{
+					map[string]any{"id": "run-1", "goal": "g", "principles": tt.principles},
+				},
+			}
+			obj, err := FromJsonMap(m)
+			if err != nil {
+				t.Fatalf("FromJsonMap: %v", err)
+			}
+			ch, ok := obj.(*Channel)
+			if !ok {
+				t.Fatalf("want *Channel, got %T", obj)
+			}
+			if len(ch.Runs) != 1 {
+				t.Fatalf("want 1 run, got %d", len(ch.Runs))
+			}
+			if !reflect.DeepEqual(ch.Runs[0].Principles, tt.want) {
+				t.Fatalf("principles mismatch: got %#v, want %#v", ch.Runs[0].Principles, tt.want)
+			}
+		})
+	}
+}
+
 func TestPrinciplePatchUnmarshalLegacyString(t *testing.T) {
 	var patch PrinciplePatch
 	if err := json.Unmarshal([]byte(`"project-only text"`), &patch); err != nil {
