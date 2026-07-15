@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
+	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
@@ -572,6 +573,7 @@ func main() {
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()
+	memdistill.Start(context.Background())
 	err = wcore.InitBadgeStore()
 	if err != nil {
 		log.Printf("error initializing badge store: %v\n", err)

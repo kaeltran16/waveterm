@@ -32,7 +32,7 @@ var managedHooks = []managedHook{
 	{"Stop", "", "agent-hook", 10},
 	{"SubagentStop", "", "agent-hook", 10},
 	{"UserPromptSubmit", "", "agent-hook", 10},
-	{"SessionEnd", "", "agent-memory-hook", 120},
+	{"SessionEnd", "", "agent-memory-hook", 10},
 }
 
 func managedEventOrder() []string {

@@ -26,6 +26,11 @@ const (
 	maxTaskLen        = 120
 )
 
+// distillSessionSentinel is the leading text of the batch memory-distillation prompt. Sessions whose
+// first prompt starts with it are the headless distiller's own transcripts — hidden from the list.
+// Kept in sync with memdistill's prompt by TestDistillSentinelMatchesPrompt.
+const distillSessionSentinel = "You are distilling durable learnings from"
+
 // SessionInfo is one resumable past agent session.
 type SessionInfo struct {
 	ID            string // runtime resume key
@@ -95,6 +100,9 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 	}
 	if !hasTask {
 		return nil
+	}
+	if strings.HasPrefix(s.Task, distillSessionSentinel) {
+		return nil // the batch distiller's own headless transcript
 	}
 	return s
 }

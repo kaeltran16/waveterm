@@ -108,6 +108,7 @@ type WshRpcInterface interface {
 	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
 	MemoryHarvestCommand(ctx context.Context, data CommandMemoryHarvestData) (*CommandMemoryHarvestRtnData, error)
 	MemoryLearnCommand(ctx context.Context, data CommandMemoryLearnData) (*CommandMemoryLearnRtnData, error)
+	MemoryEnqueueSessionCommand(ctx context.Context, data CommandMemoryEnqueueSessionData) error
 	MemoryReviewListCommand(ctx context.Context) (*CommandMemoryReviewListRtnData, error)
 	MemoryReviewAcceptCommand(ctx context.Context, data CommandMemoryReviewAcceptData) error
 	MemoryPruneListCommand(ctx context.Context) (*CommandMemoryPruneListRtnData, error)
@@ -1048,6 +1049,12 @@ type CommandMemoryLearnData struct {
 type CommandMemoryLearnRtnData struct {
 	Committed int `json:"committed"`
 	Queued    int `json:"queued"`
+}
+
+type CommandMemoryEnqueueSessionData struct {
+	Cwd            string `json:"cwd"`
+	TranscriptPath string `json:"transcriptpath"`
+	ClaudePath     string `json:"claudepath"`
 }
 
 type MemoryPendingNote struct {

@@ -34,6 +34,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
+	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote"
@@ -1548,42 +1549,20 @@ func (ws *WshServer) MemoryHarvestCommand(ctx context.Context, data wshrpc.Comma
 }
 
 func (ws *WshServer) MemoryLearnCommand(ctx context.Context, data wshrpc.CommandMemoryLearnData) (*wshrpc.CommandMemoryLearnRtnData, error) {
-	hub := memvault.HubDirForCwd(data.Cwd)
-	rtn := &wshrpc.CommandMemoryLearnRtnData{}
-	for _, c := range data.Candidates {
-		cand := memvault.LearnCandidate{Type: c.Type, Scope: c.Scope, Body: c.Body, IsCorrection: c.IsCorrection, Supersedes: c.Supersedes}
-		if c.IsCorrection {
-			// corrections auto-commit into the project hub, or the default vault when there's no cwd
-			target := hub
-			if target == "" {
-				target = memvault.DefaultVaultPath()
-			}
-			wrote, _, err := memvault.WriteLearning(target, cand)
-			if err != nil {
-				return nil, fmt.Errorf("writing learning: %w", err)
-			}
-			if wrote {
-				rtn.Committed++
-			}
-		} else {
-			if _, err := memvault.WritePending(memvault.PendingDir(), cand, data.Cwd); err != nil {
-				return nil, fmt.Errorf("queuing candidate: %w", err)
-			}
-			rtn.Queued++
-		}
+	cands := make([]memvault.LearnCandidate, len(data.Candidates))
+	for i, c := range data.Candidates {
+		cands[i] = memvault.LearnCandidate{Type: c.Type, Scope: c.Scope, Body: c.Body, IsCorrection: c.IsCorrection, Supersedes: c.Supersedes}
 	}
-	if hub != "" {
-		for _, c := range data.Candidates {
-			if c.Supersedes != "" {
-				_, slug, _ := memvault.WriteLearning(hub, memvault.LearnCandidate{Type: c.Type, Scope: c.Scope, Body: c.Body}) // slug of the new note
-				_ = memvault.MarkSuperseded(hub, c.Supersedes, slug)
-			}
-		}
-		if len(data.References) > 0 {
-			_ = memvault.TouchReferenced(hub, data.References, time.Now().UTC().Format(time.RFC3339))
-		}
+	committed, queued, err := memvault.RouteLearnings(data.Cwd, cands, data.References)
+	if err != nil {
+		return nil, err
 	}
-	return rtn, nil
+	return &wshrpc.CommandMemoryLearnRtnData{Committed: committed, Queued: queued}, nil
+}
+
+func (ws *WshServer) MemoryEnqueueSessionCommand(ctx context.Context, data wshrpc.CommandMemoryEnqueueSessionData) error {
+	memdistill.Enqueue(data.Cwd, data.TranscriptPath, data.ClaudePath)
+	return nil
 }
 
 func (ws *WshServer) MemoryReviewListCommand(ctx context.Context) (*wshrpc.CommandMemoryReviewListRtnData, error) {

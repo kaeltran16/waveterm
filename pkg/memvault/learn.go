@@ -8,6 +8,7 @@
 package memvault
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,4 +96,44 @@ func firstLine(body string) string {
 		}
 	}
 	return strings.TrimSpace(body)
+}
+
+// RouteLearnings writes distilled candidates into memory: corrections auto-commit into the project
+// hub (or the default vault when cwd has no hub), everything else lands in the review tray. Supersedes
+// and references are applied against the hub. Shared by MemoryLearnCommand and batch distillation.
+func RouteLearnings(cwd string, candidates []LearnCandidate, references []string) (int, int, error) {
+	hub := HubDirForCwd(cwd)
+	committed, queued := 0, 0
+	for _, cand := range candidates {
+		if cand.IsCorrection {
+			target := hub
+			if target == "" {
+				target = DefaultVaultPath()
+			}
+			wrote, _, err := WriteLearning(target, cand)
+			if err != nil {
+				return committed, queued, fmt.Errorf("writing learning: %w", err)
+			}
+			if wrote {
+				committed++
+			}
+		} else {
+			if _, err := WritePending(PendingDir(), cand, cwd); err != nil {
+				return committed, queued, fmt.Errorf("queuing candidate: %w", err)
+			}
+			queued++
+		}
+	}
+	if hub != "" {
+		for _, cand := range candidates {
+			if cand.Supersedes != "" {
+				_, slug, _ := WriteLearning(hub, LearnCandidate{Type: cand.Type, Scope: cand.Scope, Body: cand.Body})
+				_ = MarkSuperseded(hub, cand.Supersedes, slug)
+			}
+		}
+		if len(references) > 0 {
+			_ = TouchReferenced(hub, references, time.Now().UTC().Format(time.RFC3339))
+		}
+	}
+	return committed, queued, nil
 }

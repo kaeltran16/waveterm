@@ -844,6 +844,13 @@ declare global {
         path: string;
     };
 
+    // wshrpc.CommandMemoryEnqueueSessionData
+    type CommandMemoryEnqueueSessionData = {
+        cwd: string;
+        transcriptpath: string;
+        claudepath: string;
+    };
+
     // wshrpc.CommandMemoryHarvestData
     type CommandMemoryHarvestData = {
         cwd: string;
