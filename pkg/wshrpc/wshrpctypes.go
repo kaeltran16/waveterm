@@ -128,6 +128,7 @@ type WshRpcInterface interface {
 	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                             // complete a phase / approve or send back a gate (spawns the next worker)
 	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                               // cancel a Run
 	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                       // stop one surviving worker of a cancelled run
+	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                   // derive+seal a done run's evidence if absent (idempotent backfill)
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                     // lead self-reports hold/complete; resolves run/phase from its own oref
 	StartRadarScanCommand(ctx context.Context, data CommandStartRadarScanData) (*CommandStartRadarScanRtnData, error)    // validate scope + start a manual repo scan
 	CancelRadarScanCommand(ctx context.Context, data CommandCancelRadarScanData) error                                   // cancel an in-flight scan
@@ -778,6 +779,11 @@ type CommandStopRunWorkerData struct {
 	ChannelId  string `json:"channelid"`
 	RunId      string `json:"runid"`
 	WorkerORef string `json:"workeroref"` // the worker tab oref ("tab:<id>") to stop
+}
+
+type CommandSealRunEvidenceData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
 }
 
 type CommandReportRunPhaseData struct {

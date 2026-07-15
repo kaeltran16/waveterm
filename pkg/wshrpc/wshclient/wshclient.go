@@ -1008,6 +1008,12 @@ func RouteUnannounceCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	return err
 }
 
+// command "sealrunevidence", wshserver.SealRunEvidenceCommand
+func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenceData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "sealrunevidence", data, opts)
+	return err
+}
+
 // command "sendtelemetry", wshserver.SendTelemetryCommand
 func SendTelemetryCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "sendtelemetry", nil, opts)

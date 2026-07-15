@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#0c0e11;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#e6e9ed;overflow:hidden}
+a{color:#9db4ff;text-decoration:none}a:hover{color:#c3d0ff}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#262c34;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#343c46;background-clip:padding-box}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes cmpPulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</helmet>
+
+<div data-screen-label="Run completion" style="position:fixed;inset:0;display:flex;background:#0c0e11;color:#e6e9ed;font-family:'Hanken Grotesk',system-ui,sans-serif">
+
+  <div style="width:236px;flex:none;border-right:1px solid #1a1f26;background:#0e1116;display:flex;flex-direction:column;min-height:0">
+    <div style="padding:14px 14px 12px;border-bottom:1px solid #181d23;display:flex;align-items:center;gap:9px">
+      <div style="width:26px;height:26px;border-radius:8px;flex:none;background:linear-gradient(135deg,#c9a4ff,#8f6be0);display:flex;align-items:center;justify-content:center"><div style="width:10px;height:10px;background:#1a1226;transform:rotate(45deg);border-radius:2px"></div></div>
+      <div><div style="font:700 13px 'Hanken Grotesk';color:#eef1f4;letter-spacing:-.01em">Arc</div><div style="font:500 9.5px 'JetBrains Mono';color:#6b7178">Channels</div></div>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:10px 8px">
+      <div style="padding:6px 8px 5px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Channels</span></div>
+      <sc-for list="{{ channels }}" as="c" hint-placeholder-count="5">
+        <div style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;cursor:pointer;background:{{ c.rowBg }}" style-hover="background:#171c22">
+          <span style="font:600 13px 'JetBrains Mono';color:{{ c.hashColor }}">#</span>
+          <span style="flex:1;font-size:13px;color:{{ c.nameColor }};font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</span>
+        </div>
+      </sc-for>
+      <div style="padding:16px 8px 5px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Runs · #checkout-revamp</span></div>
+      <sc-for list="{{ runs }}" as="r" hint-placeholder-count="4">
+        <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 9px;border-radius:8px;cursor:pointer;background:{{ r.rowBg }}" style-hover="background:#171c22">
+          <div style="width:7px;height:7px;border-radius:50%;flex:none;margin-top:5px;background:{{ r.dot }}"></div>
+          <div style="flex:1;min-width:0"><div style="font-size:12px;line-height:1.35;color:{{ r.nameColor }};font-weight:500">{{ r.goal }}</div><div style="font:500 9.5px 'JetBrains Mono';color:#5b626b;margin-top:3px">{{ r.note }}</div></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;min-height:0">
+    <div style="flex:none;display:flex;align-items:center;gap:12px;padding:13px 26px;border-bottom:1px solid #1a1f26;background:#0d1014">
+      <div style="min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;font:500 11px 'JetBrains Mono';color:#6b7178"><span style="color:#8b939d">#checkout-revamp</span><span>/</span><span>run {{ run.shortId }}</span></div>
+        <div style="font:700 16px 'Hanken Grotesk';color:#eef1f4;letter-spacing:-.01em;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ run.goal }}</div>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;align-items:center;gap:7px;background:rgba(84,199,154,.1);border:1px solid rgba(84,199,154,.28);border-radius:20px;padding:5px 12px">
+        <span style="color:#54c79a;font-size:12px">✓</span><span style="font:700 11.5px 'Hanken Grotesk';color:#7fd8b0;letter-spacing:.01em">Done</span>
+      </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:22px 26px 40px">
+      <div style="max-width:880px;margin:0 auto">
+
+        <!-- EVIDENCE SNAPSHOT -->
+        <div style="border:1px solid #2a2536;border-radius:16px;background:linear-gradient(180deg,#12101a,#0f1014);overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)">
+          <div style="display:flex;align-items:center;gap:11px;padding:14px 18px;border-bottom:1px solid #201c2c;background:rgba(184,146,255,.05)">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="color:#b892ff;font-size:13px">🔒</span>
+              <span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#cbb2ff">Evidence snapshot</span>
+            </div>
+            <span style="font:600 9px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:#8f7ac9;background:rgba(184,146,255,.1);border:1px solid rgba(184,146,255,.26);border-radius:5px;padding:2px 7px">Immutable</span>
+            <div style="flex:1"></div>
+            <span style="font:500 10.5px 'JetBrains Mono';color:#6b7178">sealed {{ snap.capturedAt }}</span>
+            <span style="font:500 10.5px 'JetBrains Mono';color:#4b535d">·</span>
+            <span style="font:500 10.5px 'JetBrains Mono';color:#6b7178">{{ snap.hash }}</span>
+          </div>
+
+          <!-- stat strip -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #181722">
+            <sc-for list="{{ snap.stats }}" as="s" hint-placeholder-count="4">
+              <div style="padding:13px 16px;border-right:1px solid #181722">
+                <div style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b;margin-bottom:5px">{{ s.label }}</div>
+                <div style="display:flex;align-items:center;gap:6px"><sc-if value="{{ s.hasDot }}" hint-placeholder-val="{{ false }}"><div style="width:7px;height:7px;border-radius:50%;background:{{ s.dot }}"></div></sc-if><span style="font:700 15px 'Hanken Grotesk';color:{{ s.color }}">{{ s.value }}</span></div>
+                <sc-if value="{{ s.sub }}" hint-placeholder-val="{{ false }}"><div style="font:500 10.5px 'JetBrains Mono';color:#6b7178;margin-top:2px">{{ s.sub }}</div></sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- completion summary -->
+          <div style="padding:16px 18px;border-bottom:1px solid #181722">
+            <div style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b;margin-bottom:10px">Completion summary</div>
+            <sc-if value="{{ snap.hasSummary }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;gap:11px;align-items:flex-start">
+                <div style="width:26px;height:26px;border-radius:8px;flex:none;background:{{ snap.worker.color }};display:flex;align-items:center;justify-content:center;font:700 11px 'JetBrains Mono';color:#0b0e14">{{ snap.worker.initial }}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font:600 12px 'JetBrains Mono';color:#dfe4ea">{{ snap.worker.name }}</span><span style="font:600 9px 'JetBrains Mono';letter-spacing:.07em;text-transform:uppercase;color:#8b939d;background:#181d23;border:1px solid #252b33;border-radius:4px;padding:1px 6px">final response</span></div>
+                  <p style="font-size:13.5px;line-height:1.62;color:#cdd3da;text-wrap:pretty">{{ snap.summary }}</p>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ snap.noSummary }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:#101216;border:1px dashed #262b33;border-radius:10px">
+                <span style="color:#6b7178;font-size:13px">∅</span>
+                <span style="font-size:13px;color:#8b939d;font-style:italic">No completion summary was recorded</span>
+              </div>
+            </sc-if>
+          </div>
+
+          <!-- files touched -->
+          <div style="padding:16px 18px;border-bottom:1px solid #181722">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+              <div style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b">Files touched</div>
+              <span style="font:500 10px 'JetBrains Mono';color:#4b535d">derived from worker transcripts</span>
+              <div style="flex:1"></div>
+              <span style="font:600 11px 'JetBrains Mono';color:#54c79a">+{{ snap.addTotal }}</span>
+              <span style="font:600 11px 'JetBrains Mono';color:#e0726c">−{{ snap.delTotal }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ snap.files }}" as="f" hint-placeholder-count="4">
+                <div onClick="{{ f.open }}" style="display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px;cursor:pointer" style-hover="background:#15141d">
+                  <span style="width:15px;text-align:center;font:700 11px 'JetBrains Mono';color:{{ f.statColor }}">{{ f.stat }}</span>
+                  <span style="flex:1;font:500 12.5px 'JetBrains Mono';color:#cdd3da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.path }}</span>
+                  <span style="font:500 10px 'JetBrains Mono';color:#6b7178">{{ f.by }}</span>
+                  <span style="font:600 10.5px 'JetBrains Mono';color:#54c79a;width:34px;text-align:right">+{{ f.add }}</span>
+                  <span style="font:600 10.5px 'JetBrains Mono';color:#e0726c;width:30px;text-align:right">−{{ f.del }}</span>
+                  <span style="color:#4b535d;font-size:11px">↗</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- verification -->
+          <div style="padding:16px 18px;border-bottom:1px solid #181722">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px">
+              <div style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b">Verification</div>
+              <div style="flex:1"></div>
+              <span style="font:600 10px 'JetBrains Mono';color:#54c79a">{{ snap.verifPass }} pass</span>
+              <span style="font:600 10px 'JetBrains Mono';color:#e0726c">{{ snap.verifFail }} fail</span>
+              <span style="font:600 10px 'JetBrains Mono';color:#e6b450">{{ snap.verifUnknown }} unknown</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <sc-for list="{{ snap.verifs }}" as="v" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;background:#101216;border:1px solid {{ v.border }};border-radius:9px">
+                  <div style="display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;flex:none;background:{{ v.badgeBg }};color:{{ v.badgeColor }};font:700 10px 'JetBrains Mono'">{{ v.icon }}</div>
+                  <span style="flex:1;font:500 12px 'JetBrains Mono';color:#cdd3da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ v.cmd }}</span>
+                  <span style="font:500 10.5px 'JetBrains Mono';color:#6b7178">{{ v.detail }}</span>
+                  <span style="font:600 9px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ v.labelColor }}">{{ v.label }}</span>
+                  <button onClick="{{ v.open }}" style="background:transparent;border:1px solid #262d36;border-radius:6px;padding:3px 9px;color:#9aa3ad;font:600 10px 'Hanken Grotesk';cursor:pointer" style-hover="border-color:#323a44;color:#cfd5db">Details</button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- artifacts -->
+          <div style="padding:16px 18px;border-bottom:1px solid #181722">
+            <div style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b;margin-bottom:11px">Artifacts produced</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <sc-for list="{{ snap.artifacts }}" as="a" hint-placeholder-count="4">
+                <button onClick="{{ a.open }}" style="display:flex;align-items:center;gap:9px;background:#101216;border:1px solid #20262e;border-radius:9px;padding:8px 12px;cursor:pointer" style-hover="border-color:#2c333d">
+                  <span style="font:700 9px 'JetBrains Mono';color:{{ a.kindColor }};background:{{ a.kindBg }};border-radius:4px;padding:2px 5px">{{ a.kind }}</span>
+                  <span style="font:500 12px 'JetBrains Mono';color:#cdd3da">{{ a.name }}</span>
+                  <span style="font:500 10px 'JetBrains Mono';color:#6b7178">{{ a.size }}</span>
+                  <span style="color:#4b535d;font-size:11px">↗</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- diff action -->
+          <div style="padding:15px 18px;display:flex;align-items:center;gap:12px">
+            <button onClick="{{ openDiff }}" style="display:flex;align-items:center;gap:10px;background:#b892ff;color:#1a1226;border:0;border-radius:9px;padding:9px 16px;font:700 12.5px 'Hanken Grotesk';cursor:pointer" style-hover="background:#c6a6ff">
+              <span style="font-size:12px">⑂</span>Open repository diff
+              <span style="font:600 10.5px 'JetBrains Mono';color:rgba(26,18,38,.6)">+{{ snap.addTotal }} −{{ snap.delTotal }}</span>
+            </button>
+            <span style="font-size:11.5px;color:#5b626b">Snapshot is read-only — the run stays done. No approval needed.</span>
+          </div>
+        </div>
+
+        <!-- PHASE HISTORY -->
+        <div style="display:flex;align-items:center;gap:11px;margin:26px 2px 15px">
+          <span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Phase history</span>
+          <div style="flex:1;height:1px;background:#1a1f26"></div>
+          <span style="font:500 11px 'JetBrains Mono';color:#6b7178">5 phases · all complete</span>
+        </div>
+
+        <div style="padding-left:2px">
+          <sc-for list="{{ phases }}" as="p" hint-placeholder-count="5">
+            <div style="display:flex;gap:15px">
+              <div style="display:flex;flex-direction:column;align-items:center;width:38px;flex:none">
+                <div style="width:26px;height:26px;border-radius:{{ p.nodeRadius }};flex:none;display:flex;align-items:center;justify-content:center;background:{{ p.nodeBg }};border:1.5px solid {{ p.nodeBorder }};font:700 11px 'JetBrains Mono';color:{{ p.iconColor }}">{{ p.icon }}</div>
+                <sc-if value="{{ p.notLast }}" hint-placeholder-val="{{ true }}"><div style="width:2px;flex:1;min-height:26px;background:{{ p.railColor }}"></div></sc-if>
+              </div>
+              <div style="flex:1;min-width:0;padding-bottom:16px">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span style="font:700 14px 'Hanken Grotesk';color:{{ p.nameColor }}">{{ p.name }}</span>
+                  <sc-if value="{{ p.tag }}" hint-placeholder-val="{{ false }}"><span style="font:600 8.5px 'JetBrains Mono';letter-spacing:.07em;text-transform:uppercase;color:{{ p.tagColor }};background:{{ p.tagBg }};border:1px solid {{ p.tagBorder }};border-radius:4px;padding:1px 6px">{{ p.tagLabel }}</span></sc-if>
+                  <div style="flex:1"></div>
+                  <span style="font:500 10.5px 'JetBrains Mono';color:#5b626b">{{ p.time }}</span>
+                </div>
+                <div style="font:500 11px 'JetBrains Mono';color:#6b7178;margin-top:3px">{{ p.detail }}</div>
+                <sc-if value="{{ p.hasArtifact }}" hint-placeholder-val="{{ false }}">
+                  <div onClick="{{ p.open }}" style="display:inline-flex;align-items:center;gap:7px;margin-top:8px;background:#0f1217;border:1px solid #20262e;border-radius:8px;padding:6px 10px;cursor:pointer" style-hover="border-color:#2c333d">
+                    <span style="font:700 8.5px 'JetBrains Mono';color:#7fbd9f;background:rgba(84,199,154,.12);border-radius:4px;padding:1px 5px">OUT</span>
+                    <span style="font:500 11.5px 'JetBrains Mono';color:#aeb6bf">{{ p.artifact }}</span>
+                    <span style="color:#4b535d;font-size:10px">↗</span>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;},&quot;summaryState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;recorded&quot;,&quot;empty&quot;],&quot;default&quot;:&quot;recorded&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Snapshot&quot;}}">
+class Component extends DCLogic {
+  channelDefs() {
+    return [
+      { id:'general', name:'general' },
+      { id:'payments-api', name:'payments-api' },
+      { id:'checkout-revamp', name:'checkout-revamp' },
+      { id:'web-dashboard', name:'web-dashboard' },
+      { id:'db-core', name:'db-core' },
+    ];
+  }
+
+  runDefs() {
+    return [
+      { id:'r1', goal:'Add a coupon-code field to checkout', note:'done · 11:54', active:true, dot:'#54c79a' },
+      { id:'r2', goal:'Harden coupon validation against abuse', note:'executing · 2 workers', dot:'#54c79a' },
+      { id:'r3', goal:'Polish the empty-cart state', note:'planning', dot:'#e6b450' },
+      { id:'r4', goal:'Migrate cart totals to the server', note:'merged · PR #468', dot:'#6b7178' },
+    ];
+  }
+
+  snapshot() {
+    const hasSummary = (this.props.summaryState ?? 'recorded') !== 'empty';
+
+    const stats = [
+      { label:'Status', value:'Done', color:'#7fd8b0', hasDot:true, dot:'#54c79a', sub:'completed cleanly' },
+      { label:'Runtime', value:'9m 41s', color:'#eef1f4', sub:'active compute' },
+      { label:'Duration', value:'14m 08s', color:'#eef1f4', sub:'wall clock' },
+      { label:'Completed', value:'11:54', color:'#eef1f4', sub:'today · Jun 12' },
+    ];
+
+    const files = [
+      { path:'components/CouponInput.tsx', stat:'A', add:96, del:0, by:'coupon-field' },
+      { path:'lib/cart/totals.ts', stat:'M', add:41, del:12, by:'coupon-field' },
+      { path:'lib/coupons.ts', stat:'A', add:58, del:0, by:'coupon-field' },
+      { path:'components/CartSummary.tsx', stat:'M', add:17, del:6, by:'coupon-field' },
+    ].map(f => ({ ...f, statColor:f.stat === 'A' ? '#54c79a' : '#e6b450', open:() => {} }));
+    const addTotal = files.reduce((a,f) => a + f.add, 0);
+    const delTotal = files.reduce((a,f) => a + f.del, 0);
+
+    const vMeta = {
+      pass:   { icon:'✓', label:'pass',    labelColor:'#54c79a', badgeBg:'rgba(84,199,154,.14)', badgeColor:'#54c79a', border:'rgba(84,199,154,.22)' },
+      fail:   { icon:'✕', label:'fail',    labelColor:'#e0726c', badgeBg:'rgba(224,114,108,.14)', badgeColor:'#e0726c', border:'rgba(224,114,108,.28)' },
+      unknown:{ icon:'?', label:'unknown', labelColor:'#e6b450', badgeBg:'rgba(230,180,80,.14)',  badgeColor:'#e6b450', border:'#20262e' },
+    };
+    const rawVerifs = [
+      { cmd:'pnpm typecheck', result:'pass', detail:'0 errors · 4.1s' },
+      { cmd:'pnpm test coupons', result:'pass', detail:'12 passing · 2.3s' },
+      { cmd:'pnpm test:e2e checkout', result:'pass', detail:'8 passing · 41s' },
+      { cmd:'pnpm test:smoke checkout-mobile', result:'fail', detail:'1 failing · flaky viewport' },
+      { cmd:'pnpm lint:a11y', result:'unknown', detail:'never run in this transcript' },
+    ];
+    const verifs = rawVerifs.map(v => ({ ...v, ...vMeta[v.result], open:() => {} }));
+    const count = r => rawVerifs.filter(v => v.result === r).length;
+
+    const artMeta = {
+      doc:{ kindColor:'#9db4ff', kindBg:'rgba(124,149,255,.14)' },
+      report:{ kindColor:'#7fbd9f', kindBg:'rgba(84,199,154,.14)' },
+      image:{ kindColor:'#cbb2ff', kindBg:'rgba(184,146,255,.14)' },
+    };
+    const artifacts = [
+      { kind:'doc', name:'docs/coupon-design.md', size:'4.2 KB' },
+      { kind:'doc', name:'docs/coupon-plan.md', size:'6.8 KB' },
+      { kind:'report', name:'coverage/coupons.html', size:'88 KB' },
+      { kind:'image', name:'screenshots/checkout-coupon.png', size:'214 KB' },
+    ].map(a => ({ ...a, ...artMeta[a.kind], kind:a.kind.toUpperCase(), open:() => {} }));
+
+    return {
+      capturedAt:'11:54:07', hash:'ev·a1f' + '9c3',
+      stats, hasSummary, noSummary:!hasSummary,
+      worker:{ name:'coupon-field', initial:'C', color:'#7c95ff' },
+      summary:'Coupon-code entry is live end to end. A user can type a code in checkout, apply it, and the discount lands on the cart total in real time. Added CouponInput with inline validation, an apply action in lib/coupons, and wired the recompute through cart totals and CartSummary. Handled invalid, expired, and already-applied codes with inline errors. Unit and e2e suites pass; a mobile smoke check flaked on a narrow viewport and is recorded as failing.',
+      files, addTotal, delTotal,
+      verifs, verifPass:count('pass'), verifFail:count('fail'), verifUnknown:count('unknown'),
+      artifacts,
+    };
+  }
+
+  buildPhases() {
+    const defs = [
+      { name:'Brainstorm', tag:'', detail:'superpowers:brainstorming', artifact:'docs/coupon-design.md', time:'11:40' },
+      { name:'Plan', tag:'', detail:'superpowers:writing-plans', artifact:'docs/coupon-plan.md', time:'11:44' },
+      { name:'Review', tag:'gate', detail:'approved by you — no changes requested', artifact:'', time:'11:47' },
+      { name:'Context boundary', tag:'fresh ctx', detail:'fresh worker spawned with the approved plan', artifact:'', time:'11:47' },
+      { name:'Execute', tag:'', detail:'superpowers:executing-plans · coupon-field', artifact:'merged change · +212 −18', time:'11:54' },
+    ];
+    const green = { nodeBg:'rgba(84,199,154,.14)', nodeBorder:'rgba(84,199,154,.5)', iconColor:'#7fd8b0', railColor:'rgba(84,199,154,.4)' };
+    return defs.map((p, i) => {
+      const isGate = p.tag === 'gate', isBoundary = p.tag === 'fresh ctx';
+      const icon = isGate ? '✓' : isBoundary ? '↻' : '✓';
+      return {
+        ...p, icon, ...green,
+        nodeRadius:(isGate || isBoundary) ? '8px' : '50%',
+        notLast:i < defs.length - 1, nameColor:'#eef1f4',
+        tagLabel:p.tag,
+        tagColor:isGate ? '#e6b450' : '#8f7ac9',
+        tagBg:isGate ? 'rgba(230,180,80,.1)' : 'rgba(184,146,255,.1)',
+        tagBorder:isGate ? 'rgba(230,180,80,.3)' : 'rgba(184,146,255,.28)',
+        hasArtifact:!!p.artifact, open:() => {},
+      };
+    });
+  }
+
+  renderVals() {
+    const channels = this.channelDefs().map(c => {
+      const active = c.id === 'checkout-revamp';
+      return { ...c, rowBg:active ? 'rgba(184,146,255,.1)' : 'transparent',
+        hashColor:active ? '#c9b2ff' : '#5b626b', nameColor:active ? '#eef1f4' : '#aeb6bf' };
+    });
+    const runs = this.runDefs().map(r => ({ ...r,
+      rowBg:r.active ? 'rgba(84,199,154,.08)' : 'transparent',
+      nameColor:r.active ? '#eef1f4' : '#aeb6bf' }));
+    return {
+      channels, runs,
+      run:{ goal:'Add a coupon-code field to checkout', shortId:'a1f9c3' },
+      snap:this.snapshot(),
+      phases:this.buildPhases(),
+      openDiff:() => {},
+    };
+  }
+}
+</script>
+</body>
+</html>

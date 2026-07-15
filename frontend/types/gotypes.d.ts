@@ -1077,6 +1077,12 @@ declare global {
         reportid: string;
     };
 
+    // wshrpc.CommandSealRunEvidenceData
+    type CommandSealRunEvidenceData = {
+        channelid: string;
+        runid: string;
+    };
+
     // wshrpc.CommandSetChannelMessagePickData
     type CommandSetChannelMessagePickData = {
         channelid: string;
@@ -1410,6 +1416,29 @@ declare global {
         bottom: number;
         width: number;
         height: number;
+    };
+
+    // waveobj.EvidenceArtifact
+    type EvidenceArtifact = {
+        path: string;
+        kind: string;
+        size: number;
+    };
+
+    // waveobj.EvidenceFile
+    type EvidenceFile = {
+        path: string;
+        stat: string;
+        add: number;
+        del: number;
+        by?: string;
+    };
+
+    // waveobj.EvidenceVerif
+    type EvidenceVerif = {
+        cmd: string;
+        result: string;
+        detail?: string;
     };
 
     // wshrpc.FetchSuggestionsData
@@ -2011,6 +2040,22 @@ declare global {
         phases: RunPhase[];
         radarorigin?: RunRadarOrigin;
         createdts: number;
+        completedts?: number;
+        evidence?: RunEvidence;
+    };
+
+    // waveobj.RunEvidence
+    type RunEvidence = {
+        capturedts: number;
+        hash: string;
+        summary?: string;
+        files?: EvidenceFile[];
+        addtotal: number;
+        deltotal: number;
+        verifs?: EvidenceVerif[];
+        artifacts?: EvidenceArtifact[];
+        runtimems: number;
+        durationms: number;
     };
 
     // waveobj.RunPhase
@@ -2024,6 +2069,8 @@ declare global {
         triage?: PhaseTriage;
         workerorefs?: string[];
         artifacts?: string[];
+        startedts?: number;
+        donets?: number;
     };
 
     // waveobj.RunRadarOrigin

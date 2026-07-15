@@ -87,6 +87,7 @@ func NewRun(goal, workspaceId, projectPath string, principles waveobj.PrincipleL
 	principlesSnapshot := append(waveobj.PrincipleList(nil), principles...)
 	if len(phases) > 0 {
 		phases[0].State = PhaseState_Running
+		phases[0].StartedTs = ts
 	}
 	r := waveobj.Run{
 		ID:          uuid.NewString(),
@@ -142,7 +143,7 @@ func recomputeStatus(r *waveobj.Run) {
 // CompletePhase marks phaseIdx done, records the reported artifacts, and advances: a non-gated phase
 // auto-starts its successor; a gated phase halts (recomputeStatus derives awaiting-review). Completion
 // is reported in by the caller (UI action or the ~/.claude hook) — the engine does not detect it.
-func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string) (waveobj.Run, error) {
+func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string, ts int64) (waveobj.Run, error) {
 	if phaseIdx < 0 || phaseIdx >= len(run.Phases) {
 		return run, fmt.Errorf("phase index %d out of range", phaseIdx)
 	}
@@ -150,9 +151,11 @@ func CompletePhase(run waveobj.Run, phaseIdx int, artifacts []string) (waveobj.R
 		return run, fmt.Errorf("phase %d is %q, not running", phaseIdx, run.Phases[phaseIdx].State)
 	}
 	run.Phases[phaseIdx].State = PhaseState_Done
+	run.Phases[phaseIdx].DoneTs = ts
 	run.Phases[phaseIdx].Artifacts = append(run.Phases[phaseIdx].Artifacts, artifacts...)
 	if !run.Phases[phaseIdx].Gate && phaseIdx+1 < len(run.Phases) {
 		run.Phases[phaseIdx+1].State = PhaseState_Running
+		run.Phases[phaseIdx+1].StartedTs = ts
 	}
 	recomputeStatus(&run)
 	return run, nil
@@ -217,7 +220,7 @@ func gateIndex(run waveobj.Run) int {
 }
 
 // ApproveGate releases a halted run: starts the phase after the completed gate.
-func ApproveGate(run waveobj.Run) (waveobj.Run, error) {
+func ApproveGate(run waveobj.Run, ts int64) (waveobj.Run, error) {
 	if run.Status != RunStatus_AwaitingReview {
 		return run, fmt.Errorf("run is %q, not awaiting-review", run.Status)
 	}
@@ -232,12 +235,13 @@ func ApproveGate(run waveobj.Run) (waveobj.Run, error) {
 		return run, fmt.Errorf("no phase to release after the gate")
 	}
 	run.Phases[gi+1].State = PhaseState_Running
+	run.Phases[gi+1].StartedTs = ts
 	recomputeStatus(&run)
 	return run, nil
 }
 
 // SendBackGate re-opens the gate phase so its work is redone (the successor stays pending).
-func SendBackGate(run waveobj.Run) (waveobj.Run, error) {
+func SendBackGate(run waveobj.Run, ts int64) (waveobj.Run, error) {
 	if run.Status != RunStatus_AwaitingReview {
 		return run, fmt.Errorf("run is %q, not awaiting-review", run.Status)
 	}
@@ -246,6 +250,7 @@ func SendBackGate(run waveobj.Run) (waveobj.Run, error) {
 		return run, fmt.Errorf("no completed gate to send back")
 	}
 	run.Phases[gi].State = PhaseState_Running
+	run.Phases[gi].StartedTs = ts
 	recomputeStatus(&run)
 	return run, nil
 }

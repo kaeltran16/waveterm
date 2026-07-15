@@ -1861,14 +1861,14 @@ func steerRunLead(ctx context.Context, tabORef, text string) {
 
 // applyRunAction dispatches a run action to the matching engine transition (pure; no persistence).
 // Triage is non-blocking — it records the lead's verdict and leaves progress untouched.
-func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData) (waveobj.Run, error) {
+func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData, ts int64) (waveobj.Run, error) {
 	switch data.Action {
 	case jarvis.RunAction_Complete:
-		return jarvis.CompletePhase(r, data.PhaseIdx, data.Artifacts)
+		return jarvis.CompletePhase(r, data.PhaseIdx, data.Artifacts, ts)
 	case jarvis.RunAction_Approve:
-		return jarvis.ApproveGate(r)
+		return jarvis.ApproveGate(r, ts)
 	case jarvis.RunAction_SendBack:
-		return jarvis.SendBackGate(r)
+		return jarvis.SendBackGate(r, ts)
 	case jarvis.RunAction_Hold:
 		return jarvis.HoldPhase(r, data.PhaseIdx, data.Artifacts)
 	case jarvis.RunAction_Triage:
@@ -1894,8 +1894,9 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 			}
 		}
 	}
+	ts := time.Now().UnixMilli()
 	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-		next, e := applyRunAction(*r, data)
+		next, e := applyRunAction(*r, data, ts)
 		if e != nil {
 			return e
 		}
@@ -1904,6 +1905,23 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	})
 	if err != nil {
 		return fmt.Errorf("advancing run: %w", err)
+	}
+	// seal the immutable evidence snapshot on the non-done -> done transition (fresh transcripts/git).
+	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil &&
+		run.Status == jarvis.RunStatus_Done && run.Evidence == nil {
+		if serr := jarvis.SealEvidence(ctx, run); serr == nil && run.Evidence != nil {
+			ev := run.Evidence
+			completedTs := run.CompletedTs
+			if uerr := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+				if r.Evidence == nil { // idempotent under concurrent advances
+					r.Evidence = ev
+					r.CompletedTs = completedTs
+				}
+				return nil
+			}); uerr != nil {
+				log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", data.RunId, uerr)
+			}
+		}
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 	if err != nil {
@@ -1983,6 +2001,37 @@ func (ws *WshServer) StopRunWorkerCommand(ctx context.Context, data wshrpc.Comma
 	}
 	if serr := stopWorkerORef(ctx, data.WorkerORef); serr != nil {
 		return fmt.Errorf("stopping worker: %w", serr)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
+// SealRunEvidenceCommand derives and persists a done run's evidence snapshot if it has none yet — the
+// lazy backfill for runs completed before the feature existed (new runs seal at completion in
+// AdvanceRun). Idempotent: a run already sealed is a no-op. Only seals runs in the done state.
+func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.CommandSealRunEvidenceData) error {
+	if data.ChannelId == "" || data.RunId == "" {
+		return fmt.Errorf("channelid and runid are required")
+	}
+	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	if run.Status != jarvis.RunStatus_Done || run.Evidence != nil {
+		return nil // nothing to seal
+	}
+	if serr := jarvis.SealEvidence(ctx, run); serr != nil || run.Evidence == nil {
+		return serr
+	}
+	ev, completedTs := run.Evidence, run.CompletedTs
+	if uerr := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+		if r.Evidence == nil {
+			r.Evidence = ev
+			r.CompletedTs = completedTs
+		}
+		return nil
+	}); uerr != nil {
+		return fmt.Errorf("persisting evidence: %w", uerr)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil

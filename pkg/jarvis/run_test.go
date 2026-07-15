@@ -70,7 +70,7 @@ func TestNewRunCopiesPlaybook(t *testing.T) {
 
 func TestCompletePhaseAdvancesLinear(t *testing.T) {
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	r, err := CompletePhase(r, 0, []string{"docs/spec.md"})
+	r, err := CompletePhase(r, 0, []string{"docs/spec.md"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,10 +85,27 @@ func TestCompletePhaseAdvancesLinear(t *testing.T) {
 	}
 }
 
+func TestCompletePhaseRecordsTimestamps(t *testing.T) {
+	r := NewRun("g", "ws", "/p", nil, RunMode_Pipeline, DefaultPlaybook(), 1000)
+	if r.Phases[0].StartedTs != 1000 {
+		t.Fatalf("first phase StartedTs = %d, want 1000", r.Phases[0].StartedTs)
+	}
+	r, err := CompletePhase(r, 0, nil, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Phases[0].DoneTs != 2000 {
+		t.Fatalf("phase0 DoneTs = %d, want 2000", r.Phases[0].DoneTs)
+	}
+	if r.Phases[1].StartedTs != 2000 {
+		t.Fatalf("phase1 StartedTs = %d, want 2000 (successor start)", r.Phases[1].StartedTs)
+	}
+}
+
 func TestCompletePhaseHaltsAtGate(t *testing.T) {
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	r, _ = CompletePhase(r, 0, nil)
-	r, err := CompletePhase(r, 1, []string{"docs/plan.md"})
+	r, _ = CompletePhase(r, 0, nil, 0)
+	r, err := CompletePhase(r, 1, []string{"docs/plan.md"}, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,10 +122,10 @@ func TestCompletePhaseHaltsAtGate(t *testing.T) {
 
 func TestCompletePhaseRejectsNonRunning(t *testing.T) {
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	if _, err := CompletePhase(r, 1, nil); err == nil {
+	if _, err := CompletePhase(r, 1, nil, 0); err == nil {
 		t.Errorf("expected error completing a pending phase")
 	}
-	if _, err := CompletePhase(r, 9, nil); err == nil {
+	if _, err := CompletePhase(r, 9, nil, 0); err == nil {
 		t.Errorf("expected error for out-of-range index")
 	}
 }
@@ -116,8 +133,8 @@ func TestCompletePhaseRejectsNonRunning(t *testing.T) {
 func runAtGate(t *testing.T) waveobj.Run {
 	t.Helper()
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	r, _ = CompletePhase(r, 0, nil)
-	r, _ = CompletePhase(r, 1, []string{"docs/plan.md"})
+	r, _ = CompletePhase(r, 0, nil, 0)
+	r, _ = CompletePhase(r, 1, []string{"docs/plan.md"}, 0)
 	if r.Status != RunStatus_AwaitingReview {
 		t.Fatalf("setup: expected awaiting-review, got %q", r.Status)
 	}
@@ -126,7 +143,7 @@ func runAtGate(t *testing.T) waveobj.Run {
 
 func TestApproveGateStartsExecute(t *testing.T) {
 	r := runAtGate(t)
-	r, err := ApproveGate(r)
+	r, err := ApproveGate(r, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -140,14 +157,14 @@ func TestApproveGateStartsExecute(t *testing.T) {
 
 func TestApproveGateRejectsWhenNotAwaiting(t *testing.T) {
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	if _, err := ApproveGate(r); err == nil {
+	if _, err := ApproveGate(r, 0); err == nil {
 		t.Errorf("expected error approving a run not awaiting-review")
 	}
 }
 
 func TestSendBackReopensPlan(t *testing.T) {
 	r := runAtGate(t)
-	r, err := SendBackGate(r)
+	r, err := SendBackGate(r, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -164,7 +181,7 @@ func TestSendBackReopensPlan(t *testing.T) {
 
 func TestCancelRunSkipsOpenPhases(t *testing.T) {
 	r := NewRun("g", "ws", "/r", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
-	r, _ = CompletePhase(r, 0, nil)
+	r, _ = CompletePhase(r, 0, nil, 0)
 	r = CancelRun(r)
 	if r.Status != RunStatus_Cancelled {
 		t.Errorf("want cancelled, got %q", r.Status)
@@ -291,7 +308,7 @@ func TestHoldPhase_RejectsUngated(t *testing.T) {
 func TestApproveGate_ResumesHeldInPlace(t *testing.T) {
 	r := orchRun(true)
 	r, _ = HoldPhase(r, 0, nil)
-	r, err := ApproveGate(r)
+	r, err := ApproveGate(r, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

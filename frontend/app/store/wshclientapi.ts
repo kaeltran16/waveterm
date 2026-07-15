@@ -1014,6 +1014,12 @@ export class RpcApiType {
         return client.wshRpcCall("routeunannounce", null, opts);
     }
 
+    // command "sealrunevidence" [call]
+    SealRunEvidenceCommand(client: WshClient, data: CommandSealRunEvidenceData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sealrunevidence", data, opts);
+        return client.wshRpcCall("sealrunevidence", data, opts);
+    }
+
     // command "sendtelemetry" [call]
     SendTelemetryCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sendtelemetry", null, opts);

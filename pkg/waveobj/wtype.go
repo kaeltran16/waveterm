@@ -230,6 +230,8 @@ type RunPhase struct {
 	Triage      *PhaseTriage `json:"triage,omitempty"`   // orchestrator (adaptive): the lead's quick-vs-plan call (runtime)
 	WorkerOrefs []string     `json:"workerorefs,omitempty"`
 	Artifacts   []string     `json:"artifacts,omitempty"`
+	StartedTs   int64        `json:"startedts,omitempty"` // set when the phase enters running
+	DoneTs      int64        `json:"donets,omitempty"`    // set when the phase completes
 }
 
 type Run struct {
@@ -244,6 +246,43 @@ type Run struct {
 	Phases      []RunPhase      `json:"phases"`
 	RadarOrigin *RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
 	CreatedTs   int64           `json:"createdts"`
+	CompletedTs int64           `json:"completedts,omitempty"` // set at seal, when Status becomes done
+	Evidence    *RunEvidence    `json:"evidence,omitempty"`    // sealed once at completion; immutable
+}
+
+// RunEvidence is the sealed, immutable snapshot of what a run produced, derived server-side and frozen at
+// completion (SealEvidence). Presence gates the frontend completion view; it is never recomputed once set.
+type RunEvidence struct {
+	CapturedTs int64              `json:"capturedts"`
+	Hash       string             `json:"hash"`
+	Summary    string             `json:"summary,omitempty"`
+	Files      []EvidenceFile     `json:"files,omitempty"`
+	AddTotal   int                `json:"addtotal"`
+	DelTotal   int                `json:"deltotal"`
+	Verifs     []EvidenceVerif    `json:"verifs,omitempty"`
+	Artifacts  []EvidenceArtifact `json:"artifacts,omitempty"`
+	RuntimeMs  int64              `json:"runtimems"`  // Σ phase active spans (active compute)
+	DurationMs int64              `json:"durationms"` // wall clock (CompletedTs - CreatedTs)
+}
+
+type EvidenceFile struct {
+	Path string `json:"path"`
+	Stat string `json:"stat"` // "A" | "M" | "D"
+	Add  int    `json:"add"`
+	Del  int    `json:"del"`
+	By   string `json:"by,omitempty"`
+}
+
+type EvidenceVerif struct {
+	Cmd    string `json:"cmd"`
+	Result string `json:"result"` // "pass" | "fail" | "unknown"
+	Detail string `json:"detail,omitempty"`
+}
+
+type EvidenceArtifact struct {
+	Path string `json:"path"`
+	Kind string `json:"kind"` // "doc" | "report" | "image" | "file"
+	Size int64  `json:"size"`
 }
 
 // RunRadarOrigin links a Run back to the Radar finding it was started from. Carried for a future

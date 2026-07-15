@@ -27,6 +27,8 @@ import { AttentionCard, AttentionBanner } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
 import { InlineMarkdown } from "./inlinemarkdown";
 import { MarkdownMessage } from "./markdownmessage";
+import { needsEvidenceSeal } from "./runcompletion";
+import { RunCompletion } from "./runcompletionsurface";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { approveGate, cancellingRunIdsAtom, confirmCancelRun, sendBackGate, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
@@ -772,6 +774,14 @@ export function RunBody({ model, channel, agents, run }: {
         return () => clearInterval(t);
     }, []);
 
+    // done run: show the sealed evidence snapshot. If it isn't sealed yet (pre-feature run), fire the
+    // idempotent backfill once — the mirrored channel update re-renders this with run.evidence present.
+    useEffect(() => {
+        if (needsEvidenceSeal(run)) {
+            fireAndForget(() => RpcApi.SealRunEvidenceCommand(TabRpcClient, { channelid: channel.oid, runid: run.id }));
+        }
+    }, [run.id, run.status, run.evidence]);
+
     // tab ids of every live session that owns a running term block — read straight from the session
     // model so it includes an agent session that hasn't reported its first agent:status yet. Lets the
     // phase rail tell a *starting* worker (its tab still exists) from a *gone* one (tab destroyed).
@@ -811,6 +821,9 @@ export function RunBody({ model, channel, agents, run }: {
     const stick = useStickToBottom([run.status, railKey, now]);
 
     const noop = () => {};
+    if (run.status === "done" && run.evidence) {
+        return <RunCompletion channel={channel} run={run} />;
+    }
     if (isOrchestrator(run)) {
         return (
             <OrchestratorBody
