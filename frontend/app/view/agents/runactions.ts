@@ -24,6 +24,28 @@ export const pendingRunDraftAtom = atom<PendingRunDraft | null>(null) as Primiti
 // cancelled run).
 export const cancellingRunIdsAtom = atom<Set<string>>(new Set<string>());
 
+// Worker tab ids whose per-worker Stop RPC is in flight (partial-failure surface). Mirrors
+// cancellingRunIdsAtom: StopRunWorkerCommand is synchronous, so this drives a transient "Stopping…" label
+// on the survivor's Stop button. Frontend-only.
+export const stoppingWorkerIdsAtom = atom<Set<string>>(new Set<string>());
+
+// Stop one surviving worker of a cancelled run (partial-failure surface). workerORef is the worker's tab
+// oref ("tab:<id>"). Tracks the in-flight tab id so the button reads "Stopping…"; the roster flips the
+// row to idle on success, which drops it from cancelSurvivors.
+export async function stopRunWorker(channelId: string, runId: string, workerORef: string): Promise<void> {
+    const tabId = workerORef.startsWith("tab:") ? workerORef.slice(4) : workerORef;
+    globalStore.set(stoppingWorkerIdsAtom, (prev) => new Set(prev).add(tabId));
+    try {
+        await RpcApi.StopRunWorkerCommand(TabRpcClient, { channelid: channelId, runid: runId, workeroref: workerORef });
+    } finally {
+        globalStore.set(stoppingWorkerIdsAtom, (prev) => {
+            const next = new Set(prev);
+            next.delete(tabId);
+            return next;
+        });
+    }
+}
+
 export async function createRun(
     channelId: string,
     goal: string,

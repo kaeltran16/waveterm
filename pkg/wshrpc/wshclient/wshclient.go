@@ -1122,6 +1122,12 @@ func StopBuilderCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) er
 	return err
 }
 
+// command "stoprunworker", wshserver.StopRunWorkerCommand
+func StopRunWorkerCommand(w *wshutil.WshRpc, data wshrpc.CommandStopRunWorkerData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "stoprunworker", data, opts)
+	return err
+}
+
 // command "streamagenttranscript", wshserver.StreamAgentTranscriptCommand
 func StreamAgentTranscriptCommand(w *wshutil.WshRpc, data wshrpc.CommandStreamAgentTranscriptData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentTranscriptUpdate](w, "streamagenttranscript", data, opts)

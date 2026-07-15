@@ -103,6 +103,23 @@ func ResolveRunWorker(channels []*waveobj.Channel, askingORef string) *RunWorker
 	return nil
 }
 
+// RunOwnsWorker reports whether workerORef ("tab:<id>") is a recorded worker of the run — it appears in
+// some phase's WorkerOrefs. Guards per-worker stop actions so only a worker the run actually owns can be
+// targeted (never an arbitrary tab).
+func RunOwnsWorker(run *waveobj.Run, workerORef string) bool {
+	if run == nil {
+		return false
+	}
+	for pi := range run.Phases {
+		for _, wo := range run.Phases[pi].WorkerOrefs {
+			if wo == workerORef {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // runWorkerTask is the classifier "task" context for a run worker: the phase it is executing, framed
 // against the run goal. Falls back to the bare goal for an out-of-range index.
 func runWorkerTask(run *waveobj.Run, phaseIdx int) string {

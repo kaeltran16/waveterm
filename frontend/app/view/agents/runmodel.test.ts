@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    cancelSurvivors,
     composerSummary,
     currentPhaseIndex,
     defaultRunId,
@@ -313,6 +314,28 @@ describe("liveWorkers", () => {
     it("is empty when every recorded worker is idle or gone (blocked · worker exited)", () => {
         const r = run({ phases: [{ kind: "execute", state: "running", workerorefs: ["tab:a", "tab:gone"] }] });
         expect(liveWorkers(r, [agent({ id: "a", state: "idle" })])).toEqual([]);
+    });
+});
+
+describe("cancelSurvivors", () => {
+    it("returns live workers of a cancelled run, deduped across phases", () => {
+        const r = run({
+            status: "cancelled",
+            phases: [
+                { kind: "execute", state: "skipped", workerorefs: ["tab:a", "tab:b"] },
+                { kind: "custom", state: "skipped", workerorefs: ["tab:b"] },
+            ],
+        });
+        const agents = [agent({ id: "a", state: "working" }), agent({ id: "b", state: "asking" })];
+        expect(cancelSurvivors(r, agents).map((w) => w.id)).toEqual(["a", "b"]);
+    });
+    it("excludes idle (already-exited) workers", () => {
+        const r = run({ status: "cancelled", phases: [{ kind: "execute", state: "skipped", workerorefs: ["tab:a"] }] });
+        expect(cancelSurvivors(r, [agent({ id: "a", state: "idle" })])).toEqual([]);
+    });
+    it("is empty for a non-cancelled run even with live workers", () => {
+        const r = run({ status: "executing", phases: [{ kind: "execute", state: "running", workerorefs: ["tab:a"] }] });
+        expect(cancelSurvivors(r, [agent({ id: "a", state: "working" })])).toEqual([]);
     });
 });
 

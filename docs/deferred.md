@@ -3,13 +3,6 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
-## Cancel run — partial-failure warning surface (deferred 2026-07-14)
-Spec: docs/superpowers/specs/2026-07-14-cancel-run-stops-workers-design.md (Addendum, "Deferred").
-When a worker can't be stopped, the run should enter a visible warning state listing the survivors with
-a per-worker stop action, and must not report a clean cancellation while owned workers are still active.
-Requires reworking `stopRunWorkers`/`CancelRunCommand` from silent best-effort into failure-reporting
-(a return value the FE can surface). Not built in the 2026-07-14 pass.
-
 ## Channel notes (merged surface) (2026-07-13)
 
 > **Spec + plan written 2026-07-14 — not yet built.** Both follow-ups below are now designed:

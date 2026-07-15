@@ -5,10 +5,11 @@
 // collapsible overview/notes strip (with the on-demand Jarvis summary), and the run-tab strip.
 // Extracted from channelssurface.tsx; presentational only.
 
+import { type AgentVM } from "./agentsviewmodel";
 import { Avatar } from "./channelsprimitives";
 import { MarkdownMessage } from "./markdownmessage";
 import { PHASE_TONE_CLASS, TONE_CLASS } from "./runbody";
-import { phaseProgressDots, runStatusView } from "./runmodel";
+import { cancelSurvivors, phaseProgressDots, runStatusView } from "./runmodel";
 import { type SummaryState } from "./usefleetsummary";
 
 export function ChannelHeader({
@@ -163,6 +164,7 @@ export function OverviewStrip({
 
 export function RunStrip({
     runs,
+    agents,
     activeRunId,
     pendingDraft,
     onGoToRun,
@@ -171,6 +173,7 @@ export function RunStrip({
     hasSelectedRun,
 }: {
     runs: Run[];
+    agents: AgentVM[];
     activeRunId: string | undefined;
     pendingDraft: boolean;
     onGoToRun: (id: string) => void;
@@ -182,6 +185,9 @@ export function RunStrip({
         <div className="sc flex flex-none gap-2 overflow-x-auto border-b border-border bg-background px-[22px] py-2.5">
             {runs.map((r) => {
                 const { tone } = runStatusView(r.status);
+                // a cancelled run with still-live workers must not read as a clean cancel here either
+                // (mirrors the run header pill) — flag the dot with the blocked tone.
+                const dotToneClass = cancelSurvivors(r, agents).length > 0 ? TONE_CLASS.blocked : (TONE_CLASS[tone] ?? "text-muted");
                 const dots = phaseProgressDots(r);
                 const isActive = !pendingDraft && r.id === activeRunId;
                 return (
@@ -196,7 +202,7 @@ export function RunStrip({
                             {r.mode === "quick" ? (
                                 <span className="flex-none font-mono text-[8px] font-bold uppercase tracking-[.05em] text-accent-soft">Q</span>
                             ) : null}
-                            <span className={"h-[7px] w-[7px] flex-none rounded-full bg-current " + (TONE_CLASS[tone] ?? "text-muted")} />
+                            <span className={"h-[7px] w-[7px] flex-none rounded-full bg-current " + dotToneClass} />
                             <span title={r.goal} className="truncate text-[12px] font-semibold text-primary">{r.goal}</span>
                         </button>
                         {dots.length > 0 ? (

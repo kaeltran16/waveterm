@@ -29,8 +29,9 @@ import { InlineMarkdown } from "./inlinemarkdown";
 import { MarkdownMessage } from "./markdownmessage";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
-import { approveGate, cancellingRunIdsAtom, confirmCancelRun, sendBackGate } from "./runactions";
+import { approveGate, cancellingRunIdsAtom, confirmCancelRun, sendBackGate, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
 import {
+    cancelSurvivors,
     currentPhaseIndex,
     isOrchestrator,
     isTerminal,
@@ -72,10 +73,12 @@ export const PHASE_TONE_CLASS: Record<string, string> = {
     skipped: "text-muted",
 };
 
-function StatusPill({ status }: { status: string }) {
-    const { label, tone } = runStatusView(status);
+function StatusPill({ status, survivorCount = 0 }: { status: string; survivorCount?: number }) {
+    const base = runStatusView(status);
+    const label = survivorCount > 0 ? `${base.label} · ${survivorCount} still running` : base.label;
+    const toneClass = survivorCount > 0 ? TONE_CLASS.blocked : (TONE_CLASS[base.tone] ?? "text-muted");
     return (
-        <span className={"inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] " + (TONE_CLASS[tone] ?? "text-muted")}>
+        <span className={"inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] " + toneClass}>
             <span className="h-1.5 w-1.5 rounded-full bg-current" />
             {label}
         </span>
@@ -287,6 +290,55 @@ function CancelRunButton({ channelId, run, agents, className }: { channelId: str
     );
 }
 
+// Partial-failure surface: on a *cancelled* run whose owned workers are still alive (the bulk kill missed
+// one, or a resync revived it), the run must not read as a clean cancel. Renders nothing unless there are
+// survivors; otherwise an error-toned card listing each survivor with Take control + a per-worker Stop.
+// Derived from the live roster (cancelSurvivors), so a survivor that exits or is stopped drops out.
+function CancelSurvivorsCard({ model, channelId, run, agents }: { model: AgentsViewModel; channelId: string; run: Run; agents: AgentVM[] }) {
+    const stopping = useAtomValue(stoppingWorkerIdsAtom);
+    const survivors = cancelSurvivors(run, agents);
+    if (survivors.length === 0) {
+        return null;
+    }
+    const n = survivors.length === 1 ? "1 worker" : `${survivors.length} workers`;
+    return (
+        <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
+            <div className="mb-2 flex items-center gap-2">
+                <span className="font-mono text-[12px] font-bold text-error">!</span>
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">Cancelled · {n} still running</span>
+            </div>
+            <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">
+                These workers didn't stop when the run was cancelled. Stop each to finish cancelling, or take control to inspect it.
+            </p>
+            <div className="flex flex-col gap-2">
+                {survivors.map((w) => {
+                    const busy = stopping.has(w.id);
+                    return (
+                        <div key={w.id} className="flex items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-secondary">{w.name}</span>
+                            <button
+                                type="button"
+                                onClick={() => jumpToAgent(model, w.id)}
+                                className="flex-none rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-secondary hover:border-edge-strong"
+                            >
+                                Take control
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => fireAndForget(() => stopRunWorker(channelId, run.id, `tab:${w.id}`))}
+                                className="flex-none rounded border border-error/50 px-3 py-1.5 text-[11.5px] font-semibold text-error hover:bg-error/10 disabled:opacity-60"
+                            >
+                                {busy ? "Stopping…" : "Stop"}
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 function BlockedCard({ model, channelId, run, worker, agents }: { model: AgentsViewModel; channelId: string; run: Run; worker?: AgentVM; agents: AgentVM[] }) {
     return (
         <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
@@ -407,7 +459,7 @@ export function RunHeader({
             <div className="mb-4 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                     <div className="mb-1.5">
-                        <StatusPill status={run.status} />
+                        <StatusPill status={run.status} survivorCount={cancelSurvivors(run, agents).length} />
                     </div>
                     <div
                         onClick={() => setGoalExpanded((v) => !v)}
@@ -589,6 +641,7 @@ export function OrchestratorBody({
                 onSteerClose={onSteerClose}
                 hideSteer={hideSteer}
             />
+            <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
             {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
             {thread.showAsk && thread.askAgent && thread.askKind ? (
                 <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
@@ -791,6 +844,7 @@ export function RunBody({ model, channel, agents, run }: {
                         onSteerClose={noop}
                         hideSteer
                     />
+                    <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
                     <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
                     {expanded ? (

@@ -1751,32 +1751,39 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	return spawnErr // surfaced but non-fatal to already-persisted state
 }
 
-// stopRunWorkers terminates every live worker the run owns: for each phase WorkerOref (tab:<id>) it
-// flips the block's cmd:runonstart off (so a later ResyncController can't relaunch the command) then
-// destroys the block controller, which kills the claude process (the idle-on-exit backstop in
-// shellcontroller then flips the roster row working->idle). Best-effort: an already-exited worker, a
-// bad oref, or a meta-write failure is a logged no-op, never fatal — the run's cancelled state is
-// already persisted. Workers spawn with cmd:runonstart defaulting true and no cmd:runonce, so the flip
-// is required: without it, opening the tab (or a reload) would resync the block and revive the worker.
+// stopWorkerORef terminates one worker the run owns: it parses the tab oref, and for each block in the
+// tab flips cmd:runonstart off (so a later ResyncController can't relaunch the command) then destroys the
+// block controller, killing the claude process (the idle-on-exit backstop in shellcontroller then flips
+// the roster row working->idle). Returns an error only for the resolution boundary (bad oref / missing
+// tab). A meta-write failure and an already-dead controller are logged no-ops, never fatal — a worker is
+// spawned with cmd:runonstart defaulting true and no cmd:runonce, so the flip is what makes the kill
+// durable: without it, opening the tab (or a reload) would resync the block and revive the worker.
+func stopWorkerORef(ctx context.Context, workerORef string) error {
+	oref, err := waveobj.ParseORef(workerORef)
+	if err != nil || oref.OType != waveobj.OType_Tab {
+		return fmt.Errorf("bad worker oref %q: %w", workerORef, err)
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
+	if err != nil {
+		return fmt.Errorf("loading tab %q: %w", workerORef, err)
+	}
+	for _, blockId := range tab.BlockIds {
+		meta := waveobj.MetaMapType{waveobj.MetaKey_CmdRunOnStart: false}
+		if merr := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); merr != nil {
+			log.Printf("stopWorkerORef: clearing runonstart on block %s: %v", blockId, merr)
+		}
+		blockcontroller.DestroyBlockController(blockId)
+	}
+	return nil
+}
+
+// stopRunWorkers terminates every live worker the run owns (best-effort; each worker's failure is logged,
+// never fatal — the run's cancelled state is already persisted).
 func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
 	for i := range run.Phases {
 		for _, workerORef := range run.Phases[i].WorkerOrefs {
-			oref, err := waveobj.ParseORef(workerORef)
-			if err != nil || oref.OType != waveobj.OType_Tab {
-				log.Printf("stopRunWorkers: bad worker oref %q: %v", workerORef, err)
-				continue
-			}
-			tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
-			if err != nil {
-				log.Printf("stopRunWorkers: loading tab %q: %v", workerORef, err)
-				continue
-			}
-			for _, blockId := range tab.BlockIds {
-				meta := waveobj.MetaMapType{waveobj.MetaKey_CmdRunOnStart: false}
-				if merr := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); merr != nil {
-					log.Printf("stopRunWorkers: clearing runonstart on block %s: %v", blockId, merr)
-				}
-				blockcontroller.DestroyBlockController(blockId)
+			if err := stopWorkerORef(ctx, workerORef); err != nil {
+				log.Printf("stopRunWorkers: %v", err)
 			}
 		}
 	}
@@ -1953,6 +1960,29 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 		stopRunWorkers(ctx, run)
 	} else {
 		log.Printf("CancelRun: reload for worker stop failed: %v", gerr)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
+// StopRunWorkerCommand stops one worker the run owns — the per-worker action of the cancelled-run
+// partial-failure surface (its only caller). The guard is ownership only (RunOwnsWorker), not a
+// run-status check: the command is a general owned-worker stop, and the cancelled-ness lives in the FE
+// that calls it. The kill's success is observed via the roster flipping to idle (the FE re-derives
+// survivors); this returns an error only for validation / ownership failures.
+func (ws *WshServer) StopRunWorkerCommand(ctx context.Context, data wshrpc.CommandStopRunWorkerData) error {
+	if data.ChannelId == "" || data.RunId == "" || data.WorkerORef == "" {
+		return fmt.Errorf("channelid, runid and workeroref are required")
+	}
+	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	if !jarvis.RunOwnsWorker(run, data.WorkerORef) {
+		return fmt.Errorf("run %s does not own worker %s", data.RunId, data.WorkerORef)
+	}
+	if serr := stopWorkerORef(ctx, data.WorkerORef); serr != nil {
+		return fmt.Errorf("stopping worker: %w", serr)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil

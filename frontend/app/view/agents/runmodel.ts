@@ -156,6 +156,14 @@ export function liveWorkers(run: Run, agents: AgentVM[]): AgentVM[] {
     return out;
 }
 
+// Live workers still running under a *cancelled* run — the survivors the partial-failure surface warns
+// about. Empty for any non-cancelled run (a running run's live workers are normal, not survivors).
+// Derived from the roster via liveWorkers, so it tracks reality: a survivor that later exits drops out; a
+// resync-revived one reappears. No persisted survivor state.
+export function cancelSurvivors(run: Run, agents: AgentVM[]): AgentVM[] {
+    return run.status === "cancelled" ? liveWorkers(run, agents) : [];
+}
+
 export interface PhaseThread {
     showAsk: boolean;
     askKind: "clarify" | "fork" | null;

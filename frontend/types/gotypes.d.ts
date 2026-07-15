@@ -1171,6 +1171,13 @@ declare global {
         report: RadarReport;
     };
 
+    // wshrpc.CommandStopRunWorkerData
+    type CommandStopRunWorkerData = {
+        channelid: string;
+        runid: string;
+        workeroref: string;
+    };
+
     // wshrpc.CommandStreamAckData
     type CommandStreamAckData = {
         id: string;

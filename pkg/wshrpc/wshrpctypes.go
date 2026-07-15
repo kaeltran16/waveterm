@@ -39,9 +39,9 @@ type WshRpcInterface interface {
 	AuthenticateTokenVerifyCommand(ctx context.Context, data CommandAuthenticateTokenData) (CommandAuthenticateRtnData, error) // (special) validates token without binding, root router only
 	AuthenticateJobManagerCommand(ctx context.Context, data CommandAuthenticateJobManagerData) error
 	AuthenticateJobManagerVerifyCommand(ctx context.Context, data CommandAuthenticateJobManagerData) error // (special) validates job auth token without binding, root router only
-	RouteAnnounceCommand(ctx context.Context) error               // (special) announces a new route to the main router
-	RouteUnannounceCommand(ctx context.Context) error             // (special) unannounces a route to the main router
-	ControlGetRouteIdCommand(ctx context.Context) (string, error) // (special) gets the route for the link that we're on
+	RouteAnnounceCommand(ctx context.Context) error                                                        // (special) announces a new route to the main router
+	RouteUnannounceCommand(ctx context.Context) error                                                      // (special) unannounces a route to the main router
+	ControlGetRouteIdCommand(ctx context.Context) (string, error)                                          // (special) gets the route for the link that we're on
 	SetPeerInfoCommand(ctx context.Context, peerInfo string) error
 	GetJwtPublicKeyCommand(ctx context.Context) (string, error) // (special) gets the public JWT signing key
 
@@ -127,6 +127,7 @@ type WshRpcInterface interface {
 	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error)                   // create + start a goal Run (spawns phase 1's worker)
 	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                             // complete a phase / approve or send back a gate (spawns the next worker)
 	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                               // cancel a Run
+	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                       // stop one surviving worker of a cancelled run
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                     // lead self-reports hold/complete; resolves run/phase from its own oref
 	StartRadarScanCommand(ctx context.Context, data CommandStartRadarScanData) (*CommandStartRadarScanRtnData, error)    // validate scope + start a manual repo scan
 	CancelRadarScanCommand(ctx context.Context, data CommandCancelRadarScanData) error                                   // cancel an in-flight scan
@@ -771,6 +772,12 @@ type CommandAdvanceRunData struct {
 type CommandCancelRunData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+}
+
+type CommandStopRunWorkerData struct {
+	ChannelId  string `json:"channelid"`
+	RunId      string `json:"runid"`
+	WorkerORef string `json:"workeroref"` // the worker tab oref ("tab:<id>") to stop
 }
 
 type CommandReportRunPhaseData struct {

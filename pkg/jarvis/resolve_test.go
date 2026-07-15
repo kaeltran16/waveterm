@@ -160,3 +160,19 @@ func TestResolveDispatchChannelNoMatch(t *testing.T) {
 		t.Fatalf("got %v, want nil", got)
 	}
 }
+
+func TestRunOwnsWorker(t *testing.T) {
+	run := &waveobj.Run{ID: "r1", Phases: []waveobj.RunPhase{
+		{Kind: PhaseKind_Plan, WorkerOrefs: []string{"tab:t1"}},
+		{Kind: PhaseKind_Execute, WorkerOrefs: []string{"tab:t2", "tab:t3"}},
+	}}
+	if !RunOwnsWorker(run, "tab:t2") {
+		t.Fatalf("expected run to own tab:t2")
+	}
+	if RunOwnsWorker(run, "tab:nope") {
+		t.Fatalf("did not expect run to own tab:nope")
+	}
+	if RunOwnsWorker(nil, "tab:t1") {
+		t.Fatalf("nil run owns nothing")
+	}
+}

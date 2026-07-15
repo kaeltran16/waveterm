@@ -285,6 +285,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
                                 <RunStrip
                                     runs={runs}
+                                    agents={agents}
                                     activeRunId={activeRunId}
                                     pendingDraft={!!pendingDraft}
                                     onGoToRun={goToRun}
