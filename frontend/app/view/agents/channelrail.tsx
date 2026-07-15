@@ -8,6 +8,7 @@
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
+import { Archive, Bot, PanelRight, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import { channelHasAsk, filterChannels, partitionChannels } from "./channelderive";
@@ -109,9 +110,10 @@ export function ChannelRail({
                             onContextMenu={(ev) =>
                                 ContextMenuModel.getInstance().showContextMenu(
                                     [
-                                        { label: "Open", click: () => onSelect(c.oid) },
+                                        { label: "Open", icon: <PanelRight size={15} />, click: () => onSelect(c.oid) },
                                         {
                                             label: "Autonomy",
+                                            icon: <Bot size={15} />,
                                             submenu: (["concierge", "gatekeeper", "delegator"] as JarvisTier[]).map(
                                                 (t): ContextMenuItem => ({
                                                     label: t.charAt(0).toUpperCase() + t.slice(1),
@@ -124,6 +126,7 @@ export function ChannelRail({
                                         { type: "separator" },
                                         {
                                             label: "Rename channel",
+                                            icon: <Pencil size={15} />,
                                             click: () => {
                                                 setRenameDraft(c.name);
                                                 setRenamingId(c.oid);
@@ -131,11 +134,13 @@ export function ChannelRail({
                                         },
                                         {
                                             label: "Archive channel",
+                                            icon: <Archive size={15} />,
                                             click: () => onArchiveChannel(c.oid, true),
                                         },
                                         { type: "separator" },
                                         {
                                             label: "Delete channel",
+                                            icon: <Trash2 size={15} />,
                                             danger: true,
                                             click: () =>
                                                 modalsModel.pushModal("ConfirmModal", {

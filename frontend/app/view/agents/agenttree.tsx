@@ -7,6 +7,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Copy, CopyPlus, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useLayoutEffect, useRef } from "react";
 import { confirmCloseAgent } from "./agentactions";
@@ -54,10 +55,19 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
     };
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
-            { label: "Duplicate", click: () => duplicateSession(model, agent.id) },
-            { label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) },
+            { label: "Duplicate", icon: <CopyPlus size={15} />, click: () => duplicateSession(model, agent.id) },
+            {
+                label: "Copy name",
+                icon: <Copy size={15} />,
+                click: () => void navigator.clipboard.writeText(agent.name),
+            },
             { type: "separator" },
-            { label: "Close agent", danger: true, click: () => confirmCloseAgent(agent.id, agent.name) },
+            {
+                label: "Close agent",
+                icon: <X size={15} />,
+                danger: true,
+                click: () => confirmCloseAgent(agent.id, agent.name),
+            },
         ];
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };

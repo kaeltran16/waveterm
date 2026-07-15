@@ -12,6 +12,7 @@ import {
     moveHighlight,
     openSubmenu,
     roleAction,
+    hasLeadingColumn,
     siblingsAt,
     visibleItems,
 } from "./contextmenu";
@@ -123,5 +124,22 @@ describe("context-menu keyboard reducer", () => {
         expect(siblingsAt(menu, [3, 1]).length).toBe(2);
         expect(firstActionable(menu)).toBe(0);
         expect(firstActionable([{ type: "separator" }, { label: "X" }])).toBe(1);
+    });
+});
+
+describe("hasLeadingColumn", () => {
+    it("is false for a plain action-only menu", () => {
+        expect(hasLeadingColumn([{ label: "Copy" }, { label: "Paste" }])).toBe(false);
+    });
+    it("is true when any item has an icon", () => {
+        expect(hasLeadingColumn([{ label: "Copy", icon: null as any }, { label: "X", icon: "i" as any }])).toBe(true);
+    });
+    it("is true when a checkbox or radio is present", () => {
+        expect(hasLeadingColumn([{ label: "A" }, { type: "checkbox", label: "Live", checked: true }])).toBe(true);
+        expect(hasLeadingColumn([{ type: "radio", label: "Opus", checked: true }])).toBe(true);
+    });
+    it("ignores separators and headers, and hidden items", () => {
+        expect(hasLeadingColumn([{ type: "separator" }, { type: "header", label: "H" }, { label: "A" }])).toBe(false);
+        expect(hasLeadingColumn([{ type: "checkbox", label: "hid", visible: false }, { label: "A" }])).toBe(false);
     });
 });

@@ -14,7 +14,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { Check } from "lucide-react";
+import { Check, Copy, FolderOpen, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { resolveCwd } from "./agentcwdresolve";
@@ -165,11 +165,11 @@ function ListView({
                                         onContextMenu={(ev) =>
                                             ContextMenuModel.getInstance().showContextMenu(
                                                 [
-                                                    { label: "Open", click: () => fireAndForget(() => selectNote(n.id)) },
-                                                    { label: "Copy title", click: () => void navigator.clipboard.writeText(n.title) },
-                                                    { label: "Copy path", click: () => void navigator.clipboard.writeText(n.path) },
+                                                    { label: "Open", icon: <FolderOpen size={15} />, click: () => fireAndForget(() => selectNote(n.id)) },
+                                                    { label: "Copy title", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(n.title) },
+                                                    { label: "Copy path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(n.path) },
                                                     { type: "separator" },
-                                                    { label: "Delete", danger: true, click: () => confirmDeleteNote(n.path, n.title) },
+                                                    { label: "Delete", icon: <Trash2 size={15} />, danger: true, click: () => confirmDeleteNote(n.path, n.title) },
                                                 ],
                                                 ev
                                             )

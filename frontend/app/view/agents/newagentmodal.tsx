@@ -8,6 +8,7 @@ import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
@@ -626,7 +627,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         className="flex cursor-pointer items-center gap-[7px] rounded border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover"
                     >
                         {runtimeLaunchLabel(runtime)}
-                        <span className="font-mono text-[10.5px] opacity-70">⌘↵</span>
+                        <span className="font-mono text-[10.5px] opacity-70">{formatChordString("Cmd:Enter")}</span>
                     </button>
                 </div>
                 </>

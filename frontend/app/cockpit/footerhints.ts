@@ -10,15 +10,16 @@ import type { SurfaceKey } from "@/app/store/keybindings/types";
 
 export interface FooterHint {
     ids: string[]; // binding ids this chip represents (>=1); shown if any is active in ctx
-    glyph: string; // terse key display, e.g. "↑↓", "⌃P"
+    keys?: string; // chord in binding notation ("Ctrl:p"); glyph computed at render (platform-aware)
+    glyph?: string; // literal glyph for composite/non-modifier hints ("↑↓", "[ ]", "esc")
     label: string; // terse action, e.g. "move", "palette"
 }
 
 // Appended to every surface; each filtered by its binding's live when(ctx).
 export const GLOBAL_HINTS: FooterHint[] = [
     { ids: ["go:cockpit"], glyph: "g", label: "go" }, // g-leader nav; drops in the terminal
-    { ids: ["palette"], glyph: "⌃P", label: "palette" },
-    { ids: ["new-agent"], glyph: "⌃N", label: "new" },
+    { ids: ["palette"], keys: "Ctrl:p", label: "palette" },
+    { ids: ["new-agent"], keys: "Ctrl:n", label: "new" },
     { ids: ["help"], glyph: "?", label: "help" }, // Shift+?; drops in the terminal
 ];
 
@@ -30,7 +31,7 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["agent:toggle-rail"], glyph: "d", label: "rail" },
         { ids: ["agent:fullscreen"], glyph: "f", label: "full" },
         { ids: ["agent:back"], glyph: "esc", label: "back" },
-        { ids: ["cycle-agent-next", "cycle-agent-prev"], glyph: "^Tab", label: "cycle" },
-        { ids: ["agent:return-nav"], glyph: "⇧Esc", label: "leave" }, // editable-only via its binding
+        { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
+        { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
     ],
 };

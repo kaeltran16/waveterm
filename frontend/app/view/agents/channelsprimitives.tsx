@@ -8,6 +8,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useAtomValue, useSetAtom } from "jotai";
+import { PanelRight, X } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
 import { toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
@@ -134,11 +135,12 @@ export function WorkerRow({
                     [
                         {
                             label: "Open agent",
+                            icon: <PanelRight size={15} />,
                             enabled: w.state !== "gone",
                             click: () => jumpToAgent(model, w.oref.slice("tab:".length)),
                         },
                         ...(w.state === "gone" && channelId && onDismiss
-                            ? [{ label: "Dismiss", click: () => onDismiss(channelId, w.oref) }]
+                            ? [{ label: "Dismiss", icon: <X size={15} />, click: () => onDismiss(channelId, w.oref) }]
                             : []),
                     ],
                     ev

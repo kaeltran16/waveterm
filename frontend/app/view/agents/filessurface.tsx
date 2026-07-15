@@ -10,6 +10,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Copy, Pencil } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
@@ -447,9 +448,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                             }
                                             ContextMenuModel.getInstance().showContextMenu(
                                                 [
-                                                    { label: "Open in editor", click: () => getApi().openExternal(`${cwd}/${c.path}`) },
-                                                    { label: "Copy path", click: () => void navigator.clipboard.writeText(c.path) },
-                                                    { label: "Copy absolute path", click: () => void navigator.clipboard.writeText(`${cwd}/${c.path}`) },
+                                                    { label: "Open in editor", icon: <Pencil size={15} />, click: () => getApi().openExternal(`${cwd}/${c.path}`) },
+                                                    { label: "Copy path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(c.path) },
+                                                    { label: "Copy absolute path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(`${cwd}/${c.path}`) },
                                                 ],
                                                 ev
                                             );

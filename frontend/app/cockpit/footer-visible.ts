@@ -10,7 +10,8 @@ import type { Binding, KeyContext } from "@/app/store/keybindings/types";
 import type { FooterHint } from "./footerhints";
 
 export interface HintChip {
-    glyph: string;
+    glyph?: string; // literal glyph for composite/non-modifier hints
+    keys?: string; // chord in binding notation; the renderer computes the platform-aware glyph
     label: string;
 }
 
@@ -31,7 +32,7 @@ export function visibleHints(
             continue; // already rendered (id referenced by both tables)
         }
         h.ids.forEach((id) => shown.add(id));
-        out.push({ glyph: h.glyph, label: h.label });
+        out.push({ glyph: h.glyph, keys: h.keys, label: h.label });
     }
     return out;
 }

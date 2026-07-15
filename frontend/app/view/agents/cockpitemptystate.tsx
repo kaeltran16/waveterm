@@ -4,6 +4,7 @@
 // The cockpit's "No agents running" empty state. Extracted from cockpitsurface.tsx.
 
 import { cardVariants } from "@/app/element/motiontokens";
+import { formatChordString } from "@/util/keysym";
 import { motion } from "motion/react";
 
 export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
@@ -59,14 +60,14 @@ export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
                     </span>
                     <span>New terminal agent</span>
                     <span className="ml-0.5 rounded-sm bg-background/15 px-[7px] py-[3px] font-mono text-[11px] font-semibold">
-                        ⌘N
+                        {formatChordString("Ctrl:n")}
                     </span>
                 </motion.button>
 
                 <div className="mt-[18px] text-[12.5px] text-muted">
                     or press{" "}
                     <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
-                        ⌘P
+                        {formatChordString("Ctrl:p")}
                     </span>{" "}
                     to run a saved command
                 </div>

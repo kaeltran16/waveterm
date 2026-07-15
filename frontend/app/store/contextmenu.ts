@@ -18,6 +18,12 @@ export function visibleItems(items: ContextMenuItem[]): ContextMenuItem[] {
     return items.filter((it) => it.visible !== false);
 }
 
+// True when the menu needs a fixed leading column: any visible item carries an icon, or is a
+// checkbox/radio (whose checked-state marker lives in that column). Plain menus stay flush.
+export function hasLeadingColumn(items: ContextMenuItem[]): boolean {
+    return visibleItems(items).some((it) => it.type === "checkbox" || it.type === "radio" || it.icon != null);
+}
+
 // Parity fallback for role-based items; production callers generally pass explicit click handlers.
 export function roleAction(role?: string): (() => void) | undefined {
     switch (role?.toLowerCase()) {

@@ -3,26 +3,28 @@
 //
 // The cockpit surface's hints bar and keyboard-help overlay. Extracted from cockpitsurface.tsx.
 
+import { formatChordString } from "@/util/keysym";
+
 // One consolidated hints bar for the cockpit surface. The triage keys are cockpit-local (handled by
 // the surface's onKeyDown, not the global keybinding registry); the trailing global chips are the same
 // ones the global HintsFooter shows elsewhere — folded in here so the cockpit surface renders a single
 // bar (the footer suppresses its rest posture on this surface — see hints-footer.tsx).
-const HINTS: [string, string][] = [
-    ["↑↓ / j k", "move"],
-    ["⏎", "open"],
-    ["esc", "back"],
-    ["1–9", "answer"],
-    ["r", "reply"],
-    ["t", "terminal"],
-    ["b", "background"],
-    ["n", "next ask"],
-    ["[ ]", "switch surface"],
-    ["g", "go"],
-    ["⌃P", "palette"],
-    ["⌃N", "new"],
-];
-
 export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
+    // Built at render (not module-eval) so the platform-aware modifier glyphs resolve after boot.
+    const HINTS: [string, string][] = [
+        ["↑↓ / j k", "move"],
+        ["⏎", "open"],
+        ["esc", "back"],
+        ["1–9", "answer"],
+        ["r", "reply"],
+        ["t", "terminal"],
+        ["b", "background"],
+        ["n", "next ask"],
+        ["[ ]", "switch surface"],
+        ["g", "go"],
+        [formatChordString("Ctrl:p"), "palette"],
+        [formatChordString("Ctrl:n"), "new"],
+    ];
     return (
         <div className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted">
             {HINTS.map(([k, d]) => (

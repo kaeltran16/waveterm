@@ -11,6 +11,7 @@ import { deriveKeyContext } from "@/app/store/keybindings/dispatcher";
 import { activeLeaderAtom } from "@/app/store/keybindings/leaderatom";
 import { bindingsAtom } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
@@ -88,7 +89,11 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
         <FooterBar dim={ctx.editable}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 {chips.map((c) => (
-                    <Chip key={c.glyph + c.label} glyph={c.glyph} label={c.label} />
+                    <Chip
+                        key={(c.glyph ?? c.keys) + c.label}
+                        glyph={c.glyph ?? formatChordString(c.keys!)}
+                        label={c.label}
+                    />
                 ))}
             </div>
         </FooterBar>

@@ -8,6 +8,7 @@ import { ModalShell } from "@/app/modals/modalshell";
 import { bindingsAtom } from "@/app/store/keybindings/store";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { formatChord } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { useMemo, useState } from "react";
@@ -15,9 +16,7 @@ import { useMemo, useState } from "react";
 export const cheatsheetOpenAtom = atom(false);
 
 function keyChips(keys: string) {
-    // "g a" -> ["g","a"]; "Ctrl:Shift:Tab" -> ["Ctrl","Shift","Tab"]
-    const parts = keys.includes(" ") ? keys.split(" ") : keys.split(":");
-    return parts;
+    return formatChord(keys); // "Ctrl:Shift:Tab" -> ["^","⇧","Tab"]; "g p" -> ["g","p"]
 }
 
 export function ShortcutsCheatSheet({ model }: { model: AgentsViewModel }) {

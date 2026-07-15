@@ -12,7 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Maximize2, Minimize2, Square, X } from "lucide-react";
+import { CircleStop, Maximize2, Minimize2, PanelRight, Square, X } from "lucide-react";
 import { confirmCloseAgent } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
@@ -65,19 +65,21 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
         e.stopPropagation();
         const items: ContextMenuItem[] = [];
         if (blockId != null) {
-            items.push({ label: "Interrupt turn", click: interrupt });
+            items.push({ label: "Interrupt turn", icon: <CircleStop size={15} />, click: interrupt });
             items.push({
                 label: fullscreen ? "Exit fullscreen" : "Fullscreen terminal",
+                icon: fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />,
                 click: () => globalStore.set(terminalFullscreenAtom, !fullscreen),
             });
         }
         items.push({
             label: railVisible ? "Hide details" : "Show details",
+            icon: <PanelRight size={15} />,
             click: () => globalStore.set(railVisibleAtom, !railVisible),
         });
         if (blockId != null) {
             items.push({ type: "separator" });
-            items.push({ label: "Close agent", danger: true, click: closeTerminal });
+            items.push({ label: "Close agent", icon: <X size={15} />, danger: true, click: closeTerminal });
         }
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };

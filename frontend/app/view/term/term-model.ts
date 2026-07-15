@@ -33,10 +33,33 @@ import * as keyutil from "@/util/keyutil";
 import { isMacOS, isWindows } from "@/util/platformutil";
 import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
+import {
+    Blend,
+    Bug,
+    Clipboard,
+    ClipboardPaste,
+    Copy,
+    Eraser,
+    ExternalLink,
+    type LucideIcon,
+    Maximize2,
+    Palette,
+    Power,
+    RefreshCw,
+    RotateCcw,
+    Save,
+    SlidersHorizontal,
+    TextCursor,
+    Type,
+    X,
+} from "lucide-react";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
 import { computeTheme, DefaultTermTheme, trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
+
+// term-model.ts is a .ts file (no JSX), so leading menu icons are built via createElement.
+const mIcon = (C: LucideIcon) => React.createElement(C, { size: 15 });
 
 export class TermViewModel implements ViewModel {
     viewType: string;
@@ -816,6 +839,7 @@ export class TermViewModel implements ViewModel {
         if (hasSelection) {
             menu.push({
                 label: "Copy",
+                icon: mIcon(Copy),
                 click: () => {
                     if (selection) {
                         const text =
@@ -839,6 +863,7 @@ export class TermViewModel implements ViewModel {
             if (hoveredURL) {
                 menu.push({
                     label: "Open URL in external browser",
+                    icon: mIcon(ExternalLink),
                     click: () => {
                         getApi().openExternal(hoveredURL.toString());
                     },
@@ -849,6 +874,7 @@ export class TermViewModel implements ViewModel {
 
         menu.push({
             label: "Paste",
+            icon: mIcon(ClipboardPaste),
             click: () => {
                 getApi().nativePaste();
             },
@@ -859,6 +885,7 @@ export class TermViewModel implements ViewModel {
         const magnified = globalStore.get(this.nodeModel.isMagnified);
         menu.push({
             label: magnified ? "Un-magnify block" : "Magnify block",
+            icon: mIcon(Maximize2),
             click: () => {
                 this.nodeModel.toggleMagnify();
             },
@@ -890,6 +917,7 @@ export class TermViewModel implements ViewModel {
 
         fullMenu.push({
             label: "Save session as...",
+            icon: mIcon(Save),
             click: () => {
                 if (this.termRef.current) {
                     const content = this.termRef.current.getScrollbackContent();
@@ -1080,18 +1108,22 @@ export class TermViewModel implements ViewModel {
         ];
         fullMenu.push({
             label: "Themes",
+            icon: mIcon(Palette),
             submenu: submenu,
         });
         fullMenu.push({
             label: "Font size",
+            icon: mIcon(Type),
             submenu: fontSizeSubMenu,
         });
         fullMenu.push({
             label: "Cursor",
+            icon: mIcon(TextCursor),
             submenu: cursorSubMenu,
         });
         fullMenu.push({
             label: "Transparency",
+            icon: mIcon(Blend),
             submenu: transparencySubMenu,
         });
         fullMenu.push({ type: "separator" });
@@ -1099,6 +1131,7 @@ export class TermViewModel implements ViewModel {
         const allowBracketedPaste = blockData?.meta?.["term:allowbracketedpaste"];
         advancedSubmenu.push({
             label: "Allow bracketed paste mode",
+            icon: mIcon(Clipboard),
             submenu: [
                 {
                     label: "Default (" + (defaultAllowBracketedPaste ? "On" : "Off") + ")",
@@ -1137,11 +1170,13 @@ export class TermViewModel implements ViewModel {
         });
         advancedSubmenu.push({
             label: "Force restart controller",
+            icon: mIcon(RotateCcw),
             click: () => fireAndForget(() => this.forceRestartController()),
         });
         const isClearOnStart = blockData?.meta?.["cmd:clearonstart"];
         advancedSubmenu.push({
             label: "Clear output on restart",
+            icon: mIcon(Eraser),
             submenu: [
                 {
                     label: "On",
@@ -1170,6 +1205,7 @@ export class TermViewModel implements ViewModel {
         const runOnStart = blockData?.meta?.["cmd:runonstart"];
         advancedSubmenu.push({
             label: "Run on startup",
+            icon: mIcon(Power),
             submenu: [
                 {
                     label: "On",
@@ -1198,6 +1234,7 @@ export class TermViewModel implements ViewModel {
         const debugConn = blockData?.meta?.["term:conndebug"];
         advancedSubmenu.push({
             label: "Debug connection",
+            icon: mIcon(Bug),
             submenu: [
                 {
                     label: "Off",
@@ -1239,9 +1276,11 @@ export class TermViewModel implements ViewModel {
         if (isDurable) {
             advancedSubmenu.push({
                 label: "Session durability",
+                icon: mIcon(RefreshCw),
                 submenu: [
                     {
                         label: "Restart session in standard mode",
+                        icon: mIcon(RefreshCw),
                         click: () => fireAndForget(() => this.restartSessionWithDurability(false)),
                     },
                 ],
@@ -1249,9 +1288,11 @@ export class TermViewModel implements ViewModel {
         } else if (isDurable === false) {
             advancedSubmenu.push({
                 label: "Session durability",
+                icon: mIcon(RefreshCw),
                 submenu: [
                     {
                         label: "Restart session in durable mode",
+                        icon: mIcon(RefreshCw),
                         click: () => fireAndForget(() => this.restartSessionWithDurability(true)),
                     },
                 ],
@@ -1260,12 +1301,14 @@ export class TermViewModel implements ViewModel {
 
         fullMenu.push({
             label: "Advanced",
+            icon: mIcon(SlidersHorizontal),
             submenu: advancedSubmenu,
         });
         if (blockData?.meta?.["term:vdomtoolbarblockid"]) {
             fullMenu.push({ type: "separator" });
             fullMenu.push({
                 label: "Close Toolbar",
+                icon: mIcon(X),
                 click: () => {
                     RpcApi.DeleteSubBlockCommand(TabRpcClient, { blockid: blockData.meta["term:vdomtoolbarblockid"] });
                 },

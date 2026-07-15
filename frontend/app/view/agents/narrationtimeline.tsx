@@ -4,6 +4,7 @@
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
+import { Copy } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
 import { Fragment, useState } from "react";
@@ -449,8 +450,8 @@ export function NarrationTimeline({
     const copyMenu = (text: string) => (e: React.MouseEvent) =>
         ContextMenuModel.getInstance().showContextMenu(
             [
-                { label: "Copy text", click: () => void navigator.clipboard.writeText(text) },
-                { label: "Copy conversation", click: () => void navigator.clipboard.writeText(conversationText(entries)) },
+                { label: "Copy text", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(text) },
+                { label: "Copy conversation", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(conversationText(entries)) },
             ],
             e
         );

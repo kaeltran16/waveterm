@@ -6,6 +6,7 @@ import {
     closeSubmenu,
     firstActionable,
     focusedItem,
+    hasLeadingColumn,
     initialPath,
     type MenuPath,
     moveHighlight,
@@ -16,15 +17,18 @@ import {
 } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { autoUpdate, flip, FloatingPortal, offset, shift, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
+import { Check, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { KeyCap } from "./keycap";
 
-const PANEL = "z-[1000] min-w-[180px] rounded-[8px] border border-edge-mid bg-surface-raised py-1 shadow-lg";
+const PANEL = "z-[1000] min-w-[200px] rounded-[8px] border border-edge-mid bg-surface-raised p-1 shadow-lg";
 const ITEM =
-    "relative flex cursor-pointer items-center gap-2 px-3 py-1 font-mono text-[12.5px] text-secondary";
-const ITEM_ACTIVE = "bg-accent/10 text-primary";
+    "relative flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 font-mono text-[12.5px] text-secondary";
+const ITEM_ACTIVE = "bg-accent/12 text-primary";
 const ITEM_DANGER = "text-error";
 const ITEM_DANGER_ACTIVE = "bg-error/10 text-error";
 const ITEM_DISABLED = "cursor-default opacity-50";
+const LEAD = "flex w-[16px] shrink-0 items-center justify-center";
 
 function runClick(item: ContextMenuItem) {
     if (item.enabled === false) {
@@ -35,14 +39,19 @@ function runClick(item: ContextMenuItem) {
     closeContextMenu();
 }
 
-function Marker({ item }: { item: ContextMenuItem }) {
+// The leading column: icon for normal rows; a check for a ticked checkbox; a dot for radio-on.
+// Rendered only when the menu reserves the column (hasLeadingColumn).
+function Leading({ item, highlighted, danger }: { item: ContextMenuItem; highlighted: boolean; danger: boolean }) {
+    let content: React.ReactNode = null;
     if (item.type === "checkbox") {
-        return <span className="w-3 text-accent">{item.checked ? "x" : ""}</span>;
+        content = item.checked ? <Check size={13} className="text-accent" /> : null;
+    } else if (item.type === "radio") {
+        content = item.checked ? <span className="h-[6px] w-[6px] rounded-full bg-accent" /> : null;
+    } else if (item.icon != null) {
+        content = item.icon;
     }
-    if (item.type === "radio") {
-        return <span className="w-3 text-accent">{item.checked ? "•" : ""}</span>;
-    }
-    return null;
+    const color = danger ? "text-error" : highlighted ? "text-accent-soft" : "text-muted";
+    return <span className={cn(LEAD, "[&_svg]:h-[15px] [&_svg]:w-[15px]", color)}>{content}</span>;
 }
 
 // One menu level. `basePath` is the path prefix that reaches this level's parent
@@ -61,17 +70,18 @@ function MenuLevel({
 }) {
     const level = basePath.length;
     const vis = visibleItems(items);
+    const hasLead = hasLeadingColumn(items);
     return (
         <>
             {vis.map((item, i) => {
                 if (item.type === "separator") {
-                    return <div key={i} className="my-1 h-px bg-edge-mid" />;
+                    return <div key={i} className="mx-2 my-1.5 h-px bg-edge-mid" />;
                 }
                 if (item.type === "header") {
                     return (
                         <div
                             key={i}
-                            className="px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-muted"
+                            className="px-2.5 pb-1 pt-2 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-muted"
                         >
                             {item.label}
                         </div>
@@ -80,8 +90,6 @@ function MenuLevel({
                 const rowPath = [...basePath, i];
                 const onPath = active[level] === i;
                 const submenuOpen = onPath && item.submenu != null && active.length > level + 1;
-                const disabled = item.enabled === false;
-                const danger = item.danger === true;
                 return (
                     <MenuRow
                         key={i}
@@ -89,8 +97,9 @@ function MenuLevel({
                         rowPath={rowPath}
                         highlighted={onPath}
                         submenuOpen={submenuOpen}
-                        disabled={disabled}
-                        danger={danger}
+                        disabled={item.enabled === false}
+                        danger={item.danger === true}
+                        hasLead={hasLead}
                         active={active}
                         setActive={setActive}
                     />
@@ -107,6 +116,7 @@ function MenuRow({
     submenuOpen,
     disabled,
     danger,
+    hasLead,
     active,
     setActive,
 }: {
@@ -116,6 +126,7 @@ function MenuRow({
     submenuOpen: boolean;
     disabled: boolean;
     danger: boolean;
+    hasLead: boolean;
     active: MenuPath;
     setActive: (p: MenuPath) => void;
 }) {
@@ -149,10 +160,15 @@ function MenuRow({
             onMouseEnter={onEnter}
             onClick={() => (hasSub ? undefined : runClick(item))}
         >
-            <Marker item={item} />
+            {hasLead ? <Leading item={item} highlighted={highlighted} danger={danger} /> : null}
             <span className="flex-1 whitespace-nowrap">{item.label}</span>
-            {hasSub ? <span className="ml-4 text-muted">&gt;</span> : null}
-            {item.sublabel ? <span className="ml-4 text-muted">{item.sublabel}</span> : null}
+            {hasSub ? (
+                <ChevronRight size={13} className="ml-auto text-muted" />
+            ) : item.accel ? (
+                <KeyCap chord={item.accel} variant="inline" className="ml-auto" />
+            ) : item.sublabel ? (
+                <span className="ml-auto text-muted">{item.sublabel}</span>
+            ) : null}
             {submenuOpen ? (
                 <div className={cn(PANEL, "absolute top-[-5px]", flipLeft ? "right-full mr-1" : "left-full ml-1")}>
                     <MenuLevel items={item.submenu!} basePath={rowPath} active={active} setActive={setActive} />

@@ -7,6 +7,7 @@ import { liveWindowAgents, providerPlanUsage, usageLevel } from "@/app/view/agen
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
 import { runtimeMeta } from "@/app/view/agents/runtimemeta";
+import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
@@ -64,7 +65,9 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                     <path d="M9 9l3 3" strokeLinecap="round" />
                 </svg>
                 <span className="flex-1 text-left text-[13px]">Search agents, sessions, commands…</span>
-                <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">⌘P</span>
+                <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
+                    {formatChordString("Ctrl:p")}
+                </span>
             </button>
 
             <button

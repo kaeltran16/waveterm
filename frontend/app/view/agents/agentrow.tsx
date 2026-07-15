@@ -5,7 +5,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
-import { Scaling } from "lucide-react";
+import { Copy, GitCompare, Minimize2, PanelRight, Scaling, SquareTerminal, X } from "lucide-react";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -272,21 +272,34 @@ export function AgentRow({
     const muteAction = idle ? onDismiss : onBackground;
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
-            { label: "Open", click: onOpen },
-            { label: "Open terminal", click: onOpenTerminal },
+            { label: "Open", icon: <PanelRight size={15} />, click: onOpen },
+            { label: "Open terminal", icon: <SquareTerminal size={15} />, click: onOpenTerminal },
         ];
         if (diff) {
-            items.push({ label: "Review changes", click: onOpenDiff });
+            items.push({ label: "Review changes", icon: <GitCompare size={15} />, click: onOpenDiff });
         }
         if (onToggleFullWidth) {
-            items.push({ label: fullWidth ? "Exit full width" : "Full width", click: onToggleFullWidth });
+            items.push({
+                label: fullWidth ? "Exit full width" : "Full width",
+                icon: <Scaling size={15} />,
+                click: onToggleFullWidth,
+            });
         }
         if (muteAction) {
-            items.push({ label: "Move to background", click: muteAction });
+            items.push({ label: "Move to background", icon: <Minimize2 size={15} />, click: muteAction });
         }
-        items.push({ label: "Copy name", click: () => void navigator.clipboard.writeText(agent.name) });
+        items.push({
+            label: "Copy name",
+            icon: <Copy size={15} />,
+            click: () => void navigator.clipboard.writeText(agent.name),
+        });
         items.push({ type: "separator" });
-        items.push({ label: "Close agent", danger: true, click: () => confirmCloseAgent(agent.id, agent.name) });
+        items.push({
+            label: "Close agent",
+            icon: <X size={15} />,
+            danger: true,
+            click: () => confirmCloseAgent(agent.id, agent.name),
+        });
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
