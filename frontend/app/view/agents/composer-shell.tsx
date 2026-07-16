@@ -7,8 +7,18 @@
 // custom `inputRegion` (chat's mention-highlight backdrop + textarea) plus an `overlay` (chat's mention
 // dropdown). Outer positioning/padding around the card belongs to the caller (bottom bar vs centered
 // panel vs inline steer), so it is intentionally not owned here.
+//
+// Attachment props (onPaste/onDrop/onDragOver/onDragLeave/isDragging/attachments) are opt-in: callers
+// that omit them render byte-for-byte as before. The Channels composer uses them for paste/attach/drop.
 
-import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import {
+    useLayoutEffect,
+    useRef,
+    type ClipboardEventHandler,
+    type DragEventHandler,
+    type KeyboardEvent,
+    type ReactNode,
+} from "react";
 
 export function ComposerShell({
     onSubmit,
@@ -23,6 +33,12 @@ export function ComposerShell({
     footerRight,
     sendLabel = "Send ⏎",
     sendDisabled,
+    onPaste,
+    onDrop,
+    onDragOver,
+    onDragLeave,
+    isDragging,
+    attachments,
 }: {
     onSubmit: () => void;
     value?: string;
@@ -36,6 +52,12 @@ export function ComposerShell({
     footerRight?: ReactNode;
     sendLabel?: string;
     sendDisabled?: boolean;
+    onPaste?: ClipboardEventHandler;
+    onDrop?: DragEventHandler;
+    onDragOver?: DragEventHandler;
+    onDragLeave?: DragEventHandler;
+    isDragging?: boolean;
+    attachments?: ReactNode;
 }) {
     const taRef = useRef<HTMLTextAreaElement>(null);
     // grow the built-in textarea to fit its content (capped by max-h). Chat supplies its own inputRegion
@@ -56,7 +78,19 @@ export function ComposerShell({
     return (
         <div className="relative">
             {overlay}
-            <div className="rounded-lg border border-edge-mid bg-surface-raised px-[15px] py-3">
+            <div
+                className="relative rounded-lg border border-edge-mid bg-surface-raised px-[15px] py-3"
+                onPaste={onPaste}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+            >
+                {isDragging ? (
+                    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-accent bg-surface-raised/80">
+                        <span className="font-mono text-[12px] font-semibold text-accent-soft">Drop files to attach</span>
+                    </div>
+                ) : null}
+                {attachments}
                 <div className="relative">
                     {inputRegion ?? (
                         <textarea

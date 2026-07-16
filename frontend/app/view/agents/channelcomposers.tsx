@@ -8,7 +8,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { type AgentVM } from "./agentsviewmodel";
 import { activeMentionQuery } from "./channelderive";
+import { AttachButton, AttachmentTray } from "./attachmenttray";
 import { ComposerShell } from "./composer-shell";
+import { type UseComposerAttachments } from "./composerattachments";
 import { LAUNCH_COMMANDS, parseComposerCommand, runFooterFor, type LaunchMode } from "./composercommand";
 
 // Launch face: a plain goal input driven by typed @quick/@run/@ask commands (a bare goal defaults to
@@ -21,6 +23,7 @@ export function LaunchComposer({
     profile,
     channelName,
     pending,
+    attach,
 }: {
     value: string;
     onChange: (next: string) => void;
@@ -28,6 +31,7 @@ export function LaunchComposer({
     profile: JarvisProfile | undefined;
     channelName: string;
     pending: boolean;
+    attach: UseComposerAttachments;
 }) {
     const taRef = useRef<HTMLTextAreaElement>(null);
     const pendingCaret = useRef<number | null>(null);
@@ -105,7 +109,13 @@ export function LaunchComposer({
         <ComposerShell
             onSubmit={onSubmit}
             sendLabel={sendLabel}
-            sendDisabled={!value.trim()}
+            sendDisabled={(!value.trim() && attach.readyCount === 0) || attach.uploading}
+            onPaste={attach.dnd.onPaste}
+            onDrop={attach.dnd.onDrop}
+            onDragOver={attach.dnd.onDragOver}
+            onDragLeave={attach.dnd.onDragLeave}
+            isDragging={attach.isDragging}
+            attachments={<AttachmentTray items={attach.attachments} onRemove={attach.remove} onRetry={attach.retry} />}
             overlay={
                 open ? (
                     <div className="absolute bottom-full left-0 mb-1.5 w-[300px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-lg">
@@ -149,7 +159,12 @@ export function LaunchComposer({
                     style={{ caretColor: "var(--color-primary)" }}
                 />
             }
-            footerLeft={<span className="font-mono text-[11px] text-ink-mid">{footer}</span>}
+            footerLeft={
+                <>
+                    <AttachButton onFiles={attach.add} />
+                    <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
+                </>
+            }
         />
     );
 }
@@ -164,6 +179,7 @@ export function TalkComposer({
     onChange,
     onSubmit,
     onNewRun,
+    attach,
 }: {
     worker: AgentVM;
     phaseLabel: string | undefined;
@@ -171,12 +187,19 @@ export function TalkComposer({
     onChange: (next: string) => void;
     onSubmit: () => void;
     onNewRun: () => void;
+    attach: UseComposerAttachments;
 }) {
     return (
         <ComposerShell
             onSubmit={onSubmit}
             sendLabel="Send ⏎"
-            sendDisabled={!value.trim()}
+            sendDisabled={(!value.trim() && attach.readyCount === 0) || attach.uploading}
+            onPaste={attach.dnd.onPaste}
+            onDrop={attach.dnd.onDrop}
+            onDragOver={attach.dnd.onDragOver}
+            onDragLeave={attach.dnd.onDragLeave}
+            isDragging={attach.isDragging}
+            attachments={<AttachmentTray items={attach.attachments} onRemove={attach.remove} onRetry={attach.retry} />}
             inputRegion={
                 <>
                     <div className="mb-2.5 flex items-center gap-2 border-b border-edge-mid pb-2.5">
@@ -212,7 +235,12 @@ export function TalkComposer({
                 </>
             }
             footerLeft={
-                <span className="font-mono text-[11px] text-ink-mid">→ injected as a follow-up turn to {worker.name}</span>
+                <>
+                    <AttachButton onFiles={attach.add} />
+                    <span className="font-mono text-[11px] text-ink-mid">
+                        → injected as a follow-up turn to {worker.name}
+                    </span>
+                </>
             }
         />
     );

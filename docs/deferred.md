@@ -3,6 +3,26 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Channel composer attachments — temp-file cleanup + remote-worker paths (2026-07-16)
+
+Shipped paste/attach/drag-drop attachments in the Channels composer (spec/plan
+`docs/superpowers/{specs,plans}/2026-07-16-channel-composer-attachments*.md`). Two edges deferred:
+
+1. **Temp-file cleanup.** Each attachment is persisted via `WriteTempFileCommand`, which `os.MkdirTemp`s a
+   fresh dir per file and never deletes it. v1 deliberately does not clean up (the worker may read the file
+   any time after send, and lifecycle tracking is out of scope). Over time these accumulate under the OS
+   temp dir. **To resume:** track written paths against the run/worker that consumed them and reap on
+   worker exit (or a periodic sweep of `waveterm-*` temp dirs older than N days).
+
+2. **Remote / WSL workers can't see local temp paths.** The temp file lands on the wavesrv (local) host;
+   an SSH/WSL worktree worker resolves the injected path against *its* filesystem and won't find it. v1 is
+   local-scope only (matches the "keep v1 local" principle used across Files/git). **To resume:** route the
+   write to `wsh` on the worker's host (same `WriteTempFileCommand`, remote route) and inject the
+   remote-side path.
+
+No cross-reload persistence of pending attachments, no image annotation, and no Tauri native file-dialog
+plugin were built (all out of scope per the spec's non-goals).
+
 ## Channel notes (merged surface) (2026-07-13)
 
 > **Spec + plan written 2026-07-14 — not yet built.** Both follow-ups below are now designed:

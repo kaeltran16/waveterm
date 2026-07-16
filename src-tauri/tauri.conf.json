@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Arc", "width": 1000, "height": 700, "decorations": false }
+      { "label": "main", "title": "Arc", "width": 1000, "height": 700, "decorations": false, "dragDropEnabled": false }
     ],
     "security": { "csp": null }
   },

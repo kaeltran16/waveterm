@@ -17,6 +17,7 @@ import { type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage, steerWorker } from "./channelactions";
 import { ChannelHeader, OverviewStrip, RunStrip } from "./channelchrome";
 import { LaunchComposer, TalkComposer } from "./channelcomposers";
+import { appendAttachments, useComposerAttachments } from "./composerattachments";
 import { ContextPanel } from "./channelcontextpanel";
 import { resolveTargetChannel } from "./channelderive";
 import { composerFace, parseComposerCommand } from "./composercommand";
@@ -57,6 +58,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
 
     const [draft, setDraft] = useState("");
+    const attach = useComposerAttachments();
     const [picking, setPicking] = useState(false);
     const [overviewOpen, setOverviewOpen] = useState(false);
     const { summary, runSummary, reset: resetSummary } = useFleetSummary();
@@ -78,7 +80,9 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         setDismissed(new Set());
         resetSummary();
         setDraft("");
+        attach.clear();
         setOverviewOpen(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeId]);
 
     // the channel's resolved Jarvis profile drives the composer's run footer + createRun defaults (the ⚙
@@ -174,34 +178,40 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         if (!active) {
             return;
         }
+        if (attach.uploading) {
+            return; // Enter bypasses the disabled Send button; block until every attachment resolves
+        }
         if (face.face === "talk") {
-            const text = draft.trim();
-            if (!text) {
+            const text = appendAttachments(draft.trim(), attach.attachments);
+            if (!text.trim()) {
                 return;
             }
             setDraft("");
+            attach.clear();
             fireAndForget(() => steerWorker({ channelId: active.oid, workerORef: `tab:${face.worker.id}`, agents, text }));
             return;
         }
         // Launch face
         if (pendingDraft) {
-            const goal = pendingDraft.goal.trim();
-            if (!goal) {
+            const goal = appendAttachments(pendingDraft.goal.trim(), attach.attachments);
+            if (!goal.trim()) {
                 return;
             }
             const radarOrigin = pendingDraft.radarOrigin;
             setPendingDraft(null);
+            attach.clear();
             fireAndForget(async () => {
                 const created = await launchRun(goal, { radarOrigin });
                 setActiveRunId(created.id);
             });
             return;
         }
-        const text = draft.trim();
-        if (!text) {
+        const text = appendAttachments(draft.trim(), attach.attachments);
+        if (!text.trim()) {
             return;
         }
         setDraft("");
+        attach.clear();
         const cmd = parseComposerCommand(text);
         if (cmd.mode === "run") {
             fireAndForget(async () => {
@@ -358,6 +368,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                                 onChange={setDraft}
                                                 onSubmit={send}
                                                 onNewRun={selectNewRun}
+                                                attach={attach}
                                             />
                                         ) : (
                                             <LaunchComposer
@@ -367,6 +378,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                                 profile={profile}
                                                 channelName={active.name ?? "channel"}
                                                 pending={!!pendingDraft}
+                                                attach={attach}
                                             />
                                         )}
                                     </div>
