@@ -57,6 +57,36 @@ func LoadGlobalProfile() waveobj.JarvisProfile {
 	return profile
 }
 
+// SaveGlobalProfile validates and atomically writes the global profile to jarvis-profile.json in the
+// config dir. It is the write counterpart to LoadGlobalProfile; the first save creates the file.
+func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
+	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
+		return fmt.Errorf("invalid principles: %w", err)
+	}
+	for i, phase := range profile.Playbook {
+		if strings.TrimSpace(phase.Kind) == "" {
+			return fmt.Errorf("playbook phase %d has a blank kind", i)
+		}
+	}
+	data, err := json.MarshalIndent(profile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling profile: %w", err)
+	}
+	dir := wavebase.GetWaveConfigDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	path := filepath.Join(dir, globalProfileFileName)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("writing profile: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("finalizing profile: %w", err)
+	}
+	return nil
+}
+
 func ValidateGlobalPrinciples(items waveobj.PrincipleList) error {
 	seen := make(map[string]struct{}, len(items))
 	for i, item := range items {

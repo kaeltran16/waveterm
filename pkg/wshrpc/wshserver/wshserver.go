@@ -2135,6 +2135,15 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 	return nil
 }
 
+func (ws *WshServer) GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error) {
+	profile := jarvis.LoadGlobalProfile()
+	return &profile, nil
+}
+
+func (ws *WshServer) SetGlobalProfileCommand(ctx context.Context, data wshrpc.CommandSetGlobalProfileData) error {
+	return jarvis.SaveGlobalProfile(data.Profile)
+}
+
 func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.CommandJarvisDecomposeData) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	if strings.TrimSpace(data.Goal) == "" {
 		return nil, fmt.Errorf("goal is required")

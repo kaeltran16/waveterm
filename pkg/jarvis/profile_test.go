@@ -230,3 +230,45 @@ func TestDefaultPrincipleWordingIsBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestSaveGlobalProfileRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	profile := BuiltinProfile()
+	profile.Principles = append(waveobj.PrincipleList(nil), profile.Principles...)
+	profile.Principles[0].Text = "Custom global principle."
+	profile.DefaultMode = "orchestrator"
+	if err := SaveGlobalProfile(profile); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got := LoadGlobalProfile()
+	if len(got.Principles) == 0 || got.Principles[0].Text != "Custom global principle." {
+		t.Fatalf("principle not persisted: %+v", got.Principles)
+	}
+	if got.DefaultMode != "orchestrator" {
+		t.Fatalf("defaultmode not persisted: %q", got.DefaultMode)
+	}
+}
+
+func TestSaveGlobalProfileRejectsBlankPrinciple(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	profile := BuiltinProfile()
+	profile.Principles = waveobj.PrincipleList{{ID: "p1", Text: "   "}}
+	if err := SaveGlobalProfile(profile); err == nil {
+		t.Fatal("expected validation error for blank text")
+	}
+	if _, err := os.Stat(filepath.Join(dir, globalProfileFileName)); !os.IsNotExist(err) {
+		t.Fatal("must not write the file on validation failure")
+	}
+}
+
+func TestSaveGlobalProfileRejectsBlankPhaseKind(t *testing.T) {
+	dir := t.TempDir()
+	withConfigHome(t, dir)
+	profile := BuiltinProfile()
+	profile.Playbook = []waveobj.RunPhase{{Kind: "   ", State: "pending"}}
+	if err := SaveGlobalProfile(profile); err == nil {
+		t.Fatal("expected validation error for blank phase kind")
+	}
+}

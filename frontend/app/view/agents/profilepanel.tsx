@@ -11,8 +11,8 @@ import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail
 import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useState } from "react";
-import { getJarvisProfile, setChannelProfile } from "./runactions";
-import { isDirty, principlePatchIsEmpty } from "./profilemodel";
+import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "./runactions";
+import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
 import { PrinciplesEditor } from "./principleseditor";
 
 export const profileRailOpenAtom: PrimitiveAtom<boolean> = atom(false);
@@ -113,6 +113,131 @@ function PhaseEditor({
                     />
                     FRESH-CTX
                 </label>
+            </div>
+        </div>
+    );
+}
+
+const gDangerBtn = "text-[10px] text-muted hover:text-error";
+const gEditBox =
+    "mt-1 w-full rounded border border-edge-mid bg-background p-2 text-[11.5px] leading-[1.5] text-primary placeholder:text-muted focus:outline-none";
+
+function GlobalPrinciplesEditor({
+    principles,
+    onChange,
+}: {
+    principles: Principle[];
+    onChange: (list: Principle[]) => void;
+}) {
+    const dispatch = (action: Parameters<typeof reduceGlobalPrinciples>[1]) =>
+        onChange(reduceGlobalPrinciples(principles, action));
+    return (
+        <div className="flex flex-col gap-2">
+            {principles.map((p) => (
+                <div key={p.id} className="rounded border border-edge-mid bg-surface p-2">
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => dispatch({ type: "move", id: p.id, dir: -1 })}
+                            className="px-1 text-[11px] text-muted hover:text-secondary"
+                        >
+                            ↑
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => dispatch({ type: "move", id: p.id, dir: 1 })}
+                            className="px-1 text-[11px] text-muted hover:text-secondary"
+                        >
+                            ↓
+                        </button>
+                        <div className="flex-1" />
+                        <button type="button" onClick={() => dispatch({ type: "delete", id: p.id })} className={gDangerBtn}>
+                            delete
+                        </button>
+                    </div>
+                    <textarea
+                        value={p.text}
+                        onChange={(e) => dispatch({ type: "update", id: p.id, text: e.target.value })}
+                        rows={2}
+                        placeholder="Global principle…"
+                        className={gEditBox}
+                    />
+                </div>
+            ))}
+            <button
+                type="button"
+                onClick={() => dispatch({ type: "add", principle: { id: `custom-${crypto.randomUUID()}`, text: "" } })}
+                className="rounded-[7px] border border-dashed border-edge-mid py-1 text-[11px] text-muted hover:text-secondary"
+            >
+                + add principle
+            </button>
+        </div>
+    );
+}
+
+function GlobalProfileEditor({
+    profile,
+    onChange,
+}: {
+    profile: JarvisProfile;
+    onChange: (next: JarvisProfile) => void;
+}) {
+    const phases = profile.playbook ?? [];
+    const setPhases = (next: RunPhase[]) => onChange({ ...profile, playbook: next });
+    const mode = profile.defaultmode ?? "pipeline";
+    const gate = profile.defaultplangate ?? true;
+    return (
+        <div className="flex flex-col gap-5">
+            <div>
+                <div className="mb-1.5 text-[12px] font-semibold text-primary">Playbook</div>
+                <div className="flex flex-col gap-2">
+                    {phases.map((p, i) => (
+                        <PhaseEditor
+                            key={i}
+                            phase={p}
+                            onChange={(np) => setPhases(phases.map((x, j) => (j === i ? np : x)))}
+                            onRemove={() => setPhases(phases.filter((_, j) => j !== i))}
+                            onMove={(dir) => setPhases(movePhase(phases, i, dir))}
+                        />
+                    ))}
+                    <button
+                        type="button"
+                        onClick={() => setPhases([...phases, { kind: "custom", state: "pending" }])}
+                        className="rounded-[7px] border border-dashed border-edge-mid py-1 text-[11px] text-muted hover:text-secondary"
+                    >
+                        + add phase
+                    </button>
+                </div>
+            </div>
+            <div>
+                <div className="mb-1.5 text-[12px] font-semibold text-primary">Principles</div>
+                <GlobalPrinciplesEditor
+                    principles={profile.principles ?? []}
+                    onChange={(list) => onChange({ ...profile, principles: list })}
+                />
+            </div>
+            <div>
+                <div className="mb-1.5 text-[12px] font-semibold text-primary">Run defaults</div>
+                <div className="flex items-center gap-2">
+                    <select
+                        value={mode}
+                        onChange={(e) => onChange({ ...profile, defaultmode: e.target.value })}
+                        className="rounded-sm border border-edge-mid bg-background px-1.5 py-1 text-[11px] text-primary"
+                    >
+                        <option value="pipeline">pipeline</option>
+                        <option value="orchestrator">orchestrator</option>
+                    </select>
+                    {mode === "orchestrator" ? (
+                        <label className="flex cursor-pointer items-center gap-1 text-[11px] text-secondary">
+                            <input
+                                type="checkbox"
+                                checked={gate}
+                                onChange={(e) => onChange({ ...profile, defaultplangate: e.target.checked })}
+                            />
+                            plan gate on by default
+                        </label>
+                    ) : null}
+                </div>
             </div>
         </div>
     );
@@ -280,9 +405,12 @@ function DefaultsSection({
 
 export function ProfilePanel({ channelId }: { channelId: string }) {
     const open = useAtomValue(profileRailOpenAtom);
+    const [scope, setScope] = useState<"project" | "global">("project");
     const [loaded, setLoaded] = useState<Loaded | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [draft, setDraft] = useState<ProfileOverride>({});
+    const [globalLoaded, setGlobalLoaded] = useState<JarvisProfile | null>(null);
+    const [globalDraft, setGlobalDraft] = useState<JarvisProfile | null>(null);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -293,11 +421,24 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
         // sticking on "Loading…" forever (e.g. the channel was deleted out from under the drawer).
         setLoaded(null);
         setError(null);
+        setGlobalLoaded(null);
+        setGlobalDraft(null);
         fireAndForget(async () => {
             try {
-                const p = await getJarvisProfile(channelId);
-                setLoaded({ global: p.global, override: p.override ?? {}, diagnostics: p.principlediagnostics ?? [] });
-                setDraft(p.override ?? {});
+                if (channelId) {
+                    const p = await getJarvisProfile(channelId);
+                    setLoaded({ global: p.global, override: p.override ?? {}, diagnostics: p.principlediagnostics ?? [] });
+                    setDraft(p.override ?? {});
+                    // p.global is LoadGlobalProfile()'s result — seed global scope without a second call.
+                    setGlobalLoaded(p.global);
+                    setGlobalDraft(p.global);
+                } else {
+                    // no active channel: project scope is unavailable, fall back to editing global directly.
+                    const g = await getGlobalProfile();
+                    setGlobalLoaded(g);
+                    setGlobalDraft(g);
+                    setScope("global");
+                }
             } catch (e) {
                 setError(String(e));
             }
@@ -305,48 +446,93 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
     }, [open, channelId]);
 
     const save = () => {
-        if (!loaded) {
-            return;
-        }
         setSaving(true);
         fireAndForget(async () => {
             try {
-                await setChannelProfile(channelId, draft);
-                setLoaded((l) => (l ? { ...l, override: overrideIsEmpty(draft) ? {} : draft } : l));
+                if (scope === "global") {
+                    if (!globalDraft) {
+                        return;
+                    }
+                    await setGlobalProfile(globalDraft);
+                    setGlobalLoaded(globalDraft);
+                } else {
+                    if (!loaded) {
+                        return;
+                    }
+                    await setChannelProfile(channelId, draft);
+                    setLoaded((l) => (l ? { ...l, override: overrideIsEmpty(draft) ? {} : draft } : l));
+                }
             } finally {
                 setSaving(false);
             }
         });
     };
 
-    const body = loaded ? (
-        <div className="flex flex-col gap-5">
-            <div className="text-[10px] font-semibold uppercase tracking-[.08em] text-muted">
-                Jarvis profile · merged (global + this project)
-            </div>
-            <PlaybookSection global={loaded.global} draft={draft} setDraft={setDraft} />
-            <PrinciplesSection
-                global={loaded.global}
-                draft={draft}
-                setDraft={setDraft}
-                diagnostics={loaded.diagnostics}
-            />
-            <DefaultsSection global={loaded.global} draft={draft} setDraft={setDraft} />
+    const dirty =
+        scope === "global"
+            ? !!globalLoaded && !!globalDraft && globalProfileIsDirty(globalDraft, globalLoaded)
+            : !!loaded && isDirty(draft, loaded.override);
+    const ready = scope === "global" ? globalLoaded != null && globalDraft != null : loaded != null;
+
+    const toggle = (
+        <div className="flex gap-1 rounded-[7px] border border-edge-mid p-0.5">
+            {(["global", "project"] as const).map((s) => (
+                <button
+                    key={s}
+                    type="button"
+                    disabled={s === "project" && !channelId}
+                    onClick={() => setScope(s)}
+                    className={
+                        "flex-1 rounded-[5px] px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-40 " +
+                        (scope === s ? "bg-accentbg/50 text-accent-soft" : "text-muted hover:text-secondary")
+                    }
+                >
+                    {s === "global" ? "Global defaults" : "This project"}
+                </button>
+            ))}
         </div>
-    ) : error ? (
-        <div className="text-[12px] leading-[1.5] text-error">Couldn't load the profile. {error}</div>
-    ) : (
-        <div className="text-[12px] text-muted">Loading…</div>
     );
 
-    const footer = loaded ? (
+    const body = (
+        <div className="flex flex-col gap-5">
+            {toggle}
+            {error ? (
+                <div className="text-[12px] leading-[1.5] text-error">Couldn't load the profile. {error}</div>
+            ) : !ready ? (
+                <div className="text-[12px] text-muted">Loading…</div>
+            ) : scope === "global" ? (
+                <>
+                    <div className="text-[10px] font-semibold uppercase tracking-[.08em] text-muted">
+                        Jarvis profile · global defaults (all projects)
+                    </div>
+                    <GlobalProfileEditor profile={globalDraft!} onChange={setGlobalDraft} />
+                </>
+            ) : (
+                <>
+                    <div className="text-[10px] font-semibold uppercase tracking-[.08em] text-muted">
+                        Jarvis profile · merged (global + this project)
+                    </div>
+                    <PlaybookSection global={loaded!.global} draft={draft} setDraft={setDraft} />
+                    <PrinciplesSection
+                        global={loaded!.global}
+                        draft={draft}
+                        setDraft={setDraft}
+                        diagnostics={loaded!.diagnostics}
+                    />
+                    <DefaultsSection global={loaded!.global} draft={draft} setDraft={setDraft} />
+                </>
+            )}
+        </div>
+    );
+
+    const footer = ready ? (
         <button
             type="button"
-            disabled={saving || !isDirty(draft, loaded.override)}
+            disabled={saving || !dirty}
             onClick={save}
             className="w-full rounded bg-accent py-2 text-[12px] font-semibold text-background hover:bg-accenthover disabled:opacity-40"
         >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : scope === "global" ? "Save global defaults" : "Save"}
         </button>
     ) : null;
 

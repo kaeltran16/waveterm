@@ -4,6 +4,7 @@ import {
     DIAGNOSTIC_MISSING_REPLACEMENT,
     isDirty,
     principleRows,
+    reduceGlobalPrinciples,
     reducePrinciplePatch,
     sectionSource,
 } from "./profilemodel";
@@ -111,5 +112,33 @@ describe("isDirty", () => {
             true
         );
         expect(isDirty({ playbook: [] }, {})).toBe(true);
+    });
+});
+
+describe("reduceGlobalPrinciples", () => {
+    const base: Principle[] = [
+        { id: "a", text: "A" },
+        { id: "b", text: "B" },
+    ];
+    it("add appends a caller-built principle", () => {
+        expect(reduceGlobalPrinciples(base, { type: "add", principle: { id: "c", text: "" } })).toEqual([
+            { id: "a", text: "A" },
+            { id: "b", text: "B" },
+            { id: "c", text: "" },
+        ]);
+    });
+    it("update changes text by id only", () => {
+        const out = reduceGlobalPrinciples(base, { type: "update", id: "a", text: "A2" });
+        expect(out[0].text).toBe("A2");
+        expect(out[1].text).toBe("B");
+    });
+    it("delete removes by id", () => {
+        expect(reduceGlobalPrinciples(base, { type: "delete", id: "a" })).toEqual([{ id: "b", text: "B" }]);
+    });
+    it("move swaps neighbors", () => {
+        expect(reduceGlobalPrinciples(base, { type: "move", id: "b", dir: -1 }).map((p) => p.id)).toEqual(["b", "a"]);
+    });
+    it("move out of bounds is a no-op", () => {
+        expect(reduceGlobalPrinciples(base, { type: "move", id: "a", dir: -1 })).toEqual(base);
     });
 });

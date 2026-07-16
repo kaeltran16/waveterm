@@ -1109,6 +1109,11 @@ declare global {
         mode?: string;
     };
 
+    // wshrpc.CommandSetGlobalProfileData
+    type CommandSetGlobalProfileData = {
+        profile: JarvisProfile;
+    };
+
     // wshrpc.CommandSetMetaData
     type CommandSetMetaData = {
         oref: ORef;

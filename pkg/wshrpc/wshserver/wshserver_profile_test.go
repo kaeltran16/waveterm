@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -174,5 +175,44 @@ func TestSetChannelProfileOmitsEmptyPatchAndDeletes(t *testing.T) {
 	}
 	if channelHasProfileMeta(t, ctx, ch.OID) {
 		t.Fatal("an all-empty patch should be omitted and the empty override should delete the key")
+	}
+}
+
+func withConfigHome(t *testing.T, dir string) {
+	t.Helper()
+	old := wavebase.ConfigHome_VarCache
+	t.Cleanup(func() { wavebase.ConfigHome_VarCache = old })
+	wavebase.ConfigHome_VarCache = dir
+}
+
+func TestGetGlobalProfileCommandReturnsBuiltinWhenUnset(t *testing.T) {
+	withConfigHome(t, t.TempDir())
+	got, err := (&WshServer{}).GetGlobalProfileCommand(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Principles) != len(jarvis.DefaultPrinciples) {
+		t.Fatalf("expected builtin principles, got %d", len(got.Principles))
+	}
+}
+
+func TestSetGlobalProfileCommandPersists(t *testing.T) {
+	withConfigHome(t, t.TempDir())
+	profile := jarvis.BuiltinProfile()
+	profile.Principles = append(waveobj.PrincipleList(nil), profile.Principles...)
+	profile.Principles[0].Text = "Edited global principle."
+	profile.DefaultMode = "orchestrator"
+	if err := (&WshServer{}).SetGlobalProfileCommand(context.Background(), wshrpc.CommandSetGlobalProfileData{Profile: profile}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (&WshServer{}).GetGlobalProfileCommand(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Principles[0].Text != "Edited global principle." {
+		t.Fatalf("edited principle not persisted: %q", got.Principles[0].Text)
+	}
+	if got.DefaultMode != "orchestrator" {
+		t.Fatalf("defaultmode not persisted: %q", got.DefaultMode)
 	}
 }

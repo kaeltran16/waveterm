@@ -137,6 +137,8 @@ type WshRpcInterface interface {
 	RetryRadarClusteringCommand(ctx context.Context, data CommandRetryRadarClusteringData) error                            // re-run synthesis from retained candidates
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                  // write a channel's per-project profile override (empty clears it)
+	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                           // read the global Jarvis profile (builtins if unset)
+	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                   // write the global Jarvis profile to jarvis-profile.json
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
@@ -840,6 +842,10 @@ type CommandGetJarvisProfileRtnData struct {
 type CommandSetChannelProfileData struct {
 	ChannelId string                   `json:"channelid"`
 	Override  *waveobj.ProfileOverride `json:"override"`
+}
+
+type CommandSetGlobalProfileData struct {
+	Profile waveobj.JarvisProfile `json:"profile"`
 }
 
 type CommandConsultData struct {

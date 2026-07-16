@@ -162,3 +162,37 @@ function normalizeOverride(o: ProfileOverride): ProfileOverride {
     }
     return out;
 }
+
+export type GlobalPrincipleAction =
+    | { type: "add"; principle: Principle }
+    | { type: "update"; id: string; text: string }
+    | { type: "delete"; id: string }
+    | { type: "move"; id: string; dir: -1 | 1 };
+
+// Global-scope principles are a plain flat list (no override/disable/inherit — those only make sense
+// against a global baseline). Pure; "add" appends a caller-built principle so the reducer stays deterministic.
+export function reduceGlobalPrinciples(list: Principle[], action: GlobalPrincipleAction): Principle[] {
+    switch (action.type) {
+        case "add":
+            return [...list, action.principle];
+        case "update":
+            return list.map((p) => (p.id === action.id ? { ...p, text: action.text } : p));
+        case "delete":
+            return list.filter((p) => p.id !== action.id);
+        case "move": {
+            const i = list.findIndex((p) => p.id === action.id);
+            const j = i + action.dir;
+            if (i < 0 || j < 0 || j >= list.length) {
+                return list;
+            }
+            const next = [...list];
+            [next[i], next[j]] = [next[j], next[i]];
+            return next;
+        }
+    }
+}
+
+// Structural dirty check for the whole global profile (plain data; key order is stable across edits).
+export function globalProfileIsDirty(a: JarvisProfile, b: JarvisProfile): boolean {
+    return JSON.stringify(a) !== JSON.stringify(b);
+}

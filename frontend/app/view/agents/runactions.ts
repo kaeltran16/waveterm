@@ -122,3 +122,11 @@ export async function getJarvisProfile(channelId: string): Promise<CommandGetJar
 export async function setChannelProfile(channelId: string, override: ProfileOverride): Promise<void> {
     await RpcApi.SetChannelProfileCommand(TabRpcClient, { channelid: channelId, override });
 }
+
+export async function getGlobalProfile(): Promise<JarvisProfile> {
+    return RpcApi.GetGlobalProfileCommand(TabRpcClient);
+}
+
+export async function setGlobalProfile(profile: JarvisProfile): Promise<void> {
+    await RpcApi.SetGlobalProfileCommand(TabRpcClient, { profile });
+}

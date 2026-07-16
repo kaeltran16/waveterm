@@ -476,6 +476,12 @@ func GetFullConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.Full
 	return resp, err
 }
 
+// command "getglobalprofile", wshserver.GetGlobalProfileCommand
+func GetGlobalProfileCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*waveobj.JarvisProfile, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.JarvisProfile](w, "getglobalprofile", nil, opts)
+	return resp, err
+}
+
 // command "getjarvisprofile", wshserver.GetJarvisProfileCommand
 func GetJarvisProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandGetJarvisProfileData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetJarvisProfileRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetJarvisProfileRtnData](w, "getjarvisprofile", data, opts)
@@ -1059,6 +1065,12 @@ func SetConfigCommand(w *wshutil.WshRpc, data wshrpc.MetaSettingsType, opts *wsh
 // command "setconnectionsconfig", wshserver.SetConnectionsConfigCommand
 func SetConnectionsConfigCommand(w *wshutil.WshRpc, data wshrpc.ConnConfigRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setconnectionsconfig", data, opts)
+	return err
+}
+
+// command "setglobalprofile", wshserver.SetGlobalProfileCommand
+func SetGlobalProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandSetGlobalProfileData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setglobalprofile", data, opts)
 	return err
 }
 

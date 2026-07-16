@@ -480,6 +480,12 @@ export class RpcApiType {
         return client.wshRpcCall("getfullconfig", null, opts);
     }
 
+    // command "getglobalprofile" [call]
+    GetGlobalProfileCommand(client: WshClient, opts?: RpcOpts): Promise<JarvisProfile> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getglobalprofile", null, opts);
+        return client.wshRpcCall("getglobalprofile", null, opts);
+    }
+
     // command "getjarvisprofile" [call]
     GetJarvisProfileCommand(client: WshClient, data: CommandGetJarvisProfileData, opts?: RpcOpts): Promise<CommandGetJarvisProfileRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getjarvisprofile", data, opts);
@@ -1066,6 +1072,12 @@ export class RpcApiType {
     SetConnectionsConfigCommand(client: WshClient, data: ConnConfigRequest, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setconnectionsconfig", data, opts);
         return client.wshRpcCall("setconnectionsconfig", data, opts);
+    }
+
+    // command "setglobalprofile" [call]
+    SetGlobalProfileCommand(client: WshClient, data: CommandSetGlobalProfileData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setglobalprofile", data, opts);
+        return client.wshRpcCall("setglobalprofile", data, opts);
     }
 
     // command "setmeta" [call]
