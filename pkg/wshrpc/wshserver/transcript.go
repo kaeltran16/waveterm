@@ -158,7 +158,10 @@ func streamTranscript(ctx context.Context, path string, tailLines int, ch chan w
 
 	tailer := &transcriptTailer{}
 	backlog, err := tailer.readNew(path)
-	if err != nil {
+	// a not-yet-existing file is expected: a freshly-spawned worker reports its transcript path before
+	// Claude creates the JSONL. Stay open with an empty backlog and let the dir watch pick up the file's
+	// Create event — don't abort, or the stream dies permanently until the panel remounts.
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading transcript: %w", err)
 	}
 	if len(backlog) > tailLines {
