@@ -40,7 +40,7 @@ func run(ctx context.Context, cwd string, args ...string) (string, error) {
 	return string(out), err
 }
 
-func GetChanges(ctx context.Context, cwd string) (*Changes, error) {
+func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
@@ -57,19 +57,98 @@ func GetChanges(ctx context.Context, cwd string) (*Changes, error) {
 	// `-- .` scopes to cwd's subtree; status has no --relative, so we strip the prefix ourselves below.
 	// `-uall` lists untracked files individually instead of collapsing a wholly-new directory into one
 	// "dir/" entry — that collapsed row can't be diffed (GetDiff would os.ReadFile a directory) and
-	// wedges the Files pane, so we expand it at the source.
+	// wedges the Files pane, so we expand it at the source. status drives untracked detection in both modes.
 	statusZ, err := run(ctx, cwd, "status", "--porcelain=v1", "-z", "-uall", "--", ".")
 	if err != nil {
 		return nil, err
 	}
 	statusZ = stripPrefixZ(statusZ, prefix)
-	// --relative scopes to cwd and prints cwd-relative paths, matching the stripped status above.
-	// `diff --numstat HEAD` errors on a repo with no commits yet; status is still meaningful.
-	numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", "HEAD")
-	// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
-	// Append synthetic numstat rows for untracked files so their added lines count in the totals.
-	numstat += untrackedNumstat(cwd, statusZ)
-	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true}, nil
+	if ref == "" {
+		// live mode (unchanged): working tree vs HEAD, plus synthetic rows for untracked files.
+		// --relative scopes to cwd and prints cwd-relative paths, matching the stripped status above.
+		// `diff --numstat HEAD` errors on a repo with no commits yet; status is still meaningful.
+		numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", "HEAD")
+		// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
+		// Append synthetic numstat rows for untracked files so their added lines count in the totals.
+		numstat += untrackedNumstat(cwd, statusZ)
+		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true}, nil
+	}
+	// ref mode: tracked changes come from the base diff (committed + uncommitted); untracked files
+	// are not in the base, so their ?? rows are carried over from status verbatim.
+	nameStatus, _ := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", ref)
+	trackedZ := nameStatusToStatusZ(nameStatus)
+	untrackedZ := untrackedEntriesZ(statusZ)
+	numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", ref)
+	numstat += untrackedNumstat(cwd, untrackedZ)
+	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true}, nil
+}
+
+// nameStatusToStatusZ converts `git diff --name-status -z` output into the porcelain -z entries
+// ("X  path\0") that parseStatusZ (TS) and parseNumstatStatus (Go) already consume. Rename/copy
+// (R/C) collapse to "M" on the new path, so no extra source-path field is emitted (the parsers only
+// consume a source field when the status letter is R/C).
+func nameStatusToStatusZ(nameStatus string) string {
+	toks := strings.Split(nameStatus, "\x00")
+	var b strings.Builder
+	for i := 0; i < len(toks); i++ {
+		st := toks[i]
+		if st == "" {
+			continue
+		}
+		letter := st[0]
+		var path string
+		if letter == 'R' || letter == 'C' {
+			if i+2 >= len(toks) { // Rxxx \0 old \0 new
+				break
+			}
+			path = toks[i+2]
+			i += 2
+			letter = 'M'
+		} else {
+			if i+1 >= len(toks) {
+				break
+			}
+			path = toks[i+1]
+			i++
+		}
+		if path != "" {
+			fmt.Fprintf(&b, "%c  %s\x00", letter, path)
+		}
+	}
+	return b.String()
+}
+
+// untrackedEntriesZ keeps only the "??" rows of a porcelain -z blob (each re-terminated with NUL).
+func untrackedEntriesZ(statusZ string) string {
+	var b strings.Builder
+	parts := strings.Split(statusZ, "\x00")
+	for i := 0; i < len(parts); i++ {
+		entry := parts[i]
+		if len(entry) < 3 {
+			continue
+		}
+		if entry[0] == 'R' || entry[0] == 'C' {
+			i++ // skip the rename/copy source path
+			continue
+		}
+		if entry[:2] == "??" {
+			b.WriteString(entry)
+			b.WriteByte(0)
+		}
+	}
+	return b.String()
+}
+
+// HeadCommit returns the trimmed SHA of HEAD in cwd. Errors when cwd is not a repo or has no commits
+// yet — callers treat that as "no baseline" and degrade gracefully.
+func HeadCommit(ctx context.Context, cwd string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := run(ctx, cwd, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // stripPrefixZ rewrites a `status --porcelain -z` blob so its paths are relative to prefix (cwd's
@@ -152,7 +231,7 @@ func untrackedAdds(full string) string {
 	return strconv.Itoa(lines)
 }
 
-func GetDiff(ctx context.Context, cwd, path string) (*Diff, error) {
+func GetDiff(ctx context.Context, cwd, path, ref string) (*Diff, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	st, _ := run(ctx, cwd, "status", "--porcelain=v1", "--", path)
@@ -163,7 +242,11 @@ func GetDiff(ctx context.Context, cwd, path string) (*Diff, error) {
 		}
 		return &Diff{Content: string(content), Untracked: true}, nil
 	}
-	diff, err := run(ctx, cwd, "diff", "HEAD", "--", path)
+	base := ref
+	if base == "" {
+		base = "HEAD"
+	}
+	diff, err := run(ctx, cwd, "diff", base, "--", path)
 	if err != nil {
 		return nil, err
 	}

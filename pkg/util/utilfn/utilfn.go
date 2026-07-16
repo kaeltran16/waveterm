@@ -560,6 +560,21 @@ func ShellHexEscape(s string) string {
 	return string(rtn)
 }
 
+var (
+	ansiCSI = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+	ansiOSC = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?")
+	ansiEsc = regexp.MustCompile(`\x1b[@-Z\\-_]`)
+)
+
+// StripANSI removes ANSI escape sequences (CSI/SGR color codes, OSC, and single-char escapes) from s,
+// turning colorized terminal output into plain text. It does not resolve carriage-return repaints.
+func StripANSI(s string) string {
+	s = ansiCSI.ReplaceAllString(s, "")
+	s = ansiOSC.ReplaceAllString(s, "")
+	s = ansiEsc.ReplaceAllString(s, "")
+	return s
+}
+
 func GetMapKeys[K comparable, V any](m map[K]V) []K {
 	var rtn []K
 	for key := range m {

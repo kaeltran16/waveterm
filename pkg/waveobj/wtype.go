@@ -241,6 +241,7 @@ type Run struct {
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
+	BaseCommit  string          `json:"basecommit,omitempty"` // HEAD of ProjectPath at run creation; anchors the evidence diff
 	Principles  PrincipleList   `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
 	Status      string          `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
 	Phases      []RunPhase      `json:"phases"`

@@ -1327,7 +1327,7 @@ func (ws *WshServer) GetSubagentsCommand(ctx context.Context, data wshrpc.Comman
 }
 
 func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandGitChangesData) (*wshrpc.CommandGitChangesRtnData, error) {
-	ch, err := gitinfo.GetChanges(ctx, data.Cwd)
+	ch, err := gitinfo.GetChanges(ctx, data.Cwd, data.Ref)
 	if err != nil {
 		return nil, fmt.Errorf("git changes: %w", err)
 	}
@@ -1335,7 +1335,7 @@ func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandG
 }
 
 func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitDiffData) (*wshrpc.CommandGitDiffRtnData, error) {
-	d, err := gitinfo.GetDiff(ctx, data.Cwd, data.Path)
+	d, err := gitinfo.GetDiff(ctx, data.Cwd, data.Path, data.Ref)
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w", err)
 	}
@@ -1853,6 +1853,11 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
 	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
+	// capture the repo baseline so the evidence diff survives the worker committing its changes;
+	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
+	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
+		run.BaseCommit = head
+	}
 	run.RadarOrigin = data.RadarOrigin // nil for normal runs; set only from a Radar handoff
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)

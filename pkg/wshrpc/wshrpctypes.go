@@ -632,6 +632,7 @@ type CommandGetSubagentsRtnData struct {
 
 type CommandGitChangesData struct {
 	Cwd string `json:"cwd"`
+	Ref string `json:"ref,omitempty"`
 }
 
 type CommandGitChangesRtnData struct {
@@ -644,6 +645,7 @@ type CommandGitChangesRtnData struct {
 type CommandGitDiffData struct {
 	Cwd  string `json:"cwd"`
 	Path string `json:"path"`
+	Ref  string `json:"ref,omitempty"`
 }
 
 type CommandGitDiffRtnData struct {

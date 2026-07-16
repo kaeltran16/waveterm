@@ -21,7 +21,8 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { statusColor, type GitChange } from "./gitstatus";
-import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, selectFile } from "./filesstore";
+import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, loadFilesForRun, selectFile } from "./filesstore";
+import { runShortId } from "./runcompletion";
 import { projectsAtom } from "./projectsstore";
 import { ReviewSurface } from "./reviewsurface";
 import { decisionsAtom, fileDecision, hunkKey, loadReview, progressOf, reviewModelAtom, reviewSelectedAtom } from "./reviewstore";
@@ -288,7 +289,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // A picked project overrides agent-focus scoping; null means "follow the focused agent".
     const [projectSel, setProjectSel] = useState<FilesProject | null>(null);
-    const [mode, setMode] = useState<"browse" | "review">("browse");
+    const [modeState, setMode] = useState<"browse" | "review">("browse");
+    const runSource = useAtomValue(model.filesRunAtom);
+    const mode = runSource ? "browse" : modeState; // run view is read-only: no Review/revert
     const agent = agents.find((a) => a.id === focusId);
     const source: FilesSource | null = projectSel
         ? { kind: "project", name: projectSel.name }
@@ -315,12 +318,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     }, [projectSel, focusId, agents]);
 
     useEffect(() => {
-        if (projectSel) {
+        if (runSource) {
+            fireAndForget(() => loadFilesForRun(runSource.runId, runSource.cwd, runSource.baseCommit));
+        } else if (projectSel) {
             fireAndForget(() => loadFilesForProject(projectSel.name, projectSel.path));
         } else if (focusId) {
             fireAndForget(() => loadFilesForAgent(focusId, agent?.transcriptPath, agent?.blockId));
         }
-    }, [projectSel?.name, projectSel?.path, focusId, agent?.transcriptPath, agent?.blockId]);
+    }, [runSource?.runId, runSource?.cwd, runSource?.baseCommit, projectSel?.name, projectSel?.path, focusId, agent?.transcriptPath, agent?.blockId]);
 
     useEffect(() => {
         if (mode === "review" && state?.cwd) {
@@ -369,23 +374,37 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 <div className="flex-none border-b border-edge-faint p-[15px]">
                     <div className="mb-[11px] flex items-center gap-[9px]">
                         <h1 className="text-[16px] font-bold">Diff</h1>
-                        <div className="ml-auto flex gap-[2px] rounded-[7px] border border-border p-[2px]">
-                            <button onClick={() => setMode("browse")}
-                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Browse</button>
-                            <button onClick={() => setMode("review")}
-                                className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "review" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Review</button>
-                        </div>
+                        {!runSource && (
+                            <div className="ml-auto flex gap-[2px] rounded-[7px] border border-border p-[2px]">
+                                <button onClick={() => setMode("browse")}
+                                    className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Browse</button>
+                                <button onClick={() => setMode("review")}
+                                    className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "review" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Review</button>
+                            </div>
+                        )}
                     </div>
-                    <SourcePicker
-                        agents={agents}
-                        projects={projects}
-                        source={source}
-                        onPickAgent={(id) => {
-                            setProjectSel(null);
-                            globalStore.set(model.focusIdAtom, id);
-                        }}
-                        onPickProject={(p) => setProjectSel(p)}
-                    />
+                    {runSource ? (
+                        <div className="flex items-center gap-[8px] rounded border border-border px-[10px] py-[7px]">
+                            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-mid">run {runShortId(runSource.runId)} · read-only</span>
+                            <button
+                                onClick={() => globalStore.set(model.filesRunAtom, null)}
+                                className="flex-none rounded border border-border px-[8px] py-[3px] text-[11px] text-ink-mid hover:text-foreground"
+                            >
+                                Exit
+                            </button>
+                        </div>
+                    ) : (
+                        <SourcePicker
+                            agents={agents}
+                            projects={projects}
+                            source={source}
+                            onPickAgent={(id) => {
+                                setProjectSel(null);
+                                globalStore.set(model.focusIdAtom, id);
+                            }}
+                            onPickProject={(p) => setProjectSel(p)}
+                        />
+                    )}
                     {state?.cwd && <div className="mt-[7px] truncate px-[2px] font-mono text-[11px] text-ink-faint">{dirLabel}</div>}
                     {state?.isRepo && (
                         <div className="mt-[10px] flex items-center gap-[13px] font-mono text-[11px] font-semibold">

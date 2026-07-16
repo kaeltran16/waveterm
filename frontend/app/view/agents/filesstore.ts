@@ -19,22 +19,23 @@ export interface FilesState {
     branch: string;
     isRepo: boolean;
     changes: GitChanges | null;
+    ref: string; // base commit to diff against; "" = live working-tree-vs-HEAD
 }
 
 export const filesStateAtom = atom<FilesState | null>(null) as PrimitiveAtom<FilesState | null>;
 export const filesSelectedPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 
-// guards against a stale load overwriting a newer one; token distinguishes agent- vs project-scoped
-// loads (`agent:<id>` / `project:<name>`) so switching source cancels the in-flight load.
+// guards against a stale load overwriting a newer one; token distinguishes agent-/project-/run-scoped
+// loads (`agent:<id>` / `project:<name>` / `run:<id>`) so switching source cancels the in-flight load.
 const current = { token: "" };
 const requestedSelection = { token: "", path: "" };
 
-const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null };
+const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
 
 // Core: fetch branch + changes for a resolved cwd and select the first file. The caller owns the
 // guard token (set before any await) so a newer load short-circuits this one's writes.
-async function loadChangesForCwd(token: string, cwd: string | null): Promise<void> {
+async function loadChangesForCwd(token: string, cwd: string | null, ref: string): Promise<void> {
     if (!cwd) {
         if (current.token === token) {
             globalStore.set(filesStateAtom, EMPTY);
@@ -42,12 +43,12 @@ async function loadChangesForCwd(token: string, cwd: string | null): Promise<voi
         return;
     }
     try {
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd });
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref });
         if (current.token !== token) {
             return;
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
-        globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes });
+        globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
         const requested =
             requestedSelection.token === token && changes?.files.some((f) => f.path === requestedSelection.path)
                 ? requestedSelection.path
@@ -71,7 +72,8 @@ async function loadChangesForCwd(token: string, cwd: string | null): Promise<voi
 // aren't short-circuited (used after a Review apply mutates the tree). No-op if nothing is loaded.
 export async function reloadChanges(cwd: string | null): Promise<void> {
     if (!current.token) return;
-    await loadChangesForCwd(current.token, cwd);
+    const ref = globalStore.get(filesStateAtom)?.ref ?? "";
+    await loadChangesForCwd(current.token, cwd, ref);
 }
 
 function beginLoad(token: string): void {
@@ -92,14 +94,21 @@ export async function loadFilesForAgent(
     if (current.token !== token) {
         return;
     }
-    await loadChangesForCwd(token, cwd);
+    await loadChangesForCwd(token, cwd, "");
 }
 
 // Project-scoped load: the registry path IS the cwd, so no transcript resolution is needed.
 export async function loadFilesForProject(name: string, path: string): Promise<void> {
     const token = `project:${name}`;
     beginLoad(token);
-    await loadChangesForCwd(token, path || null);
+    await loadChangesForCwd(token, path || null, "");
+}
+
+// Run-scoped load: base-anchored, read-only. baseCommit "" degrades to the live HEAD diff.
+export async function loadFilesForRun(runId: string, cwd: string, baseCommit: string): Promise<void> {
+    const token = `run:${runId}`;
+    beginLoad(token);
+    await loadChangesForCwd(token, cwd || null, baseCommit);
 }
 
 export function requestAgentFileSelection(id: string, path: string): void {
@@ -110,8 +119,9 @@ export function requestAgentFileSelection(id: string, path: string): void {
 export async function selectFile(cwd: string, path: string): Promise<void> {
     globalStore.set(filesSelectedPathAtom, path);
     globalStore.set(filesDiffAtom, null);
+    const ref = globalStore.get(filesStateAtom)?.ref ?? "";
     try {
-        const d = await RpcApi.GitDiffCommand(TabRpcClient, { cwd, path });
+        const d = await RpcApi.GitDiffCommand(TabRpcClient, { cwd, path, ref });
         if (globalStore.get(filesSelectedPathAtom) !== path) {
             return; // selection moved on
         }

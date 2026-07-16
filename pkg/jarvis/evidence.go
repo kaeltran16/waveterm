@@ -18,6 +18,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -143,7 +144,8 @@ func verificationCommands(lines []string) []waveobj.EvidenceVerif {
 				if !ok {
 					continue
 				}
-				detail := firstLine(txt)
+				// tool output is captured with a TTY attached, so it carries ANSI color codes
+				detail := firstLine(utilfn.StripANSI(txt))
 				if i, seen := idx[cmd]; seen {
 					out[i] = waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail}
 				} else {
@@ -265,7 +267,7 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	// git-derived: files touched
 	var files []waveobj.EvidenceFile
 	var addTotal, delTotal int
-	if ch, err := gitinfo.GetChanges(ctx, run.ProjectPath); err == nil && ch.IsRepo {
+	if ch, err := gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit); err == nil && ch.IsRepo {
 		files = parseNumstatStatus(ch.Numstat, ch.StatusZ)
 		for i := range files {
 			if worker != "" {

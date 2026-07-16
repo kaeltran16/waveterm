@@ -37,9 +37,24 @@ func repoWithChange(t *testing.T) string {
 	return dir
 }
 
+func TestHeadCommit(t *testing.T) {
+	dir := repoWithChange(t) // has one commit ("init") + uncommitted edits
+	sha, err := HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.TrimSpace(sha)) != 40 {
+		t.Fatalf("HeadCommit = %q, want a 40-char sha", sha)
+	}
+	// not a repo -> error, empty
+	if _, err := HeadCommit(context.Background(), t.TempDir()); err == nil {
+		t.Fatal("expected error for a non-repo dir")
+	}
+}
+
 func TestGetChanges(t *testing.T) {
 	dir := repoWithChange(t)
-	ch, err := GetChanges(context.Background(), dir)
+	ch, err := GetChanges(context.Background(), dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +73,72 @@ func TestGetChanges(t *testing.T) {
 	// b.txt is untracked with one line ("new\n") — its added line must be counted in numstat
 	if !strings.Contains(ch.Numstat, "1\t0\tb.txt") {
 		t.Fatalf("untracked b.txt not counted in numstat: %q", ch.Numstat)
+	}
+}
+
+// repoCommittedOnBase makes a repo with an initial commit, records that SHA as the base, then commits
+// a modification and a new file on top. Returns (dir, baseSHA). No uncommitted changes remain.
+func repoCommittedOnBase(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+	base, err := HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "c.txt"), []byte("added\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "work")
+	return dir, base
+}
+
+func TestGetChangesRefIncludesCommitted(t *testing.T) {
+	dir, base := repoCommittedOnBase(t)
+	// HEAD-mode sees nothing (work is committed) — this is the bug we are fixing.
+	head, err := GetChanges(context.Background(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(head.Numstat, "a.txt") {
+		t.Fatalf("HEAD-mode unexpectedly shows committed change: %q", head.Numstat)
+	}
+	// ref-mode against the base sees the committed modification (a.txt) and the added file (c.txt).
+	ch, err := GetChanges(context.Background(), dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("expected IsRepo true")
+	}
+	if !strings.Contains(ch.StatusZ, "a.txt") || !strings.Contains(ch.StatusZ, "c.txt") {
+		t.Fatalf("ref statusz missing committed files: %q", ch.StatusZ)
+	}
+	if !strings.Contains(ch.Numstat, "1\t0\ta.txt") {
+		t.Fatalf("ref numstat missing a.txt +1: %q", ch.Numstat)
+	}
+}
+
+func TestGetDiffRefShowsCommittedPatch(t *testing.T) {
+	dir, base := repoCommittedOnBase(t)
+	d, err := GetDiff(context.Background(), dir, "a.txt", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Untracked {
+		t.Fatal("a.txt is tracked; Untracked should be false")
+	}
+	if !strings.Contains(d.Diff, "+three") {
+		t.Fatalf("ref diff missing the added line: %q", d.Diff)
 	}
 }
 
@@ -101,7 +182,7 @@ func TestGetChangesExpandsUntrackedDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "newdir", "b.txt"), []byte("bb\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := GetChanges(context.Background(), dir)
+	ch, err := GetChanges(context.Background(), dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +196,7 @@ func TestGetChangesExpandsUntrackedDir(t *testing.T) {
 		}
 	}
 	// each expanded path diffs as untracked content (the bug: a "newdir/" row errored here)
-	d, err := GetDiff(context.Background(), dir, "newdir/a.txt")
+	d, err := GetDiff(context.Background(), dir, "newdir/a.txt", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +206,7 @@ func TestGetChangesExpandsUntrackedDir(t *testing.T) {
 }
 
 func TestGetChangesNotARepo(t *testing.T) {
-	ch, err := GetChanges(context.Background(), t.TempDir())
+	ch, err := GetChanges(context.Background(), t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +217,7 @@ func TestGetChangesNotARepo(t *testing.T) {
 
 func TestGetDiffTracked(t *testing.T) {
 	dir := repoWithChange(t)
-	d, err := GetDiff(context.Background(), dir, "a.txt")
+	d, err := GetDiff(context.Background(), dir, "a.txt", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +231,7 @@ func TestGetDiffTracked(t *testing.T) {
 
 func TestGetDiffUntracked(t *testing.T) {
 	dir := repoWithChange(t)
-	d, err := GetDiff(context.Background(), dir, "b.txt")
+	d, err := GetDiff(context.Background(), dir, "b.txt", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +280,7 @@ func subdirRepoWithChange(t *testing.T) string {
 func TestGetChangesSubdir(t *testing.T) {
 	root := subdirRepoWithChange(t)
 	cwd := filepath.Join(root, "services", "foo")
-	ch, err := GetChanges(context.Background(), cwd)
+	ch, err := GetChanges(context.Background(), cwd, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,11 +324,11 @@ func changePathFor(t *testing.T, statusZ, suffix string) string {
 func TestGetDiffTrackedSubdir(t *testing.T) {
 	root := subdirRepoWithChange(t)
 	cwd := filepath.Join(root, "services", "foo")
-	ch, err := GetChanges(context.Background(), cwd)
+	ch, err := GetChanges(context.Background(), cwd, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "app.js"))
+	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "app.js"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,11 +343,11 @@ func TestGetDiffTrackedSubdir(t *testing.T) {
 func TestGetDiffUntrackedSubdir(t *testing.T) {
 	root := subdirRepoWithChange(t)
 	cwd := filepath.Join(root, "services", "foo")
-	ch, err := GetChanges(context.Background(), cwd)
+	ch, err := GetChanges(context.Background(), cwd, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "new.js"))
+	d, err := GetDiff(context.Background(), cwd, changePathFor(t, ch.StatusZ, "new.js"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +362,7 @@ func TestGetDiffUntrackedSubdir(t *testing.T) {
 func TestRevertFileSubdir(t *testing.T) {
 	root := subdirRepoWithChange(t)
 	cwd := filepath.Join(root, "services", "foo")
-	ch, err := GetChanges(context.Background(), cwd)
+	ch, err := GetChanges(context.Background(), cwd, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +381,7 @@ func TestRevertFileSubdir(t *testing.T) {
 func TestRevertHunkSubdir(t *testing.T) {
 	root := subdirRepoWithChange(t)
 	cwd := filepath.Join(root, "services", "foo")
-	d, err := GetDiff(context.Background(), cwd, "app.js")
+	d, err := GetDiff(context.Background(), cwd, "app.js", "")
 	if err != nil {
 		t.Fatal(err)
 	}

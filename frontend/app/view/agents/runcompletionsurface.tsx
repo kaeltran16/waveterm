@@ -6,7 +6,9 @@
 // terminal phase-rail view. Read-only — the run stays done; file/artifact clicks open in the OS editor.
 
 import { getApi } from "@/app/store/global";
+import { globalStore } from "@/app/store/jotaiStore";
 import { type ReactNode } from "react";
+import type { AgentsViewModel } from "./agents";
 import {
     artifactKindClass,
     fmtBytes,
@@ -51,7 +53,7 @@ function Section({ label, right, children }: { label: string; right?: ReactNode;
     );
 }
 
-export function RunCompletion({ channel, run }: { channel: Channel; run: Run }) {
+export function RunCompletion({ channel, run, model }: { channel: Channel; run: Run; model: AgentsViewModel }) {
     const ev = run.evidence;
     if (!ev) {
         return null;
@@ -204,7 +206,10 @@ export function RunCompletion({ channel, run }: { channel: Channel; run: Run }) 
                         {/* diff action */}
                         <div className="flex items-center gap-3 px-[18px] py-3.5">
                             <button
-                                onClick={() => getApi().openExternal(run.projectpath)}
+                                onClick={() => {
+                                    globalStore.set(model.filesRunAtom, { runId: run.id, cwd: run.projectpath, baseCommit: run.basecommit ?? "" });
+                                    globalStore.set(model.surfaceAtom, "files");
+                                }}
                                 className="flex items-center gap-2.5 rounded-[9px] bg-accent px-4 py-2.5 text-[12.5px] font-bold text-background hover:bg-accent/90"
                             >
                                 <span className="text-[12px]">⑂</span>Open repository diff

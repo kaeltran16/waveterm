@@ -669,6 +669,7 @@ declare global {
     // wshrpc.CommandGitChangesData
     type CommandGitChangesData = {
         cwd: string;
+        ref?: string;
     };
 
     // wshrpc.CommandGitChangesRtnData
@@ -683,6 +684,7 @@ declare global {
     type CommandGitDiffData = {
         cwd: string;
         path: string;
+        ref?: string;
     };
 
     // wshrpc.CommandGitDiffRtnData
@@ -2062,6 +2064,7 @@ declare global {
         mode?: string;
         workspaceid: string;
         projectpath: string;
+        basecommit?: string;
         principles?: Principle[];
         status: string;
         phases: RunPhase[];

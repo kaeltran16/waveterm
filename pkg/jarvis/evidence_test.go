@@ -5,8 +5,14 @@ package jarvis
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -88,6 +94,69 @@ func TestVerificationCommandsDedupesAndClassifies(t *testing.T) {
 	}
 	if v[0].Result != "pass" || v[1].Result != "fail" {
 		t.Errorf("results = %q,%q", v[0].Result, v[1].Result)
+	}
+}
+
+func TestVerificationDetailStripsANSI(t *testing.T) {
+	// vitest/tsc emit colorized output when a TTY is attached; the detail must be plain text.
+	// json.Marshal encodes the ESC bytes as a captured transcript stores them (escaped), so the
+	// fixture stays valid JSON while carrying real escapes for StripANSI to remove.
+	ansi, _ := json.Marshal("\x1b[1m\x1b[46m RUN \x1b[49m\x1b[22m \x1b[36mv3.2.4\x1b[39m checkout\nmore")
+	lines := []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b1","input":{"command":"npx vitest run"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b1","is_error":false,"content":` + string(ansi) + `}]}}`,
+	}
+	v := verificationCommands(lines)
+	if len(v) != 1 {
+		t.Fatalf("got %d verifs, want 1", len(v))
+	}
+	if strings.ContainsRune(v[0].Detail, '\x1b') {
+		t.Errorf("detail still carries ANSI escapes: %q", v[0].Detail)
+	}
+	if !strings.Contains(v[0].Detail, "RUN") || !strings.Contains(v[0].Detail, "v3.2.4") {
+		t.Errorf("detail lost its content after stripping: %q", v[0].Detail)
+	}
+}
+
+func gitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestSealEvidenceBaseAnchored(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "init")
+	base, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the run's work: modify + commit on top of the base
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "commit", "-am", "work")
+
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: dir, BaseCommit: base, CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Evidence == nil || len(run.Evidence.Files) == 0 {
+		t.Fatalf("expected committed files in evidence, got %+v", run.Evidence)
+	}
+	if run.Evidence.AddTotal == 0 {
+		t.Fatalf("expected AddTotal > 0, got %d", run.Evidence.AddTotal)
 	}
 }
 

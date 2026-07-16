@@ -824,7 +824,7 @@ export function RunBody({ model, channel, agents, run }: {
 
     const noop = () => {};
     if (run.status === "done" && run.evidence) {
-        return <RunCompletion channel={channel} run={run} />;
+        return <RunCompletion channel={channel} run={run} model={model} />;
     }
     if (isOrchestrator(run)) {
         return (
