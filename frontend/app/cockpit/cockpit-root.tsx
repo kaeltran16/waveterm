@@ -4,7 +4,7 @@ import { ContextMenuHost } from "@/app/element/contextmenuhost";
 import { ModalsRenderer } from "@/app/modals/modalsrenderer";
 import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
-import { buildGlobalBindings } from "@/app/store/keybindings/bindings";
+import { buildGlobalBindings, buildListNavBindings } from "@/app/store/keybindings/bindings";
 import { initKeybindingDispatcher } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { getTabModelByTabId } from "@/app/store/tab-model";
@@ -78,6 +78,8 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     }, []);
     const globalBindings = useMemo(() => buildGlobalBindings(model), [model]);
     useKeybindings(globalBindings);
+    const listNavBindings = useMemo(() => buildListNavBindings(), []);
+    useKeybindings(listNavBindings);
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <CockpitAppBar model={model} />

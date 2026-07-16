@@ -1,9 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { cn } from "@/util/util";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
     DEFAULT_OPEN_GROUPS,
     findingSignalCount,
@@ -40,7 +41,7 @@ export function RadarFindingsList({
     selectedId: string | undefined;
     onSelect: (id: string) => void;
 }) {
-    const grouped = groupFindings(findings);
+    const grouped = useMemo(() => groupFindings(findings), [findings]);
     const [open, setOpen] = useState<Set<RadarGroup>>(() => new Set(DEFAULT_OPEN_GROUPS));
     const toggle = (g: RadarGroup) =>
         setOpen((prev) => {
@@ -48,6 +49,17 @@ export function RadarFindingsList({
             next.has(g) ? next.delete(g) : next.add(g);
             return next;
         });
+    // publish only the *rendered* order (open groups) for global j/k list-nav, so the cursor never lands
+    // on a row hidden inside a collapsed group. cursor==selection. (listnav.ts)
+    const navIds = useMemo(
+        () => GROUP_ORDER.filter((g) => open.has(g)).flatMap((g) => grouped[g].map((f) => f.id)),
+        [grouped, open]
+    );
+    const listNav = useMemo<ListNavController>(
+        () => ({ surface: "radar", navigableIds: navIds, cursorId: selectedId, setCursor: onSelect }),
+        [navIds, selectedId, onSelect]
+    );
+    useSurfaceListNav(listNav);
 
     return (
         <div className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-r border-border py-2">

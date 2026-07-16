@@ -122,8 +122,8 @@ The logic is Go this tier (inverse of Concierge's FE-heavy tests), so unit cover
 
 ## Deferred (noted, not built)
 
-- **Make-a-rule persistence (v1.1)** — store a per-channel rule when the human corrects/confirms a decision, then apply it deterministically. Adds a rules store + matching + management UI; wait until usage shows which asks recur.
-- **Propose + countdown/veto commit (v1.1)** — only if lived-in use shows the classifier is too aggressive; the toggle + escalation path is the v1 trust model.
+- **Make-a-rule persistence (v1.1)** — store a per-channel rule when the human corrects/confirms a decision, then apply it deterministically. Adds a rules store + matching + management UI; wait until usage shows which asks recur. **(Reviewed 2026-07-16 — declined; revive only on evidence that asks recur. The structured-principles profile-patch system would be its store. See `docs/deferred.md`.)**
+- **Propose + countdown/veto commit (v1.1)** — only if lived-in use shows the classifier is too aggressive; the toggle + escalation path is the v1 trust model. **(Reviewed 2026-07-16 — declined as net-negative vs the unattended thesis; a better fix for an over-aggressive classifier is tighter escalate criteria / an allow-deny list. See `docs/deferred.md`.)**
 - **Inline-answer buttons on the escalation row** — v1 points the human at the existing ask surface (Agent-tab ask-in-place / attention dot); clickable options on the escalation row need structured option rendering and is deferred.
 - **Bare-prose asks** — uncatchable (organic-ask non-goal; only explicit `AskUserQuestion` tool calls fire the hook).
 - **Multi-answer** — still single-select-gated in `encode.go`; Gatekeeper answers single-select only.

@@ -3,6 +3,19 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Arc Environment capability — declined (2026-07-16)
+
+The Arc Environment roadmap (an agent-aware local dev-environment manager: discover services from
+project manifests, launch/observe/diagnose them in dependency order, and let agents share the same
+infrastructure instead of spawning duplicates) was captured 2026-07-15 as `docs/environment-roadmap.md`
+and **decided against 2026-07-16, before any implementation**. Nothing was built — the roadmap was the
+only artifact (doc-only commit `4e80bf4f`), now removed to keep the roadmap set honest.
+
+**To revive:** `git show 4e80bf4f:docs/environment-roadmap.md` restores the full product + architecture
+design (thesis, data contracts, deterministic detection contract, the 6-phase delivery plan, and the
+Windows-local scope bound). Each phase defined its own exit evidence, so it can be picked back up as
+written if the need reappears.
+
 ## Channel composer attachments — temp-file cleanup + remote-worker paths (2026-07-16)
 
 Shipped paste/attach/drag-drop attachments in the Channels composer (spec/plan
@@ -223,10 +236,15 @@ time of the sweep, so nothing material is sitting uncommitted.
 
 **Still unbuilt:**
 
-- **Jarvis Gatekeeper v1.1 — make-a-rule + auto-answer countdown.** The Gatekeeper tier ships
-  (`6c05ac3f`), but the v1.1 "remember this decision as a rule" persistence and the pre-answer
-  countdown were never built — no `makeRule`/`countdown` symbols exist in `pkg/jarvis`. Plan:
-  `docs/superpowers/plans/2026-07-01-jarvis-gatekeeper.md`.
+- ~~**Jarvis Gatekeeper v1.1 — make-a-rule + auto-answer countdown.**~~ **DECLINED 2026-07-16 —
+  reviewed, not building.** The Gatekeeper tier ships (`6c05ac3f`); v1 was intended as the whole
+  trust model — the per-channel toggle is the gate, escalation is the safety valve. Both v1.1 items
+  were evidence-gated in the spec and no lived-in evidence justifies either: the countdown is
+  net-negative against the unattended thesis (it re-inserts the human into every routine answer), and
+  make-a-rule needs proof that asks actually recur. Revive **only** on concrete usage evidence —
+  recurring ask classes → make-a-rule (cheap now: the structured-principles profile-patch system is
+  its natural store); classifier misfiring → tighten escalate criteria / an allow-deny list, not a
+  countdown. Spec: `docs/superpowers/specs/2026-07-01-jarvis-gatekeeper-design.md`.
 - ~~**Agents tab auto-fit engine (fit-one-screen).**~~ **OBSOLETE 2026-07-02 — spec superseded by
   the shipped layout.** The demotion/backgrounding half + asks-spotlight shipped
   (`partitionBackgrounded`, `backgroundedsection.tsx`, the `b` key). The remaining density engine

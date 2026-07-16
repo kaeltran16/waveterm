@@ -94,6 +94,9 @@ export class AgentsViewModel implements ViewModel {
     newProjectOpenAtom = atom(false);
     newAgentOpenAtom = atom(false);
     paletteOpenAtom = atom(false);
+    // New Memory modal (rendered inline in the memory surface). Kept here — not local state — so the
+    // keybinding dispatcher can see it via deriveKeyContext.modalOpen and suppress surface/list nav.
+    memNewOpenAtom = atom(false);
 
     // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
     // both the app-bar switcher and the header button; card prefs are ephemeral (not persisted).

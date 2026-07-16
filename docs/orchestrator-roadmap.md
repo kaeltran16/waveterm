@@ -2,6 +2,12 @@
 
 > Forward-looking decision doc. Captured 2026-06-30 during the Channels-tab brainstorm. Not a build plan — the
 > sequencing and the substrate contract a future manager agent depends on. Revisit when starting orchestrator work.
+>
+> **Status (2026-07-16):** the full ladder shipped — the Channels substrate, one-shot consult, Concierge,
+> Gatekeeper, and Delegator v1 are all live. This doc is now largely historical; it records the sequencing
+> rationale, not remaining work. Gatekeeper **v1.1** (make-a-rule persistence + pre-answer countdown) was
+> reviewed 2026-07-16 and **declined** — the stateless classifier + per-channel toggle is the trust model;
+> see `docs/deferred.md`. Delegator **fanout (v1.1)** is the one open extension.
 
 ## Thesis
 
@@ -47,15 +53,18 @@ Each stage is additive on the *same* substrate — the progression is "widen the
 ## Build order / dependencies
 
 1. **Channels v1** (substrate) — manually-driven dispatch surface honoring the substrate contract above.
-   *Status: spec written 2026-06-30, not yet planned/built.*
+   *Shipped.*
 2. **One-shot consult** (fast-follow on Channels) — `@runtime` → blocking cross-CLI reply + fan-out. Our own native
    `claude -p` / `codex exec` provider (inspired by `1devtool-orchestrator`, not hard-coupled to its external shim).
    Also a future-manager tool (the Delegator's "review the combined diff" step).
 3. **Concierge** — first manager stage; read + post only. Build the deterministic fleet-query primitive first; keep the
    model for judgment (summarize / triage / recommend) and code for plumbing (who's waiting, fetch diff, jump).
-4. **Gatekeeper** — add auto-answer / escalate over the ask channel. Needs a "make-a-rule" / routine-vs-fork classifier
-   (model-judged, human-overridable).
-5. **Delegator** — add dispatch + steer; the manager spawns and supervises workers end-to-end.
+4. **Gatekeeper** — add auto-answer / escalate over the ask channel, via a model-judged routine-vs-fork
+   classifier. *Shipped (`6c05ac3f`).* The "make-a-rule" persistence once imagined here was reviewed
+   2026-07-16 and **declined** — the stateless classifier + per-channel toggle + escalation path is the
+   trust model (see `docs/deferred.md`); revive only on evidence that asks recur.
+5. **Delegator** — add dispatch + steer; the manager spawns and supervises workers end-to-end. *v1 shipped;
+   fanout (v1.1) is the open extension.*
 
 ## Design principles (carry forward)
 
