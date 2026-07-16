@@ -188,6 +188,60 @@ func TestStreamTranscript(t *testing.T) {
 	}
 }
 
+// A freshly-spawned worker reports its transcript path (SessionStart hook) before Claude has created
+// the JSONL file on disk. The stream must not die on the absent file — it must watch the dir and pick
+// up the file once it appears. Regression guard for the "run shows no transcript until you tab away
+// and back" bug (the tab switch remounted RunBody, which re-attempted the by-then-existing file).
+func TestStreamTranscriptFileCreatedLater(t *testing.T) {
+	dir := t.TempDir() // dir exists; the file does not yet
+	path := filepath.Join(dir, "later.jsonl")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 16)
+	done := make(chan struct{})
+	var streamErr error
+	go func() {
+		streamErr = streamTranscript(ctx, path, 100, ch)
+		close(done)
+	}()
+
+	// empty backlog for the not-yet-existing file — the stream must stay open, not error out
+	select {
+	case msg := <-ch:
+		if msg.Error != nil {
+			t.Fatalf("initial backlog errored on missing file: %v", msg.Error)
+		}
+		if len(msg.Response.Lines) != 0 {
+			t.Fatalf("want empty backlog, got %v", msg.Response.Lines)
+		}
+	case <-done:
+		t.Fatalf("streamTranscript returned before the file was created: %v", streamErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for empty backlog")
+	}
+
+	// the file appears after the stream started -> its lines must be delivered
+	writeFile(t, path, `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`+"\n")
+	select {
+	case msg := <-ch:
+		if msg.Error != nil || len(msg.Response.Lines) != 1 {
+			t.Fatalf("increment after create: %+v", msg)
+		}
+	case <-done:
+		t.Fatalf("streamTranscript returned before delivering created lines: %v", streamErr)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for created-file lines")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("streamTranscript did not return after cancel")
+	}
+}
+
 func TestListSubagents(t *testing.T) {
 	dir := t.TempDir()
 	parent := filepath.Join(dir, "sess.jsonl")
