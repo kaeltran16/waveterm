@@ -88,6 +88,13 @@ live subsystem or an ambiguous call that needs a deliberate decision, not mechan
 > the Channels surface (`channelssurface.tsx`) lands it as a reviewable Run draft (editable goal,
 > file chips, evidence count, "From Radar finding" badge) and `send()` calls `createRun` only on
 > explicit Start. Spec/plan `docs/superpowers/{specs,plans}/2026-07-11-radar-start-investigation-composer*.md`.
+>
+> **Outcome loop closed (2026-07-16).** The reverse direction (Run → Radar) is now wired too, so
+> `RunRadarOrigin` is no longer inert: a Run started from a finding writes a `RadarInvestigation` back onto it
+> by fingerprint (create → executing, done, cancel → cancelled via `reporadar.RecordInvestigation`), `reconcile`
+> carries it forward across scans, and the finding detail + list surface the outcome ("investigating" /
+> "investigated" / "still detected") with a "Dismiss (addressed by run)" affordance — never auto-resolving.
+> Spec/plan `docs/superpowers/{specs,plans}/2026-07-16-radar-outcome-loop*.md`.
 
 Deferred while building the **Radar frontend surface** (spec `docs/superpowers/specs/2026-07-10-repo-radar-design.md`
 §"Start investigation handoff" + §"Frontend integration"). The Radar surface itself ships complete

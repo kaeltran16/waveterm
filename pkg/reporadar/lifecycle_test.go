@@ -77,3 +77,25 @@ func TestReconcileReopensDismissedOnNewerEvidence(t *testing.T) {
 		t.Fatalf("stale evidence must stay dismissed, got %+v", stale[0])
 	}
 }
+
+func TestReconcileCarriesInvestigationForward(t *testing.T) {
+	inv := &waveobj.RadarInvestigation{RunID: "r1", Status: "done", CompletedTs: 40, FilesTouched: 3}
+	prev := &waveobj.RadarReport{Findings: []waveobj.RadarFinding{
+		{Fingerprint: fp("src/coupons"), Group: GroupNew, RiskKind: RiskTestCoverageGap, Subsystem: "src/coupons", Investigation: inv},
+	}}
+	// still detected -> Recurring, but the investigation record rides along (the "still detected" signal)
+	out := reconcile("/repos/pay", []waveobj.RadarFinding{find("src/coupons")}, prev, map[string]int64{})
+	if len(out) != 1 || out[0].Group != GroupRecurring {
+		t.Fatalf("expected recurring, got %+v", out)
+	}
+	if out[0].Investigation == nil || out[0].Investigation.RunID != "r1" {
+		t.Fatalf("investigation must carry forward, got %+v", out[0].Investigation)
+	}
+}
+
+func TestReconcileDoesNotInventInvestigationForNewFinding(t *testing.T) {
+	out := reconcile("/repos/pay", []waveobj.RadarFinding{find("src/auth")}, nil, map[string]int64{})
+	if out[0].Investigation != nil {
+		t.Fatalf("a brand-new finding must have no investigation, got %+v", out[0].Investigation)
+	}
+}

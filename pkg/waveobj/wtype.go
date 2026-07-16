@@ -285,8 +285,9 @@ type EvidenceArtifact struct {
 	Size int64  `json:"size"`
 }
 
-// RunRadarOrigin links a Run back to the Radar finding it was started from. Carried for a future
-// finding-linked-outcome feature; v1 stores it but does not act on it.
+// RunRadarOrigin links a Run back to the Radar finding it was started from. The Run lifecycle acts on it:
+// create/done/cancel write a RadarInvestigation back onto the finding, keyed by Fingerprint (the durable key
+// across scan reconciliation) — see reporadar.RecordInvestigation.
 type RunRadarOrigin struct {
 	ReportID    string `json:"reportid"`
 	FindingID   string `json:"findingid"`
@@ -350,20 +351,40 @@ type RadarDisposition struct {
 }
 
 type RadarFinding struct {
-	ID            string            `json:"id"`
-	Fingerprint   string            `json:"fingerprint"`
-	Group         string            `json:"group"` // new|recurring|nolonger|dismissed|suppressed
-	RiskKind      string            `json:"riskkind"`
-	Subsystem     string            `json:"subsystem"`               // deterministic canonical subsystem
-	BoundaryLabel string            `json:"boundarylabel,omitempty"` // model advisory display label
-	Risk          string            `json:"risk"`
-	Why           string            `json:"why"`
-	Severity      string            `json:"severity"` // low|medium|high
-	Strength      string            `json:"strength"` // strong|moderate|limited
-	SignalIDs     []string          `json:"signalids"`
-	Files         []string          `json:"files"`
-	Mission       string            `json:"mission"`
-	Disposition   *RadarDisposition `json:"disposition,omitempty"`
+	ID            string              `json:"id"`
+	Fingerprint   string              `json:"fingerprint"`
+	Group         string              `json:"group"` // new|recurring|nolonger|dismissed|suppressed
+	RiskKind      string              `json:"riskkind"`
+	Subsystem     string              `json:"subsystem"`               // deterministic canonical subsystem
+	BoundaryLabel string              `json:"boundarylabel,omitempty"` // model advisory display label
+	Risk          string              `json:"risk"`
+	Why           string              `json:"why"`
+	Severity      string              `json:"severity"` // low|medium|high
+	Strength      string              `json:"strength"` // strong|moderate|limited
+	SignalIDs     []string            `json:"signalids"`
+	Files         []string            `json:"files"`
+	Mission       string              `json:"mission"`
+	Disposition   *RadarDisposition   `json:"disposition,omitempty"`
+	Investigation *RadarInvestigation `json:"investigation,omitempty"`
+}
+
+// RadarInvestigation is the latest Run outcome recorded against a finding (by fingerprint). It closes the
+// Radar -> Run -> outcome loop WITHOUT asserting the risk is fixed: it says "an investigation ran, here is
+// what it produced." Disposition (dismiss/keep) stays a human decision. Evidence essentials are denormalized
+// so the finding is self-contained across scan reconciliation and channel archive; RunID/ChannelID exist only
+// for an "Open run" deep-link.
+type RadarInvestigation struct {
+	RunID        string `json:"runid"`
+	ChannelID    string `json:"channelid"`
+	Status       string `json:"status"` // executing | done | cancelled | failed
+	StartedTs    int64  `json:"startedts"`
+	CompletedTs  int64  `json:"completedts,omitempty"`
+	Summary      string `json:"summary,omitempty"`
+	FilesTouched int    `json:"filestouched,omitempty"`
+	AddTotal     int    `json:"addtotal,omitempty"`
+	DelTotal     int    `json:"deltotal,omitempty"`
+	VerifsPass   int    `json:"verifspass,omitempty"`
+	VerifsFail   int    `json:"verifsfail,omitempty"`
 }
 
 type RadarReport struct {

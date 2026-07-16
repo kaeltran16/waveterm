@@ -15,6 +15,7 @@ import {
     GROUP_ORDER,
     groupFindings,
     hasCoverageFailure,
+    investigationBadge,
     isMutedGroup,
     referencedSignals,
     reportSignalCount,
@@ -261,5 +262,29 @@ describe("toPendingRunDraft", () => {
         expect(draft.evidenceRefs).toEqual(["s1"]);
         expect(draft.projectPath).toBe("/repo/demo");
         expect(draft.goal).toContain("add tests");
+    });
+});
+
+describe("investigationBadge", () => {
+    const f = (group: string, status?: string): RadarFinding =>
+        ({ id: "f", group, investigation: status ? { runid: "r", channelid: "c", status, startedts: 0 } : undefined }) as unknown as RadarFinding;
+
+    it("is null with no investigation", () => {
+        expect(investigationBadge(f("new"))).toBeNull();
+    });
+    it("is investigating while executing", () => {
+        expect(investigationBadge(f("new", "executing"))).toBe("investigating");
+    });
+    it("is still-detected when done but the finding still recurs", () => {
+        expect(investigationBadge(f("recurring", "done"))).toBe("still-detected");
+        expect(investigationBadge(f("new", "done"))).toBe("still-detected");
+    });
+    it("is investigated when done and the finding is no longer open", () => {
+        expect(investigationBadge(f("nolonger", "done"))).toBe("investigated");
+        expect(investigationBadge(f("dismissed", "done"))).toBe("investigated");
+    });
+    it("shows no list badge for a cancelled/failed investigation", () => {
+        expect(investigationBadge(f("new", "cancelled"))).toBeNull();
+        expect(investigationBadge(f("new", "failed"))).toBeNull();
     });
 });

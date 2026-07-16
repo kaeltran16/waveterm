@@ -39,6 +39,7 @@ func reconcile(projectPath string, current []waveobj.RadarFinding, prev *waveobj
 			out = append(out, f)
 			continue
 		}
+		f.Investigation = p.Investigation // carry the loop's outcome forward, like Disposition (independent of it)
 		switch p.Group {
 		case GroupSuppressed:
 			f.Group = GroupSuppressed

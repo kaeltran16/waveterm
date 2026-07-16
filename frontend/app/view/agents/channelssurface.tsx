@@ -39,7 +39,7 @@ import {
 } from "./channelsstore";
 import { projectsAtom } from "./projectsstore";
 import { profileRailOpenAtom, ProfilePanel } from "./profilepanel";
-import { createRun, getJarvisProfile, pendingRunDraftAtom } from "./runactions";
+import { createRun, getJarvisProfile, pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { currentPhaseIndex, defaultRunId, resolveActiveRunId } from "./runmodel";
 import { RunBody } from "./runbody";
 import { SurfaceEmptyState } from "./surfacescaffold";
@@ -56,6 +56,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const consultStreams = useAtomValue(consultStreamsAtom);
     const pendingDraft = useAtomValue(pendingRunDraftAtom);
     const setPendingDraft = useSetAtom(pendingRunDraftAtom);
+    const pendingFocus = useAtomValue(pendingRunFocusAtom);
+    const setPendingFocus = useSetAtom(pendingRunFocusAtom);
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
 
     const [draft, setDraft] = useState("");
@@ -124,6 +126,21 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
             setPicking(true); // no channel for this project yet — stays unlanded so it retries once one exists
         }
     }, [pendingDraft, channels]);
+
+    // land an "Open run" focus request: select the channel, then (once its runs are loaded) select the run.
+    useEffect(() => {
+        if (!pendingFocus) {
+            return;
+        }
+        if (activeId !== pendingFocus.channelId) {
+            fireAndForget(() => selectChannel(pendingFocus.channelId));
+            return; // re-runs when activeId flips to the target channel
+        }
+        if (runs.some((r) => r.id === pendingFocus.runId)) {
+            setActiveRunId(pendingFocus.runId);
+            setPendingFocus(null);
+        }
+    }, [pendingFocus, activeId, runs]);
 
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
 

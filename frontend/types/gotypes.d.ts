@@ -1928,6 +1928,22 @@ declare global {
         files: string[];
         mission: string;
         disposition?: RadarDisposition;
+        investigation?: RadarInvestigation;
+    };
+
+    // waveobj.RadarInvestigation
+    type RadarInvestigation = {
+        runid: string;
+        channelid: string;
+        status: string;
+        startedts: number;
+        completedts?: number;
+        summary?: string;
+        filestouched?: number;
+        addtotal?: number;
+        deltotal?: number;
+        verifspass?: number;
+        verifsfail?: number;
     };
 
     // waveobj.RadarReport

@@ -245,3 +245,22 @@ export function toPendingRunDraft(report: RadarReport, finding: RadarFinding): P
         projectPath: report.projectpath,
     };
 }
+
+export type InvestigationBadge = "investigating" | "investigated" | "still-detected" | null;
+
+// The loop badge for a finding: an active investigation, a completed one, or a completed one contradicted by
+// the finding still being detected (group still new/recurring — "the fix did not take"). cancelled/failed
+// carry no list badge (surfaced only in the detail pane). Pure — no jotai/RPC.
+export function investigationBadge(f: RadarFinding): InvestigationBadge {
+    const inv = f.investigation;
+    if (!inv) {
+        return null;
+    }
+    if (inv.status === "executing") {
+        return "investigating";
+    }
+    if (inv.status === "done") {
+        return f.group === "new" || f.group === "recurring" ? "still-detected" : "investigated";
+    }
+    return null;
+}

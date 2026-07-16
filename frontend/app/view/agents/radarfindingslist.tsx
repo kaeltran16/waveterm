@@ -10,6 +10,7 @@ import {
     groupFindings,
     groupMeta,
     GROUP_ORDER,
+    investigationBadge,
     isMutedGroup,
     strengthPips,
     type RadarGroup,
@@ -84,6 +85,7 @@ export function RadarFindingsList({
                                   const active = selectedId === f.id;
                                   const muted = isMutedGroup(f.group);
                                   const fmeta = groupMeta(f.group);
+                                  const badge = investigationBadge(f);
                                   return (
                                       <button
                                           key={f.id}
@@ -117,6 +119,23 @@ export function RadarFindingsList({
                                               </span>
                                               <span className="text-border">·</span>
                                               <span>{findingSignalCount(f)} signals</span>
+                                              {badge ? (
+                                                  <span
+                                                      className={cn(
+                                                          badge === "still-detected"
+                                                              ? TONE_TEXT.recurring
+                                                              : badge === "investigating"
+                                                                ? "text-accent-soft"
+                                                                : TONE_TEXT.nolonger
+                                                      )}
+                                                  >
+                                                      {badge === "still-detected"
+                                                          ? "still detected"
+                                                          : badge === "investigating"
+                                                            ? "investigating"
+                                                            : "investigated"}
+                                                  </span>
+                                              ) : null}
                                               <span className="flex-1" />
                                               <span className={TONE_TEXT[fmeta.tone]}>{fmeta.delta}</span>
                                           </div>

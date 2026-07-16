@@ -1831,6 +1831,12 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
+	if run.RadarOrigin != nil {
+		inv := reporadar.InvestigationFromRun(&run, data.ChannelId, "executing", run.CreatedTs)
+		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
+			log.Printf("CreateRun: recording radar investigation (executing) failed: %v", rerr)
+		}
+	}
 	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
 		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
@@ -1921,6 +1927,12 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 			}); uerr != nil {
 				log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", data.RunId, uerr)
 			}
+			if run.RadarOrigin != nil {
+				inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
+				if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
+					log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
+				}
+			}
 		}
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
@@ -1976,6 +1988,12 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	// stop the live workers the run spawned; state is already persisted, so this is best-effort.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil {
 		stopRunWorkers(ctx, run)
+		if run.RadarOrigin != nil {
+			inv := reporadar.InvestigationFromRun(run, data.ChannelId, "cancelled", time.Now().UnixMilli())
+			if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
+				log.Printf("CancelRun: recording radar investigation (cancelled) failed: %v", rerr)
+			}
+		}
 	} else {
 		log.Printf("CancelRun: reload for worker stop failed: %v", gerr)
 	}
@@ -2032,6 +2050,12 @@ func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.Com
 		return nil
 	}); uerr != nil {
 		return fmt.Errorf("persisting evidence: %w", uerr)
+	}
+	if run.RadarOrigin != nil {
+		inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
+		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
+			log.Printf("SealRunEvidence: recording radar investigation (done) failed: %v", rerr)
+		}
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil

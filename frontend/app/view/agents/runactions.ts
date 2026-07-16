@@ -18,6 +18,13 @@ import type { PendingRunDraft } from "./radarmodel";
 // (lost on reload, which is fine for a review step); cleared on explicit Start or Discard.
 export const pendingRunDraftAtom = atom<PendingRunDraft | null>(null) as PrimitiveAtom<PendingRunDraft | null>;
 
+// A one-shot request to focus a specific run (e.g. from Radar's "Open run"). The Channels surface consumes it
+// on landing: select the channel, then select the run once its strip is populated, then clear. Mirrors
+// pendingRunDraftAtom (the guard is clearing the atom, so it survives ChannelsSurface remount on navigation).
+export const pendingRunFocusAtom = atom<{ channelId: string; runId: string } | null>(
+    null
+) as PrimitiveAtom<{ channelId: string; runId: string } | null>;
+
 // Run ids whose Cancel RPC is in flight. CancelRunCommand is synchronous — it returns only after each
 // worker's graceful stop completes — so this real interval drives the transient "Cancelling…" button
 // label until the run flips to cancelled. Frontend-only (lost on reload, which lands on the already-
