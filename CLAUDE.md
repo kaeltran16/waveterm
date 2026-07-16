@@ -17,7 +17,7 @@ The build is orchestrated by [Task](https://taskfile.dev) (`Taskfile.yml`), a `m
 | Command | What it does |
 |---|---|
 | `task init` | First-time setup: `npm install` + `go mod tidy` + docs `npm install`. |
-| `task dev` (alias of `task tauri:dev`) | The main way to run. Builds backend + tsunami scaffold, then `cargo tauri dev` (Vite dev server on `:5174`, HMR). |
+| `task dev` (alias of `task tauri:dev`) | The main way to run. Builds backend, then `cargo tauri dev` (Vite dev server on `:5174`, HMR). |
 | `task build:backend` | Builds `wavesrv` + `wsh` into `dist/bin/`. |
 | `task generate` | Regenerates TS + Go bindings from Go source. **Run after changing any wshrpc / waveobj / wconfig type.** |
 | `task check:ts` | Typecheck the frontend (but see the tsc gotcha below). |
@@ -44,7 +44,7 @@ There is no jsdom/render-test harness for the cockpit — verify rendered UI by 
 
 ## Architecture
 
-Four layers. The first three are the running app; `tsunami` is a sub-framework.
+Three layers, all part of the running app.
 
 ### 1. Tauri shell — Rust (`src-tauri/`)
 Thin native host that replaces the Electron main process. `main.rs` mints a per-launch UUID auth key and **spawns `wavesrv` as a child process**, passing `WAVETERM_AUTH_KEY`, `WAVETERM_APP_PATH`, `WAVETERM_DATA_HOME`, `WAVETERM_CONFIG_HOME` via env. It then **parses the `WAVESRV-ESTART` line off wavesrv's stderr** (`estart.rs`) to discover the dynamically-assigned websocket/web ports. The frontend reaches native code through a small set of Tauri commands (`commands.rs`: `get_init`, `fe_log`, `set_window_init_status`, `set_is_active`, `open_external`, `increment_term_commands`). Window is borderless (`decorations: false`) — the titlebar is drawn in React.
@@ -77,9 +77,6 @@ Frontend structure:
 - **`frontend/app/cockpit/`** — the cockpit shell (`cockpit-root`, `focus-pane`, `titlebar`). A focused single-pane UI that replaces the old multi-tab/multi-block window.
 - **`frontend/app/view/`** — block view types (`term`, `preview`, `codeeditor`, `sysinfo`, `vdom`, …). **`view/agents/`** is the heavily-developed agent-cockpit tab (live transcript narration, ask-in-place, timeline collapse, list/focus keyboard triage). It surfaces external Claude Code agents driven by hooks/reporters that live **outside this repo** (under `~/.claude`); see `docs/agents/`.
 - `frontend/layout` (tiling layout engine, kept from upstream), `frontend/app/element` + `shadcn` (UI primitives).
-
-### 4. tsunami (`tsunami/`)
-A **separate Go module** (its own `go.mod`, wired in via a `replace` directive). A server-driven UI framework (VDOM streamed over the wire, Go backend + a React scaffold) for building Wave "widget apps." `task build:tsunamiscaffold` packages its scaffold into `dist/`; `pkg/waveapp` + `pkg/buildercontroller` host these apps inside Wave.
 
 ## Design docs
 Specs and plans live in `docs/superpowers/specs/` and `docs/superpowers/plans/` (the Tauri migration phases and agents-tab work are documented there). Agent-cockpit integration notes are in `docs/agents/`.

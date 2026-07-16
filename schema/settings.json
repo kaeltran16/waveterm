@@ -53,9 +53,6 @@
         "app:loombin": {
           "type": "string"
         },
-        "feature:waveappbuilder": {
-          "type": "boolean"
-        },
         "ai:*": {
           "type": "boolean"
         },
@@ -333,21 +330,6 @@
         },
         "debug:webglstatus": {
           "type": "boolean"
-        },
-        "tsunami:*": {
-          "type": "boolean"
-        },
-        "tsunami:scaffoldpath": {
-          "type": "string"
-        },
-        "tsunami:sdkreplacepath": {
-          "type": "string"
-        },
-        "tsunami:sdkversion": {
-          "type": "string"
-        },
-        "tsunami:gopath": {
-          "type": "string"
         }
       },
       "additionalProperties": false,

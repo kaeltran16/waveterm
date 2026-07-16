@@ -90,14 +90,14 @@ export function installTauriApi(init: InitData) {
 // Phase 5.
 function installStubs(api: Partial<ElectronApi>) {
     const voidStubs = [
-        "showWorkspaceAppMenu", "showBuilderAppMenu", "showContextMenu", "onContextMenuClick",
+        "showWorkspaceAppMenu", "showContextMenu", "onContextMenuClick",
         "downloadFile", "onUpdaterStatusChange",
         "installAppUpdate", "onMenuItemAbout", "updateWindowControlsOverlay", "onReinjectKey",
         "setWebviewFocus", "registerGlobalWebviewKeys",
         "createWorkspace", "switchWorkspace", "deleteWorkspace", "setActiveTab", "createTab",
-        "onBuilderInit", "onQuicklook", "openNativePath",
-        "setWaveAIOpen", "closeBuilderWindow", "nativePaste", "openBuilder",
-        "setBuilderWindowAppId", "doRefresh", "onNavigate", "onIframeNavigate",
+        "onQuicklook", "openNativePath",
+        "setWaveAIOpen", "nativePaste",
+        "doRefresh", "onNavigate", "onIframeNavigate",
     ];
     for (const name of voidStubs) {
         if ((api as any)[name]) continue;

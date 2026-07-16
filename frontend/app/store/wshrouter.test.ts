@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleWaveEvent } from "@/app/store/wps";
-import { makeBuilderRouteId, makeFeBlockRouteId, makeTabRouteId, WshRouter } from "./wshrouter";
+import { makeFeBlockRouteId, makeTabRouteId, WshRouter } from "./wshrouter";
 
 vi.mock("@/app/store/wps", () => ({ handleWaveEvent: vi.fn() }));
 
@@ -18,7 +18,6 @@ describe("wshrouter route-id helpers", () => {
     it("prefixes route ids by kind", () => {
         expect(makeFeBlockRouteId("b1")).toBe("feblock:b1");
         expect(makeTabRouteId("t1")).toBe("tab:t1");
-        expect(makeBuilderRouteId("x1")).toBe("builder:x1");
     });
 });
 

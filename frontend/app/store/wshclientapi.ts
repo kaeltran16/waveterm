@@ -126,12 +126,6 @@ export class RpcApiType {
         return client.wshRpcCall("captureblockscreenshot", data, opts);
     }
 
-    // command "checkgoversion" [call]
-    CheckGoVersionCommand(client: WshClient, opts?: RpcOpts): Promise<CommandCheckGoVersionRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "checkgoversion", null, opts);
-        return client.wshRpcCall("checkgoversion", null, opts);
-    }
-
     // command "connconnect" [call]
     ConnConnectCommand(client: WshClient, data: ConnRequest, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "connconnect", data, opts);
@@ -258,22 +252,10 @@ export class RpcApiType {
         return client.wshRpcCall("debugterm", data, opts);
     }
 
-    // command "deleteappfile" [call]
-    DeleteAppFileCommand(client: WshClient, data: CommandDeleteAppFileData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deleteappfile", data, opts);
-        return client.wshRpcCall("deleteappfile", data, opts);
-    }
-
     // command "deleteblock" [call]
     DeleteBlockCommand(client: WshClient, data: CommandDeleteBlockData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deleteblock", data, opts);
         return client.wshRpcCall("deleteblock", data, opts);
-    }
-
-    // command "deletebuilder" [call]
-    DeleteBuilderCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletebuilder", data, opts);
-        return client.wshRpcCall("deletebuilder", data, opts);
     }
 
     // command "deletechannel" [call]
@@ -448,18 +430,6 @@ export class RpcApiType {
     GetAllVarsCommand(client: WshClient, data: CommandVarData, opts?: RpcOpts): Promise<CommandVarResponseData[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getallvars", data, opts);
         return client.wshRpcCall("getallvars", data, opts);
-    }
-
-    // command "getbuilderoutput" [call]
-    GetBuilderOutputCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<string[]> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getbuilderoutput", data, opts);
-        return client.wshRpcCall("getbuilderoutput", data, opts);
-    }
-
-    // command "getbuilderstatus" [call]
-    GetBuilderStatusCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<BuilderStatusData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getbuilderstatus", data, opts);
-        return client.wshRpcCall("getbuilderstatus", data, opts);
     }
 
     // command "getcachestatus" [call]
@@ -708,24 +678,6 @@ export class RpcApiType {
         return client.wshRpcCall("jobstartstream", data, opts);
     }
 
-    // command "listallappfiles" [call]
-    ListAllAppFilesCommand(client: WshClient, data: CommandListAllAppFilesData, opts?: RpcOpts): Promise<CommandListAllAppFilesRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listallappfiles", data, opts);
-        return client.wshRpcCall("listallappfiles", data, opts);
-    }
-
-    // command "listallapps" [call]
-    ListAllAppsCommand(client: WshClient, opts?: RpcOpts): Promise<AppInfo[]> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listallapps", null, opts);
-        return client.wshRpcCall("listallapps", null, opts);
-    }
-
-    // command "listalleditableapps" [call]
-    ListAllEditableAppsCommand(client: WshClient, opts?: RpcOpts): Promise<AppInfo[]> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listalleditableapps", null, opts);
-        return client.wshRpcCall("listalleditableapps", null, opts);
-    }
-
     // command "listbranches" [call]
     ListBranchesCommand(client: WshClient, data: CommandListBranchesData, opts?: RpcOpts): Promise<CommandListBranchesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listbranches", data, opts);
@@ -748,12 +700,6 @@ export class RpcApiType {
     MacOSVersionCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "macosversion", null, opts);
         return client.wshRpcCall("macosversion", null, opts);
-    }
-
-    // command "makedraftfromlocal" [call]
-    MakeDraftFromLocalCommand(client: WshClient, data: CommandMakeDraftFromLocalData, opts?: RpcOpts): Promise<CommandMakeDraftFromLocalRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "makedraftfromlocal", data, opts);
-        return client.wshRpcCall("makedraftfromlocal", data, opts);
     }
 
     // command "memorycreate" [call]
@@ -850,18 +796,6 @@ export class RpcApiType {
     PostChannelMessageCommand(client: WshClient, data: CommandPostChannelMessageData, opts?: RpcOpts): Promise<ChannelMessage> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "postchannelmessage", data, opts);
         return client.wshRpcCall("postchannelmessage", data, opts);
-    }
-
-    // command "publishapp" [call]
-    PublishAppCommand(client: WshClient, data: CommandPublishAppData, opts?: RpcOpts): Promise<CommandPublishAppRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "publishapp", data, opts);
-        return client.wshRpcCall("publishapp", data, opts);
-    }
-
-    // command "readappfile" [call]
-    ReadAppFileCommand(client: WshClient, data: CommandReadAppFileData, opts?: RpcOpts): Promise<CommandReadAppFileRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "readappfile", data, opts);
-        return client.wshRpcCall("readappfile", data, opts);
     }
 
     // command "recordtevent" [call]
@@ -972,12 +906,6 @@ export class RpcApiType {
         return client.wshRpcCall("remotewritefile", data, opts);
     }
 
-    // command "renameappfile" [call]
-    RenameAppFileCommand(client: WshClient, data: CommandRenameAppFileData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "renameappfile", data, opts);
-        return client.wshRpcCall("renameappfile", data, opts);
-    }
-
     // command "renamechannel" [call]
     RenameChannelCommand(client: WshClient, data: CommandRenameChannelData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "renamechannel", data, opts);
@@ -994,12 +922,6 @@ export class RpcApiType {
     ResolveIdsCommand(client: WshClient, data: CommandResolveIdsData, opts?: RpcOpts): Promise<CommandResolveIdsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveids", data, opts);
         return client.wshRpcCall("resolveids", data, opts);
-    }
-
-    // command "restartbuilderandwait" [call]
-    RestartBuilderAndWaitCommand(client: WshClient, data: CommandRestartBuilderAndWaitData, opts?: RpcOpts): Promise<RestartBuilderAndWaitResult> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "restartbuilderandwait", data, opts);
-        return client.wshRpcCall("restartbuilderandwait", data, opts);
     }
 
     // command "retryradarclustering" [call]
@@ -1128,12 +1050,6 @@ export class RpcApiType {
         return client.wshRpcCall("sharpentask", data, opts);
     }
 
-    // command "startbuilder" [call]
-    StartBuilderCommand(client: WshClient, data: CommandStartBuilderData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startbuilder", data, opts);
-        return client.wshRpcCall("startbuilder", data, opts);
-    }
-
     // command "startjob" [call]
     StartJobCommand(client: WshClient, data: CommandStartJobData, opts?: RpcOpts): Promise<CommandStartJobRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startjob", data, opts);
@@ -1144,12 +1060,6 @@ export class RpcApiType {
     StartRadarScanCommand(client: WshClient, data: CommandStartRadarScanData, opts?: RpcOpts): Promise<CommandStartRadarScanRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "startradarscan", data, opts);
         return client.wshRpcCall("startradarscan", data, opts);
-    }
-
-    // command "stopbuilder" [call]
-    StopBuilderCommand(client: WshClient, data: string, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "stopbuilder", data, opts);
-        return client.wshRpcCall("stopbuilder", data, opts);
     }
 
     // command "stoprunworker" [call]
@@ -1264,24 +1174,6 @@ export class RpcApiType {
     WorkspaceListCommand(client: WshClient, opts?: RpcOpts): Promise<WorkspaceInfoData[]> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "workspacelist", null, opts);
         return client.wshRpcCall("workspacelist", null, opts);
-    }
-
-    // command "writeappfile" [call]
-    WriteAppFileCommand(client: WshClient, data: CommandWriteAppFileData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "writeappfile", data, opts);
-        return client.wshRpcCall("writeappfile", data, opts);
-    }
-
-    // command "writeappgofile" [call]
-    WriteAppGoFileCommand(client: WshClient, data: CommandWriteAppGoFileData, opts?: RpcOpts): Promise<CommandWriteAppGoFileRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "writeappgofile", data, opts);
-        return client.wshRpcCall("writeappgofile", data, opts);
-    }
-
-    // command "writeappsecretbindings" [call]
-    WriteAppSecretBindingsCommand(client: WshClient, data: CommandWriteAppSecretBindingsData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "writeappsecretbindings", data, opts);
-        return client.wshRpcCall("writeappsecretbindings", data, opts);
     }
 
     // command "writetempfile" [call]

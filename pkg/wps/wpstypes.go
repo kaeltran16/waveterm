@@ -19,8 +19,6 @@ const (
 	Event_ConnChange          = "connchange"           // type: wshrpc.ConnStatus
 	Event_SysInfo             = "sysinfo"              // type: wshrpc.TimeSeriesData
 	Event_ControllerStatus    = "controllerstatus"     // type: *blockcontroller.BlockControllerRuntimeStatus
-	Event_BuilderStatus       = "builderstatus"        // type: wshrpc.BuilderStatusData
-	Event_BuilderOutput       = "builderoutput"        // type: map[string]any
 	Event_WaveObjUpdate       = "waveobj:update"       // type: waveobj.WaveObjUpdate
 	Event_BlockFile           = "blockfile"            // type: *WSFileEventData
 	Event_Config              = "config"               // type: wconfig.WatcherUpdate
@@ -29,8 +27,6 @@ const (
 	Event_RouteUp             = "route:up"             // type: none
 	Event_WorkspaceUpdate     = "workspace:update"     // type: none
 	Event_WaveAIRateLimit     = "waveai:ratelimit"     // type: *uctypes.RateLimitInfo
-	Event_WaveAppAppGoUpdated = "waveapp:appgoupdated" // type: none
-	Event_TsunamiUpdateMeta   = "tsunami:updatemeta"   // type: wshrpc.AppMeta
 	Event_AIModeConfig        = "waveai:modeconfig"    // type: wconfig.AIModeConfigUpdate
 	Event_BlockJobStatus      = "block:jobstatus"      // type: wshrpc.BlockJobStatusData
 	Event_Badge               = "badge"                // type: baseds.BadgeEvent
@@ -43,8 +39,6 @@ var AllEvents []string = []string{
 	Event_ConnChange,
 	Event_SysInfo,
 	Event_ControllerStatus,
-	Event_BuilderStatus,
-	Event_BuilderOutput,
 	Event_WaveObjUpdate,
 	Event_BlockFile,
 	Event_Config,
@@ -53,8 +47,6 @@ var AllEvents []string = []string{
 	Event_RouteUp,
 	Event_WorkspaceUpdate,
 	Event_WaveAIRateLimit,
-	Event_WaveAppAppGoUpdated,
-	Event_TsunamiUpdateMeta,
 	Event_AIModeConfig,
 	Event_BlockJobStatus,
 	Event_Badge,

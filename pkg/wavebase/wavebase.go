@@ -30,7 +30,6 @@ const (
 	WaveDataHomeEnvVar             = "WAVETERM_DATA_HOME"
 	WaveAppPathVarName             = "WAVETERM_APP_PATH"
 	WaveAppResourcesPathVarName    = "WAVETERM_RESOURCES_PATH"
-	WaveAppElectronExecPathVarName = "WAVETERM_ELECTRONEXECPATH"
 	WaveDevVarName                 = "WAVETERM_DEV"
 	WaveDevViteVarName             = "WAVETERM_DEV_VITE"
 	WaveWshForceUpdateVarName      = "WAVETERM_WSHFORCEUPDATE"
@@ -53,7 +52,6 @@ var ConfigHome_VarCache string          // caches WAVETERM_CONFIG_HOME
 var DataHome_VarCache string            // caches WAVETERM_DATA_HOME
 var AppPath_VarCache string             // caches WAVETERM_APP_PATH
 var AppResourcesPath_VarCache string    // caches WAVETERM_RESOURCES_PATH
-var AppElectronExecPath_VarCache string // caches WAVETERM_ELECTRONEXECPATH
 var Dev_VarCache string                 // caches WAVETERM_DEV
 
 const WaveLockFile = "wave.lock"
@@ -102,8 +100,6 @@ func CacheAndRemoveEnvVars() error {
 	os.Unsetenv(WaveAppPathVarName)
 	AppResourcesPath_VarCache = os.Getenv(WaveAppResourcesPathVarName)
 	os.Unsetenv(WaveAppResourcesPathVarName)
-	AppElectronExecPath_VarCache = os.Getenv(WaveAppElectronExecPathVarName)
-	os.Unsetenv(WaveAppElectronExecPathVarName)
 	Dev_VarCache = os.Getenv(WaveDevVarName)
 	os.Unsetenv(WaveDevVarName)
 	os.Unsetenv(WaveDevViteVarName)
@@ -133,10 +129,6 @@ func GetWaveConfigDir() string {
 
 func GetWaveAppBinPath() string {
 	return filepath.Join(GetWaveAppPath(), AppPathBinDir)
-}
-
-func GetWaveAppElectronExecPath() string {
-	return AppElectronExecPath_VarCache
 }
 
 func GetHomeDir() string {

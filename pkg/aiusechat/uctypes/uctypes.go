@@ -163,11 +163,9 @@ const (
 )
 
 const (
-	AIModeQuick          = "waveai@quick"
-	AIModeBalanced       = "waveai@balanced"
-	AIModeDeep           = "waveai@deep"
-	AIModeBuilderDefault = "waveaibuilder@default"
-	AIModeBuilderDeep    = "waveaibuilder@deep"
+	AIModeQuick    = "waveai@quick"
+	AIModeBalanced = "waveai@balanced"
+	AIModeDeep     = "waveai@deep"
 )
 
 const (
@@ -505,11 +503,8 @@ type WaveChatOpts struct {
 	Tools                []ToolDefinition
 	SystemPrompt         []string
 	TabStateGenerator    func() (string, []ToolDefinition, string, error)
-	BuilderAppGenerator  func() (string, string, string, error)
 	WidgetAccess         bool
 	AllowNativeWebSearch bool
-	BuilderId            string
-	BuilderAppId         string
 
 	// ephemeral to the step
 	TabState       string
@@ -535,11 +530,7 @@ func (opts *WaveChatOpts) GetToolDefinition(toolName string) *ToolDefinition {
 }
 
 func (opts *WaveChatOpts) GetWaveRequestType() string {
-	if opts.BuilderId != "" {
-		return "waveapps-builder"
-	} else {
-		return "waveai"
-	}
+	return "waveai"
 }
 
 type ProxyErrorResponse struct {

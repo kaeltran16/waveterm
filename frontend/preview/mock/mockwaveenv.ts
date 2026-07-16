@@ -157,8 +157,6 @@ function makeMockGlobalAtoms(
         return get(getWaveObjectAtom<Workspace>("workspace:" + wsId));
     });
     const defaults: GlobalAtomsType = {
-        builderId: atom(""),
-        builderAppId: atom("") as any,
         uiContext: atom({ windowid: "", activetabid: tabId ?? "" } as UIContext),
         workspaceId: workspaceIdAtom,
         workspace: workspaceAtom,

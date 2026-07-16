@@ -72,8 +72,6 @@ type SettingsType struct {
 	AppTabBar                     string `json:"app:tabbar,omitempty" jsonschema:"enum=top,enum=left"`
 	AppLoomBin                    string `json:"app:loombin,omitempty"`
 
-	FeatureWaveAppBuilder bool `json:"feature:waveappbuilder,omitempty"`
-
 	AiClear         bool    `json:"ai:*,omitempty"`
 	AiPreset        string  `json:"ai:preset,omitempty"`
 	AiApiType       string  `json:"ai:apitype,omitempty"`
@@ -177,12 +175,6 @@ type SettingsType struct {
 	DebugPprofPort           *int `json:"debug:pprofport,omitempty"`
 	DebugPprofMemProfileRate *int `json:"debug:pprofmemprofilerate,omitempty"`
 	DebugWebGlStatus         bool `json:"debug:webglstatus,omitempty"`
-
-	TsunamiClear          bool   `json:"tsunami:*,omitempty"`
-	TsunamiScaffoldPath   string `json:"tsunami:scaffoldpath,omitempty"`
-	TsunamiSdkReplacePath string `json:"tsunami:sdkreplacepath,omitempty"`
-	TsunamiSdkVersion     string `json:"tsunami:sdkversion,omitempty"`
-	TsunamiGoPath         string `json:"tsunami:gopath,omitempty"`
 }
 
 func (s *SettingsType) GetAiSettings() *AiSettingsType {

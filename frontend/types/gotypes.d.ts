@@ -100,29 +100,6 @@ declare global {
         weekreset?: number;
     };
 
-    // wshrpc.AppInfo
-    type AppInfo = {
-        appid: string;
-        modtime: number;
-        manifest?: AppManifest;
-    };
-
-    // wshrpc.AppManifest
-    type AppManifest = {
-        appmeta: AppMeta;
-        configschema: {[key: string]: any};
-        dataschema: {[key: string]: any};
-        secrets: {[key: string]: SecretMeta};
-    };
-
-    // wshrpc.AppMeta
-    type AppMeta = {
-        title: string;
-        shortdesc: string;
-        icon: string;
-        iconcolor: string;
-    };
-
     // wshrpc.AskRtnData
     type AskRtnData = {
         askid: string;
@@ -173,7 +150,6 @@ declare global {
         shellprocstatus?: string;
         shellprocconnname?: string;
         shellprocexitcode: number;
-        tsunamiport?: number;
     };
 
     // waveobj.BlockDef
@@ -223,18 +199,6 @@ declare global {
     type BranchInfo = {
         name: string;
         age: string;
-    };
-
-    // wshrpc.BuilderStatusData
-    type BuilderStatusData = {
-        status: string;
-        port?: number;
-        exitcode?: number;
-        errormsg?: string;
-        version: number;
-        manifest?: AppManifest;
-        secretbindings?: {[key: string]: string};
-        secretbindingscomplete: boolean;
     };
 
     // waveobj.Channel
@@ -356,14 +320,6 @@ declare global {
         blockid: string;
     };
 
-    // wshrpc.CommandCheckGoVersionRtnData
-    type CommandCheckGoVersionRtnData = {
-        gostatus: string;
-        gopath: string;
-        goversion: string;
-        errorstring?: string;
-    };
-
     // wshrpc.CommandConnServerInitData
     type CommandConnServerInitData = {
         clientid: string;
@@ -458,12 +414,6 @@ declare global {
     type CommandDebugTermRtnData = {
         offset: number;
         data64: string;
-    };
-
-    // wshrpc.CommandDeleteAppFileData
-    type CommandDeleteAppFileData = {
-        appid: string;
-        filename: string;
     };
 
     // wshrpc.CommandDeleteBlockData
@@ -776,22 +726,6 @@ declare global {
     // wshrpc.CommandJobStartStreamData
     type CommandJobStartStreamData = object;
 
-    // wshrpc.CommandListAllAppFilesData
-    type CommandListAllAppFilesData = {
-        appid: string;
-    };
-
-    // wshrpc.CommandListAllAppFilesRtnData
-    type CommandListAllAppFilesRtnData = {
-        path: string;
-        absolutepath: string;
-        parentdir?: string;
-        entries: DirEntryOut[];
-        entrycount: number;
-        totalentries: number;
-        truncated?: boolean;
-    };
-
     // wshrpc.CommandListBranchesData
     type CommandListBranchesData = {
         projectpath: string;
@@ -815,16 +749,6 @@ declare global {
     // wshrpc.CommandListRadarReportsRtnData
     type CommandListRadarReportsRtnData = {
         reports: RadarReport[];
-    };
-
-    // wshrpc.CommandMakeDraftFromLocalData
-    type CommandMakeDraftFromLocalData = {
-        localappid: string;
-    };
-
-    // wshrpc.CommandMakeDraftFromLocalRtnData
-    type CommandMakeDraftFromLocalRtnData = {
-        draftappid: string;
     };
 
     // wshrpc.CommandMemoryCreateData
@@ -947,29 +871,6 @@ declare global {
         reforef?: string;
     };
 
-    // wshrpc.CommandPublishAppData
-    type CommandPublishAppData = {
-        appid: string;
-    };
-
-    // wshrpc.CommandPublishAppRtnData
-    type CommandPublishAppRtnData = {
-        publishedappid: string;
-    };
-
-    // wshrpc.CommandReadAppFileData
-    type CommandReadAppFileData = {
-        appid: string;
-        filename: string;
-    };
-
-    // wshrpc.CommandReadAppFileRtnData
-    type CommandReadAppFileRtnData = {
-        data64: string;
-        notfound?: boolean;
-        modts?: number;
-    };
-
     // wshrpc.CommandRemoteDisconnectFromJobManagerData
     type CommandRemoteDisconnectFromJobManagerData = {
         jobid: string;
@@ -1036,13 +937,6 @@ declare global {
         jobmanagerstartts: number;
     };
 
-    // wshrpc.CommandRenameAppFileData
-    type CommandRenameAppFileData = {
-        appid: string;
-        fromfilename: string;
-        tofilename: string;
-    };
-
     // wshrpc.CommandRenameChannelData
     type CommandRenameChannelData = {
         channelid: string;
@@ -1067,11 +961,6 @@ declare global {
     // wshrpc.CommandResolveIdsRtnData
     type CommandResolveIdsRtnData = {
         resolvedids: {[key: string]: ORef};
-    };
-
-    // wshrpc.CommandRestartBuilderAndWaitData
-    type CommandRestartBuilderAndWaitData = {
-        builderid: string;
     };
 
     // wshrpc.CommandRetryRadarClusteringData
@@ -1156,11 +1045,6 @@ declare global {
     type CommandSharpenTaskRtnData = {
         task: string;
         model: string;
-    };
-
-    // wshrpc.CommandStartBuilderData
-    type CommandStartBuilderData = {
-        builderid: string;
     };
 
     // wshrpc.CommandStartJobData
@@ -1287,30 +1171,6 @@ declare global {
         streammeta: StreamMeta;
     };
 
-    // wshrpc.CommandWriteAppFileData
-    type CommandWriteAppFileData = {
-        appid: string;
-        filename: string;
-        data64: string;
-    };
-
-    // wshrpc.CommandWriteAppGoFileData
-    type CommandWriteAppGoFileData = {
-        appid: string;
-        data64: string;
-    };
-
-    // wshrpc.CommandWriteAppGoFileRtnData
-    type CommandWriteAppGoFileRtnData = {
-        data64: string;
-    };
-
-    // wshrpc.CommandWriteAppSecretBindingsData
-    type CommandWriteAppSecretBindingsData = {
-        appid: string;
-        bindings: {[key: string]: string};
-    };
-
     // wshrpc.CommandWriteTempFileData
     type CommandWriteTempFileData = {
         filename: string;
@@ -1408,17 +1268,6 @@ declare global {
         runtime: string;
         installed: boolean;
         version?: string;
-    };
-
-    // wshrpc.DirEntryOut
-    type DirEntryOut = {
-        name: string;
-        dir?: boolean;
-        symlink?: boolean;
-        size?: number;
-        mode: string;
-        modified: string;
-        modifiedtime: string;
     };
 
     // vdom.DomRect
@@ -1796,12 +1645,6 @@ declare global {
         "web:useragenttype"?: string;
         "markdown:fontsize"?: number;
         "markdown:fixedfontsize"?: number;
-        "tsunami:*"?: boolean;
-        "tsunami:sdkreplacepath"?: string;
-        "tsunami:apppath"?: string;
-        "tsunami:appid"?: string;
-        "tsunami:scaffoldpath"?: string;
-        "tsunami:env"?: {[key: string]: string};
         "vdom:*"?: boolean;
         "vdom:initialized"?: boolean;
         "vdom:correlationid"?: string;
@@ -1837,8 +1680,6 @@ declare global {
 
     // waveobj.ObjRTInfo
     type ObjRTInfo = {
-        "tsunami:appmeta"?: AppMeta;
-        "tsunami:schemas"?: any;
         "shell:hascurcwd"?: boolean;
         "shell:state"?: string;
         "shell:type"?: string;
@@ -1850,9 +1691,6 @@ declare global {
         "shell:inputempty"?: boolean;
         "shell:lastcmd"?: string;
         "shell:lastcmdexitcode"?: number;
-        "builder:layout"?: {[key: string]: number};
-        "builder:appid"?: string;
-        "builder:env"?: {[key: string]: string};
         "waveai:chatid"?: string;
         "waveai:mode"?: string;
         "waveai:maxoutputtokens"?: number;
@@ -2017,13 +1855,6 @@ declare global {
         homedir: string;
     };
 
-    // wshrpc.RestartBuilderAndWaitResult
-    type RestartBuilderAndWaitResult = {
-        success: boolean;
-        errormessage?: string;
-        buildoutput: string;
-    };
-
     // wshrpc.RpcContext
     type RpcContext = {
         sockname?: string;
@@ -2116,12 +1947,6 @@ declare global {
         winsize?: WinSize;
     };
 
-    // wshrpc.SecretMeta
-    type SecretMeta = {
-        desc: string;
-        optional: boolean;
-    };
-
     // wshrpc.SessionActivity
     type SessionActivity = {
         id: string;
@@ -2177,7 +2002,6 @@ declare global {
         "app:focusfollowscursor"?: string;
         "app:tabbar"?: string;
         "app:loombin"?: string;
-        "feature:waveappbuilder"?: boolean;
         "ai:*"?: boolean;
         "ai:preset"?: string;
         "ai:apitype"?: string;
@@ -2267,11 +2091,6 @@ declare global {
         "debug:pprofport"?: number;
         "debug:pprofmemprofilerate"?: number;
         "debug:webglstatus"?: boolean;
-        "tsunami:*"?: boolean;
-        "tsunami:scaffoldpath"?: string;
-        "tsunami:sdkreplacepath"?: string;
-        "tsunami:sdkversion"?: string;
-        "tsunami:gopath"?: string;
     };
 
     // waveobj.StickerClickOptsType

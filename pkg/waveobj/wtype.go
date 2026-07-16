@@ -32,7 +32,6 @@ const (
 	OType_MainServer  = "mainserver"
 	OType_Job         = "job"
 	OType_Temp        = "temp"
-	OType_Builder     = "builder" // not persisted to DB
 	OType_RadarReport = "radarreport"
 )
 
@@ -47,7 +46,6 @@ var ValidOTypes = map[string]bool{
 	OType_MainServer:  true,
 	OType_Job:         true,
 	OType_Temp:        true,
-	OType_Builder:     true,
 	OType_RadarReport: true,
 }
 
