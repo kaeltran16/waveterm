@@ -16,6 +16,11 @@ import { avatarColor } from "./channelderive";
 import type { WorkerState } from "./jarvisderive";
 import { runtimeLogo } from "./runtimelogo";
 
+// One centered content measure shared by the entire channel center column — header, strips, run body,
+// empty/draft states, completion, and composer all wrap their content in this so every row lines up on
+// the same edges (mx-auto centers at wide widths; the row's own px-6 governs when the column is narrower).
+export const CHANNEL_COL = "mx-auto w-full max-w-[760px]";
+
 export const STATE_DOT: Record<string, string> = {
     working: "var(--color-success)",
     asking: "var(--color-asking)",

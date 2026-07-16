@@ -18,6 +18,7 @@ import {
     verifCounts,
     verifTone,
 } from "./runcompletion";
+import { CHANNEL_COL } from "./channelsprimitives";
 
 function openPath(projectPath: string, rel: string) {
     const sep = projectPath.includes("\\") ? "\\" : "/";
@@ -62,7 +63,7 @@ export function RunCompletion({ channel, run }: { channel: Channel; run: Run }) 
     return (
         <div className="sc min-h-0 flex-1 overflow-y-auto">
             {/* header */}
-            <div className="flex items-center gap-3 border-b border-border bg-surface px-[26px] py-[13px]">
+            <div className="flex items-center gap-3 border-b border-border bg-surface px-6 py-[13px]">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 font-mono text-[11px] text-muted">
                         <span className="text-ink-mid">#{channel.name}</span>
@@ -78,8 +79,8 @@ export function RunCompletion({ channel, run }: { channel: Channel; run: Run }) 
                 </div>
             </div>
 
-            <div className="px-[26px] pb-10 pt-[22px]">
-                <div className="mx-auto max-w-[880px]">
+            <div className="px-6 pb-10 pt-[22px]">
+                <div className={CHANNEL_COL}>
                     {/* evidence snapshot card */}
                     <div className="overflow-hidden rounded-2xl border border-accent/25 bg-surface shadow-[0_20px_50px_rgba(0,0,0,.35)]">
                         {/* sealed header */}

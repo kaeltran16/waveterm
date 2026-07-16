@@ -22,7 +22,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
-import { AskRow, jumpToAgent } from "./channelsprimitives";
+import { AskRow, CHANNEL_COL, jumpToAgent } from "./channelsprimitives";
 import { AttentionCard, AttentionBanner } from "./attentioncard";
 import { ComposerShell } from "./composer-shell";
 import { InlineMarkdown } from "./inlinemarkdown";
@@ -632,6 +632,7 @@ export function OrchestratorBody({
     useSubagentTracking(lead ? [lead] : []);
     return (
         <div className="flex min-h-0 flex-1 flex-col px-6 pb-3 pt-5">
+            <div className={CHANNEL_COL + " flex min-h-0 flex-1 flex-col"}>
             <RunHeader
                 run={run}
                 agents={agents}
@@ -665,6 +666,7 @@ export function OrchestratorBody({
                     className="mt-4 flex-none self-start rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
                 />
             ) : null}
+            </div>
         </div>
     );
 }
@@ -845,7 +847,7 @@ export function RunBody({ model, channel, agents, run }: {
     return (
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div ref={stick.scrollRef} onScroll={stick.onScroll} className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-                <div>
+                <div className={CHANNEL_COL}>
                     <RunHeader
                         run={run}
                         agents={agents}

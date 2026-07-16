@@ -24,7 +24,7 @@ export function ChannelHeader({
     onOpenProfile: () => void;
 }) {
     return (
-        <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-[22px] py-3">
+        <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-6 py-3">
             <span className="font-mono text-[17px] font-bold text-muted">#</span>
             <div className="min-w-0">
                 <div className="truncate text-[15px] font-bold tracking-[-0.01em] text-primary">
@@ -100,7 +100,7 @@ export function OverviewStrip({
             <button
                 type="button"
                 onClick={onToggle}
-                className="flex w-full cursor-pointer items-center gap-2.5 px-[22px] py-2 hover:bg-surface"
+                className="flex w-full cursor-pointer items-center gap-2.5 px-6 py-2 hover:bg-surface"
             >
                 <span className={"font-mono text-[7px] text-muted transition-transform " + (open ? "rotate-90" : "")}>
                     ▶
@@ -119,7 +119,7 @@ export function OverviewStrip({
                 ) : null}
             </button>
             {open ? (
-                <div className="flex items-start gap-3.5 px-[22px] pb-3.5 pt-0.5">
+                <div className="flex items-start gap-3.5 px-6 pb-3.5 pt-0.5">
                     <div className="min-w-0 flex-1">
                         <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-muted">
                             Channel notes
@@ -182,7 +182,7 @@ export function RunStrip({
     hasSelectedRun: boolean;
 }) {
     return (
-        <div className="sc flex flex-none gap-2 overflow-x-auto border-b border-border bg-background px-[22px] py-2.5">
+        <div className="sc flex flex-none gap-2 overflow-x-auto border-b border-border bg-background px-6 py-2.5">
             {runs.map((r) => {
                 const { tone } = runStatusView(r.status);
                 // a cancelled run with still-live workers must not read as a clean cancel here either

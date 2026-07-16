@@ -22,6 +22,7 @@ import { ContextPanel } from "./channelcontextpanel";
 import { resolveTargetChannel } from "./channelderive";
 import { composerFace, parseComposerCommand } from "./composercommand";
 import { tierFromMeta, type RosterEntry } from "./channelmessages";
+import { CHANNEL_COL } from "./channelsprimitives";
 import { ChannelRail } from "./channelrail";
 import {
     activeChannelAtom,
@@ -307,7 +308,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                 {/* run body */}
                                 {pendingDraft ? (
                                     <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-                                        <div className="mx-auto w-full max-w-[620px]">
+                                        <div className={CHANNEL_COL}>
                                             <div className="mb-1 text-center text-[17px] font-bold text-primary">Start investigation</div>
                                             <div className="mb-5 text-center text-[13px] text-muted">Review the draft goal below, then start it.</div>
                                             <div className="rounded-[10px] border border-accent/30 bg-accentbg/15 px-3.5 py-3">
@@ -346,9 +347,9 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     <RunBody model={model} channel={active} agents={agents} run={run} />
                                 ) : (
                                     <div className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-                                        <div className="mx-auto flex max-w-[520px] flex-col items-center gap-3.5 pt-16 text-center">
+                                        <div className={CHANNEL_COL + " flex flex-col items-center gap-3.5 pt-16 text-center"}>
                                             <div className="text-[20px] font-bold tracking-[-0.01em] text-primary">Start a run in #{active.name}</div>
-                                            <p className="max-w-[420px] text-[13.5px] leading-[1.6] text-muted">
+                                            <p className="max-w-[460px] text-[13.5px] leading-[1.6] text-muted">
                                                 Give Jarvis a goal below. <b className="text-secondary">@quick</b> spawns one worker,{" "}
                                                 <b className="text-secondary">@run</b> kicks off the channel's full strategy — pipeline or adaptive lead, set in{" "}
                                                 <b className="text-secondary">⚙</b> — and <b className="text-secondary">@ask</b> is a one-shot consult.
@@ -359,7 +360,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
                                 {/* composer (two faces) */}
                                 <div className="flex-none px-6 pb-[18px] pt-2">
-                                    <div className="mx-auto max-w-[760px]">
+                                    <div className={CHANNEL_COL}>
                                         {face.face === "talk" ? (
                                             <TalkComposer
                                                 worker={face.worker}
