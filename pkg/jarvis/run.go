@@ -33,6 +33,7 @@ const (
 
 // Run modes.
 const (
+	RunMode_Quick        = "quick"
 	RunMode_Pipeline     = "pipeline"
 	RunMode_Orchestrator = "orchestrator"
 )
@@ -76,6 +77,14 @@ func DefaultPlaybook() []waveobj.RunPhase {
 func DefaultOrchestratorPlaybook(gate bool) []waveobj.RunPhase {
 	return []waveobj.RunPhase{
 		{Kind: PhaseKind_Orchestrate, Skill: "superpowers:subagent-driven-development", State: PhaseState_Pending, Gate: gate},
+	}
+}
+
+// QuickPlaybook is a single bare execute phase: one worker, no plan gate, fresh context, no skill
+// scaffolding. The worker is prompted (BuildQuickPrompt) to do the goal directly and self-report.
+func QuickPlaybook() []waveobj.RunPhase {
+	return []waveobj.RunPhase{
+		{Kind: PhaseKind_Execute, State: PhaseState_Pending, FreshCtx: true},
 	}
 }
 
@@ -284,6 +293,19 @@ func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []stri
 		fmt.Fprintf(&b, "Prior artifacts to build on: %s\n", strings.Join(priorArtifacts, ", "))
 	}
 	b.WriteString("When the deliverable is fully written, run `wsh jarvis complete <deliverable-path>` (pass the path to the file you produced) to record it and hand the run off to the next phase. Run it only once the deliverable actually exists.\n")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// BuildQuickPrompt is the worker prompt for a quick run: same headless guidance as a pipeline execute
+// phase but no skill directive — just do the goal directly and report completion.
+func BuildQuickPrompt(goal string, principles waveobj.PrincipleList) string {
+	var b strings.Builder
+	if rendered := RenderPrinciples(principles); rendered != "" {
+		fmt.Fprintf(&b, "Work by these principles:\n%s\n\n", rendered)
+	}
+	b.WriteString("You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the AskUserQuestion tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n")
+	fmt.Fprintf(&b, "Goal: %s\n", goal)
+	b.WriteString("When the goal is fully accomplished, run `wsh jarvis complete`.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 

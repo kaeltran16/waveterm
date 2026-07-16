@@ -369,3 +369,50 @@ func TestRecordTriageRejectsOutOfRange(t *testing.T) {
 		t.Error("expected error for out-of-range index")
 	}
 }
+
+func TestQuickPlaybook(t *testing.T) {
+	pb := QuickPlaybook()
+	if len(pb) != 1 {
+		t.Fatalf("QuickPlaybook: want 1 phase, got %d", len(pb))
+	}
+	p := pb[0]
+	if p.Kind != PhaseKind_Execute {
+		t.Errorf("phase kind = %q, want %q", p.Kind, PhaseKind_Execute)
+	}
+	if p.Gate {
+		t.Errorf("quick phase must not gate")
+	}
+	if !p.FreshCtx {
+		t.Errorf("quick phase should run in fresh context")
+	}
+	if p.Skill != "" {
+		t.Errorf("quick phase must have no skill, got %q", p.Skill)
+	}
+}
+
+func TestNewRunQuick(t *testing.T) {
+	r := NewRun("fix the flake", "ws1", "/repo", nil, RunMode_Quick, QuickPlaybook(), 1000)
+	if r.Mode != RunMode_Quick {
+		t.Errorf("mode = %q, want quick", r.Mode)
+	}
+	if len(r.Phases) != 1 || r.Phases[0].State != PhaseState_Running {
+		t.Fatalf("expected one running phase, got %+v", r.Phases)
+	}
+	if r.Status == RunStatus_AwaitingReview {
+		t.Errorf("quick run must not await review")
+	}
+}
+
+func TestBuildQuickPrompt(t *testing.T) {
+	// a single legacy-ID principle renders as its bare text (see RenderPrinciples)
+	principles := waveobj.PrincipleList{{ID: waveobj.LegacyGlobalPrincipleID, Text: "be tidy"}}
+	p := BuildQuickPrompt("add a spinner", principles)
+	for _, want := range []string{"add a spinner", "be tidy", "wsh jarvis complete"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q:\n%s", want, p)
+		}
+	}
+	if strings.Contains(p, "skill to work this goal") {
+		t.Errorf("quick prompt must not carry a skill directive:\n%s", p)
+	}
+}

@@ -22,6 +22,9 @@ const (
 	MetaKey_DelegatorMode    = "delegator:mode"
 )
 
+// MetaKey_ChannelNotes holds a channel's free-text notes (plain text; single-writer field).
+const MetaKey_ChannelNotes = "channel:notes"
+
 // TierMeta derives the two per-channel autonomy booleans from a tier name. The ladder is nested:
 // delegator implies gatekeeper. Any unknown/empty tier falls to the floor (both off = concierge).
 func TierMeta(tier string) (gatekeeper bool, delegator bool) {

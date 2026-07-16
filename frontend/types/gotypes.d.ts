@@ -1090,6 +1090,12 @@ declare global {
         pick: number;
     };
 
+    // wshrpc.CommandSetChannelNotesData
+    type CommandSetChannelNotesData = {
+        channelid: string;
+        notes: string;
+    };
+
     // wshrpc.CommandSetChannelProfileData
     type CommandSetChannelProfileData = {
         channelid: string;

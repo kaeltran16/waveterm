@@ -95,6 +95,9 @@ func priorArtifacts(run *waveobj.Run, idx int) []string {
 // adaptive lead prompt; pipeline runs get the per-phase skill prompt.
 func phasePrompt(run *waveobj.Run, idx int) string {
 	p := run.Phases[idx]
+	if run.Mode == RunMode_Quick {
+		return BuildQuickPrompt(run.Goal, run.Principles)
+	}
 	if run.Mode == RunMode_Orchestrator {
 		return BuildOrchestratePrompt(run.Goal, run.Principles, p.Gate)
 	}

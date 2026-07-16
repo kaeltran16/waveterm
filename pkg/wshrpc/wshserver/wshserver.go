@@ -1656,6 +1656,28 @@ func (ws *WshServer) SetChannelTierCommand(ctx context.Context, data wshrpc.Comm
 	return nil
 }
 
+func (ws *WshServer) SetChannelNotesCommand(ctx context.Context, data wshrpc.CommandSetChannelNotesData) error {
+	if data.ChannelId == "" {
+		return fmt.Errorf("channelid is required")
+	}
+	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
+		if ch.Meta == nil {
+			ch.Meta = make(waveobj.MetaMapType)
+		}
+		// keep meta clean: an empty notes value drops the key rather than storing ""
+		if data.Notes == "" {
+			delete(ch.Meta, jarvis.MetaKey_ChannelNotes)
+		} else {
+			ch.Meta[jarvis.MetaKey_ChannelNotes] = data.Notes
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("updating channel notes: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	return nil
+}
+
 func (ws *WshServer) SetChannelReadCommand(ctx context.Context, data wshrpc.CommandSetChannelReadData) error {
 	if data.ChannelId == "" {
 		return fmt.Errorf("channelid is required")
@@ -1798,6 +1820,10 @@ func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate 
 	}
 	if mode == "" {
 		mode = jarvis.RunMode_Pipeline
+	}
+	if mode == jarvis.RunMode_Quick {
+		// quick is a bare single-phase run; it has no plan gate, so reqPlanGate is ignored.
+		return mode, jarvis.QuickPlaybook()
 	}
 	if mode == jarvis.RunMode_Orchestrator {
 		gate := true

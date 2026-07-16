@@ -103,6 +103,13 @@ export async function archiveChannel(channelId: string, archived: boolean): Prom
     await loadChannels();
 }
 
+// Persist a channel's notes (a Channel.Meta field), then refresh the snapshot-fed rail. Mirrors
+// setChannelTier — the surface reads active.meta from the channelsAtom snapshot, so it needs a re-fetch.
+export async function setChannelNotes(channelId: string, notes: string): Promise<void> {
+    await RpcApi.SetChannelNotesCommand(TabRpcClient, { channelid: channelId, notes });
+    await loadChannels();
+}
+
 // Ephemeral live consult streams, keyed `${consultId}:${runtime}`. Not persisted — superseded by the
 // consult-reply message (matched by RefORef `consult:<consultId>` + author) once it arrives via WOS.
 export interface ConsultStream {

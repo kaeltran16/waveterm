@@ -25,11 +25,18 @@ plugin were built (all out of scope per the spec's non-goals).
 
 ## Channel notes (merged surface) (2026-07-13)
 
-> **Spec + plan written 2026-07-14 — not yet built.** Both follow-ups below are now designed:
-> `docs/superpowers/specs/2026-07-14-channel-notes-quick-run-design.md` +
-> `docs/superpowers/plans/2026-07-14-channel-notes-quick-run.md`. Decisions locked: notes store at
-> `Channel.Meta["channel:notes"]` via a `SetChannelNotesCommand` (clone of `SetChannelTierCommand`);
-> Quick becomes a bare single-phase `RunMode_Quick` run object. Remove this entry once the plan lands.
+> **Resolved 2026-07-16.** Both follow-ups shipped (plan
+> `docs/superpowers/plans/2026-07-14-channel-notes-quick-run.md`, refreshed against the post-decompose tree):
+> - **Channel notes** — real persisted field at `Channel.Meta["channel:notes"]` via a new
+>   `SetChannelNotesCommand` (clone of `SetChannelTierCommand`; empty notes delete the key). The
+>   `OverviewStrip` (`channelchrome.tsx`) now renders a controlled, debounced textarea (600ms) seeded per
+>   channel; the collapsed strip shows the notes text or "No notes yet". Store action `setChannelNotes`
+>   (`channelsstore.ts`) re-fetches so the snapshot-fed rail updates.
+> - **Quick Run** — a real one-phase Run object: `RunMode_Quick` + `QuickPlaybook()` (single fresh-ctx
+>   execute phase, no gate, no skill) + `BuildQuickPrompt` (bare headless prompt, self-reports via
+>   `wsh jarvis complete`). `resolveRunPlan` maps `mode == "quick"` to the quick playbook; FE `@quick`
+>   now calls `launchRun(body, {mode:"quick"})` (mirrors `@run`) instead of the ad-hoc dispatch transport,
+>   so it gets its own run-strip tab + `Q` badge + Done lifecycle. TDD'd in `pkg/jarvis/run_test.go`.
 
 The merged Channels surface (`docs/superpowers/plans/2026-07-13-channels-runs-merged-surface.md`) shows a
 "Channel notes" area in its collapsible overview strip, but `waveobj.Channel` has no notes field and no

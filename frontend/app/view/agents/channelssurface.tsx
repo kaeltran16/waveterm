@@ -11,7 +11,7 @@
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { MotionConfig } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage, steerWorker } from "./channelactions";
@@ -35,6 +35,7 @@ import {
     loadChannels,
     renameChannel,
     selectChannel,
+    setChannelNotes,
     setChannelTier,
 } from "./channelsstore";
 import { projectsAtom } from "./projectsstore";
@@ -70,6 +71,27 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
     const runs = (active?.runs ?? []).filter((r) => !dismissed.has(r.id));
     const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
+
+    const [notesDraft, setNotesDraft] = useState("");
+    useEffect(() => {
+        const stored = (active?.meta as Record<string, unknown> | undefined)?.["channel:notes"];
+        setNotesDraft(typeof stored === "string" ? stored : "");
+        // re-seed only when the active channel changes, not on every meta update (avoids clobbering typing)
+    }, [active?.oid]);
+    const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const onNotesChange = (value: string) => {
+        setNotesDraft(value);
+        if (!active) {
+            return;
+        }
+        const oid = active.oid;
+        if (notesTimer.current) {
+            clearTimeout(notesTimer.current);
+        }
+        notesTimer.current = setTimeout(() => {
+            fireAndForget(() => setChannelNotes(oid, value));
+        }, 600);
+    };
 
     const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
     const autonomyOn = tier !== "concierge";
@@ -238,9 +260,15 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
             });
             return;
         }
-        // Quick → dispatch a bare worker; Ask → one-shot consult. Both route through sendChannelMessage's
-        // planMessage transport (@runtime … / ask @runtime …); this mirrors the Ctrl+P palette exactly.
-        const transport = cmd.mode === "quick" ? `@${cmd.runtime ?? "claude"} ${cmd.body}` : `ask @${cmd.runtime ?? "claude"} ${cmd.body}`;
+        if (cmd.mode === "quick") {
+            fireAndForget(async () => {
+                const created = await launchRun(cmd.body, { mode: "quick" });
+                setActiveRunId(created.id);
+            });
+            return;
+        }
+        // @ask → one-shot consult (no worker), via sendChannelMessage's ask transport.
+        const transport = `ask @${cmd.runtime ?? "claude"} ${cmd.body}`;
         fireAndForget(() =>
             sendChannelMessage({
                 model,
@@ -309,6 +337,8 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     runCount={runs.length}
                                     summary={summary}
                                     onRunSummary={() => runSummary(active, agents)}
+                                    notes={notesDraft}
+                                    onNotesChange={onNotesChange}
                                 />
 
                                 <RunStrip

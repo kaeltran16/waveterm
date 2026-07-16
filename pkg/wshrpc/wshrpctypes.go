@@ -117,6 +117,7 @@ type WshRpcInterface interface {
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error                                     // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
+	SetChannelNotesCommand(ctx context.Context, data CommandSetChannelNotesData) error                                   // sets a channel's free-text notes (Channel.Meta["channel:notes"])
 	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error                                     // stamps a channel's last-read timestamp for unread counts
 	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error                                       // renames a channel (its rail display name)
 	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error                                     // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
@@ -718,6 +719,11 @@ type CommandSetChannelTierData struct {
 	Mode      string `json:"mode,omitempty"` // default dispatch mode: report | manage | fanout
 }
 
+type CommandSetChannelNotesData struct {
+	ChannelId string `json:"channelid"`
+	Notes     string `json:"notes"`
+}
+
 type CommandSetChannelReadData struct {
 	ChannelId string `json:"channelid"`
 	Ts        int64  `json:"ts"`
@@ -753,7 +759,7 @@ type CommandCreateRunData struct {
 	WorkspaceId string                  `json:"workspaceid"` // where phase-worker tabs are created
 	Goal        string                  `json:"goal"`
 	PlaybookId  string                  `json:"playbookid,omitempty"`
-	Mode        string                  `json:"mode,omitempty"`        // pipeline | orchestrator (empty = resolved profile default)
+	Mode        string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
 	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
 	RadarOrigin *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
 }

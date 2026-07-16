@@ -88,12 +88,16 @@ export function OverviewStrip({
     runCount,
     summary,
     onRunSummary,
+    notes,
+    onNotesChange,
 }: {
     open: boolean;
     onToggle: () => void;
     runCount: number;
     summary: SummaryState | null;
     onRunSummary: () => void;
+    notes: string;
+    onNotesChange: (value: string) => void;
 }) {
     return (
         <div className="flex-none border-b border-border bg-background">
@@ -114,7 +118,7 @@ export function OverviewStrip({
                 <div className="flex-1" />
                 {!open ? (
                     <span className="truncate text-[11px] text-muted" style={{ maxWidth: 420 }}>
-                        Channel notes — coming soon
+                        {notes.trim() ? notes.trim() : "No notes yet"}
                     </span>
                 ) : null}
             </button>
@@ -124,9 +128,13 @@ export function OverviewStrip({
                         <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-muted">
                             Channel notes
                         </div>
-                        <div className="rounded-[10px] border border-border bg-background px-3 py-2.5 text-[12.5px] leading-[1.6] text-muted opacity-60">
-                            Channel notes — coming soon.
-                        </div>
+                        <textarea
+                            value={notes}
+                            onChange={(e) => onNotesChange(e.target.value)}
+                            placeholder="Notes for this channel…"
+                            rows={4}
+                            className="w-full resize-y rounded-[10px] border border-border bg-background px-3 py-2.5 text-[12.5px] leading-[1.6] text-secondary outline-none focus:border-accent/40"
+                        />
                     </div>
                     <div className="w-[280px] flex-none">
                         <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-muted">

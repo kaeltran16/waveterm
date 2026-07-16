@@ -1044,6 +1044,12 @@ export class RpcApiType {
         return client.wshRpcCall("setchannelmessagepick", data, opts);
     }
 
+    // command "setchannelnotes" [call]
+    SetChannelNotesCommand(client: WshClient, data: CommandSetChannelNotesData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelnotes", data, opts);
+        return client.wshRpcCall("setchannelnotes", data, opts);
+    }
+
     // command "setchannelprofile" [call]
     SetChannelProfileCommand(client: WshClient, data: CommandSetChannelProfileData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchannelprofile", data, opts);

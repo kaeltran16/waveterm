@@ -1038,6 +1038,12 @@ func SetChannelMessagePickCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChann
 	return err
 }
 
+// command "setchannelnotes", wshserver.SetChannelNotesCommand
+func SetChannelNotesCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelNotesData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setchannelnotes", data, opts)
+	return err
+}
+
 // command "setchannelprofile", wshserver.SetChannelProfileCommand
 func SetChannelProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelProfileData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchannelprofile", data, opts)
