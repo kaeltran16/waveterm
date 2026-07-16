@@ -5,9 +5,8 @@
 // These keys are cockpit-local — handled here, not by the global keybinding registry. Extracted from
 // cockpitsurface.tsx as a hook taking a single deps object.
 
-import { globalStore } from "@/app/store/jotaiStore";
 import { type KeyboardEvent, type MutableRefObject } from "react";
-import type { AgentsViewModel, SurfaceKey } from "./agents";
+import type { AgentsViewModel } from "./agents";
 import { canSubmitAsk, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
 
 export type CockpitKeyDeps = {
@@ -60,25 +59,8 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
             return; // typing — let the input own its keys
         }
-        // surface switch: `[` previous / `]` next (rail order). 1–9 are answer keys, so no number jumps.
-        if (e.key === "]" || e.key === "[") {
-            e.preventDefault();
-            const surfaceOrder: SurfaceKey[] = [
-                "cockpit",
-                "agent",
-                "channels",
-                "sessions",
-                "files",
-                "memory",
-                "usage",
-            ];
-            const curSurface = globalStore.get(model.surfaceAtom);
-            const idx = surfaceOrder.indexOf(curSurface);
-            const nextSurface =
-                surfaceOrder[(idx + (e.key === "]" ? 1 : surfaceOrder.length - 1)) % surfaceOrder.length];
-            globalStore.set(model.surfaceAtom, nextSurface);
-            return;
-        }
+        // surface switch (`[`/`]`) now lives in the global keybinding registry (bindings.ts), so it
+        // fires from every surface, not just the cockpit — see docs Pass A (F1/F2).
         const cur = orderedAgents.find((a) => a.id === cursorId);
         if (e.key === "ArrowDown" || e.key === "j") {
             e.preventDefault();

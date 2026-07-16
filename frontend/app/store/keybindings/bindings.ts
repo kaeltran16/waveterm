@@ -7,6 +7,18 @@ import { confirmCloseAgent } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import {
+    appliedAtom,
+    applyReview,
+    decide,
+    decisionsAtom,
+    hunkKey,
+    reviewModelAtom,
+    reviewSelectedAtom,
+    undoLast,
+} from "@/app/view/agents/reviewstore";
+import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { listNavAtom } from "./listnav";
 import type { Binding, KeyContext } from "./types";
 
 const DOUBLE_CTRL_C_MS = 500;
@@ -16,6 +28,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
     { letter: "a", surface: "agent", label: "Agent" },
     { letter: "c", surface: "channels", label: "Channels" },
+    { letter: "r", surface: "radar", label: "Radar" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Files" },
     { letter: "m", surface: "memory", label: "Memory" },
@@ -38,6 +51,17 @@ export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | u
 export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
     let lastCtrlC: number | null = null;
 
+    // `[`/`]` cycle the rail order (SURFACE_ORDER). A surface outside the cycle (settings) enters at an end.
+    const cycleSurface = (delta: number) => {
+        const cur = globalStore.get(model.surfaceAtom);
+        const idx = SURFACE_ORDER.indexOf(cur);
+        const next =
+            idx === -1
+                ? SURFACE_ORDER[delta > 0 ? 0 : SURFACE_ORDER.length - 1]
+                : SURFACE_ORDER[(idx + delta + SURFACE_ORDER.length) % SURFACE_ORDER.length];
+        globalStore.set(model.surfaceAtom, next);
+    };
+
     const surfaceChords: Binding[] = SURFACE_ORDER.slice(0, 8).map((surface, i) => ({
         id: `surface:${surface}`,
         keys: `Ctrl:${i + 1}`,
@@ -58,6 +82,8 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
     return [
         ...surfaceChords,
         ...goBindings,
+        { id: "surface:next", keys: "]", group: "Navigation", label: "Next surface", when: navigate, run: () => cycleSurface(1) },
+        { id: "surface:prev", keys: "[", group: "Navigation", label: "Previous surface", when: navigate, run: () => cycleSurface(-1) },
         {
             id: "palette",
             keys: "Ctrl:p",
@@ -135,6 +161,95 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
     ];
 }
 
+// One shared set of list-cursor bindings for the plain master-detail surfaces. Active only when the
+// mounted surface has published a controller (listnav.ts) for itself and focus is not in a field.
+export function buildListNavBindings(): Binding[] {
+    const active = (ctx: KeyContext): boolean => {
+        if (ctx.editable || ctx.modalOpen) {
+            return false;
+        }
+        const c = globalStore.get(listNavAtom);
+        return c != null && c.surface === ctx.surface;
+    };
+    const move = (delta: number) => {
+        const c = globalStore.get(listNavAtom);
+        if (c == null) {
+            return;
+        }
+        const next = moveCursor(c.navigableIds, c.cursorId, delta);
+        if (next != null) {
+            c.setCursor(next);
+        }
+    };
+    return [
+        { id: "list:next-j", keys: "j", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
+        { id: "list:prev-k", keys: "k", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
+        { id: "list:next", keys: "ArrowDown", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
+        { id: "list:prev", keys: "ArrowUp", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
+    ];
+}
+
+// Files "Review" mode triage keys. Registered by ReviewSurface via useKeybindings, so they exist
+// only while review mode is mounted; run() reads the review atoms live. Folds the former ad-hoc
+// window keydown listener into the registry (F7) — so it now respects the typing-guard.
+export function buildReviewBindings(): Binding[] {
+    const ready = (ctx: KeyContext): boolean =>
+        ctx.surface === "files" &&
+        !ctx.editable &&
+        !ctx.modalOpen &&
+        globalStore.get(reviewModelAtom) != null &&
+        globalStore.get(appliedAtom) == null;
+    const files = () => globalStore.get(reviewModelAtom)?.files ?? [];
+    const nextPending = (): string | undefined => {
+        const sel = globalStore.get(reviewSelectedAtom);
+        const d = globalStore.get(decisionsAtom);
+        const fs = files();
+        const f = fs.find((x) => x.path === sel) ?? fs[0];
+        return f?.hunks.map((h) => hunkKey(f.path, h.id)).find((k) => !d[k]);
+    };
+    const moveSel = (dir: number) => {
+        const fs = files();
+        if (fs.length === 0) {
+            return;
+        }
+        const sel = globalStore.get(reviewSelectedAtom);
+        const i = fs.findIndex((f) => f.path === sel);
+        const ni = Math.max(0, Math.min(fs.length - 1, (i < 0 ? 0 : i) + dir));
+        globalStore.set(reviewSelectedAtom, fs[ni].path);
+    };
+    const decideNext = (val: "accept" | "reject") => {
+        const k = nextPending();
+        if (k == null) {
+            return false; // nothing pending — pass the key through
+        }
+        decide(k, val);
+    };
+    return [
+        { id: "review:accept", keys: "a", group: "Review", label: "Accept next hunk", when: ready, run: () => decideNext("accept") },
+        { id: "review:reject", keys: "r", group: "Review", label: "Reject next hunk", when: ready, run: () => decideNext("reject") },
+        { id: "review:undo", keys: "u", group: "Review", label: "Undo last decision", when: ready, run: () => undoLast() },
+        { id: "review:next", keys: "ArrowDown", group: "Review", label: "Next file", when: ready, run: () => moveSel(1) },
+        { id: "review:next-j", keys: "j", group: "Review", label: "Next file", when: ready, run: () => moveSel(1) },
+        { id: "review:prev", keys: "ArrowUp", group: "Review", label: "Previous file", when: ready, run: () => moveSel(-1) },
+        { id: "review:prev-k", keys: "k", group: "Review", label: "Previous file", when: ready, run: () => moveSel(-1) },
+        {
+            id: "review:apply",
+            keys: "Enter",
+            group: "Review",
+            label: "Apply review",
+            when: ready,
+            run: () => {
+                const d = globalStore.get(decisionsAtom);
+                const pending = files().some((f) => f.hunks.some((h) => !d[hunkKey(f.path, h.id)]));
+                if (pending) {
+                    return false; // still hunks to decide — do not apply
+                }
+                void applyReview();
+            },
+        },
+    ];
+}
+
 const agentNav = (ctx: KeyContext) => navigate(ctx) && ctx.surface === "agent";
 
 // Agent (Focus) surface bindings. Moved out of agentsurface.tsx so the registry has one home
@@ -150,11 +265,21 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     return [
         {
+            id: "subagent:back",
+            keys: "Escape",
+            group: "Agent",
+            label: "Back to parent agent",
+            // fires regardless of editable to preserve the old always-on Escape; mutually exclusive
+            // with agent:back below (both guarded on focusSubagentAtom), so no key conflict.
+            when: (ctx) => ctx.surface === "agent" && globalStore.get(focusSubagentAtom) != null,
+            run: () => globalStore.set(focusSubagentAtom, null),
+        },
+        {
             id: "agent:back",
             keys: "Escape",
             group: "Agent",
             label: "Back to Cockpit (or exit fullscreen)",
-            when: agentNav,
+            when: (ctx) => agentNav(ctx) && globalStore.get(focusSubagentAtom) == null,
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);

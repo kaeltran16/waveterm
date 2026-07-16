@@ -20,16 +20,9 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
         return () => stopTranscriptStream(streamId);
     }, [streamId, sub.transcriptPath]);
 
+    // Esc-to-return lives in the global keybinding registry (subagent:back in bindings.ts) so it
+    // respects the typing-guard and shares one mechanism; the breadcrumb button uses `back` directly.
     const back = () => globalStore.set(focusSubagentAtom, null);
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                back();
-            }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, []);
 
     const entries = useAtomValue(liveEntriesByIdAtom)[streamId] ?? [];
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);

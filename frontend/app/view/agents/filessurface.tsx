@@ -12,7 +12,8 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Copy, Pencil } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine } from "@/app/element/skeleton";
@@ -326,6 +327,23 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             void loadReview(state.cwd);
         }
     }, [mode, state?.cwd]);
+
+    // publish the browse file list for global j/k list-nav; review mode has its own keys
+    // (buildReviewBindings), so withdraw the controller (null) there. cursor==selection: moving
+    // selects the file, which loads its diff. Must run before the early return (hooks rules).
+    const browseNav = useMemo<ListNavController | null>(
+        () =>
+            mode === "browse" && state?.cwd
+                ? {
+                      surface: "files",
+                      navigableIds: filePaths,
+                      cursorId: selected ?? undefined,
+                      setCursor: (path) => fireAndForget(() => selectFile(state.cwd!, path)),
+                  }
+                : null,
+        [mode, state?.cwd, filePaths.join(" "), selected]
+    );
+    useSurfaceListNav(browseNav);
 
     if (agents.length === 0 && projects.length === 0) {
         return (

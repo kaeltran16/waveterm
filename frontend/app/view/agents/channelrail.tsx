@@ -5,6 +5,7 @@
 // attention dot when a channel has a worker waiting on you, and a "+ New channel" action that opens the
 // project picker. Replaces the old top-bar channel pills.
 
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
@@ -50,6 +51,16 @@ export function ChannelRail({
         [channels, query]
     );
     const [showArchived, setShowArchived] = useState(false);
+    // publish the rail's visible channel order for global j/k list-nav (listnav.ts). cursor==selection.
+    const navIds = useMemo(
+        () => [...active, ...(showArchived ? archived : [])].map((c) => c.oid),
+        [active, archived, showArchived]
+    );
+    const listNav = useMemo<ListNavController>(
+        () => ({ surface: "channels", navigableIds: navIds, cursorId: activeId, setCursor: onSelect }),
+        [navIds, activeId, onSelect]
+    );
+    useSurfaceListNav(listNav);
     const [renamingId, setRenamingId] = useState<string | undefined>(undefined);
     const [renameDraft, setRenameDraft] = useState("");
     // when Enter/Escape unmounts the focused rename input, its onBlur can fire and re-commit; this

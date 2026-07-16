@@ -11,9 +11,10 @@ import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { formatAge, formatTokens } from "./agentsviewmodel";
@@ -80,6 +81,17 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const liveCount = live.filter((s) => s.live).length;
     // detail resolves against the full set so a filter chip never blanks the open session.
     const selected = sel === "all" ? undefined : live.find((s) => `${s.runtime}:${s.id}` === sel);
+
+    // publish the "All activity" + grouped-session order for global j/k list-nav. cursor==selection.
+    const navIds = useMemo(
+        () => ["all", ...groups.flatMap((g) => g.items.map((s) => `${s.runtime}:${s.id}`))],
+        [groups]
+    );
+    const listNav = useMemo<ListNavController>(
+        () => ({ surface: "sessions", navigableIds: navIds, cursorId: sel, setCursor: setSel }),
+        [navIds, sel, setSel]
+    );
+    useSurfaceListNav(listNav);
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-background">

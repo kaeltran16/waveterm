@@ -6,17 +6,18 @@
 // applied in a batch (rejected changes reverted). Ported from Wave-diff-review.dc.html; task
 // grouping is v2. State + logic live in reviewstore.ts.
 
-import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
-import { useEffect } from "react";
+import { useMemo } from "react";
 import { MOTION, cardVariants } from "@/app/element/motiontokens";
 import { useSettle } from "@/app/element/motionhooks";
+import { buildReviewBindings } from "@/app/store/keybindings/bindings";
+import { useKeybindings } from "@/app/store/keybindings/store";
 import { parseUnifiedDiff } from "./gitdiff";
 import {
     appliedAtom, applyReview, decide, decideMany, decisionsAtom, fileDecision, hunkKey, progressOf,
-    resetReview, reviewModelAtom, reviewSelectedAtom, undoFile, undoKey, undoLast,
+    resetReview, reviewModelAtom, reviewSelectedAtom, undoFile, undoKey,
     type Decisions, type ReviewFile,
 } from "./reviewstore";
 
@@ -26,35 +27,16 @@ function pendingKeysOf(files: ReviewFile[], d: Decisions): string[] {
     return out;
 }
 
-function moveSel(files: ReviewFile[], selected: string | null, dir: number) {
-    const i = files.findIndex((f) => f.path === selected);
-    const ni = Math.max(0, Math.min(files.length - 1, (i < 0 ? 0 : i) + dir));
-    globalStore.set(reviewSelectedAtom, files[ni].path);
-}
-
 export function ReviewSurface() {
     const model = useAtomValue(reviewModelAtom);
     const d = useAtomValue(decisionsAtom);
     const selected = useAtomValue(reviewSelectedAtom);
     const applied = useAtomValue(appliedAtom);
 
-    // keyboard triage: A accept / R reject next pending in selected file, U undo, arrows move file
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (!model || applied) return;
-            const k = e.key.toLowerCase();
-            const sel = model.files.find((f) => f.path === selected) ?? model.files[0];
-            const nextPending = sel?.hunks.map((h) => hunkKey(sel.path, h.id)).find((kk) => !d[kk]);
-            if (k === "a" && nextPending) { e.preventDefault(); decide(nextPending, "accept"); }
-            else if (k === "r" && nextPending) { e.preventDefault(); decide(nextPending, "reject"); }
-            else if (k === "u") { e.preventDefault(); undoLast(); }
-            else if (e.key === "ArrowDown" || k === "j") { e.preventDefault(); moveSel(model.files, selected, 1); }
-            else if (e.key === "ArrowUp" || k === "k") { e.preventDefault(); moveSel(model.files, selected, -1); }
-            else if (e.key === "Enter" && pendingKeysOf(model.files, d).length === 0) { e.preventDefault(); void applyReview(); }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [model, d, selected, applied]);
+    // Triage keys (a/r/u, j/k/arrows, Enter) live in the global registry (buildReviewBindings), so
+    // they respect the typing-guard and share one mechanism. Registered only while review is mounted.
+    const reviewBindings = useMemo(() => buildReviewBindings(), []);
+    useKeybindings(reviewBindings);
 
     if (!model) return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">Loading…</div>;
     if (model.files.length === 0) return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">No changes to review</div>;

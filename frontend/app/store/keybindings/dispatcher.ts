@@ -45,6 +45,7 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(model.paletteOpenAtom) ||
         globalStore.get(model.newAgentOpenAtom) ||
         globalStore.get(model.newProjectOpenAtom) ||
+        globalStore.get(model.memNewOpenAtom) ||
         globalStore.get(modalsModel.modalsAtom).length > 0;
     return {
         surface: globalStore.get(model.surfaceAtom),

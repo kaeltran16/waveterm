@@ -9,6 +9,7 @@ import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { getSettingsKeyAtom } from "@/app/store/global";
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn, fireAndForget } from "@/util/util";
@@ -122,6 +123,19 @@ function ListView({
     mountedEmpty: boolean;
 }) {
     const groups = groupByScope(notes);
+    // publish the grouped note order for global j/k list-nav (list view only — this component is not
+    // mounted in graph view, so the controller withdraws there). cursor==selection.
+    const navIds = useMemo(() => groups.flatMap((g) => g.items.map((n) => n.id)), [groups]);
+    const listNav = useMemo<ListNavController>(
+        () => ({
+            surface: "memory",
+            navigableIds: navIds,
+            cursorId: selectedId ?? undefined,
+            setCursor: (id) => fireAndForget(() => selectNote(id)),
+        }),
+        [navIds, selectedId]
+    );
+    useSurfaceListNav(listNav);
     return (
         <motion.div
             initial={mountedEmpty ? { opacity: 0 } : false}
@@ -498,7 +512,12 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     // cached re-entry mounts non-empty and the reveal is suppressed (mirrors Sessions/Activity).
     const [mountedEmpty] = useState(() => notes.length === 0);
     const rp = reflowProps(reflowAnimated);
-    const [newOpen, setNewOpen] = useState(false);
+    // modal-open lives on the model (not local state) so the keybinding dispatcher sees it as modalOpen.
+    const newOpen = useAtomValue(model.memNewOpenAtom);
+    const setNewOpen = (v: boolean) => globalStore.set(model.memNewOpenAtom, v);
+    // reset on unmount: this surface remounts on re-entry, and the flag lives on the (persistent) model.
+    // a mouse-switch away while the modal is open would otherwise leave modalOpen stuck -> global nav frozen.
+    useEffect(() => () => globalStore.set(model.memNewOpenAtom, false), []);
 
     // Resolve the focused agent's cwd so new notes land in that project's Claude hub (mirrors
     // FilesSurface). Null when no agent is focused -> authoring falls back to the dedicated vault.

@@ -3,7 +3,8 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
-import { buildAgentBindings, buildGlobalBindings } from "./bindings";
+import { buildAgentBindings, buildGlobalBindings, buildListNavBindings, buildReviewBindings } from "./bindings";
+import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
 import type { Binding, KeyContext, SurfaceKey } from "./types";
 
@@ -16,6 +17,7 @@ const SURFACES: SurfaceKey[] = [
     "cockpit",
     "agent",
     "channels",
+    "radar",
     "sessions",
     "files",
     "memory",
@@ -84,6 +86,27 @@ describe("keybinding conflict invariant", () => {
     it("global + agent-surface bindings do not conflict", () => {
         const model = {} as any; // build() reads no atoms; run()/when() do, and are not called here
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildAgentBindings(model)])).not.toThrow();
+    });
+
+    it("global + list-nav (controller active on a plain surface) has no key conflicts", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, { surface: "channels", navigableIds: [], cursorId: undefined, setCursor() {} });
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings()])).not.toThrow();
+        globalStore.set(listNavAtom, null);
+    });
+
+    it("global + list-nav + agent bindings do not conflict (no controller)", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        expect(() =>
+            assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)])
+        ).not.toThrow();
+    });
+
+    it("global + review bindings (files review mode) do not conflict", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildReviewBindings()])).not.toThrow();
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {
