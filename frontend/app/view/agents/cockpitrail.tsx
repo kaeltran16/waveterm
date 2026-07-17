@@ -7,12 +7,12 @@
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import type { AgentsViewModel } from "./agents";
-import { formatAge, formatReset, formatTokens, usageLevel } from "./agentsviewmodel";
-import { InlineMarkdown } from "./inlinemarkdown";
+import { formatReset, formatTokens, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { ICON } from "./navrail";
 import { mergeRateLimitWindows } from "./ratelimitstore";
-import { buildRecentActivity } from "./recentactivity";
+import { RecentActivityRail } from "./recentactivityrail";
 import { RollingCount } from "./rollingcount";
 import { type WindowTokens } from "./windowtokenstore";
 
@@ -23,13 +23,6 @@ const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", war
 // brand colors, kept here as the single source.
 const PROVIDER_DOT: Record<string, string> = { claude: "bg-provider-claude", codex: "bg-provider-codex" };
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
-
-// recent-activity dot color by agent state (matches the in-view StatusDot palette)
-const RECENT_DOT: Record<string, string> = {
-    asking: "var(--color-warning)",
-    working: "var(--color-accent)",
-    idle: "var(--color-muted)",
-};
 
 // One plan window as a full-width handoff bar: label + pct + bar + (real used tokens) + reset
 // countdown. A null pct (API-key auth, or a window not yet reported) renders nothing. `used` is
@@ -77,15 +70,16 @@ export function CockpitRail({
     model,
     usageDonuts,
     windowTokens,
-    recent,
-    now,
+    agents,
 }: {
     model: AgentsViewModel;
     usageDonuts: ReturnType<typeof mergeRateLimitWindows>;
     windowTokens: WindowTokens | null;
-    recent: ReturnType<typeof buildRecentActivity>;
-    now: number;
+    agents: AgentVM[];
 }) {
+    // Self-source the 1s tick here (was prop-drilled from CockpitSurface) so the usage reset
+    // countdown stays live without the surface re-rendering the agent grid every second.
+    const now = useAtomValue(model.nowAtom);
     return (
         <CollapsibleRail
             openAtom={model.railOpenAtom}
@@ -143,58 +137,14 @@ export function CockpitRail({
                         </div>
                     ),
                 },
-                ...(recent.length > 0
-                    ? [
-                          {
-                              id: "recent-activity",
-                              label: "Recent activity",
-                              icon: ICON.sessions,
-                              content: (
-                                  <div>
-                                      <div className="mb-3 flex items-center justify-between">
-                                          <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
-                                              Recent activity
-                                          </h3>
-                                          <button
-                                              type="button"
-                                              onClick={() => globalStore.set(model.surfaceAtom, "sessions")}
-                                              className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent"
-                                          >
-                                              View all →
-                                          </button>
-                                      </div>
-                                      <div className="flex flex-col">
-                                          {recent.map((e) => (
-                                              <div
-                                                  key={e.id}
-                                                  className="flex gap-[11px] border-b border-border py-[9px]"
-                                              >
-                                                  <span
-                                                      className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
-                                                      style={{ backgroundColor: RECENT_DOT[e.state] }}
-                                                  />
-                                                  <div className="min-w-0 flex-1">
-                                                      <div className="text-[12px] leading-[1.4] text-secondary">
-                                                          <span className="font-mono font-semibold text-primary">
-                                                              {e.agent}
-                                                          </span>{" "}
-                                                          <InlineMarkdown text={e.text} />
-                                                      </div>
-                                                      <div className="mt-[3px] font-mono text-[10px] text-muted">
-                                                          {e.typeLabel} ·{" "}
-                                                          {now - e.ts < 60_000
-                                                              ? "just now"
-                                                              : `${formatAge(now - e.ts)} ago`}
-                                                      </div>
-                                                  </div>
-                                              </div>
-                                          ))}
-                                      </div>
-                                  </div>
-                              ),
-                          } as RailSection,
-                      ]
-                    : []),
+                {
+                    id: "recent-activity",
+                    label: "Recent activity",
+                    icon: ICON.sessions,
+                    // Self-subscribing leaf: reads the whole-map transcript atoms + nowAtom itself, so a
+                    // stream chunk or the 1s tick re-renders only it (renders null when there's none).
+                    content: <RecentActivityRail agents={agents} model={model} />,
+                } as RailSection,
             ]}
         />
     );

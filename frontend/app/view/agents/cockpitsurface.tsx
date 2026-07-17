@@ -39,11 +39,9 @@ import { HelpOverlay, HintsBar } from "./cockpithelp";
 import { RollingCount } from "./rollingcount";
 import { useCardResize } from "./usecardresize";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
-import { lastActivityByIdAtom, liveEntriesByIdAtom } from "./livetranscript";
 import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
-import { buildRecentActivity, RECENT_ACTIVITY_LIMIT } from "./recentactivity";
 import { SectionHeader } from "./sectionheader";
 import { loadWindowTokens, windowTokensAtom } from "./windowtokenstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -86,8 +84,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const answeredAsks = answeredAskORefsAcross(channels ?? []);
     const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
 
-    // 1s tick so the liveness cue (age / quiet) stays current; drives the model's nowAtom
-    const now = useAtomValue(model.nowAtom);
+    // `now` feeds structural computations below (usage-window rollover, the idle-grace window, and which
+    // transcripts stay streamed). Read it NON-reactively: subscribing would re-render the whole surface
+    // (and its agent grid) every second. The 1s writer stays (below); the live "age/quiet" cues that need
+    // per-second precision now live in self-subscribing leaves (QuietDot, RecentActivityRail, CockpitRail).
+    // These structural values tolerate <=1s staleness and refresh on the next real re-render (agent status,
+    // prefs, cursor, etc.).
+    const now = globalStore.get(model.nowAtom);
     // Rate-limit windows are account-scoped, not per-agent: collapse every agent's live reading to one
     // block per provider (last live wins), merged over the saved snapshot so it survives idle — the
     // same aggregation the full Usage surface uses.
@@ -163,9 +166,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const sentIds = useAtomValue(model.sentIdsAtom);
     const chip = useAtomValue(model.chipFilterAtom);
     const setChip = (c: ChipFilter) => globalStore.set(model.chipFilterAtom, c);
-    const recentEntriesById = useAtomValue(liveEntriesByIdAtom);
-    const recentLastActivityById = useAtomValue(lastActivityByIdAtom);
-    const recent = buildRecentActivity(agents, recentEntriesById, recentLastActivityById, RECENT_ACTIVITY_LIMIT, now);
 
     const [showHelp, setShowHelp] = useState(false);
     const [pulseId, setPulseId] = useState<string>();
@@ -311,7 +311,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             <AgentRow
                 key={a.id}
                 agent={a}
-                now={now}
+                nowAtom={model.nowAtom}
                 rect={rect}
                 xMV={g.x}
                 yMV={g.y}
@@ -501,7 +501,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 {!empty ? <HintsBar onOpenHelp={() => setShowHelp(true)} /> : null}
             </div>
 
-            <CockpitRail model={model} usageDonuts={usageDonuts} windowTokens={windowTokens} recent={recent} now={now} />
+            <CockpitRail model={model} usageDonuts={usageDonuts} windowTokens={windowTokens} agents={agents} />
             {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
         </MotionConfig>

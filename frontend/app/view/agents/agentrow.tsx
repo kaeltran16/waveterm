@@ -3,12 +3,12 @@
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtomValue, type Atom } from "jotai";
 import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
 import { Copy, GitCompare, Minimize2, PanelRight, Scaling, SquareTerminal, X } from "lucide-react";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { confirmCloseAgent } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
@@ -18,6 +18,7 @@ import {
     nextFullWidth,
     projectOf,
     taskProgress,
+    type AgentState,
     type AgentVM,
     type CardRect,
     type CardTask,
@@ -156,9 +157,19 @@ function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void 
     );
 }
 
-export function AgentRow({
+// Header liveness dot as a self-subscribing leaf: reads the 1s nowAtom + this agent's last-activity
+// stamp itself, so the tick re-renders only this dot (quiet flips at the 45s threshold) instead of the
+// whole card. Was `isQuiet(lastActivity, now)` computed in AgentRow from a prop-drilled `now`.
+function QuietDot({ nowAtom, agentId, state }: { nowAtom: Atom<number>; agentId: string; state: AgentState }) {
+    const now = useAtomValue(nowAtom);
+    const stamp = useAtomValue(activityAtomFor(agentId));
+    const quiet = isQuiet(stamp, now);
+    return <StatusDot state={state} quiet={quiet} pulse={state !== "idle" && !quiet} className="!h-2 !w-2" />;
+}
+
+export const AgentRow = memo(function AgentRow({
     agent,
-    now,
+    nowAtom,
     isCursor,
     selections,
     texts,
@@ -191,7 +202,7 @@ export function AgentRow({
     onToggleFullWidth,
 }: {
     agent: AgentVM;
-    now: number;
+    nowAtom: Atom<number>;
     isCursor: boolean;
     selections: Record<number, Set<number>>;
     texts: Record<number, string>;
@@ -251,10 +262,8 @@ export function AgentRow({
     const [tasksOpen, setTasksOpen] = useState(false);
 
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
-    const lastActivityStamp = useAtomValue(activityAtomFor(agent.id));
     const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
-    const quiet = isQuiet(lastActivityStamp, now);
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
     const asking = agent.state === "asking";
@@ -357,7 +366,7 @@ export function AgentRow({
         >
             {/* header bar */}
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
-                <StatusDot state={agent.state} quiet={quiet} pulse={!idle && !quiet} className="!h-2 !w-2" />
+                <QuietDot nowAtom={nowAtom} agentId={agent.id} state={agent.state} />
                 <span
                     title={rt.label}
                     className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}
@@ -608,5 +617,5 @@ export function AgentRow({
             ) : null}
         </motion.div>
     );
-}
+});
 
