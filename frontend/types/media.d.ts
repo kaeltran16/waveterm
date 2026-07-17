@@ -270,13 +270,17 @@ declare interface WindowEventMap {
     "vite:preloadError": VitePreloadErrorEvent;
 }
 
-// import.meta.glob / import.meta.env — provided by Vite at build time
+// import.meta.glob / import.meta.env / import.meta.hot — provided by Vite at build time
 interface ImportMeta {
     readonly env: {
         readonly DEV: boolean;
         readonly PROD: boolean;
         readonly MODE: string;
         readonly [key: string]: unknown;
+    };
+    // undefined in production builds (HMR is dev-only)
+    readonly hot?: {
+        dispose(cb: (data: unknown) => void): void;
     };
     glob<T = Record<string, unknown>>(
         pattern: string | string[],

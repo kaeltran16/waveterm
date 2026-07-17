@@ -8,7 +8,7 @@
 // the generator, which cancels the backend ctx and tears down the fsnotify watcher.
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { addWSReconnectHandler } from "@/app/store/ws";
+import { addWSReconnectHandler, removeWSReconnectHandler } from "@/app/store/ws";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -104,8 +104,7 @@ export function restartActiveStreams(): void {
     }
 }
 
-let reconnectRegistered = false;
-if (!reconnectRegistered) {
-    reconnectRegistered = true;
-    addWSReconnectHandler(restartActiveStreams);
+addWSReconnectHandler(restartActiveStreams);
+if (import.meta.hot) {
+    import.meta.hot.dispose(() => removeWSReconnectHandler(restartActiveStreams));
 }
