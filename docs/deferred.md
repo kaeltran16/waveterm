@@ -67,6 +67,23 @@ a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE
   projection or capped `lines` window; window/cap + `useMemo` the timeline; consolidate/lower the tickers;
   drop stopped ids. Effort M (recommend a CDP/React-DevTools profiler pass on a populated cockpit via
   `scripts/inject-live-agents.mjs` before committing to the refactor).
+- **S1/S2 residue (post-implementation, 2026-07-17).** The slice shipped: S1 client stream restart on WS
+  reconnect + server-side `WshRpc.CancelRequestsForLink` (reaps the leaked goroutine + fsnotify watcher on
+  connection teardown); S2 per-id `atomFamily`/`selectAtom` slices with drop-on-stop, memoized `AgentRow`/
+  `MarkdownMessage`/`groupTimeline`, capped narration render (`TIMELINE_RENDER_CAP`) + bounded projection
+  window (`MAX_RETAINED_LINES`), and a single always-mounted `NowTicker` replacing three per-surface 1s
+  intervals. Two follow-ups remain:
+  - **Per-card-unmount-while-connected still leaks the server watcher.** The client's `gen.return()` on unmount
+    sends no wire cancel, and `WshRpc.cancelRequest` only flips a bool (`wshrpc.go:266-277`) without cancelling
+    the request ctx — so a card unmounted while the websocket stays up leaks its `streamTranscript` goroutine +
+    fsnotify watcher until the connection drops (when `CancelRequestsForLink` reaps it) or the 1-year timeout
+    fires. A durable fix needs `cancelRequest` to cancel the ctx AND the client to emit a wire cancel on
+    `gen.return()`; that changes shared RPC-cancellation semantics (higher blast radius), so it was left out of
+    this slice.
+  - **Incremental stateful projection** remains a future option if the capped re-project (`MAX_RETAINED_LINES`
+    window, re-run in full per chunk) still profiles hot on a populated cockpit. The cap already makes per-chunk
+    cost O(window) not O(session); a stateful projector would make it O(chunk) — worth building only if the
+    bounded re-project shows up in a profile.
 
 ### Theme 3 — Ask-channel correctness (backend)
 
