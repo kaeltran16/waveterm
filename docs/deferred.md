@@ -65,41 +65,24 @@ accepts only `pipeline|orchestrator`, so `@quick` maps to the existing dispatch 
 dispatch record) — a bare worker-tab that surfaces in the **Fleet here** rail, not the run strip. A real
 one-phase Run object (which would give Quick its own run-strip tab + `Q` badge) is a backend follow-up.
 
-## Backend legacy cleanup — deferred removals (2026-07-13)
+## Backend legacy cleanup — deferred removals (2026-07-13) — RESOLVED 2026-07-17
 
-Deferred out of the backend legacy-cleanup effort (`0cb4e42d`..`508b96aa` on `main`; plan
-`docs/superpowers/plans/2026-07-13-backend-legacy-cleanup.md`). The cleanup removed dead
-Electron-/multi-block-era backend code, but three targets were **held back** — each is either a
-live subsystem or an ambiguous call that needs a deliberate decision, not mechanical deletion.
+All three held-back targets were retired by the builder/tsunami retirement (`e568a2b3` +
+`53acb8a5` on `main`; plan `docs/superpowers/plans/2026-07-16-tsunami-builder-retirement.md`):
 
-1. **Tsunami block controller** — the plan (Task 4) listed `pkg/blockcontroller/tsunamicontroller.go`
-   + its dispatch case + the `BlockController_Tsunami` const for removal. **Not removed:** it is a
-   **live subsystem**, not dead code. `MakeTsunamiController` is reachable via the controller dispatch
-   in `blockcontroller.go` (`controller:"tsunami"`), the Wave AI tools integrate tsunami blocks
-   (`pkg/aiusechat/tools.go` — `generateToolsForTsunamiBlock`, `handleTsunamiBlockDesc`), and
-   `pkg/buildercontroller` + `pkg/waveapp` host tsunami "widget apps". No cockpit UI currently *creates*
-   a tsunami block (the view was dropped in the Phase-5b teardown), but the builder/AI path can.
-   - **To resume:** decide whether the builder/tsunami widget-app path is a supported feature. If it's
-     being retired, remove tsunamicontroller + buildercontroller + waveapp + the aiusechat tsunami tool
-     integration together (one coherent slice). If it stays, leave as-is.
+1. **Tsunami block controller** + `buildercontroller`/`waveapp`/`waveapputil`/`tsunamiutil`/
+   `waveappstore` + the aiusechat builder mode + the builder wshrpc surface + `OType_Builder` +
+   the `tsunami/` module — removed in full. The widget-app path was retired, not kept
+   (`builderMode` was always false in the cockpit).
+2. **`WAVETERM_ELECTRONEXECPATH`** / `GetWaveAppElectronExecPath` — removed alongside #1's consumers.
+3. **The ten `window:*` / `app:*` config keys** (`window:{zoom,opacity,blur,dimensions,`
+   `savelastwindow,fullscreenonlaunch,maxtabcachesize}`, `app:{globalhotkey,confirmquit,tabbar}`)
+   — removed after grep-confirming zero readers.
 
-2. **`WAVETERM_ELECTRONEXECPATH`** (`pkg/wavebase/wavebase.go`, `GetWaveAppElectronExecPath`) — the
-   plan (Task 5) flagged it for possible removal. **Left in place:** still consumed by
-   `buildercontroller.go` **and** `tsunamicontroller.go` (deferred item #1). Tied to the tsunami/builder
-   decision — resolve together with #1. Nothing in `src-tauri/` exports the env var.
-
-3. **Ambiguous `window:*` / `app:*` config keys** — the plan (Task 6) listed these for possible
-   removal, but they have **zero readers today yet plausibly belong to Tauri window management** that
-   isn't wired yet, so they were kept per "when unsure, leave it": `window:zoom`, `window:opacity`,
-   `window:blur`, `window:dimensions`, `window:savelastwindow`, `window:fullscreenonlaunch`,
-   `window:maxtabcachesize`, `app:globalhotkey`, `app:confirmquit`, `app:tabbar` (the last ships a
-   default in `defaultconfig/settings.json`). Only the three unambiguous Electron-native-chrome keys
-   (`window:showmenubar`, `window:nativetitlebar`, `window:disablehardwareacceleration`) were removed.
-   - **To resume:** when Tauri window-management settings are designed, either wire these keys to real
-     behavior or remove them as part of that decision. NB: the plan's "dead" list was **wrong** on
-     `autoupdate:*` (enabled/channel are read by Go telemetry → wcloud diagnostic ping) and on the
-     `NumWindows`/`NumTabs` telemetry fields (populated by `DBGetCount` in `main-server`); those were
-     verified-live and kept. Grep-verify before removing any config key or telemetry field.
+NB (still valid, outlives this deferral): the original plan's "dead" list was **wrong** on
+`autoupdate:{enabled,channel}` (read by Go telemetry → wcloud diagnostic ping) and on the
+`NumWindows`/`NumTabs` telemetry fields (populated by `DBGetCount` in `main-server`) — those are
+live. Grep-verify before removing any config key or telemetry field.
 
 ## Repo Radar — "Start investigation" handoff composer (2026-07-11)
 
