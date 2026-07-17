@@ -434,6 +434,9 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
     );
 }
 
+// grouped items kept in the DOM; card is stick-to-bottom so off-screen history is safe to drop
+const TIMELINE_RENDER_CAP = 200;
+
 export function NarrationTimeline({
     entries,
     accentLatest,
@@ -447,6 +450,7 @@ export function NarrationTimeline({
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
     const items = useMemo(() => groupTimeline(entries), [entries]);
+    const visibleItems = items.length > TIMELINE_RENDER_CAP ? items.slice(items.length - TIMELINE_RENDER_CAP) : items;
     const copyMenu = (text: string) => (e: React.MouseEvent) =>
         ContextMenuModel.getInstance().showContextMenu(
             [
@@ -471,7 +475,7 @@ export function NarrationTimeline({
     return (
         <div className={cn("leading-relaxed", className)}>
             <AnimatePresence initial={false}>
-            {items.map((item, idx) => {
+            {visibleItems.map((item, idx) => {
                 if (item.kind === "message") {
                     return (
                         <motion.div
@@ -569,7 +573,7 @@ export function NarrationTimeline({
                 if (item.kind === "edit-burst") {
                     return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
                 }
-                const isTrailing = idx === items.length - 1;
+                const isTrailing = idx === visibleItems.length - 1;
                 const mode = burstRenderMode({ userOpened: expanded.has(item.startIndex), autoOpen: !!active && isTrailing });
                 if (mode !== "collapsed") {
                     const lines = item.actions.map((action, k) => (
