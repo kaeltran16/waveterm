@@ -22,16 +22,28 @@ import {
     buildSessionViewModel,
     cwdToServiceLabel,
     cycleTarget,
+    findSessionTermBlock,
     flattenVisualOrder,
     needsYouTarget,
     reorderWithinGroup,
     subagentExpanded,
     waitingTarget,
+    type ResolvedSessionBlock,
     type SessionInput,
     type SessionStatus,
+    type SessionTermBlock,
     type SidebarViewModel,
     type SubagentVM,
 } from "./sessionviewmodel";
+
+/** Resolve a tab's block ids to block objects. Only resolves ids — the identity predicate lives in
+ *  findSessionTermBlock so all sites share one rule. */
+function resolveTabBlocks(
+    tab: Tab | null | undefined,
+    readBlock: (blockId: string) => Block | null | undefined
+): ResolvedSessionBlock[] {
+    return (tab?.blockids ?? []).map((blockId) => ({ blockId, block: readBlock(blockId) }));
+}
 
 /** Derived: collect per-tab data reactively and build the grouped view model. */
 export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
@@ -44,20 +56,18 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
         const tab = get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
         const badges = get(getTabBadgeAtom(tabId));
 
-        let cwd: string | undefined;
-        let termBlockId: string | undefined;
-        let isAgentsTab = false;
-        for (const blockId of tab?.blockids ?? []) {
-            const block = get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
-            if (block?.meta?.view === "agents") {
-                isAgentsTab = true;
-            }
-            if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
-                cwd = block.meta["cmd:cwd"];
-                termBlockId = blockId;
-                break;
-            }
-        }
+        const blocks = resolveTabBlocks(tab, (blockId) =>
+            get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)))
+        );
+        const termBlock = findSessionTermBlock(blocks);
+        const scannedBlocks =
+            termBlock == null
+                ? blocks
+                : blocks.slice(0, blocks.findIndex(({ blockId }) => blockId === termBlock.blockId) + 1);
+        // preserve the prior loop's break at the first session terminal: blocks after it don't set isAgentsTab
+        const isAgentsTab = scannedBlocks.some(({ block }) => block?.meta?.view === "agents");
+        const cwd = termBlock?.cwd;
+        const termBlockId = termBlock?.blockId;
 
         const badgeStatus = badgeToStatus(badges?.[0]);
         let status: SessionStatus = badgeStatus;
@@ -110,12 +120,11 @@ export const sessionCwdsAtom = atom<string[]>((get) => {
     const cwds: string[] = [];
     for (const tabId of tabIds) {
         const tab = get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
-        for (const blockId of tab?.blockids ?? []) {
-            const block = get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
-            if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
-                cwds.push(block.meta["cmd:cwd"]);
-                break;
-            }
+        const termBlock = findSessionTermBlock(
+            resolveTabBlocks(tab, (blockId) => get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId))))
+        );
+        if (termBlock != null) {
+            cwds.push(termBlock.cwd);
         }
     }
     return cwds;
@@ -201,13 +210,15 @@ export function findActiveSessionTermBlock(): { blockId: string; cwd: string } |
         return undefined;
     }
     const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", activeId)));
-    for (const blockId of tab?.blockids ?? []) {
-        const block = globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
-        if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
-            return { blockId, cwd: block.meta["cmd:cwd"] };
-        }
+    const termBlock = findSessionTermBlock(
+        resolveTabBlocks(tab, (blockId) =>
+            globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)))
+        )
+    );
+    if (termBlock == null) {
+        return undefined;
     }
-    return undefined;
+    return { blockId: termBlock.blockId, cwd: termBlock.cwd };
 }
 
 /** The active tab's loom block id (the one stamped with app:loom), if open. */
@@ -228,15 +239,13 @@ export function findActiveLoomBlockId(): string | undefined {
 }
 
 /** Resolve a tab's terminal block (the session block) — same rule the sidebar groups on. */
-function findSessionTermBlock(tabId: string): { blockId: string; meta: Record<string, any> } | undefined {
+function resolveSessionTermBlock(tabId: string): SessionTermBlock | undefined {
     const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
-    for (const blockId of tab?.blockids ?? []) {
-        const block = globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)));
-        if (block?.meta?.view === "term" && block.meta["cmd:cwd"]) {
-            return { blockId, meta: block.meta };
-        }
-    }
-    return undefined;
+    return findSessionTermBlock(
+        resolveTabBlocks(tab, (blockId) =>
+            globalStore.get(WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", blockId)))
+        )
+    );
 }
 
 /** Reorder a session within its group by rewriting the workspace tab order (shared with the tab bar).
@@ -281,7 +290,7 @@ export function closeGroup(label: string, memberIds: string[]) {
  *  plus focusIdAtom/surfaceAtom so its terminal mounts and the controller starts. The cockpit renders
  *  agents in-place via the focus pane, so the old setActiveTab path is a dead no-op stub under Tauri. */
 export function duplicateSession(model: AgentsViewModel, sourceTabId: string) {
-    const source = findSessionTermBlock(sourceTabId);
+    const source = resolveSessionTermBlock(sourceTabId);
     if (source == null) {
         return;
     }

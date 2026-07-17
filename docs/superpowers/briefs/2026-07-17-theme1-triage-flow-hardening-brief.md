@@ -1,7 +1,8 @@
 # Design brief — Theme 1: Triage-flow hardening
 
 **Date:** 2026-07-17
-**Status:** Design approved (brief) — ready for a downstream agent to write spec + plan and execute
+**Status:** SHIPPED 2026-07-17 — all five fixes (T1, T2, T4, C1, C2) implemented; T3 declined. Plan:
+`docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
 **Source:** Net-new improvement scan, `docs/deferred.md` §"Net-new improvement scan (2026-07-17)" Theme 1
 **Handoff:** This brief is a resolved design-decision record, not the formal spec. A downstream agent
 expands it into `docs/superpowers/specs/` + `docs/superpowers/plans/` and implements it.

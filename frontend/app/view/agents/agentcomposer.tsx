@@ -9,6 +9,12 @@ import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } fr
 const ComposerMinH = 64; // ~3 lines at 12px
 const ComposerMaxH = 160; // grows up to here, then the textarea scrolls
 
+/** Pure: a composer can send only with non-empty text AND a live terminal block. Shared by send(), the
+ *  Enter guard, and the button's disabled state so all three agree (T4). */
+export function canSendComposer(text: string, blockId?: string): boolean {
+    return text.trim() !== "" && blockId != null;
+}
+
 export interface AgentComposerHandle {
     fill: (text: string) => void;
 }
@@ -45,12 +51,14 @@ export const AgentComposer = forwardRef<
         el.style.height = `${Math.min(Math.max(el.scrollHeight, ComposerMinH), ComposerMaxH)}px`;
     }, [text]);
     const send = () => {
-        const t = text.trim();
-        if (!t || !blockId) {
+        if (!canSendComposer(text, blockId)) {
             return;
         }
         fireAndForget(() =>
-            RpcApi.ControllerInputCommand(TabRpcClient, { blockid: blockId, inputdata64: stringToBase64(t + "\r") })
+            RpcApi.ControllerInputCommand(TabRpcClient, {
+                blockid: blockId!,
+                inputdata64: stringToBase64(text.trim() + "\r"),
+            })
         );
         setText("");
     };
@@ -75,7 +83,7 @@ export const AgentComposer = forwardRef<
             <button
                 type="button"
                 onClick={send}
-                disabled={!text.trim() || !blockId}
+                disabled={!canSendComposer(text, blockId)}
                 className="shrink-0 cursor-pointer rounded-[5px] border border-border px-2.5 py-1 text-[11px] text-secondary hover:bg-white/[0.04] disabled:opacity-40"
             >
                 Send

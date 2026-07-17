@@ -4,7 +4,7 @@
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
@@ -45,8 +45,41 @@ function usePrunePendingLaunches(model: AgentsViewModel) {
     }, [ws?.tabids, base, pending, model]);
 }
 
+// Delete one agent's entry from a per-agent record atom (no-op if absent).
+function deleteKey<T>(atomRef: PrimitiveAtom<Record<string, T>>, id: string) {
+    const prev = globalStore.get(atomRef);
+    if (!(id in prev)) {
+        return;
+    }
+    const next = { ...prev };
+    delete next[id];
+    globalStore.set(atomRef, next);
+}
+
+// Resets an agent's answer drafts (selection/text/tab) when its ask identity (askId) changes, so a fresh
+// ask never inherits the previous ask's drafts (T1). Lives in the always-mounted shell so it fires on any
+// surface that answers asks (cockpit grid AND Channels rows), not just when the cockpit is open. The first
+// sighting of an ask clears nothing (drafts are already empty) and just records the id.
+function useResetAnswerDraftsOnAskChange(model: AgentsViewModel) {
+    const agents = useAtomValue(model.agentsAtom);
+    const seenRef = useRef<Map<string, string>>(new Map());
+    const asks = agents.flatMap((a) => (a.ask?.askId != null ? [{ id: a.id, askId: a.ask.askId }] : []));
+    useEffect(() => {
+        for (const { id, askId } of asks) {
+            if (seenRef.current.get(id) === askId) {
+                continue;
+            }
+            seenRef.current.set(id, askId);
+            deleteKey(model.answerSelAtom, id);
+            deleteKey(model.answerTextAtom, id);
+            deleteKey(model.answerTabAtom, id);
+        }
+    }, [asks.map((a) => `${a.id}:${a.askId}`).join(",")]);
+}
+
 export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     usePrunePendingLaunches(model);
+    useResetAnswerDraftsOnAskChange(model);
     // prime the channel snapshot at boot so the nav-rail needs-you badge + Cockpit counters dedup
     // correctly even before the Channels surface is first opened.
     useEffect(() => {

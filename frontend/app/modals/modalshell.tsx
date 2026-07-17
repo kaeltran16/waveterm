@@ -13,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 interface ModalShellProps {
     open: boolean;
     onClose: () => void; // Esc + (optional) backdrop click
+    onSubmit?: () => void; // Cmd/Ctrl+Enter primary action; no-op when unset
     className?: string; // panel width / max-height, per modal
     topClass?: string; // backdrop top offset; default pt-[11vh]
     dismissOnBackdrop?: boolean; // default true
@@ -22,6 +23,7 @@ interface ModalShellProps {
 export function ModalShell({
     open,
     onClose,
+    onSubmit,
     className,
     topClass = "pt-[11vh]",
     dismissOnBackdrop = true,
@@ -34,11 +36,14 @@ export function ModalShell({
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape") {
                 onClose();
+            } else if (onSubmit && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                onSubmit();
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [open, onClose]);
+    }, [open, onClose, onSubmit]);
 
     return (
         <MotionConfig reducedMotion="user">

@@ -674,6 +674,13 @@ export function hasAnswerableAsk(agent: AgentVM): boolean {
     return (agent.ask?.questions?.length ?? 0) > 0;
 }
 
+/** Pure: the identity of an agent's *current ask* — the stable per-ask id, NOT the block oref (which is
+ *  reused across successive asks from the same block). Single source for "which ask was answered", so a
+ *  second ask from the same agent is never locked by the first. Undefined when the agent is not asking. */
+export function askSentKey(agent: AgentVM): string | undefined {
+    return agent.ask?.askId;
+}
+
 /** Pure: a working agent is "quiet" when no new narration has arrived for thresholdMs. */
 export function isQuiet(lastActivityMs: number | undefined, now: number, thresholdMs = 45_000): boolean {
     return lastActivityMs != null && now - lastActivityMs > thresholdMs;

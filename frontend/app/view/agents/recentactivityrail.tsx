@@ -23,7 +23,15 @@ const RECENT_DOT: Record<string, string> = {
 
 // Renders null when there's no recent activity, so CockpitRail's section stays visually empty
 // exactly as before (the section header/list only appears when there is something to show).
-export function RecentActivityRail({ agents, model }: { agents: AgentVM[]; model: AgentsViewModel }) {
+export function RecentActivityRail({
+    agents,
+    model,
+    onSelectAgent,
+}: {
+    agents: AgentVM[];
+    model: AgentsViewModel;
+    onSelectAgent: (id: string) => void;
+}) {
     const now = useAtomValue(model.nowAtom);
     const entriesById = useAtomValue(liveEntriesByIdAtom);
     const lastActivityById = useAtomValue(lastActivityByIdAtom);
@@ -47,7 +55,12 @@ export function RecentActivityRail({ agents, model }: { agents: AgentVM[]; model
             </div>
             <div className="flex flex-col">
                 {recent.map((e) => (
-                    <div key={e.id} className="flex gap-[11px] border-b border-border py-[9px]">
+                    <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => onSelectAgent(e.id)}
+                        className="flex w-full gap-[11px] border-b border-border py-[9px] text-left hover:bg-white/[0.03]"
+                    >
                         <span
                             className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
                             style={{ backgroundColor: RECENT_DOT[e.state] }}
@@ -62,7 +75,7 @@ export function RecentActivityRail({ agents, model }: { agents: AgentVM[]; model
                                 {now - e.ts < 60_000 ? "just now" : `${formatAge(now - e.ts)} ago`}
                             </div>
                         </div>
-                    </div>
+                    </button>
                 ))}
             </div>
         </div>

@@ -24,7 +24,9 @@ import (
 // symptom). Configure the new tab's default block as a cmd worker, tag the tab for the roster, and
 // force-start the controller (controllers otherwise start lazily on a frontend terminal resync —
 // force=true launches it headlessly).
-func SpawnClaudeWorker(ctx context.Context, workspaceId, projectName, cwd, prompt string) (string, error) {
+//
+// It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
+var SpawnClaudeWorker = func(ctx context.Context, workspaceId, projectName, cwd, prompt string) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
 	}

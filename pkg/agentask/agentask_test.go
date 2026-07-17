@@ -4,6 +4,8 @@
 package agentask
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -52,5 +54,67 @@ func TestSetOverwritesSameOref(t *testing.T) {
 	got, _ := r.Get("block:b3")
 	if got.AskId != "ask-new" {
 		t.Fatalf("got askId %q, want ask-new", got.AskId)
+	}
+}
+
+func TestClaim_NoPendingIsFalse(t *testing.T) {
+	r := MakeRegistry()
+	if _, ok := r.Claim("block:none", ""); ok {
+		t.Fatalf("Claim returned ok=true for an unknown oref")
+	}
+}
+
+func TestClaim_EmptyAskidMatchesAndDeletes(t *testing.T) {
+	r := MakeRegistry()
+	r.Set("block:b1", mkPending("ask-1", "b1"))
+	got, ok := r.Claim("block:b1", "")
+	if !ok || got.AskId != "ask-1" {
+		t.Fatalf("Claim = (%+v,%v), want (ask-1,true)", got, ok)
+	}
+	if _, still := r.Get("block:b1"); still {
+		t.Fatalf("Claim must delete the entry")
+	}
+}
+
+func TestClaim_MatchingAskidDeletes(t *testing.T) {
+	r := MakeRegistry()
+	r.Set("block:b1", mkPending("ask-1", "b1"))
+	if _, ok := r.Claim("block:b1", "ask-1"); !ok {
+		t.Fatalf("Claim with matching askid should win")
+	}
+	if _, still := r.Get("block:b1"); still {
+		t.Fatalf("Claim must delete on a matching askid")
+	}
+}
+
+func TestClaim_MismatchedAskidRetains(t *testing.T) {
+	r := MakeRegistry()
+	r.Set("block:b1", mkPending("ask-1", "b1"))
+	if _, ok := r.Claim("block:b1", "ask-2"); ok {
+		t.Fatalf("Claim with a stale askid must not win")
+	}
+	if _, still := r.Get("block:b1"); !still {
+		t.Fatalf("Claim must retain the entry on an askid mismatch")
+	}
+}
+
+func TestClaim_ConcurrentExactlyOneWinner(t *testing.T) {
+	r := MakeRegistry()
+	r.Set("block:b1", mkPending("ask-1", "b1"))
+	const n = 32
+	var wins int32
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			if _, ok := r.Claim("block:b1", ""); ok {
+				atomic.AddInt32(&wins, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 {
+		t.Fatalf("concurrent Claim winners = %d, want exactly 1", wins)
 	}
 }

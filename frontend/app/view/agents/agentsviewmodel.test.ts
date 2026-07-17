@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
+import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, askSentKey, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -325,6 +325,27 @@ describe("hasAnswerableAsk", () => {
     });
 });
 
+describe("askSentKey", () => {
+    it("returns the ask's askId as the answered-ask identity", () => {
+        const a = mk("agent-1", "asking", {
+            ask: { questions: [{ question: "Q?" }], askId: "ask-1", oref: "block:abc" },
+        });
+        expect(askSentKey(a)).toBe("ask-1");
+    });
+    it("distinguishes two successive asks from the same agent (same id, new askId)", () => {
+        const ask1 = mk("agent-1", "asking", { ask: { questions: [], askId: "ask-1", oref: "block:abc" } });
+        const ask2 = mk("agent-1", "asking", { ask: { questions: [], askId: "ask-2", oref: "block:abc" } });
+        expect(askSentKey(ask1)).not.toBe(askSentKey(ask2));
+    });
+    it("is NOT the block oref (oref is reused across asks)", () => {
+        const a = mk("agent-1", "asking", { ask: { questions: [], askId: "ask-1", oref: "block:abc" } });
+        expect(askSentKey(a)).not.toBe("block:abc");
+    });
+    it("is undefined when the agent has no ask", () => {
+        expect(askSentKey(mk("agent-1", "working"))).toBeUndefined();
+    });
+});
+
 describe("isQuiet", () => {
     it("true past the threshold, false within it or when activity is unknown", () => {
         expect(isQuiet(1_000, 1_000 + 46_000)).toBe(true);
@@ -434,6 +455,9 @@ describe("nextAskId", () => {
     });
     it("returns undefined for an empty list", () => {
         expect(nextAskId([], "x")).toBeUndefined();
+    });
+    it("wraps to itself for a single ask (last one stays put on submit — T2)", () => {
+        expect(nextAskId(["only"], "only")).toBe("only");
     });
 });
 

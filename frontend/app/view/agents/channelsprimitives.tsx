@@ -10,7 +10,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { useAtomValue, useSetAtom } from "jotai";
 import { PanelRight, X } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
-import { toggleSelection, type AgentVM } from "./agentsviewmodel";
+import { askSentKey, toggleSelection, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { avatarColor } from "./channelderive";
 import type { WorkerState } from "./jarvisderive";
@@ -111,7 +111,7 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
                 agent={agent}
                 selections={answerSel[agent.id] ?? {}}
                 texts={answerText[agent.id] ?? {}}
-                sent={sentIds.has(agent.id)}
+                sent={sentIds.has(askSentKey(agent) ?? "")}
                 numbered
                 onToggle={toggle}
                 onText={(qi, value) => model.setAnswerText(agent.id, qi, value)}

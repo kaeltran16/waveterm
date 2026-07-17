@@ -1513,6 +1513,10 @@ func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshr
 	return nil
 }
 
+// runSpawnLocks serializes spawnRunWorkers per runId so the read-back double-spawn guard
+// (len(WorkerOrefs) > 0) is effective across concurrent CreateRun/AdvanceRun calls for one run.
+var runSpawnLocks = newKeyedMutex()
+
 // spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
 // attached orefs — a second write, so tab-creation never nests inside the run's state-transition write.
 //
@@ -1521,6 +1525,8 @@ func (ws *WshServer) SetChannelMessagePickCommand(ctx context.Context, data wshr
 // flushes their update events — without that, the workspace atom never gains the worker's tab, the tab
 // never enters the session roster, and the run renders a false "worker exited" until a full reload.
 func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) error {
+	runSpawnLocks.Lock(runId)
+	defer runSpawnLocks.Unlock(runId)
 	ctx = waveobj.ContextWithUpdates(ctx)
 	run, err := wstore.GetRun(ctx, channelId, runId)
 	if err != nil {
@@ -2340,7 +2346,7 @@ func (ws *WshServer) AnswerAgentCommand(ctx context.Context, data wshrpc.Command
 	if data.ORef == "" {
 		return fmt.Errorf("oref is required")
 	}
-	_, err := agentask.DeliverAnswer(data.ORef, data.Answers)
+	_, err := agentask.DeliverAnswer(data.ORef, "", data.Answers)
 	return err
 }
 

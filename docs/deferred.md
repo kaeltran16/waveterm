@@ -12,7 +12,12 @@ every entry below in this file, and the named open threads (Jarvis fan-out v1.1,
 dual-answer ask, cursor-row composer, new-agent-tab integration). **Nothing here is chosen or built** — this is
 a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE+wiring or store) / L (backend+FE).
 
-### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed)
+### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed) — SHIPPED 2026-07-17
+
+**Shipped:** T1, T2, T4, C1, C2 (T3 declined). Plan: `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
+The T1 stale-draft cleanup runs in the always-mounted `CockpitShell` (`useResetAnswerDraftsOnAskChange`), so
+it fires on every surface that answers asks — the cockpit grid AND the Channels `AskRow` — not just the
+cockpit.
 
 - **T1. Second ask from the same agent can't be answered in place** — `sentIdsAtom` is only ever added to,
   never cleared anywhere in `frontend/` (`agents.tsx:83,164-166,175`; consumed as a hard lock
@@ -87,6 +92,17 @@ a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE
 
 ### Theme 3 — Ask-channel correctness (backend)
 
+> **Resolved 2026-07-17 (theme3-ask-channel-correctness).** Both fixes shipped, TDD'd under `-race`
+> (spec via the brief; plan `docs/superpowers/plans/2026-07-17-theme3-ask-channel-correctness.md`):
+> - **A1** — `Registry.Claim(oref, askid)` (atomic look-up-and-delete) now gates `DeliverAnswer`, so
+>   exactly one concurrent caller injects; the loser returns `delivered=false`. `DeliverAnswer(oref, askid,
+>   answers)` restores the pending on an encode error (nothing sent) but not on a mid-inject error (partial
+>   prefix already sent). The Gatekeeper passes `data.AskId` (double-inject + staleness guard);
+>   `AnswerAgentCommand` passes `""` (double-inject guard only). No wire/FE change (A1-b declined).
+> - **A2** — a reference-counted `keyedMutex` (`pkg/wshrpc/wshserver/keyedmutex.go`) serializes
+>   `spawnRunWorkers` per `runId` across the whole read→spawn→attach, making the `len(WorkerOrefs) > 0`
+>   guard effective; `SpawnClaudeWorker` became a `var` seam for the concurrent spawn-once test.
+
 - **A1. `DeliverAnswer` is not atomic and never claims the pending ask** (real, med-high confidence). It does
   `Get` → encode → inject keystrokes but never `Drop`s/claims the entry, which stays "pending" until the
   external clear hook fires `AgentAskClearCommand` later. In that window two deliveries both see `ok=true` and
@@ -104,7 +120,18 @@ a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE
   `:1743`); `runexec.go:110-125`; `wshutil/wshrpc.go:434-439` (per-RPC goroutine). Fix: spawn+attach inside one
   `UpdateRun` transaction, or a per-run spawn mutex. Effort S–M.
 
-### Theme 4 — Maintainability & test gaps (lower urgency)
+### Theme 4 — Maintainability & test gaps (lower urgency) — PARTIALLY SHIPPED 2026-07-17
+
+**Shipped 2026-07-17 (test-gaps + dedup):** #1 `runactions.test.ts`, #3 `agentcwdresolve.test.ts`, and #6
+(one pure `findSessionTermBlock` in `sessionviewmodel.ts`, all 4 sidebar sites routed through it) as the
+first tranche; then #2 `pkg/jarvis/watcher_test.go` (extracted pure `askAutoAnswerable`/`optionIndexInRange`
+predicates from `handleAsk` and tested them) + `onexit_test.go` (`outcomeSummary`), which Theme 3 A1
+unblocked when it landed. All tests mutation-verified (each fails if its guarded behavior regresses).
+Spec/plan: `docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`.
+**Still deferred — #4 (`runbody.tsx` split) and #5 (`agentsviewmodel.ts` grid extract):** the
+`theme2-streaming-core` worktree is currently locked/active and edits those exact files; per the Theme 4
+brief, these move-only diffs wait until Theme 2 lands to avoid merge conflicts. Also recorded in the spec and
+plan (`docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`).
 
 - **Tech-debt.** `runbody.tsx` is an 846-line god-file bundling ~17 components across unrelated concerns
   (status chrome, review gate + markdown-preview, ask card, cancel flow, blocked/starting states, orchestrator
@@ -123,10 +150,14 @@ a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE
 
 **Design briefs (resolved decisions, per theme)** live under `docs/superpowers/briefs/`; a downstream agent
 expands each into a formal spec + plan and executes. Status:
-- Theme 1 — `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md` (T3 declined; other 5 ship).
+- Theme 1 — SHIPPED 2026-07-17 (T1, T2, T4, C1, C2; T3 declined). Brief:
+  `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md`; plan:
+  `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
 - Theme 2 — `docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
-- Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded).
-- Theme 4 — `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md` (all six; tests-first).
+- Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded). **SHIPPED 2026-07-17.**
+- Theme 4 — PARTIALLY SHIPPED 2026-07-17 (#1,#2,#3,#6; #4,#5 deferred pending Theme 2). Brief:
+  `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md`; spec/plan:
+  `docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`.
 
 **To resume any of these:** read the theme's brief (or, for un-briefed themes, this entry) and run the
 spec → plan → execute cycle. This entry holds the raw four-lane scan evidence; the briefs hold the resolved

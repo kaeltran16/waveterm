@@ -71,11 +71,13 @@ export function CockpitRail({
     usageDonuts,
     windowTokens,
     agents,
+    onSelectAgent,
 }: {
     model: AgentsViewModel;
     usageDonuts: ReturnType<typeof mergeRateLimitWindows>;
     windowTokens: WindowTokens | null;
     agents: AgentVM[];
+    onSelectAgent: (id: string) => void;
 }) {
     // Self-source the 1s tick here (was prop-drilled from CockpitSurface) so the usage reset
     // countdown stays live without the surface re-rendering the agent grid every second.
@@ -143,7 +145,7 @@ export function CockpitRail({
                     icon: ICON.sessions,
                     // Self-subscribing leaf: reads the whole-map transcript atoms + nowAtom itself, so a
                     // stream chunk or the 1s tick re-renders only it (renders null when there's none).
-                    content: <RecentActivityRail agents={agents} model={model} />,
+                    content: <RecentActivityRail agents={agents} model={model} onSelectAgent={onSelectAgent} />,
                 } as RailSection,
             ]}
         />

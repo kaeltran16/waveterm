@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter } from "./agents";
 import {
+    askSentKey,
     filterAgents,
     groupAgents,
     isRecentlyIdle,
@@ -331,7 +332,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 pulse={pulseId === a.id}
                 selections={answerSel[a.id] ?? {}}
                 texts={answerText[a.id] ?? {}}
-                sent={sentIds.has(a.id)}
+                sent={sentIds.has(askSentKey(a) ?? "")}
                 activeQuestion={answerTab[a.id] ?? 0}
                 composerOpen={openComposerId === a.id}
                 onCursor={() => setCursorId(a.id)}
@@ -509,7 +510,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 {!empty ? <HintsBar onOpenHelp={() => setShowHelp(true)} /> : null}
             </div>
 
-            <CockpitRail model={model} usageDonuts={usageDonuts} windowTokens={windowTokens} agents={agents} />
+            <CockpitRail
+                model={model}
+                usageDonuts={usageDonuts}
+                windowTokens={windowTokens}
+                agents={agents}
+                onSelectAgent={(id) => {
+                    setCursorId(id);
+                    scrollToPulse(id);
+                }}
+            />
             {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
         </MotionConfig>
