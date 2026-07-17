@@ -81,23 +81,31 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
     })();
 }
 
-export function stopTranscriptStream(id: string): void {
+// Stops the generator without touching the atoms — used by restartActiveStreams, where the id
+// is still wanted and the stale entries should stay visible until the fresh stream re-tails.
+function stopStreamOnly(id: string): void {
     const handle = streams.get(id);
     if (!handle) {
         return;
     }
     handle.stop();
     streams.delete(id);
+}
+
+export function stopTranscriptStream(id: string): void {
+    stopStreamOnly(id);
     dropLiveId(id);
 }
 
 // On a websocket reconnect the old generators are hung (a socket drop never errored/returned them),
 // and useCardStreams won't re-drive start (its wanted-set is unchanged). Stop every active stream and
 // re-open it; the fresh startTranscriptStream re-tails STREAM_TAIL_LINES (a small, acceptable catch-up).
+// Uses stopStreamOnly (not stopTranscriptStream) so the last-known entries stay visible instead of
+// vanishing and reappearing once the re-tail lands.
 export function restartActiveStreams(): void {
     const active = [...streams.entries()].map(([id, h]) => ({ id, path: h.path, agent: h.agent }));
     for (const { id } of active) {
-        stopTranscriptStream(id);
+        stopStreamOnly(id);
     }
     for (const { id, path, agent } of active) {
         startTranscriptStream(id, path, agent);

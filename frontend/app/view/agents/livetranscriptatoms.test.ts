@@ -18,15 +18,22 @@ describe("per-id atom slices", () => {
         expect(after).toBe(before); // a's slice unchanged by reference -> selectAtom will not re-render a
     });
 
-    it("dropLiveId removes the id from all whole-map atoms", () => {
+    it("dropLiveId removes the id from all whole-map atoms and clears its atomFamily entry", () => {
         const store = createStore();
         store.set(liveEntriesByIdAtom, { a: [], b: [] });
         store.set(lastActivityByIdAtom, { a: 1, b: 2 });
         store.set(tasksByIdAtom, { a: [], b: [] });
+        const before = entriesAtomFor("a");
         dropLiveId("a", store);
         expect("a" in store.get(liveEntriesByIdAtom)).toBe(false);
         expect("a" in store.get(lastActivityByIdAtom)).toBe(false);
         expect("a" in store.get(tasksByIdAtom)).toBe(false);
         expect("b" in store.get(liveEntriesByIdAtom)).toBe(true);
+        expect("b" in store.get(lastActivityByIdAtom)).toBe(true);
+        expect("b" in store.get(tasksByIdAtom)).toBe(true);
+        // atomFamily returns the same instance for a given id until .remove() is called; a fresh
+        // instance here proves dropLiveId actually cleared the family cache for "a".
+        const after = entriesAtomFor("a");
+        expect(after).not.toBe(before);
     });
 });
