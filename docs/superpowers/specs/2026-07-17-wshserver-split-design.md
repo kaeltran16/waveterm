@@ -113,10 +113,19 @@ stays in `wshserver.go` (or an existing shared file such as `wshserverutil.go`).
 One atomic move-only commit in this isolated worktree, merged fast, to minimize the window
 where the reorg collides with a parallel session editing `wshserver.go`.
 
-## Deferred (not in scope)
+## Follow-up: wshrpctypes.go split (DONE)
 
-- `wshrpctypes.go` interface split via embedded sub-interfaces + per-domain struct files
-  (reflection-safe, but a separate change).
+`wshrpctypes.go` was split the same reflection-safe way in a follow-up. The monolithic
+`WshRpcInterface` (~170 inline methods) now embeds 14 per-domain sub-interfaces
+(`CoreCommands`, `BlockCommands`, `RunCommands`, …) defined in `wshrpctypes_<domain>.go`,
+alongside the 2 pre-existing embeds (`WshRpcFileInterface`, `WshRpcRemoteFileInterface`).
+The `CommandXxxData` structs moved to the domain file of the command that references them.
+The embedded-sub-interface pattern was already proven in this file (`wshrpctypes_file.go`),
+so codegen was unaffected: `task generate` produced byte-identical output, 201/201
+non-interface decls verified byte-identical, wshrpctypes.go dropped 1499→618 lines.
+
+## Deferred (still not in scope)
+
 - Generated-file merge strategy (surface #3) — e.g. `.gitattributes merge=union` or a
-  regenerate-on-merge hook. Independent of this refactor; revisit if generated-file
-  conflicts remain painful after the impl split.
+  regenerate-on-merge hook. Independent of the impl/interface splits; revisit if
+  generated-file conflicts remain painful.

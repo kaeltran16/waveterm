@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
-	"github.com/wavetermdev/waveterm/pkg/vdom"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -34,6 +33,25 @@ type MultiArg struct {
 // * after modifying WshRpcInterface, run `task generate` to regnerate bindings
 
 type WshRpcInterface interface {
+	CoreCommands
+	BlockCommands
+	ConnCommands
+	ProjectCommands
+	AgentCommands
+	MemoryCommands
+	ChannelCommands
+	RunCommands
+	RadarCommands
+	JarvisCommands
+	JobCommands
+	SecretCommands
+	VDomCommands
+	AskCommands
+	WshRpcRemoteFileInterface
+	WshRpcFileInterface
+}
+
+type CoreCommands interface {
 	AuthenticateCommand(ctx context.Context, data string) (CommandAuthenticateRtnData, error)
 	AuthenticateTokenCommand(ctx context.Context, data CommandAuthenticateTokenData) (CommandAuthenticateRtnData, error)
 	AuthenticateTokenVerifyCommand(ctx context.Context, data CommandAuthenticateTokenData) (CommandAuthenticateRtnData, error) // (special) validates token without binding, root router only
@@ -44,104 +62,29 @@ type WshRpcInterface interface {
 	ControlGetRouteIdCommand(ctx context.Context) (string, error)                                          // (special) gets the route for the link that we're on
 	SetPeerInfoCommand(ctx context.Context, peerInfo string) error
 	GetJwtPublicKeyCommand(ctx context.Context) (string, error) // (special) gets the public JWT signing key
-
 	MessageCommand(ctx context.Context, data CommandMessageData) error
 	GetMetaCommand(ctx context.Context, data CommandGetMetaData) (waveobj.MetaMapType, error)
 	SetMetaCommand(ctx context.Context, data CommandSetMetaData) error
-	ControllerInputCommand(ctx context.Context, data CommandBlockInputData) error
-	ControllerDestroyCommand(ctx context.Context, blockId string) error
-	ControllerResyncCommand(ctx context.Context, data CommandControllerResyncData) error
-	ControllerAppendOutputCommand(ctx context.Context, data CommandControllerAppendOutputData) error
 	ResolveIdsCommand(ctx context.Context, data CommandResolveIdsData) (CommandResolveIdsRtnData, error)
-	CreateBlockCommand(ctx context.Context, data CommandCreateBlockData) (waveobj.ORef, error)
-	CreateSubBlockCommand(ctx context.Context, data CommandCreateSubBlockData) (waveobj.ORef, error)
-	DeleteBlockCommand(ctx context.Context, data CommandDeleteBlockData) error
-	DeleteSubBlockCommand(ctx context.Context, data CommandDeleteBlockData) error
 	WaitForRouteCommand(ctx context.Context, data CommandWaitForRouteData) (bool, error)
-
 	EventPublishCommand(ctx context.Context, data wps.WaveEvent) error
 	EventSubCommand(ctx context.Context, data wps.SubscriptionRequest) error
 	EventUnsubCommand(ctx context.Context, data string) error
 	EventReadHistoryCommand(ctx context.Context, data CommandEventReadHistoryData) ([]*wps.WaveEvent, error)
-
 	WriteTempFileCommand(ctx context.Context, data CommandWriteTempFileData) (string, error)
 	StreamTestCommand(ctx context.Context) chan RespOrErrorUnion[int]
 	TestCommand(ctx context.Context, data string) error
 	TestMultiArgCommand(ctx context.Context, arg1 string, arg2 int, arg3 bool) (string, error)
 	SetConfigCommand(ctx context.Context, data MetaSettingsType) error
 	SetConnectionsConfigCommand(ctx context.Context, data ConnConfigRequest) error
-	CreateProjectCommand(ctx context.Context, data CommandCreateProjectData) error
-	DeleteProjectCommand(ctx context.Context, data CommandDeleteProjectData) error
-	CreateWorktreeCommand(ctx context.Context, data CommandCreateWorktreeData) (CommandCreateWorktreeRtnData, error)
-	ListBranchesCommand(ctx context.Context, data CommandListBranchesData) (CommandListBranchesRtnData, error)
 	GetFullConfigCommand(ctx context.Context) (wconfig.FullConfigType, error)
 	GetWaveAIModeConfigCommand(ctx context.Context) (wconfig.AIModeConfigUpdate, error)
-	BlockInfoCommand(ctx context.Context, blockId string) (*BlockInfoData, error)
-	DebugTermCommand(ctx context.Context, data CommandDebugTermData) (*CommandDebugTermRtnData, error)
-	BlocksListCommand(ctx context.Context, data BlocksListRequest) ([]BlocksListEntry, error)
 	WaveInfoCommand(ctx context.Context) (*WaveInfoData, error)
 	MacOSVersionCommand(ctx context.Context) (string, error)
 	WshActivityCommand(ct context.Context, data map[string]int) error
 	RecordTEventCommand(ctx context.Context, data telemetrydata.TEvent) error
 	GetVarCommand(ctx context.Context, data CommandVarData) (*CommandVarResponseData, error)
 	GetAllVarsCommand(ctx context.Context, data CommandVarData) ([]CommandVarResponseData, error)
-	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
-	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
-	GetSubagentsCommand(ctx context.Context, data CommandGetSubagentsData) (*CommandGetSubagentsRtnData, error) // list a parent agent's on-disk subagent transcripts
-	GitChangesCommand(ctx context.Context, data CommandGitChangesData) (*CommandGitChangesRtnData, error)
-	GitDiffCommand(ctx context.Context, data CommandGitDiffData) (*CommandGitDiffRtnData, error)
-	GitRevertCommand(ctx context.Context, data CommandGitRevertData) error
-	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
-	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
-	GetSessionsActivityCommand(ctx context.Context, data CommandGetSessionsActivityData) (*CommandGetSessionsActivityRtnData, error)
-	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
-	GetTranscriptUsageCommand(ctx context.Context, data CommandGetTranscriptUsageData) (*CommandGetTranscriptUsageRtnData, error)
-	SharpenTaskCommand(ctx context.Context, data CommandSharpenTaskData) (*CommandSharpenTaskRtnData, error)
-	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
-	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
-	MemoryScanCommand(ctx context.Context) (*CommandMemoryScanRtnData, error)
-	MemoryReadCommand(ctx context.Context, data CommandMemoryReadData) (*CommandMemoryReadRtnData, error)
-	MemoryWriteCommand(ctx context.Context, data CommandMemoryWriteData) (*CommandMemoryWriteRtnData, error)
-	MemoryCreateCommand(ctx context.Context, data CommandMemoryCreateData) (*CommandMemoryCreateRtnData, error)
-	MemoryDeleteCommand(ctx context.Context, data CommandMemoryDeleteData) error
-	MemoryProjectCommand(ctx context.Context, data CommandMemoryProjectData) error
-	MemoryProjectionStatusCommand(ctx context.Context) (*CommandMemoryProjectionStatusRtnData, error)
-	MemoryHarvestCommand(ctx context.Context, data CommandMemoryHarvestData) (*CommandMemoryHarvestRtnData, error)
-	MemoryLearnCommand(ctx context.Context, data CommandMemoryLearnData) (*CommandMemoryLearnRtnData, error)
-	MemoryEnqueueSessionCommand(ctx context.Context, data CommandMemoryEnqueueSessionData) error
-	MemoryReviewListCommand(ctx context.Context) (*CommandMemoryReviewListRtnData, error)
-	MemoryReviewAcceptCommand(ctx context.Context, data CommandMemoryReviewAcceptData) error
-	MemoryPruneListCommand(ctx context.Context) (*CommandMemoryPruneListRtnData, error)
-	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
-	DeleteChannelCommand(ctx context.Context, data CommandDeleteChannelData) error
-	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
-	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
-	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error                                     // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
-	SetChannelNotesCommand(ctx context.Context, data CommandSetChannelNotesData) error                                   // sets a channel's free-text notes (Channel.Meta["channel:notes"])
-	SetChannelReadCommand(ctx context.Context, data CommandSetChannelReadData) error                                     // stamps a channel's last-read timestamp for unread counts
-	RenameChannelCommand(ctx context.Context, data CommandRenameChannelData) error                                       // renames a channel (its rail display name)
-	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error                                     // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
-	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error                       // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
-	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                     // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
-	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                        // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
-	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error) // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
-	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error)                   // create + start a goal Run (spawns phase 1's worker)
-	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                             // complete a phase / approve or send back a gate (spawns the next worker)
-	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                               // cancel a Run
-	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                       // stop one surviving worker of a cancelled run
-	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                   // derive+seal a done run's evidence if absent (idempotent backfill)
-	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                     // lead self-reports hold/complete; resolves run/phase from its own oref
-	StartRadarScanCommand(ctx context.Context, data CommandStartRadarScanData) (*CommandStartRadarScanRtnData, error)    // validate scope + start a manual repo scan
-	CancelRadarScanCommand(ctx context.Context, data CommandCancelRadarScanData) error                                   // cancel an in-flight scan
-	ListRadarReportsCommand(ctx context.Context, data CommandListRadarReportsData) (*CommandListRadarReportsRtnData, error)
-	SetRadarFindingDispositionCommand(ctx context.Context, data CommandSetRadarFindingDispositionData) error                // dismiss/suppress/reopen/unsuppress a finding
-	RetryRadarClusteringCommand(ctx context.Context, data CommandRetryRadarClusteringData) error                            // re-run synthesis from retained candidates
-	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
-	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error                                  // write a channel's per-project profile override (empty clears it)
-	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                           // read the global Jarvis profile (builtins if unset)
-	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                   // write the global Jarvis profile to jarvis-profile.json
-	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
-	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 	SetVarCommand(ctx context.Context, data CommandVarData) error
 	PathCommand(ctx context.Context, data PathCommandData) (string, error)
 	SendTelemetryCommand(ctx context.Context) error
@@ -149,105 +92,21 @@ type WshRpcInterface interface {
 	DisposeSuggestionsCommand(ctx context.Context, widgetId string) error
 	UpdateWorkspaceTabIdsCommand(ctx context.Context, workspaceId string, tabIds []string) error
 	GetAllBadgesCommand(ctx context.Context) ([]baseds.BadgeEvent, error)
-
-	// connection functions
-	ConnStatusCommand(ctx context.Context) ([]ConnStatus, error)
-	WslStatusCommand(ctx context.Context) ([]ConnStatus, error)
-	ConnEnsureCommand(ctx context.Context, data ConnExtData) error
-	ConnReinstallWshCommand(ctx context.Context, data ConnExtData) error
-	ConnConnectCommand(ctx context.Context, connRequest ConnRequest) error
-	ConnDisconnectCommand(ctx context.Context, connName string) error
-	ConnListCommand(ctx context.Context) ([]string, error)
-	WslListCommand(ctx context.Context) ([]string, error)
-	WslDefaultDistroCommand(ctx context.Context) (string, error)
-	ConnUpdateWshCommand(ctx context.Context, remoteInfo RemoteInfo) (bool, error)
-	FindGitBashCommand(ctx context.Context, rescan bool) (string, error)
-	ConnServerInitCommand(ctx context.Context, data CommandConnServerInitData) error
-
 	// eventrecv is special, it's handled internally by WshRpc with EventListener
 	EventRecvCommand(ctx context.Context, data wps.WaveEvent) error
-
-	// remotes
-	WshRpcRemoteFileInterface
-	RemoteGetInfoCommand(ctx context.Context) (RemoteInfo, error)
-	RemoteInstallRcFilesCommand(ctx context.Context) error
-	RemoteStartJobCommand(ctx context.Context, data CommandRemoteStartJobData) (*CommandStartJobRtnData, error)
-	RemoteReconnectToJobManagerCommand(ctx context.Context, data CommandRemoteReconnectToJobManagerData) (*CommandRemoteReconnectToJobManagerRtnData, error)
-	RemoteDisconnectFromJobManagerCommand(ctx context.Context, data CommandRemoteDisconnectFromJobManagerData) error
-	RemoteTerminateJobManagerCommand(ctx context.Context, data CommandRemoteTerminateJobManagerData) error
 	BadgeWatchPidCommand(ctx context.Context, data CommandBadgeWatchPidData) error
-
 	// emain
 	ElectronEncryptCommand(ctx context.Context, data CommandElectronEncryptData) (*CommandElectronEncryptRtnData, error)
 	ElectronDecryptCommand(ctx context.Context, data CommandElectronDecryptData) (*CommandElectronDecryptRtnData, error)
-
-	// secrets
-	GetSecretsCommand(ctx context.Context, names []string) (map[string]string, error)
-	GetSecretsNamesCommand(ctx context.Context) ([]string, error)
-	SetSecretsCommand(ctx context.Context, secrets map[string]*string) error
-	GetSecretsLinuxStorageBackendCommand(ctx context.Context) (string, error)
-
-	WorkspaceListCommand(ctx context.Context) ([]WorkspaceInfoData, error)
-
-	// terminal
-	VDomCreateContextCommand(ctx context.Context, data vdom.VDomCreateContext) (*waveobj.ORef, error)
-	VDomAsyncInitiationCommand(ctx context.Context, data vdom.VDomAsyncInitiationRequest) error
-
 	// ai
 	WaveAIAddContextCommand(ctx context.Context, data CommandWaveAIAddContextData) error
 	WaveAIGetToolDiffCommand(ctx context.Context, data CommandWaveAIGetToolDiffData) (*CommandWaveAIGetToolDiffRtnData, error)
-
-	// screenshot
-	CaptureBlockScreenshotCommand(ctx context.Context, data CommandCaptureBlockScreenshotData) (string, error)
-
-	// block focus
-	SetBlockFocusCommand(ctx context.Context, blockId string) error
-
 	// rtinfo
 	GetRTInfoCommand(ctx context.Context, data CommandGetRTInfoData) (*waveobj.ObjRTInfo, error)
 	SetRTInfoCommand(ctx context.Context, data CommandSetRTInfoData) error
-
-	// terminal
-	TermGetScrollbackLinesCommand(ctx context.Context, data CommandTermGetScrollbackLinesData) (*CommandTermGetScrollbackLinesRtnData, error)
-
-	// file
-	WshRpcFileInterface
 	WaveFileReadStreamCommand(ctx context.Context, data CommandWaveFileReadStreamData) (*WaveFileInfo, error)
-
-	// proc
-	VDomRenderCommand(ctx context.Context, data vdom.VDomFrontendUpdate) chan RespOrErrorUnion[*vdom.VDomBackendUpdate]
-	VDomUrlRequestCommand(ctx context.Context, data VDomUrlRequestData) chan RespOrErrorUnion[VDomUrlRequestResponse]
-
-	// streams
-	StreamDataCommand(ctx context.Context, data CommandStreamData) error
-	StreamDataAckCommand(ctx context.Context, data CommandStreamAckData) error
-
 	// jobs
 	AuthenticateToJobManagerCommand(ctx context.Context, data CommandAuthenticateToJobData) error
-	StartJobCommand(ctx context.Context, data CommandStartJobData) (*CommandStartJobRtnData, error)
-	JobPrepareConnectCommand(ctx context.Context, data CommandJobPrepareConnectData) (*CommandJobConnectRtnData, error)
-	JobStartStreamCommand(ctx context.Context, data CommandJobStartStreamData) error
-	JobInputCommand(ctx context.Context, data CommandJobInputData) error
-	JobCmdExitedCommand(ctx context.Context, data CommandJobCmdExitedData) error // this is sent FROM the job manager => main server
-
-	// job controller
-	JobControllerDeleteJobCommand(ctx context.Context, jobId string) error
-	JobControllerListCommand(ctx context.Context) ([]*waveobj.Job, error)
-	JobControllerStartJobCommand(ctx context.Context, data CommandJobControllerStartJobData) (string, error)
-	JobControllerExitJobCommand(ctx context.Context, jobId string) error
-	JobControllerDisconnectJobCommand(ctx context.Context, jobId string) error
-	JobControllerReconnectJobCommand(ctx context.Context, jobId string) error
-	JobControllerReconnectJobsForConnCommand(ctx context.Context, connName string) error
-	JobControllerConnectedJobsCommand(ctx context.Context) ([]string, error)
-	JobControllerAttachJobCommand(ctx context.Context, data CommandJobControllerAttachJobData) error
-	JobControllerDetachJobCommand(ctx context.Context, jobId string) error
-	JobControllerGetAllJobManagerStatusCommand(ctx context.Context) ([]*JobManagerStatusUpdate, error)
-	BlockJobStatusCommand(ctx context.Context, blockId string) (*BlockJobStatusData, error)
-
-	// agent ask
-	AskCommand(ctx context.Context, data CommandAskData) (AskRtnData, error)
-	AnswerAgentCommand(ctx context.Context, data CommandAnswerAgentData) error
-	AgentAskClearCommand(ctx context.Context, oref string) error
 }
 
 // for frontend
@@ -314,57 +173,9 @@ type CommandResolveIdsRtnData struct {
 	ResolvedIds map[string]waveobj.ORef `json:"resolvedids"`
 }
 
-type CommandCreateBlockData struct {
-	TabId         string               `json:"tabid"`
-	BlockDef      *waveobj.BlockDef    `json:"blockdef"`
-	RtOpts        *waveobj.RuntimeOpts `json:"rtopts,omitempty"`
-	Magnified     bool                 `json:"magnified,omitempty"`
-	Ephemeral     bool                 `json:"ephemeral,omitempty"`
-	Focused       bool                 `json:"focused,omitempty"`
-	TargetBlockId string               `json:"targetblockid,omitempty"`
-	TargetAction  string               `json:"targetaction,omitempty"` // "replace", "splitright", "splitdown", "splitleft", "splitup"
-}
-
-type CommandCreateSubBlockData struct {
-	ParentBlockId string            `json:"parentblockid"`
-	BlockDef      *waveobj.BlockDef `json:"blockdef"`
-}
-
-type CommandControllerResyncData struct {
-	ForceRestart bool                 `json:"forcerestart,omitempty"`
-	TabId        string               `json:"tabid"`
-	BlockId      string               `json:"blockid"`
-	RtOpts       *waveobj.RuntimeOpts `json:"rtopts,omitempty"`
-}
-
-type CommandControllerAppendOutputData struct {
-	BlockId string `json:"blockid"`
-	Data64  string `json:"data64"`
-}
-
-type CommandBlockInputData struct {
-	BlockId     string            `json:"blockid"`
-	InputData64 string            `json:"inputdata64,omitempty"`
-	SigName     string            `json:"signame,omitempty"`
-	TermSize    *waveobj.TermSize `json:"termsize,omitempty"`
-}
-
-type CommandJobInputData struct {
-	JobId          string            `json:"jobid"`
-	InputSessionId string            `json:"inputsessionid,omitempty"`
-	SeqNum         int               `json:"seqnum,omitempty"`
-	InputData64    string            `json:"inputdata64,omitempty"`
-	SigName        string            `json:"signame,omitempty"`
-	TermSize       *waveobj.TermSize `json:"termsize,omitempty"`
-}
-
 type CommandWaitForRouteData struct {
 	RouteId string `json:"routeid"`
 	WaitMs  int    `json:"waitms"`
-}
-
-type CommandDeleteBlockData struct {
-	BlockId string `json:"blockid"`
 }
 
 type CommandEventReadHistoryData struct {
@@ -386,20 +197,6 @@ type CpuDataType struct {
 type CommandWriteTempFileData struct {
 	FileName string `json:"filename"`
 	Data64   string `json:"data64"`
-}
-
-type ConnRequest struct {
-	Host       string               `json:"host"`
-	Keywords   wconfig.ConnKeywords `json:"keywords,omitempty"`
-	LogBlockId string               `json:"logblockid,omitempty"`
-}
-
-type RemoteInfo struct {
-	ClientArch    string `json:"clientarch"`
-	ClientOs      string `json:"clientos"`
-	ClientVersion string `json:"clientversion"`
-	Shell         string `json:"shell"`
-	HomeDir       string `json:"homedir"`
 }
 
 const (
@@ -435,51 +232,9 @@ type ConnConfigRequest struct {
 	MetaMapType waveobj.MetaMapType `json:"metamaptype"`
 }
 
-type CommandCreateProjectData struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
-
-type CommandDeleteProjectData struct {
-	Name string `json:"name"`
-}
-
-type CommandCreateWorktreeData struct {
-	ProjectPath string `json:"projectpath"`
-	Branch      string `json:"branch"`
-}
-
-type CommandCreateWorktreeRtnData struct {
-	WorktreePath string `json:"worktreepath"`
-}
-
-type CommandListBranchesData struct {
-	ProjectPath string `json:"projectpath"`
-}
-
 type BranchInfo struct {
 	Name string `json:"name"`
 	Age  string `json:"age"`
-}
-
-type CommandListBranchesRtnData struct {
-	Branches []BranchInfo `json:"branches"`
-}
-
-type ConnStatus struct {
-	Status                        string `json:"status"`
-	ConnHealthStatus              string `json:"connhealthstatus,omitempty"`
-	WshEnabled                    bool   `json:"wshenabled"`
-	Connection                    string `json:"connection"`
-	Connected                     bool   `json:"connected"`
-	HasConnected                  bool   `json:"hasconnected"` // true if it has *ever* connected successfully
-	ActiveConnNum                 int    `json:"activeconnnum"`
-	Error                         string `json:"error,omitempty"`
-	WshError                      string `json:"wsherror,omitempty"`
-	NoWshReason                   string `json:"nowshreason,omitempty"`
-	WshVersion                    string `json:"wshversion,omitempty"`
-	LastActivityBeforeStalledTime int64  `json:"lastactivitybeforestalledtime,omitempty"`
-	KeepAliveSentTime             int64  `json:"keepalivesenttime,omitempty"`
 }
 
 type WebSelectorOpts struct {
@@ -495,31 +250,10 @@ type CommandWebSelectorData struct {
 	Opts        *WebSelectorOpts `json:"opts,omitempty"`
 }
 
-type BlockInfoData struct {
-	BlockId     string          `json:"blockid"`
-	TabId       string          `json:"tabid"`
-	WorkspaceId string          `json:"workspaceid"`
-	Block       *waveobj.Block  `json:"block"`
-	Files       []*WaveFileInfo `json:"files"`
-}
-
 type WaveNotificationOptions struct {
 	Title  string `json:"title,omitempty"`
 	Body   string `json:"body,omitempty"`
 	Silent bool   `json:"silent,omitempty"`
-}
-
-type VDomUrlRequestData struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Body    []byte            `json:"body,omitempty"`
-}
-
-type VDomUrlRequestResponse struct {
-	StatusCode int               `json:"statuscode,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       []byte            `json:"body,omitempty"`
 }
 
 type WaveInfoData struct {
@@ -528,24 +262,6 @@ type WaveInfoData struct {
 	BuildTime string `json:"buildtime"`
 	ConfigDir string `json:"configdir"`
 	DataDir   string `json:"datadir"`
-}
-
-type WorkspaceInfoData struct {
-	WindowId      string             `json:"windowid"`
-	WorkspaceData *waveobj.Workspace `json:"workspacedata"`
-}
-
-type BlocksListRequest struct {
-	WindowId    string `json:"windowid,omitempty"`
-	WorkspaceId string `json:"workspaceid,omitempty"`
-}
-
-type BlocksListEntry struct {
-	WindowId    string              `json:"windowid"`
-	WorkspaceId string              `json:"workspaceid"`
-	TabId       string              `json:"tabid"`
-	BlockId     string              `json:"blockid"`
-	Meta        waveobj.MetaMapType `json:"meta"`
 }
 
 type AIAttachedFile struct {
@@ -572,10 +288,6 @@ type CommandWaveAIGetToolDiffRtnData struct {
 	ModifiedContents64 string `json:"modifiedcontents64"`
 }
 
-type CommandCaptureBlockScreenshotData struct {
-	BlockId string `json:"blockid"`
-}
-
 type CommandVarData struct {
 	Key      string `json:"key"`
 	Val      string `json:"val,omitempty"`
@@ -590,72 +302,12 @@ type CommandVarResponseData struct {
 	Exists bool   `json:"exists"`
 }
 
-type CommandGetSessionGroupData struct {
-	Cwd string `json:"cwd"`
-}
-
-type CommandGetSessionGroupRtnData struct {
-	Root  string `json:"root"`
-	Label string `json:"label"`
-}
-
-type CommandGetAgentTranscriptData struct {
-	Path     string `json:"path"`
-	MaxLines int    `json:"maxlines,omitempty"`
-	// FromStart reads the first MaxLines lines (head) instead of the last (tail); used to resolve
-	// Codex cwd, which lives only on the first-line session_meta record.
-	FromStart bool `json:"fromstart,omitempty"`
-}
-
-type CommandGetAgentTranscriptRtnData struct {
-	Lines []string `json:"lines"`
-}
-
-type CommandGetSubagentsData struct {
-	Path string `json:"path"` // the PARENT agent transcript path; its subagents/ dir is derived from it
-}
-
 type SubagentFileInfo struct {
 	AgentId        string `json:"agentid"`
 	TranscriptPath string `json:"transcriptpath"`
 	FirstPrompt    string `json:"firstprompt"`
 	StartedAtMs    int64  `json:"startedatms"`
 	Done           bool   `json:"done"` // last record is a terminal assistant turn (finished; outcome unknown)
-}
-
-type CommandGetSubagentsRtnData struct {
-	Subagents []SubagentFileInfo `json:"subagents"`
-}
-
-type CommandGitChangesData struct {
-	Cwd string `json:"cwd"`
-	Ref string `json:"ref,omitempty"`
-}
-
-type CommandGitChangesRtnData struct {
-	Branch  string `json:"branch"`
-	StatusZ string `json:"statusz"`
-	Numstat string `json:"numstat"`
-	IsRepo  bool   `json:"isrepo"`
-}
-
-type CommandGitDiffData struct {
-	Cwd  string `json:"cwd"`
-	Path string `json:"path"`
-	Ref  string `json:"ref,omitempty"`
-}
-
-type CommandGitDiffRtnData struct {
-	Diff      string `json:"diff"`
-	Content   string `json:"content"`
-	Untracked bool   `json:"untracked"`
-}
-
-type CommandGitRevertData struct {
-	Cwd    string `json:"cwd"`
-	Path   string `json:"path"`
-	Status string `json:"status"`          // porcelain status; used for whole-file revert
-	Patch  string `json:"patch,omitempty"` // if set, reverse-apply this patch; else whole-file
 }
 
 type UsageBucket struct {
@@ -668,14 +320,6 @@ type UsageBucket struct {
 	CacheCreate   int    `json:"cachecreate"`
 	CacheCreate1h int    `json:"cachecreate1h"`
 	Msgs          int    `json:"msgs"`
-}
-
-type CommandGetUsageStatsData struct {
-	WindowDays int `json:"windowdays,omitempty"`
-}
-
-type CommandGetUsageStatsRtnData struct {
-	Buckets []UsageBucket `json:"buckets"`
 }
 
 type SessionInfo struct {
@@ -691,206 +335,10 @@ type SessionInfo struct {
 	ResumeCommand string `json:"resumecommand"`
 }
 
-type CommandCreateChannelData struct {
-	Name        string `json:"name"`
-	ProjectPath string `json:"projectpath,omitempty"`
-}
-
-type CommandDeleteChannelData struct {
-	ChannelId string `json:"channelid"`
-}
-
-type CommandGetChannelsRtnData struct {
-	Channels []*waveobj.Channel `json:"channels"`
-}
-
-type CommandPostChannelMessageData struct {
-	ChannelId string `json:"channelid"`
-	Kind      string `json:"kind"`
-	Author    string `json:"author"`
-	Text      string `json:"text"`
-	RefORef   string `json:"reforef,omitempty"`
-}
-
-type CommandSetChannelTierData struct {
-	ChannelId string `json:"channelid"`
-	Tier      string `json:"tier"`           // concierge | gatekeeper | delegator
-	Mode      string `json:"mode,omitempty"` // default dispatch mode: report | manage | fanout
-}
-
-type CommandSetChannelNotesData struct {
-	ChannelId string `json:"channelid"`
-	Notes     string `json:"notes"`
-}
-
-type CommandSetChannelReadData struct {
-	ChannelId string `json:"channelid"`
-	Ts        int64  `json:"ts"`
-}
-
-type CommandRenameChannelData struct {
-	ChannelId string `json:"channelid"`
-	Name      string `json:"name"`
-}
-
-type CommandArchiveChannelData struct {
-	ChannelId string `json:"channelid"`
-	Archived  bool   `json:"archived"`
-}
-
-type CommandSetChannelMessagePickData struct {
-	ChannelId string `json:"channelid"`
-	MessageId string `json:"messageid"`
-	Pick      int    `json:"pick"`
-}
-
-type CommandJarvisDecomposeData struct {
-	ChannelId string `json:"channelid"`
-	Goal      string `json:"goal"`
-}
-
-type CommandJarvisDecomposeRtnData struct {
-	Subtasks []string `json:"subtasks"`
-}
-
-type CommandCreateRunData struct {
-	ChannelId   string                  `json:"channelid"`
-	WorkspaceId string                  `json:"workspaceid"` // where phase-worker tabs are created
-	Goal        string                  `json:"goal"`
-	PlaybookId  string                  `json:"playbookid,omitempty"`
-	Mode        string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
-	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
-	RadarOrigin *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
-}
-
-type CommandCreateRunRtnData struct {
-	Run *waveobj.Run `json:"run"`
-}
-
-type CommandAdvanceRunData struct {
-	ChannelId string   `json:"channelid"`
-	RunId     string   `json:"runid"`
-	PhaseIdx  int      `json:"phaseidx"`            // the phase being completed (ignored for approve/sendback)
-	Action    string   `json:"action"`              // complete | approve | sendback | hold | triage
-	Artifacts []string `json:"artifacts,omitempty"` // artifacts to record on complete
-	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
-	Note      string   `json:"note,omitempty"`      // triage: one-line reason
-}
-
-type CommandCancelRunData struct {
-	ChannelId string `json:"channelid"`
-	RunId     string `json:"runid"`
-}
-
-type CommandStopRunWorkerData struct {
-	ChannelId  string `json:"channelid"`
-	RunId      string `json:"runid"`
-	WorkerORef string `json:"workeroref"` // the worker tab oref ("tab:<id>") to stop
-}
-
-type CommandSealRunEvidenceData struct {
-	ChannelId string `json:"channelid"`
-	RunId     string `json:"runid"`
-}
-
-type CommandReportRunPhaseData struct {
-	ORef      string   `json:"oref"`                // caller's tab oref ("tab:<id>")
-	Action    string   `json:"action"`              // hold | complete | triage
-	Artifacts []string `json:"artifacts,omitempty"` // recorded on complete
-	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
-	Note      string   `json:"note,omitempty"`      // triage: one-line reason
-}
-
-type CommandStartRadarScanData struct {
-	ProjectPath string `json:"projectpath"`
-}
-
-type CommandStartRadarScanRtnData struct {
-	Report *waveobj.RadarReport `json:"report"`
-}
-
-type CommandCancelRadarScanData struct {
-	ReportId string `json:"reportid"`
-}
-
-type CommandListRadarReportsData struct {
-	ProjectPath string `json:"projectpath,omitempty"`
-}
-
-type CommandListRadarReportsRtnData struct {
-	Reports []*waveobj.RadarReport `json:"reports"`
-}
-
-type CommandSetRadarFindingDispositionData struct {
-	ReportId  string `json:"reportid"`
-	FindingId string `json:"findingid"`
-	Action    string `json:"action"` // dismiss|suppress|reopen|unsuppress
-	Reason    string `json:"reason,omitempty"`
-	Note      string `json:"note,omitempty"`
-}
-
-type CommandRetryRadarClusteringData struct {
-	ReportId string `json:"reportid"`
-}
-
-type CommandGetJarvisProfileData struct {
-	ChannelId string `json:"channelid"`
-}
-
-type CommandGetJarvisProfileRtnData struct {
-	Global               waveobj.JarvisProfile         `json:"global"`
-	Override             *waveobj.ProfileOverride      `json:"override"`
-	Resolved             waveobj.JarvisProfile         `json:"resolved"`
-	PrincipleDiagnostics []waveobj.PrincipleDiagnostic `json:"principlediagnostics,omitempty"`
-}
-
-type CommandSetChannelProfileData struct {
-	ChannelId string                   `json:"channelid"`
-	Override  *waveobj.ProfileOverride `json:"override"`
-}
-
-type CommandSetGlobalProfileData struct {
-	Profile waveobj.JarvisProfile `json:"profile"`
-}
-
-type CommandConsultData struct {
-	ChannelId string `json:"channelid"`
-	Runtime   string `json:"runtime"`
-	Prompt    string `json:"prompt"`
-	ConsultId string `json:"consultid"`
-}
-
-type ConsultChunk struct {
-	Text string `json:"text"`
-}
-
-type CommandJarvisData struct {
-	ChannelId string `json:"channelid"`
-	Prompt    string `json:"prompt"`
-	RequestId string `json:"requestid"`
-}
-
-type JarvisChunk struct {
-	Text string `json:"text"`
-}
-
 type ConsultRuntimeInfo struct {
 	Runtime   string `json:"runtime"`
 	Installed bool   `json:"installed"`
 	Version   string `json:"version,omitempty"`
-}
-
-type CommandListConsultRuntimesRtnData struct {
-	Runtimes []ConsultRuntimeInfo `json:"runtimes"`
-}
-
-type CommandGetRecentSessionsData struct {
-	WindowDays int `json:"windowdays,omitempty"`
-	Limit      int `json:"limit,omitempty"`
-}
-
-type CommandGetRecentSessionsRtnData struct {
-	Sessions []SessionInfo `json:"sessions"`
 }
 
 type SessionEvent struct {
@@ -917,62 +365,6 @@ type SessionActivity struct {
 	Events         []SessionEvent `json:"events"`
 }
 
-type CommandGetSessionsActivityData struct {
-	WindowDays int `json:"windowdays,omitempty"`
-	Limit      int `json:"limit,omitempty"`
-}
-
-type CommandGetSessionsActivityRtnData struct {
-	Sessions []SessionActivity `json:"sessions"`
-}
-
-type CommandGetTranscriptTokensData struct {
-	Path string `json:"path"`
-}
-
-type CommandGetTranscriptTokensRtnData struct {
-	Tokens int `json:"tokens"`
-}
-
-type CommandGetTranscriptUsageData struct {
-	Path string `json:"path"`
-}
-
-type CommandGetTranscriptUsageRtnData struct {
-	Buckets []UsageBucket `json:"buckets"`
-}
-
-type CommandSharpenTaskData struct {
-	Task        string `json:"task"`
-	ProjectName string `json:"projectname"`
-	Runtime     string `json:"runtime"`
-	Mode        string `json:"mode"`
-}
-
-type CommandSharpenTaskRtnData struct {
-	Task  string `json:"task"`
-	Model string `json:"model"`
-}
-
-type CommandGetWindowTokensData struct {
-	FiveHourCutoff int64 `json:"fivehourcutoff,omitempty"` // epoch seconds; 0 = all-time
-	WeekCutoff     int64 `json:"weekcutoff,omitempty"`     // epoch seconds; 0 = all-time
-}
-
-type CommandGetWindowTokensRtnData struct {
-	FiveHourTokens int `json:"fivehourtokens"`
-	WeekTokens     int `json:"weektokens"`
-}
-
-type CommandGetCacheStatusData struct {
-	Path string `json:"path"`
-}
-
-type CommandGetCacheStatusRtnData struct {
-	LastWriteTs int64 `json:"lastwritets,omitempty"` // epoch seconds; absent = no cache-write found
-	OneHour     bool  `json:"onehour,omitempty"`
-}
-
 type MemoryNote struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -995,90 +387,12 @@ type MemoryEdge struct {
 	To   string `json:"to"`
 }
 
-type CommandMemoryScanRtnData struct {
-	Notes []MemoryNote `json:"notes"`
-	Edges []MemoryEdge `json:"edges"`
-}
-
-type CommandMemoryReadData struct {
-	Path   string `json:"path"`
-	Source string `json:"source"`
-}
-
-type CommandMemoryReadRtnData struct {
-	Note MemoryNote `json:"note"`
-	Body string     `json:"body"`
-}
-
-type CommandMemoryWriteData struct {
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	BaseMtime int64  `json:"basemtime,omitempty"`
-}
-
-type CommandMemoryWriteRtnData struct {
-	Mtime    int64 `json:"mtime"`
-	Conflict bool  `json:"conflict"`
-}
-
-type CommandMemoryCreateData struct {
-	Name  string `json:"name"`
-	Type  string `json:"type,omitempty"`
-	Scope string `json:"scope,omitempty"`
-	Body  string `json:"body,omitempty"`
-	Cwd   string `json:"cwd,omitempty"` // write into this project's Claude hub; empty -> dedicated vault
-}
-
-type CommandMemoryCreateRtnData struct {
-	Path string `json:"path"`
-}
-
-type CommandMemoryDeleteData struct {
-	Path string `json:"path"`
-}
-
-type CommandMemoryProjectData struct {
-	Cwd string `json:"cwd"`
-}
-
-type CommandMemoryProjectionStatusRtnData struct {
-	// Runtimes maps a lackey runtime ("codex" | "antigravity") to the project label its steering
-	// file currently reflects. A runtime missing from the map has no projection yet.
-	Runtimes map[string]string `json:"runtimes"`
-}
-
-type CommandMemoryHarvestData struct {
-	Cwd string `json:"cwd"`
-}
-
-type CommandMemoryHarvestRtnData struct {
-	Ingested int `json:"ingested"`
-	Skipped  int `json:"skipped"`
-}
-
 type MemoryLearnCandidate struct {
 	Type         string `json:"type"`
 	Scope        string `json:"scope,omitempty"`
 	Body         string `json:"body"`
 	IsCorrection bool   `json:"iscorrection,omitempty"`
 	Supersedes   string `json:"supersedes,omitempty"`
-}
-
-type CommandMemoryLearnData struct {
-	Cwd        string                 `json:"cwd"`
-	Candidates []MemoryLearnCandidate `json:"candidates"`
-	References []string               `json:"references,omitempty"` // slugs of existing notes the session used
-}
-
-type CommandMemoryLearnRtnData struct {
-	Committed int `json:"committed"`
-	Queued    int `json:"queued"`
-}
-
-type CommandMemoryEnqueueSessionData struct {
-	Cwd            string `json:"cwd"`
-	TranscriptPath string `json:"transcriptpath"`
-	ClaudePath     string `json:"claudepath"`
 }
 
 type MemoryPendingNote struct {
@@ -1092,56 +406,11 @@ type MemoryPendingNote struct {
 	CapturedAt string `json:"capturedat"`
 }
 
-type CommandMemoryReviewListRtnData struct {
-	Pending []MemoryPendingNote `json:"pending"`
-}
-
-type CommandMemoryReviewAcceptData struct {
-	Path string `json:"path"`
-}
-
 type MemoryPruneCandidate struct {
 	ID     string `json:"id"`
 	Title  string `json:"title"`
 	Reason string `json:"reason"`
 	Path   string `json:"path"`
-}
-
-type CommandMemoryPruneListRtnData struct {
-	Candidates []MemoryPruneCandidate `json:"candidates"`
-}
-
-type CommandStreamAgentTranscriptData struct {
-	Path      string `json:"path"`
-	TailLines int    `json:"taillines,omitempty"`
-}
-
-type AgentTranscriptUpdate struct {
-	Lines []string `json:"lines"`
-}
-
-type CommandAskData struct {
-	ORef      string                    `json:"oref"`
-	Questions []baseds.AgentAskQuestion `json:"questions"`
-}
-
-type AskRtnData struct {
-	AskId string `json:"askid"`
-}
-
-type CommandAnswerAgentData struct {
-	ORef    string                   `json:"oref"`
-	Answers []baseds.AgentAnswerItem `json:"answers"`
-}
-
-type CommandDebugTermData struct {
-	BlockId string `json:"blockid"`
-	Size    int64  `json:"size"`
-}
-
-type CommandDebugTermRtnData struct {
-	Offset int64  `json:"offset"`
-	Data64 string `json:"data64"`
 }
 
 type PathCommandData struct {
@@ -1187,15 +456,6 @@ type ActivityUpdate struct {
 	Conn                map[string]int        `json:"conn,omitempty"`
 }
 
-type ConnExtData struct {
-	ConnName   string `json:"connname"`
-	LogBlockId string `json:"logblockid,omitempty"`
-}
-
-type CommandConnServerInitData struct {
-	ClientId string `json:"clientid"`
-}
-
 type FetchSuggestionsData struct {
 	SuggestionType string `json:"suggestiontype"`
 	Query          string `json:"query"`
@@ -1238,19 +498,6 @@ type CommandSetRTInfoData struct {
 	Delete bool           `json:"delete,omitempty"`
 }
 
-type CommandTermGetScrollbackLinesData struct {
-	LineStart   int  `json:"linestart"`
-	LineEnd     int  `json:"lineend"`
-	LastCommand bool `json:"lastcommand"`
-}
-
-type CommandTermGetScrollbackLinesRtnData struct {
-	TotalLines  int      `json:"totallines"`
-	LineStart   int      `json:"linestart"`
-	Lines       []string `json:"lines"`
-	LastUpdated int64    `json:"lastupdated"`
-}
-
 type CommandTermUpdateAttachedJobData struct {
 	BlockId string `json:"blockid"`
 	JobId   string `json:"jobid,omitempty"`
@@ -1274,24 +521,6 @@ type CommandElectronDecryptRtnData struct {
 	StorageBackend string `json:"storagebackend"` // only returned for linux
 }
 
-type CommandStreamData struct {
-	Id     string `json:"id"`  // streamid
-	Seq    int64  `json:"seq"` // start offset (bytes)
-	Data64 string `json:"data64,omitempty"`
-	Eof    bool   `json:"eof,omitempty"`   // can be set with data or without
-	Error  string `json:"error,omitempty"` // stream terminated with error
-}
-
-type CommandStreamAckData struct {
-	Id     string `json:"id"`               // streamid
-	Seq    int64  `json:"seq"`              // next expected byte
-	RWnd   int64  `json:"rwnd"`             // receive window size
-	Fin    bool   `json:"fin,omitempty"`    // observed end-of-stream (eof or error)
-	Delay  int64  `json:"delay,omitempty"`  // ack delay in microseconds (from when data was received to when we sent out ack -- monotonic clock)
-	Cancel bool   `json:"cancel,omitempty"` // used to cancel the stream
-	Error  string `json:"error,omitempty"`  // reason for cancel (may only be set if cancel is true)
-}
-
 type StreamMeta struct {
 	Id            string `json:"id"`   // streamid
 	RWnd          int64  `json:"rwnd"` // initial receive window size
@@ -1306,104 +535,6 @@ type CommandAuthenticateToJobData struct {
 type CommandAuthenticateJobManagerData struct {
 	JobId        string `json:"jobid"`
 	JobAuthToken string `json:"jobauthtoken"`
-}
-
-type CommandStartJobData struct {
-	Cmd        string            `json:"cmd"`
-	Args       []string          `json:"args"`
-	Env        map[string]string `json:"env"`
-	TermSize   waveobj.TermSize  `json:"termsize"`
-	StreamMeta *StreamMeta       `json:"streammeta,omitempty"`
-}
-
-type CommandRemoteStartJobData struct {
-	Cmd                string            `json:"cmd"`
-	Args               []string          `json:"args"`
-	Env                map[string]string `json:"env"`
-	TermSize           waveobj.TermSize  `json:"termsize"`
-	StreamMeta         *StreamMeta       `json:"streammeta,omitempty"`
-	JobAuthToken       string            `json:"jobauthtoken"`
-	JobId              string            `json:"jobid"`
-	MainServerJwtToken string            `json:"mainserverjwttoken"`
-	ClientId           string            `json:"clientid"`
-	PublicKeyBase64    string            `json:"publickeybase64"`
-}
-
-type CommandRemoteReconnectToJobManagerData struct {
-	JobId              string `json:"jobid"`
-	JobAuthToken       string `json:"jobauthtoken"`
-	MainServerJwtToken string `json:"mainserverjwttoken"`
-	JobManagerPid      int    `json:"jobmanagerpid"`
-	JobManagerStartTs  int64  `json:"jobmanagerstartts"`
-}
-
-type CommandRemoteReconnectToJobManagerRtnData struct {
-	Success        bool   `json:"success"`
-	JobManagerGone bool   `json:"jobmanagergone"`
-	Error          string `json:"error,omitempty"`
-}
-
-type CommandRemoteDisconnectFromJobManagerData struct {
-	JobId string `json:"jobid"`
-}
-
-type CommandRemoteTerminateJobManagerData struct {
-	JobId             string `json:"jobid"`
-	JobManagerPid     int    `json:"jobmanagerpid"`
-	JobManagerStartTs int64  `json:"jobmanagerstartts"`
-}
-
-type CommandStartJobRtnData struct {
-	CmdPid            int   `json:"cmdpid"`
-	CmdStartTs        int64 `json:"cmdstartts"`
-	JobManagerPid     int   `json:"jobmanagerpid"`
-	JobManagerStartTs int64 `json:"jobmanagerstartts"`
-}
-
-type CommandJobPrepareConnectData struct {
-	StreamMeta StreamMeta       `json:"streammeta"`
-	Seq        int64            `json:"seq"`
-	TermSize   waveobj.TermSize `json:"termsize"`
-}
-
-type CommandJobStartStreamData struct {
-}
-
-type CommandJobConnectRtnData struct {
-	Seq         int64  `json:"seq"`
-	StreamDone  bool   `json:"streamdone,omitempty"`
-	StreamError string `json:"streamerror,omitempty"`
-	HasExited   bool   `json:"hasexited,omitempty"`
-	ExitCode    *int   `json:"exitcode,omitempty"`
-	ExitSignal  string `json:"exitsignal,omitempty"`
-	ExitErr     string `json:"exiterr,omitempty"`
-}
-
-type CommandJobCmdExitedData struct {
-	JobId      string `json:"jobid"`
-	ExitCode   *int   `json:"exitcode,omitempty"`
-	ExitSignal string `json:"exitsignal,omitempty"`
-	ExitErr    string `json:"exiterr,omitempty"`
-	ExitTs     int64  `json:"exitts,omitempty"`
-}
-
-type CommandJobControllerStartJobData struct {
-	ConnName string            `json:"connname"`
-	JobKind  string            `json:"jobkind"`
-	Cmd      string            `json:"cmd"`
-	Args     []string          `json:"args"`
-	Env      map[string]string `json:"env"`
-	TermSize *waveobj.TermSize `json:"termsize,omitempty"`
-}
-
-type CommandJobControllerAttachJobData struct {
-	JobId   string `json:"jobid"`
-	BlockId string `json:"blockid"`
-}
-
-type JobManagerStatusUpdate struct {
-	JobId            string `json:"jobid"`
-	JobManagerStatus string `json:"jobmanagerstatus"`
 }
 
 type CommandWaveFileReadStreamData struct {
@@ -1427,18 +558,6 @@ type CommandBadgeWatchPidData struct {
 	Pid     int          `json:"pid"`
 	ORef    waveobj.ORef `json:"oref"`
 	BadgeId string       `json:"badgeid"`
-}
-
-type BlockJobStatusData struct {
-	BlockId       string `json:"blockid"`
-	JobId         string `json:"jobid"`
-	Status        string `json:"status,omitempty" tstype:"null | \"init\" | \"connected\" | \"disconnected\" | \"done\""`
-	VersionTs     int64  `json:"versionts"`
-	DoneReason    string `json:"donereason,omitempty"`
-	StartupError  string `json:"startuperror,omitempty"`
-	CmdExitTs     int64  `json:"cmdexitts,omitempty"`
-	CmdExitCode   *int   `json:"cmdexitcode,omitempty"`
-	CmdExitSignal string `json:"cmdexitsignal,omitempty"`
 }
 
 // ProcessInfo holds per-process information for the process viewer.

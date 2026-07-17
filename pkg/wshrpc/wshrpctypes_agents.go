@@ -1,0 +1,132 @@
+// Copyright 2025, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package wshrpc
+
+import "context"
+
+type AgentCommands interface {
+	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
+	GetAgentTranscriptCommand(ctx context.Context, data CommandGetAgentTranscriptData) (*CommandGetAgentTranscriptRtnData, error)
+	GetSubagentsCommand(ctx context.Context, data CommandGetSubagentsData) (*CommandGetSubagentsRtnData, error) // list a parent agent's on-disk subagent transcripts
+	GetUsageStatsCommand(ctx context.Context, data CommandGetUsageStatsData) (*CommandGetUsageStatsRtnData, error)
+	GetRecentSessionsCommand(ctx context.Context, data CommandGetRecentSessionsData) (*CommandGetRecentSessionsRtnData, error)
+	GetSessionsActivityCommand(ctx context.Context, data CommandGetSessionsActivityData) (*CommandGetSessionsActivityRtnData, error)
+	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
+	GetTranscriptUsageCommand(ctx context.Context, data CommandGetTranscriptUsageData) (*CommandGetTranscriptUsageRtnData, error)
+	SharpenTaskCommand(ctx context.Context, data CommandSharpenTaskData) (*CommandSharpenTaskRtnData, error)
+	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
+	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
+	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
+}
+
+type CommandGetSessionGroupData struct {
+	Cwd string `json:"cwd"`
+}
+
+type CommandGetSessionGroupRtnData struct {
+	Root  string `json:"root"`
+	Label string `json:"label"`
+}
+
+type CommandGetAgentTranscriptData struct {
+	Path     string `json:"path"`
+	MaxLines int    `json:"maxlines,omitempty"`
+	// FromStart reads the first MaxLines lines (head) instead of the last (tail); used to resolve
+	// Codex cwd, which lives only on the first-line session_meta record.
+	FromStart bool `json:"fromstart,omitempty"`
+}
+
+type CommandGetAgentTranscriptRtnData struct {
+	Lines []string `json:"lines"`
+}
+
+type CommandGetSubagentsData struct {
+	Path string `json:"path"` // the PARENT agent transcript path; its subagents/ dir is derived from it
+}
+
+type CommandGetSubagentsRtnData struct {
+	Subagents []SubagentFileInfo `json:"subagents"`
+}
+
+type CommandGetUsageStatsData struct {
+	WindowDays int `json:"windowdays,omitempty"`
+}
+
+type CommandGetUsageStatsRtnData struct {
+	Buckets []UsageBucket `json:"buckets"`
+}
+
+type CommandGetRecentSessionsData struct {
+	WindowDays int `json:"windowdays,omitempty"`
+	Limit      int `json:"limit,omitempty"`
+}
+
+type CommandGetRecentSessionsRtnData struct {
+	Sessions []SessionInfo `json:"sessions"`
+}
+
+type CommandGetSessionsActivityData struct {
+	WindowDays int `json:"windowdays,omitempty"`
+	Limit      int `json:"limit,omitempty"`
+}
+
+type CommandGetSessionsActivityRtnData struct {
+	Sessions []SessionActivity `json:"sessions"`
+}
+
+type CommandGetTranscriptTokensData struct {
+	Path string `json:"path"`
+}
+
+type CommandGetTranscriptTokensRtnData struct {
+	Tokens int `json:"tokens"`
+}
+
+type CommandGetTranscriptUsageData struct {
+	Path string `json:"path"`
+}
+
+type CommandGetTranscriptUsageRtnData struct {
+	Buckets []UsageBucket `json:"buckets"`
+}
+
+type CommandSharpenTaskData struct {
+	Task        string `json:"task"`
+	ProjectName string `json:"projectname"`
+	Runtime     string `json:"runtime"`
+	Mode        string `json:"mode"`
+}
+
+type CommandSharpenTaskRtnData struct {
+	Task  string `json:"task"`
+	Model string `json:"model"`
+}
+
+type CommandGetWindowTokensData struct {
+	FiveHourCutoff int64 `json:"fivehourcutoff,omitempty"` // epoch seconds; 0 = all-time
+	WeekCutoff     int64 `json:"weekcutoff,omitempty"`     // epoch seconds; 0 = all-time
+}
+
+type CommandGetWindowTokensRtnData struct {
+	FiveHourTokens int `json:"fivehourtokens"`
+	WeekTokens     int `json:"weektokens"`
+}
+
+type CommandGetCacheStatusData struct {
+	Path string `json:"path"`
+}
+
+type CommandGetCacheStatusRtnData struct {
+	LastWriteTs int64 `json:"lastwritets,omitempty"` // epoch seconds; absent = no cache-write found
+	OneHour     bool  `json:"onehour,omitempty"`
+}
+
+type CommandStreamAgentTranscriptData struct {
+	Path      string `json:"path"`
+	TailLines int    `json:"taillines,omitempty"`
+}
+
+type AgentTranscriptUpdate struct {
+	Lines []string `json:"lines"`
+}
