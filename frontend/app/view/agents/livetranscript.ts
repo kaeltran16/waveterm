@@ -8,6 +8,7 @@
 // the generator, which cancels the backend ctx and tears down the fsnotify watcher.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { addWSReconnectHandler } from "@/app/store/ws";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -28,6 +29,8 @@ export const tasksByIdAtom = atom<Record<string, CardTask[]>>({}) as PrimitiveAt
 
 interface StreamHandle {
     stop: () => void;
+    path: string;
+    agent?: string;
 }
 const streams = new Map<string, StreamHandle>();
 
@@ -39,12 +42,15 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
     const project = projector.project;
     const gen = RpcApi.StreamAgentTranscriptCommand(TabRpcClient, { path, taillines: STREAM_TAIL_LINES }, { timeout: STREAM_TIMEOUT_MS });
     let cancelled = false;
-    streams.set(id, {
+    const handle: StreamHandle = {
+        path,
+        agent,
         stop: () => {
             cancelled = true;
             void gen.return?.(undefined);
         },
-    });
+    };
+    streams.set(id, handle);
     const lines: string[] = [];
     void (async () => {
         try {
@@ -67,7 +73,11 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
         } catch {
             // stream ended or errored — keep the last entries, just stop updating
         } finally {
-            streams.delete(id);
+            // a stale generator (from a stream restarted mid-flight, e.g. on ws reconnect) may
+            // resolve after its replacement is already registered; only delete if we're still it
+            if (streams.get(id) === handle) {
+                streams.delete(id);
+            }
         }
     })();
 }
@@ -79,4 +89,23 @@ export function stopTranscriptStream(id: string): void {
     }
     handle.stop();
     streams.delete(id);
+}
+
+// On a websocket reconnect the old generators are hung (a socket drop never errored/returned them),
+// and useCardStreams won't re-drive start (its wanted-set is unchanged). Stop every active stream and
+// re-open it; the fresh startTranscriptStream re-tails STREAM_TAIL_LINES (a small, acceptable catch-up).
+export function restartActiveStreams(): void {
+    const active = [...streams.entries()].map(([id, h]) => ({ id, path: h.path, agent: h.agent }));
+    for (const { id } of active) {
+        stopTranscriptStream(id);
+    }
+    for (const { id, path, agent } of active) {
+        startTranscriptStream(id, path, agent);
+    }
+}
+
+let reconnectRegistered = false;
+if (!reconnectRegistered) {
+    reconnectRegistered = true;
+    addWSReconnectHandler(restartActiveStreams);
 }
