@@ -8,9 +8,6 @@
         "app:*": {
           "type": "boolean"
         },
-        "app:globalhotkey": {
-          "type": "string"
-        },
         "app:dismissarchitecturewarning": {
           "type": "boolean"
         },
@@ -21,9 +18,6 @@
           "type": "boolean"
         },
         "app:ctrlvpaste": {
-          "type": "boolean"
-        },
-        "app:confirmquit": {
           "type": "boolean"
         },
         "app:hideaibutton": {
@@ -41,13 +35,6 @@
             "off",
             "on",
             "term"
-          ]
-        },
-        "app:tabbar": {
-          "type": "string",
-          "enum": [
-            "top",
-            "left"
           ]
         },
         "app:loombin": {
@@ -253,17 +240,8 @@
         "window:*": {
           "type": "boolean"
         },
-        "window:fullscreenonlaunch": {
-          "type": "boolean"
-        },
         "window:transparent": {
           "type": "boolean"
-        },
-        "window:blur": {
-          "type": "boolean"
-        },
-        "window:opacity": {
-          "type": "number"
         },
         "window:bgcolor": {
           "type": "string"
@@ -272,9 +250,6 @@
           "type": "boolean"
         },
         "window:tilegapsize": {
-          "type": "integer"
-        },
-        "window:maxtabcachesize": {
           "type": "integer"
         },
         "window:magnifiedblockopacity": {
@@ -291,15 +266,6 @@
         },
         "window:confirmclose": {
           "type": "boolean"
-        },
-        "window:savelastwindow": {
-          "type": "boolean"
-        },
-        "window:dimensions": {
-          "type": "string"
-        },
-        "window:zoom": {
-          "type": "number"
         },
         "telemetry:*": {
           "type": "boolean"

@@ -1990,17 +1990,14 @@ declare global {
     // wconfig.SettingsType
     type SettingsType = {
         "app:*"?: boolean;
-        "app:globalhotkey"?: string;
         "app:dismissarchitecturewarning"?: boolean;
         "app:defaultnewblock"?: string;
         "app:showoverlayblocknums"?: boolean;
         "app:ctrlvpaste"?: boolean;
-        "app:confirmquit"?: boolean;
         "app:hideaibutton"?: boolean;
         "app:disablectrlshiftarrows"?: boolean;
         "app:disablectrlshiftdisplay"?: boolean;
         "app:focusfollowscursor"?: string;
-        "app:tabbar"?: string;
         "app:loombin"?: string;
         "ai:*"?: boolean;
         "ai:preset"?: string;
@@ -2065,22 +2062,15 @@ declare global {
         "widget:*"?: boolean;
         "widget:showhelp"?: boolean;
         "window:*"?: boolean;
-        "window:fullscreenonlaunch"?: boolean;
         "window:transparent"?: boolean;
-        "window:blur"?: boolean;
-        "window:opacity"?: number;
         "window:bgcolor"?: string;
         "window:reducedmotion"?: boolean;
         "window:tilegapsize"?: number;
-        "window:maxtabcachesize"?: number;
         "window:magnifiedblockopacity"?: number;
         "window:magnifiedblocksize"?: number;
         "window:magnifiedblockblurprimarypx"?: number;
         "window:magnifiedblockblursecondarypx"?: number;
         "window:confirmclose"?: boolean;
-        "window:savelastwindow"?: boolean;
-        "window:dimensions"?: string;
-        "window:zoom"?: number;
         "telemetry:*"?: boolean;
         "telemetry:enabled"?: boolean;
         "conn:*"?: boolean;
