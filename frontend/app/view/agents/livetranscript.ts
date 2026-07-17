@@ -11,8 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { addWSReconnectHandler, removeWSReconnectHandler } from "@/app/store/ws";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { atom, type PrimitiveAtom } from "jotai";
-import type { AgentEntry, CardTask } from "./agentsviewmodel";
+import { dropLiveId, lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscriptatoms";
 import { projectorFor } from "./transcriptregistry";
 
 const STREAM_TAIL_LINES = 300;
@@ -22,10 +21,10 @@ const STREAM_TAIL_LINES = 300;
 // the stream is instead ended explicitly via gen.return() when the panel unmounts.
 const STREAM_TIMEOUT_MS = 31536000000;
 
-export const liveEntriesByIdAtom = atom<Record<string, AgentEntry[]>>({}) as PrimitiveAtom<Record<string, AgentEntry[]>>;
-export const lastActivityByIdAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
-// latest TodoWrite task list per agent, projected from the same open stream (card task chip)
-export const tasksByIdAtom = atom<Record<string, CardTask[]>>({}) as PrimitiveAtom<Record<string, CardTask[]>>;
+// The whole-map atoms are defined in livetranscriptatoms.ts (the leaf module also owning the
+// per-id slices derived from them); re-exported here so existing consumers importing from
+// this file keep working unchanged.
+export { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscriptatoms";
 
 interface StreamHandle {
     stop: () => void;
@@ -89,6 +88,7 @@ export function stopTranscriptStream(id: string): void {
     }
     handle.stop();
     streams.delete(id);
+    dropLiveId(id);
 }
 
 // On a websocket reconnect the old generators are hung (a socket drop never errored/returned them),
