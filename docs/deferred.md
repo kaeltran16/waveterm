@@ -12,7 +12,12 @@ every entry below in this file, and the named open threads (Jarvis fan-out v1.1,
 dual-answer ask, cursor-row composer, new-agent-tab integration). **Nothing here is chosen or built** — this is
 a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE+wiring or store) / L (backend+FE).
 
-### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed)
+### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed) — SHIPPED 2026-07-17
+
+**Shipped:** T1, T2, T4, C1, C2 (T3 declined). Plan: `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
+One follow-up deferred: the T1 stale-draft cleanup effect is cockpit-surface-scoped — the `askId` re-keying
+unlocks second-asks in the Channels `AskRow` too, but that surface doesn't clear leftover draft selections
+on a new ask (edge case; the lock itself is fixed everywhere).
 
 - **T1. Second ask from the same agent can't be answered in place** — `sentIdsAtom` is only ever added to,
   never cleared anywhere in `frontend/` (`agents.tsx:83,164-166,175`; consumed as a hard lock
@@ -106,7 +111,9 @@ a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE
 
 **Design briefs (resolved decisions, per theme)** live under `docs/superpowers/briefs/`; a downstream agent
 expands each into a formal spec + plan and executes. Status:
-- Theme 1 — `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md` (T3 declined; other 5 ship).
+- Theme 1 — SHIPPED 2026-07-17 (T1, T2, T4, C1, C2; T3 declined). Brief:
+  `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md`; plan:
+  `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
 - Theme 2 — `docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
 - Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded).
 - Theme 4 — `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md` (all six; tests-first).

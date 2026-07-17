@@ -9,10 +9,13 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import {
+    askSentKey,
     buildAskAnswers,
     canSubmitAsk,
     cycleId,
+    groupAgents,
     mergePendingLaunches,
+    nextAskId,
     type AgentVM,
     type CardPref,
     type PendingLaunch,
@@ -160,8 +163,9 @@ export class AgentsViewModel implements ViewModel {
     // once, and marks the ask sent so the answer bar locks.
     submitAnswer(agentId: string) {
         const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
+        const askKey = agent ? askSentKey(agent) : undefined;
         const sent = globalStore.get(this.sentIdsAtom);
-        if (!agent || sent.has(agentId)) {
+        if (!agent || askKey == null || sent.has(askKey)) {
             return;
         }
         const qs = agent.ask?.questions ?? [];
@@ -172,7 +176,15 @@ export class AgentsViewModel implements ViewModel {
             return;
         }
         fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers: buildAskAnswers(qs, sel, txt) }));
-        globalStore.set(this.sentIdsAtom, new Set(sent).add(agentId));
+        globalStore.set(this.sentIdsAtom, new Set(sent).add(askKey));
+        // advance triage to the next asking agent so answering keeps moving without a separate `n` press
+        // (T2). The just-answered agent is still in `asking` (state flips later), so nextAskId cycles past
+        // it; a lone remaining ask wraps to itself and the cursor stays put.
+        const askingIds = groupAgents(globalStore.get(this.agentsAtom)).asking.map((a) => a.id);
+        const next = nextAskId(askingIds, agentId);
+        if (next != null) {
+            globalStore.set(this.cursorIdAtom, next);
+        }
     }
 
     // Set the free text for one question. Typing (non-empty) clears any selected option for that

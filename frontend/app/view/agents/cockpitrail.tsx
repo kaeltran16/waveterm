@@ -79,12 +79,14 @@ export function CockpitRail({
     windowTokens,
     recent,
     now,
+    onSelectAgent,
 }: {
     model: AgentsViewModel;
     usageDonuts: ReturnType<typeof mergeRateLimitWindows>;
     windowTokens: WindowTokens | null;
     recent: ReturnType<typeof buildRecentActivity>;
     now: number;
+    onSelectAgent: (id: string) => void;
 }) {
     return (
         <CollapsibleRail
@@ -165,9 +167,11 @@ export function CockpitRail({
                                       </div>
                                       <div className="flex flex-col">
                                           {recent.map((e) => (
-                                              <div
+                                              <button
                                                   key={e.id}
-                                                  className="flex gap-[11px] border-b border-border py-[9px]"
+                                                  type="button"
+                                                  onClick={() => onSelectAgent(e.id)}
+                                                  className="flex w-full gap-[11px] border-b border-border py-[9px] text-left hover:bg-white/[0.03]"
                                               >
                                                   <span
                                                       className="mt-[5px] h-[7px] w-[7px] shrink-0 rounded-full"
@@ -187,7 +191,7 @@ export function CockpitRail({
                                                               : `${formatAge(now - e.ts)} ago`}
                                                       </div>
                                                   </div>
-                                              </div>
+                                              </button>
                                           ))}
                                       </div>
                                   </div>

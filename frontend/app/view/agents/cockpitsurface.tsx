@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter } from "./agents";
 import {
+    askSentKey,
     filterAgents,
     groupAgents,
     isRecentlyIdle,
@@ -72,6 +73,18 @@ function useModelAtom<T>(a: PrimitiveAtom<T>): [T, (v: T | ((p: T) => T)) => voi
     const set = (v: T | ((p: T) => T)) =>
         globalStore.set(a, typeof v === "function" ? (v as (p: T) => T)(globalStore.get(a)) : v);
     return [value, set];
+}
+
+// Delete one agent's entry from a per-agent record atom (no-op if absent). Used to reset answer drafts
+// when an agent's ask identity changes.
+function deleteKey<T>(atomRef: PrimitiveAtom<Record<string, T>>, id: string) {
+    const prev = globalStore.get(atomRef);
+    if (!(id in prev)) {
+        return;
+    }
+    const next = { ...prev };
+    delete next[id];
+    globalStore.set(atomRef, next);
 }
 
 export function CockpitSurface({ model }: { model: AgentsViewModel }) {
@@ -243,6 +256,23 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         });
     }, [asking.map((a) => a.id).join(",")]);
 
+    // Reset an agent's answer drafts when its ask identity changes, so a fresh ask never inherits the
+    // previous ask's selections/text/tab (T1). Keyed on each asking agent's askId; the first sighting of
+    // an ask clears nothing (drafts are already empty) and just records the id.
+    const seenAskIdRef = useRef<Map<string, string>>(new Map());
+    useEffect(() => {
+        for (const a of asking) {
+            const askId = a.ask?.askId;
+            if (askId == null || seenAskIdRef.current.get(a.id) === askId) {
+                continue;
+            }
+            seenAskIdRef.current.set(a.id, askId);
+            deleteKey(model.answerSelAtom, a.id);
+            deleteKey(model.answerTextAtom, a.id);
+            deleteKey(model.answerTabAtom, a.id);
+        }
+    }, [asking.map((a) => `${a.id}:${a.ask?.askId ?? ""}`).join(",")]);
+
     const scrollToPulse = (id: string) => {
         document.querySelector(`[data-agent-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
         setPulseId(id);
@@ -323,7 +353,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 pulse={pulseId === a.id}
                 selections={answerSel[a.id] ?? {}}
                 texts={answerText[a.id] ?? {}}
-                sent={sentIds.has(a.id)}
+                sent={sentIds.has(askSentKey(a) ?? "")}
                 activeQuestion={answerTab[a.id] ?? 0}
                 composerOpen={openComposerId === a.id}
                 onCursor={() => setCursorId(a.id)}
@@ -501,7 +531,17 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 {!empty ? <HintsBar onOpenHelp={() => setShowHelp(true)} /> : null}
             </div>
 
-            <CockpitRail model={model} usageDonuts={usageDonuts} windowTokens={windowTokens} recent={recent} now={now} />
+            <CockpitRail
+                model={model}
+                usageDonuts={usageDonuts}
+                windowTokens={windowTokens}
+                recent={recent}
+                now={now}
+                onSelectAgent={(id) => {
+                    setCursorId(id);
+                    scrollToPulse(id);
+                }}
+            />
             {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
         </MotionConfig>

@@ -61,6 +61,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [resolvedPaths, setResolvedPaths] = useState<Record<string, string>>({});
     const [error, setError] = useState<string | null>(null);
     const reqIdRef = useRef(0);
+    const taskRef = useRef<HTMLTextAreaElement>(null);
     const [sharpen, setSharpen] = useState<SharpenState>({ kind: "idle" });
     // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones.
     const candidates = useMemo(() => launchCandidates(registry, liveProjectsForLaunch(agents)), [registry, agents]);
@@ -135,6 +136,13 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         // resolvedPaths is read for the dedup filter but kept out of deps: the merge is functional and
         // re-running on every resolution would loop.
     }, [open, candidates]);
+    // Focus the Task field when the modal opens (C1). runtime is intentionally out of deps — switching
+    // runtime while the modal is open must not steal focus back to the task box.
+    useEffect(() => {
+        if (open && runtimeShowsTask(runtime)) {
+            taskRef.current?.focus();
+        }
+    }, [open]);
     // Pull the project's branches (recency-ordered) for the worktree-branch suggestions. Terminal
     // runtime and non-repo projects degrade to free-text (empty list).
     useEffect(() => {
@@ -266,7 +274,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         }
     };
     return (
-        <ModalShell open={open} onClose={close} className="flex flex-col w-[min(640px,93vw)] max-h-[86vh]" dismissOnBackdrop={false}>
+        <ModalShell open={open} onClose={close} onSubmit={() => void launch()} className="flex flex-col w-[min(640px,93vw)] max-h-[86vh]" dismissOnBackdrop={false}>
             {open ? (
                 <>
                 <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
@@ -364,6 +372,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                             }
                         >
                             <textarea
+                                ref={taskRef}
                                 value={task}
                                 onChange={(e) => setTask(e.target.value)}
                                 placeholder="Describe what this agent should do…"

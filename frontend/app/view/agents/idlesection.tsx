@@ -57,7 +57,9 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
                                             {formatAge(a.activeMs)} idle
                                         </span>
                                     </div>
-                                    <AgentComposer blockId={a.blockId} placeholder={`message ${a.name}…`} />
+                                    {a.blockId ? (
+                                        <AgentComposer blockId={a.blockId} placeholder={`message ${a.name}…`} />
+                                    ) : null}
                                 </motion.div>
                             );
                         })}
