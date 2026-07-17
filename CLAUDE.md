@@ -29,6 +29,7 @@ Other useful commands:
 - **Single frontend test:** `npx vitest run frontend/app/view/agents/projectname.test.ts` or filter by name: `npx vitest run -t "parses estart"`.
 - **Go tests:** `go test ./pkg/...` (or a single package, e.g. `go test ./pkg/agentask/`).
 - **Rust tests:** `cargo test --manifest-path src-tauri/Cargo.toml`.
+- **Lint / format:** flat ESLint config (`eslint.config.js`) + Prettier (`prettier.config.cjs`), but **no Task/npm wrapper** — run `npx eslint .` and `npx prettier --check .` directly. The config still references removed `emain/` (Electron) and a phantom `tsunami/frontend` workspace — both dead; ignore.
 - **Clear dev data/config:** `task dev:cleardata`, `task dev:clearconfig` (dev app uses `waveterm-dev` data dirs, isolated from a packaged install).
 
 ### Gotchas
@@ -40,6 +41,7 @@ Other useful commands:
 There is no jsdom/render-test harness for the cockpit — verify rendered UI by screenshotting the **live dev app** over the Chrome DevTools Protocol. Tauri renders through WebView2 (Chromium/Edge on Windows), which speaks CDP.
 - **Enable:** `src-tauri/src/main.rs` sets `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`, gated by `#[cfg(debug_assertions)]` (compiled out of `cargo tauri build` — never ships). `cargo tauri dev` watches `src-tauri/`, so the flag activates on the next dev rebuild.
 - **Capture:** `node scripts/cdp-shot.mjs [out.png]` — discovers the page target on `:9222` and writes a PNG (the page is the Vite app inside WebView2, `http://localhost:5174/`). The same attach pattern drives full CDP (`Runtime.evaluate` to read the DOM / jotai atoms, `Input.dispatchKeyEvent` for keys). `claude-in-chrome` MCP can't attach (needs Chrome + extension) — use raw CDP.
+- **Scenario harness:** `task verify:ui -- <name...>` (→ `scripts/cdp/verify.mjs`) runs each scenario in `scripts/cdp/scenarios.mjs` as arrange → goto → shot → assert → teardown, prints a PASS/FAIL table, writes a contact sheet to `cdp-shots/index.html`, and exits nonzero on failure. Prefer this over ad-hoc `cdp-shot.mjs` when a repeatable check exists; the shared attach logic lives in `scripts/cdp/attach.mjs`.
 - **Inject test data first** if you need a populated cockpit: `node scripts/inject-live-agents.mjs <scenario>` (see that script's header).
 
 ## Architecture
