@@ -228,6 +228,9 @@ func registerConn(wsConnId string, stableId string, wproxy *wshutil.WshRpcProxy)
 		log.Printf("[websocket] warning: replacing existing connection for stableid %q\n", stableId)
 		if curConnInfo.LinkId != baseds.NoLinkId {
 			wshutil.DefaultRouter.UnregisterLink(curConnInfo.LinkId)
+			// same reclaim as unregisterConn: a same-stableId reconnect replaces the old link here
+			// (not via unregisterConn), so its streaming RPCs would otherwise leak until the 1-year timeout.
+			wshserver.GetMainRpcClient().CancelRequestsForLink(curConnInfo.LinkId)
 		}
 	}
 	linkId := wshutil.DefaultRouter.RegisterTrustedRouter(wproxy)
