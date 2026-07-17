@@ -3,6 +3,118 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Net-new improvement scan — un-triaged candidate backlog (2026-07-17)
+
+A four-lane read-only scan (product/UX friction · performance · reliability/correctness · tech-debt/test-gaps)
+for improvements **not** already on any backlog. Excluded by construction: the coherence audit
+(`docs/agents/cockpit-coherence-audit.md` F1–F14), `channels-improvements.md`, `runs-pipeline-known-issues.md`,
+every entry below in this file, and the named open threads (Jarvis fan-out v1.1, usage backend parts 2&3,
+dual-answer ask, cursor-row composer, new-agent-tab integration). **Nothing here is chosen or built** — this is
+a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE+wiring or store) / L (backend+FE).
+
+### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed)
+
+- **T1. Second ask from the same agent can't be answered in place** — `sentIdsAtom` is only ever added to,
+  never cleared anywhere in `frontend/` (`agents.tsx:83,164-166,175`; consumed as a hard lock
+  `cockpitsurface.tsx:326`, `channelsprimitives.tsx:114`; `answerbar.tsx:232-247` renders the frozen
+  "✓ Answered" instead of the new question). After answering once, that agent's panel is dead for the session
+  and submit is silently blocked — forcing a drop into the terminal TUI. **Highest-impact dead-end found.**
+  Fix: key `sent`/selections by ask identity, or clear on the agent's `asking → working` transition. Effort M.
+- **T2. Answering doesn't advance to the next waiting ask** — the Enter submit branch does no cursor move
+  (`usecockpitkeyboard.ts:91-98`; `agents.tsx:161-176`); reaching the next ask is a separate `n` press, and
+  there's no mouse "jump to next ask" at all (header "N need you" is static, `cockpitsurface.tsx:370-377`).
+  Fix: auto-jump to `nextAskId` on successful submit. Effort S.
+- **T3. Mouse single-select fires instantly & irreversibly** — one click injects the answer into the live
+  agent with no confirm/undo (`answerbar.tsx:257-271`), while the keyboard path is a guarded two-step
+  (`1-9` select, Enter confirm). A stray click sends a wrong instruction to Claude. Fix: require an explicit
+  confirm on click too, or a brief undo window. Effort S.
+- **T4. Idle reply box silently swallows messages** when the agent's terminal block is gone — the composer
+  mounts unconditionally (`idlesection.tsx:60`), `send()` no-ops on missing `blockId` (`agentcomposer.tsx:47-56`)
+  and Enter calls it regardless (`:63-71`) while only the button is disabled. Fix: replace the composer with a
+  "session ended — Resume to continue" affordance when `blockId == null`. Effort S.
+- Two smaller cousins: **new-agent modal advertises ⌘Enter but nothing wires it** (launch is mouse-only;
+  `newagentmodal.tsx:625-631`, `modalshell.tsx:34-41` wires only Escape; Task field not autofocused) — Effort S;
+  and **cockpit rail "Recent activity" rows are dead `<div>`s** (`cockpitrail.tsx:167-190`) while the Sessions
+  feed's equivalent rows are clickable `<button>`s (`sessionssurface.tsx:245-249`) — Effort S.
+
+### Theme 2 — Live-transcript streaming core (one confirmed bug + perf; perf UNMEASURED)
+
+- **S1. Streams never restart after a websocket reconnect (CONFIRMED correctness bug).** Each card opens a
+  `StreamAgentTranscriptCommand` with a ~1-year timeout; on a socket drop the client generator neither errors
+  nor rejects, so it hangs forever, and reconnect only runs `reannounceRoutes`/`wpsReconnectHandler` — nothing
+  restarts streaming RPCs. All live narration/task-chip/git-refresh silently freezes until the surface is
+  remounted. Server-side, the request ctx is also `WithTimeout(1 year)` with no per-connection cancel, so the
+  `streamTranscript` goroutine + fsnotify watcher leak (one per active card per reconnect).
+  Evidence: `wshrpcutil-base.ts:26-72`; `ws.ts:123-152`; `wshrpcutil.ts:26-29`; `livetranscript.ts:22,34-72`;
+  `usecardstreams.ts:44-69` (`streamedRef` never reconciled); `transcript.go:139-203`; `wshserver.go:2124-2136`;
+  `wshutil/wshrpc.go:334-338`. Fix: on WS reconnect, restart active transcript streams (reconcile `streamedRef`/
+  the `streams` map); optionally shorten the timeout with a keepalive or cancel server-side on route disconnect.
+  Effort M. (Server-leak half is med-confidence — contingent on no per-connection ctx cancel, none found.)
+- **S2. Fleet-wide re-render storm + O(N²) reprojection + unvirtualized narration (perf, code-inferred not
+  measured — profile first per measure-before-optimizing).** The stream writes a new whole-map object per chunk
+  (`livetranscript.ts:60-61`) and every consumer subscribes to the whole map, not a per-id slice
+  (`agentrow.tsx:253-254`, `cockpitsurface.tsx:166-167`, `agentdetailsrail.tsx:55`, `runworkercard.tsx:30-32`);
+  `AgentRow` isn't memoized (`agentrow.tsx:159`), no `selectAtom` anywhere. So any chunk re-renders the whole
+  surface + every card. The FE also keeps an ever-growing `lines[]` (never trimmed, `livetranscript.ts:48,58`)
+  and re-runs full `project(lines)`/`extractTasks` over the entire history on each chunk
+  (`transcriptprojection.ts:106-278`) → O(total lines) per chunk. `NarrationTimeline` is unvirtualized,
+  `groupTimeline` runs in render with no `useMemo` (`narrationtimeline.tsx:449`), `MarkdownMessage` re-parses
+  ReactMarkdown+remarkGfm per render unmemoized (`markdownmessage.tsx:48-77`). Related: a 1s `nowAtom` tick
+  re-renders the whole surface and three components each run their own 1s interval writing the same atom
+  (`cockpitsurface.tsx:90,99`, `agentdetailsrail.tsx:82`, `usagesurface.tsx:477`); `liveEntriesByIdAtom` is
+  never cleared on stream stop (unbounded retention, `livetranscript.ts:75-82`). Fixes cluster: per-id
+  subscription (`atomFamily`/`selectAtom`) + memoize `AgentRow`/`MarkdownMessage`; incremental (stateful)
+  projection or capped `lines` window; window/cap + `useMemo` the timeline; consolidate/lower the tickers;
+  drop stopped ids. Effort M (recommend a CDP/React-DevTools profiler pass on a populated cockpit via
+  `scripts/inject-live-agents.mjs` before committing to the refactor).
+
+### Theme 3 — Ask-channel correctness (backend)
+
+- **A1. `DeliverAnswer` is not atomic and never claims the pending ask** (real, med-high confidence). It does
+  `Get` → encode → inject keystrokes but never `Drop`s/claims the entry, which stays "pending" until the
+  external clear hook fires `AgentAskClearCommand` later. In that window two deliveries both see `ok=true` and
+  both inject a full keystroke sequence into the same picker — concrete trigger: the human answers from the
+  panel during the Gatekeeper's `Classify` latency, then `Classify` returns and delivers a second (possibly
+  different) selection; simpler trigger: two cockpit sessions, or a double-click. Evidence: `deliver.go:23-41`;
+  `agentask.go:41-52` (only Get/Set/Drop, no atomic claim); `wshserver.go:2339-2345,2347-2358`;
+  `watcher.go:104,107-116`. Fix: add `Registry.Claim(oref)` (return pending + delete under one lock); deliver
+  claims-once so only the first deliverer injects. Effort S.
+- **A2. `spawnRunWorkers` read-back-then-attach spans multiple transactions → possible double-spawn of a phase
+  worker** (real, low-med confidence — needs a concurrent trigger on one run). The double-spawn guard is
+  `len(p.WorkerOrefs) > 0`, persisted only after all spawns complete; the DB serializes single transactions
+  (`SetMaxOpenConns(1)`) but not this multi-step sequence, so two concurrent `AdvanceRun`/`CreateRun` calls for
+  one run can both see empty `WorkerOrefs` and both spawn. Evidence: `wshserver.go:1523-1544` (called `:1641`,
+  `:1743`); `runexec.go:110-125`; `wshutil/wshrpc.go:434-439` (per-RPC goroutine). Fix: spawn+attach inside one
+  `UpdateRun` transaction, or a per-run spawn mutex. Effort S–M.
+
+### Theme 4 — Maintainability & test gaps (lower urgency)
+
+- **Tech-debt.** `runbody.tsx` is an 846-line god-file bundling ~17 components across unrelated concerns
+  (status chrome, review gate + markdown-preview, ask card, cancel flow, blocked/starting states, orchestrator
+  fan-out, phase rail, and the live shell) — fix: peel the card family into `runcards.tsx` and `PlanPreview`
+  out, leave `RunBody` owning only live machinery. `agentsviewmodel.ts` is 933 lines / ~70 exports mixing ≥8
+  concerns (grid geometry, ask encoding, pricing math, formatting, cursor nav, filtering, projection) — it is
+  well-tested, so low risk, but the pure grid-layout cluster (`:99-103,824-958`) is cleanly extractable into
+  `cardgridlayout.ts` (move its tests). `sessionsidebarmodel.ts` copy-pastes the "first `term` block with
+  `cmd:cwd`" session-identity rule 4× (`:55,115,206,235`) — extract one `findSessionTermBlock(tab)` helper.
+- **Test gaps** (business-critical logic with no sibling test). `runactions.ts` (run lifecycle — `confirmCancelRun`
+  live-worker branch/copy `:108-123`, in-flight `Set` tracking in `stopRunWorker`/`cancelRun`). `pkg/jarvis`:
+  `watcher.go` (the Gatekeeper auto-answer-vs-escalate decision + index-bounds guard, `:80-118`) and `onexit.go`
+  (`outcomeSummary` pure fn `:67-77`) are the only two untested files in the package. `agentcwdresolve.ts`
+  (the block→tail→head cwd precedence + tail-miss-only head read, `:35-62`; the pure `agentCwd` parser is tested,
+  the fallback orchestration is not).
+
+**Design briefs (resolved decisions, per theme)** live under `docs/superpowers/briefs/`; a downstream agent
+expands each into a formal spec + plan and executes. Status:
+- Theme 1 — `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md` (T3 declined; other 5 ship).
+- Theme 2 — `docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
+- Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded).
+- Theme 4 — `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md` (all six; tests-first).
+
+**To resume any of these:** read the theme's brief (or, for un-briefed themes, this entry) and run the
+spec → plan → execute cycle. This entry holds the raw four-lane scan evidence; the briefs hold the resolved
+design decisions.
+
 ## Arc Environment capability — declined (2026-07-16)
 
 The Arc Environment roadmap (an agent-aware local dev-environment manager: discover services from
