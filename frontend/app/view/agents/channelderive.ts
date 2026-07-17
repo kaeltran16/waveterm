@@ -33,13 +33,14 @@ export function promoteConsultText(runtime: string, question: string): string {
 }
 
 // resolveTargetChannel finds the channel a Radar finding should hand off to: the first whose bound
-// project path matches. Paths come from the same project registry, so an exact (trailing-slash-
-// insensitive) compare is sufficient — no fuzzy matching.
+// project path matches. Both paths trace back to the same project registry, but a radar report stores it
+// canonPath'd (forward slashes, per pkg/reporadar) while a channel stores it verbatim — so on Windows a
+// backslash channel path must be separator-normalized before comparing, mirroring Go's canonPath.
 export function resolveTargetChannel(channels: Channel[], projectPath: string | undefined): Channel | undefined {
     if (!projectPath) {
         return undefined;
     }
-    const norm = (p: string) => p.replace(/[/\\]+$/, "");
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
     const want = norm(projectPath);
     return channels.find((c) => c.projectpath != null && norm(c.projectpath) === want);
 }
