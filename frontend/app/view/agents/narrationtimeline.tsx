@@ -7,7 +7,7 @@ import { cn } from "@/util/util";
 import { Copy } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
     burstRenderMode,
     conversationText,
@@ -446,7 +446,7 @@ export function NarrationTimeline({
     className?: string;
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
-    const items = groupTimeline(entries);
+    const items = useMemo(() => groupTimeline(entries), [entries]);
     const copyMenu = (text: string) => (e: React.MouseEvent) =>
         ContextMenuModel.getInstance().showContextMenu(
             [

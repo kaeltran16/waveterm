@@ -3,7 +3,7 @@
 
 import { openLink } from "@/app/store/global";
 import { cn } from "@/util/util";
-import { Fragment } from "react";
+import { Fragment, memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./codeblock";
@@ -45,9 +45,11 @@ const MD_COMPONENTS: Components = {
     },
 };
 
+const REMARK_PLUGINS = [remarkGfm];
+
 function renderMd(text: string) {
     return (
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+        <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MD_COMPONENTS}>
             {text}
         </ReactMarkdown>
     );
@@ -62,7 +64,7 @@ function InsightCallout({ text }: { text: string }) {
     );
 }
 
-export function MarkdownMessage({ text, className }: { text: string; className?: string }) {
+export const MarkdownMessage = memo(function MarkdownMessage({ text, className }: { text: string; className?: string }) {
     const segments = splitInsightBlocks(text);
     return (
         <div className={cn("agent-md", className)}>
@@ -75,4 +77,4 @@ export function MarkdownMessage({ text, className }: { text: string; className?:
             )}
         </div>
     );
-}
+});
