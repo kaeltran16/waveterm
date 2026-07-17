@@ -103,7 +103,16 @@ cockpit.
   `:1743`); `runexec.go:110-125`; `wshutil/wshrpc.go:434-439` (per-RPC goroutine). Fix: spawn+attach inside one
   `UpdateRun` transaction, or a per-run spawn mutex. Effort S–M.
 
-### Theme 4 — Maintainability & test gaps (lower urgency)
+### Theme 4 — Maintainability & test gaps (lower urgency) — PARTIALLY SHIPPED 2026-07-17
+
+**Shipped 2026-07-17 (test-gaps + dedup):** #1 `runactions.test.ts`, #3 `agentcwdresolve.test.ts`, and #6
+(one pure `findSessionTermBlock` in `sessionviewmodel.ts`, all 4 sidebar sites routed through it) as the
+first tranche; then #2 `pkg/jarvis/watcher_test.go` (extracted pure `askAutoAnswerable`/`optionIndexInRange`
+predicates from `handleAsk` and tested them) + `onexit_test.go` (`outcomeSummary`), which Theme 3 A1
+unblocked when it landed. All tests mutation-verified (each fails if its guarded behavior regresses).
+Spec/plan: `docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`.
+**Still deferred:** refactors #4 (`runbody.tsx` card-family split) and #5 (`agentsviewmodel.ts` grid extract) —
+both wait on the active Theme 2 streaming work that edits those files, to avoid move-only merge conflicts.
 
 - **Tech-debt.** `runbody.tsx` is an 846-line god-file bundling ~17 components across unrelated concerns
   (status chrome, review gate + markdown-preview, ask card, cancel flow, blocked/starting states, orchestrator
@@ -127,7 +136,9 @@ expands each into a formal spec + plan and executes. Status:
   `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
 - Theme 2 — `docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
 - Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded). **SHIPPED 2026-07-17.**
-- Theme 4 — `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md` (all six; tests-first).
+- Theme 4 — PARTIALLY SHIPPED 2026-07-17 (#1,#2,#3,#6; #4,#5 deferred pending Theme 2). Brief:
+  `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md`; spec/plan:
+  `docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`.
 
 **To resume any of these:** read the theme's brief (or, for un-briefed themes, this entry) and run the
 spec → plan → execute cycle. This entry holds the raw four-lane scan evidence; the briefs hold the resolved

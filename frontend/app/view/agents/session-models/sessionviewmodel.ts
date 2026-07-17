@@ -101,6 +101,29 @@ export interface SidebarViewModel {
     groups: SessionGroupVM[];
 }
 
+export interface ResolvedSessionBlock {
+    blockId: string;
+    block: Block | null | undefined;
+}
+
+export interface SessionTermBlock {
+    blockId: string;
+    cwd: string;
+    meta: Record<string, any>;
+}
+
+/** Pure: the first terminal block carrying the cwd that defines a session's identity. */
+export function findSessionTermBlock(blocks: ResolvedSessionBlock[]): SessionTermBlock | undefined {
+    for (const { blockId, block } of blocks) {
+        const meta = block?.meta;
+        const cwd = meta?.["cmd:cwd"];
+        if (meta?.view === "term" && typeof cwd === "string" && cwd.length > 0) {
+            return { blockId, cwd, meta };
+        }
+    }
+    return undefined;
+}
+
 function rowLabel(s: SessionInput, includeService: boolean): string {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const title = s.title && s.title.trim().length > 0 ? s.title.trim() : undefined;

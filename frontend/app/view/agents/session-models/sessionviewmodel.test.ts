@@ -6,6 +6,7 @@ import {
     buildSessionViewModel,
     cwdToServiceLabel,
     cycleTarget,
+    findSessionTermBlock,
     flattenVisualOrder,
     loomBinOrDefault,
     modelLabel,
@@ -604,5 +605,36 @@ describe("buildSessionViewModel — model", () => {
     it("carries the session model onto the row", () => {
         const vm = buildSessionViewModel([input({ tabId: "t1", cwd: "/src/X", model: "claude-opus-4-8" })]);
         expect(vm.groups[0].sessions[0].model).toBe("claude-opus-4-8");
+    });
+});
+
+describe("findSessionTermBlock", () => {
+    const resolved = (blockId: string, meta?: Record<string, any>) => ({
+        blockId,
+        block: meta == null ? undefined : ({ meta } as Block),
+    });
+
+    it("returns the first terminal block with a non-empty cwd", () => {
+        const firstMeta = { view: "term" };
+        const selectedMeta = { view: "term", "cmd:cwd": "/first", cmd: "claude" };
+
+        expect(
+            findSessionTermBlock([
+                resolved("preview", { view: "preview", "cmd:cwd": "/ignored" }),
+                resolved("missing", firstMeta),
+                resolved("term-1", selectedMeta),
+                resolved("term-2", { view: "term", "cmd:cwd": "/second" }),
+            ])
+        ).toEqual({ blockId: "term-1", cwd: "/first", meta: selectedMeta });
+    });
+
+    it("returns undefined when no block qualifies", () => {
+        expect(
+            findSessionTermBlock([
+                resolved("missing-block"),
+                resolved("preview", { view: "preview", "cmd:cwd": "/ignored" }),
+                resolved("term", { view: "term", "cmd:cwd": "" }),
+            ])
+        ).toBeUndefined();
     });
 });

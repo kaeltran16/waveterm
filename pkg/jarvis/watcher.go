@@ -77,6 +77,19 @@ func channelOwnerORef(ctx context.Context, askingORef string) string {
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
 }
 
+// askAutoAnswerable reports whether an ask is even a candidate for gatekeeper auto-answer: exactly
+// one single-select question. multiple questions, or a multi-select, always reach a human — the
+// keystroke actuator delivers a single index and can't express a multi-select's semantics.
+func askAutoAnswerable(questions []baseds.AgentAskQuestion) bool {
+	return len(questions) == 1 && !questions[0].MultiSelect
+}
+
+// optionIndexInRange guards a classifier-chosen index before delivery: an out-of-range index would
+// inject a wrong or invalid selection, so it escalates instead of answering.
+func optionIndexInRange(idx int, q baseds.AgentAskQuestion) bool {
+	return idx >= 0 && idx < len(q.Options)
+}
+
 func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	channels, err := wstore.GetChannels(ctx)
 	if err != nil {
@@ -95,7 +108,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 		return // not owned by any gatekeeper-enabled channel or run
 	}
 	// deterministic pre-filter: only a single single-select question is auto-answerable.
-	if len(data.Questions) != 1 || data.Questions[0].MultiSelect {
+	if !askAutoAnswerable(data.Questions) {
 		postEscalation(ch.OID, data, "needs a human (multiple or multi-select questions)", ownerORef)
 		return
 	}
@@ -106,7 +119,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	}
 	if decision.Action == "answer" && decision.OptionIndex != nil {
 		idx := *decision.OptionIndex
-		if idx >= 0 && idx < len(q.Options) {
+		if optionIndexInRange(idx, q) {
 			delivered, derr := agentask.DeliverAnswer(data.ORef, data.AskId, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
 			if derr == nil && delivered {
 				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, ownerORef)
