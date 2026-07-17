@@ -473,11 +473,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         return () => clearInterval(refresh);
     }, [usageWindow]);
 
-    useEffect(() => {
-        const tick = setInterval(() => globalStore.set(model.nowAtom, Date.now()), 1000);
-        return () => clearInterval(tick);
-    }, [model]);
-
     const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
     const claudeDonut = donuts.find((d) => d.provider === "claude");
     const weeklyProjectionMs =

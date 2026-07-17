@@ -102,13 +102,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     );
     const windowTokens = useAtomValue(windowTokensAtom);
     const claudeDonut = usageDonuts.find((d) => d.provider === "claude");
-    // 1s writer: feeds the leaf indicators (QuietDot, RecentActivityRail, CockpitRail) that self-subscribe
-    // to `nowAtom` directly. Kept separate from the structural clock below so the surface itself never
-    // re-renders on this tick (Task 9 consolidates tickers later).
-    useEffect(() => {
-        const t = setInterval(() => globalStore.set(model.nowAtom, Date.now()), 1000);
-        return () => clearInterval(t);
-    }, []);
+    // The 1s now-clock is driven by a single always-mounted NowTicker (cockpit root); the leaf
+    // indicators (QuietDot, RecentActivityRail, CockpitRail) self-subscribe to `nowAtom` directly.
     // 15s writer: coarse enough that re-rendering CockpitSurface on it is cheap, frequent enough that
     // idle-grace collapse / stream teardown / usage rollover can't lag a quiescent fleet indefinitely.
     useEffect(() => {
