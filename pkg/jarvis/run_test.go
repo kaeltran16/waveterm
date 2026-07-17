@@ -346,6 +346,20 @@ func TestBuildOrchestratePromptGateOffTriages(t *testing.T) {
 	}
 }
 
+func TestBuildOrchestratePromptTellsLeadToAskViaAskUserQuestion(t *testing.T) {
+	// A lead that poses a question to the human in prose never renders as a question, so the run
+	// proceeds without an answer. Both modes must steer the lead to the AskUserQuestion channel
+	// (which renders + blocks) and warn against prose questions.
+	for _, gate := range []bool{true, false} {
+		got := BuildOrchestratePrompt("do X", nil, gate)
+		for _, want := range []string{"AskUserQuestion", "prose"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("gate=%v prompt missing ask guidance %q:\n%s", gate, want, got)
+			}
+		}
+	}
+}
+
 func TestRecordTriageIsNonBlocking(t *testing.T) {
 	r := orchRun(false) // phase 0 running, status executing
 	if r.Status != RunStatus_Executing {

@@ -328,6 +328,9 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate 
 		b.WriteString("- If it is larger or ambiguous, run `wsh jarvis triage plan \"<one-line reason>\"`, then plan it with the superpowers:writing-plans approach and execute adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
 		b.WriteString("Do not wait after triaging — proceed straight into the work you chose.\n")
 	}
+	// The intended ask channel is AskUserQuestion (it renders as an answerable card in the cockpit and
+	// blocks); a question typed in prose does not render, so the run proceeds without an answer.
+	b.WriteString("If a genuinely consequential or ambiguous decision comes up mid-run — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders as an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose: a prose question does not render as a question, so the run just proceeds without an answer.\n")
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, run `wsh jarvis complete`.\n")
 	return strings.TrimRight(b.String(), "\n")
