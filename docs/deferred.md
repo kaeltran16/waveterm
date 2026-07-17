@@ -15,9 +15,9 @@ a captured menu so the scan need not be re-run. Effort: S (localized FE) / M (FE
 ### Theme 1 — "Answer in place" triage flow dead-ends (flagship promise; all confirmed) — SHIPPED 2026-07-17
 
 **Shipped:** T1, T2, T4, C1, C2 (T3 declined). Plan: `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
-One follow-up deferred: the T1 stale-draft cleanup effect is cockpit-surface-scoped — the `askId` re-keying
-unlocks second-asks in the Channels `AskRow` too, but that surface doesn't clear leftover draft selections
-on a new ask (edge case; the lock itself is fixed everywhere).
+The T1 stale-draft cleanup runs in the always-mounted `CockpitShell` (`useResetAnswerDraftsOnAskChange`), so
+it fires on every surface that answers asks — the cockpit grid AND the Channels `AskRow` — not just the
+cockpit.
 
 - **T1. Second ask from the same agent can't be answered in place** — `sentIdsAtom` is only ever added to,
   never cleared anywhere in `frontend/` (`agents.tsx:83,164-166,175`; consumed as a hard lock
