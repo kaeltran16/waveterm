@@ -276,6 +276,24 @@ func (w *WshRpc) cancelRequest(reqId string) {
 
 }
 
+// CancelRequestsForLink cancels the context of every in-flight response handler whose request
+// entered on the given link. Used to reclaim streaming RPCs (goroutine + fsnotify watcher) when the
+// originating websocket connection tears down. close() invokes the handler's contextCancelFn, which
+// for a streaming handler fires its <-ctx.Done() finalize path.
+func (w *WshRpc) CancelRequestsForLink(linkId baseds.LinkId) {
+	w.Lock.Lock()
+	handlers := make([]*RpcResponseHandler, 0)
+	for _, h := range w.ResponseHandlerMap {
+		if h.GetIngressLinkId() == linkId {
+			handlers = append(handlers, h)
+		}
+	}
+	w.Lock.Unlock()
+	for _, h := range handlers {
+		h.close()
+	}
+}
+
 func (w *WshRpc) handleRequest(req *RpcMessage, ingressLinkId baseds.LinkId) {
 	pprof.Do(context.Background(), pprof.Labels("rpc", req.Command), func(pprofCtx context.Context) {
 		w.handleRequestInternal(req, ingressLinkId, pprofCtx)

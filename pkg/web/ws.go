@@ -20,6 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/eventbus"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/web/webcmd"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshserver"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
@@ -247,6 +248,9 @@ func unregisterConn(wsConnId string, stableId string) {
 	delete(RouteToConnMap, stableId)
 	if curConnInfo.LinkId != baseds.NoLinkId {
 		wshutil.DefaultRouter.UnregisterLink(curConnInfo.LinkId)
+		// reclaim streaming RPCs (e.g. StreamAgentTranscript) that entered on this connection —
+		// their server ctx is a 1-year timeout with no other cancel, so they leak on drop otherwise.
+		wshserver.GetMainRpcClient().CancelRequestsForLink(curConnInfo.LinkId)
 	}
 }
 
