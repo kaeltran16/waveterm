@@ -75,6 +75,17 @@ cockpit.
 
 ### Theme 3 — Ask-channel correctness (backend)
 
+> **Resolved 2026-07-17 (theme3-ask-channel-correctness).** Both fixes shipped, TDD'd under `-race`
+> (spec via the brief; plan `docs/superpowers/plans/2026-07-17-theme3-ask-channel-correctness.md`):
+> - **A1** — `Registry.Claim(oref, askid)` (atomic look-up-and-delete) now gates `DeliverAnswer`, so
+>   exactly one concurrent caller injects; the loser returns `delivered=false`. `DeliverAnswer(oref, askid,
+>   answers)` restores the pending on an encode error (nothing sent) but not on a mid-inject error (partial
+>   prefix already sent). The Gatekeeper passes `data.AskId` (double-inject + staleness guard);
+>   `AnswerAgentCommand` passes `""` (double-inject guard only). No wire/FE change (A1-b declined).
+> - **A2** — a reference-counted `keyedMutex` (`pkg/wshrpc/wshserver/keyedmutex.go`) serializes
+>   `spawnRunWorkers` per `runId` across the whole read→spawn→attach, making the `len(WorkerOrefs) > 0`
+>   guard effective; `SpawnClaudeWorker` became a `var` seam for the concurrent spawn-once test.
+
 - **A1. `DeliverAnswer` is not atomic and never claims the pending ask** (real, med-high confidence). It does
   `Get` → encode → inject keystrokes but never `Drop`s/claims the entry, which stays "pending" until the
   external clear hook fires `AgentAskClearCommand` later. In that window two deliveries both see `ok=true` and
@@ -115,7 +126,7 @@ expands each into a formal spec + plan and executes. Status:
   `docs/superpowers/briefs/2026-07-17-theme1-triage-flow-hardening-brief.md`; plan:
   `docs/superpowers/plans/2026-07-17-theme1-triage-flow-hardening.md`.
 - Theme 2 — `docs/superpowers/briefs/2026-07-17-theme2-streaming-core-brief.md` (S1 client+server; S2 full refactor).
-- Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded).
+- Theme 3 — `docs/superpowers/briefs/2026-07-17-theme3-backend-correctness-brief.md` (A1 no-wire-change; A2 guarded). **SHIPPED 2026-07-17.**
 - Theme 4 — `docs/superpowers/briefs/2026-07-17-theme4-maintainability-testgaps-brief.md` (all six; tests-first).
 
 **To resume any of these:** read the theme's brief (or, for un-briefed themes, this entry) and run the

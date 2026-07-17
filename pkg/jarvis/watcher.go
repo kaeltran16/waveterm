@@ -107,7 +107,7 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	if decision.Action == "answer" && decision.OptionIndex != nil {
 		idx := *decision.OptionIndex
 		if idx >= 0 && idx < len(q.Options) {
-			delivered, derr := agentask.DeliverAnswer(data.ORef, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
+			delivered, derr := agentask.DeliverAnswer(data.ORef, data.AskId, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
 			if derr == nil && delivered {
 				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, ownerORef)
 			}

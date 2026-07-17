@@ -50,3 +50,21 @@ func (r *Registry) Drop(oref string) {
 	defer r.lock.Unlock()
 	delete(r.pending, oref)
 }
+
+// Claim atomically removes and returns the pending ask for oref, making "who delivers it" a single
+// decision. It returns (_, false) WITHOUT deleting when no ask is pending, or when askid != "" and the
+// pending ask's AskId differs (a stale answer for an ask that was replaced). Otherwise it deletes the
+// entry and returns (pending, true) — only the first caller for a given pending ask wins.
+func (r *Registry) Claim(oref, askid string) (PendingAsk, bool) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	p, ok := r.pending[oref]
+	if !ok {
+		return PendingAsk{}, false
+	}
+	if askid != "" && p.AskId != askid {
+		return PendingAsk{}, false
+	}
+	delete(r.pending, oref)
+	return p, true
+}
