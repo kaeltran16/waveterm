@@ -15,6 +15,14 @@ import { dropLiveId, lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } 
 import { projectorFor } from "./transcriptregistry";
 
 const STREAM_TAIL_LINES = 300;
+// live-card working set; per-chunk projection runs over this window, not the whole session, so
+// cost is O(window) not O(total lines). Full history stays on disk (focus/interior view). Must
+// comfortably exceed what the timeline can render (TIMELINE_RENDER_CAP) so the view is always backed.
+const MAX_RETAINED_LINES = 4000;
+
+export function capLines(lines: string[], max: number): string[] {
+    return lines.length > max ? lines.slice(lines.length - max) : lines;
+}
 // The server applies a 5s default request timeout (DefaultTimeoutMs) to every RPC, streams
 // included — which would tear down the fsnotify watcher during any quiet stretch of an agent's
 // work. Pass an effectively-infinite timeout (one year, matching the timeoutYear convention);
@@ -50,7 +58,7 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
         },
     };
     streams.set(id, handle);
-    const lines: string[] = [];
+    let lines: string[] = [];
     void (async () => {
         try {
             for await (const chunk of gen) {
@@ -61,6 +69,7 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
                     continue;
                 }
                 lines.push(...chunk.lines);
+                lines = capLines(lines, MAX_RETAINED_LINES);
                 const entries = project(lines);
                 globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
                 globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });

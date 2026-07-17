@@ -59,6 +59,17 @@ afterEach(() => {
     vi.clearAllMocks();
 });
 
+describe("capLines", () => {
+    it("keeps all when under the cap", async () => {
+        const { capLines } = await import("./livetranscript");
+        expect(capLines(["a", "b"], 5)).toEqual(["a", "b"]);
+    });
+    it("keeps only the last max lines when over", async () => {
+        const { capLines } = await import("./livetranscript");
+        expect(capLines(["a", "b", "c", "d"], 2)).toEqual(["c", "d"]);
+    });
+});
+
 describe("restartActiveStreams", () => {
     it("re-opens every active stream and returns the old generators", async () => {
         const { startTranscriptStream, restartActiveStreams, stopTranscriptStream } = await import("./livetranscript");
