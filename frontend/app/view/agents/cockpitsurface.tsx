@@ -84,22 +84,35 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const answeredAsks = answeredAskORefsAcross(channels ?? []);
     const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
 
-    // `now` feeds structural computations below (usage-window rollover, the idle-grace window, and which
-    // transcripts stay streamed). Read it NON-reactively: subscribing would re-render the whole surface
-    // (and its agent grid) every second. The 1s writer stays (below); the live "age/quiet" cues that need
-    // per-second precision now live in self-subscribing leaves (QuietDot, RecentActivityRail, CockpitRail).
-    // These structural values tolerate <=1s staleness and refresh on the next real re-render (agent status,
-    // prefs, cursor, etc.).
-    const now = globalStore.get(model.nowAtom);
+    // `structuralNow` feeds structural computations below (usage-window rollover, the idle-grace window,
+    // and which transcripts stay streamed). Subscribe to the coarse (~15s) structural clock REACTIVELY —
+    // coarse enough to avoid the per-second grid reconcile, but reactive so these decisions still roll
+    // over on their own in a quiescent fleet (no chunk/status churn to piggyback on). The live "age/quiet"
+    // cues that need per-second precision live in self-subscribing leaves (QuietDot, RecentActivityRail,
+    // CockpitRail), which read the 1s `nowAtom` directly.
+    const structuralNow = useAtomValue(model.structuralNowAtom);
     // Rate-limit windows are account-scoped, not per-agent: collapse every agent's live reading to one
     // block per provider (last live wins), merged over the saved snapshot so it survives idle — the
     // same aggregation the full Usage surface uses.
     const savedRateLimits = useAtomValue(savedRateLimitsAtom);
-    const usageDonuts = mergeRateLimitWindows(providerPlanUsage([...asking, ...working, ...idle]), savedRateLimits, now);
+    const usageDonuts = mergeRateLimitWindows(
+        providerPlanUsage([...asking, ...working, ...idle]),
+        savedRateLimits,
+        structuralNow
+    );
     const windowTokens = useAtomValue(windowTokensAtom);
     const claudeDonut = usageDonuts.find((d) => d.provider === "claude");
+    // 1s writer: feeds the leaf indicators (QuietDot, RecentActivityRail, CockpitRail) that self-subscribe
+    // to `nowAtom` directly. Kept separate from the structural clock below so the surface itself never
+    // re-renders on this tick (Task 9 consolidates tickers later).
     useEffect(() => {
         const t = setInterval(() => globalStore.set(model.nowAtom, Date.now()), 1000);
+        return () => clearInterval(t);
+    }, []);
+    // 15s writer: coarse enough that re-rendering CockpitSurface on it is cheap, frequent enough that
+    // idle-grace collapse / stream teardown / usage rollover can't lag a quiescent fleet indefinitely.
+    useEffect(() => {
+        const t = setInterval(() => globalStore.set(model.structuralNowAtom, Date.now()), 15000);
         return () => clearInterval(t);
     }, []);
     useEffect(() => {
@@ -114,7 +127,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [dismissed, setDismissed] = useModelAtom(model.dismissedAtom);
     const dismissKey = (a: AgentVM) => `${a.id}:${a.idleSince ?? ""}`;
     const [backgroundedIds, setBackgroundedIds] = useModelAtom(model.backgroundedIdsAtom);
-    const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, now) && !dismissed.has(dismissKey(a)));
+    const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, structuralNow) && !dismissed.has(dismissKey(a)));
     const recentIds = new Set(recentlyIdle.map((a) => a.id));
     const parkedIdle = idle.filter((a) => !recentIds.has(a.id));
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
@@ -137,7 +150,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // open a live transcript stream + git tracking per rendered active agent; keep recently-idle
     // streams during the grace window so final transcript writes cannot race the stop event.
     useCardStreams(
-        streamableTranscriptAgents([...asking, ...working, ...recentlyIdle], now)
+        streamableTranscriptAgents([...asking, ...working, ...recentlyIdle], structuralNow)
             .filter((a) => a.transcriptPath)
             .map((a) => ({ id: a.id, path: a.transcriptPath!, agent: a.agent, blockId: a.blockId })),
         { trackGit: true },

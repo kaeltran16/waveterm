@@ -67,6 +67,10 @@ export class AgentsViewModel implements ViewModel {
     // orchestration state lifted off the surface's useStates (spec §4); surfaces read/write via globalStore
     surfaceAtom = atom<SurfaceKey>("cockpit");
     nowAtom = atom(Date.now());
+    // coarse (~15s) structural clock: CockpitSurface subscribes to this REACTIVELY for idle-grace
+    // partition / transcript-stream teardown / usage-window rollover, so those survive a quiescent
+    // fleet without re-subscribing the surface to the 1s nowAtom (which would re-render the whole grid).
+    structuralNowAtom = atom(Date.now());
     cursorIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
     orderAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
     backgroundedIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
