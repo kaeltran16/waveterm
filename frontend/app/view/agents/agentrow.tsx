@@ -25,7 +25,7 @@ import {
 import { AttentionBanner, BannerChip } from "./attentioncard";
 import { AnswerBar } from "./answerbar";
 import { diffStatsByIdAtom } from "./cardgitstore";
-import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscript";
+import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -250,11 +250,11 @@ export function AgentRow({
     });
     const [tasksOpen, setTasksOpen] = useState(false);
 
-    const liveEntries = useAtomValue(liveEntriesByIdAtom);
-    const lastActivity = useAtomValue(lastActivityByIdAtom);
-    const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
+    const liveEntries = useAtomValue(entriesAtomFor(agent.id));
+    const lastActivityStamp = useAtomValue(activityAtomFor(agent.id));
+    const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
-    const quiet = isQuiet(lastActivity[agent.id], now);
+    const quiet = isQuiet(lastActivityStamp, now);
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
     const asking = agent.state === "asking";
@@ -266,7 +266,7 @@ export function AgentRow({
     const question = qs[qIdx]?.question;
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
-    const tasks = useAtomValue(tasksByIdAtom)[agent.id];
+    const tasks = useAtomValue(tasksAtomFor(agent.id));
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;
     const muteAction = idle ? onDismiss : onBackground;

@@ -20,7 +20,7 @@ import {
 } from "./agentsviewmodel";
 import { requestAgentFileSelection } from "./filesstore";
 import { capFiles, statusColor } from "./gitstatus";
-import { liveEntriesByIdAtom } from "./livetranscript";
+import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
@@ -52,9 +52,9 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
-    const liveEntries = useAtomValue(liveEntriesByIdAtom);
+    const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
-    const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
+    const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
     const usage = agent.usage;

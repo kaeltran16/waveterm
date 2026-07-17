@@ -14,7 +14,8 @@ import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAge, isQuiet, latestMessageText, taskProgress, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { jumpToAgent } from "./channelsprimitives";
-import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscript";
+import { liveEntriesByIdAtom } from "./livetranscript";
+import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
@@ -27,19 +28,18 @@ function currentLine(agent: AgentVM, entries: AgentEntry[]): string | undefined 
 
 export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewModel; agent: AgentVM; now: number; fill?: boolean }) {
     const [open, setOpen] = useState(true);
-    const liveEntries = useAtomValue(liveEntriesByIdAtom);
-    const lastActivity = useAtomValue(lastActivityByIdAtom);
-    const tasksById = useAtomValue(tasksByIdAtom);
+    const liveEntries = useAtomValue(entriesAtomFor(agent.id));
+    const lastActivityStamp = useAtomValue(activityAtomFor(agent.id));
+    const tasks = useAtomValue(tasksAtomFor(agent.id));
 
-    const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
+    const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
-    const tasks = tasksById[agent.id];
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const working = agent.state === "working";
-    const quiet = working && isQuiet(lastActivity[agent.id], now);
+    const quiet = working && isQuiet(lastActivityStamp, now);
     const rt = runtimeMeta(agent.agent);
     const current = currentLine(agent, entries);
-    const quietSecs = quiet ? Math.floor(Math.max(0, now - (lastActivity[agent.id] ?? now)) / 1000) : 0;
+    const quietSecs = quiet ? Math.floor(Math.max(0, now - (lastActivityStamp ?? now)) / 1000) : 0;
 
     return (
         <div className={cn("overflow-hidden rounded-[13px] border border-edge-mid bg-lane", fill && "flex min-h-0 flex-1 flex-col")}>
@@ -186,11 +186,11 @@ export function PhaseHistory({ tabIds }: { tabIds: string[] }) {
 // The header "now" strip: one live line summarizing the run's primary active worker. Best at-a-glance
 // signal that the run is alive; the per-worker cards below carry the detail.
 export function RunRollup({ agent, now }: { agent: AgentVM; now: number }) {
-    const liveEntries = useAtomValue(liveEntriesByIdAtom);
-    const lastActivity = useAtomValue(lastActivityByIdAtom);
-    const entries = liveEntries[agent.id] ?? agent.previousInfo ?? [];
+    const liveEntries = useAtomValue(entriesAtomFor(agent.id));
+    const lastActivityStamp = useAtomValue(activityAtomFor(agent.id));
+    const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const current = currentLine(agent, entries);
-    const quiet = agent.state === "working" && isQuiet(lastActivity[agent.id], now);
+    const quiet = agent.state === "working" && isQuiet(lastActivityStamp, now);
     if (!current) {
         return null;
     }
