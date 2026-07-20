@@ -58,7 +58,9 @@ export async function refreshCardGit(id: string, transcriptPath: string | undefi
         return;
     }
     try {
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd });
+        // worktreeBase: count the branch's whole contribution (committed + uncommitted) so a card's
+        // +/- stays meaningful after the agent commits — and matches the Files Diff view's base.
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, worktreebase: true });
         if (loadSeq.get(id) !== seq) {
             return;
         }

@@ -620,6 +620,7 @@ declare global {
     type CommandGitChangesData = {
         cwd: string;
         ref?: string;
+        worktreebase?: boolean;
     };
 
     // wshrpc.CommandGitChangesRtnData
@@ -628,6 +629,7 @@ declare global {
         statusz: string;
         numstat: string;
         isrepo: boolean;
+        ref?: string;
     };
 
     // wshrpc.CommandGitDiffData

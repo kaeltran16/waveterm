@@ -33,9 +33,17 @@ const requestedSelection = { token: "", path: "" };
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
 
+// How to anchor the diff: an explicit base commit (runs), or worktreeBase to have the backend
+// auto-resolve the branch's merge-base (interactive worktree/branch agents) so committed work still
+// shows. Exactly one is meaningful; worktreeBase wins if both are set.
+interface LoadOpts {
+    ref?: string;
+    worktreeBase?: boolean;
+}
+
 // Core: fetch branch + changes for a resolved cwd and select the first file. The caller owns the
 // guard token (set before any await) so a newer load short-circuits this one's writes.
-async function loadChangesForCwd(token: string, cwd: string | null, ref: string): Promise<void> {
+async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOpts): Promise<void> {
     if (!cwd) {
         if (current.token === token) {
             globalStore.set(filesStateAtom, EMPTY);
@@ -43,10 +51,13 @@ async function loadChangesForCwd(token: string, cwd: string | null, ref: string)
         return;
     }
     try {
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref });
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref: opts.ref, worktreebase: opts.worktreeBase });
         if (current.token !== token) {
             return;
         }
+        // worktreeBase mode: the backend resolved + echoed the concrete base — thread it into per-file
+        // diffs so they match the list. Otherwise use the ref we sent ("" = live).
+        const ref = opts.worktreeBase ? (ch.ref ?? "") : (opts.ref ?? "");
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
         const requested =
@@ -72,8 +83,10 @@ async function loadChangesForCwd(token: string, cwd: string | null, ref: string)
 // aren't short-circuited (used after a Review apply mutates the tree). No-op if nothing is loaded.
 export async function reloadChanges(cwd: string | null): Promise<void> {
     if (!current.token) return;
+    // reuse the already-resolved concrete base (a sha for worktree/run modes, "" for live) so the
+    // reload stays anchored to the same point the initial load picked.
     const ref = globalStore.get(filesStateAtom)?.ref ?? "";
-    await loadChangesForCwd(current.token, cwd, ref);
+    await loadChangesForCwd(current.token, cwd, { ref });
 }
 
 function beginLoad(token: string): void {
@@ -94,21 +107,27 @@ export async function loadFilesForAgent(
     if (current.token !== token) {
         return;
     }
-    await loadChangesForCwd(token, cwd, "");
+    // worktree/branch agents commit as they work; anchor on the branch's merge-base so committed work
+    // stays visible (a plain vs-HEAD diff would collapse to nothing). On the default branch this
+    // resolves to "" and degrades to the live diff.
+    await loadChangesForCwd(token, cwd, { worktreeBase: true });
 }
 
-// Project-scoped load: the registry path IS the cwd, so no transcript resolution is needed.
+// Project-scoped load: the registry path IS the cwd, so no transcript resolution is needed. Same
+// merge-base anchoring as agents — meaningful when the project checkout is on a feature branch,
+// identical to live when it's on the default branch.
 export async function loadFilesForProject(name: string, path: string): Promise<void> {
     const token = `project:${name}`;
     beginLoad(token);
-    await loadChangesForCwd(token, path || null, "");
+    await loadChangesForCwd(token, path || null, { worktreeBase: true });
 }
 
-// Run-scoped load: base-anchored, read-only. baseCommit "" degrades to the live HEAD diff.
+// Run-scoped load: base-anchored, read-only, against the run's captured base commit (an immutable
+// historical record). baseCommit "" degrades to the live HEAD diff.
 export async function loadFilesForRun(runId: string, cwd: string, baseCommit: string): Promise<void> {
     const token = `run:${runId}`;
     beginLoad(token);
-    await loadChangesForCwd(token, cwd || null, baseCommit);
+    await loadChangesForCwd(token, cwd || null, { ref: baseCommit });
 }
 
 export function requestAgentFileSelection(id: string, path: string): void {

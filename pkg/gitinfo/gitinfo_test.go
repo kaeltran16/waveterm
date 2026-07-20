@@ -102,6 +102,67 @@ func repoCommittedOnBase(t *testing.T) (string, string) {
 	return dir, base
 }
 
+func TestWorktreeBase(t *testing.T) {
+	// a feature branch that has diverged from main -> base is the merge-base (the init commit)
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeFile(t, dir, "a.txt", "one\ntwo\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+	base, err := HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "checkout", "-b", "feat")
+	writeFile(t, dir, "a.txt", "one\ntwo\nthree\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "work")
+
+	got, err := WorktreeBase(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != base {
+		t.Fatalf("WorktreeBase = %q, want merge-base %q", got, base)
+	}
+	// the resolved base surfaces the committed work that HEAD-mode misses (see the assertion below)
+	ch, err := GetChanges(context.Background(), dir, got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ch.Numstat, "a.txt") {
+		t.Fatalf("base-anchored numstat missing committed change: %q", ch.Numstat)
+	}
+	// HEAD-mode sees nothing (work is committed) — the bug base-anchoring fixes
+	head, err := GetChanges(context.Background(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(head.Numstat, "a.txt") {
+		t.Fatalf("HEAD-mode unexpectedly shows committed change: %q", head.Numstat)
+	}
+}
+
+func TestWorktreeBaseDegrades(t *testing.T) {
+	// on the default branch (no divergence) -> "" so the caller falls back to the live HEAD diff
+	dir := repoWithChange(t) // on main: one commit + uncommitted edits
+	got, err := WorktreeBase(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("WorktreeBase on default branch = %q, want empty", got)
+	}
+	// not a repo -> "" with no error
+	got, err = WorktreeBase(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("WorktreeBase non-repo = %q, want empty", got)
+	}
+}
+
 func TestGetChangesRefIncludesCommitted(t *testing.T) {
 	dir, base := repoCommittedOnBase(t)
 	// HEAD-mode sees nothing (work is committed) — this is the bug we are fixing.

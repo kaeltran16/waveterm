@@ -71,11 +71,17 @@ func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.Comman
 }
 
 func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandGitChangesData) (*wshrpc.CommandGitChangesRtnData, error) {
-	ch, err := gitinfo.GetChanges(ctx, data.Cwd, data.Ref)
+	ref := data.Ref
+	if data.WorktreeBase {
+		// resolve the branch's fork point; "" degrades to the live HEAD diff (agent on the default
+		// branch, non-repo, etc.). Errors are impossible here (WorktreeBase swallows them), but guard.
+		ref, _ = gitinfo.WorktreeBase(ctx, data.Cwd)
+	}
+	ch, err := gitinfo.GetChanges(ctx, data.Cwd, ref)
 	if err != nil {
 		return nil, fmt.Errorf("git changes: %w", err)
 	}
-	return &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo}, nil
+	return &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo, Ref: ref}, nil
 }
 
 func (ws *WshServer) GitDiffCommand(ctx context.Context, data wshrpc.CommandGitDiffData) (*wshrpc.CommandGitDiffRtnData, error) {

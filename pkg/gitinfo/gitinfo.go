@@ -151,6 +151,54 @@ func HeadCommit(ctx context.Context, cwd string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// WorktreeBase resolves the commit a worktree/branch forked from, so a diff against it shows the
+// branch's whole contribution (committed + uncommitted) instead of only the currently-uncommitted
+// edits — the failure mode where a worktree agent commits its work and its "vs HEAD" diff collapses
+// to nothing. It is the merge-base of HEAD and the repo's default branch. Unlike a fork-commit
+// captured at creation time, this recomputes each call, so it self-heals across rebases and works for
+// worktrees Wave didn't create. Returns "" (no error) when cwd is not a repo, HEAD is unborn, no
+// default branch resolves, or the base is HEAD itself (agent working on the default branch) — every
+// caller treats "" as "fall back to the live working-tree-vs-HEAD diff".
+func WorktreeBase(ctx context.Context, cwd string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	head, err := run(ctx, cwd, "rev-parse", "HEAD")
+	if err != nil {
+		return "", nil // unborn or not a repo — no baseline
+	}
+	headSha := strings.TrimSpace(head)
+	base := defaultBranchRef(ctx, cwd)
+	if base == "" {
+		return "", nil
+	}
+	mb, err := run(ctx, cwd, "merge-base", base, "HEAD")
+	if err != nil {
+		return "", nil // no shared history (e.g. unrelated default branch)
+	}
+	mbSha := strings.TrimSpace(mb)
+	if mbSha == "" || mbSha == headSha {
+		return "", nil // HEAD is on/at the base — live HEAD diff is already correct
+	}
+	return mbSha, nil
+}
+
+// defaultBranchRef returns a ref for the repo's default branch, preferring the remote's HEAD
+// (origin/HEAD -> e.g. origin/main), then a local main, then master. Returns "" if none resolve — a
+// repo whose default branch is some other name degrades to the live HEAD diff (status quo).
+func defaultBranchRef(ctx context.Context, cwd string) string {
+	if out, err := run(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil {
+		if s := strings.TrimSpace(out); s != "" && s != "origin/HEAD" {
+			return s
+		}
+	}
+	for _, cand := range []string{"main", "master"} {
+		if _, err := run(ctx, cwd, "rev-parse", "--verify", "--quiet", cand); err == nil {
+			return cand
+		}
+	}
+	return ""
+}
+
 // stripPrefixZ rewrites a `status --porcelain -z` blob so its paths are relative to prefix (cwd's
 // path within the repo, e.g. "services/foo/") to match `diff --relative` output. Entries are
 // "XY <path>"; rename/copy entries carry an extra NUL-separated bare source path. A blank prefix

@@ -58,7 +58,9 @@ export async function loadRailForAgent(
         return;
     }
     try {
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd });
+        // worktreeBase: show the branch's changed-file list vs its merge-base, matching the card pill
+        // and Files surface (a plain vs-HEAD list would drop committed files).
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, worktreebase: true });
         if (current.id !== id) {
             return;
         }
