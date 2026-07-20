@@ -12,6 +12,14 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { confirmCloseAgent } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
+    agentRowMenuItems,
+    clampQuestionIndex,
+    entriesToShow,
+    isFinishTransition,
+    muteMode,
+    type AgentRowMenuItem,
+} from "./agentrowmodel";
+import {
     formatAge,
     hasAnswerableAsk,
     isQuiet,
@@ -262,7 +270,7 @@ export const AgentRow = memo(function AgentRow({
     const [tasksOpen, setTasksOpen] = useState(false);
 
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
-    const entries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
+    const entries = entriesToShow(liveEntries, agent.previousInfo);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
@@ -271,44 +279,43 @@ export const AgentRow = memo(function AgentRow({
     const idle = agent.state === "idle";
     const hasQuestions = hasAnswerableAsk(agent);
     const qs = agent.ask?.questions ?? [];
-    const qIdx = Math.min(activeQuestion ?? 0, Math.max(0, qs.length - 1));
+    const qIdx = clampQuestionIndex(activeQuestion, qs.length);
     const question = qs[qIdx]?.question;
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const tasks = useAtomValue(tasksAtomFor(agent.id));
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;
-    const muteAction = idle ? onDismiss : onBackground;
+    const muteAction = muteMode(agent.state) === "dismiss" ? onDismiss : onBackground;
     const onContextMenu = (e: React.MouseEvent) => {
-        const items: ContextMenuItem[] = [
-            { label: "Open", icon: <PanelRight size={15} />, click: onOpen },
-            { label: "Open terminal", icon: <SquareTerminal size={15} />, click: onOpenTerminal },
-        ];
-        if (diff) {
-            items.push({ label: "Review changes", icon: <GitCompare size={15} />, click: onOpenDiff });
-        }
-        if (onToggleFullWidth) {
-            items.push({
-                label: fullWidth ? "Exit full width" : "Full width",
-                icon: <Scaling size={15} />,
-                click: onToggleFullWidth,
-            });
-        }
-        if (muteAction) {
-            items.push({ label: "Move to background", icon: <Minimize2 size={15} />, click: muteAction });
-        }
-        items.push({
-            label: "Copy name",
-            icon: <Copy size={15} />,
-            click: () => void navigator.clipboard.writeText(agent.name),
-        });
-        items.push({ type: "separator" });
-        items.push({
-            label: "Close agent",
-            icon: <X size={15} />,
-            danger: true,
-            click: () => confirmCloseAgent(agent.id, agent.name),
-        });
+        const icons: Record<string, React.ReactNode> = {
+            open: <PanelRight size={15} />,
+            terminal: <SquareTerminal size={15} />,
+            diff: <GitCompare size={15} />,
+            fullwidth: <Scaling size={15} />,
+            mute: <Minimize2 size={15} />,
+            copy: <Copy size={15} />,
+            close: <X size={15} />,
+        };
+        const clicks: Record<string, () => void> = {
+            open: onOpen,
+            terminal: onOpenTerminal,
+            diff: onOpenDiff,
+            fullwidth: () => onToggleFullWidth?.(),
+            mute: () => muteAction?.(),
+            copy: () => void navigator.clipboard.writeText(agent.name),
+            close: () => confirmCloseAgent(agent.id, agent.name),
+        };
+        const items: ContextMenuItem[] = agentRowMenuItems({
+            hasDiff: !!diff,
+            canToggleFullWidth: !!onToggleFullWidth,
+            fullWidth: !!fullWidth,
+            hasMute: !!muteAction,
+        }).map((it: AgentRowMenuItem) =>
+            "separator" in it
+                ? { type: "separator" }
+                : { label: it.label, icon: icons[it.key], click: clicks[it.key], danger: it.danger }
+        );
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
@@ -316,7 +323,7 @@ export const AgentRow = memo(function AgentRow({
     const prevStateRef = useRef(agent.state);
     const [justFinished, setJustFinished] = useState(false);
     useEffect(() => {
-        if (prevStateRef.current === "working" && agent.state === "idle") {
+        if (isFinishTransition(prevStateRef.current, agent.state)) {
             setJustFinished(true);
             const t = setTimeout(() => setJustFinished(false), 520); // matches @keyframes settle .5s
             prevStateRef.current = agent.state;

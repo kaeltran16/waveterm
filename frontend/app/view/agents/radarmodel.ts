@@ -165,6 +165,25 @@ export function classifyScanState(report: RadarReport | null): RadarScanState {
     }
 }
 
+// scan-scope selector entries: registered projects that actually have a path (radar surface).
+export function projectsWithPath<T extends { path?: string }>(
+    projects: Record<string, T> | null | undefined
+): [string, T][] {
+    return Object.entries(projects ?? {}).filter(([, v]) => v?.path) as [string, T][];
+}
+
+export function isResultsState(state: RadarScanState): boolean {
+    return state === "results" || state === "partial";
+}
+
+export function rescanLabel(state: RadarScanState): string {
+    return state === "partial" ? "Re-run full scan" : "Re-scan";
+}
+
+export function scanScopeLabel(scope: { name: string } | null): string {
+    return scope ? `Scanning ${scope.name}` : "Select a registered project to scan";
+}
+
 export function coverageEntries(report: RadarReport): { collector: string; status: string }[] {
     return Object.entries(report.coverage ?? {}).map(([collector, status]) => ({ collector, status }));
 }

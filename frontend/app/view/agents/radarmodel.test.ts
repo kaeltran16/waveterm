@@ -17,10 +17,14 @@ import {
     hasCoverageFailure,
     investigationBadge,
     isMutedGroup,
+    isResultsState,
+    projectsWithPath,
     referencedSignals,
     reportSignalCount,
     reportSourceCount,
+    rescanLabel,
     resolveSelection,
+    scanScopeLabel,
     strengthPips,
     timelineEntries,
     toPendingRunDraft,
@@ -286,5 +290,34 @@ describe("investigationBadge", () => {
     it("shows no list badge for a cancelled/failed investigation", () => {
         expect(investigationBadge(f("new", "cancelled"))).toBeNull();
         expect(investigationBadge(f("new", "failed"))).toBeNull();
+    });
+});
+
+describe("radar surface glue", () => {
+    it("projectsWithPath keeps only registered projects that have a path", () => {
+        const projects = { a: { path: "/a" }, b: { path: "" }, c: {}, d: { path: "/d" } };
+        expect(projectsWithPath(projects)).toEqual([
+            ["a", { path: "/a" }],
+            ["d", { path: "/d" }],
+        ]);
+    });
+    it("projectsWithPath returns [] for null/undefined", () => {
+        expect(projectsWithPath(null)).toEqual([]);
+        expect(projectsWithPath(undefined)).toEqual([]);
+    });
+    it("isResultsState is true only for results and partial", () => {
+        expect(isResultsState("results")).toBe(true);
+        expect(isResultsState("partial")).toBe(true);
+        expect(isResultsState("no-findings")).toBe(false);
+        expect(isResultsState("never-scanned")).toBe(false);
+        expect(isResultsState("model-failed")).toBe(false);
+    });
+    it("rescanLabel says re-run full scan only for a partial scan", () => {
+        expect(rescanLabel("partial")).toBe("Re-run full scan");
+        expect(rescanLabel("results")).toBe("Re-scan");
+    });
+    it("scanScopeLabel names the scoped project or prompts to select one", () => {
+        expect(scanScopeLabel({ name: "payments-api" })).toBe("Scanning payments-api");
+        expect(scanScopeLabel(null)).toBe("Select a registered project to scan");
     });
 });

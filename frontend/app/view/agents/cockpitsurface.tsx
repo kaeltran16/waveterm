@@ -13,7 +13,6 @@ import {
     askSentKey,
     filterAgents,
     groupAgents,
-    isRecentlyIdle,
     applyAgentOrder,
     computeGridLayout,
     GRID_PAGE_ROWS,
@@ -29,6 +28,7 @@ import {
     type CardRect,
     type GridLayout,
 } from "./agentsviewmodel";
+import { dismissKey, isCockpitEmpty, shownForChip, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
 import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
@@ -121,11 +121,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // A just-finished agent keeps its full row (so you can reply) for the grace window, then collapses
     // into the Idle list. Dismissals are keyed by idle episode (id:idleSince).
     const [dismissed, setDismissed] = useModelAtom(model.dismissedAtom);
-    const dismissKey = (a: AgentVM) => `${a.id}:${a.idleSince ?? ""}`;
     const [backgroundedIds, setBackgroundedIds] = useModelAtom(model.backgroundedIdsAtom);
-    const recentlyIdle = idle.filter((a) => isRecentlyIdle(a, structuralNow) && !dismissed.has(dismissKey(a)));
-    const recentIds = new Set(recentlyIdle.map((a) => a.id));
-    const parkedIdle = idle.filter((a) => !recentIds.has(a.id));
+    const { recently: recentlyIdle, parked: parkedIdle } = splitRecentlyIdle(idle, structuralNow, dismissed);
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
     // minus anything backgrounded. Asking agents are never backgrounded (the effect below un-mutes any
     // that start asking), so they always land in `active` and hold whatever slot they already had.
@@ -206,7 +203,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const liveOnly = useAtomValue(model.liveOnlyAtom);
     // project scope + live-only first; the chip narrows what the grid renders (counts ignore the chip)
     const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
-    const shownAgents = chip === "all" ? visibleOrdered : visibleOrdered.filter((a) => a.state === chip);
+    const shownAgents = shownForChip(visibleOrdered, chip);
     // full-width cards float to a top stack; the rest fill two independent columns below. One pure pass
     // computes every card's absolute rect (px) + the column partition the resize handlers read.
     const layout: GridLayout = computeGridLayout(shownAgents, cardPrefs, gridViewportW, gridViewportPx);
@@ -274,15 +271,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const selectQuestion = (id: string, qi: number) => setAnswerTab((prev) => ({ ...prev, [id]: qi }));
 
     const toggleBackground = (id: string) => {
-        setBackgroundedIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
-            return next;
-        });
+        setBackgroundedIds((prev) => toggleInSet(prev, id));
     };
 
     // open the agent in the Agent surface: clear any open terminal, set focus, switch surface
@@ -360,7 +349,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
-    const empty = asking.length === 0 && working.length === 0 && idle.length === 0;
+    const empty = isCockpitEmpty(asking, working, idle);
 
     return (
         <MotionConfig reducedMotion="user">
