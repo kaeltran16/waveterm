@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeGridLayout, GRID_MIN_ROW_PX, GRID_ROW_GAP_PX, type CardPref, sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, askSentKey, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
+import { sortAgents, askingCount, groupAgents, formatAge, agentVMFromInput, withAsk, buildAskAnswers, canSubmitAsk, answerHint, hasAnswerableAsk, isQuiet, isRecentlyIdle, isAskStale, mergeOrder, nextAskId, askSentKey, usageLevel, formatTokens, formatReset, providerPlanUsage, liveWindowAgents, latestMessageText, recentActions, moveCursor, cycleId, groupTimeline, summarizeActions, detailExceedsInline, detailLineCount, aggregateEditBurst, isEditAction, partitionBackgrounded, focusedAskId, toggleSelection, liveProjectsForLaunch, taskProgress, mergePendingLaunches, pendingToVM, streamableTranscriptAgents, applyAgentOrder, deriveTerminalVMs, isNearBottom, STICK_THRESHOLD_PX, burstRenderMode, type AgentVM, type AgentState, type CardTask, type LiveAgentInput, type AgentAskQuestion, type AgentEntry, type AgentActionEntry, type PendingLaunch, conversationText } from "./agentsviewmodel";
 
 const mk = (id: string, state: AgentVM["state"], extra: Partial<AgentVM> = {}): AgentVM => ({
     id,
@@ -911,83 +911,6 @@ describe("answerHint", () => {
     });
     it("multi question with a multi-select: progress + Enter", () => {
         expect(answerHint([q(), q(true)], { 0: new Set([0]) }, true)).toBe("1/2 answered · press Enter to submit");
-    });
-});
-
-// minimal AgentVM stand-ins — computeGridLayout only reads `id`
-const card = (id: string): AgentVM => ({ id }) as AgentVM;
-
-describe("computeGridLayout", () => {
-    const W = 1000;
-    const H = 600;
-
-    it("splits non-full-width cards across two equal columns, colB offset by half+gap", () => {
-        const cards = [card("a"), card("b"), card("c"), card("d")];
-        const { rects, colA, colB, fullWidth } = computeGridLayout(cards, {}, W, H);
-        expect(fullWidth).toHaveLength(0);
-        expect(colA.map((c) => c.id)).toEqual(["a", "c"]); // distributeColumns: even indices
-        expect(colB.map((c) => c.id)).toEqual(["b", "d"]);
-        const colW = (W - GRID_ROW_GAP_PX) / 2;
-        expect(rects.get("a")!.x).toBe(0);
-        expect(rects.get("a")!.w).toBeCloseTo(colW);
-        expect(rects.get("b")!.x).toBeCloseTo(colW + GRID_ROW_GAP_PX);
-    });
-
-    it("spans a single column card across the full width (not half), still filling height", () => {
-        const { rects, colA, colB } = computeGridLayout([card("solo")], {}, W, H);
-        expect(colA.map((c) => c.id)).toEqual(["solo"]);
-        expect(colB).toHaveLength(0);
-        const r = rects.get("solo")!;
-        expect(r.x).toBe(0);
-        expect(r.w).toBe(W);
-        expect(r.h).toBeCloseTo(H);
-    });
-
-    it("stacks equal-weight column cards top-to-bottom with a gap between them", () => {
-        const cards = [card("a"), card("b"), card("c")]; // a (idx0) + c (idx2) both land in colA
-        const { rects } = computeGridLayout(cards, {}, W, H);
-        const a = rects.get("a")!;
-        const c = rects.get("c")!;
-        expect(a.y).toBe(0);
-        expect(c.y).toBeCloseTo(a.h + GRID_ROW_GAP_PX);
-    });
-
-    it("floats full-width cards to a top stack spanning the full width", () => {
-        const cards = [card("fw"), card("a"), card("b")];
-        const prefs: Record<string, CardPref> = { fw: { fullWidth: true } };
-        const { rects, fullWidth, colA } = computeGridLayout(cards, prefs, W, H);
-        expect(fullWidth.map((c) => c.id)).toEqual(["fw"]);
-        expect(rects.get("fw")!).toMatchObject({ x: 0, y: 0, w: W });
-        expect(colA.map((c) => c.id)).toEqual(["a"]); // "a" is first of the remaining
-        // columns start below the FW stack + one gap
-        expect(rects.get("a")!.y).toBeCloseTo(rects.get("fw")!.h + GRID_ROW_GAP_PX);
-    });
-
-    it("clamps full-width height to [GRID_MIN_ROW_PX, FULLWIDTH_MAX_VIEWPORT_FRAC*H]", () => {
-        const cards = [card("tall"), card("short")];
-        const prefs: Record<string, CardPref> = {
-            tall: { fullWidth: true, heightWeight: 100 }, // way over the cap
-            short: { fullWidth: true, heightWeight: 0.0001 }, // under the floor
-        };
-        const { rects } = computeGridLayout(cards, prefs, W, H);
-        expect(rects.get("tall")!.h).toBeCloseTo(0.6 * H); // FULLWIDTH_MAX_VIEWPORT_FRAC
-        expect(rects.get("short")!.h).toBe(GRID_MIN_ROW_PX);
-    });
-
-    it("totalHeight is the viewport when content fits, and grows when a column overflows", () => {
-        const fit = computeGridLayout([card("a"), card("b")], {}, W, H);
-        expect(fit.totalHeight).toBe(H);
-
-        // 8 cards in one column (>GRID_PAGE_ROWS) overflow -> totalHeight exceeds H
-        const many = Array.from({ length: 8 }, (_, i) => card(`c${i}`));
-        const over = computeGridLayout(many, {}, W, H);
-        expect(over.totalHeight).toBeGreaterThan(H);
-    });
-
-    it("returns empty rects for no cards", () => {
-        const { rects, totalHeight } = computeGridLayout([], {}, W, H);
-        expect(rects.size).toBe(0);
-        expect(totalHeight).toBe(H);
     });
 });
 

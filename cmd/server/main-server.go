@@ -64,6 +64,7 @@ const TelemetryInitialCountsWait = 5 * time.Second
 const TelemetryCountsInterval = 1 * time.Hour
 const BackupCleanupTick = 2 * time.Minute
 const BackupCleanupInterval = 4 * time.Hour
+const TempAttachmentSweepInterval = 4 * time.Hour
 const InitialDiagnosticWait = 5 * time.Minute
 const DiagnosticTick = 10 * time.Minute
 
@@ -197,6 +198,18 @@ func backupCleanupLoop() {
 			}
 		}
 		time.Sleep(BackupCleanupTick)
+	}
+}
+
+// sweeps stale channel-composer attachment temp dirs. First iteration runs immediately (startup sweep
+// of dirs left by prior sessions), then periodically for very long-running sessions.
+func tempAttachmentCleanupLoop() {
+	defer func() {
+		panichandler.PanicHandler("tempAttachmentCleanupLoop", recover())
+	}()
+	for {
+		wshserver.SweepTempAttachments()
+		time.Sleep(TempAttachmentSweepInterval)
 	}
 }
 
@@ -569,6 +582,7 @@ func main() {
 	setupTelemetryConfigHandler()
 	go updateTelemetryCountsLoop()
 	go backupCleanupLoop()
+	go tempAttachmentCleanupLoop()
 	go startupActivityUpdate(firstLaunch) // must be after startConfigWatcher()
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()

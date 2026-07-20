@@ -71,6 +71,31 @@ describe("rpcResponseGenerator (via sendRpcCommand)", () => {
         expect(openRpcs.has("r3")).toBe(false);
     });
 
+    it("sends a wire cancel on gen.return() even while parked awaiting the next chunk (quiet stream)", async () => {
+        const openRpcs = new Map<string, ClientRpcEntry>();
+        const gen = sendRpcCommand(openRpcs, { command: "x", reqid: "r5" });
+        openRpcs.get("r5")!.msgFn({ resid: "r5", data: "d1", cont: true });
+        await gen.next(false); // consume the first chunk -> generator yields "d1"
+        router.sent = [];
+        // drive one more next() that finds the queue empty -> the generator parks at `await
+        // signalPromise`, which never resolves for a quiet stream. return()'s own finally can't fire
+        // from here, so a finally-based cancel would be missed; assert the cancel goes out anyway.
+        void gen.next(false);
+        void gen.return(undefined); // card unmount
+        expect(router.sent.some((m) => m.reqid === "r5" && m.cancel === true)).toBe(true);
+    });
+
+    it("does not send a cancel when the stream completes naturally (no return() on normal end)", async () => {
+        const openRpcs = new Map<string, ClientRpcEntry>();
+        const gen = sendRpcCommand(openRpcs, { command: "x", reqid: "r6" });
+        router.sent = [];
+        openRpcs.get("r6")!.msgFn({ resid: "r6", data: "d1", cont: false }); // final chunk
+        await gen.next(false); // yields d1
+        const done = await gen.next(false); // sees !cont -> returns (natural completion)
+        expect(done.done).toBe(true);
+        expect(router.sent.some((m) => m.cancel === true)).toBe(false);
+    });
+
     describe("timeout path", () => {
         beforeEach(() => vi.useFakeTimers());
         afterEach(() => vi.useRealTimers());

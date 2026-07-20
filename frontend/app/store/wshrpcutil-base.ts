@@ -88,8 +88,25 @@ function sendRpcCommand(
     if (msg.reqid == null) {
         return null;
     }
-    const rtnGen = rpcResponseGenerator(openRpcs, msg.command, msg.reqid, msg.timeout);
+    const reqid = msg.reqid;
+    const rtnGen = rpcResponseGenerator(openRpcs, msg.command, reqid, msg.timeout);
     rtnGen.next();
+    // Early teardown of a stream (a consumer calling gen.return() on card unmount) must reach the
+    // server so its streaming goroutine + any fsnotify watcher unwind while the link is still up.
+    // The generator's finally can't be relied on for this: when it is parked at `await signalPromise`
+    // (a quiet stream between chunks), return() queues behind that never-settling await and finally
+    // never runs. So send the wire cancel synchronously here, before delegating to the real return().
+    // Idempotent server-side (a done/unknown reqId is a no-op), so a natural-completion return() that
+    // also passes through is harmless. for-await only calls return() on early exit, not normal end.
+    const origReturn = rtnGen.return.bind(rtnGen);
+    let cancelSent = false;
+    rtnGen.return = ((value?: any) => {
+        if (!cancelSent) {
+            cancelSent = true;
+            sendRpcCancel(reqid);
+        }
+        return origReturn(value);
+    }) as typeof rtnGen.return;
     return rtnGen;
 }
 

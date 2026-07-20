@@ -268,12 +268,16 @@ func (w *WshRpc) cancelRequest(reqId string) {
 		return
 	}
 	w.Lock.Lock()
-	defer w.Lock.Unlock()
 	handler := w.ResponseHandlerMap[reqId]
+	w.Lock.Unlock()
 	if handler != nil {
 		handler.canceled.Store(true)
+		// Cancel the request context too, not just the bool: a streaming handler selects on
+		// ctx.Done() (see streamTranscript), so this unwinds its goroutine + any fsnotify watcher
+		// while the link is still up — the still-connected counterpart of CancelRequestsForLink's
+		// per-link reap. close() is idempotent, so a later SendResponse(done)/finalize is safe.
+		handler.close()
 	}
-
 }
 
 // CancelRequestsForLink cancels the context of every in-flight response handler whose request

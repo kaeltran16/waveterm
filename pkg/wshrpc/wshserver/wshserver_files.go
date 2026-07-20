@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
@@ -81,6 +83,16 @@ func (ws *WshServer) FileJoinCommand(ctx context.Context, paths []string) (*wshr
 	return wshfs.Join(ctx, paths[0], paths[1:]...)
 }
 
+const (
+	// WriteTempFileCommand writes each channel-composer attachment into its own temp dir under this
+	// prefix. Deliberately more specific than the bare "waveterm-" prefix used elsewhere (e.g. the
+	// /tmp/waveterm-<uid> socket dir), so SweepTempAttachments only ever removes attachment dirs and
+	// can never delete a live socket dir that happens to share the OS temp dir on Linux/macOS.
+	tempAttachPrefix = "waveterm-attach-"
+	// A worker reads its attachment shortly after send, so a dir older than this is certainly done.
+	tempAttachRetention = 24 * time.Hour
+)
+
 func (ws *WshServer) WriteTempFileCommand(ctx context.Context, data wshrpc.CommandWriteTempFileData) (string, error) {
 	if data.FileName == "" {
 		return "", fmt.Errorf("filename is required")
@@ -89,7 +101,7 @@ func (ws *WshServer) WriteTempFileCommand(ctx context.Context, data wshrpc.Comma
 	if name == "" || name == "." || name == ".." {
 		return "", fmt.Errorf("invalid filename")
 	}
-	tempDir, err := os.MkdirTemp("", "waveterm-")
+	tempDir, err := os.MkdirTemp("", tempAttachPrefix)
 	if err != nil {
 		return "", fmt.Errorf("error creating temp directory: %w", err)
 	}
@@ -103,6 +115,34 @@ func (ws *WshServer) WriteTempFileCommand(ctx context.Context, data wshrpc.Comma
 		return "", fmt.Errorf("error writing temp file: %w", err)
 	}
 	return tempPath, nil
+}
+
+// SweepTempAttachments removes stale channel-composer attachment temp dirs (tempAttachPrefix*) left in
+// the OS temp dir by WriteTempFileCommand, which creates one dir per file and never deletes it — so
+// they accumulate unbounded over a long session. Best-effort: a dir older than tempAttachRetention is
+// certainly done (its worker read the file shortly after send); a still-referenced recent one is left
+// alone. Individual failures are ignored — the next sweep retries.
+func SweepTempAttachments() {
+	sweepTempAttachments(os.TempDir(), tempAttachRetention)
+}
+
+func sweepTempAttachments(dir string, retention time.Duration) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("SweepTempAttachments: reading temp dir: %v\n", err)
+		return
+	}
+	cutoff := time.Now().Add(-retention)
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), tempAttachPrefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+	}
 }
 
 func waveFileToWaveFileInfo(wf *filestore.WaveFile) *wshrpc.WaveFileInfo {

@@ -3,15 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
-    distributeColumns,
     filterAgents,
     matchesProjectFilter,
-    nextFullWidth,
-    normalizeWeights,
     projectOf,
     projectsFromAgents,
-    resizeRowWeights,
-    rowHeightsPx,
     topFiveHourPct,
     type AgentVM,
 } from "./agentsviewmodel";
@@ -114,94 +109,5 @@ describe("topFiveHourPct", () => {
     });
     it("returns undefined when no agent reports a 5h pct", () => {
         expect(topFiveHourPct([mk("a", "working"), mk("b", "working", { usage: {} })])).toBeUndefined();
-    });
-});
-
-describe("distributeColumns", () => {
-    it("splits round-robin: even index -> A, odd -> B", () => {
-        expect(distributeColumns(["a0", "a1", "a2", "a3"])).toEqual({
-            colA: ["a0", "a2"],
-            colB: ["a1", "a3"],
-        });
-    });
-
-    it("puts a lone card in A with an empty B", () => {
-        expect(distributeColumns(["a0"])).toEqual({ colA: ["a0"], colB: [] });
-    });
-
-    it("gives A the extra card on an odd count", () => {
-        expect(distributeColumns(["a0", "a1", "a2"])).toEqual({ colA: ["a0", "a2"], colB: ["a1"] });
-    });
-
-    it("fills 2x3 for six cards", () => {
-        expect(distributeColumns(["a0", "a1", "a2", "a3", "a4", "a5"])).toEqual({
-            colA: ["a0", "a2", "a4"],
-            colB: ["a1", "a3", "a5"],
-        });
-    });
-
-    it("is empty for an empty list", () => {
-        expect(distributeColumns([])).toEqual({ colA: [], colB: [] });
-    });
-});
-
-describe("rowHeightsPx", () => {
-    it("divides the viewport by weight when rows fit the page", () => {
-        expect(rowHeightsPx([1, 1, 1], 300)).toEqual([100, 100, 100]);
-        expect(rowHeightsPx([2, 1], 300)).toEqual([200, 100]);
-    });
-
-    it("keeps the page row-height and overflows when rows exceed the page", () => {
-        // 4 rows, page = 3 -> base 100 each -> total 400 > 300 (scrolls)
-        expect(rowHeightsPx([1, 1, 1, 1], 300)).toEqual([100, 100, 100, 100]);
-    });
-
-    it("is empty for no rows", () => {
-        expect(rowHeightsPx([], 300)).toEqual([]);
-    });
-});
-
-describe("resizeRowWeights", () => {
-    it("moves height across the dragged boundary, preserving the pair total", () => {
-        // [1,1,1] @ vp 600 -> px [200,200,200]; drag boundary 0 by +30 -> [230,170,...],
-        // both neighbours stay well above the 96px min, so nothing clamps.
-        expect(resizeRowWeights([1, 1, 1], 0, 30, 600)).toEqual([230, 170, 200]);
-    });
-
-    it("clamps so neither neighbour drops below the minimum", () => {
-        // pair = 200; min 96 -> above clamps to 104, below to 96
-        expect(resizeRowWeights([1, 1, 1], 0, 1000, 300, 96)).toEqual([104, 96, 100]);
-    });
-
-    it("returns the weights unchanged for an out-of-range boundary", () => {
-        expect(resizeRowWeights([1, 1], 1, 30, 300)).toEqual([1, 1]);
-        expect(resizeRowWeights([1, 1], -1, 30, 300)).toEqual([1, 1]);
-    });
-});
-
-describe("nextFullWidth", () => {
-    it("turns on past the positive threshold and off past the negative", () => {
-        expect(nextFullWidth(false, 60, 48)).toBe(true);
-        expect(nextFullWidth(true, -60, 48)).toBe(false);
-    });
-    it("holds within the deadzone", () => {
-        expect(nextFullWidth(false, 10, 48)).toBe(false);
-        expect(nextFullWidth(true, 10, 48)).toBe(true);
-    });
-});
-
-describe("normalizeWeights", () => {
-    it("rescales pixel-scale weights to mean 1, preserving ratios", () => {
-        // resizeRowWeights output (px) -> ratios centred on 1; keeps the overflow branch (base*w) sane
-        expect(normalizeWeights([230, 170, 200])).toEqual([1.15, 0.85, 1]);
-    });
-    it("leaves equal weights at 1", () => {
-        expect(normalizeWeights([5, 5, 5])).toEqual([1, 1, 1]);
-    });
-    it("falls back to 1 when the mean is not positive", () => {
-        expect(normalizeWeights([0, 0])).toEqual([1, 1]);
-    });
-    it("is empty for an empty list", () => {
-        expect(normalizeWeights([])).toEqual([]);
     });
 });

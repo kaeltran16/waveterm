@@ -1,1 +1,8 @@
 * text=auto eol=lf
+
+# generated wshrpc client files: Go is the source of truth, so parallel branches
+# that add/change any RPC always conflict here. union keeps both sides' added
+# command blocks; the tsgen golden/coverage guards fail if a union drifts from Go.
+pkg/wshrpc/wshclient/wshclient.go   merge=union
+frontend/app/store/wshclientapi.ts  merge=union
+frontend/types/gotypes.d.ts         merge=union
