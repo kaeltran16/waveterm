@@ -11,7 +11,7 @@
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { MotionConfig } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { type AgentVM } from "./agentsviewmodel";
 import { sendChannelMessage, steerWorker } from "./channelactions";
@@ -28,6 +28,8 @@ import {
     activeChannelAtom,
     activeChannelIdAtom,
     archiveChannel,
+    channelDismissedRunsAtom,
+    channelDraftAtom,
     channelsAtom,
     consultStreamsAtom,
     createChannel,
@@ -61,13 +63,27 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
 
-    const [draft, setDraft] = useState("");
+    // draft + dismissals live in per-channel atoms (keyed by activeId), not surface-local state, so they
+    // survive the surface unmount on nav-rail switch and the channel switch (see channelsstore).
+    const draftMap = useAtomValue(channelDraftAtom);
+    const setDraftMap = useSetAtom(channelDraftAtom);
+    const draft = activeId ? (draftMap[activeId] ?? "") : "";
+    const setDraft = (value: string) => {
+        if (activeId) {
+            setDraftMap((m) => ({ ...m, [activeId]: value }));
+        }
+    };
+    const setDismissedMap = useSetAtom(channelDismissedRunsAtom);
+    const dismissedMap = useAtomValue(channelDismissedRunsAtom);
+    const dismissed = useMemo(
+        () => new Set(activeId ? (dismissedMap[activeId] ?? []) : []),
+        [dismissedMap, activeId]
+    );
     const attach = useComposerAttachments();
     const [picking, setPicking] = useState(false);
     const [overviewOpen, setOverviewOpen] = useState(false);
     const { summary, runSummary, reset: resetSummary } = useFleetSummary();
     const [profile, setProfile] = useState<JarvisProfile | undefined>(undefined);
-    const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
     const runs = (active?.runs ?? []).filter((r) => !dismissed.has(r.id));
     const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
@@ -96,15 +112,13 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
     const autonomyOn = tier !== "concierge";
 
-    // keep a valid run selection as the channel / visible runs change; drop view-local dismissals on switch
+    // keep a valid run selection as the channel / visible runs change
     useEffect(() => {
         setActiveRunId((cur) => resolveActiveRunId(runs, cur));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active?.oid, runs.length]);
     useEffect(() => {
-        setDismissed(new Set());
         resetSummary();
-        setDraft("");
         attach.clear();
         setOverviewOpen(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,10 +181,11 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
 
     const dismissTab = (id: string) => {
-        const next = new Set(dismissed);
-        next.add(id);
-        setDismissed(next);
-        const visible = (active?.runs ?? []).filter((r) => !next.has(r.id));
+        if (!activeId) {
+            return;
+        }
+        setDismissedMap((m) => ({ ...m, [activeId]: [...(m[activeId] ?? []), id] }));
+        const visible = (active?.runs ?? []).filter((r) => r.id !== id && !dismissed.has(r.id));
         setActiveRunId((cur) => (cur === id ? defaultRunId(visible) : cur));
     };
 

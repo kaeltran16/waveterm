@@ -18,6 +18,12 @@ export const activeChannelAtom: Atom<Channel | null> = atom((get) => {
     return get(WOS.getWaveObjectAtom<Channel>(WOS.makeORef("channel", id))) ?? null;
 });
 
+// composer draft + run-strip dismissals, kept per channel (keyed by channel oid) in module atoms rather
+// than ChannelsSurface-local state, so they survive both the surface unmount on nav-rail switch and the
+// channel switch: a dismissed run stays gone and typed text stays put when you leave and come back.
+export const channelDraftAtom = atom<Record<string, string>>({});
+export const channelDismissedRunsAtom = atom<Record<string, string[]>>({});
+
 let loading = false;
 
 // fetch the channel list into the snapshot atom (sorted newest-first). shared by loadChannels (which then
