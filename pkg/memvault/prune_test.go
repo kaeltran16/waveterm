@@ -25,3 +25,20 @@ func TestClassifyPrune(t *testing.T) {
 		t.Fatalf("stale second: %+v", got[1])
 	}
 }
+
+func TestClassifyPruneSurfacesGardenerFlag(t *testing.T) {
+	now := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	notes := []Note{
+		{ID: "drifted", Title: "D", GardenerFlag: "drift"},
+		{ID: "dup", Title: "U", GardenerFlag: "duplicate"},
+		{ID: "sup", Title: "S", SupersededBy: "x", GardenerFlag: "drift"}, // superseded wins
+	}
+	got := classifyPrune(notes, now)
+	byID := map[string]string{}
+	for _, c := range got {
+		byID[c.ID] = c.Reason
+	}
+	if byID["drifted"] != "drift" || byID["dup"] != "duplicate" || byID["sup"] != "superseded" {
+		t.Fatalf("wrong reasons: %+v", byID)
+	}
+}

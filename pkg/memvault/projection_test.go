@@ -10,6 +10,18 @@ import (
 	"testing"
 )
 
+func TestRepoPathForHubDir(t *testing.T) {
+	repo := `C:\Users\k\proj`
+	projects := map[string]string{"proj": repo}
+	hub := filepath.Join("root", ".claude", "projects", projectHash(repo), "memory")
+	if got := repoPathForHubDir(hub, projects); got != repo {
+		t.Fatalf("want %q got %q", repo, got)
+	}
+	if got := repoPathForHubDir(filepath.Join("root", ".claude", "projects", "C--unknown", "memory"), projects); got != "" {
+		t.Fatalf("unknown hub should resolve to empty, got %q", got)
+	}
+}
+
 func TestProjectHash(t *testing.T) {
 	got := projectHash(`C:\Users\kael02\IdeaProjects\waveterm`)
 	want := "C--Users-kael02-IdeaProjects-waveterm"

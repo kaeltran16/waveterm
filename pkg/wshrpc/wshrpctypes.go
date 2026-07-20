@@ -413,6 +413,15 @@ type MemoryPruneCandidate struct {
 	Path   string `json:"path"`
 }
 
+type MemoryArchivedNote struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Reason     string `json:"reason"`     // decay | drift
+	ArchivedAt string `json:"archivedat"` // RFC3339
+	Path       string `json:"path"`       // path inside the archive dir (Restore target)
+	OriginHub  string `json:"originhub"`
+}
+
 type PathCommandData struct {
 	PathType     string `json:"pathtype"`
 	Open         bool   `json:"open"`

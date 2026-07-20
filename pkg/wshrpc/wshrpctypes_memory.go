@@ -19,6 +19,8 @@ type MemoryCommands interface {
 	MemoryReviewListCommand(ctx context.Context) (*CommandMemoryReviewListRtnData, error)
 	MemoryReviewAcceptCommand(ctx context.Context, data CommandMemoryReviewAcceptData) error
 	MemoryPruneListCommand(ctx context.Context) (*CommandMemoryPruneListRtnData, error)
+	MemoryArchiveListCommand(ctx context.Context) (*CommandMemoryArchiveListRtnData, error)
+	MemoryRestoreCommand(ctx context.Context, data CommandMemoryRestoreData) error
 }
 
 type CommandMemoryScanRtnData struct {
@@ -109,4 +111,12 @@ type CommandMemoryReviewAcceptData struct {
 
 type CommandMemoryPruneListRtnData struct {
 	Candidates []MemoryPruneCandidate `json:"candidates"`
+}
+
+type CommandMemoryArchiveListRtnData struct {
+	Archived []MemoryArchivedNote `json:"archived"`
+}
+
+type CommandMemoryRestoreData struct {
+	Path string `json:"path"`
 }

@@ -108,6 +108,8 @@ func (ws *WshServer) MemoryLearnCommand(ctx context.Context, data wshrpc.Command
 }
 
 func (ws *WshServer) MemoryEnqueueSessionCommand(ctx context.Context, data wshrpc.CommandMemoryEnqueueSessionData) error {
+	// real recall telemetry: stamp last_referenced from what the finished session actually recalled.
+	memvault.RecordRecall(data.Cwd, data.TranscriptPath, time.Now())
 	memdistill.Enqueue(data.Cwd, data.TranscriptPath, data.ClaudePath)
 	return nil
 }
@@ -144,4 +146,22 @@ func (ws *WshServer) MemoryPruneListCommand(ctx context.Context) (*wshrpc.Comman
 		out[i] = wshrpc.MemoryPruneCandidate{ID: c.ID, Title: c.Title, Reason: c.Reason, Path: c.Path}
 	}
 	return &wshrpc.CommandMemoryPruneListRtnData{Candidates: out}, nil
+}
+
+func (ws *WshServer) MemoryArchiveListCommand(ctx context.Context) (*wshrpc.CommandMemoryArchiveListRtnData, error) {
+	ans := memvault.ListArchived()
+	out := make([]wshrpc.MemoryArchivedNote, len(ans))
+	for i, a := range ans {
+		out[i] = wshrpc.MemoryArchivedNote{
+			ID: a.ID, Title: a.Title, Reason: a.Reason, ArchivedAt: a.ArchivedAt, Path: a.Path, OriginHub: a.OriginHub,
+		}
+	}
+	return &wshrpc.CommandMemoryArchiveListRtnData{Archived: out}, nil
+}
+
+func (ws *WshServer) MemoryRestoreCommand(ctx context.Context, data wshrpc.CommandMemoryRestoreData) error {
+	if _, err := memvault.Restore(data.Path); err != nil {
+		return fmt.Errorf("restoring archived note: %w", err)
+	}
+	return nil
 }

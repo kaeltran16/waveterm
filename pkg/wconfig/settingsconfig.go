@@ -110,7 +110,8 @@ type SettingsType struct {
 	TermShowSplitButtons       bool     `json:"term:showsplitbuttons,omitempty"`
 	TermTrimTrailingWhitespace *bool    `json:"term:trimtrailingwhitespace,omitempty"`
 
-	MemoryVaultPath string `json:"memory:vaultpath,omitempty"`
+	MemoryVaultPath         string `json:"memory:vaultpath,omitempty"`
+	MemoryGardenerStaleDays int    `json:"memory:gardenerstaledays,omitempty"`
 
 	EditorMinimapEnabled      bool    `json:"editor:minimapenabled,omitempty"`
 	EditorStickyScrollEnabled bool    `json:"editor:stickyscrollenabled,omitempty"`

@@ -32,7 +32,7 @@ func WriteLearning(hubDir string, c LearnCandidate) (bool, string, error) {
 	}
 	hash := factHash(c.Body)
 	slug := harvestSlug(c.Body, hash)
-	if existingHashes(hubDir)[hash] {
+	if existingHashes(hubDir)[hash] || archivedHashes()[hash] {
 		return false, slug, nil
 	}
 	path := filepath.Join(hubDir, slug+".md")
@@ -62,6 +62,12 @@ func WriteLearning(hubDir string, c LearnCandidate) (bool, string, error) {
 		return false, slug, err
 	}
 	return true, slug, nil
+}
+
+// FlagNote stamps metadata.gardener_flag on a hub note so classifyPrune surfaces it in the cleanup
+// queue. reason: "stale" | "drift" | "duplicate". Idempotent (upsert).
+func FlagNote(path, reason string) error {
+	return editNoteMetadata(path, "gardener_flag", reason)
 }
 
 // MarkSuperseded flags hubDir/<noteSlug>.md as replaced by bySlug (pruning's strong signal).

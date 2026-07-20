@@ -697,6 +697,12 @@ func MacOSVersionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error
 	return resp, err
 }
 
+// command "memoryarchivelist", wshserver.MemoryArchiveListCommand
+func MemoryArchiveListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryArchiveListRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryArchiveListRtnData](w, "memoryarchivelist", nil, opts)
+	return resp, err
+}
+
 // command "memorycreate", wshserver.MemoryCreateCommand
 func MemoryCreateCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryCreateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryCreateRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryCreateRtnData](w, "memorycreate", data, opts)
@@ -749,6 +755,12 @@ func MemoryPruneListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Co
 func MemoryReadCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandMemoryReadRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandMemoryReadRtnData](w, "memoryread", data, opts)
 	return resp, err
+}
+
+// command "memoryrestore", wshserver.MemoryRestoreCommand
+func MemoryRestoreCommand(w *wshutil.WshRpc, data wshrpc.CommandMemoryRestoreData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "memoryrestore", data, opts)
+	return err
 }
 
 // command "memoryreviewaccept", wshserver.MemoryReviewAcceptCommand

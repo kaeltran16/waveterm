@@ -224,3 +224,46 @@ func projectionStatusFor(targets []steeringTarget) map[string]string {
 func ProjectionStatus() map[string]string {
 	return projectionStatusFor(steeringTargets())
 }
+
+// ClaudeHubDirs enumerates every existing Claude per-project memory hub (~/.claude/projects/*/memory).
+// This is the gardener's sweep universe.
+func ClaudeHubDirs() []string {
+	root := filepath.Join(wavebase.GetHomeDir(), ".claude", "projects")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		hub := filepath.Join(root, e.Name(), "memory")
+		if info, statErr := os.Stat(hub); statErr == nil && info.IsDir() {
+			out = append(out, hub)
+		}
+	}
+	return out
+}
+
+// RepoPathForHubDir reverse-resolves a hub dir to its repo path via the Projects registry, or "" when
+// unknown (projectHash is lossy; we re-encode each registered path to match).
+func RepoPathForHubDir(hubDir string) string {
+	return repoPathForHubDir(hubDir, registryProjects())
+}
+
+// repoPathForHubDir is the pure core (testable without config).
+func repoPathForHubDir(hubDir string, projects map[string]string) string {
+	hash := filepath.Base(filepath.Dir(hubDir)) // .../projects/<hash>/memory
+	for _, p := range projects {
+		if projectHash(filepath.Clean(p)) == hash {
+			return p
+		}
+	}
+	return ""
+}
+
+// HubNotes reads every note (with body) directly under hubDir. Exported for the gardener.
+func HubNotes(hubDir string) []NoteWithBody {
+	return readHubNotes(hubDir)
+}

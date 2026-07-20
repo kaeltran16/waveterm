@@ -174,6 +174,9 @@ func writeHarvestedNote(hubDir, bullet, hash string) (bool, error) {
 func harvestInto(memoryMD, cwd, hubDir string) (ingested, skipped int, err error) {
 	bullets := parseCodexReusable(memoryMD, cwd)
 	existing := existingHashes(hubDir)
+	for h := range archivedHashes() { // don't re-harvest what the gardener archived
+		existing[h] = true
+	}
 	for _, bullet := range bullets {
 		h := factHash(bullet)
 		if existing[h] {

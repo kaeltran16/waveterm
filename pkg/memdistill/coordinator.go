@@ -161,6 +161,22 @@ var (
 	startOnce        sync.Once
 )
 
+// sweepHooks are extra per-tick sweeps (e.g. the memory gardener) so the memory subsystem runs on a
+// single background ticker rather than a parallel timer. Register before Start.
+var sweepHooks []func()
+
+// RegisterSweepHook adds fn to the coordinator's per-tick sweep. Call before Start.
+func RegisterSweepHook(fn func()) { sweepHooks = append(sweepHooks, fn) }
+
+func (d *distiller) runSweepHooks() {
+	for _, fn := range sweepHooks {
+		func() {
+			defer func() { panichandler.PanicHandler("memdistill.sweepHook", recover()) }()
+			fn()
+		}()
+	}
+}
+
 func ensure() {
 	startOnce.Do(func() {
 		defaultDistiller = newDistiller(filepath.Join(wavebase.GetWaveDataDir(), queueFile))
@@ -181,6 +197,7 @@ func Start(ctx context.Context) {
 			panichandler.PanicHandler("memdistill.sweep-loop", recover())
 		}()
 		defaultDistiller.sweep()
+		defaultDistiller.runSweepHooks()
 		t := time.NewTicker(tickInterval)
 		defer t.Stop()
 		for {
@@ -189,6 +206,7 @@ func Start(ctx context.Context) {
 				return
 			case <-t.C:
 				defaultDistiller.sweep()
+				defaultDistiller.runSweepHooks()
 			}
 		}
 	}()

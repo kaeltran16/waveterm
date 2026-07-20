@@ -23,6 +23,7 @@ import { MarkdownMessage } from "./markdownmessage";
 import { MemGraph } from "./memgraph";
 import { NewMemoryModal } from "./newmemorymodal";
 import { CleanupQueue } from "./cleanupqueue";
+import { ArchivedView } from "./archivedview";
 import { PendingBand } from "./pendingband";
 import { RAIL_ICON } from "./railicons";
 import { SyncStrip } from "./syncstrip";
@@ -30,6 +31,7 @@ import {
     confirmDeleteNote,
     dismissPending,
     keepPending,
+    loadArchived,
     loadMemory,
     loadPrune,
     loadReview,
@@ -542,6 +544,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
         fireAndForget(() => loadMemory());
         fireAndForget(() => loadReview());
         fireAndForget(() => loadPrune());
+        fireAndForget(() => loadArchived());
     }, [vaultPath]);
 
     const q = search.trim().toLowerCase();
@@ -569,6 +572,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                     <Header count={notes.length} pending={pending.length} onNew={() => setNewOpen(true)} />
                     <SyncStrip focusedCwd={focusedCwd} />
                     <CleanupQueue />
+                    <ArchivedView />
                     <div className="relative min-h-0 flex-1 overflow-hidden">
                         {!loaded ? (
                             <MemorySkeleton />

@@ -36,6 +36,7 @@ type Note struct {
 	CapturedAt     string `json:"capturedat"`     // metadata.captured_at (RFC3339) for agent-written notes
 	SupersededBy   string `json:"supersededby"`   // metadata.superseded_by: slug of the note that replaced this one
 	LastReferenced string `json:"lastreferenced"` // metadata.last_referenced (RFC3339): last session that used this note
+	GardenerFlag   string `json:"gardenerflag"`   // metadata.gardener_flag: stale|drift|duplicate (cleanup queue)
 }
 
 type Edge struct {
@@ -60,6 +61,7 @@ type frontmatter struct {
 		CapturedAt     string `yaml:"captured_at"`
 		SupersededBy   string `yaml:"superseded_by"`
 		LastReferenced string `yaml:"last_referenced"`
+		GardenerFlag   string `yaml:"gardener_flag"`
 	} `yaml:"metadata"`
 }
 
@@ -89,6 +91,7 @@ func parseNote(path string, data []byte, source string) (Note, string) {
 				n.CapturedAt = fm.Metadata.CapturedAt
 				n.SupersededBy = fm.Metadata.SupersededBy
 				n.LastReferenced = fm.Metadata.LastReferenced
+				n.GardenerFlag = fm.Metadata.GardenerFlag
 				if fm.Metadata.Source != "" {
 					n.Source = fm.Metadata.Source // frontmatter provenance overrides the root tag
 				}

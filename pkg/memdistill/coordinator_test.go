@@ -5,6 +5,7 @@ package memdistill
 
 import (
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -76,5 +77,16 @@ func TestFlush_KeepsBucketOnDistillFailure(t *testing.T) {
 	}
 	if got := loadQueue(path); len(got.Buckets["/repo/a"]) != 1 {
 		t.Error("bucket must be retained when distill fails")
+	}
+}
+
+func TestSweepRunsRegisteredHooks(t *testing.T) {
+	var n int32
+	RegisterSweepHook(func() { atomic.AddInt32(&n, 1) })
+	t.Cleanup(func() { sweepHooks = nil })
+	d := newDistiller(filepath.Join(t.TempDir(), "q.json"))
+	d.runSweepHooks()
+	if atomic.LoadInt32(&n) != 1 {
+		t.Fatalf("hook not run: %d", n)
 	}
 }

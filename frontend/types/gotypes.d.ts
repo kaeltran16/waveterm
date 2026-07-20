@@ -753,6 +753,11 @@ declare global {
         reports: RadarReport[];
     };
 
+    // wshrpc.CommandMemoryArchiveListRtnData
+    type CommandMemoryArchiveListRtnData = {
+        archived: MemoryArchivedNote[];
+    };
+
     // wshrpc.CommandMemoryCreateData
     type CommandMemoryCreateData = {
         name: string;
@@ -828,6 +833,11 @@ declare global {
     type CommandMemoryReadRtnData = {
         note: MemoryNote;
         body: string;
+    };
+
+    // wshrpc.CommandMemoryRestoreData
+    type CommandMemoryRestoreData = {
+        path: string;
     };
 
     // wshrpc.CommandMemoryReviewAcceptData
@@ -1485,6 +1495,16 @@ declare global {
         blockid: string;
     };
 
+    // wshrpc.MemoryArchivedNote
+    type MemoryArchivedNote = {
+        id: string;
+        title: string;
+        reason: string;
+        archivedat: string;
+        path: string;
+        originhub: string;
+    };
+
     // wshrpc.MemoryEdge
     type MemoryEdge = {
         from: string;
@@ -2040,6 +2060,7 @@ declare global {
         "term:showsplitbuttons"?: boolean;
         "term:trimtrailingwhitespace"?: boolean;
         "memory:vaultpath"?: string;
+        "memory:gardenerstaledays"?: number;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;
         "editor:wordwrap"?: boolean;

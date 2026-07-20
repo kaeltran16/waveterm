@@ -164,6 +164,9 @@
         "memory:vaultpath": {
           "type": "string"
         },
+        "memory:gardenerstaledays": {
+          "type": "integer"
+        },
         "editor:minimapenabled": {
           "type": "boolean"
         },

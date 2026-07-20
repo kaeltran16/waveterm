@@ -17,12 +17,13 @@ const StaleDays = 30
 type PruneCandidate struct {
 	ID     string `json:"id"`
 	Title  string `json:"title"`
-	Reason string `json:"reason"` // "superseded" | "stale"
+	Reason string `json:"reason"` // "superseded" | "stale" | "drift" | "duplicate" (gardener flags)
 	Path   string `json:"path"`
 }
 
-// classifyPrune is the pure core: superseded first, then stale (last_referenced older than StaleDays).
-// A note with no last_referenced is NOT stale (never-referenced human notes are left alone).
+// classifyPrune is the pure core: superseded first, then gardener_flag (drift/duplicate/stale set by
+// the gardener), then computed-stale (last_referenced older than StaleDays). One candidate per note.
+// A note with no last_referenced and no flag is NOT stale (never-referenced human notes are left alone).
 func classifyPrune(notes []Note, now time.Time) []PruneCandidate {
 	var out []PruneCandidate
 	cutoff := now.AddDate(0, 0, -StaleDays)
@@ -30,6 +31,8 @@ func classifyPrune(notes []Note, now time.Time) []PruneCandidate {
 		switch {
 		case n.SupersededBy != "":
 			out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Reason: "superseded", Path: n.Path})
+		case n.GardenerFlag != "":
+			out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Reason: n.GardenerFlag, Path: n.Path})
 		case n.LastReferenced != "":
 			if ts, err := time.Parse(time.RFC3339, n.LastReferenced); err == nil && ts.Before(cutoff) {
 				out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Reason: "stale", Path: n.Path})

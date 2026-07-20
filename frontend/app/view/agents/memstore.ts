@@ -244,3 +244,28 @@ export async function prune(path: string): Promise<void> {
     await deleteNote(path);
     await loadPrune();
 }
+
+// Archived view: notes the gardener auto-archived (recoverable). MemoryArchivedNote is an ambient
+// generated wire type (frontend/types/gotypes.d.ts).
+export const memArchivedAtom = atom<MemoryArchivedNote[]>([]) as PrimitiveAtom<MemoryArchivedNote[]>;
+
+// Newest archivedat first. Pure so it unit-tests without RPC.
+export function sortArchived(items: MemoryArchivedNote[]): MemoryArchivedNote[] {
+    return [...items].sort((a, b) => (a.archivedat < b.archivedat ? 1 : a.archivedat > b.archivedat ? -1 : 0));
+}
+
+export async function loadArchived(): Promise<void> {
+    try {
+        const r = await RpcApi.MemoryArchiveListCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
+        globalStore.set(memArchivedAtom, sortArchived(r.archived ?? []));
+    } catch {
+        globalStore.set(memArchivedAtom, []);
+    }
+}
+
+// Restore moves an archived note back to its hub; rescan so it reappears in the list/graph.
+export async function restoreArchived(path: string): Promise<void> {
+    await RpcApi.MemoryRestoreCommand(TabRpcClient, { path });
+    globalStore.set(memReflowAnimatedAtom, true);
+    await Promise.all([loadArchived(), loadMemory()]);
+}

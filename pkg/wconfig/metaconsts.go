@@ -59,6 +59,7 @@ const (
 	ConfigKey_TermTrimTrailingWhitespace     = "term:trimtrailingwhitespace"
 
 	ConfigKey_MemoryVaultPath                = "memory:vaultpath"
+	ConfigKey_MemoryGardenerStaleDays        = "memory:gardenerstaledays"
 
 	ConfigKey_EditorMinimapEnabled           = "editor:minimapenabled"
 	ConfigKey_EditorStickyScrollEnabled      = "editor:stickyscrollenabled"

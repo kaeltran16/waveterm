@@ -11,7 +11,15 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { advanceSelection, memConflictAtom, memEditingAtom, memNotesAtom, memRailOpenAtom, selectNote } from "./memstore";
+import {
+    advanceSelection,
+    memConflictAtom,
+    memEditingAtom,
+    memNotesAtom,
+    memRailOpenAtom,
+    selectNote,
+    sortArchived,
+} from "./memstore";
 import type { MemNote } from "./memtypes";
 
 const note = (id: string): MemNote =>
@@ -47,5 +55,17 @@ describe("advanceSelection", () => {
     });
     it("returns null saved when nothing remains", () => {
         expect(advanceSelection(["a"], "a", null)).toEqual({ pendingPath: null, savedId: null });
+    });
+});
+
+describe("sortArchived", () => {
+    it("orders newest archivedat first and does not mutate input", () => {
+        const input = [
+            { id: "a", title: "A", reason: "decay", archivedat: "2026-07-01T00:00:00Z", path: "/x/a", originhub: "/h" },
+            { id: "b", title: "B", reason: "drift", archivedat: "2026-07-19T00:00:00Z", path: "/x/b", originhub: "/h" },
+        ] as MemoryArchivedNote[];
+        const out = sortArchived(input);
+        expect(out.map((n) => n.id)).toEqual(["b", "a"]);
+        expect(input[0].id).toBe("a"); // input untouched
     });
 });
