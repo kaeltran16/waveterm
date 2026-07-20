@@ -174,7 +174,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                             <button
                                 type="button"
                                 onClick={() => fireAndForget(() => startScan(scope.path))}
-                                className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
+                                className="self-end rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
                             >
                                 {state === "partial" ? "Re-run full scan" : "Re-scan"}
                             </button>
