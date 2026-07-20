@@ -41,7 +41,8 @@ import {
     setChannelTier,
 } from "./channelsstore";
 import { projectsAtom } from "./projectsstore";
-import { profileRailOpenAtom, ProfilePanel } from "./profilepanel";
+import { ProfilePanel } from "./profilepanel";
+import { profileRailOpenAtom } from "./railstore";
 import { createRun, getJarvisProfile, pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { currentPhaseIndex, defaultRunId, resolveActiveRunId } from "./runmodel";
 import { RunBody } from "./runbody";

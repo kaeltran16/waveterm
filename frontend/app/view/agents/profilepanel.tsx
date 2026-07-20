@@ -9,13 +9,12 @@
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { fireAndForget } from "@/util/util";
-import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "./runactions";
 import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
 import { PrinciplesEditor } from "./principleseditor";
-
-export const profileRailOpenAtom: PrimitiveAtom<boolean> = atom(false);
+import { profileRailOpenAtom } from "./railstore";
 
 const PHASE_KINDS = ["brainstorm", "plan", "execute", "custom"] as const;
 
@@ -539,8 +538,9 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
     const sections: RailSection[] = [
         { id: "profile", icon: <span className="text-[16px]">⚙</span>, label: "Profile", content: body },
     ];
-    // no collapsed strip of its own: the ⚙ trigger lives in the channel context rail's collapsed strip
-    // (see ChannelsSurface), so profile stays its own drawer without doubling up the right-edge column.
+    // no collapsed strip of its own (hideWhenCollapsed): the ⚙ trigger lives in the channel header, and
+    // while this drawer is open the sibling context rail force-collapses to 0 (see ContextPanel), so the
+    // two share the single right-edge slot instead of doubling up.
     return (
         <CollapsibleRail
             openAtom={profileRailOpenAtom}

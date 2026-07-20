@@ -42,6 +42,7 @@ export function CollapsibleRail({
     ariaLabel,
     extraIcons,
     hideWhenCollapsed,
+    forceCollapsed,
 }: {
     openAtom: PrimitiveAtom<boolean>;
     sections: RailSection[];
@@ -51,23 +52,28 @@ export function CollapsibleRail({
     // when true, the rail shows no collapsed strip (it animates to zero width): its glyph lives in a
     // sibling rail's extraIcons, so this drawer only takes space while open. Preserves the slide.
     hideWhenCollapsed?: boolean;
+    // when true, the rail is fully hidden (zero width, no strip) regardless of `open`: a sibling drawer
+    // has taken the shared right-edge slot, so this rail slides out of the way instead of stacking
+    // beside it. The width animation is preserved so it collapses as the sibling expands.
+    forceCollapsed?: boolean;
 }) {
     const [open, setOpen] = useAtom(openAtom);
     const collapsedWidth = hideWhenCollapsed ? 0 : RAIL_COLLAPSED_PX;
+    const width = forceCollapsed ? 0 : open ? RAIL_EXPANDED_PX : collapsedWidth;
 
     return (
         <MotionConfig reducedMotion="user">
             <motion.aside
                 aria-label={ariaLabel}
                 initial={false}
-                animate={{ width: open ? RAIL_EXPANDED_PX : collapsedWidth }}
+                animate={{ width }}
                 transition={{ duration: MOTION.durMacro, ease: MOTION.easeFluid }}
                 className={cn(
                     "flex h-full shrink-0 flex-col overflow-hidden bg-surface",
-                    (open || !hideWhenCollapsed) && "border-l border-border"
+                    width > 0 && "border-l border-border"
                 )}
             >
-                {open ? (
+                {forceCollapsed ? null : open ? (
                     <>
                         <div className="flex shrink-0 items-center justify-end px-2 pt-2">
                             <button

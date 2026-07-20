@@ -6,6 +6,7 @@
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { fireAndForget } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { type AgentVM } from "./agentsviewmodel";
@@ -16,7 +17,7 @@ import { type ConsultStream } from "./channelsstore";
 import { fleetCounts } from "./jarviscards";
 import { buildFleetSnapshot, fleetCostUsd } from "./jarvisderive";
 import { RAIL_ICON } from "./railicons";
-import { channelRailOpenAtom } from "./railstore";
+import { channelRailOpenAtom, profileRailOpenAtom } from "./railstore";
 
 function consultIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
@@ -140,6 +141,8 @@ export function ContextPanel({
 }) {
     const [dispatched, setDispatched] = useState<Set<string>>(new Set());
     const [showGone, setShowGone] = useState(false);
+    // the profile drawer shares this rail's right-edge slot; collapse fully out of the way while it's open
+    const profileOpen = useAtomValue(profileRailOpenAtom);
     // the dispatched-consult set is view-local; drop it on channel switch so a "Promoted to a run"
     // marker from one channel never bleeds into another
     useEffect(() => setDispatched(new Set()), [channel?.oid]);
@@ -265,5 +268,12 @@ export function ContextPanel({
         },
     ];
 
-    return <CollapsibleRail openAtom={channelRailOpenAtom} ariaLabel="Channel context" sections={sections} />;
+    return (
+        <CollapsibleRail
+            openAtom={channelRailOpenAtom}
+            ariaLabel="Channel context"
+            sections={sections}
+            forceCollapsed={profileOpen}
+        />
+    );
 }
