@@ -1,0 +1,87 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { describe, expect, it } from "vitest";
+import {
+    agentRowMenuItems,
+    clampQuestionIndex,
+    entriesToShow,
+    isFinishTransition,
+    muteMode,
+} from "./agentrowmodel";
+
+describe("entriesToShow", () => {
+    it("prefers live entries when present", () => {
+        expect(entriesToShow([1, 2], [9])).toEqual([1, 2]);
+    });
+    it("falls back to previousInfo when live is empty", () => {
+        expect(entriesToShow([], [9])).toEqual([9]);
+    });
+    it("falls back to [] when live is empty and previousInfo is absent", () => {
+        expect(entriesToShow([], undefined)).toEqual([]);
+    });
+});
+
+describe("clampQuestionIndex", () => {
+    it("defaults an absent index to 0", () => {
+        expect(clampQuestionIndex(undefined, 3)).toBe(0);
+    });
+    it("clamps to the last question", () => {
+        expect(clampQuestionIndex(5, 3)).toBe(2);
+    });
+    it("stays at 0 when there are no questions", () => {
+        expect(clampQuestionIndex(2, 0)).toBe(0);
+    });
+    it("keeps an in-range index", () => {
+        expect(clampQuestionIndex(1, 3)).toBe(1);
+    });
+});
+
+describe("muteMode", () => {
+    it("dismisses an idle agent and backgrounds an active one", () => {
+        expect(muteMode("idle")).toBe("dismiss");
+        expect(muteMode("working")).toBe("background");
+        expect(muteMode("asking")).toBe("background");
+    });
+});
+
+describe("isFinishTransition", () => {
+    it("is true only on working -> idle", () => {
+        expect(isFinishTransition("working", "idle")).toBe(true);
+        expect(isFinishTransition("asking", "idle")).toBe(false);
+        expect(isFinishTransition("working", "asking")).toBe(false);
+        expect(isFinishTransition("idle", "idle")).toBe(false);
+    });
+});
+
+describe("agentRowMenuItems", () => {
+    it("always includes open, terminal, copy, a separator, and a danger close", () => {
+        const items = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: false, fullWidth: false, hasMute: false });
+        expect(items).toEqual([
+            { key: "open", label: "Open" },
+            { key: "terminal", label: "Open terminal" },
+            { key: "copy", label: "Copy name" },
+            { separator: true },
+            { key: "close", label: "Close agent", danger: true },
+        ]);
+    });
+    it("adds Review changes when there is a diff", () => {
+        const items = agentRowMenuItems({ hasDiff: true, canToggleFullWidth: false, fullWidth: false, hasMute: false });
+        expect(items.some((i) => "key" in i && i.key === "diff" && i.label === "Review changes")).toBe(true);
+    });
+    it("labels the full-width toggle by current state", () => {
+        const collapsed = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: true, fullWidth: false, hasMute: false });
+        const expanded = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: true, fullWidth: true, hasMute: false });
+        expect(collapsed.find((i) => "key" in i && i.key === "fullwidth")).toEqual({ key: "fullwidth", label: "Full width" });
+        expect(expanded.find((i) => "key" in i && i.key === "fullwidth")).toEqual({ key: "fullwidth", label: "Exit full width" });
+    });
+    it("adds Move to background when a mute action exists", () => {
+        const items = agentRowMenuItems({ hasDiff: false, canToggleFullWidth: false, fullWidth: false, hasMute: true });
+        expect(items.some((i) => "key" in i && i.key === "mute" && i.label === "Move to background")).toBe(true);
+    });
+    it("orders optional items diff -> fullwidth -> mute between terminal and copy", () => {
+        const items = agentRowMenuItems({ hasDiff: true, canToggleFullWidth: true, fullWidth: false, hasMute: true });
+        const keys = items.map((i) => ("key" in i ? i.key : "sep"));
+        expect(keys).toEqual(["open", "terminal", "diff", "fullwidth", "mute", "copy", "sep", "close"]);
+    });
+});

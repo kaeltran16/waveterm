@@ -10,6 +10,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type { AgentsViewModel } from "./agents";
 import { formatReset, formatTokens, usageLevel, type AgentVM } from "./agentsviewmodel";
+import { providerDot, providerLabel, usageBarShowsMeta, usageBarVisible, windowUsedTokens } from "./cockpitrailmodel";
 import { ICON } from "./navrail";
 import { mergeRateLimitWindows } from "./ratelimitstore";
 import { RecentActivityRail } from "./recentactivityrail";
@@ -18,11 +19,6 @@ import { type WindowTokens } from "./windowtokenstore";
 
 const PLAN_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
 const PLAN_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", warn: "text-warning", hot: "text-error" };
-
-// Provider identity dots for the plan strip. Not theme tokens — Claude clay / Codex periwinkle are
-// brand colors, kept here as the single source.
-const PROVIDER_DOT: Record<string, string> = { claude: "bg-provider-claude", codex: "bg-provider-codex" };
-const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
 
 // One plan window as a full-width handoff bar: label + pct + bar + (real used tokens) + reset
 // countdown. A null pct (API-key auth, or a window not yet reported) renders nothing. `used` is
@@ -40,7 +36,7 @@ export function UsageBar({
     used?: number;
     now: number;
 }) {
-    if (pct == null) {
+    if (!usageBarVisible(pct)) {
         return null;
     }
     const lvl = usageLevel(pct);
@@ -56,7 +52,7 @@ export function UsageBar({
                     style={{ width: `${Math.min(100, pct)}%` }}
                 />
             </div>
-            {used != null || reset ? (
+            {usageBarShowsMeta(used, reset) ? (
                 <div className="mt-[6px] flex justify-between font-mono text-[10.5px] text-muted">
                     <span>{used != null ? `${formatTokens(used)} tok` : ""}</span>
                     {reset ? <span>resets {formatReset(reset, now)}</span> : null}
@@ -113,24 +109,24 @@ export function CockpitRail({
                                                 <span
                                                     className={cn(
                                                         "h-[7px] w-[7px] rounded-full",
-                                                        PROVIDER_DOT[d.provider] ?? "bg-muted"
+                                                        providerDot(d.provider)
                                                     )}
                                                 />
-                                                {PROVIDER_LABEL[d.provider] ?? d.provider}
+                                                {providerLabel(d.provider)}
                                             </div>
                                         ) : null}
                                         <UsageBar
                                             label="5-hour window"
                                             pct={d.fivehour.pct}
                                             reset={d.fivehour.reset}
-                                            used={d.provider === "claude" ? windowTokens?.fivehour : undefined}
+                                            used={windowUsedTokens(d.provider, windowTokens, "fivehour")}
                                             now={now}
                                         />
                                         <UsageBar
                                             label="Weekly"
                                             pct={d.week.pct}
                                             reset={d.week.reset}
-                                            used={d.provider === "claude" ? windowTokens?.week : undefined}
+                                            used={windowUsedTokens(d.provider, windowTokens, "week")}
                                             now={now}
                                         />
                                     </div>

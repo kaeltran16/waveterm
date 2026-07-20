@@ -9,7 +9,16 @@ import { AlertTriangle, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsAtom } from "./projectsstore";
-import { classifyScanState, coverageEntries, groupSummary, resolveSelection } from "./radarmodel";
+import {
+    classifyScanState,
+    coverageEntries,
+    groupSummary,
+    isResultsState,
+    projectsWithPath,
+    rescanLabel,
+    resolveSelection,
+    scanScopeLabel,
+} from "./radarmodel";
 import { RadarFindingDetail } from "./radarfindingdetail";
 import { RadarFindingsList } from "./radarfindingslist";
 import { RadarScanStatePanel } from "./radarscanstatepanel";
@@ -32,7 +41,7 @@ import { SurfaceHeader } from "./surfacescaffold";
 function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect: (s: RadarScope) => void }) {
     const projects = useAtomValue(projectsAtom);
     const [open, setOpen] = useState(false);
-    const entries = Object.entries(projects ?? {}).filter(([, v]) => v?.path);
+    const entries = projectsWithPath(projects);
 
     return (
         <div className="relative flex flex-col gap-1">
@@ -129,7 +138,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     }, []);
 
     const state = classifyScanState(report);
-    const isResults = state === "results" || state === "partial";
+    const isResults = isResultsState(state);
     const findings = report?.findings ?? [];
     const effectiveSelected = resolveSelection(findings, selectedId);
     const selectedFinding = findings.find((f) => f.id === effectiveSelected);
@@ -146,9 +155,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                 }
                 subtitle={
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <span className="text-muted">
-                            {scope ? `Scanning ${scope.name}` : "Select a registered project to scan"}
-                        </span>
+                        <span className="text-muted">{scanScopeLabel(scope)}</span>
                         {coverage.length > 0 ? (
                             <div className="flex items-center gap-2">
                                 <span className="font-mono text-[9px] uppercase tracking-widest text-muted">Coverage</span>
@@ -176,7 +183,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                 onClick={() => fireAndForget(() => startScan(scope.path))}
                                 className="self-end rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
                             >
-                                {state === "partial" ? "Re-run full scan" : "Re-scan"}
+                                {rescanLabel(state)}
                             </button>
                         ) : null}
                     </>
