@@ -6,13 +6,16 @@
 // chrome of its own, so this keeps name/status/model/context% + the details-rail toggle visible.
 
 import { useSettle } from "@/app/element/motionhooks";
+import { MOTION } from "@/app/element/motiontokens";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { CircleStop, Maximize2, Minimize2, PanelRight, Square, X } from "lucide-react";
+import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
+import { motion } from "motion/react";
 import { confirmCloseAgent } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
@@ -137,19 +140,17 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
             <div className="flex items-center gap-[7px]">
                 {blockId != null ? (
                     <>
-                        <button
-                            type="button"
-                            onClick={interrupt}
-                            title="Interrupt the current turn (Esc)"
-                            className={cn(ICON_BTN, "hover:border-edge-strong")}
-                        >
-                            <Square size={16} strokeWidth={2} fill="currentColor" />
-                        </button>
-                        <button
+                        <motion.button
                             type="button"
                             onClick={() => globalStore.set(terminalFullscreenAtom, !fullscreen)}
-                            title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen terminal"}
+                            title={
+                                fullscreen
+                                    ? `Exit fullscreen (${formatChordString("f")} or ${formatChordString("Escape")})`
+                                    : `Fullscreen terminal (${formatChordString("f")})`
+                            }
                             aria-pressed={fullscreen}
+                            whileHover={{ scale: 1.06 }}
+                            whileTap={{ scale: 0.85 }}
                             className={cn(
                                 "cursor-pointer rounded-[7px] border px-[9px] py-[6px]",
                                 fullscreen
@@ -157,16 +158,25 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                                     : cn(ICON_BTN, "hover:border-edge-strong")
                             )}
                         >
-                            {fullscreen ? (
-                                <Minimize2 size={16} strokeWidth={1.8} />
-                            ) : (
-                                <Maximize2 size={16} strokeWidth={1.8} />
-                            )}
-                        </button>
+                            {/* re-keyed so each toggle replays the rotate-in, reinforcing the state flip */}
+                            <motion.span
+                                key={fullscreen ? "min" : "max"}
+                                initial={{ rotate: -90, opacity: 0 }}
+                                animate={{ rotate: 0, opacity: 1 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                className="block"
+                            >
+                                {fullscreen ? (
+                                    <Minimize2 size={16} strokeWidth={1.8} />
+                                ) : (
+                                    <Maximize2 size={16} strokeWidth={1.8} />
+                                )}
+                            </motion.span>
+                        </motion.button>
                         <button
                             type="button"
                             onClick={closeTerminal}
-                            title="Close terminal — ends the agent"
+                            title={`Close terminal — ends the agent (${formatChordString("Ctrl:c")} twice)`}
                             className={cn(ICON_BTN, "hover:border-error hover:text-error")}
                         >
                             <X size={16} strokeWidth={1.9} />
