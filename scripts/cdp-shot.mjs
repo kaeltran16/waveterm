@@ -13,63 +13,36 @@
 // installs never expose it. `cargo tauri dev` watches src-tauri, so editing main.rs auto-rebuilds
 // and relaunches the dev app with the flag (the window blinks once) — no manual restart.
 //
-// Requires Node 21+ (global WebSocket + fetch; this repo runs Node 24). The page target is the
-// Vite dev server served inside WebView2 (url http://localhost:5174/, title "Wave Terminal - ...").
-// `claude-in-chrome` MCP can't attach here (it needs Chrome + an extension) — raw CDP, as below.
+// Requires Node 21+ (global WebSocket + fetch; this repo runs Node 24). The CDP transport lives in
+// the shared `scripts/cdp/attach.mjs` (the same one the verify harness uses), so target selection,
+// per-command timeouts and socket-drop handling stay single-source — this file is just the CLI.
 //
-// Beyond screenshots, the same attach pattern drives full CDP: `Runtime.evaluate` to read the DOM /
-// jotai atoms (window.globalStore is exposed on the dev renderer), `Input.dispatchKeyEvent` for keys.
+// When the dev app isn't up (or a concurrent HMR teardown drops :9222 mid-run) this exits nonzero
+// with an actionable one-line message instead of an unhandled-rejection stack or an infinite hang.
+
+import { attach } from "./cdp/attach.mjs";
 
 const out = process.argv[2] ?? "cdp-shots/wave-cdp.png";
 const port = process.argv[3] ?? "9222";
 
-async function pickTarget() {
-    const res = await fetch(`http://localhost:${port}/json/list`);
-    const targets = await res.json();
-    // prefer the dev page (vite on :5174); fall back to any page target.
-    return (
-        targets.find((t) => t.type === "page" && /localhost:5174|wave/i.test(t.url ?? "")) ??
-        targets.find((t) => t.type === "page")
-    );
-}
-
-function cdp(wsUrl) {
-    return new Promise((resolve, reject) => {
-        const ws = new WebSocket(wsUrl);
-        let id = 0;
-        const pending = new Map();
-        ws.addEventListener("open", () =>
-            resolve({
-                send: (method, params = {}) => {
-                    const msgId = ++id;
-                    ws.send(JSON.stringify({ id: msgId, method, params }));
-                    return new Promise((res) => pending.set(msgId, res));
-                },
-                close: () => ws.close(),
-            }),
-        );
-        ws.addEventListener("error", reject);
-        ws.addEventListener("message", (e) => {
-            const msg = JSON.parse(e.data);
-            if (msg.id && pending.has(msg.id)) {
-                pending.get(msg.id)(msg.result);
-                pending.delete(msg.id);
-            }
-        });
-    });
-}
-
-const target = await pickTarget();
-if (!target) {
-    console.error(`no page target on :${port} — is the dev app running with the debug flag? (see header)`);
+function die(msg) {
+    console.error(`cdp-shot: ${msg}`);
     process.exit(1);
 }
-const client = await cdp(target.webSocketDebuggerUrl);
-await client.send("Page.enable");
-const { data } = await client.send("Page.captureScreenshot", { format: "png" });
+
+let client;
+try {
+    client = await attach(port);
+} catch (e) {
+    die(e?.message ?? String(e));
+}
+
+try {
+    await client.shot(out);
+} catch (e) {
+    client.close();
+    die(`screenshot failed — ${e?.message ?? String(e)}`);
+}
+
 client.close();
-const { writeFileSync, mkdirSync } = await import("node:fs");
-const { dirname } = await import("node:path");
-mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, Buffer.from(data, "base64"));
-console.log(`captured ${target.url} -> ${out}`);
+console.log(`captured ${client.url} -> ${out}`);
