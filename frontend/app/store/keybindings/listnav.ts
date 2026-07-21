@@ -17,6 +17,9 @@ export interface ListNavController {
     navigableIds: string[];
     cursorId: string | undefined;
     setCursor: (id: string) => void; // cursor == selection: moving IS selecting
+    // Enter on the focused row: fire the row's PRIMARY action (beyond mere selection) — e.g. Jump/Resume
+    // a session, investigate a finding. Optional; when absent Enter passes through (bindings.ts).
+    activate?: () => void;
 }
 
 export const listNavAtom = atom<ListNavController | null>(null) as PrimitiveAtom<ListNavController | null>;

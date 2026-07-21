@@ -9,7 +9,8 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Copy, CopyPlus, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseAgent } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree } from "./agenttreemodel";
@@ -39,6 +40,7 @@ const SUB_COLOR: Record<SubagentState, string> = {
 
 function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const focusId = useAtomValue(model.focusIdAtom);
+    const branch = useAtomValue(agentBranchesAtom)[agent.id];
     const oref = `block:${agent.blockId}`;
     // drop children that finished (success/done) so a completed fan-out doesn't linger in the tree
     const subs = visibleSubagents(useAtomValue(subagentsByIdAtom)[agent.id] ?? []);
@@ -90,8 +92,7 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
                 <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
                 <div className="min-w-0 flex-1">
                     <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{agent.name}</div>
-                    {/* PLACEHOLDER (1b): git branch has no data source — see spec §8 */}
-                    <div className="truncate text-[10.5px] text-muted">main</div>
+                    <div className="truncate text-[10.5px] text-muted">{branch || "—"}</div>
                 </div>
                 {subs.length > 0 ? (
                     <button
@@ -197,6 +198,13 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
     const rows = buildAgentTree(agents, order);
 
     useSubagentTracking(agents);
+
+    // resolve each agent's real branch for its row (cached per cwd-source; see agentbranchstore.ts)
+    useEffect(() => {
+        for (const a of agents) {
+            void loadAgentBranch(a.id, a.transcriptPath, a.blockId);
+        }
+    }, [agents.map((a) => `${a.id}:${a.transcriptPath ?? ""}:${a.blockId ?? ""}`).join(",")]);
 
     // no-cascade guard (single constant key — the surface has one roster): mounting or switching to the
     // surface seeds silently, so only agents/terminals that arrive after mount fade in. See motiontokens.ts.

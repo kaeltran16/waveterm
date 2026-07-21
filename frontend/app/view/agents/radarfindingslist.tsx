@@ -36,10 +36,12 @@ export function RadarFindingsList({
     findings,
     selectedId,
     onSelect,
+    onActivate,
 }: {
     findings: RadarFinding[];
     selectedId: string | undefined;
     onSelect: (id: string) => void;
+    onActivate?: () => void; // list-nav Enter: start the selected finding's investigation
 }) {
     const grouped = useMemo(() => groupFindings(findings), [findings]);
     const [open, setOpen] = useState<Set<RadarGroup>>(() => new Set(DEFAULT_OPEN_GROUPS));
@@ -56,8 +58,8 @@ export function RadarFindingsList({
         [grouped, open]
     );
     const listNav = useMemo<ListNavController>(
-        () => ({ surface: "radar", navigableIds: navIds, cursorId: selectedId, setCursor: onSelect }),
-        [navIds, selectedId, onSelect]
+        () => ({ surface: "radar", navigableIds: navIds, cursorId: selectedId, setCursor: onSelect, activate: onActivate }),
+        [navIds, selectedId, onSelect, onActivate]
     );
     useSurfaceListNav(listNav);
 

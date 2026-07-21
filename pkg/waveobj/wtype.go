@@ -297,8 +297,8 @@ type RunRadarOrigin struct {
 }
 
 // JarvisProfile is a resolved (or the global) Jarvis profile: the playbook (phase pipeline) and the
-// principles (free-text judgment; consumed in Piece 4, stored/resolved only for now). Playbook reuses
-// RunPhase so a resolved profile feeds NewRun directly (runtime fields are set at run creation).
+// principles (free-text judgment; injected into worker/orchestrator/quick prompts and the Gatekeeper).
+// Playbook reuses RunPhase so a resolved profile feeds NewRun directly (runtime fields are set at run creation).
 type JarvisProfile struct {
 	Playbook        []RunPhase    `json:"playbook"`
 	Principles      PrincipleList `json:"principles,omitempty"`

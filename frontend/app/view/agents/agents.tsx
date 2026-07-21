@@ -16,6 +16,7 @@ import {
     groupAgents,
     mergePendingLaunches,
     nextAskId,
+    toggleSelection,
     type AgentVM,
     type CardPref,
     type PendingLaunch,
@@ -189,6 +190,17 @@ export class AgentsViewModel implements ViewModel {
         if (next != null) {
             globalStore.set(this.cursorIdAtom, next);
         }
+    }
+
+    // Toggle an option for one question, honoring single/multi-select, and clear that question's free
+    // text (mutually exclusive). Single source of truth for the cockpit grid, Channels ask rows, and the
+    // keyboard number keys so all three write selection state identically.
+    toggleAnswer(agentId: string, qi: number, oi: number) {
+        const agent = globalStore.get(this.agentsAtom).find((a) => a.id === agentId);
+        const multi = agent?.ask?.questions?.[qi]?.multiSelect ?? false;
+        const prev = globalStore.get(this.answerSelAtom);
+        globalStore.set(this.answerSelAtom, { ...prev, [agentId]: toggleSelection(prev[agentId] ?? {}, qi, oi, multi) });
+        this.setAnswerText(agentId, qi, ""); // selecting an option clears this question's free text (exclusive)
     }
 
     // Set the free text for one question. Typing (non-empty) clears any selected option for that

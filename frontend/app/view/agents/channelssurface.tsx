@@ -8,6 +8,8 @@
 // messages the selected run's live worker (the old "Steer"). RunBody (runbody.tsx) renders the selected
 // run; all cross-process behavior reuses existing RPCs (SetChannelTier, CreateRun, Consult, Jarvis, …).
 
+import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
+import { useKeybindings } from "@/app/store/keybindings/store";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { MotionConfig } from "motion/react";
@@ -31,6 +33,7 @@ import {
     channelDismissedRunsAtom,
     channelDraftAtom,
     channelsAtom,
+    channelsErrorAtom,
     consultStreamsAtom,
     createChannel,
     deleteChannel,
@@ -44,15 +47,17 @@ import { projectsAtom } from "./projectsstore";
 import { ProfilePanel } from "./profilepanel";
 import { profileRailOpenAtom } from "./railstore";
 import { createRun, getJarvisProfile, pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
-import { currentPhaseIndex, defaultRunId, resolveActiveRunId } from "./runmodel";
+import { currentPhaseIndex, defaultRunId, liveWorkers, resolveActiveRunId } from "./runmodel";
 import { RunBody } from "./runbody";
-import { SurfaceEmptyState } from "./surfacescaffold";
+import { SkeletonLine } from "@/app/element/skeleton";
+import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 import { useFleetSummary } from "./usefleetsummary";
 
 // ── The surface ──────────────────────────────────────────────────────────────────────────────────────
 
 export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
+    const channelsError = useAtomValue(channelsErrorAtom);
     const activeId = useAtomValue(activeChannelIdAtom);
     const active = useAtomValue(activeChannelAtom);
     const agents = useAtomValue(model.agentsAtom);
@@ -191,6 +196,15 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     };
 
     const run = runs.find((r) => r.id === activeRunId);
+
+    // Make the ask card's numbered (1-9) badges + Enter functional on Channels, targeting the selected
+    // run's asking worker. A ref keeps the binding array stable while reading the live worker each render
+    // (mirrors the Agent surface's live-atom bindings). Registered only while ChannelsSurface is mounted.
+    const askAgentRef = useRef<AgentVM | undefined>(undefined);
+    askAgentRef.current = run ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
+    const askBindings = useMemo(() => buildChannelsAskBindings(model, askAgentRef), [model]);
+    useKeybindings(askBindings);
+
     const faceRun = pendingDraft ? undefined : run; // a pending Radar draft forces the Launch (investigation) face
     const face = active ? composerFace(faceRun, agents) : { face: "launch" as const };
 
@@ -448,20 +462,24 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     </div>
                                 </div>
                             </>
+                        ) : channelsError ? (
+                            <div className="min-h-0 flex-1">
+                                <SurfaceError message="Couldn’t load channels." onRetry={() => fireAndForget(loadChannels)} />
+                            </div>
                         ) : channels == null ? (
-                            <div className="flex min-h-0 flex-1 items-start justify-center">
-                                <div className="mt-16 text-center text-[13px] text-muted">Loading…</div>
+                            <div className="min-h-0 flex-1 px-6 pt-16">
+                                <div className="mx-auto flex w-full max-w-[520px] flex-col gap-2.5">
+                                    {Array.from({ length: 5 }).map((_, i) => (
+                                        <SkeletonLine key={i} className="h-[52px] rounded-[11px]" />
+                                    ))}
+                                </div>
                             </div>
                         ) : (
                             <div className="min-h-0 flex-1">
                                 <SurfaceEmptyState
                                     title="No channel yet"
-                                    body={
-                                        <>
-                                            Click <span className="text-secondary">＋ New channel</span> to create one
-                                            bound to a project.
-                                        </>
-                                    }
+                                    body="Create a channel bound to a project to start dispatching runs."
+                                    action={{ label: "＋ New channel", onClick: () => setPicking(true) }}
                                 />
                             </div>
                         )}

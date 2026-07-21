@@ -3,7 +3,7 @@
 
 // Memory surface (Wave-cockpit-live.dc.html:1061-1169): header (count/search/Graph-List toggle/New),
 // List (grouped by scope, type pills) + detail rail (content, meta, related/backlinks, Edit/Delete).
-// Graph view added in a follow-up task; until then the toggle shows a calm placeholder.
+// The Graph toggle renders MemGraph (force-directed note graph); List is the grouped view.
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
@@ -40,6 +40,7 @@ import {
     memDraftAtom,
     memEditingAtom,
     memEdgesAtom,
+    memErrorAtom,
     memLoadedAtom,
     memNotesAtom,
     memPendingAtom,
@@ -53,7 +54,7 @@ import {
     selectNote,
 } from "./memstore";
 import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
-import { SurfaceEmptyState, SurfaceHeader } from "./surfacescaffold";
+import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
 
 function Header({ count, pending, onNew }: { count: number; pending: number; onNew: () => void }) {
     const view = useAtomValue(memViewAtom);
@@ -134,6 +135,8 @@ function ListView({
             navigableIds: navIds,
             cursorId: selectedId ?? undefined,
             setCursor: (id) => fireAndForget(() => selectNote(id)),
+            // moving already selects (loads the note); Enter reveals its detail rail if it's collapsed.
+            activate: () => globalStore.set(memRailOpenAtom, true),
         }),
         [navIds, selectedId]
     );
@@ -506,6 +509,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const notes = useAtomValue(memNotesAtom);
     const pending = useAtomValue(memPendingAtom);
     const loaded = useAtomValue(memLoadedAtom);
+    const loadError = useAtomValue(memErrorAtom);
     const view = useAtomValue(memViewAtom);
     const selectedId = useAtomValue(memSelectedIdAtom);
     const search = useAtomValue(memSearchAtom);
@@ -570,6 +574,9 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
             <div className="absolute inset-0 flex bg-background">
                 <div className="flex min-w-0 flex-1 flex-col">
                     <Header count={notes.length} pending={pending.length} onNew={() => setNewOpen(true)} />
+                    {loadError ? (
+                        <SurfaceError message="Couldn’t scan memory." onRetry={() => fireAndForget(() => loadMemory())} />
+                    ) : null}
                     <SyncStrip focusedCwd={focusedCwd} />
                     <CleanupQueue />
                     <ArchivedView />
@@ -579,7 +586,8 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                         ) : notes.length === 0 && pending.length === 0 ? (
                             <SurfaceEmptyState
                                 title="No memory yet"
-                                body="Notes your agents save show up here — nothing to review yet."
+                                body="Notes your agents save show up here. Add one to get started."
+                                action={{ label: "New memory", onClick: () => setNewOpen(true) }}
                             />
                         ) : (
                             <AnimatePresence mode="wait" initial={false}>

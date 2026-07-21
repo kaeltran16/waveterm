@@ -7,7 +7,7 @@
 
 import { type KeyboardEvent, type MutableRefObject } from "react";
 import type { AgentsViewModel } from "./agents";
-import { canSubmitAsk, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
+import { answerDigitTarget, canSubmitAsk, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
 
 export type CockpitKeyDeps = {
     model: AgentsViewModel;
@@ -20,8 +20,6 @@ export type CockpitKeyDeps = {
     asking: AgentVM[];
     lastJumpRef: MutableRefObject<string | undefined>;
     setOpenComposerId: (v: string | undefined) => void;
-    showHelp: boolean;
-    setShowHelp: (v: boolean | ((p: boolean) => boolean)) => void;
     selectQuestion: (id: string, qi: number) => void;
     toggleAnswer: (id: string, qi: number, oi: number) => void;
     submitAnswer: (id: string) => void;
@@ -43,8 +41,6 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         asking,
         lastJumpRef,
         setOpenComposerId,
-        showHelp,
-        setShowHelp,
         selectQuestion,
         toggleAnswer,
         submitAnswer,
@@ -112,22 +108,12 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
             if (cur && cur.state !== "asking") {
                 toggleBackground(cur.id);
             }
-        } else if (e.key === "Escape") {
-            if (showHelp) {
-                e.preventDefault();
-                setShowHelp(false);
-            }
-        } else if (e.key === "?") {
-            e.preventDefault();
-            setShowHelp((v) => !v);
         } else if (/^[1-9]$/.test(e.key)) {
-            if (cur?.state === "asking") {
-                const qi = Math.min(answerTab[cur.id] ?? 0, (cur.ask?.questions?.length ?? 1) - 1);
-                const oi = parseInt(e.key, 10) - 1;
-                const opts = cur.ask?.questions?.[qi]?.options ?? [];
-                if (oi < opts.length) {
+            if (cur) {
+                const target = answerDigitTarget(cur, answerTab[cur.id] ?? 0, parseInt(e.key, 10));
+                if (target) {
                     e.preventDefault();
-                    toggleAnswer(cur.id, qi, oi);
+                    toggleAnswer(cur.id, target.qi, target.oi);
                 }
             }
         }

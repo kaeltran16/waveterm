@@ -6,7 +6,10 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { cardVariants } from "@/app/element/motiontokens";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildCockpitBindings } from "@/app/store/keybindings/bindings";
+import { useKeybindings } from "@/app/store/keybindings/store";
+import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { AgentRow } from "./agentrow";
 import type { AgentsViewModel, ChipFilter } from "./agents";
 import {
@@ -23,7 +26,6 @@ import {
     partitionBackgrounded,
     projectsFromAgents,
     providerPlanUsage,
-    toggleSelection,
     type AgentVM,
     type CardRect,
     type GridLayout,
@@ -36,7 +38,7 @@ import { IdleSection } from "./idlesection";
 import { ensurePreviousInfo } from "./liveagents";
 import { CockpitEmptyState } from "./cockpitemptystate";
 import { CockpitRail } from "./cockpitrail";
-import { HelpOverlay, HintsBar } from "./cockpithelp";
+import { HintsBar } from "./cockpithelp";
 import { RollingCount } from "./rollingcount";
 import { useCardResize } from "./usecardresize";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
@@ -163,7 +165,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // cursor + answer selection (lifted onto the model); help/pulse stay ephemeral surface-local
     const [cursorId, setCursorId] = useModelAtom(model.cursorIdAtom);
-    const [answerSel, setAnswerSel] = useModelAtom(model.answerSelAtom);
+    const [answerSel] = useModelAtom(model.answerSelAtom);
     const answerText = useAtomValue(model.answerTextAtom);
     const [answerTab, setAnswerTab] = useModelAtom(model.answerTabAtom);
     const [cardPrefs, setCardPrefs] = useModelAtom(model.cardPrefsAtom);
@@ -173,7 +175,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const chip = useAtomValue(model.chipFilterAtom);
     const setChip = (c: ChipFilter) => globalStore.set(model.chipFilterAtom, c);
 
-    const [showHelp, setShowHelp] = useState(false);
     const [pulseId, setPulseId] = useState<string>();
     const lastJumpRef = useRef<string>(undefined);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -259,12 +260,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         (document.querySelector(`[data-agent-id="${id}"] textarea`) as HTMLTextAreaElement)?.focus();
     };
 
-    const toggleAnswer = (id: string, qi: number, oi: number) => {
-        const a = agents.find((x) => x.id === id);
-        const multi = a?.ask?.questions?.[qi]?.multiSelect ?? false;
-        setAnswerSel((prev) => ({ ...prev, [id]: toggleSelection(prev[id] ?? {}, qi, oi, multi) }));
-        model.setAnswerText(id, qi, ""); // selecting an option clears this question's free text (exclusive)
-    };
+    const toggleAnswer = (id: string, qi: number, oi: number) => model.toggleAnswer(id, qi, oi);
 
     const submitAnswer = (id: string) => model.submitAnswer(id);
 
@@ -290,9 +286,14 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     const onKeyDown = useCockpitKeyboard({
         model, orderedAgents, navigableIds, cursorId, setCursorId, answerTab, answerSel, asking,
-        lastJumpRef, setOpenComposerId, showHelp, setShowHelp,
+        lastJumpRef, setOpenComposerId,
         selectQuestion, toggleAnswer, submitAnswer, toggleBackground, openFocus, scrollToPulse, focusRowComposer,
     });
+
+    // Cockpit triage keys are documented in the shared cheat sheet via these pass-through bindings (see
+    // buildCockpitBindings); onKeyDown above still performs them. One help surface, one key registry.
+    const cockpitBindings = useMemo(() => buildCockpitBindings(), []);
+    useKeybindings(cockpitBindings);
 
     // one AgentRow with every callback wired — shared by all cards in the single absolute tree
     const renderCard = (a: AgentVM, rect: CardRect) => {
@@ -496,7 +497,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                {!empty ? <HintsBar onOpenHelp={() => setShowHelp(true)} /> : null}
+                {!empty ? <HintsBar onOpenHelp={() => globalStore.set(cheatsheetOpenAtom, true)} /> : null}
             </div>
 
             <CockpitRail
@@ -509,7 +510,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     scrollToPulse(id);
                 }}
             />
-            {showHelp ? <HelpOverlay onClose={() => setShowHelp(false)} /> : null}
         </div>
         </MotionConfig>
     );

@@ -78,6 +78,10 @@ export const radarScopeAtom = atom<RadarScope | null>(null) as PrimitiveAtom<Rad
 export const radarReportsAtom = atom<RadarReport[] | null>(null) as PrimitiveAtom<RadarReport[] | null>;
 export const currentReportIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
+// Selected finding id. An atom (not surface-local useState) so the selection survives RadarSurface
+// unmounting on nav-rail switch — mirrors Sessions/Files (see docs cockpit coherence audit).
+export const radarSelectedIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+
 // DEV-ONLY: when set, fully replaces the live current report (see radardevmock.ts). null in prod.
 export const radarDevMockAtom = atom<RadarReport | null>(null) as PrimitiveAtom<RadarReport | null>;
 

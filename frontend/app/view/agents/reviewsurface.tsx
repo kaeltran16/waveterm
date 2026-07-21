@@ -11,6 +11,7 @@ import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { useMemo } from "react";
 import { MOTION, cardVariants } from "@/app/element/motiontokens";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { useSettle } from "@/app/element/motionhooks";
 import { buildReviewBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
@@ -38,7 +39,15 @@ export function ReviewSurface() {
     const reviewBindings = useMemo(() => buildReviewBindings(), []);
     useKeybindings(reviewBindings);
 
-    if (!model) return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">Loading…</div>;
+    if (!model) {
+        return (
+            <div className="flex h-full flex-col gap-[10px] p-[20px]">
+                {Array.from({ length: 6 }).map((_, i) => (
+                    <SkeletonLine key={i} className="h-[18px]" />
+                ))}
+            </div>
+        );
+    }
     if (model.files.length === 0) return <div className="flex h-full items-center justify-center text-[13px] text-ink-mid">No changes to review</div>;
 
     const prog = progressOf(model.files, d);

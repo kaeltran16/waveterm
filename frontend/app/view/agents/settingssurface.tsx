@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
 import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { atoms, getSettingsKeyAtom } from "@/app/store/global";
@@ -499,8 +500,9 @@ function NewAgentDefaultsSection() {
 }
 
 // Custom color-scheme dropdown (matches the design): a trigger showing a 3-swatch preview + name +
-// chevron, and a popover of themes with swatches + a check on the active one. A full-viewport backdrop
-// button closes it on outside click (no document listeners).
+// chevron, and a popover of themes with swatches + a check on the active one. Uses floating-ui's
+// useDismiss so BOTH Escape and an outside click close it (the old hand-rolled full-viewport backdrop
+// dismissed on click only — never Escape).
 type TermThemeOption = { value: string; label: string; swatch: [string, string, string] };
 
 function TermThemeDropdown({
@@ -514,11 +516,20 @@ function TermThemeDropdown({
 }) {
     const [open, setOpen] = useState(false);
     const active = options.find((o) => o.value === value);
+    const { refs, floatingStyles, context } = useFloating({
+        open,
+        onOpenChange: setOpen,
+        placement: "bottom-end",
+        middleware: [offset(6)],
+        whileElementsMounted: autoUpdate,
+    });
+    const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);
     return (
         <div className="relative flex-none">
             <button
+                ref={refs.setReference}
+                {...getReferenceProps()}
                 type="button"
-                onClick={() => setOpen((v) => !v)}
                 className={cn(
                     "flex min-w-[180px] cursor-pointer items-center gap-2.5 rounded-[9px] border bg-surface-raised px-[11px] py-2 transition-colors",
                     open ? "border-accent-700" : "border-edge-mid hover:border-edge-strong"
@@ -534,19 +545,11 @@ function TermThemeDropdown({
                 </span>
                 <span className={cn("font-mono text-[10px] text-muted transition-transform", open && "rotate-180")}>▾</span>
             </button>
-            {open ? (
-                <button
-                    type="button"
-                    aria-hidden
-                    tabIndex={-1}
-                    onClick={() => setOpen(false)}
-                    className="fixed inset-0 z-10 cursor-default"
-                />
-            ) : null}
+            <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-20">
             <PopoverReveal
                 open={open}
                 origin="top right"
-                className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[220px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
+                className="min-w-[220px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
             >
                 {options.map((o) => {
                     const sel = o.value === value;
@@ -580,6 +583,7 @@ function TermThemeDropdown({
                     );
                 })}
             </PopoverReveal>
+            </div>
         </div>
     );
 }

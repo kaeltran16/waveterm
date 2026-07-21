@@ -7,26 +7,20 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { PanelRight, X } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
-import { askSentKey, toggleSelection, type AgentVM } from "./agentsviewmodel";
+import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { avatarColor } from "./channelderive";
 import type { WorkerState } from "./jarvisderive";
 import { runtimeLogo } from "./runtimelogo";
+import { StatusDot } from "./statusdot";
 
 // One centered content measure shared by the entire channel center column — header, strips, run body,
 // empty/draft states, completion, and composer all wrap their content in this so every row lines up on
 // the same edges (mx-auto centers at wide widths; the row's own px-6 governs when the column is narrower).
 export const CHANNEL_COL = "mx-auto w-full max-w-[760px]";
-
-export const STATE_DOT: Record<string, string> = {
-    working: "var(--color-success)",
-    asking: "var(--color-asking)",
-    idle: "var(--color-muted)",
-    gone: "var(--color-edge-strong)",
-};
 
 // resolve a dispatch/directive RefORef ("tab:<id>") to the live roster row, if still present
 export function workerFor(agents: AgentVM[], refORef: string): AgentVM | undefined {
@@ -97,14 +91,8 @@ export function Tag({ label, tone }: { label: string; tone: "muted" | "asking" }
 // An asking worker's answer row, reusing the cockpit's AnswerBar + model answer state.
 export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const answerSel = useAtomValue(model.answerSelAtom);
-    const setAnswerSel = useSetAtom(model.answerSelAtom);
     const answerText = useAtomValue(model.answerTextAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
-    const toggle = (qi: number, oi: number) => {
-        const multi = agent.ask?.questions?.[qi]?.multiSelect ?? false;
-        setAnswerSel((prev) => ({ ...prev, [agent.id]: toggleSelection(prev[agent.id] ?? {}, qi, oi, multi) }));
-        model.setAnswerText(agent.id, qi, ""); // selecting clears this question's free text (exclusive)
-    };
     return (
         <div className="rounded-[9px] border border-edge-mid bg-lane p-3">
             <AnswerBar
@@ -113,7 +101,7 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
                 texts={answerText[agent.id] ?? {}}
                 sent={sentIds.has(askSentKey(agent) ?? "")}
                 numbered
-                onToggle={toggle}
+                onToggle={(qi, oi) => model.toggleAnswer(agent.id, qi, oi)}
                 onText={(qi, value) => model.setAnswerText(agent.id, qi, value)}
                 onSubmit={() => model.submitAnswer(agent.id)}
             />
@@ -153,10 +141,11 @@ export function WorkerRow({
             }
         >
             <div className="flex items-center gap-2">
-                <span
-                    className="h-2 w-2 flex-none rounded-full"
-                    style={{ backgroundColor: STATE_DOT[w.state] ?? "var(--color-muted)" }}
-                />
+                {w.state === "gone" ? (
+                    <span className="h-2 w-2 flex-none rounded-full bg-edge-strong" />
+                ) : (
+                    <StatusDot state={w.state} className="flex-none" />
+                )}
                 <span className="font-mono text-[12.5px] text-primary">{w.name}</span>
                 {w.outcome ? (
                     <span

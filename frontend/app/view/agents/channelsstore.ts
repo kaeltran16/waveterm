@@ -8,6 +8,8 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 
 export const channelsAtom = atom<Channel[] | null>(null) as PrimitiveAtom<Channel[] | null>;
+// true = the last channel load failed (so an empty list reads as an error, not "no channels yet").
+export const channelsErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const activeChannelIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
 export const activeChannelAtom: Atom<Channel | null> = atom((get) => {
@@ -42,13 +44,16 @@ export async function loadChannels(): Promise<void> {
     loading = true;
     try {
         const list = await fetchChannelsInto();
+        globalStore.set(channelsErrorAtom, false);
         const cur = globalStore.get(activeChannelIdAtom);
         if (!cur && list.length > 0) {
             await selectChannel(list[0].oid);
         }
     } catch (err) {
         console.error("loading channels failed", err);
-        globalStore.set(channelsAtom, []);
+        // distinct error state instead of an empty list that reads as "no channels"; keep last-good.
+        globalStore.set(channelsErrorAtom, true);
+        globalStore.set(channelsAtom, (prev) => prev ?? []);
     } finally {
         loading = false;
     }

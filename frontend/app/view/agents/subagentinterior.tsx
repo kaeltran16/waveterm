@@ -5,8 +5,10 @@
 // swapped in over the (kept-mounted) parent terminal. Tails the child's own transcript file via the
 // shared livetranscript stream (keyed sub:<agentId>); breadcrumb / Esc returns to the parent.
 
+import { MOTION } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useAtomValue } from "jotai";
+import { motion } from "motion/react";
 import { useEffect } from "react";
 import { liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -27,7 +29,12 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
     const entries = useAtomValue(liveEntriesByIdAtom)[streamId] ?? [];
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <motion.div
+            className="flex min-h-0 flex-1 flex-col"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+        >
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-2 font-mono text-[11px]">
                 <button type="button" onClick={back} title="Back to parent (Esc)" className="cursor-pointer text-muted hover:text-primary">
                     ◂ {parentName}
@@ -47,6 +54,6 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
                 </div>
                 {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
             </div>
-        </div>
+        </motion.div>
     );
 }

@@ -4,9 +4,9 @@
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { AlertTriangle, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsAtom } from "./projectsstore";
 import {
@@ -18,7 +18,9 @@ import {
     rescanLabel,
     resolveSelection,
     scanScopeLabel,
+    toPendingRunDraft,
 } from "./radarmodel";
+import { pendingRunDraftAtom } from "./runactions";
 import { RadarFindingDetail } from "./radarfindingdetail";
 import { RadarFindingsList } from "./radarfindingslist";
 import { RadarScanStatePanel } from "./radarscanstatepanel";
@@ -30,6 +32,7 @@ import {
     lastRadarProjectAtom,
     pickInitialScope,
     radarScopeAtom,
+    radarSelectedIdAtom,
     startScan,
     type RadarScope,
 } from "./radarstore";
@@ -91,7 +94,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     const projects = useAtomValue(projectsAtom);
     const scope = useAtomValue(radarScopeAtom);
     const report = useAtomValue(currentReportAtom);
-    const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+    const [selectedId, setSelectedId] = useAtom(radarSelectedIdAtom);
 
     // Initialize the owned scope from the persisted pick (falling back to the cockpit's global project
     // selection); after that the header selector owns it. An already-owned scope is kept as-is so a
@@ -143,6 +146,16 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     const effectiveSelected = resolveSelection(findings, selectedId);
     const selectedFinding = findings.find((f) => f.id === effectiveSelected);
     const coverage = report ? coverageEntries(report) : [];
+
+    // list-nav Enter fires the selected finding's primary CTA — start (or re-run) its investigation,
+    // the same gesture as the detail's "Start investigation" button (radarfindingdetail.tsx).
+    const startInvestigation = useCallback(() => {
+        if (!report || !selectedFinding) {
+            return;
+        }
+        globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, selectedFinding));
+        globalStore.set(model.surfaceAtom, "channels");
+    }, [report, selectedFinding, model]);
 
     return (
         <div className="flex h-full w-full flex-col bg-background">
@@ -221,7 +234,12 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                         ) : null}
 
                         <div className="flex min-h-0 flex-1">
-                            <RadarFindingsList findings={findings} selectedId={effectiveSelected} onSelect={setSelectedId} />
+                            <RadarFindingsList
+                                findings={findings}
+                                selectedId={effectiveSelected}
+                                onSelect={setSelectedId}
+                                onActivate={selectedFinding ? startInvestigation : undefined}
+                            />
                             {selectedFinding ? (
                                 <RadarFindingDetail model={model} report={report} finding={selectedFinding} />
                             ) : (

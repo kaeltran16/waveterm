@@ -10,10 +10,6 @@ import { cn } from "@/util/util";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 
-// Canonical surface root. Every surface sets its own bg-background so it renders correctly even if
-// mounted outside the shell router.
-export const SURFACE_ROOT = "flex h-full min-h-0 flex-col bg-background";
-
 export function SurfaceHeader({
     title,
     badge,

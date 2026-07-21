@@ -5,11 +5,14 @@
 // override (playbook + principles). Loads the resolved profile from the backend (getJarvisProfile) on
 // open; each section shows a global/project badge with Customize (copy the inherited global section into
 // the editable override) and Reset-to-global (drop the override section). Save persists via
-// setChannelProfile. Principles are editable but not yet consumed by any model (Piece 4).
+// setChannelProfile. Principles are injected into worker/orchestrator/quick prompts and the Gatekeeper.
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { MOTION } from "@/app/element/motiontokens";
+import { SkeletonLine } from "@/app/element/skeleton";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "./runactions";
 import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
@@ -495,10 +498,23 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
     const body = (
         <div className="flex flex-col gap-5">
             {toggle}
+            <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+                key={error ? "error" : !ready ? "load" : scope}
+                className="flex flex-col gap-5"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+            >
             {error ? (
                 <div className="text-[12px] leading-[1.5] text-error">Couldn't load the profile. {error}</div>
             ) : !ready ? (
-                <div className="text-[12px] text-muted">Loading…</div>
+                <div className="flex flex-col gap-2.5">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <SkeletonLine key={i} className="h-[16px]" />
+                    ))}
+                </div>
             ) : scope === "global" ? (
                 <>
                     <div className="text-[10px] font-semibold uppercase tracking-[.08em] text-muted">
@@ -521,6 +537,8 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
                     <DefaultsSection global={loaded!.global} draft={draft} setDraft={setDraft} />
                 </>
             )}
+            </motion.div>
+            </AnimatePresence>
         </div>
     );
 

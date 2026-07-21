@@ -25,6 +25,8 @@ export interface FilesState {
 export const filesStateAtom = atom<FilesState | null>(null) as PrimitiveAtom<FilesState | null>;
 export const filesSelectedPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
+// true = the git load failed (distinct from "not a repo" — a failed RPC used to masquerade as isRepo:false).
+export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 // guards against a stale load overwriting a newer one; token distinguishes agent-/project-/run-scoped
 // loads (`agent:<id>` / `project:<name>` / `run:<id>`) so switching source cancels the in-flight load.
@@ -60,6 +62,7 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         const ref = opts.worktreeBase ? (ch.ref ?? "") : (opts.ref ?? "");
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
+        globalStore.set(filesErrorAtom, false);
         const requested =
             requestedSelection.token === token && changes?.files.some((f) => f.path === requestedSelection.path)
                 ? requestedSelection.path
@@ -74,6 +77,8 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         }
     } catch {
         if (current.token === token) {
+            // a failed git RPC is an error, not a clean "not a repo" — flag it so the surface says so.
+            globalStore.set(filesErrorAtom, true);
             globalStore.set(filesStateAtom, { ...EMPTY, cwd });
         }
     }
@@ -94,6 +99,7 @@ function beginLoad(token: string): void {
     globalStore.set(filesStateAtom, null);
     globalStore.set(filesSelectedPathAtom, null);
     globalStore.set(filesDiffAtom, null);
+    globalStore.set(filesErrorAtom, false);
 }
 
 export async function loadFilesForAgent(

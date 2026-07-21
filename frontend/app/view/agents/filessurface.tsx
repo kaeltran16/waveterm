@@ -18,23 +18,28 @@ import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceSt
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "./agents";
-import type { AgentState, AgentVM } from "./agentsviewmodel";
+import type { AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { statusColor, type GitChange } from "./gitstatus";
-import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, loadFilesForRun, selectFile } from "./filesstore";
+import { StatusDot } from "./statusdot";
+import { filesDiffAtom, filesErrorAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, loadFilesForRun, selectFile } from "./filesstore";
 import { runShortId } from "./runcompletion";
 import { projectsAtom } from "./projectsstore";
 import { ReviewSurface } from "./reviewsurface";
 import { decisionsAtom, fileDecision, hunkKey, loadReview, progressOf, reviewModelAtom, reviewSelectedAtom } from "./reviewstore";
 import { sourceKey } from "./filesmotion";
-import { SurfaceEmptyState } from "./surfacescaffold";
-
-// Agent-state dot palette (matches the recent-activity / status-dot semantics used across the cockpit).
-const STATE_DOT: Record<AgentState, string> = { asking: "bg-warning", working: "bg-success", idle: "bg-muted" };
+import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 
 function baseName(p: string): string {
     const parts = p.split(/[/\\]/);
     return parts[parts.length - 1] || p;
+}
+
+// Windows-only build: git reports repo-relative paths with forward slashes while cwd uses backslashes,
+// so a raw `${cwd}/${path}` join is mixed-separator. Normalize the whole join to backslashes so
+// open::that (ShellExecute) resolves it and a copied absolute path is a valid native Windows path.
+function joinPath(cwd: string, rel: string): string {
+    return `${cwd}/${rel}`.replace(/\//g, "\\");
 }
 
 export interface FilesProject {
@@ -74,7 +79,7 @@ function SourcePicker({
                 className="flex w-full items-center gap-[8px] rounded border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
             >
                 {currentAgent ? (
-                    <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[currentAgent.state])} />
+                    <StatusDot state={currentAgent.state} className="!h-[7px] !w-[7px]" />
                 ) : currentProject ? (
                     <span className="flex-none text-[11px] text-ink-faint">▪</span>
                 ) : null}
@@ -104,7 +109,7 @@ function SourcePicker({
                                     source?.kind === "agent" && a.id === source.id ? "text-foreground" : "text-ink-mid"
                                 )}
                             >
-                                <span className={cn("h-[7px] w-[7px] flex-none rounded-full", STATE_DOT[a.state])} />
+                                <StatusDot state={a.state} className="!h-[7px] !w-[7px]" />
                                 <span className="min-w-0 flex-1 truncate font-mono text-[12px]">{a.name}</span>
                             </button>
                         ))}
@@ -239,7 +244,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                         <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
                         {cwd && (
                             <button
-                                onClick={() => getApi().openExternal(`${cwd}/${path}`)}
+                                onClick={() => getApi().openExternal(joinPath(cwd, path))}
                                 className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
                             >
                                 Open in editor ↗
@@ -275,6 +280,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const registry = useAtomValue(projectsAtom);
     const state = useAtomValue(filesStateAtom);
+    const loadError = useAtomValue(filesErrorAtom);
     const selected = useAtomValue(filesSelectedPathAtom);
     const diff = useAtomValue(filesDiffAtom);
     const reviewModel = useAtomValue(reviewModelAtom);
@@ -344,6 +350,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                       navigableIds: filePaths,
                       cursorId: selected ?? undefined,
                       setCursor: (path) => fireAndForget(() => selectFile(state.cwd!, path)),
+                      // moving already loads the diff; Enter opens the selected file in the editor (its
+                      // primary action button), mirroring the CenterPane "Open in editor" control.
+                      activate: selected ? () => getApi().openExternal(joinPath(state.cwd!, selected)) : undefined,
                   }
                 : null,
         [mode, state?.cwd, filePaths.join(" "), selected]
@@ -355,6 +364,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             <SurfaceEmptyState
                 title="No changes to show"
                 body="Start an agent or pick a project to see its changed files here."
+                action={{ label: "New agent", onClick: () => globalStore.set(model.newAgentOpenAtom, true) }}
             />
         );
     }
@@ -369,7 +379,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-        <div className="absolute inset-0 flex min-h-0">
+        <div className="absolute inset-0 flex min-h-0 flex-col">
+            {loadError ? <SurfaceError message="Couldn’t read this repository." /> : null}
+            <div className="flex min-h-0 flex-1">
             <div className="flex w-[292px] flex-none flex-col border-r border-border bg-surface">
                 <div className="flex-none border-b border-edge-faint p-[15px]">
                     <div className="mb-[11px] flex items-center gap-[9px]">
@@ -457,6 +469,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 );
                             })
                         )
+                    ) : loadError ? (
+                        <div className="px-[8px] py-[6px] text-[12px] text-error">Couldn’t read changes</div>
                     ) : state == null ? (
                         <FileListSkeleton />
                     ) : !state.isRepo ? (
@@ -485,9 +499,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                             }
                                             ContextMenuModel.getInstance().showContextMenu(
                                                 [
-                                                    { label: "Open in editor", icon: <Pencil size={15} />, click: () => getApi().openExternal(`${cwd}/${c.path}`) },
+                                                    { label: "Open in editor", icon: <Pencil size={15} />, click: () => getApi().openExternal(joinPath(cwd, c.path)) },
                                                     { label: "Copy path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(c.path) },
-                                                    { label: "Copy absolute path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(`${cwd}/${c.path}`) },
+                                                    { label: "Copy absolute path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(joinPath(cwd, c.path)) },
                                                 ],
                                                 ev
                                             );
@@ -501,6 +515,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             </div>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {mode === "review" ? <ReviewSurface /> : <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />}
+            </div>
             </div>
         </div>
         </MotionConfig>

@@ -22,6 +22,8 @@ const MEM_RPC_TIMEOUT_MS = 5000;
 export const memNotesAtom = atom<MemNote[]>([]) as PrimitiveAtom<MemNote[]>;
 export const memEdgesAtom = atom<MemEdge[]>([]) as PrimitiveAtom<MemEdge[]>;
 export const memLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// true = the last memory scan failed (so an empty list reads as an error, not "no memory yet").
+export const memErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const memViewAtom = atom<MemView>("list") as PrimitiveAtom<MemView>;
 export const memSelectedIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
@@ -68,6 +70,7 @@ export async function loadMemory(): Promise<void> {
         const g = await RpcApi.MemoryScanCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
         globalStore.set(memNotesAtom, g.notes ?? []);
         globalStore.set(memEdgesAtom, g.edges ?? []);
+        globalStore.set(memErrorAtom, false);
         globalStore.set(memLoadedAtom, true);
         const sel = globalStore.get(memSelectedIdAtom);
         const notes = g.notes ?? [];
@@ -75,8 +78,8 @@ export async function loadMemory(): Promise<void> {
             void selectNote(notes[0].id);
         }
     } catch {
-        globalStore.set(memNotesAtom, []);
-        globalStore.set(memEdgesAtom, []);
+        // surface the scan failure distinctly instead of an empty list; keep any last-good notes.
+        globalStore.set(memErrorAtom, true);
         globalStore.set(memLoadedAtom, true);
     }
 }

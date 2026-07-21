@@ -619,6 +619,27 @@ export function toggleSelection(
     return next;
 }
 
+/** Pure: map a 1-9 keyboard digit to the (question, option) it toggles for an asking agent, given the
+ *  active question tab. Returns null when the agent isn't asking or the digit has no matching option.
+ *  Shared by the cockpit grid keymap and the Channels ask rows so both number keys behave identically. */
+export function answerDigitTarget(
+    agent: AgentVM,
+    activeTab: number,
+    digit: number
+): { qi: number; oi: number } | null {
+    if (agent.state !== "asking") {
+        return null;
+    }
+    const questions = agent.ask?.questions ?? [];
+    if (questions.length === 0) {
+        return null;
+    }
+    const qi = Math.min(Math.max(activeTab, 0), questions.length - 1);
+    const oi = digit - 1;
+    const opts = questions[qi]?.options ?? [];
+    return oi >= 0 && oi < opts.length ? { qi, oi } : null;
+}
+
 /** Pure: submittable only when every question has at least one selected option or non-empty text. */
 export function canSubmitAsk(
     questions: AgentAskQuestion[],

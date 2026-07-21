@@ -3,7 +3,15 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
-import { buildAgentBindings, buildGlobalBindings, buildListNavBindings, buildReviewBindings } from "./bindings";
+import {
+    buildAgentBindings,
+    buildChannelsAskBindings,
+    buildCockpitBindings,
+    buildGlobalBindings,
+    buildListNavBindings,
+    buildReviewBindings,
+} from "./bindings";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
 import type { Binding, KeyContext, SurfaceKey } from "./types";
@@ -107,6 +115,21 @@ describe("keybinding conflict invariant", () => {
         const model = {} as any;
         globalStore.set(listNavAtom, null);
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildReviewBindings()])).not.toThrow();
+    });
+
+    it("global + cockpit-grid documentation bindings do not conflict", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCockpitBindings()])).not.toThrow();
+    });
+
+    it("global + channels ask bindings (with an active asking worker) do not conflict", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
+        expect(() =>
+            assertNoConflicts([...buildGlobalBindings(model), ...buildChannelsAskBindings(model, askRef)])
+        ).not.toThrow();
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {

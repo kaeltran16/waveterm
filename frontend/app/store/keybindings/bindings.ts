@@ -5,7 +5,8 @@ import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseAgent } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
-import { moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import type { MutableRefObject } from "react";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import {
     appliedAtom,
@@ -37,6 +38,10 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
 ];
 
 const navigate = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
+
+// Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
+// (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
+const ESC_HOME_SURFACES = new Set<SurfaceKey>(["channels", "radar", "sessions", "files", "memory", "usage"]);
 
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
@@ -158,6 +163,14 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             when: navigate,
             run: () => globalStore.set(cheatsheetOpenAtom, true),
         },
+        {
+            id: "surface:back-home",
+            keys: "Escape",
+            group: "Navigation",
+            label: "Back to Cockpit",
+            when: (ctx) => navigate(ctx) && ESC_HOME_SURFACES.has(ctx.surface),
+            run: () => globalStore.set(model.surfaceAtom, "cockpit"),
+        },
     ];
 }
 
@@ -181,11 +194,19 @@ export function buildListNavBindings(): Binding[] {
             c.setCursor(next);
         }
     };
+    const activate = (): void | boolean => {
+        const c = globalStore.get(listNavAtom);
+        if (c?.activate == null) {
+            return false; // no primary action for this surface — let Enter pass through
+        }
+        c.activate();
+    };
     return [
         { id: "list:next-j", keys: "j", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
         { id: "list:prev-k", keys: "k", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
         { id: "list:next", keys: "ArrowDown", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
         { id: "list:prev", keys: "ArrowUp", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
+        { id: "list:activate", keys: "Enter", group: "Navigation", label: "Open / activate item", when: active, run: activate },
     ];
 }
 
@@ -247,6 +268,82 @@ export function buildReviewBindings(): Binding[] {
                 void applyReview();
             },
         },
+    ];
+}
+
+// Channels ask keys: the run body's ask card renders numbered (1-9) answer badges (channelsprimitives
+// AskRow), but the digit handler used to be cockpit-only. These bindings make the badges functional on
+// the Channels surface, targeting the selected run's asking worker (published live via askAgentRef by
+// ChannelsSurface). Reuses answerDigitTarget + model.toggleAnswer/submitAnswer — no duplicated logic.
+export function buildChannelsAskBindings(
+    model: AgentsViewModel,
+    askAgentRef: MutableRefObject<AgentVM | undefined>
+): Binding[] {
+    const ready = (ctx: KeyContext): boolean =>
+        ctx.surface === "channels" && !ctx.editable && !ctx.modalOpen && askAgentRef.current != null;
+    const toggleDigit = (n: number): boolean | void => {
+        const agent = askAgentRef.current;
+        if (agent == null) {
+            return false;
+        }
+        const tab = globalStore.get(model.answerTabAtom)[agent.id] ?? 0;
+        const target = answerDigitTarget(agent, tab, n);
+        if (target == null) {
+            return false; // no such option — let the key pass
+        }
+        model.toggleAnswer(agent.id, target.qi, target.oi);
+    };
+    const submit = (): boolean | void => {
+        const agent = askAgentRef.current;
+        if (agent == null) {
+            return false;
+        }
+        const sel = globalStore.get(model.answerSelAtom)[agent.id] ?? {};
+        const txt = globalStore.get(model.answerTextAtom)[agent.id] ?? {};
+        if (!canSubmitAsk(agent.ask?.questions ?? [], sel, txt)) {
+            return false; // not yet answerable — let Enter pass
+        }
+        model.submitAnswer(agent.id);
+    };
+    const digits: Binding[] = Array.from({ length: 9 }, (_, i) => i + 1).map((n) => ({
+        id: `channels:answer-${n}`,
+        keys: String(n),
+        group: "Channels",
+        label: `Answer option ${n}`,
+        when: ready,
+        run: () => toggleDigit(n),
+    }));
+    return [
+        ...digits,
+        { id: "channels:submit", keys: "Enter", group: "Channels", label: "Submit answer", when: ready, run: submit },
+    ];
+}
+
+// Cockpit-grid triage keys. The rich cockpit surface handles these itself (usecockpitkeyboard.ts) —
+// they need live cursor + DOM state (scroll-to, focus a row's composer) that the registry has no clean
+// hold on. Registered here purely so the ONE cheat sheet (Shift+?) documents them: `run` returns false
+// so the dispatcher never consumes the key — it passes through to the surface's own onKeyDown. This is
+// the single source of truth for these keys' documentation (the old hand-written help overlay is gone).
+export function buildCockpitBindings(): Binding[] {
+    const on = (ctx: KeyContext) => ctx.surface === "cockpit" && !ctx.editable && !ctx.modalOpen;
+    const doc = (id: string, keys: string, label: string): Binding => ({
+        id,
+        keys,
+        group: "Cockpit",
+        label,
+        when: on,
+        run: () => false, // never consume — usecockpitkeyboard.ts performs the action
+    });
+    return [
+        doc("cockpit:next", "j", "Next agent (↓ / j)"),
+        doc("cockpit:prev", "k", "Previous agent (↑ / k)"),
+        doc("cockpit:next-ask", "n", "Jump to next ask"),
+        doc("cockpit:switch-question", "h", "Switch question (← → / h l)"),
+        doc("cockpit:answer", "1", "Select an answer option (1–9)"),
+        doc("cockpit:open", "Enter", "Confirm answer, else open focus"),
+        doc("cockpit:reply", "r", "Reply inline to the agent"),
+        doc("cockpit:terminal", "t", "Open the agent's terminal"),
+        doc("cockpit:background", "b", "Background the agent (keeps running)"),
     ];
 }
 

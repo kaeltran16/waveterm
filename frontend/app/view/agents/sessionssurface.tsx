@@ -14,7 +14,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { formatAge, formatTokens } from "./agentsviewmodel";
@@ -29,11 +29,12 @@ import {
     mergedFeed,
     overlayLive,
     sessionsArchiveAtom,
+    sessionsErrorAtom,
     totalEvents,
     type LiveSession,
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
-import { SurfaceEmptyState, SurfaceHeader } from "./surfacescaffold";
+import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { projectTranscript } from "./transcriptprojection";
 
 const EVENT_COLOR: Record<string, string> = {
@@ -64,8 +65,31 @@ const FILTERS: { key: SessionStatusFilter; label: string }[] = [
     { key: "needs", label: "Needs attention" },
 ];
 
+// A session row's primary action: Jump to the live agent, else Resume the ended session (if resumable).
+// Shared by the detail button (mouse) and list-nav Enter (keyboard) so both do exactly one thing.
+function runSessionPrimary(model: AgentsViewModel, session: LiveSession) {
+    if (session.live && session.liveId) {
+        globalStore.set(model.focusIdAtom, session.liveId);
+        globalStore.set(model.terminalTargetAtom, undefined);
+        globalStore.set(model.surfaceAtom, "agent");
+        return;
+    }
+    if (session.resumecommand) {
+        fireAndForget(() =>
+            launchAgent(model, {
+                runtime: session.runtime as Runtime,
+                startupCommand: session.resumecommand,
+                task: "",
+                projectPath: session.projectpath,
+                projectName: session.projectname || "agent",
+            })
+        );
+    }
+}
+
 export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const base = useAtomValue(sessionsArchiveAtom);
+    const loadError = useAtomValue(sessionsErrorAtom);
     const roster = useAtomValue(model.agentsAtom);
     const now = useAtomValue(model.nowAtom);
     const [sel, setSel] = useAtom(model.sessionsSelAtom);
@@ -87,8 +111,23 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         () => ["all", ...groups.flatMap((g) => g.items.map((s) => `${s.runtime}:${s.id}`))],
         [groups]
     );
+    // Enter fires the cursored session's primary action (Jump/Resume). A ref keeps the callback stable
+    // while reading the freshly-resolved `selected` each render, so the controller isn't re-registered
+    // on every roster tick. "All activity" (no selected session) is a no-op.
+    const actRef = useRef<() => void>(() => {});
+    actRef.current = () => {
+        if (selected) {
+            runSessionPrimary(model, selected);
+        }
+    };
     const listNav = useMemo<ListNavController>(
-        () => ({ surface: "sessions", navigableIds: navIds, cursorId: sel, setCursor: setSel }),
+        () => ({
+            surface: "sessions",
+            navigableIds: navIds,
+            cursorId: sel,
+            setCursor: setSel,
+            activate: () => actRef.current(),
+        }),
         [navIds, sel, setSel]
     );
     useSurfaceListNav(listNav);
@@ -125,6 +164,13 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                 }
             />
 
+            {loadError ? (
+                <SurfaceError
+                    message="Couldn’t load sessions."
+                    onRetry={() => fireAndForget(loadSessionsArchive)}
+                />
+            ) : null}
+
             {/* body: list + detail */}
             <div className="flex min-h-0 flex-1">
                 {/* LEFT · session list */}
@@ -155,7 +201,11 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                         </div>
                     ) : groups.length === 0 ? (
                         <div className="mt-6">
-                            <SurfaceEmptyState title="No sessions found" body="Sessions appear here as agents run." />
+                            <SurfaceEmptyState
+                                title="No sessions found"
+                                body="Sessions appear here as agents run. Start one to begin."
+                                action={{ label: "New agent", onClick: () => globalStore.set(model.newAgentOpenAtom, true) }}
+                            />
                         </div>
                     ) : (
                         groups.map((g) => (
@@ -301,25 +351,7 @@ function SessionDetail({ model, session, now }: { model: AgentsViewModel; sessio
     const st = statusOf(session);
     const rt = runtimeMeta(session.runtime);
 
-    const act = () => {
-        if (session.live && session.liveId) {
-            globalStore.set(model.focusIdAtom, session.liveId);
-            globalStore.set(model.terminalTargetAtom, undefined);
-            globalStore.set(model.surfaceAtom, "agent");
-            return;
-        }
-        if (session.resumecommand) {
-            fireAndForget(() =>
-                launchAgent(model, {
-                    runtime: session.runtime as Runtime,
-                    startupCommand: session.resumecommand,
-                    task: "",
-                    projectPath: session.projectpath,
-                    projectName: session.projectname || "agent",
-                })
-            );
-        }
-    };
+    const act = () => runSessionPrimary(model, session);
 
     const meta: { k: string; v: string }[] = [
         { k: "repo", v: session.projectname || "—" },

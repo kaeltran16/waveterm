@@ -17,6 +17,8 @@ const LIMIT = 100;
 
 // null = not loaded yet; [] = loaded-empty.
 export const sessionsArchiveAtom = atom<SessionActivity[] | null>(null) as PrimitiveAtom<SessionActivity[] | null>;
+// true = the last scan failed (so an empty list reads as an error, not "no sessions"). Mirrors usagestore.
+export const sessionsErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 let loading = false;
 
@@ -28,8 +30,12 @@ export async function loadSessionsArchive(): Promise<void> {
     try {
         const rtn = await RpcApi.GetSessionsActivityCommand(TabRpcClient, { windowdays: WINDOW_DAYS, limit: LIMIT });
         globalStore.set(sessionsArchiveAtom, rtn.sessions ?? []);
+        globalStore.set(sessionsErrorAtom, false);
     } catch {
-        globalStore.set(sessionsArchiveAtom, []); // scan failure should not break the surface
+        // surface the failure distinctly instead of an indistinguishable empty list. Keep any last-good
+        // data; mark loaded (null -> []) so the surface shows the error banner, not a permanent skeleton.
+        globalStore.set(sessionsErrorAtom, true);
+        globalStore.set(sessionsArchiveAtom, (prev) => prev ?? []);
     } finally {
         loading = false;
     }

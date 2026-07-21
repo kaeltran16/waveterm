@@ -14,7 +14,6 @@ import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { MemorySurface } from "./memorysurface";
 import { NavRail } from "./navrail";
-import { PlaceholderSurface } from "./placeholdersurface";
 import { RadarSurface } from "./radarsurface";
 import { SessionsSurface } from "./sessionssurface";
 import { SettingsSurface } from "./settingssurface";
@@ -114,9 +113,7 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <MemorySurface model={model} />
                         ) : surface === "settings" ? (
                             <SettingsSurface model={model} />
-                        ) : (
-                            <PlaceholderSurface surface={surface} />
-                        )}
+                        ) : null}
                     </div>
                 ) : null}
             </div>

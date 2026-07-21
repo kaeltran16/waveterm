@@ -1,7 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit surface's hints bar and keyboard-help overlay. Extracted from cockpitsurface.tsx.
+// The cockpit surface's hints bar. The keyboard-help overlay was removed: the single source of truth is
+// now the shared cheat sheet (Shift+?), which documents the cockpit triage keys via buildCockpitBindings.
+// The `?` chip here opens that cheat sheet too.
 
 import { formatChordString } from "@/util/keysym";
 
@@ -42,38 +44,6 @@ export function HintsBar({ onOpenHelp }: { onOpenHelp: () => void }) {
             >
                 ?
             </button>
-        </div>
-    );
-}
-
-export function HelpOverlay({ onClose }: { onClose: () => void }) {
-    const rows: [string, string][] = [
-        ["↑ / k", "move cursor up"],
-        ["↓ / j", "move cursor down"],
-        ["n", "jump to next ask"],
-        ["1–9", "select an answer option"],
-        ["← → / h l", "switch question (multi-question asks)"],
-        ["↵ (Enter)", "confirm selected answer, else open focus view"],
-        ["r", "reply inline to the highlighted agent"],
-        ["t", "open the highlighted agent's terminal tab"],
-        ["b", "background the highlighted agent (keeps running)"],
-        ["esc", "leave focus view / blur reply box / close this"],
-        ["?", "toggle this help"],
-    ];
-    return (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-            <div
-                className="min-w-[320px] rounded-[10px] border border-border bg-background p-4 shadow-xl"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="mb-2 text-[13px] font-semibold text-primary">Keyboard</div>
-                {rows.map(([k, d]) => (
-                    <div key={k} className="flex items-center justify-between gap-6 py-1 text-[12px]">
-                        <span className="font-mono text-secondary">{k}</span>
-                        <span className="text-muted">{d}</span>
-                    </div>
-                ))}
-            </div>
         </div>
     );
 }
