@@ -18,7 +18,7 @@ to verify.
 | 4 | Channel-attachment temp-file cleanup (unreaped `waveterm-*` temp dirs) | reliability | S | ✅ Resolved 2026-07-20 |
 | 5 | Remote/WSL worker host operations (git surfaces + attachment paths) | feature scope | M–L | ⛔ Deferred — blocked on a prerequisite (see below) |
 | 6 | **Sealed Run-Evidence card** — 3 coupled fixes in `pkg/jarvis/evidence.go` + `runcompletionsurface.tsx` | correctness + UX | M+S+S | 🔲 Open 2026-07-20 |
-| 6a | ↳ Files-touched over-attributes under delegator fan-out (ProjectPath-anchored diff + last-worker `by`) | correctness / evidence integrity | M | 🔲 Open |
+| 6a | ↳ Files-touched over-attributes under delegator fan-out (ProjectPath-anchored diff + last-worker `by`) | correctness / evidence integrity | M | ✅ Resolved 2026-07-21 (2f2f1980) |
 | 6b | ↳ "Files touched" row-click opens the OS editor instead of the in-app Diff tab | UX / consistency | S | 🔲 Open |
 | 6c | ↳ "Verification" detail shows a meaningless first-line (tail-piped output) + command label front-truncated | correctness / evidence integrity | S | 🔲 Open |
 
@@ -333,9 +333,16 @@ independent surface fixes.
 
 ### 6a — Files-touched over-attributes under delegator fan-out
 
-**Status.** 🔲 Open 2026-07-20 — found while auditing the 4 sealed snapshots in prod `#cyber_assistant`
-(a G1–G4 delegator fan-out). Each snapshot's "Files touched" listed sibling groups' files, and every
-file was stamped with the same `(by <uuid>)`. **Effort:** M.
+**Status.** ✅ Resolved 2026-07-21 (commit 2f2f1980, merge a3f37f2c). Decision: Wave records the commit
+the worker reports (`Run.EndCommit`, set via `wsh jarvis complete --commit <sha>`; the Wave-built worker
+prompts now instruct it) rather than owning per-run worktrees. `SealEvidence` diffs `BaseCommit..EndCommit`
+via the new `gitinfo.GetRangeChanges` (falling back to today's working-tree diff when no commit is
+reported or the SHA is unresolvable), so siblings merged onto the shared branch no longer leak in. The
+misleading per-file `by` (last-worker) stamp was dropped and the inaccurate "derived from worker
+transcripts" caption fixed. Needs a backend rebuild (`task build:backend`) to activate. Spec/plan:
+`docs/superpowers/{specs,plans}/2026-07-21-run-commit-identity*`. Originally found while auditing the 4
+sealed snapshots in prod `#cyber_assistant` (a G1–G4 delegator fan-out): each snapshot's "Files touched"
+listed sibling groups' files, and every file was stamped with the same `(by <uuid>)`.
 
 **Problem.** Sealed run-evidence attributes files that the run did not produce, and mislabels who
 produced them, whenever multiple runs share one branch (the delegator fan-out case). The evidence
