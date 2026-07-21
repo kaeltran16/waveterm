@@ -88,6 +88,45 @@ func QuickPlaybook() []waveobj.RunPhase {
 	}
 }
 
+// StripPhaseGates returns a copy of a playbook with every phase's Gate cleared, so a child run never halts
+// for human review — the decomposition was already gated once at the parent lead's plan gate. The input
+// slice is not mutated.
+func StripPhaseGates(phases []waveobj.RunPhase) []waveobj.RunPhase {
+	out := make([]waveobj.RunPhase, len(phases))
+	copy(out, phases)
+	for i := range out {
+		out[i].Gate = false
+	}
+	return out
+}
+
+// ParentNotifyLine builds the single line a child run steers back into its parent orchestrator lead when the
+// child reaches a terminal state. ok is false unless the run has a parent (ParentLeadORef) AND a terminal
+// status — done or cancelled, the only two the backend produces (there is no automatic blocked). The line
+// ends in \r so it submits as one input line into the lead's PTY. The lead reads ONLY this line, never the
+// child's transcript/diff/evidence — that is what keeps the driver's context small.
+func ParentNotifyLine(run *waveobj.Run) (string, bool) {
+	if run == nil || run.ParentLeadORef == "" {
+		return "", false
+	}
+	short := run.Goal
+	if r := []rune(short); len(r) > 60 {
+		short = string(r[:57]) + "..."
+	}
+	switch run.Status {
+	case RunStatus_Done:
+		summary := ""
+		if run.Evidence != nil {
+			summary = fmt.Sprintf(" (%d files +%d/-%d)", len(run.Evidence.Files), run.Evidence.AddTotal, run.Evidence.DelTotal)
+		}
+		return fmt.Sprintf("[jarvis] child %s %q -> done%s\r", run.ID, short, summary), true
+	case RunStatus_Cancelled:
+		return fmt.Sprintf("[jarvis] child %s %q -> cancelled\r", run.ID, short), true
+	default:
+		return "", false
+	}
+}
+
 // NewRun builds a run from a playbook: deep-copies the phases, marks the first phase running, derives
 // status. ts is supplied by the caller (mirrors NewChannelMessage) for testability.
 func NewRun(goal, workspaceId, projectPath string, principles waveobj.PrincipleList, mode string, playbook []waveobj.RunPhase, ts int64) waveobj.Run {
@@ -321,6 +360,7 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate 
 	if gate {
 		b.WriteString("Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
 		b.WriteString("First write the plan to a file, then run `wsh jarvis hold <plan-file-path>` (pass the path so it can be reviewed) and wait — do not dispatch any subagents until you are told to proceed.\n")
+		b.WriteString("If this goal is actually a backlog of INDEPENDENT, individually substantial units (a list of issues, several unrelated features), do not execute them all in one context. Make your plan file a decomposition checklist: each unit, the `wsh jarvis run --mode <quick|pipeline|orchestrator>` you will use for it (map small->quick, medium->pipeline, large->orchestrator), and its dependency order; then `wsh jarvis hold <plan-file-path>` as above. After you are told to proceed, create ONE child run per ready unit with `wsh jarvis run \"<unit description + how to verify it>\"` — keep at most 2-3 in flight, and only start a unit whose dependencies have already reported done. You will be woken with a one-line `[jarvis] child <id> ... -> done|cancelled` status per unit; never open a child's transcript, diff, or evidence — that line is all you need. If a unit reports cancelled, use AskUserQuestion to ask whether to retry it or continue without it. When every unit has reported done (or you were told to skip it), run `wsh jarvis complete`. If instead this goal is a single cohesive task, ignore this paragraph and execute it yourself with in-process subagents.\n")
 	} else {
 		// adaptive: size up the goal first and announce the call (non-blocking) before doing the work.
 		b.WriteString("First size up the goal, then announce your call:\n")

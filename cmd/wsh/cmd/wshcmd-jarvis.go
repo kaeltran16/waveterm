@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -59,10 +60,36 @@ var jarvisTriageCmd = &cobra.Command{
 	PreRunE: preRunSetupRpcClient,
 }
 
+var jarvisRunCmd = &cobra.Command{
+	Use:   "run <task>",
+	Short: "spawn a hands-off child run for one unit of work (used by an orchestrator lead)",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		tabId := getTabIdFromEnv()
+		if tabId == "" {
+			return fmt.Errorf("no WAVETERM_TABID env var set")
+		}
+		mode, _ := cmd.Flags().GetString("mode")
+		rtn, err := wshclient.CreateChildRunCommand(RpcClient, wshrpc.CommandCreateChildRunData{
+			ORef: waveobj.MakeORef(waveobj.OType_Tab, tabId).String(),
+			Goal: strings.Join(args, " "),
+			Mode: mode,
+		}, nil)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s\n", rtn.RunId)
+		return nil
+	},
+	PreRunE: preRunSetupRpcClient,
+}
+
 func init() {
+	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|pipeline|orchestrator (default: inherit the channel strategy)")
 	jarvisCmd.AddCommand(jarvisHoldCmd)
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
 	jarvisCmd.AddCommand(jarvisTriageCmd)
+	jarvisCmd.AddCommand(jarvisRunCmd)
 	rootCmd.AddCommand(jarvisCmd)
 }
 

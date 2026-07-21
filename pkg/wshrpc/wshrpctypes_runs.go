@@ -16,6 +16,7 @@ type RunCommands interface {
 	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                     // stop one surviving worker of a cancelled run
 	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                 // derive+seal a done run's evidence if absent (idempotent backfill)
 	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                   // lead self-reports hold/complete; resolves run/phase from its own oref
+	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
 }
 
 type CommandCreateRunData struct {
@@ -64,4 +65,14 @@ type CommandReportRunPhaseData struct {
 	Artifacts []string `json:"artifacts,omitempty"` // recorded on complete
 	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
 	Note      string   `json:"note,omitempty"`      // triage: one-line reason
+}
+
+type CommandCreateChildRunData struct {
+	ORef string `json:"oref"`           // caller = the orchestrator lead's tab oref ("tab:<id>")
+	Goal string `json:"goal"`           // the unit of work for the child run
+	Mode string `json:"mode,omitempty"` // quick|pipeline|orchestrator; empty = inherit the parent run's mode
+}
+
+type CommandCreateChildRunRtnData struct {
+	RunId string `json:"runid"`
 }

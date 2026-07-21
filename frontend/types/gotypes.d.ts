@@ -365,6 +365,18 @@ declare global {
         projectpath?: string;
     };
 
+    // wshrpc.CommandCreateChildRunData
+    type CommandCreateChildRunData = {
+        oref: string;
+        goal: string;
+        mode?: string;
+    };
+
+    // wshrpc.CommandCreateChildRunRtnData
+    type CommandCreateChildRunRtnData = {
+        runid: string;
+    };
+
     // wshrpc.CommandCreateProjectData
     type CommandCreateProjectData = {
         name: string;
@@ -1925,6 +1937,7 @@ declare global {
         createdts: number;
         completedts?: number;
         evidence?: RunEvidence;
+        parentleadoref?: string;
     };
 
     // waveobj.RunEvidence

@@ -247,6 +247,9 @@ type Run struct {
 	CreatedTs   int64           `json:"createdts"`
 	CompletedTs int64           `json:"completedts,omitempty"` // set at seal, when Status becomes done
 	Evidence    *RunEvidence    `json:"evidence,omitempty"`    // sealed once at completion; immutable
+	// ParentLeadORef is the tab oref ("tab:<id>") of the orchestrator lead that spawned this child run
+	// via `wsh jarvis run`. Empty for human-started runs. Drives the terminal-status notify-back.
+	ParentLeadORef string `json:"parentleadoref,omitempty"`
 }
 
 // RunEvidence is the sealed, immutable snapshot of what a run produced, derived server-side and frozen at

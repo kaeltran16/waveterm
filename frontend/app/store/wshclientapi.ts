@@ -222,6 +222,12 @@ export class RpcApiType {
         return client.wshRpcCall("createchannel", data, opts);
     }
 
+    // command "createchildrun" [call]
+    CreateChildRunCommand(client: WshClient, data: CommandCreateChildRunData, opts?: RpcOpts): Promise<CommandCreateChildRunRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createchildrun", data, opts);
+        return client.wshRpcCall("createchildrun", data, opts);
+    }
+
     // command "createproject" [call]
     CreateProjectCommand(client: WshClient, data: CommandCreateProjectData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "createproject", data, opts);

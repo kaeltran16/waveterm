@@ -219,6 +219,12 @@ func CreateChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateChannelDat
 	return resp, err
 }
 
+// command "createchildrun", wshserver.CreateChildRunCommand
+func CreateChildRunCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateChildRunData, opts *wshrpc.RpcOpts) (*wshrpc.CommandCreateChildRunRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandCreateChildRunRtnData](w, "createchildrun", data, opts)
+	return resp, err
+}
+
 // command "createproject", wshserver.CreateProjectCommand
 func CreateProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateProjectData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "createproject", data, opts)

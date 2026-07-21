@@ -430,3 +430,70 @@ func TestBuildQuickPrompt(t *testing.T) {
 		t.Errorf("quick prompt must not carry a skill directive:\n%s", p)
 	}
 }
+
+func TestStripPhaseGates(t *testing.T) {
+	in := []waveobj.RunPhase{
+		{Kind: PhaseKind_Brainstorm},
+		{Kind: PhaseKind_Plan, Gate: true},
+		{Kind: PhaseKind_Execute, FreshCtx: true},
+	}
+	out := StripPhaseGates(in)
+	if len(out) != len(in) {
+		t.Fatalf("len = %d, want %d", len(out), len(in))
+	}
+	for i, p := range out {
+		if p.Gate {
+			t.Errorf("out[%d].Gate = true, want false", i)
+		}
+	}
+	if !in[1].Gate {
+		t.Error("input was mutated: in[1].Gate cleared")
+	}
+	if out[2].Kind != PhaseKind_Execute || !out[2].FreshCtx {
+		t.Error("non-Gate fields must be preserved")
+	}
+}
+
+func TestParentNotifyLine(t *testing.T) {
+	// no parent -> not ok
+	if _, ok := ParentNotifyLine(&waveobj.Run{ID: "c1", Status: RunStatus_Done}); ok {
+		t.Error("want ok=false when ParentLeadORef is empty")
+	}
+	// has parent but non-terminal -> not ok
+	if _, ok := ParentNotifyLine(&waveobj.Run{ID: "c1", Status: RunStatus_Executing, ParentLeadORef: "tab:lead"}); ok {
+		t.Error("want ok=false for a non-terminal status")
+	}
+	// done with evidence
+	line, ok := ParentNotifyLine(&waveobj.Run{
+		ID: "c1", Goal: "fix 6a", Status: RunStatus_Done, ParentLeadORef: "tab:lead",
+		Evidence: &waveobj.RunEvidence{Files: []waveobj.EvidenceFile{{}, {}}, AddTotal: 12, DelTotal: 3},
+	})
+	if !ok {
+		t.Fatal("want ok=true for a done child with a parent")
+	}
+	for _, want := range []string{"child c1", "done", "2 files +12/-3"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line %q missing %q", line, want)
+		}
+	}
+	if !strings.HasSuffix(line, "\r") {
+		t.Errorf("line %q must end with CR so it submits as one PTY line", line)
+	}
+	// cancelled (no evidence)
+	cl, ok := ParentNotifyLine(&waveobj.Run{ID: "c2", Goal: "x", Status: RunStatus_Cancelled, ParentLeadORef: "tab:lead"})
+	if !ok || !strings.Contains(cl, "cancelled") {
+		t.Errorf("cancelled: line=%q ok=%v", cl, ok)
+	}
+}
+
+func TestBuildOrchestratePromptBacklogClause(t *testing.T) {
+	gated := BuildOrchestratePrompt("work docs/open-issues.md", nil, true)
+	for _, want := range []string{"wsh jarvis run", "decomposition checklist", "never open a child"} {
+		if !strings.Contains(gated, want) {
+			t.Errorf("gated orchestrate prompt missing %q", want)
+		}
+	}
+	if strings.Contains(BuildOrchestratePrompt("small fix", nil, false), "decomposition checklist") {
+		t.Error("non-gated prompt must not carry the backlog clause")
+	}
+}

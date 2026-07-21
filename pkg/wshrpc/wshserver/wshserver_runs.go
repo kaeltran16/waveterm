@@ -124,6 +124,15 @@ func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate 
 	return mode, playbook
 }
 
+// childRunPlan derives a hands-off playbook for a child run: resolve the plan for the requested (or inherited)
+// mode with the plan gate off, then strip any phase-level gates. A child never halts for human review — the
+// decomposition was already gated once at the parent lead's plan gate.
+func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []waveobj.RunPhase) {
+	gateOff := false
+	mode, pb := resolveRunPlan(resolved, reqMode, &gateOff)
+	return mode, jarvis.StripPhaseGates(pb)
+}
+
 func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCreateRunData) (*wshrpc.CommandCreateRunRtnData, error) {
 	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
 		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
@@ -161,9 +170,46 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	return &wshrpc.CommandCreateRunRtnData{Run: out}, nil
 }
 
+func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.CommandCreateChildRunData) (*wshrpc.CommandCreateChildRunRtnData, error) {
+	if data.ORef == "" || data.Goal == "" {
+		return nil, fmt.Errorf("oref and goal are required")
+	}
+	channels, err := wstore.GetChannels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading channels: %w", err)
+	}
+	m := jarvis.ResolveRunWorker(channels, data.ORef)
+	if m == nil {
+		return nil, fmt.Errorf("no run owns oref %q", data.ORef)
+	}
+	channelId := m.Channel.OID
+	parent := m.Run
+	mode := data.Mode
+	if mode == "" {
+		mode = parent.Mode // inherit the channel strategy the parent run was created with
+	}
+	resolved := jarvis.ResolveProfile(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(m.Channel))
+	childMode, playbook := childRunPlan(resolved, mode)
+	child := jarvis.NewRun(data.Goal, parent.WorkspaceId, parent.ProjectPath, parent.Principles, childMode, playbook, time.Now().UnixMilli())
+	child.ParentLeadORef = data.ORef
+	if head, herr := gitinfo.HeadCommit(ctx, parent.ProjectPath); herr == nil {
+		child.BaseCommit = head
+	}
+	if err := wstore.AppendRun(ctx, channelId, child); err != nil {
+		return nil, fmt.Errorf("appending child run: %w", err)
+	}
+	if err := spawnRunWorkers(ctx, channelId, child.ID, m.Channel.Name); err != nil {
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+		return nil, fmt.Errorf("spawning child worker: %w", err)
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+	return &wshrpc.CommandCreateChildRunRtnData{RunId: child.ID}, nil
+}
+
 // steerRunLead sends a line of input into the block of a run worker (tab oref "tab:<id>"), resuming a
-// long-lived lead in place. Best-effort: resolution/send failures are logged, never fatal.
-func steerRunLead(ctx context.Context, tabORef, text string) {
+// long-lived lead in place. Best-effort: resolution/send failures are logged, never fatal. It is a var so
+// tests can observe the parent notify-back without a live PTY.
+var steerRunLead = func(ctx context.Context, tabORef, text string) {
 	oref, err := waveobj.ParseORef(tabORef)
 	if err != nil || oref.OType != waveobj.OType_Tab {
 		log.Printf("steerRunLead: bad oref %q: %v", tabORef, err)
@@ -226,27 +272,33 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if err != nil {
 		return fmt.Errorf("advancing run: %w", err)
 	}
-	// seal the immutable evidence snapshot on the non-done -> done transition (fresh transcripts/git).
-	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil &&
-		run.Status == jarvis.RunStatus_Done && run.Evidence == nil {
-		if serr := jarvis.SealEvidence(ctx, run); serr == nil && run.Evidence != nil {
-			ev := run.Evidence
-			completedTs := run.CompletedTs
-			if uerr := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-				if r.Evidence == nil { // idempotent under concurrent advances
-					r.Evidence = ev
-					r.CompletedTs = completedTs
+	// seal the immutable evidence snapshot on the non-done -> done transition, then notify the parent lead
+	// (if this is a child run). The notify is keyed on Done, not on evidence, so an empty-diff run still wakes
+	// its parent. Reached once per run: applyRunAction errors on an already-done run.
+	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil && run.Status == jarvis.RunStatus_Done {
+		if run.Evidence == nil {
+			if serr := jarvis.SealEvidence(ctx, run); serr == nil && run.Evidence != nil {
+				ev := run.Evidence
+				completedTs := run.CompletedTs
+				if uerr := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+					if r.Evidence == nil { // idempotent under concurrent advances
+						r.Evidence = ev
+						r.CompletedTs = completedTs
+					}
+					return nil
+				}); uerr != nil {
+					log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", data.RunId, uerr)
 				}
-				return nil
-			}); uerr != nil {
-				log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", data.RunId, uerr)
-			}
-			if run.RadarOrigin != nil {
-				inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
-				if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
-					log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
+				if run.RadarOrigin != nil {
+					inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
+					if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
+						log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
+					}
 				}
 			}
+		}
+		if line, ok := jarvis.ParentNotifyLine(run); ok {
+			steerRunLead(ctx, run.ParentLeadORef, line)
 		}
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
@@ -302,6 +354,9 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	// stop the live workers the run spawned; state is already persisted, so this is best-effort.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil {
 		stopRunWorkers(ctx, run)
+		if line, ok := jarvis.ParentNotifyLine(run); ok {
+			steerRunLead(ctx, run.ParentLeadORef, line)
+		}
 		if run.RadarOrigin != nil {
 			inv := reporadar.InvestigationFromRun(run, data.ChannelId, "cancelled", time.Now().UnixMilli())
 			if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
