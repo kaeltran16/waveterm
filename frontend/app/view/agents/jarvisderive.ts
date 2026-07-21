@@ -22,7 +22,7 @@ export interface WorkerState {
     outcome?: { status: string; summary: string }; // finished-worker outcome (from an "outcome" message)
 }
 
-const OREF_PREFIX = "tab:";
+export const OREF_PREFIX = "tab:";
 const MAX_TIMELINE = 12;
 
 // Resolve every worker this channel dispatched/steered to its current state. A dispatched oref with no

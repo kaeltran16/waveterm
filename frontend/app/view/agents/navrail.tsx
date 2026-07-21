@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { channelPendingAskCount } from "./channelderive";
+import { channelPendingAskCount, standalonePendingAskCount } from "./channelderive";
 import { channelsAtom } from "./channelsstore";
 
 const iconProps = { size: 20, strokeWidth: 1.8 } as const;
@@ -49,7 +49,13 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
     const channels = useAtomValue(channelsAtom);
     const agents = useAtomValue(model.agentsAtom);
-    const needsYou = channelPendingAskCount(channels ?? [], agents);
+    // Two disjoint "needs you" badges: Channels counts asks a channel dispatched/steered; Cockpit counts
+    // standalone asks (launched from the cockpit/Agent tab, no channel) so they signal from every surface.
+    const chanList = channels ?? [];
+    const badges: Partial<Record<SurfaceKey, number>> = {
+        cockpit: standalonePendingAskCount(chanList, agents),
+        channels: channelPendingAskCount(chanList, agents),
+    };
     const renderItem = (key: SurfaceKey, label: string, badge = 0) => {
         const isActive = active === key;
         return (
@@ -82,7 +88,7 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
     };
     return (
         <nav className="flex w-[78px] shrink-0 flex-col gap-[3px] border-r border-border bg-surface py-2.5">
-            {ITEMS.map(({ key, label }) => renderItem(key, label, key === "channels" ? needsYou : 0))}
+            {ITEMS.map(({ key, label }) => renderItem(key, label, badges[key] ?? 0))}
             <div className="flex-1" />
             {renderItem("settings", "Settings")}
         </nav>

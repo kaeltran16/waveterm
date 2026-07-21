@@ -7,7 +7,7 @@
 import type { AgentVM } from "./agentsviewmodel";
 import { parseMentions, type RosterEntry } from "./channelmessages";
 import { pendingAsks } from "./jarviscards";
-import { buildFleetSnapshot } from "./jarvisderive";
+import { answeredAskORefsAcross, buildFleetSnapshot, needsHuman, OREF_PREFIX } from "./jarvisderive";
 
 // identity palette tokens (defined in tailwindsetup.css @theme). "you" is pinned to the accent.
 const AVATAR_TOKENS = [
@@ -86,21 +86,38 @@ export function channelHasAsk(channel: Channel, agents: AgentVM[]): boolean {
     return pendingAsks(buildFleetSnapshot(channel, agents), channel.messages ?? []).length > 0;
 }
 
-// Count of workers ANY channel dispatched/steered that are blocked on you (asking, not Jarvis-answered),
-// deduped by worker oref. Drives the Channels nav-rail badge: an agent no channel dispatched — launched
-// straight from the cockpit or Agent tab — is not a channel's "needs you", so it must not light the badge.
-// Sums the exact per-channel path channelHasAsk uses, so the tab badge equals the count of lit rail dots.
-export function channelPendingAskCount(channels: Channel[], agents: AgentVM[]): number {
-    if (!agents.some((a) => a.state === "asking")) {
-        return 0;
-    }
+// The deduped set of worker orefs (tab:<id>) that ANY channel dispatched/steered and that are blocked on
+// you (asking, not Jarvis-answered). Single source for the channel-vs-standalone attention split: the
+// Channels nav badge is this set's size; the Cockpit badge counts asks whose oref is NOT in it.
+export function channelAttributedAskORefs(channels: Channel[], agents: AgentVM[]): Set<string> {
     const orefs = new Set<string>();
+    if (!agents.some((a) => a.state === "asking")) {
+        return orefs;
+    }
     for (const c of channels) {
         for (const w of pendingAsks(buildFleetSnapshot(c, agents), c.messages ?? [])) {
             orefs.add(w.oref);
         }
     }
-    return orefs.size;
+    return orefs;
+}
+
+// Count of workers ANY channel dispatched/steered that are blocked on you (asking, not Jarvis-answered),
+// deduped by worker oref. Drives the Channels nav-rail badge: an agent no channel dispatched — launched
+// straight from the cockpit or Agent tab — is not a channel's "needs you", so it must not light the badge.
+// Sums the exact per-channel path channelHasAsk uses, so the tab badge equals the count of lit rail dots.
+export function channelPendingAskCount(channels: Channel[], agents: AgentVM[]): number {
+    return channelAttributedAskORefs(channels, agents).size;
+}
+
+// Count of asking agents genuinely blocked on you that NO channel dispatched/steered — launched straight
+// from the cockpit or Agent tab. Drives the Cockpit nav-rail badge, so a standalone ask is no longer
+// invisible from every surface but the cockpit itself. Disjoint from channelPendingAskCount (an ask is
+// channel-attributed or not, never both), so the two badges sum to the fleet-wide pendingAskCount.
+export function standalonePendingAskCount(channels: Channel[], agents: AgentVM[]): number {
+    const answered = answeredAskORefsAcross(channels);
+    const attributed = channelAttributedAskORefs(channels, agents);
+    return agents.filter((a) => needsHuman(a, answered) && !attributed.has(`${OREF_PREFIX}${a.id}`)).length;
 }
 
 // --- composer @mentions ------------------------------------------------------

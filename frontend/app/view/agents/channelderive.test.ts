@@ -6,6 +6,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     activeMentionQuery,
     avatarColor,
+    channelAttributedAskORefs,
     channelHasAsk,
     channelPendingAskCount,
     filterChannels,
@@ -14,8 +15,10 @@ import {
     partitionChannels,
     promoteConsultText,
     resolveTargetChannel,
+    standalonePendingAskCount,
 } from "./channelderive";
 import type { RosterEntry } from "./channelmessages";
+import { pendingAskCount } from "./jarvisderive";
 
 describe("avatarColor", () => {
     it("is deterministic for the same name", () => {
@@ -99,6 +102,63 @@ describe("channelPendingAskCount", () => {
     it("is 0 when nothing is asking", () => {
         const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
         expect(channelPendingAskCount([ch], [agent("a1", "working")])).toBe(0);
+    });
+});
+
+describe("channelAttributedAskORefs", () => {
+    it("collects the oref of an asking worker a channel dispatched", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        expect([...channelAttributedAskORefs([ch], [agent("a1", "asking")])]).toEqual(["tab:a1"]);
+    });
+
+    it("is empty when the dispatched worker is only working", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        expect(channelAttributedAskORefs([ch], [agent("a1", "working")]).size).toBe(0);
+    });
+
+    it("omits an asking agent no channel dispatched", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        const set = channelAttributedAskORefs([ch], [agent("a1", "working"), agent("a2", "asking")]);
+        expect(set.has("tab:a2")).toBe(false);
+    });
+});
+
+describe("standalonePendingAskCount", () => {
+    it("counts an asking agent no channel dispatched", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        // a1 working (dispatched); a2 asking but never dispatched/steered by any channel
+        expect(standalonePendingAskCount([ch], [agent("a1", "working"), agent("a2", "asking")])).toBe(1);
+    });
+
+    it("does NOT count an asking agent a channel dispatched (that is the Channels count)", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        expect(standalonePendingAskCount([ch], [agent("a1", "asking")])).toBe(0);
+    });
+
+    it("does not count a standalone agent that is only working", () => {
+        expect(standalonePendingAskCount([], [agent("a1", "working")])).toBe(0);
+    });
+
+    it("is 0 when nothing is asking", () => {
+        const ch = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        expect(standalonePendingAskCount([ch], [agent("a1", "working")])).toBe(0);
+    });
+
+    it("is disjoint from the channel count and the two sum to the fleet-wide pending count", () => {
+        const ch1 = chan([{ kind: "dispatch", reforef: "tab:a1" }]);
+        const ch2 = chan([{ kind: "dispatch", reforef: "tab:a2" }]);
+        const agents = [
+            agent("a1", "asking"), // channel-attributed
+            agent("a2", "asking"), // channel-attributed
+            agent("a3", "asking"), // standalone
+            agent("a4", "working"),
+        ];
+        const channels = [ch1, ch2];
+        const standalone = standalonePendingAskCount(channels, agents);
+        const channel = channelPendingAskCount(channels, agents);
+        expect(standalone).toBe(1);
+        expect(channel).toBe(2);
+        expect(standalone + channel).toBe(pendingAskCount(channels, agents));
     });
 });
 
