@@ -63,7 +63,7 @@ func alreadyHasFreshOutcome(ch *waveobj.Channel, workerORef string) bool {
 // unless there is no owning channel or a fresh outcome already exists. Fire-and-forget by the caller.
 func PostOutcome(channels []*waveobj.Channel, workerORef, runtime string, data OutcomeData) {
 	ch := ResolveDispatchChannel(channels, workerORef)
-	if ch == nil || alreadyHasFreshOutcome(ch, workerORef) {
+	if ch == nil {
 		return
 	}
 	payload, _ := json.Marshal(data)
@@ -71,9 +71,16 @@ func PostOutcome(channels []*waveobj.Channel, workerORef, runtime string, data O
 	defer cancel()
 	msg := wstore.NewChannelMessage("outcome", runtime, data.Summary, workerORef, time.Now().UnixMilli())
 	msg.Data = string(payload)
-	if _, err := wstore.PostChannelMessage(ctx, ch.OID, msg); err != nil {
+	// re-check freshness inside the write transaction (against the current persisted channel) so two
+	// near-simultaneous worker-exit signals can't both pass the check and double-post the outcome.
+	posted, err := wstore.PostChannelMessageIf(ctx, ch.OID, msg, func(fresh *waveobj.Channel) bool {
+		return !alreadyHasFreshOutcome(fresh, workerORef)
+	})
+	if err != nil {
 		log.Printf("jarvis: post outcome failed: %v", err)
 		return
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, ch.OID))
+	if posted {
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, ch.OID))
+	}
 }

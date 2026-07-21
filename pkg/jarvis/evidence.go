@@ -243,8 +243,9 @@ func evidenceHash(ev waveobj.RunEvidence) string {
 
 // SealEvidence derives and freezes a run's evidence snapshot. Idempotent: a run that already has
 // Evidence is left untouched (immutability). Locates transcripts from phase WorkerOrefs and git data
-// from ProjectPath — everything it needs is on the run. I/O failures degrade a section to empty; they
-// never fail the seal (a partial snapshot beats none).
+// from ProjectPath — everything it needs is on the run. A transcript I/O failure degrades that section
+// to empty, but a git failure or a context timeout fails the seal (returns an error, leaves Evidence nil)
+// so the backfill can retry rather than freezing an empty file list into the immutable snapshot.
 func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	if run == nil || run.Evidence != nil {
 		return nil
@@ -264,10 +265,19 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 		verifs = verificationCommands(lines)
 	}
 
-	// git-derived: files touched
+	// git-derived: files touched. a git failure or a context timeout must NOT seal an empty file list into
+	// the immutable snapshot — return an error and leave Evidence nil so the backfill (SealRunEvidenceCommand)
+	// retries once git recovers. a clean non-repo result (IsRepo false, no error) is a legitimate empty.
 	var files []waveobj.EvidenceFile
 	var addTotal, delTotal int
-	if ch, err := gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit); err == nil && ch.IsRepo {
+	ch, gerr := gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit)
+	if gerr != nil {
+		return fmt.Errorf("evidence: computing git changes: %w", gerr)
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("evidence: computing git changes: %w", ctx.Err())
+	}
+	if ch.IsRepo {
 		files = parseNumstatStatus(ch.Numstat, ch.StatusZ)
 		for i := range files {
 			if worker != "" {

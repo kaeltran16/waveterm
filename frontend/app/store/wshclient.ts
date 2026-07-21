@@ -6,6 +6,10 @@ import * as util from "@/util/util";
 
 const notFoundLogMap = new Map<string, boolean>();
 
+// safety net so an inbound handler that never settles rejects with a timeout instead of leaving the
+// remote caller hanging forever. generous: this bounds a stuck/hung handler, it is not an SLA.
+const RpcHandlerTimeoutMs = 30000;
+
 class RpcResponseHelper {
     client: WshClient;
     cmdMsg: RpcMessage;
@@ -93,22 +97,24 @@ class WshClient {
     }
 
     async handleIncomingCommand(msg: RpcMessage) {
-        // TODO implement a timeout (setTimeout + sendResponse)
         const helper = new RpcResponseHelper(this, msg);
         const handlerName = `handle_${msg.command}`;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
         try {
-            let result: any = null;
-            let prtn: any = null;
-            if (handlerName in this) {
-                prtn = this[handlerName](helper, msg.data);
-            } else {
-                prtn = this.handle_default(helper, msg);
-            }
-            if (prtn instanceof Promise) {
-                result = await prtn;
-            } else {
-                result = prtn;
-            }
+            const handlerPromise = Promise.resolve(
+                handlerName in this ? this[handlerName](helper, msg.data) : this.handle_default(helper, msg)
+            );
+            // reject if the handler never settles, so the caller gets a timeout error instead of hanging
+            const timeoutPromise = new Promise((_resolve, reject) => {
+                timeoutId = setTimeout(
+                    () => reject(new Error(`rpc handler for command "${msg.command}" timed out`)),
+                    RpcHandlerTimeoutMs
+                );
+            });
+            // once the timeout wins the race, the handler's own later settlement is moot; swallow a late
+            // rejection so it does not surface as an unhandled promise rejection.
+            handlerPromise.catch(() => {});
+            const result = await Promise.race([handlerPromise, timeoutPromise]);
             if (!helper.done) {
                 helper.sendResponse({ data: result });
             }
@@ -119,6 +125,9 @@ class WshClient {
                 console.log(`rpc-client[${this.routeId}] command[${msg.command}] error`, e.message);
             }
         } finally {
+            if (timeoutId != null) {
+                clearTimeout(timeoutId);
+            }
             if (!helper.done) {
                 helper.sendResponse({});
             }

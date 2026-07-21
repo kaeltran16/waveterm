@@ -6,6 +6,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -17,11 +19,7 @@ var shellCmd = &cobra.Command{
 	Use:    "shell",
 	Hidden: true,
 	Short:  "Print the login shell of this user",
-	Run: func(cmd *cobra.Command, args []string) {
-		shellCmdInner()
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return fmt.Errorf("wsh shell is not implemented on windows")
 	},
-}
-
-func shellCmdInner() {
-	WriteStderr("not implemented/n")
 }

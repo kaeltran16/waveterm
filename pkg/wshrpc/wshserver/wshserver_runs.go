@@ -24,6 +24,14 @@ import (
 // (len(WorkerOrefs) > 0) is effective across concurrent CreateRun/AdvanceRun calls for one run.
 var runSpawnLocks = newKeyedMutex()
 
+// runWorkerSpawnTimeout bounds detached worker-spawn work; evidenceSealTimeout bounds detached evidence
+// sealing (git diff + transcript reads). Both are generous so the short FE-call budget can't cancel
+// CreateTab mid-flight (orphaning a tab) or cut a git diff short into an empty, immutable snapshot.
+const (
+	runWorkerSpawnTimeout = 60 * time.Second
+	evidenceSealTimeout   = 30 * time.Second
+)
+
 // spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
 // attached orefs — a second write, so tab-creation never nests inside the run's state-transition write.
 //
@@ -34,6 +42,11 @@ var runSpawnLocks = newKeyedMutex()
 func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) error {
 	runSpawnLocks.Lock(runId)
 	defer runSpawnLocks.Unlock(runId)
+	// detach from the caller's RPC budget (a 5s FE-call ctx): worker spawning calls wcore.CreateTab, and a
+	// mid-flight cancellation would orphan a half-created tab. keep parent values, bound with our own deadline.
+	ctx = context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, runWorkerSpawnTimeout)
+	defer cancel()
 	ctx = waveobj.ContextWithUpdates(ctx)
 	run, err := wstore.GetRun(ctx, channelId, runId)
 	if err != nil {
@@ -277,7 +290,15 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	// its parent. Reached once per run: applyRunAction errors on an already-done run.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil && run.Status == jarvis.RunStatus_Done {
 		if run.Evidence == nil {
-			if serr := jarvis.SealEvidence(ctx, run); serr == nil && run.Evidence != nil {
+			// detach the seal from the FE-call budget so a slow git diff can't be canceled into an empty
+			// (then immutable) snapshot; SealEvidence refuses to seal on a git failure/timeout, leaving the
+			// run unsealed for the backfill (SealRunEvidenceCommand) to retry.
+			sealCtx, sealCancel := context.WithTimeout(context.WithoutCancel(ctx), evidenceSealTimeout)
+			serr := jarvis.SealEvidence(sealCtx, run)
+			sealCancel()
+			if serr != nil {
+				log.Printf("AdvanceRun: sealing evidence for run %s deferred to backfill: %v", data.RunId, serr)
+			} else if run.Evidence != nil {
 				ev := run.Evidence
 				completedTs := run.CompletedTs
 				if uerr := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
@@ -407,7 +428,12 @@ func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.Com
 	if run.Status != jarvis.RunStatus_Done || run.Evidence != nil {
 		return nil // nothing to seal
 	}
-	if serr := jarvis.SealEvidence(ctx, run); serr != nil || run.Evidence == nil {
+	// detach from the FE-call budget so a slow git diff isn't canceled into an empty snapshot; on a git
+	// failure/timeout SealEvidence returns an error and leaves Evidence nil, so this backfill can retry.
+	sealCtx, sealCancel := context.WithTimeout(context.WithoutCancel(ctx), evidenceSealTimeout)
+	serr := jarvis.SealEvidence(sealCtx, run)
+	sealCancel()
+	if serr != nil || run.Evidence == nil {
 		return serr
 	}
 	ev, completedTs := run.Evidence, run.CompletedTs

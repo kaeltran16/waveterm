@@ -50,7 +50,8 @@ const (
 )
 
 type ShellController struct {
-	Lock *sync.Mutex
+	Lock      *sync.Mutex
+	StartLock *sync.Mutex // serializes setupAndStartShellProcess so two starts can't race one block
 
 	// shared fields
 	ControllerType string
@@ -72,6 +73,7 @@ type ShellController struct {
 func MakeShellController(tabId string, blockId string, controllerType string, connName string) Controller {
 	return &ShellController{
 		Lock:           &sync.Mutex{},
+		StartLock:      &sync.Mutex{},
 		ControllerType: controllerType,
 		TabId:          tabId,
 		BlockId:        blockId,
@@ -376,6 +378,11 @@ func (bc *ShellController) getConnUnion(logCtx context.Context, remoteName strin
 }
 
 func (bc *ShellController) setupAndStartShellProcess(logCtx context.Context, rc *RunShellOpts, blockMeta waveobj.MetaMapType) (*shellexec.ShellProc, error) {
+	// serialize starts so two concurrent callers can't both pass the running-check below and race two
+	// shell processes onto one block; the loser re-checks Status_Running and no-ops. (run()'s RunLock
+	// already serializes the normal path; this hardens the function against any other entry.)
+	bc.StartLock.Lock()
+	defer bc.StartLock.Unlock()
 	// create a circular blockfile for the output
 	ctx, cancelFn := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelFn()

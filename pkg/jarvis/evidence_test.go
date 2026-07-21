@@ -160,6 +160,23 @@ func TestSealEvidenceBaseAnchored(t *testing.T) {
 	}
 }
 
+func TestSealEvidenceGitFailureLeavesUnsealed(t *testing.T) {
+	// a canceled context fails the git-changes computation; evidence must be left unsealed (nil) with an
+	// error so the backfill can retry, not frozen into an empty (and immutable) file list.
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := SealEvidence(ctx, run); err == nil {
+		t.Fatal("expected an error when the git-changes computation is canceled")
+	}
+	if run.Evidence != nil {
+		t.Fatal("evidence must be left unsealed on a git failure/timeout")
+	}
+}
+
 func TestEvidenceHashStable(t *testing.T) {
 	ev := waveobj.RunEvidence{Summary: "x", AddTotal: 3}
 	if evidenceHash(ev) != evidenceHash(ev) {

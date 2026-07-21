@@ -86,6 +86,27 @@ func PostChannelMessage(ctx context.Context, channelId string, msg waveobj.Chann
 	return &msg, nil
 }
 
+// PostChannelMessageIf appends msg to the channel only if cond reports true when evaluated against the
+// current persisted channel inside the write transaction. Because wstore serializes on a single DB
+// connection, two concurrent posters cannot both pass cond: the second transaction reads the first's
+// committed message, so cond sees it. Returns true if the message was posted.
+func PostChannelMessageIf(ctx context.Context, channelId string, msg waveobj.ChannelMessage, cond func(*waveobj.Channel) bool) (bool, error) {
+	var posted bool
+	err := WithTx(ctx, func(tx *TxWrap) error {
+		ch, err := DBMustGet[*waveobj.Channel](tx.Context(), channelId)
+		if err != nil {
+			return err
+		}
+		if !cond(ch) {
+			return nil
+		}
+		appendChannelMessage(ch, msg)
+		posted = true
+		return DBUpdate(tx.Context(), ch)
+	})
+	return posted, err
+}
+
 func appendRunIn(ch *waveobj.Channel, run waveobj.Run) {
 	ch.Runs = append(ch.Runs, run)
 }
