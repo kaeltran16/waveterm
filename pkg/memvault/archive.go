@@ -28,6 +28,7 @@ func ArchiveDir() string {
 type ArchivedNote struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
+	Type       string `json:"type"`       // original metadata.type (kept in the archived file), for the row's type badge
 	Reason     string `json:"reason"`     // decay | drift
 	ArchivedAt string `json:"archivedat"` // RFC3339
 	Path       string `json:"path"`       // path inside the archive dir
@@ -120,7 +121,7 @@ func ListArchived() []ArchivedNote {
 		var af archivedFrontmatter
 		_ = yaml.Unmarshal(frontmatterBytes(data), &af)
 		out = append(out, ArchivedNote{
-			ID: n.ID, Title: n.Title, Reason: af.Metadata.ArchivedReason,
+			ID: n.ID, Title: n.Title, Type: n.Type, Reason: af.Metadata.ArchivedReason,
 			ArchivedAt: af.Metadata.ArchivedAt, Path: p, OriginHub: af.Metadata.ArchivedFrom,
 		})
 	}

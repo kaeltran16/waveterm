@@ -17,6 +17,7 @@ const StaleDays = 30
 type PruneCandidate struct {
 	ID     string `json:"id"`
 	Title  string `json:"title"`
+	Type   string `json:"type"`   // note's metadata.type (verbatim), for the cleanup-row type badge
 	Reason string `json:"reason"` // "superseded" | "stale" | "drift" | "duplicate" (gardener flags)
 	Path   string `json:"path"`
 }
@@ -30,12 +31,12 @@ func classifyPrune(notes []Note, now time.Time) []PruneCandidate {
 	for _, n := range notes {
 		switch {
 		case n.SupersededBy != "":
-			out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Reason: "superseded", Path: n.Path})
+			out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Type: n.Type, Reason: "superseded", Path: n.Path})
 		case n.GardenerFlag != "":
-			out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Reason: n.GardenerFlag, Path: n.Path})
+			out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Type: n.Type, Reason: n.GardenerFlag, Path: n.Path})
 		case n.LastReferenced != "":
 			if ts, err := time.Parse(time.RFC3339, n.LastReferenced); err == nil && ts.Before(cutoff) {
-				out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Reason: "stale", Path: n.Path})
+				out = append(out, PruneCandidate{ID: n.ID, Title: n.Title, Type: n.Type, Reason: "stale", Path: n.Path})
 			}
 		}
 	}

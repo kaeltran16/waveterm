@@ -35,6 +35,7 @@ import {
     loadMemory,
     loadPrune,
     loadReview,
+    memArchivedAtom,
     memBodyAtom,
     memConflictAtom,
     memDraftAtom,
@@ -222,6 +223,8 @@ function ListView({
                     </motion.div>
                 ))}
             </AnimatePresence>
+            <CleanupQueue />
+            <ArchivedView />
         </motion.div>
     );
 }
@@ -508,6 +511,7 @@ function MemorySkeleton() {
 export function MemorySurface({ model }: { model: AgentsViewModel }) {
     const notes = useAtomValue(memNotesAtom);
     const pending = useAtomValue(memPendingAtom);
+    const archived = useAtomValue(memArchivedAtom);
     const loaded = useAtomValue(memLoadedAtom);
     const loadError = useAtomValue(memErrorAtom);
     const view = useAtomValue(memViewAtom);
@@ -578,12 +582,10 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                         <SurfaceError message="Couldn’t scan memory." onRetry={() => fireAndForget(() => loadMemory())} />
                     ) : null}
                     <SyncStrip focusedCwd={focusedCwd} />
-                    <CleanupQueue />
-                    <ArchivedView />
                     <div className="relative min-h-0 flex-1 overflow-hidden">
                         {!loaded ? (
                             <MemorySkeleton />
-                        ) : notes.length === 0 && pending.length === 0 ? (
+                        ) : notes.length === 0 && pending.length === 0 && archived.length === 0 ? (
                             <SurfaceEmptyState
                                 title="No memory yet"
                                 body="Notes your agents save show up here. Add one to get started."

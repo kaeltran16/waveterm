@@ -2,12 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
+import { groupByScope, reasonMeta, relativeAge, typeMeta, type MemNote } from "./memtypes";
 
 const note = (over: Partial<MemNote>): MemNote => ({
-    id: "x", title: "X", description: "", type: "project", scope: "shared",
-    source: "vault", path: "/v/x.md", links: [], updatedts: 0,
-    reviewed: false, capturedat: "", supersededby: "", lastreferenced: "", ...over,
+    id: "x",
+    title: "X",
+    description: "",
+    type: "project",
+    scope: "shared",
+    source: "vault",
+    path: "/v/x.md",
+    links: [],
+    updatedts: 0,
+    reviewed: false,
+    capturedat: "",
+    supersededby: "",
+    lastreferenced: "",
+    ...over,
 });
 
 describe("typeMeta", () => {
@@ -22,6 +33,21 @@ describe("typeMeta", () => {
     it("falls back for unknown/empty types", () => {
         expect(typeMeta("").label).toBe("Note");
         expect(typeMeta("weird").dotClass).toBe("bg-ink-mid");
+    });
+});
+
+describe("reasonMeta", () => {
+    it("colors upkeep reasons by severity, not by note type", () => {
+        expect(reasonMeta("superseded").textClass).toBe("text-error");
+        expect(reasonMeta("drift").textClass).toBe("text-warning");
+        // stale (cleanup), decay (archive) and duplicate are all neutral
+        expect(reasonMeta("stale").textClass).toBe("text-ink-mid");
+        expect(reasonMeta("decay").textClass).toBe("text-ink-mid");
+        expect(reasonMeta("duplicate").textClass).toBe("text-ink-mid");
+    });
+    it("falls back to neutral for unknown reasons", () => {
+        expect(reasonMeta("").textClass).toBe("text-ink-mid");
+        expect(reasonMeta("weird").bgClass).toBe("bg-ink-mid/10");
     });
 });
 

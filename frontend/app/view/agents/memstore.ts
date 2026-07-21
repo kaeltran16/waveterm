@@ -98,7 +98,11 @@ export async function selectNote(id: string): Promise<void> {
     const n = noteById(id);
     if (!n) return;
     try {
-        const r = await RpcApi.MemoryReadCommand(TabRpcClient, { path: n.path, source: n.source }, { timeout: MEM_RPC_TIMEOUT_MS });
+        const r = await RpcApi.MemoryReadCommand(
+            TabRpcClient,
+            { path: n.path, source: n.source },
+            { timeout: MEM_RPC_TIMEOUT_MS }
+        );
         if (globalStore.get(memSelectedIdAtom) !== id) return; // selection moved on
         globalStore.set(memBodyAtom, { body: r.body, mtime: r.note.updatedts });
     } catch {
@@ -246,6 +250,34 @@ export async function loadPrune(): Promise<void> {
 export async function prune(path: string): Promise<void> {
     await deleteNote(path);
     await loadPrune();
+}
+
+// Bulk removal of every superseded candidate. Deletes all first, then rescans once (deleteNote's
+// per-item rescan would be wasteful here). Mirrors dismissAllPending.
+export async function pruneAllSuperseded(): Promise<void> {
+    const paths = globalStore
+        .get(memPruneAtom)
+        .filter((c) => c.reason === "superseded")
+        .map((c) => c.path);
+    for (const p of paths) {
+        await RpcApi.MemoryDeleteCommand(TabRpcClient, { path: p });
+    }
+    globalStore.set(memReflowAnimatedAtom, true);
+    globalStore.set(memSelectedIdAtom, null);
+    globalStore.set(memBodyAtom, null);
+    await Promise.all([loadMemory(), loadPrune()]);
+}
+
+// Bulk clear is many irreversible deletes at once, so it confirms first (single-row Remove stays
+// one-click). Mirrors confirmDeleteNote.
+export function confirmPruneAllSuperseded(count: number): void {
+    modalsModel.pushModal("ConfirmModal", {
+        title: "Clear superseded notes",
+        message: `Remove ${count} superseded note${count === 1 ? "" : "s"}? This deletes the files and can't be undone.`,
+        confirmLabel: "Remove all",
+        destructive: true,
+        onConfirm: () => fireAndForget(() => pruneAllSuperseded()),
+    });
 }
 
 // Archived view: notes the gardener auto-archived (recoverable). MemoryArchivedNote is an ambient

@@ -143,7 +143,7 @@ func (ws *WshServer) MemoryPruneListCommand(ctx context.Context) (*wshrpc.Comman
 	cands := memvault.PruneCandidates(time.Now().UTC())
 	out := make([]wshrpc.MemoryPruneCandidate, len(cands))
 	for i, c := range cands {
-		out[i] = wshrpc.MemoryPruneCandidate{ID: c.ID, Title: c.Title, Reason: c.Reason, Path: c.Path}
+		out[i] = wshrpc.MemoryPruneCandidate{ID: c.ID, Title: c.Title, Type: c.Type, Reason: c.Reason, Path: c.Path}
 	}
 	return &wshrpc.CommandMemoryPruneListRtnData{Candidates: out}, nil
 }
@@ -153,7 +153,7 @@ func (ws *WshServer) MemoryArchiveListCommand(ctx context.Context) (*wshrpc.Comm
 	out := make([]wshrpc.MemoryArchivedNote, len(ans))
 	for i, a := range ans {
 		out[i] = wshrpc.MemoryArchivedNote{
-			ID: a.ID, Title: a.Title, Reason: a.Reason, ArchivedAt: a.ArchivedAt, Path: a.Path, OriginHub: a.OriginHub,
+			ID: a.ID, Title: a.Title, Type: a.Type, Reason: a.Reason, ArchivedAt: a.ArchivedAt, Path: a.Path, OriginHub: a.OriginHub,
 		}
 	}
 	return &wshrpc.CommandMemoryArchiveListRtnData{Archived: out}, nil

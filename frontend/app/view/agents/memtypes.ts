@@ -22,22 +22,67 @@ export type MemNote = {
 
 export type MemEdge = { from: string; to: string };
 
-export type TypeMeta = { label: string; dotClass: string; pillClass: string };
+export type TypeMeta = { label: string; dotClass: string; pillClass: string; tintClass: string };
 
-// The four Claude types → handoff colors (tokens from tailwindsetup.css). pillClass uses the same
-// token as text color so we never introduce a second hardcoded color.
+// The four Claude types → handoff colors (tokens from tailwindsetup.css). pillClass/dotClass/tintClass
+// all derive from the same mem-* token so we never introduce a second hardcoded color; tintClass is the
+// token at low alpha for a filled badge background.
 const META: Record<string, TypeMeta> = {
-    project: { label: "Project", dotClass: "bg-mem-project", pillClass: "text-mem-project" },
-    reference: { label: "Reference", dotClass: "bg-mem-reference", pillClass: "text-mem-reference" },
-    feedback: { label: "Feedback", dotClass: "bg-mem-feedback", pillClass: "text-mem-feedback" },
-    learning: { label: "Learning", dotClass: "bg-mem-feedback", pillClass: "text-mem-feedback" },
-    user: { label: "User", dotClass: "bg-mem-user", pillClass: "text-mem-user" },
+    project: {
+        label: "Project",
+        dotClass: "bg-mem-project",
+        pillClass: "text-mem-project",
+        tintClass: "bg-mem-project/15",
+    },
+    reference: {
+        label: "Reference",
+        dotClass: "bg-mem-reference",
+        pillClass: "text-mem-reference",
+        tintClass: "bg-mem-reference/15",
+    },
+    feedback: {
+        label: "Feedback",
+        dotClass: "bg-mem-feedback",
+        pillClass: "text-mem-feedback",
+        tintClass: "bg-mem-feedback/15",
+    },
+    learning: {
+        label: "Learning",
+        dotClass: "bg-mem-feedback",
+        pillClass: "text-mem-feedback",
+        tintClass: "bg-mem-feedback/15",
+    },
+    user: { label: "User", dotClass: "bg-mem-user", pillClass: "text-mem-user", tintClass: "bg-mem-user/15" },
 };
 
-const FALLBACK: TypeMeta = { label: "Note", dotClass: "bg-ink-mid", pillClass: "text-ink-mid" };
+const FALLBACK: TypeMeta = {
+    label: "Note",
+    dotClass: "bg-ink-mid",
+    pillClass: "text-ink-mid",
+    tintClass: "bg-ink-mid/10",
+};
 
 export function typeMeta(type: string): TypeMeta {
     return META[type] ?? FALLBACK;
+}
+
+// Upkeep reason -> chip color, keyed by severity (not by the note's type). superseded is the strong
+// removal signal (red), drift a soft warning (amber), everything else neutral grey. Covers both the
+// cleanup reasons (superseded|stale|drift|duplicate) and the archive reasons (decay|drift).
+export type ReasonMeta = { textClass: string; bgClass: string };
+
+const REASON: Record<string, ReasonMeta> = {
+    superseded: { textClass: "text-error", bgClass: "bg-error/12" },
+    drift: { textClass: "text-warning", bgClass: "bg-warning/10" },
+    stale: { textClass: "text-ink-mid", bgClass: "bg-ink-mid/10" },
+    decay: { textClass: "text-ink-mid", bgClass: "bg-ink-mid/10" },
+    duplicate: { textClass: "text-ink-mid", bgClass: "bg-ink-mid/10" },
+};
+
+const REASON_FALLBACK: ReasonMeta = { textClass: "text-ink-mid", bgClass: "bg-ink-mid/10" };
+
+export function reasonMeta(reason: string): ReasonMeta {
+    return REASON[reason] ?? REASON_FALLBACK;
 }
 
 export type ScopeGroup = { name: string; count: number; items: MemNote[] };

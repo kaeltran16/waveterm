@@ -409,6 +409,7 @@ type MemoryPendingNote struct {
 type MemoryPruneCandidate struct {
 	ID     string `json:"id"`
 	Title  string `json:"title"`
+	Type   string `json:"type"`
 	Reason string `json:"reason"`
 	Path   string `json:"path"`
 }
@@ -416,6 +417,7 @@ type MemoryPruneCandidate struct {
 type MemoryArchivedNote struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
+	Type       string `json:"type"`
 	Reason     string `json:"reason"`     // decay | drift
 	ArchivedAt string `json:"archivedat"` // RFC3339
 	Path       string `json:"path"`       // path inside the archive dir (Restore target)

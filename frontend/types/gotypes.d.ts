@@ -1511,6 +1511,7 @@ declare global {
     type MemoryArchivedNote = {
         id: string;
         title: string;
+        type: string;
         reason: string;
         archivedat: string;
         path: string;
@@ -1565,6 +1566,7 @@ declare global {
     type MemoryPruneCandidate = {
         id: string;
         title: string;
+        type: string;
         reason: string;
         path: string;
     };
