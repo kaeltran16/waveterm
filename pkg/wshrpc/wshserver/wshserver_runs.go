@@ -243,7 +243,11 @@ var steerRunLead = func(ctx context.Context, tabORef, text string) {
 func applyRunAction(r waveobj.Run, data wshrpc.CommandAdvanceRunData, ts int64) (waveobj.Run, error) {
 	switch data.Action {
 	case jarvis.RunAction_Complete:
-		return jarvis.CompletePhase(r, data.PhaseIdx, data.Artifacts, ts)
+		next, err := jarvis.CompletePhase(r, data.PhaseIdx, data.Artifacts, ts)
+		if err == nil && data.Commit != "" {
+			next.EndCommit = data.Commit // the run's reported result commit; scopes the sealed evidence diff
+		}
+		return next, err
 	case jarvis.RunAction_Approve:
 		return jarvis.ApproveGate(r, ts)
 	case jarvis.RunAction_SendBack:
@@ -358,6 +362,7 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 		Artifacts: data.Artifacts,
 		Verdict:   data.Verdict,
 		Note:      data.Note,
+		Commit:    data.Commit,
 	})
 }
 

@@ -189,6 +189,61 @@ func TestGetChangesRefIncludesCommitted(t *testing.T) {
 	}
 }
 
+// TestGetRangeChangesExcludesSiblings is the core guard for the fan-out over-attribution fix: a
+// commit-range diff (base..tipA) must show only tipA's own commits, never a sibling that merely shares
+// the working tree (branch b). It also proves the untracked/working-tree noise never leaks in.
+func TestGetRangeChangesExcludesSiblings(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "base.txt", "base\n")
+	commitAll(t, dir)
+	base, err := HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// branch A off base: commits a.txt (this run's own work)
+	git(t, dir, "checkout", "-b", "a")
+	writeFile(t, dir, "a.txt", "a1\na2\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-m", "a")
+	tipA, err := HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// branch B off base: commits b.txt (a sibling that shares the tree but not A's lineage), then leaves
+	// an uncommitted working-tree edit (must also be excluded from a pure commit-range diff)
+	git(t, dir, "checkout", base)
+	git(t, dir, "checkout", "-b", "b")
+	writeFile(t, dir, "b.txt", "b1\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-m", "b")
+	writeFile(t, dir, "dirty.txt", "d\n")
+
+	ch, err := GetRangeChanges(context.Background(), dir, base, tipA)
+	if err != nil {
+		t.Fatalf("GetRangeChanges: %v", err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("expected IsRepo=true")
+	}
+	if !strings.Contains(ch.StatusZ, "a.txt") {
+		t.Errorf("expected a.txt in range, got %q", ch.StatusZ)
+	}
+	if strings.Contains(ch.StatusZ, "b.txt") || strings.Contains(ch.StatusZ, "dirty.txt") {
+		t.Errorf("sibling/working-tree noise leaked into range diff: %q", ch.StatusZ)
+	}
+	if !strings.Contains(ch.Numstat, "a.txt") || strings.Contains(ch.Numstat, "b.txt") {
+		t.Errorf("numstat wrong: %q", ch.Numstat)
+	}
+	// not a repo -> IsRepo false, no error
+	nc, err := GetRangeChanges(context.Background(), t.TempDir(), base, tipA)
+	if err != nil {
+		t.Fatalf("non-repo should not error: %v", err)
+	}
+	if nc.IsRepo {
+		t.Fatal("expected IsRepo=false outside a repo")
+	}
+}
+
 func TestGetDiffRefShowsCommittedPatch(t *testing.T) {
 	dir, base := repoCommittedOnBase(t)
 	d, err := GetDiff(context.Background(), dir, "a.txt", base)

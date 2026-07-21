@@ -206,3 +206,94 @@ func TestSealEvidenceIdempotent(t *testing.T) {
 		t.Error("second seal recomputed evidence; must be immutable no-op")
 	}
 }
+
+// TestSealEvidenceScopesToEndCommit is the fan-out over-attribution guard: with EndCommit set, evidence
+// must reflect only the run's own commit (mine.txt), never a sibling that merged into the shared tree
+// afterward (sibling.txt) — which a working-tree-vs-baseline diff (today's behavior) would wrongly list.
+func TestSealEvidenceScopesToEndCommit(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "base")
+	base, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// this run's own commit
+	if err := os.WriteFile(filepath.Join(dir, "mine.txt"), []byte("x\ny\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "mine")
+	mine, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a sibling's work merged onto the shared tree AFTER this run's commit (would leak into a base diff)
+	if err := os.WriteFile(filepath.Join(dir, "sibling.txt"), []byte("s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "sibling")
+
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: dir, BaseCommit: base, EndCommit: mine, CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Evidence == nil {
+		t.Fatal("expected sealed evidence")
+	}
+	paths := map[string]bool{}
+	for _, f := range run.Evidence.Files {
+		paths[f.Path] = true
+	}
+	if !paths["mine.txt"] {
+		t.Errorf("expected mine.txt, got files %+v", run.Evidence.Files)
+	}
+	if paths["sibling.txt"] {
+		t.Errorf("sibling.txt (merged after EndCommit) leaked into evidence: %+v", run.Evidence.Files)
+	}
+}
+
+// TestSealEvidenceFallsBackWithoutEndCommit guards the common single-run case: no reported commit falls
+// back to the working-tree-vs-baseline diff, so uncommitted work the worker left is still captured.
+func TestSealEvidenceFallsBackWithoutEndCommit(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "base")
+	base, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// uncommitted working-tree change (EndCommit stays empty)
+	if err := os.WriteFile(filepath.Join(dir, "wt.txt"), []byte("w\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := &waveobj.Run{
+		ID: "r2", Status: RunStatus_Done, ProjectPath: dir, BaseCommit: base, CreatedTs: 1000, // EndCommit empty
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range run.Evidence.Files {
+		if f.Path == "wt.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected working-tree file wt.txt in fallback, got %+v", run.Evidence.Files)
+	}
+}

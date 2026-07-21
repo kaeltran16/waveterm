@@ -83,6 +83,31 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true}, nil
 }
 
+// GetRangeChanges computes the per-file changes introduced by the commit range base..end — the commits
+// reachable from end but not base — as name-status + numstat. Unlike GetChanges it never consults the
+// working tree or untracked files, so a run's evidence reflects exactly the commits it produced, immune
+// to whatever else landed on the shared working tree (the delegator fan-out over-attribution). Paths are
+// cwd-relative (--relative), matching GetChanges. Returns IsRepo=false when cwd is not a repo; errors on
+// a git failure (e.g. an unresolvable end SHA) so the caller can fall back.
+func GetRangeChanges(ctx context.Context, cwd, base, end string) (*Changes, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &Changes{IsRepo: false}, nil
+	}
+	rangeSpec := base + ".." + end
+	nameStatus, err := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", rangeSpec)
+	if err != nil {
+		return nil, err
+	}
+	numstat, err := run(ctx, cwd, "diff", "--numstat", "--relative", rangeSpec)
+	if err != nil {
+		return nil, err
+	}
+	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
+}
+
 // nameStatusToStatusZ converts `git diff --name-status -z` output into the porcelain -z entries
 // ("X  path\0") that parseStatusZ (TS) and parseNumstatStatus (Go) already consume. Rename/copy
 // (R/C) collapse to "M" on the new path, so no extra source-path field is emitted (the parsers only

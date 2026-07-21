@@ -240,6 +240,7 @@ type Run struct {
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
 	ProjectPath string          `json:"projectpath"`          // worker cwd (copied from the channel)
 	BaseCommit  string          `json:"basecommit,omitempty"` // HEAD of ProjectPath at run creation; anchors the evidence diff
+	EndCommit   string          `json:"endcommit,omitempty"`  // commit the worker reported as its finished work; scopes the evidence diff to BaseCommit..EndCommit (else falls back to the working-tree diff)
 	Principles  PrincipleList   `json:"principles,omitempty"` // resolved at CreateRun; fed to every phase worker prompt
 	Status      string          `json:"status"`               // planning | awaiting-review | executing | blocked | done | cancelled
 	Phases      []RunPhase      `json:"phases"`
@@ -272,7 +273,6 @@ type EvidenceFile struct {
 	Stat string `json:"stat"` // "A" | "M" | "D"
 	Add  int    `json:"add"`
 	Del  int    `json:"del"`
-	By   string `json:"by,omitempty"`
 }
 
 type EvidenceVerif struct {
