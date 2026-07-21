@@ -27,6 +27,27 @@ func TestApplyRunActionTriage(t *testing.T) {
 	}
 }
 
+func TestApplyRunActionCompleteStoresEndCommit(t *testing.T) {
+	r := jarvis.NewRun("do X", "ws", "/p", nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	// complete with a reported commit -> stored on the run as EndCommit (scopes the sealed evidence diff)
+	next, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Complete, PhaseIdx: 0, Commit: "abc123"}, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if next.EndCommit != "abc123" {
+		t.Errorf("EndCommit = %q, want abc123", next.EndCommit)
+	}
+	// a non-complete action must never set EndCommit even if a commit is (spuriously) supplied
+	r2 := jarvis.NewRun("do Y", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	next2, err := applyRunAction(r2, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Triage, PhaseIdx: 0, Verdict: "quick", Commit: "deadbeef"}, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if next2.EndCommit != "" {
+		t.Errorf("triage must not set EndCommit, got %q", next2.EndCommit)
+	}
+}
+
 func TestApplyRunActionUnknown(t *testing.T) {
 	r := jarvis.NewRun("g", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	if _, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: "bogus"}, 0); err == nil {

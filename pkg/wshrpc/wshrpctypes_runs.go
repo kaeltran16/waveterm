@@ -41,6 +41,7 @@ type CommandAdvanceRunData struct {
 	Artifacts []string `json:"artifacts,omitempty"` // artifacts to record on complete
 	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
 	Note      string   `json:"note,omitempty"`      // triage: one-line reason
+	Commit    string   `json:"commit,omitempty"`    // reported result commit; stored on Run.EndCommit for the complete action
 }
 
 type CommandCancelRunData struct {
@@ -65,6 +66,7 @@ type CommandReportRunPhaseData struct {
 	Artifacts []string `json:"artifacts,omitempty"` // recorded on complete
 	Verdict   string   `json:"verdict,omitempty"`   // triage: quick | plan
 	Note      string   `json:"note,omitempty"`      // triage: one-line reason
+	Commit    string   `json:"commit,omitempty"`    // reported result commit; forwarded to AdvanceRun, stored on Run.EndCommit
 }
 
 type CommandCreateChildRunData struct {

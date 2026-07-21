@@ -259,18 +259,30 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	// transcript-derived: summary (last worker) + verifications (all workers)
 	var summary string
 	var verifs []waveobj.EvidenceVerif
-	worker, lines := lastWorkerTranscript(run)
+	_, lines := lastWorkerTranscript(run)
 	if len(lines) > 0 {
 		summary = finalAssistantText(lines)
 		verifs = verificationCommands(lines)
 	}
 
-	// git-derived: files touched. a git failure or a context timeout must NOT seal an empty file list into
-	// the immutable snapshot — return an error and leave Evidence nil so the backfill (SealRunEvidenceCommand)
-	// retries once git recovers. a clean non-repo result (IsRepo false, no error) is a legitimate empty.
+	// git-derived: files touched. prefer the run's own commit range (BaseCommit..EndCommit) — under
+	// delegator fan-out the shared ProjectPath tree holds every sibling merged since BaseCommit, so a
+	// working-tree diff over-attributes. fall back to the working-tree-vs-baseline diff when the worker
+	// reported no commit (the common single-run case, unchanged) or the reported SHA is unresolvable.
+	// a git failure or context timeout must NOT seal an empty file list into the immutable snapshot —
+	// return an error and leave Evidence nil so the backfill (SealRunEvidenceCommand) retries. a clean
+	// non-repo result (IsRepo false, no error) is a legitimate empty.
 	var files []waveobj.EvidenceFile
 	var addTotal, delTotal int
-	ch, gerr := gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit)
+	var ch *gitinfo.Changes
+	var gerr error
+	if run.EndCommit != "" && run.EndCommit != run.BaseCommit {
+		if ch, gerr = gitinfo.GetRangeChanges(ctx, run.ProjectPath, run.BaseCommit, run.EndCommit); gerr != nil {
+			ch, gerr = gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit) // reported SHA unresolvable
+		}
+	} else {
+		ch, gerr = gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit)
+	}
 	if gerr != nil {
 		return fmt.Errorf("evidence: computing git changes: %w", gerr)
 	}
@@ -280,9 +292,6 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	if ch.IsRepo {
 		files = parseNumstatStatus(ch.Numstat, ch.StatusZ)
 		for i := range files {
-			if worker != "" {
-				files[i].By = worker
-			}
 			addTotal += files[i].Add
 			delTotal += files[i].Del
 		}

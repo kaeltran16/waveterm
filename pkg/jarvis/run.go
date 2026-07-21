@@ -331,7 +331,7 @@ func BuildPhasePrompt(phase waveobj.RunPhase, goal string, priorArtifacts []stri
 	if len(priorArtifacts) > 0 {
 		fmt.Fprintf(&b, "Prior artifacts to build on: %s\n", strings.Join(priorArtifacts, ", "))
 	}
-	b.WriteString("When the deliverable is fully written, run `wsh jarvis complete <deliverable-path>` (pass the path to the file you produced) to record it and hand the run off to the next phase. Run it only once the deliverable actually exists.\n")
+	b.WriteString("When the deliverable is fully written, commit your work, then run `wsh jarvis complete <deliverable-path> --commit $(git rev-parse HEAD)` from your working tree (the deliverable path, and the SHA of your own final commit) to record it and hand the run off to the next phase. Run it only once the deliverable actually exists.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -344,7 +344,7 @@ func BuildQuickPrompt(goal string, principles waveobj.PrincipleList) string {
 	}
 	b.WriteString("You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the AskUserQuestion tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n")
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
-	b.WriteString("When the goal is fully accomplished, run `wsh jarvis complete`.\n")
+	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes.\n")
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -360,7 +360,7 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate 
 	if gate {
 		b.WriteString("Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
 		b.WriteString("First write the plan to a file, then run `wsh jarvis hold <plan-file-path>` (pass the path so it can be reviewed) and wait — do not dispatch any subagents until you are told to proceed.\n")
-		b.WriteString("If this goal is actually a backlog of INDEPENDENT, individually substantial units (a list of issues, several unrelated features), do not execute them all in one context. Make your plan file a decomposition checklist: each unit, the `wsh jarvis run --mode <quick|pipeline|orchestrator>` you will use for it (map small->quick, medium->pipeline, large->orchestrator), and its dependency order; then `wsh jarvis hold <plan-file-path>` as above. After you are told to proceed, create ONE child run per ready unit with `wsh jarvis run \"<unit description + how to verify it>\"` — keep at most 2-3 in flight, and only start a unit whose dependencies have already reported done. You will be woken with a one-line `[jarvis] child <id> ... -> done|cancelled` status per unit; never open a child's transcript, diff, or evidence — that line is all you need. If a unit reports cancelled, use AskUserQuestion to ask whether to retry it or continue without it. When every unit has reported done (or you were told to skip it), run `wsh jarvis complete`. If instead this goal is a single cohesive task, ignore this paragraph and execute it yourself with in-process subagents.\n")
+		b.WriteString("If this goal is actually a backlog of INDEPENDENT, individually substantial units (a list of issues, several unrelated features), do not execute them all in one context. Make your plan file a decomposition checklist: each unit, the `wsh jarvis run --mode <quick|pipeline|orchestrator>` you will use for it (map small->quick, medium->pipeline, large->orchestrator), and its dependency order; then `wsh jarvis hold <plan-file-path>` as above. After you are told to proceed, create ONE child run per ready unit with `wsh jarvis run \"<unit description + how to verify it>\"` — keep at most 2-3 in flight, and only start a unit whose dependencies have already reported done. You will be woken with a one-line `[jarvis] child <id> ... -> done|cancelled` status per unit; never open a child's transcript, diff, or evidence — that line is all you need. If a unit reports cancelled, use AskUserQuestion to ask whether to retry it or continue without it. When every unit has reported done (or you were told to skip it), run `wsh jarvis complete --commit $(git rev-parse HEAD)` (its evidence is the aggregate of the children merged into your tree). If instead this goal is a single cohesive task, ignore this paragraph and execute it yourself with in-process subagents.\n")
 	} else {
 		// adaptive: size up the goal first and announce the call (non-blocking) before doing the work.
 		b.WriteString("First size up the goal, then announce your call:\n")
@@ -372,6 +372,6 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate 
 	// blocks); a question typed in prose does not render, so the run proceeds without an answer.
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up mid-run — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders as an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose: a prose question does not render as a question, so the run just proceeds without an answer.\n")
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
-	b.WriteString("When the goal is fully accomplished, run `wsh jarvis complete`.\n")
+	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes.\n")
 	return strings.TrimRight(b.String(), "\n")
 }

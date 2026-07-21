@@ -41,7 +41,8 @@ var jarvisCompleteCmd = &cobra.Command{
 		if len(args) > 0 && args[0] != "" {
 			artifacts = []string{args[0]} // the deliverable path the next phase builds on / the gate previews
 		}
-		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts})
+		commit, _ := cmd.Flags().GetString("commit")
+		return reportRunPhase(wshrpc.CommandReportRunPhaseData{Action: "complete", Artifacts: artifacts, Commit: commit})
 	},
 	PreRunE: preRunSetupRpcClient,
 }
@@ -86,6 +87,7 @@ var jarvisRunCmd = &cobra.Command{
 
 func init() {
 	jarvisRunCmd.Flags().String("mode", "", "child run mode: quick|pipeline|orchestrator (default: inherit the channel strategy)")
+	jarvisCompleteCmd.Flags().String("commit", "", "SHA of your finished work (e.g. $(git rev-parse HEAD)); scopes this run's evidence diff to its own commits")
 	jarvisCmd.AddCommand(jarvisHoldCmd)
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
 	jarvisCmd.AddCommand(jarvisTriageCmd)

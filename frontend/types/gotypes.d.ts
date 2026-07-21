@@ -245,6 +245,7 @@ declare global {
         artifacts?: string[];
         verdict?: string;
         note?: string;
+        commit?: string;
     };
 
     // wshrpc.CommandAnswerAgentData
@@ -974,6 +975,7 @@ declare global {
         artifacts?: string[];
         verdict?: string;
         note?: string;
+        commit?: string;
     };
 
     // wshrpc.CommandResolveIdsData
@@ -1317,7 +1319,6 @@ declare global {
         stat: string;
         add: number;
         del: number;
-        by?: string;
     };
 
     // waveobj.EvidenceVerif
@@ -1932,6 +1933,7 @@ declare global {
         workspaceid: string;
         projectpath: string;
         basecommit?: string;
+        endcommit?: string;
         principles?: Principle[];
         status: string;
         phases: RunPhase[];

@@ -60,8 +60,6 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
     }
     const counts = verifCounts(ev.verifs ?? []);
     const nodes = phaseHistory(run);
-    const summaryInitial = (ev.files?.[0]?.by ?? "worker").slice(0, 1).toUpperCase();
-    const worker = ev.files?.[0]?.by ?? "worker";
     return (
         <div className="sc min-h-0 flex-1 overflow-y-auto">
             {/* header */}
@@ -107,15 +105,11 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                         {/* completion summary */}
                         <Section label="Completion summary">
                             {ev.summary ? (
-                                <div className="flex items-start gap-3">
-                                    <div className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg bg-accent font-mono text-[11px] font-bold text-background">{summaryInitial}</div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="mb-1.5 flex items-center gap-2">
-                                            <span className="font-mono text-[12px] text-secondary">{worker}</span>
-                                            <span className="rounded border border-edge-mid bg-background px-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.07em] text-ink-mid">final response</span>
-                                        </div>
-                                        <p className="text-[13.5px] leading-[1.62] text-secondary">{ev.summary}</p>
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1.5 flex items-center gap-2">
+                                        <span className="rounded border border-edge-mid bg-background px-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.07em] text-ink-mid">final response</span>
                                     </div>
+                                    <p className="text-[13.5px] leading-[1.62] text-secondary">{ev.summary}</p>
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-edge-mid bg-background px-3.5 py-3">
@@ -130,7 +124,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                             label="Files touched"
                             right={
                                 <>
-                                    <span className="font-mono text-[10px] text-ink-faint">derived from worker transcripts</span>
+                                    <span className="font-mono text-[10px] text-ink-faint">git diff since run baseline</span>
                                     <span className="font-mono text-[11px] font-semibold text-success">+{ev.addtotal}</span>
                                     <span className="font-mono text-[11px] font-semibold text-error">−{ev.deltotal}</span>
                                 </>
@@ -145,7 +139,6 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     >
                                         <span className={"w-[15px] text-center font-mono text-[11px] font-bold " + statColor(f.stat)}>{f.stat}</span>
                                         <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-secondary">{f.path}</span>
-                                        {f.by ? <span className="font-mono text-[10px] text-muted">{f.by}</span> : null}
                                         <span className="w-[34px] text-right font-mono text-[10.5px] font-semibold text-success">+{f.add}</span>
                                         <span className="w-[30px] text-right font-mono text-[10.5px] font-semibold text-error">−{f.del}</span>
                                     </button>
