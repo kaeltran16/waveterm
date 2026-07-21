@@ -51,7 +51,21 @@ export interface DailyUsage {
 }
 
 export interface UsageStats {
-    totals: { tokensToday: number; tokensWeek: number; spendTodayUsd: number; spendWeekUsd: number };
+    totals: {
+        tokensToday: number;
+        tokensWeek: number;
+        spendTodayUsd: number;
+        spendWeekUsd: number;
+        // whole-loaded-window aggregates (all-time when the loader asks for windowdays=0); the card
+        // row swaps to these under the All-time toggle. claude/codex split mirrors the today card.
+        tokensWindow: number;
+        spendWindowUsd: number;
+        claudeTokensWindow: number;
+        codexTokensWindow: number;
+        activeDays: number; // distinct days with any usage in the window
+        busiestDay: string | null; // "YYYY-MM-DD" of the day with the most tokens
+        busiestTokens: number;
+    };
     split: ClassUsage[]; // all providers, the window, fixed order [cacheRead, output, cacheWrite, input]
     daily: DailyUsage[]; // ascending; zero-filled idle days; capped to last 30 in range
     dailyTruncated: boolean; // true when the day range exceeded the cap
@@ -112,8 +126,8 @@ function bucketTokens(b: UsageBucket): number {
 }
 
 // Fold backend buckets into the surface's UsageStats. today/week totals stay date-filtered
-// (today = current local day; week = rolling 7); the split, daily series, and per-model breakdown
-// fold the WHOLE loaded window (the window is chosen by the loader's windowdays).
+// (today = current local day; week = rolling 7); the window totals, split, daily series, and
+// per-model breakdown fold the WHOLE loaded window (the window is chosen by the loader's windowdays).
 export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStats {
     const today = localDayKey(now);
     const weekStart = localDayKey(now - 6 * DAY_MS);
@@ -121,6 +135,11 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStat
     let tokensWeek = 0;
     let spendTodayUsd = 0;
     let spendWeekUsd = 0;
+    let tokensWindow = 0;
+    let spendWindowUsd = 0;
+    let claudeTokensWindow = 0;
+    let codexTokensWindow = 0;
+    const dayTotal = new Map<string, number>(); // all-provider tokens per day, for activeDays/busiest
 
     const classTok: Record<TokenClass, number> = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     const classSpd: Record<TokenClass, number> = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -177,6 +196,29 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStat
             tokensToday += tk;
             spendTodayUsd += sp;
         }
+
+        // window totals (whole loaded range, all providers)
+        tokensWindow += tk;
+        spendWindowUsd += sp;
+        if (b.provider === "codex") {
+            codexTokensWindow += tk;
+        } else if (b.provider === "claude") {
+            claudeTokensWindow += tk;
+        }
+        dayTotal.set(b.day, (dayTotal.get(b.day) ?? 0) + tk);
+    }
+
+    let activeDays = 0;
+    let busiestDay: string | null = null;
+    let busiestTokens = 0;
+    for (const [day, tokens] of dayTotal) {
+        if (tokens > 0) {
+            activeDays++;
+        }
+        if (tokens > busiestTokens) {
+            busiestTokens = tokens;
+            busiestDay = day;
+        }
     }
 
     const split: ClassUsage[] = CLASS_ORDER.map((cls) => ({
@@ -216,7 +258,25 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStat
         })
         .sort((a, b) => (PROVIDER_RANK[a.provider] ?? 99) - (PROVIDER_RANK[b.provider] ?? 99));
 
-    return { totals: { tokensToday, tokensWeek, spendTodayUsd, spendWeekUsd }, split, daily, dailyTruncated, providers };
+    return {
+        totals: {
+            tokensToday,
+            tokensWeek,
+            spendTodayUsd,
+            spendWeekUsd,
+            tokensWindow,
+            spendWindowUsd,
+            claudeTokensWindow,
+            codexTokensWindow,
+            activeDays,
+            busiestDay,
+            busiestTokens,
+        },
+        split,
+        daily,
+        dailyTruncated,
+        providers,
+    };
 }
 
 // Pure: the model-usage grid class. A single provider fills the full row (dropping lg:grid-cols-2, which

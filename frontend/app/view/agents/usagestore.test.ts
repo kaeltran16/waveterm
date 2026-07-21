@@ -9,10 +9,24 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
 
+const zeroTotals = {
+    tokensToday: 0,
+    tokensWeek: 0,
+    spendTodayUsd: 0,
+    spendWeekUsd: 0,
+    tokensWindow: 0,
+    spendWindowUsd: 0,
+    claudeTokensWindow: 0,
+    codexTokensWindow: 0,
+    activeDays: 0,
+    busiestDay: null as string | null,
+    busiestTokens: 0,
+};
+
 afterEach(() => {
     getStats.mockReset();
     globalStore.set(usageStatsAtom, {
-        totals: { tokensToday: 0, tokensWeek: 0, spendTodayUsd: 0, spendWeekUsd: 0 },
+        totals: { ...zeroTotals },
         split: [],
         daily: [],
         dailyTruncated: false,
@@ -25,7 +39,7 @@ afterEach(() => {
 describe("loadUsage", () => {
     it("aggregates returned buckets into the stats atom and clears the error flag", async () => {
         const sentinel = {
-            totals: { tokensToday: -1, tokensWeek: -1, spendTodayUsd: 0, spendWeekUsd: 0 },
+            totals: { ...zeroTotals, tokensToday: -1, tokensWeek: -1 },
             split: [],
             daily: [],
             dailyTruncated: false,
@@ -43,7 +57,7 @@ describe("loadUsage", () => {
 
     it("keeps the last-good stats and flags error when the RPC throws", async () => {
         const good = {
-            totals: { tokensToday: 5, tokensWeek: 5, spendTodayUsd: 0, spendWeekUsd: 0 },
+            totals: { ...zeroTotals, tokensToday: 5, tokensWeek: 5 },
             split: [],
             daily: [],
             dailyTruncated: false,

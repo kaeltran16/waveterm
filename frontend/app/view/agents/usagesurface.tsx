@@ -63,6 +63,12 @@ function pctStr(n: number): string {
     if (n < 0.1) return n <= 0 ? "0%" : "<0.1%";
     return +n.toFixed(1) + "%";
 }
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// "YYYY-MM-DD" -> "Jul 15" for the busiest-day card sub-line.
+function dayLabel(day: string): string {
+    const [, m, d] = day.split("-").map(Number);
+    return `${MONTH_SHORT[m - 1] ?? "?"} ${d}`;
+}
 function ageStr(ms: number): string {
     const s = Math.max(0, Math.floor(ms / 1000));
     if (s < 60) return s + "s";
@@ -582,14 +588,37 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     ) : (
                         <motion.div variants={cardVariants} initial={revealHistory ? "initial" : false} animate="animate">
                             <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                                <StatCard
-                                    label="Tokens · today"
-                                    value={fmt(claudeToday + codexToday)}
-                                    sub={`claude ${fmt(claudeToday)} · codex ${fmt(codexToday)}`}
-                                />
-                                <StatCard label="Spend · today" value={`≈ ${usd(stats.totals.spendTodayUsd)}`} sub="API-equivalent" />
-                                <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} sub={cachePctSub} />
-                                <StatCard label="Spend · 7 days" value={`≈ ${usd(stats.totals.spendWeekUsd)}`} sub="API-equivalent" />
+                                {usageWindow === "7d" ? (
+                                    <>
+                                        <StatCard
+                                            label="Tokens · today"
+                                            value={fmt(claudeToday + codexToday)}
+                                            sub={`claude ${fmt(claudeToday)} · codex ${fmt(codexToday)}`}
+                                        />
+                                        <StatCard label="Spend · today" value={`≈ ${usd(stats.totals.spendTodayUsd)}`} sub="API-equivalent" />
+                                        <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} sub={cachePctSub} />
+                                        <StatCard label="Spend · 7 days" value={`≈ ${usd(stats.totals.spendWeekUsd)}`} sub="API-equivalent" />
+                                    </>
+                                ) : (
+                                    <>
+                                        <StatCard
+                                            label="Tokens · all time"
+                                            value={fmt(stats.totals.tokensWindow)}
+                                            sub={`claude ${fmt(stats.totals.claudeTokensWindow)} · codex ${fmt(stats.totals.codexTokensWindow)}`}
+                                        />
+                                        <StatCard label="Spend · all time" value={`≈ ${usd(stats.totals.spendWindowUsd)}`} sub="API-equivalent" />
+                                        <StatCard
+                                            label="Daily avg"
+                                            value={fmt(stats.totals.activeDays > 0 ? stats.totals.tokensWindow / stats.totals.activeDays : 0)}
+                                            sub={`over ${stats.totals.activeDays} active day${stats.totals.activeDays === 1 ? "" : "s"}`}
+                                        />
+                                        <StatCard
+                                            label="Busiest day"
+                                            value={fmt(stats.totals.busiestTokens)}
+                                            sub={stats.totals.busiestDay ? dayLabel(stats.totals.busiestDay) : "—"}
+                                        />
+                                    </>
+                                )}
                             </div>
 
                             <SplitCard split={stats.split} />

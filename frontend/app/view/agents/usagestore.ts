@@ -15,7 +15,19 @@ import { aggregateBuckets, type UsageStats } from "./usagestats";
 const DEFAULT_WINDOW_DAYS = 7;
 
 const EMPTY: UsageStats = {
-    totals: { tokensToday: 0, tokensWeek: 0, spendTodayUsd: 0, spendWeekUsd: 0 },
+    totals: {
+        tokensToday: 0,
+        tokensWeek: 0,
+        spendTodayUsd: 0,
+        spendWeekUsd: 0,
+        tokensWindow: 0,
+        spendWindowUsd: 0,
+        claudeTokensWindow: 0,
+        codexTokensWindow: 0,
+        activeDays: 0,
+        busiestDay: null,
+        busiestTokens: 0,
+    },
     split: [
         { cls: "cacheRead", label: "Cache read", tokens: 0, spendUsd: 0 },
         { cls: "output", label: "Output", tokens: 0, spendUsd: 0 },

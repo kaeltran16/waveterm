@@ -43,6 +43,24 @@ describe("aggregateBuckets", () => {
         expect(stats.totals.tokensWeek).toBe(150);
     });
 
+    it("computes whole-window totals, active days, and busiest day across all loaded buckets", () => {
+        const stats = aggregateBuckets(
+            [
+                bkt({ provider: "claude", day: today, input: 100 }),
+                bkt({ provider: "claude", day: "2026-05-01", input: 300 }), // older than a week
+                bkt({ provider: "codex", model: "gpt-5.5", day: "2026-05-01", input: 50 }),
+            ],
+            now
+        );
+        expect(stats.totals.tokensWindow).toBe(450); // includes >7d buckets, unlike tokensWeek
+        expect(stats.totals.claudeTokensWindow).toBe(400);
+        expect(stats.totals.codexTokensWindow).toBe(50);
+        expect(stats.totals.activeDays).toBe(2);
+        expect(stats.totals.busiestDay).toBe("2026-05-01"); // 300 + 50 = 350 beats today's 100
+        expect(stats.totals.busiestTokens).toBe(350);
+        expect(stats.totals.spendWindowUsd).toBeGreaterThan(0);
+    });
+
     it("by-model pct is over the whole loaded window (includes >7d buckets), desc by tokens", () => {
         const stats = aggregateBuckets(
             [
@@ -98,7 +116,19 @@ describe("aggregateBuckets", () => {
 
     it("returns empty shapes for no buckets", () => {
         expect(aggregateBuckets([], now)).toEqual({
-            totals: { tokensToday: 0, tokensWeek: 0, spendTodayUsd: 0, spendWeekUsd: 0 },
+            totals: {
+                tokensToday: 0,
+                tokensWeek: 0,
+                spendTodayUsd: 0,
+                spendWeekUsd: 0,
+                tokensWindow: 0,
+                spendWindowUsd: 0,
+                claudeTokensWindow: 0,
+                codexTokensWindow: 0,
+                activeDays: 0,
+                busiestDay: null,
+                busiestTokens: 0,
+            },
             split: [
                 { cls: "cacheRead", label: "Cache read", tokens: 0, spendUsd: 0 },
                 { cls: "output", label: "Output", tokens: 0, spendUsd: 0 },

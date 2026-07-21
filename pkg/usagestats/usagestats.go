@@ -12,7 +12,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -227,6 +229,28 @@ func readLines(path string) []string {
 	return lines
 }
 
+// filterUsageLines returns the subset of lines that could carry Claude token usage — only assistant
+// messages hold a "usage" object, so a line lacking that substring can never produce a record
+// (extractClaude would skip it anyway). Dropping them avoids a full json.Unmarshal of every
+// user/tool/summary line, the dominant per-file cost. Non-destructive: the input is left intact for
+// callers that also try a Codex parse on the same lines. Output through extractClaude is identical
+// to parsing every line (Codex-shaped lines never match: "total_token_usage" has no leading quote
+// before "usage", and any stray match isn't type:"assistant" so it yields no record).
+func filterUsageLines(lines []string) []string {
+	var out []string
+	for _, ln := range lines {
+		if strings.Contains(ln, `"usage"`) {
+			out = append(out, ln)
+		}
+	}
+	return out
+}
+
+// readClaudeLines reads a Claude transcript, keeping only usage-bearing lines (see filterUsageLines).
+func readClaudeLines(path string) []string {
+	return filterUsageLines(readLines(path))
+}
+
 // inWindow reports whether the file at path was modified at/after cutoff. A zero cutoff
 // (windowDays <= 0) means all-time — always true. Unstatable files are excluded.
 func inWindow(path string, cutoff time.Time) bool {
@@ -240,24 +264,32 @@ func inWindow(path string, cutoff time.Time) bool {
 	return !info.ModTime().Before(cutoff)
 }
 
-// scanRoots walks the Claude and Codex transcript roots, prunes files by modtime to the window
-// (with a 1-day margin), parses + dedups them, and returns buckets. Missing roots yield nothing.
-func scanRoots(claudeRoot, codexRoot string, windowDays int) []Bucket {
-	var cutoff time.Time
-	if windowDays > 0 {
-		cutoff = time.Now().AddDate(0, 0, -windowDays-1)
-	}
-	var records []Record
-	_ = filepath.WalkDir(claudeRoot, func(path string, d fs.DirEntry, err error) error {
+// scanFile is one transcript to parse, tagged with the parser it needs.
+type scanFile struct {
+	path  string
+	codex bool
+}
+
+// walkClaudeFiles collects in-window Claude transcript files (recursively, so subagent dirs are
+// included), pruning by modtime against cutoff.
+func walkClaudeFiles(root string, cutoff time.Time) []scanFile {
+	var files []scanFile
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
 		if inWindow(path, cutoff) {
-			records = append(records, extractClaude(readLines(path))...)
+			files = append(files, scanFile{path: path})
 		}
 		return nil
 	})
-	_ = filepath.WalkDir(codexRoot, func(path string, d fs.DirEntry, err error) error {
+	return files
+}
+
+// walkCodexFiles collects in-window Codex rollout files (rollout-*.jsonl), pruning by modtime.
+func walkCodexFiles(root string, cutoff time.Time) []scanFile {
+	var files []scanFile
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -266,11 +298,57 @@ func scanRoots(claudeRoot, codexRoot string, windowDays int) []Bucket {
 			return nil
 		}
 		if inWindow(path, cutoff) {
-			records = append(records, extractCodex(readLines(path))...)
+			files = append(files, scanFile{path: path, codex: true})
 		}
 		return nil
 	})
-	return bucket(dedupe(records))
+	return files
+}
+
+// parseFiles reads + parses each transcript concurrently, bounded to NumCPU workers, and returns
+// the concatenated (un-deduped) records. The all-time corpus is GBs across thousands of files, and
+// a single-threaded json.Unmarshal per line dominated load time; fanning the per-file parse across
+// cores is the bulk of the speedup. Result order is unspecified — callers dedupe + bucket, both
+// order-independent. Codex files are read whole (the model lives on a turn_context line, so they
+// can't be pre-filtered); Claude files skip lines that can't carry usage (readClaudeLines).
+func parseFiles(files []scanFile) []Record {
+	workers := runtime.NumCPU()
+	if workers < 1 {
+		workers = 1
+	}
+	results := make([][]Record, len(files))
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for i, f := range files {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, f scanFile) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if f.codex {
+				results[i] = extractCodex(readLines(f.path))
+			} else {
+				results[i] = extractClaude(readClaudeLines(f.path))
+			}
+		}(i, f)
+	}
+	wg.Wait()
+	var records []Record
+	for _, r := range results {
+		records = append(records, r...)
+	}
+	return records
+}
+
+// scanRoots walks the Claude and Codex transcript roots, prunes files by modtime to the window
+// (with a 1-day margin), parses + dedups them, and returns buckets. Missing roots yield nothing.
+func scanRoots(claudeRoot, codexRoot string, windowDays int) []Bucket {
+	var cutoff time.Time
+	if windowDays > 0 {
+		cutoff = time.Now().AddDate(0, 0, -windowDays-1)
+	}
+	files := append(walkClaudeFiles(claudeRoot, cutoff), walkCodexFiles(codexRoot, cutoff)...)
+	return bucket(dedupe(parseFiles(files)))
 }
 
 // ScanUsage aggregates usage from the user's Claude + Codex transcripts within the last
@@ -309,7 +387,7 @@ func subagentRecords(parentPath string) []Record {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		recs = append(recs, extractClaude(readLines(path))...)
+		recs = append(recs, extractClaude(readClaudeLines(path))...)
 		return nil
 	})
 	return recs
@@ -325,7 +403,9 @@ func transcriptRecords(path string) []Record {
 	if len(lines) == 0 {
 		return nil
 	}
-	recs := extractClaude(lines)
+	// Claude parse runs on the usage-filtered subset; the Codex fallback needs the full lines (its
+	// model + token counts live on non-usage lines), so filterUsageLines must not mutate `lines`.
+	recs := extractClaude(filterUsageLines(lines))
 	if len(recs) == 0 {
 		return extractCodex(lines)
 	}
@@ -366,7 +446,7 @@ func LastCacheWrite(path string) (*CacheWrite, error) {
 		return nil, nil
 	}
 	var last *Record
-	for _, r := range extractClaude(lines) {
+	for _, r := range extractClaude(filterUsageLines(lines)) {
 		if r.CacheCreate <= 0 {
 			continue
 		}
@@ -415,16 +495,6 @@ func WindowTokens(cutoffs []time.Time) ([]int, error) {
 		prune = earliest.AddDate(0, 0, -1)
 	}
 
-	var records []Record
-	_ = filepath.WalkDir(claudeRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
-			return nil
-		}
-		if !inWindow(path, prune) {
-			return nil
-		}
-		records = append(records, extractClaude(readLines(path))...)
-		return nil
-	})
+	records := parseFiles(walkClaudeFiles(claudeRoot, prune))
 	return sumRecordsSinceCutoffs(dedupe(records), cutoffs), nil
 }

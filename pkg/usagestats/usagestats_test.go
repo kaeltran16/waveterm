@@ -39,6 +39,24 @@ func TestExtractClaudeSkips(t *testing.T) {
 	}
 }
 
+func TestFilterUsageLines(t *testing.T) {
+	in := []string{
+		`{"type":"assistant","message":{"usage":{"input_tokens":1}}}`, // kept
+		`{"type":"user","message":{}}`,                                // dropped
+		`{"payload":{"info":{"total_token_usage":{"input_tokens":9}}}}`, // Codex: dropped (no "usage" match)
+	}
+	orig := append([]string(nil), in...) // snapshot to assert non-destructiveness
+	got := filterUsageLines(in)
+	if len(got) != 1 || got[0] != in[0] {
+		t.Fatalf("want only the assistant-usage line, got %+v", got)
+	}
+	for i := range orig {
+		if in[i] != orig[i] {
+			t.Fatalf("filterUsageLines mutated its input at %d: %q != %q", i, in[i], orig[i])
+		}
+	}
+}
+
 func TestExtractClaudeNoDedupKeyWhenMissing(t *testing.T) {
 	line := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","message":{"id":"msg_1","model":"claude-opus-4","usage":{"output_tokens":5}}}`
 	got := extractClaude([]string{line})
