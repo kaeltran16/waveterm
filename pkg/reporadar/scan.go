@@ -93,6 +93,7 @@ func collectAll(ctx context.Context, projectName, projectPath string, sinceTs in
 	run(CollectorTranscript, func() ([]waveobj.RadarSignal, error) { return collectTranscript(ctx, in) })
 	run(CollectorMemory, func() ([]waveobj.RadarSignal, error) { return collectMemory(ctx, in, projectName) })
 	run(CollectorConfig, func() ([]waveobj.RadarSignal, error) { return collectConfig(ctx, in) })
+	run(CollectorDependency, func() ([]waveobj.RadarSignal, error) { return collectDependency(ctx, in) })
 	res.signals = dedupSignals(res.signals)
 	return res, nil
 }

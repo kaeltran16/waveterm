@@ -9,6 +9,7 @@ import {
     composeRunGoal,
     coverageEntries,
     DEFAULT_OPEN_GROUPS,
+    failedLenses,
     filterByMode,
     findingMode,
     findingSignalCount,
@@ -351,5 +352,18 @@ describe("radar modes", () => {
     test("modeFilterOptions returns present modes in canonical order", () => {
         const fs = [{ mode: "debt" }, { mode: "correctness" }] as RadarFinding[];
         expect(modeFilterOptions(fs)).toEqual(["correctness", "debt"]);
+    });
+
+    test("failedLenses returns only clustering-failed mode runs", () => {
+        const report = {
+            moderuns: [
+                { mode: "correctness", status: "completed" },
+                { mode: "security", status: "clustering-failed", clustererror: "boom" },
+            ],
+        } as RadarReport;
+        const failed = failedLenses(report);
+        expect(failed).toHaveLength(1);
+        expect(failed[0].mode).toBe("security");
+        expect(failedLenses(null)).toHaveLength(0);
     });
 });

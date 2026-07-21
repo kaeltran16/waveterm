@@ -15,6 +15,8 @@ func candidatesForMode(mode string, sigs []waveobj.RadarSignal) []waveobj.RadarS
 	switch mode {
 	case ModeCorrectness:
 		return sigs
+	case ModeSecurity:
+		return candidatesForSecurity(sigs)
 	default:
 		return sigs
 	}
@@ -27,6 +29,8 @@ func admissibleForMode(mode string, supporting []waveobj.RadarSignal, strength s
 	switch mode {
 	case ModeCorrectness:
 		return !(strength == StrengthLimited && !hasExplicitFailure(supporting))
+	case ModeSecurity:
+		return admissibleForSecurity(supporting)
 	default:
 		return !(strength == StrengthLimited && !hasExplicitFailure(supporting))
 	}
@@ -36,7 +40,39 @@ func admissibleForMode(mode string, supporting []waveobj.RadarSignal, strength s
 // their cases; the default is the correctness framing.
 func modeTaskLine(mode string) string {
 	switch mode {
+	case ModeSecurity:
+		return "propose security-risk hypotheses — exploitable boundary fragility grounded in the evidence, never speculative vulnerabilities"
 	default:
 		return "propose correctness-risk hypotheses"
 	}
+}
+
+// candidatesForSecurity narrows the shared pool to what the security lens clusters over: the
+// security-classified signals (boundaries + self-sufficient facts) plus the churn/failure signals that
+// can be their consequence. Correctness-only noise (plain no-test structure facts, memory) is dropped.
+func candidatesForSecurity(sigs []waveobj.RadarSignal) []waveobj.RadarSignal {
+	var out []waveobj.RadarSignal
+	for _, s := range sigs {
+		if isSecurityClassified(s) || isSecurityConsequence(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// admissibleForSecurity enforces the security trust gate: a finding must cite BOTH a security-boundary
+// classification AND a consequence signal. A config-security or dependency-pin fact satisfies both on
+// its own (it is a standing security fact); a structure security boundary needs a separate churn/failure
+// consequence — a boundary that never changed and never failed is not fragile.
+func admissibleForSecurity(supporting []waveobj.RadarSignal) bool {
+	hasBoundary, hasConsequence := false, false
+	for _, s := range supporting {
+		if isSecurityClassified(s) {
+			hasBoundary = true
+		}
+		if isSecurityConsequence(s) {
+			hasConsequence = true
+		}
+	}
+	return hasBoundary && hasConsequence
 }

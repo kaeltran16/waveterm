@@ -35,3 +35,29 @@ func TestCollectConfigUnpairedMigration(t *testing.T) {
 		t.Fatal("expected the unpaired 0007 migration to be flagged")
 	}
 }
+
+func TestCollectConfigSecurityFacts(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	writeFile(t, dir, "config/app.yaml", "cors:\n  origin: \"*\"\nauth_enabled: false\n")
+	writeFile(t, dir, "config/safe.yaml", "feature_flag: true\n")
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+
+	sigs, err := collectConfig(context.Background(), collectInput{projectPath: dir})
+	if err != nil {
+		t.Fatalf("collectConfig: %v", err)
+	}
+	issues := map[string]bool{}
+	for _, s := range sigs {
+		if hasClass(s, ClassConfigSecurity) {
+			issues[s.Facts["issue"].(string)] = true
+			if s.Snippet != "" {
+				t.Fatal("config-security signals must not carry a raw snippet (no secret exposure)")
+			}
+		}
+	}
+	if !issues["permissive-cors"] || !issues["disabled-auth"] {
+		t.Fatalf("expected both config-security issues, got %v", issues)
+	}
+}

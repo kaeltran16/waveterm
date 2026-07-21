@@ -6,6 +6,8 @@ package reporadar
 import (
 	"context"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 func TestCollectStructureClassifies(t *testing.T) {
@@ -47,5 +49,38 @@ func TestCollectStructureClassifies(t *testing.T) {
 	}
 	if flagged["src/pay.ts"] {
 		t.Fatal("source with an adjacent test (pay.ts) must not be flagged")
+	}
+}
+
+func TestCollectStructureTagsSecurityBoundaries(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-q")
+	writeFile(t, dir, "src/auth/session.ts", "export const login = () => {}\n") // security-relevant
+	writeFile(t, dir, "src/util/format.ts", "export const fmt = () => {}\n")     // not
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-q", "-m", "init")
+
+	sigs, err := collectStructure(context.Background(), collectInput{projectPath: dir})
+	if err != nil {
+		t.Fatalf("collectStructure: %v", err)
+	}
+	var boundary *waveobj.RadarSignal
+	for i := range sigs {
+		if hasClass(sigs[i], ClassSecurityBoundary) {
+			for _, p := range sigs[i].Paths {
+				if p == "src/util/format.ts" {
+					t.Fatal("non-security path must not be tagged a boundary")
+				}
+			}
+			if sigs[i].Paths[0] == "src/auth/session.ts" {
+				boundary = &sigs[i]
+			}
+		}
+	}
+	if boundary == nil {
+		t.Fatal("expected a security-boundary signal for src/auth/session.ts")
+	}
+	if boundary.Facts["boundary"] != "auth" {
+		t.Fatalf("expected boundary=auth, got %v", boundary.Facts["boundary"])
 	}
 }

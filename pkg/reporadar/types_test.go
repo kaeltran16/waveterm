@@ -34,3 +34,25 @@ func TestRiskKindsGloballyUnique(t *testing.T) {
 		}
 	}
 }
+
+func TestSecurityRiskKindsValid(t *testing.T) {
+	for _, k := range V1SecurityRiskKinds {
+		if !ValidRiskKind(ModeSecurity, k) {
+			t.Fatalf("security kind %q should be valid under ModeSecurity", k)
+		}
+		if ValidRiskKind(ModeCorrectness, k) {
+			t.Fatalf("security kind %q must be rejected under ModeCorrectness", k)
+		}
+	}
+	if len(V1SecurityRiskKinds) != 4 {
+		t.Fatalf("expected 4 security risk kinds, got %d", len(V1SecurityRiskKinds))
+	}
+}
+
+func TestFactClassConstantsDistinct(t *testing.T) {
+	// the dependency-pin fact class must NOT reuse the dependency-exposure risk-kind string, so the
+	// two namespaces stay independent.
+	if ClassDependencyPin == RiskDependencyExposure {
+		t.Fatal("dependency-pin fact class must differ from the dependency-exposure risk kind")
+	}
+}

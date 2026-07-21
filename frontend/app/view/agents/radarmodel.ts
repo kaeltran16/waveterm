@@ -335,3 +335,8 @@ export function modeFilterOptions(findings: RadarFinding[]): RadarMode[] {
 export function filterByMode(findings: RadarFinding[], mode: RadarMode | "all"): RadarFinding[] {
     return mode === "all" ? (findings ?? []) : (findings ?? []).filter((f) => findingMode(f) === mode);
 }
+
+// failedLenses returns the mode runs that failed to cluster — the per-lens error banner's source.
+export function failedLenses(report: RadarReport | null): RadarModeRun[] {
+    return (report?.moderuns ?? []).filter((r) => r.status === "clustering-failed");
+}

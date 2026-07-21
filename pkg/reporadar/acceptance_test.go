@@ -129,6 +129,35 @@ func TestAcceptanceSecondScanReclassifies(t *testing.T) {
 	}
 }
 
+func TestAcceptanceSecurityLensRuns(t *testing.T) {
+	ctx := context.Background()
+	dir := buildFixtureRepo(t)
+	var seen string
+	withFakeSynthFn(t, clusterFirstMultiSignalGroup(&seen))
+
+	rpt, _ := wstore.CreateRadarReport(ctx, "pay", dir)
+	runScan(ctx, rpt.OID)
+	got, _ := wstore.GetRadarReport(ctx, rpt.OID)
+
+	// both lenses ran and completed (the fake returns a correctness kind, so the security lens completes
+	// with zero admitted findings — but it ran, which is the point).
+	modes := map[string]string{}
+	for _, r := range got.ModeRuns {
+		modes[r.Mode] = r.Status
+	}
+	if modes[ModeCorrectness] != ModeRunCompleted || modes[ModeSecurity] != ModeRunCompleted {
+		t.Fatalf("expected both lenses completed, got %+v", got.ModeRuns)
+	}
+	// the correctness finding is intact and stamped correctness (empty back-compat default still holds).
+	if len(got.Findings) < 1 || got.Findings[0].Mode != ModeCorrectness {
+		t.Fatalf("correctness finding must survive unchanged, got %+v", got.Findings)
+	}
+	// the planted secret still never reaches the payload, through either lens.
+	if strings.Contains(seen, "sk-ABCDEF0123456789") {
+		t.Fatal("planted secret leaked into the model payload")
+	}
+}
+
 // firstMultiSignalGroup returns the signal IDs and their files for the first subsystem group in the
 // payload that has >=2 signals (strong enough that a citing finding survives validation).
 func firstMultiSignalGroup(payload string) ([]string, []string) {

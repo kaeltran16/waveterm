@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Radar, XCircle } from "lucide-rea
 import { classifyCoverage, coverageEntries, type CoverageCell, type RadarScanState } from "./radarmodel";
 import { cancelScan, retryClustering, startScan } from "./radarstore";
 
-const COLLECTORS = ["structure", "git", "runs", "transcript", "memory", "config"];
+const COLLECTORS = ["structure", "git", "runs", "transcript", "memory", "config", "dependency"];
 
 const CELL_TONE: Record<CoverageCell, string> = {
     done: "text-success",
@@ -22,6 +22,7 @@ const EXAMINES = [
     "Agent failures, retries & corrections",
     "Project memory",
     "Config & migration boundaries",
+    "Dependency manifest pins",
 ];
 
 function IconTile({ icon: Icon, tone, spin }: { icon: typeof Radar; tone: string; spin?: boolean }) {

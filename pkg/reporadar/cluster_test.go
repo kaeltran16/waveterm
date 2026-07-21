@@ -34,7 +34,7 @@ func TestClusterModesRecordsCompletedRun(t *testing.T) {
 		newSignal(CollectorTranscript, "tx:1", 3, []string{"src/pay/a.ts"}, "z", nil, ""),
 	}
 	fn := fakeStreamCiting([]string{sigs[0].ID, sigs[1].ID, sigs[2].ID}, []string{"src/pay/a.ts"})
-	findings, runs := clusterModes(context.Background(), "pay", "/repos/pay", sigs, V1Modes, fn)
+	findings, runs := clusterModes(context.Background(), "pay", "/repos/pay", sigs, []string{ModeCorrectness}, fn)
 	if len(runs) != 1 || runs[0].Mode != ModeCorrectness || runs[0].Status != ModeRunCompleted {
 		t.Fatalf("want 1 completed correctness run, got %+v", runs)
 	}
@@ -48,7 +48,7 @@ func TestClusterModesRecordsCompletedRun(t *testing.T) {
 
 func TestClusterModesRecordsFailure(t *testing.T) {
 	fn := func(ctx context.Context, prompt string) ([]string, error) { return nil, fmt.Errorf("boom") }
-	findings, runs := clusterModes(context.Background(), "pay", "/repos/pay", nil, V1Modes, fn)
+	findings, runs := clusterModes(context.Background(), "pay", "/repos/pay", nil, []string{ModeCorrectness}, fn)
 	if len(findings) != 0 {
 		t.Fatalf("no findings expected on failure, got %d", len(findings))
 	}

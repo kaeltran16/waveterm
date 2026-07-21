@@ -7,16 +7,18 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
     DEFAULT_OPEN_GROUPS,
+    findingMode,
     findingSignalCount,
     groupFindings,
     groupMeta,
     GROUP_ORDER,
     investigationBadge,
     isMutedGroup,
+    MODE_META,
     strengthPips,
     type RadarGroup,
 } from "./radarmodel";
-import { severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
+import { modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 
 function StrengthPips({ strength }: { strength: string }) {
     const filled = strengthPips(strength);
@@ -123,6 +125,16 @@ export function RadarFindingsList({
                                                   {f.severity}
                                               </span>
                                               <span className="truncate font-mono text-[10px] text-muted">{f.subsystem}</span>
+                                              {findingMode(f) !== "correctness" ? (
+                                                  <span
+                                                      className={cn(
+                                                          "shrink-0 rounded border px-1 py-px text-[8px] font-bold uppercase tracking-wide",
+                                                          modeBadge(findingMode(f))
+                                                      )}
+                                                  >
+                                                      {MODE_META[findingMode(f)].short}
+                                                  </span>
+                                              ) : null}
                                               <span className="flex-1" />
                                               {!muted ? <StrengthPips strength={f.strength} /> : null}
                                           </div>

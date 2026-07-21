@@ -6,15 +6,17 @@ import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, Target } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
 import {
+    findingMode,
     findingSignalCount,
     findingSourceCount,
     groupMeta,
+    MODE_META,
     referencedSignals,
     strengthPips,
     timelineEntries,
     toPendingRunDraft,
 } from "./radarmodel";
-import { severityPill, collectorText, TONE_DOT, TONE_TEXT } from "./radarstyles";
+import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 import { pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { setDisposition } from "./radarstore";
 
@@ -83,6 +85,11 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                     <span className={cn("rounded px-2 py-0.5 font-semibold uppercase tracking-wide", severityPill(finding.severity))}>
                         {finding.severity} severity
                     </span>
+                    {findingMode(finding) !== "correctness" ? (
+                        <span className={cn("rounded border px-2 py-0.5 font-semibold uppercase tracking-wide", modeBadge(findingMode(finding)))}>
+                            {MODE_META[findingMode(finding)].label}
+                        </span>
+                    ) : null}
                     <span className="flex items-center gap-1.5 rounded bg-surface px-2 py-0.5 text-muted-foreground">
                         evidence
                         <span className="flex gap-0.5">

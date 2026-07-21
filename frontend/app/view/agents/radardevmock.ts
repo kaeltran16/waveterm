@@ -13,6 +13,8 @@ export const RADAR_SCENARIOS = [
     "clustering",
     "results",
     "partial",
+    "security",
+    "lens-failed",
     "no-findings",
     "model-failed",
     "cancelled",
@@ -95,6 +97,45 @@ export function buildScenario(name: string): RadarReport {
             return base({ status: "failed", clustererror: "model returned invalid output", candidates: SIGNALS });
         case "cancelled":
             return base({ status: "cancelled" });
+        case "security":
+            return base({
+                status: "completed",
+                coverage: { structure: "ok", git: "ok", runs: "ok", config: "ok", dependency: "ok" },
+                moderuns: [
+                    { mode: "correctness", status: "completed", findingcount: 1 },
+                    { mode: "security", status: "completed", findingcount: 2 },
+                ],
+                findings: [
+                    finding("a", "new"),
+                    finding("s1", "new", {
+                        mode: "security",
+                        riskkind: "auth-boundary-fragility",
+                        subsystem: "src/auth",
+                        severity: "high",
+                        risk: "Auth session boundary churns without test adjacency",
+                        why: "session.ts changed 4 times in the window with no covering test change; two agents needed correction here.",
+                    }),
+                    finding("s2", "recurring", {
+                        mode: "security",
+                        riskkind: "dependency-exposure",
+                        subsystem: "package.json",
+                        severity: "medium",
+                        strength: "limited",
+                        risk: "jsonwebtoken pinned to a floating ^ range",
+                        why: "a floating range on an auth-critical dependency can pull an unreviewed version on install.",
+                    }),
+                ],
+            });
+        case "lens-failed":
+            return base({
+                status: "partial",
+                coverage: { structure: "ok", git: "ok", runs: "ok", config: "ok", dependency: "ok" },
+                moderuns: [
+                    { mode: "correctness", status: "completed", findingcount: 1 },
+                    { mode: "security", status: "clustering-failed", clustererror: "model returned invalid output" },
+                ],
+                findings: [finding("a", "new")],
+            });
         case "results":
         default:
             return base({

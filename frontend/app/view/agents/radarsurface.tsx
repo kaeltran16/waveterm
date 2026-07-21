@@ -14,9 +14,15 @@ import {
     classifyScanState,
     coverageEntries,
     type CoverageCell,
+    failedLenses,
+    filterByMode,
+    findingMode,
     groupSummary,
     isResultsState,
+    MODE_META,
+    modeFilterOptions,
     projectsWithPath,
+    type RadarMode,
     rescanLabel,
     resolveSelection,
     scanScopeLabel,
@@ -26,7 +32,7 @@ import { pendingRunDraftAtom } from "./runactions";
 import { RadarFindingDetail } from "./radarfindingdetail";
 import { RadarFindingsList } from "./radarfindingslist";
 import { RadarScanStatePanel } from "./radarscanstatepanel";
-import { TONE_DOT } from "./radarstyles";
+import { modeBadge, TONE_DOT } from "./radarstyles";
 import {
     currentReportAtom,
     findNewestScannedProject,
@@ -35,6 +41,7 @@ import {
     pickInitialScope,
     radarScopeAtom,
     radarSelectedIdAtom,
+    retryClustering,
     startScan,
     type RadarScope,
 } from "./radarstore";
@@ -153,7 +160,12 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 
     const state = classifyScanState(report);
     const isResults = isResultsState(state);
-    const findings = report?.findings ?? [];
+    const [modeFilter, setModeFilter] = useState<RadarMode | "all">("all");
+    const allFindings = report?.findings ?? [];
+    const modeOptions = modeFilterOptions(allFindings);
+    // if the active filter's mode vanished after a re-scan, fall back to "all" so the list is never stuck empty.
+    const activeMode = modeFilter !== "all" && !modeOptions.includes(modeFilter) ? "all" : modeFilter;
+    const findings = filterByMode(allFindings, activeMode);
     const effectiveSelected = resolveSelection(findings, selectedId);
     const selectedFinding = findings.find((f) => f.id === effectiveSelected);
     const coverage = report ? coverageEntries(report) : [];
@@ -220,6 +232,33 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                     <div className="flex h-full flex-col">
                         {/* summary chips + hypotheses disclaimer */}
                         <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
+                            {modeOptions.length > 1 ? (
+                                <div className="flex items-center gap-1.5">
+                                    {(["all", ...modeOptions] as (RadarMode | "all")[]).map((m) => {
+                                        const on = activeMode === m;
+                                        return (
+                                            <button
+                                                key={m}
+                                                type="button"
+                                                onClick={() => setModeFilter(m)}
+                                                className={cn(
+                                                    "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold",
+                                                    m === "all"
+                                                        ? on
+                                                            ? "border-accent/40 bg-accent/15 text-accent-soft"
+                                                            : "border-border text-muted hover:text-secondary"
+                                                        : on
+                                                          ? modeBadge(m)
+                                                          : "border-border text-muted hover:text-secondary"
+                                                )}
+                                            >
+                                                {m === "all" ? "All" : MODE_META[m].label}
+                                            </button>
+                                        );
+                                    })}
+                                    <span className="mx-1 h-4 w-px bg-border" />
+                                </div>
+                            ) : null}
                             {groupSummary(findings)
                                 .filter((s) => s.count > 0)
                                 .map((s) => (
@@ -242,6 +281,26 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                     <b>Partial scan.</b> Some collectors did not complete — findings that rely on the missing
                                     evidence may be absent.
                                 </span>
+                            </div>
+                        ) : null}
+
+                        {failedLenses(report).length > 0 ? (
+                            <div className="flex items-center gap-2.5 border-b border-border bg-error/10 px-6 py-2 text-xs text-error">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                <span className="flex-1">
+                                    <b>Lens failed.</b>{" "}
+                                    {failedLenses(report)
+                                        .map((r) => MODE_META[findingMode({ mode: r.mode } as RadarFinding)].label)
+                                        .join(", ")}{" "}
+                                    did not cluster — the other lenses' findings are shown.
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => fireAndForget(() => retryClustering(report.oid))}
+                                    className="shrink-0 rounded border border-error/40 px-2 py-0.5 font-semibold text-error hover:bg-error/15"
+                                >
+                                    Retry
+                                </button>
                             </div>
                         ) : null}
 

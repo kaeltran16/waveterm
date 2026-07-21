@@ -38,6 +38,7 @@ const (
 	CollectorTranscript = "transcript"
 	CollectorMemory     = "memory"
 	CollectorConfig     = "config"
+	CollectorDependency = "dependency"
 )
 
 // per-collector coverage status (RadarReport.Coverage values). Streamed as each collector runs so the
@@ -74,6 +75,28 @@ var V1RiskKinds = []string{
 	RiskRepeatedFailure, RiskRuntimeOnlyBehavior, RiskCrossLayerMismatch,
 }
 
+// v1 security-risk taxonomy (globally unique vs. the correctness kinds — see TestRiskKindsGloballyUnique)
+const (
+	RiskAuthBoundaryFragility      = "auth-boundary-fragility"
+	RiskSecretHandlingBoundaryRisk = "secret-handling-boundary-risk"
+	RiskInputValidationGap         = "input-validation-gap"
+	RiskDependencyExposure         = "dependency-exposure"
+)
+
+var V1SecurityRiskKinds = []string{
+	RiskAuthBoundaryFragility, RiskSecretHandlingBoundaryRisk,
+	RiskInputValidationGap, RiskDependencyExposure,
+}
+
+// signal fact-class tags (RadarSignal.Facts["classes"]). Distinct from risk kinds: a class labels
+// evidence, a risk kind labels a finding. ClassDependencyPin intentionally does NOT reuse the
+// dependency-exposure risk-kind string.
+const (
+	ClassSecurityBoundary = "security-boundary"
+	ClassConfigSecurity   = "config-security"
+	ClassDependencyPin    = "dependency-pin"
+)
+
 // scan modes (RadarFinding.Mode). Correctness is the only mode wired in Plan 1; the security and
 // debt lenses append themselves to V1Modes in their own plans.
 const (
@@ -83,12 +106,13 @@ const (
 )
 
 // V1Modes is the ordered set of modes a scan runs. Lens plans append ModeSecurity / ModeDebt.
-var V1Modes = []string{ModeCorrectness}
+var V1Modes = []string{ModeCorrectness, ModeSecurity}
 
 // RiskKindsByMode is the per-mode taxonomy. Kind names MUST be globally unique across modes (see
 // TestRiskKindsGloballyUnique) — that uniqueness is what lets the fingerprint stay mode-free.
 var RiskKindsByMode = map[string][]string{
 	ModeCorrectness: V1RiskKinds,
+	ModeSecurity:    V1SecurityRiskKinds,
 }
 
 // per-mode clustering outcome (RadarModeRun.Status)

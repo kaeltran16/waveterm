@@ -49,6 +49,17 @@ func collectStructure(ctx context.Context, in collectInput) ([]waveobj.RadarSign
 		facts := map[string]any{"classes": []string{"source-without-test"}}
 		sigs = append(sigs, newSignal(CollectorStructure, "struct:no-test:"+f, in.sinceTs, []string{f}, summary, facts, ""))
 	}
+	// security-boundary classification: tag tracked source files whose path is security-relevant. This
+	// is a fact (a boundary exists), never a defect — the security lens pairs it with a consequence.
+	for _, f := range files {
+		kind := securityBoundaryKind(f)
+		if kind == "" {
+			continue
+		}
+		summary := fmt.Sprintf("%s is a %s security boundary", f, kind)
+		facts := map[string]any{"classes": []string{ClassSecurityBoundary}, "boundary": kind}
+		sigs = append(sigs, newSignal(CollectorStructure, "struct:security-boundary:"+f, in.sinceTs, []string{f}, summary, facts, ""))
+	}
 	return sigs, nil
 }
 
