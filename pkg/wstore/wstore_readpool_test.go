@@ -5,12 +5,17 @@ package wstore
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	dbfs "github.com/wavetermdev/waveterm/db"
+	"github.com/wavetermdev/waveterm/pkg/util/migrateutil"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -142,5 +147,89 @@ func TestPostChannelMessageIfSerializesUnderRace(t *testing.T) {
 	}
 	if len(got.Messages) != 1 {
 		t.Fatalf("want 1 message persisted, got %d", len(got.Messages))
+	}
+}
+
+// The read pool rests on a load-bearing STARTUP/MIGRATION ORDERING invariant that the other tests
+// (all steady-state, run against the store TestMain already initialized) never exercise: readDB is a
+// mode=ro handle, and a mode=ro connection cannot create the DB/WAL files — so it is usable only AFTER
+// the writable handle has created and migrated the database (see wstore_dbsetup.go:32-35). That is why
+// InitWStore sequences MakeDB -> Migrate -> MakeReadDB, and Phase 1 (a Go startup backfill inside
+// InitWStore) is precisely the change that could reorder it. This pins the ordering with the real
+// startup primitives against an isolated temp store: the identical read fails before migration and
+// succeeds after. It then fans concurrent reads through the freshly opened pool (meaningful under
+// -race) to prove it serves the pool the moment ordering completes.
+//
+// Scope: this guards the schema-ordering half of the invariant. Reads routed to a still-nil readDB
+// (pool opened after any read fires) is an InitWStore call-ordering concern, not unit-testable without
+// refactoring InitWStore for handle injection — out of scope for Phase 0.
+func TestReadPoolStartupOrdering(t *testing.T) {
+	ctx := context.Background()
+
+	// Point the data dir at an isolated temp store for the duration. The package globals globalDB/
+	// readDB (opened by TestMain against the original dir) are untouched — nothing else in this
+	// package re-derives GetDBName() at call time, and these tests run sequentially.
+	origDataHome := wavebase.DataHome_VarCache
+	t.Cleanup(func() { wavebase.DataHome_VarCache = origDataHome })
+	tempDir := t.TempDir()
+	wavebase.DataHome_VarCache = tempDir
+	// EnsureWaveDBDir is cache-keyed and already ran in TestMain, so create the db subdir directly;
+	// MakeDB's mode=rwc creates the file but not its parent dir.
+	if err := os.MkdirAll(filepath.Join(tempDir, wavebase.WaveDBDir), 0o700); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+
+	// Ordering VIOLATION: a mode=ro pool opened before the DB exists cannot serve reads.
+	roBefore, err := MakeReadDB(ctx)
+	if err != nil {
+		t.Fatalf("open read pool: %v", err)
+	}
+	var n int
+	if err := roBefore.Get(&n, "SELECT count(*) FROM db_channel"); err == nil {
+		roBefore.Close()
+		t.Fatal("read via mode=ro pool succeeded before MakeDB+Migrate ran; startup ordering not enforced")
+	}
+	roBefore.Close()
+
+	// Satisfy the ordering: the writable handle creates the file, then migrations create the schema.
+	// Keep the write handle open (globalDB stays open for process life) — a mode=ro connection needs
+	// it to read a WAL database.
+	writeDB, err := MakeDB(ctx)
+	if err != nil {
+		t.Fatalf("open write handle: %v", err)
+	}
+	defer writeDB.Close()
+	if err := migrateutil.Migrate("wstore", writeDB.DB, dbfs.WStoreMigrationFS, "migrations-wstore"); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Ordering SATISFIED: the same read now succeeds through a freshly opened pool.
+	roAfter, err := MakeReadDB(ctx)
+	if err != nil {
+		t.Fatalf("reopen read pool: %v", err)
+	}
+	defer roAfter.Close()
+	if err := roAfter.Get(&n, "SELECT count(*) FROM db_channel"); err != nil {
+		t.Fatalf("read via mode=ro pool failed after MakeDB+Migrate: %v", err)
+	}
+
+	// The pool serves concurrent readers correctly right after startup ordering completes; readers >
+	// ReadDBMaxConns exercises connection reuse under contention. Meaningful under -race.
+	const readers = 16
+	errs := make([]error, readers)
+	var wg sync.WaitGroup
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			var cnt int
+			errs[idx] = roAfter.Get(&cnt, "SELECT count(*) FROM db_channel")
+		}(i)
+	}
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("concurrent read %d through freshly opened pool failed: %v", i, e)
+		}
 	}
 }
