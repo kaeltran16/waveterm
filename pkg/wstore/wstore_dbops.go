@@ -38,7 +38,7 @@ func getOTypeGen[T waveobj.WaveObj]() string {
 }
 
 func DBGetCount[T waveobj.WaveObj](ctx context.Context) (int, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (int, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (int, error) {
 		table := tableNameGen[T]()
 		query := fmt.Sprintf("SELECT count(*) FROM %s", table)
 		return tx.GetInt(query), nil
@@ -48,7 +48,7 @@ func DBGetCount[T waveobj.WaveObj](ctx context.Context) (int, error) {
 // returns (num named workespaces, num total workspaces, error)
 func DBGetWSCounts(ctx context.Context) (int, int, error) {
 	var named, total int
-	err := WithTx(ctx, func(tx *TxWrap) error {
+	err := WithReadTx(ctx, func(tx *TxWrap) error {
 		query := `SELECT count(*) FROM db_workspace WHERE COALESCE(json_extract(data, '$.name'), '') <> ''`
 		named = tx.GetInt(query)
 		query = `SELECT count(*) FROM db_workspace`
@@ -64,7 +64,7 @@ func DBGetWSCounts(ctx context.Context) (int, int, error) {
 var viewRe = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
 
 func DBGetBlockViewCounts(ctx context.Context) (map[string]int, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (map[string]int, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (map[string]int, error) {
 		query := `SELECT COALESCE(json_extract(data, '$.meta.view'), '') AS view FROM db_block`
 		views := tx.SelectStrings(query)
 		rtn := make(map[string]int)
@@ -105,7 +105,7 @@ func DBGetSingleton[T waveobj.WaveObj](ctx context.Context) (T, error) {
 }
 
 func DBGetSingletonByType(ctx context.Context, otype string) (waveobj.WaveObj, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (waveobj.WaveObj, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (waveobj.WaveObj, error) {
 		table := tableNameFromOType(otype)
 		query := fmt.Sprintf("SELECT oid, version, data FROM %s LIMIT 1", table)
 		var row idDataType
@@ -123,7 +123,7 @@ func DBGetSingletonByType(ctx context.Context, otype string) (waveobj.WaveObj, e
 }
 
 func DBExistsORef(ctx context.Context, oref waveobj.ORef) (bool, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (bool, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (bool, error) {
 		table := tableNameFromOType(oref.OType)
 		query := fmt.Sprintf("SELECT oid FROM %s WHERE oid = ?", table)
 		return tx.Exists(query, oref.OID), nil
@@ -149,7 +149,7 @@ func DBMustGet[T waveobj.WaveObj](ctx context.Context, id string) (T, error) {
 }
 
 func DBGetORef(ctx context.Context, oref waveobj.ORef) (waveobj.WaveObj, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (waveobj.WaveObj, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (waveobj.WaveObj, error) {
 		table := tableNameFromOType(oref.OType)
 		query := fmt.Sprintf("SELECT oid, version, data FROM %s WHERE oid = ?", table)
 		var row idDataType
@@ -167,7 +167,7 @@ func DBGetORef(ctx context.Context, oref waveobj.ORef) (waveobj.WaveObj, error) 
 }
 
 func dbSelectOIDs(ctx context.Context, otype string, oids []string) ([]waveobj.WaveObj, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) ([]waveobj.WaveObj, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]waveobj.WaveObj, error) {
 		table := tableNameFromOType(otype)
 		query := fmt.Sprintf("SELECT oid, version, data FROM %s WHERE oid IN (SELECT value FROM json_each(?))", table)
 		var rows []idDataType
@@ -190,7 +190,7 @@ func DBSelectORefs(ctx context.Context, orefs []waveobj.ORef) ([]waveobj.WaveObj
 	for _, oref := range orefs {
 		oidsByType[oref.OType] = append(oidsByType[oref.OType], oref.OID)
 	}
-	return WithTxRtn(ctx, func(tx *TxWrap) ([]waveobj.WaveObj, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]waveobj.WaveObj, error) {
 		rtn := make([]waveobj.WaveObj, 0, len(orefs))
 		for otype, oids := range oidsByType {
 			rtnArr, err := dbSelectOIDs(tx.Context(), otype, oids)
@@ -204,7 +204,7 @@ func DBSelectORefs(ctx context.Context, orefs []waveobj.ORef) ([]waveobj.WaveObj
 }
 
 func DBGetAllOIDsByType(ctx context.Context, otype string) ([]string, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) ([]string, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]string, error) {
 		rtn := make([]string, 0)
 		table := tableNameFromOType(otype)
 		query := fmt.Sprintf("SELECT oid FROM %s", table)
@@ -218,7 +218,7 @@ func DBGetAllOIDsByType(ctx context.Context, otype string) ([]string, error) {
 }
 
 func DBGetAllObjsByType[T waveobj.WaveObj](ctx context.Context, otype string) ([]T, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) ([]T, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]T, error) {
 		rtn := make([]T, 0)
 		table := tableNameFromOType(otype)
 		query := fmt.Sprintf("SELECT oid, version, data FROM %s", table)
@@ -238,7 +238,7 @@ func DBGetAllObjsByType[T waveobj.WaveObj](ctx context.Context, otype string) ([
 }
 
 func DBResolveEasyOID(ctx context.Context, oid string) (*waveobj.ORef, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (*waveobj.ORef, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (*waveobj.ORef, error) {
 		for _, rtype := range waveobj.AllWaveObjTypes() {
 			otype := reflect.Zero(rtype).Interface().(waveobj.WaveObj).GetOType()
 			table := tableNameFromOType(otype)
@@ -362,7 +362,7 @@ func DBInsert(ctx context.Context, val waveobj.WaveObj) error {
 }
 
 func DBFindTabForBlockId(ctx context.Context, blockId string) (string, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (string, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (string, error) {
 		iterNum := 1
 		for {
 			if iterNum > 5 {
@@ -391,7 +391,7 @@ func DBFindTabForBlockId(ctx context.Context, blockId string) (string, error) {
 }
 
 func DBFindWorkspaceForTabId(ctx context.Context, tabId string) (string, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (string, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (string, error) {
 		query := `
 			WITH variable(value) AS (
 				SELECT ?
@@ -410,7 +410,7 @@ func DBFindWorkspaceForTabId(ctx context.Context, tabId string) (string, error) 
 }
 
 func DBFindWindowForWorkspaceId(ctx context.Context, workspaceId string) (string, error) {
-	return WithTxRtn(ctx, func(tx *TxWrap) (string, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) (string, error) {
 		query := `
 			SELECT w.oid
 			FROM db_window w WHERE json_extract(data, '$.workspaceid') = ?`
