@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -147,35 +148,18 @@ func runScan(ctx context.Context, reportId string) {
 	})
 	publish(reportId)
 
-	groups, payloadTokens := prepareCandidates(cr.signals, DefaultRadarPayloadBudget)
-	wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
-		r.PayloadTokens = payloadTokens
-	})
-	publish(reportId)
-
 	setStatus(ctx, reportId, StatusClustering, "clustering")
 	if ctx.Err() != nil {
 		finishCancelled(ctx, reportId)
 		return
 	}
 
-	resp, stream, serr := synthesize(ctx, rpt.ProjectName, groups, synthStreamFn)
-	if serr != nil {
-		if ctx.Err() != nil {
-			finishCancelled(ctx, reportId)
-			return
-		}
-		finishClusterFailed(reportId, serr.Error())
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, cr.signals, V1Modes, synthStreamFn)
+	if ctx.Err() != nil {
+		finishCancelled(ctx, reportId)
 		return
 	}
-	wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
-		r.ConfiguredModel = ConfiguredRadarModel
-		r.ResolvedModel = stream.modelID
-		r.TotalTokens = stream.totalTokens
-		r.TotalTokensEstimated = !stream.haveUsage
-	})
-
-	finalizeFindings(ctx, reportId, resp, cr.signals, cr.partialSources)
+	finalizeFindings(ctx, reportId, findings, modeRuns, cr.signals, cr.partialSources)
 }
 
 // synthStreamFn is the model runner used by runScan. Production defaults to runSonnet; tests
@@ -191,24 +175,12 @@ func runClusterOnly(ctx context.Context, reportId string) {
 		return
 	}
 	setStatus(ctx, reportId, StatusClustering, "clustering")
-	groups, _ := prepareCandidates(rpt.Candidates, DefaultRadarPayloadBudget)
-	resp, stream, serr := synthesize(ctx, rpt.ProjectName, groups, synthStreamFn)
-	if serr != nil {
-		if ctx.Err() != nil {
-			finishCancelled(ctx, reportId)
-			return
-		}
-		finishClusterFailed(reportId, serr.Error())
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, V1Modes, synthStreamFn)
+	if ctx.Err() != nil {
+		finishCancelled(ctx, reportId)
 		return
 	}
-	wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
-		r.ConfiguredModel = ConfiguredRadarModel
-		r.ResolvedModel = stream.modelID
-		r.TotalTokens = stream.totalTokens
-		r.TotalTokensEstimated = !stream.haveUsage
-		r.ClusterError = ""
-	})
-	finalizeFindings(ctx, reportId, resp, rpt.Candidates, rpt.PartialSources)
+	finalizeFindings(ctx, reportId, findings, modeRuns, rpt.Candidates, rpt.PartialSources)
 }
 
 func finishClusterFailed(reportId, msg string) {
@@ -251,10 +223,86 @@ func finishCancelled(ctx context.Context, reportId string) {
 	publish(reportId)
 }
 
-// finalizeFindings validates the model response against the candidate signals, reconciles against
-// the previous successful report, prunes candidates down to only the signals referenced by findings,
-// and persists a completed (or partial) report.
-func finalizeFindings(ctx context.Context, reportId string, resp *SynthResponse, candidates []waveobj.RadarSignal, partialSources []string) {
+// clusterModes runs each scan mode over the shared signal pool: it selects that mode's candidates,
+// prepares + synthesizes + validates them, and returns the merged validated findings plus one
+// RadarModeRun per mode. A mode whose synthesis fails is recorded clustering-failed and skipped; the
+// loop continues so other lenses still deliver.
+func clusterModes(ctx context.Context, projectName, projectPath string, signals []waveobj.RadarSignal, modes []string, fn streamFn) ([]waveobj.RadarFinding, []waveobj.RadarModeRun) {
+	var merged []waveobj.RadarFinding
+	var runs []waveobj.RadarModeRun
+	for _, mode := range modes {
+		if ctx.Err() != nil {
+			return merged, runs
+		}
+		cand := candidatesForMode(mode, signals)
+		groups, payloadTokens := prepareCandidates(cand, DefaultRadarPayloadBudget)
+		run := waveobj.RadarModeRun{Mode: mode, PayloadTokens: payloadTokens}
+		resp, stream, serr := synthesize(ctx, projectName, mode, groups, fn)
+		if serr != nil {
+			if ctx.Err() != nil {
+				return merged, runs
+			}
+			run.Status = ModeRunClusterFailed
+			run.ClusterError = serr.Error()
+			runs = append(runs, run)
+			continue
+		}
+		byID := map[string]waveobj.RadarSignal{}
+		for _, s := range cand {
+			byID[s.ID] = s
+		}
+		validated := validateFindings(projectPath, mode, resp, byID)
+		run.Status = ModeRunCompleted
+		run.ResolvedModel = stream.modelID
+		run.TotalTokens = stream.totalTokens
+		run.TokensEstimated = !stream.haveUsage
+		run.FindingCount = len(validated)
+		runs = append(runs, run)
+		merged = append(merged, validated...)
+	}
+	return merged, runs
+}
+
+type modeRunAgg struct {
+	anyFailed     bool
+	allFailed     bool
+	estimated     bool
+	clusterErr    string
+	resolvedModel string
+	payloadTokens int
+	totalTokens   int
+}
+
+// aggregateModeRuns folds per-mode runs into the report's scan-wide fields.
+func aggregateModeRuns(runs []waveobj.RadarModeRun) modeRunAgg {
+	agg := modeRunAgg{allFailed: len(runs) > 0}
+	var errs []string
+	for _, r := range runs {
+		agg.payloadTokens += r.PayloadTokens
+		agg.totalTokens += r.TotalTokens
+		if r.TokensEstimated {
+			agg.estimated = true
+		}
+		if r.Status == ModeRunCompleted {
+			agg.allFailed = false
+			if agg.resolvedModel == "" {
+				agg.resolvedModel = r.ResolvedModel
+			}
+		} else {
+			agg.anyFailed = true
+			if r.ClusterError != "" {
+				errs = append(errs, r.Mode+": "+r.ClusterError)
+			}
+		}
+	}
+	agg.clusterErr = strings.Join(errs, "; ")
+	return agg
+}
+
+// finalizeFindings reconciles the merged validated findings against the previous successful report,
+// prunes candidates to referenced signals, folds per-mode runs into the scan-wide status, and
+// persists. It retains the candidate pool whenever any lens failed to cluster so Retry can reuse it.
+func finalizeFindings(ctx context.Context, reportId string, validated []waveobj.RadarFinding, modeRuns []waveobj.RadarModeRun, candidates []waveobj.RadarSignal, partialSources []string) {
 	rpt, err := wstore.GetRadarReport(ctx, reportId)
 	if err != nil {
 		log.Printf("reporadar: finalize load %s: %v", reportId, err)
@@ -264,7 +312,6 @@ func finalizeFindings(ctx context.Context, reportId string, resp *SynthResponse,
 	for _, s := range candidates {
 		byID[s.ID] = s
 	}
-	validated := validateFindings(rpt.ProjectPath, resp, byID)
 
 	evidenceTs := map[string]int64{}
 	for _, f := range validated {
@@ -280,7 +327,6 @@ func finalizeFindings(ctx context.Context, reportId string, resp *SynthResponse,
 	prev := latestSuccessfulExcluding(ctx, rpt.ProjectPath, reportId)
 	reconciled := reconcile(rpt.ProjectPath, validated, prev, evidenceTs)
 
-	// prune: keep only signals referenced by findings that live in this report's candidates
 	refIDs := map[string]bool{}
 	for _, f := range reconciled {
 		for _, id := range f.SignalIDs {
@@ -294,27 +340,41 @@ func finalizeFindings(ctx context.Context, reportId string, resp *SynthResponse,
 		}
 	}
 
+	agg := aggregateModeRuns(modeRuns)
 	status := StatusCompleted
-	if len(partialSources) > 0 {
+	if len(partialSources) > 0 || agg.anyFailed {
 		status = StatusPartial
 	}
+	if agg.allFailed {
+		status = StatusFailed
+	}
+
 	endHead, _ := gitHead(ctx, rpt.ProjectPath)
 	endDirty := gitDirtyFingerprint(ctx, rpt.ProjectPath)
-	if (rpt.StartHead != "" && endHead != "" && rpt.StartHead != endHead) || rpt.StartDirty != endDirty {
+	if status != StatusFailed && ((rpt.StartHead != "" && endHead != "" && rpt.StartHead != endHead) || rpt.StartDirty != endDirty) {
 		status = StatusPartial
 		partialSources = appendUnique(partialSources, "repository-changed")
 	}
 	wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
 		r.Findings = reconciled
 		r.Signals = kept
-		r.Candidates = nil // pruned after successful synthesis
+		r.ModeRuns = modeRuns
 		r.PartialSources = partialSources
+		r.ConfiguredModel = ConfiguredRadarModel
+		r.ResolvedModel = agg.resolvedModel
+		r.PayloadTokens = agg.payloadTokens
+		r.TotalTokens = agg.totalTokens
+		r.TotalTokensEstimated = agg.estimated
+		r.ClusterError = agg.clusterErr
 		r.EndHead = endHead
 		r.EndDirty = endDirty
 		r.WindowEndTs = nowMilli()
 		r.Status = status
 		r.Phase = ""
 		r.CompletedTs = nowMilli()
+		if !agg.anyFailed {
+			r.Candidates = nil // prune only when every lens succeeded
+		}
 	})
 	publish(reportId)
 }

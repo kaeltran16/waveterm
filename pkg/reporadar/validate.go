@@ -37,11 +37,11 @@ func evidenceStrength(sigs []waveobj.RadarSignal) string {
 // canonical subsystem + fingerprint + evidence strength for the survivors, dedups within the
 // report, and enforces the ten-finding cap with a deterministic keep-order. byID maps signal ID ->
 // canonical signal for the current report.
-func validateFindings(projectPath string, resp *SynthResponse, byID map[string]waveobj.RadarSignal) []waveobj.RadarFinding {
+func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[string]waveobj.RadarSignal) []waveobj.RadarFinding {
 	var out []waveobj.RadarFinding
 	seenFP := map[string]bool{}
 	for i, sf := range resp.Findings {
-		if !ValidRiskKind(sf.RiskKind) {
+		if !ValidRiskKind(mode, sf.RiskKind) {
 			continue
 		}
 		var supporting []waveobj.RadarSignal
@@ -65,8 +65,8 @@ func validateFindings(projectPath string, resp *SynthResponse, byID map[string]w
 			continue // scope does not resolve from the referenced signals' paths
 		}
 		strength := evidenceStrength(supporting)
-		if strength == StrengthLimited && !hasExplicitFailure(supporting) {
-			continue // one weak signal and no explicit failure
+		if !admissibleForMode(mode, supporting, strength) {
+			continue // fails this mode's admissibility gate
 		}
 		fp := fingerprint(projectPath, sf.RiskKind, subsystem)
 		if seenFP[fp] {
@@ -77,6 +77,7 @@ func validateFindings(projectPath string, resp *SynthResponse, byID map[string]w
 			ID:            fmt.Sprintf("f%d", i+1),
 			Fingerprint:   fp,
 			Group:         GroupNew, // Phase F reclassifies against the previous report
+			Mode:          mode,
 			RiskKind:      sf.RiskKind,
 			Subsystem:     subsystem,
 			BoundaryLabel: sf.BoundaryLabel,

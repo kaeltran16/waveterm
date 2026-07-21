@@ -4,7 +4,7 @@
 // Presentational token maps for the Radar surface, shared by the master list and detail pane so the
 // two never disagree on a color. Pure class-string lookups — no logic lives here (see radarmodel.ts).
 
-import type { RadarTone } from "./radarmodel";
+import type { RadarMode, RadarTone } from "./radarmodel";
 
 // Severity → pill classes + dot color. Unknown severities fall back to the low/accent styling.
 export const SEVERITY_PILL: Record<string, string> = {
@@ -44,4 +44,16 @@ const COLLECTOR_TEXT: Record<string, string> = {
 
 export function collectorText(collector: string): string {
     return COLLECTOR_TEXT[collector] ?? "text-muted";
+}
+
+// Mode → badge classes (border + faint fill + text), all @theme tokens. Correctness reuses the
+// surface's existing accent-soft treatment; security/debt reuse error/warning tones.
+export const MODE_BADGE: Record<RadarMode, string> = {
+    correctness: "border-accent/25 bg-accent/10 text-accent-soft",
+    security: "border-error/25 bg-error/10 text-error",
+    debt: "border-warning/25 bg-warning/10 text-warning",
+};
+
+export function modeBadge(mode: RadarMode): string {
+    return MODE_BADGE[mode] ?? MODE_BADGE.correctness;
 }

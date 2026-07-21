@@ -300,3 +300,38 @@ export function investigationBadge(f: RadarFinding): InvestigationBadge {
     }
     return null;
 }
+
+export type RadarMode = "correctness" | "security" | "debt";
+
+export const MODE_ORDER: RadarMode[] = ["correctness", "security", "debt"];
+
+const KNOWN_MODES = new Set<string>(MODE_ORDER);
+
+export interface ModeMeta {
+    label: string;
+    short: string;
+}
+
+export const MODE_META: Record<RadarMode, ModeMeta> = {
+    correctness: { label: "Correctness", short: "Corr" },
+    security: { label: "Security", short: "Sec" },
+    debt: { label: "Tech-debt", short: "Debt" },
+};
+
+// findingMode reads a finding's mode, defaulting empty/unknown to correctness (reports written before
+// the multi-mode change carry no mode).
+export function findingMode(f: RadarFinding): RadarMode {
+    const m = f.mode;
+    return (m && KNOWN_MODES.has(m) ? m : "correctness") as RadarMode;
+}
+
+// modeFilterOptions returns the distinct modes present among findings, in canonical order — the set
+// the surface's filter chips render.
+export function modeFilterOptions(findings: RadarFinding[]): RadarMode[] {
+    const present = new Set((findings ?? []).map(findingMode));
+    return MODE_ORDER.filter((m) => present.has(m));
+}
+
+export function filterByMode(findings: RadarFinding[], mode: RadarMode | "all"): RadarFinding[] {
+    return mode === "all" ? (findings ?? []) : (findings ?? []).filter((f) => findingMode(f) === mode);
+}

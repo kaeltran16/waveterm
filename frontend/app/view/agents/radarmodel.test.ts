@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
     buildRunDraft,
     classifyCoverage,
@@ -9,9 +9,12 @@ import {
     composeRunGoal,
     coverageEntries,
     DEFAULT_OPEN_GROUPS,
+    filterByMode,
+    findingMode,
     findingSignalCount,
     findingSourceCount,
     groupMeta,
+    modeFilterOptions,
     groupSummary,
     GROUP_ORDER,
     groupFindings,
@@ -328,5 +331,25 @@ describe("radar surface glue", () => {
         expect(classifyCoverage("partial")).toBe("failed");
         // a collector not yet reached (absent from the coverage map) is queued
         expect(classifyCoverage(undefined)).toBe("queued");
+    });
+});
+
+describe("radar modes", () => {
+    test("findingMode defaults empty/unknown to correctness", () => {
+        expect(findingMode({ mode: "" } as RadarFinding)).toBe("correctness");
+        expect(findingMode({ mode: "security" } as RadarFinding)).toBe("security");
+        expect(findingMode({ mode: "bogus" } as RadarFinding)).toBe("correctness");
+        expect(findingMode({} as RadarFinding)).toBe("correctness");
+    });
+
+    test("filterByMode passes all or filters to one mode", () => {
+        const fs = [{ mode: "correctness" }, { mode: "security" }] as RadarFinding[];
+        expect(filterByMode(fs, "all")).toHaveLength(2);
+        expect(filterByMode(fs, "security")).toHaveLength(1);
+    });
+
+    test("modeFilterOptions returns present modes in canonical order", () => {
+        const fs = [{ mode: "debt" }, { mode: "correctness" }] as RadarFinding[];
+        expect(modeFilterOptions(fs)).toEqual(["correctness", "debt"]);
     });
 });

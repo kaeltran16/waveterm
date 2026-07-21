@@ -74,6 +74,30 @@ var V1RiskKinds = []string{
 	RiskRepeatedFailure, RiskRuntimeOnlyBehavior, RiskCrossLayerMismatch,
 }
 
+// scan modes (RadarFinding.Mode). Correctness is the only mode wired in Plan 1; the security and
+// debt lenses append themselves to V1Modes in their own plans.
+const (
+	ModeCorrectness = "correctness"
+	ModeSecurity    = "security"
+	ModeDebt        = "debt"
+)
+
+// V1Modes is the ordered set of modes a scan runs. Lens plans append ModeSecurity / ModeDebt.
+var V1Modes = []string{ModeCorrectness}
+
+// RiskKindsByMode is the per-mode taxonomy. Kind names MUST be globally unique across modes (see
+// TestRiskKindsGloballyUnique) — that uniqueness is what lets the fingerprint stay mode-free.
+var RiskKindsByMode = map[string][]string{
+	ModeCorrectness: V1RiskKinds,
+}
+
+// per-mode clustering outcome (RadarModeRun.Status)
+const (
+	ModeRunCompleted     = "completed"
+	ModeRunClusterFailed = "clustering-failed"
+	ModeRunSkipped       = "skipped" // reserved for a future per-project mode toggle
+)
+
 // DefaultRadarPayloadBudget caps the prepared payload Radar sends to the model (estimated tokens).
 // It is NOT a cap on total provider usage — Claude Code adds unmeasured runtime context.
 const DefaultRadarPayloadBudget = 40_000
@@ -81,8 +105,8 @@ const DefaultRadarPayloadBudget = 40_000
 // MaxFindings caps New+Recurring findings surfaced per scan.
 const MaxFindings = 10
 
-func ValidRiskKind(kind string) bool {
-	for _, k := range V1RiskKinds {
+func ValidRiskKind(mode, kind string) bool {
+	for _, k := range RiskKindsByMode[mode] {
 		if k == kind {
 			return true
 		}

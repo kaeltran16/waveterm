@@ -1800,6 +1800,7 @@ declare global {
         id: string;
         fingerprint: string;
         group: string;
+        mode?: string;
         riskkind: string;
         subsystem: string;
         boundarylabel?: string;
@@ -1827,6 +1828,18 @@ declare global {
         deltotal?: number;
         verifspass?: number;
         verifsfail?: number;
+    };
+
+    // waveobj.RadarModeRun
+    type RadarModeRun = {
+        mode: string;
+        status: string;
+        clustererror?: string;
+        payloadtokens?: number;
+        totaltokens?: number;
+        tokensestimated?: boolean;
+        resolvedmodel?: string;
+        findingcount?: number;
     };
 
     // waveobj.RadarReport
@@ -1857,6 +1870,7 @@ declare global {
         candidates?: RadarSignal[];
         signals?: RadarSignal[];
         findings?: RadarFinding[];
+        moderuns?: RadarModeRun[];
     };
 
     // waveobj.RadarSignal

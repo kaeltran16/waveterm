@@ -28,7 +28,7 @@ func TestParseSynthesisResponseToleratesFence(t *testing.T) {
 
 func TestPromptContainsTaxonomyAndDelimiters(t *testing.T) {
 	groups, _ := prepareCandidates(nil, DefaultRadarPayloadBudget)
-	p := buildSynthesisPrompt("payments-api", groups)
+	p := buildSynthesisPrompt("payments-api", ModeCorrectness, groups)
 	if !strings.Contains(p, RiskTestCoverageGap) {
 		t.Fatal("prompt must list the taxonomy")
 	}
