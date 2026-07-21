@@ -35,6 +35,38 @@ type contentBlock struct {
 	Name    string          `json:"name"`
 	IsError bool            `json:"is_error"`
 	Input   json.RawMessage `json:"input"`
+	Content json.RawMessage `json:"content"` // tool_result body (string or [{text}] blocks)
+}
+
+// toolRejectedMarker is the substring Claude Code puts in a tool_result body when the user declines a
+// tool call (a denied permission prompt or a rejected/clarified AskUserQuestion). Both variants contain
+// it verbatim.
+const toolRejectedMarker = "The tool use was rejected"
+
+// isUserRejection reports whether an is_error tool_result is a user decision (declined tool) rather than
+// a genuine execution failure. Claude Code marks both with is_error:true, but a rejection is the human
+// intervening — counting it as a tool error fabricates false "explicit tool error" Radar findings from
+// sessions where the user simply declined a prompt. The body is a string or a [{text}] array (mirrors
+// evidence.go's resultText), flattened to text before matching.
+func isUserRejection(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.Contains(s, toolRejectedMarker)
+	}
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		for _, b := range blocks {
+			if strings.Contains(b.Text, toolRejectedMarker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // extractTranscript folds one transcript's lines into facts, scoped to projectPath. Returns nil
@@ -62,7 +94,7 @@ func extractTranscript(sessionId, projectPath string, lines []string) *transcrip
 			continue // string content (human prompt) — no tool data
 		}
 		for _, b := range blocks {
-			if b.Type == "tool_result" && b.IsError {
+			if b.Type == "tool_result" && b.IsError && !isUserRejection(b.Content) {
 				f.toolErrors++
 			}
 			if b.Type == "tool_use" && (b.Name == "Edit" || b.Name == "Write" || b.Name == "Read") {
