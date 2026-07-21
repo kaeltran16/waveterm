@@ -3,10 +3,17 @@
 
 import { cn, fireAndForget } from "@/util/util";
 import { AlertTriangle, CheckCircle2, Loader2, Radar, XCircle } from "lucide-react";
-import { coverageEntries, type RadarScanState } from "./radarmodel";
+import { classifyCoverage, coverageEntries, type CoverageCell, type RadarScanState } from "./radarmodel";
 import { cancelScan, retryClustering, startScan } from "./radarstore";
 
 const COLLECTORS = ["structure", "git", "runs", "transcript", "memory", "config"];
+
+const CELL_TONE: Record<CoverageCell, string> = {
+    done: "text-success",
+    running: "text-accent-soft",
+    failed: "text-error",
+    queued: "text-muted",
+};
 
 const EXAMINES = [
     "Source & test structure",
@@ -30,19 +37,17 @@ function CollectorChecklist({ report }: { report: RadarReport | null }) {
     return (
         <ul className="w-full max-w-sm overflow-hidden rounded-xl border border-border text-left">
             {COLLECTORS.map((c) => {
-                const status = coverage[c];
-                const done = status === "ok";
-                const failed = status === "failed" || status === "partial";
+                const cell = classifyCoverage(coverage[c]);
+                const glyph = cell === "done" ? "✓" : cell === "failed" ? "✗" : "…";
+                const label = cell === "failed" ? "incomplete" : cell;
                 return (
                     <li key={c} className="flex items-center gap-3 border-b border-border px-4 py-2.5 text-sm last:border-b-0">
-                        <span className={cn("font-mono text-xs", done ? "text-success" : failed ? "text-error" : "text-muted")}>
-                            {done ? "✓" : failed ? "✗" : "…"}
+                        <span className={cn("flex w-3 justify-center font-mono text-xs", CELL_TONE[cell])}>
+                            {cell === "running" ? <Loader2 className="h-3 w-3 animate-spin" /> : glyph}
                         </span>
                         <span className="text-muted-foreground">{c}</span>
                         <span className="flex-1" />
-                        <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
-                            {done ? "done" : failed ? "incomplete" : "queued"}
-                        </span>
+                        <span className="font-mono text-[10px] uppercase tracking-wide text-muted">{label}</span>
                     </li>
                 );
             })}

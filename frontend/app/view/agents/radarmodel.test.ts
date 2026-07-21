@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     buildRunDraft,
+    classifyCoverage,
     classifyScanState,
     composeRunGoal,
     coverageEntries,
@@ -319,5 +320,13 @@ describe("radar surface glue", () => {
     it("scanScopeLabel names the scoped project or prompts to select one", () => {
         expect(scanScopeLabel({ name: "payments-api" })).toBe("Scanning payments-api");
         expect(scanScopeLabel(null)).toBe("Select a registered project to scan");
+    });
+    it("classifyCoverage maps streamed per-collector status to a checklist cell", () => {
+        expect(classifyCoverage("ok")).toBe("done");
+        expect(classifyCoverage("running")).toBe("running");
+        expect(classifyCoverage("failed")).toBe("failed");
+        expect(classifyCoverage("partial")).toBe("failed");
+        // a collector not yet reached (absent from the coverage map) is queued
+        expect(classifyCoverage(undefined)).toBe("queued");
     });
 });

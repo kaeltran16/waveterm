@@ -10,8 +10,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsAtom } from "./projectsstore";
 import {
+    classifyCoverage,
     classifyScanState,
     coverageEntries,
+    type CoverageCell,
     groupSummary,
     isResultsState,
     projectsWithPath,
@@ -37,6 +39,15 @@ import {
     type RadarScope,
 } from "./radarstore";
 import { SurfaceHeader } from "./surfacescaffold";
+
+// Header coverage row treats an in-progress ("running") or not-yet-reached ("queued") collector as muted
+// rather than an error, since coverage now streams in during a scan (see classifyCoverage).
+const HEADER_CELL_TONE: Record<CoverageCell, string> = {
+    done: "text-success",
+    running: "text-muted",
+    failed: "text-error",
+    queued: "text-muted",
+};
 
 // Scan-scope selector: the Radar surface owns its scanned repo, initialized from the cockpit's global
 // project but explicitly selectable here (the handoff's "# repo ▾" control) so the surface is
@@ -172,17 +183,18 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                         {coverage.length > 0 ? (
                             <div className="flex items-center gap-2">
                                 <span className="font-mono text-[9px] uppercase tracking-widest text-muted">Coverage</span>
-                                {coverage.map((c) => (
-                                    <span
-                                        key={c.collector}
-                                        className={cn(
-                                            "font-mono text-[10px]",
-                                            c.status === "ok" ? "text-success" : "text-error"
-                                        )}
-                                    >
-                                        {c.status === "ok" ? "✓" : "✗"} {c.collector}
-                                    </span>
-                                ))}
+                                {coverage.map((c) => {
+                                    const cell = classifyCoverage(c.status);
+                                    const glyph = cell === "done" ? "✓" : cell === "failed" ? "✗" : "…";
+                                    return (
+                                        <span
+                                            key={c.collector}
+                                            className={cn("font-mono text-[10px]", HEADER_CELL_TONE[cell])}
+                                        >
+                                            {glyph} {c.collector}
+                                        </span>
+                                    );
+                                })}
                             </div>
                         ) : null}
                     </div>

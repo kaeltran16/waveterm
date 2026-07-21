@@ -40,6 +40,14 @@ const (
 	CollectorConfig     = "config"
 )
 
+// per-collector coverage status (RadarReport.Coverage values). Streamed as each collector runs so the
+// scan checklist ticks queued -> running -> done; "running" is transient and replaced by ok/failed.
+const (
+	CoverageRunning = "running"
+	CoverageOK      = "ok"
+	CoverageFailed  = "failed"
+)
+
 // evidence strength / severity
 const (
 	StrengthStrong   = "strong"

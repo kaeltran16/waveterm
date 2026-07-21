@@ -188,6 +188,23 @@ export function coverageEntries(report: RadarReport): { collector: string; statu
     return Object.entries(report.coverage ?? {}).map(([collector, status]) => ({ collector, status }));
 }
 
+// classifyCoverage maps a streamed per-collector coverage status to a checklist cell. During a scan each
+// collector streams queued (absent) -> running -> ok/failed; "partial" counts as a failure (matches
+// hasCoverageFailure). Shared by the scan checklist and the header coverage row so they never drift.
+export type CoverageCell = "done" | "running" | "failed" | "queued";
+export function classifyCoverage(status: string | undefined): CoverageCell {
+    if (status === "ok") {
+        return "done";
+    }
+    if (status === "running") {
+        return "running";
+    }
+    if (status === "failed" || status === "partial") {
+        return "failed";
+    }
+    return "queued";
+}
+
 export function hasCoverageFailure(report: RadarReport): boolean {
     return coverageEntries(report).some((e) => e.status !== "ok");
 }

@@ -78,7 +78,8 @@ const base = (extra: Partial<RadarReport>): RadarReport =>
 export function buildScenario(name: string): RadarReport {
     switch (name) {
         case "collecting":
-            return base({ status: "collecting", phase: "collecting", signals: [], coverage: { git: "ok" } });
+            // mid-collection: earlier collectors done, one running, the rest still queued (absent).
+            return base({ status: "collecting", phase: "collecting", signals: [], coverage: { structure: "ok", git: "ok", runs: "running" } });
         case "clustering":
             return base({ status: "clustering", phase: "clustering", payloadtokens: 12_400, coverage: { git: "ok", runs: "ok" } });
         case "partial":

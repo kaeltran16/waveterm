@@ -60,8 +60,10 @@ type collectResult struct {
 
 // collectAll runs every collector for the project, records per-source coverage, and returns the
 // deduped signals. An inaccessible repository is fatal (returned error); optional-source failures
-// are recorded as partial and do not fail the scan.
-func collectAll(ctx context.Context, projectName, projectPath string, sinceTs int64) (*collectResult, error) {
+// are recorded as partial and do not fail the scan. onProgress is called with (kind, status) as each
+// collector starts ("running") and finishes ("ok"/"failed") so the frontend checklist reflects real
+// progress instead of jumping from all-queued to all-done in one step.
+func collectAll(ctx context.Context, projectName, projectPath string, sinceTs int64, onProgress func(kind, status string)) (*collectResult, error) {
 	if _, err := gitHead(ctx, projectPath); err != nil {
 		return nil, fmt.Errorf("not a readable git repository: %w", err)
 	}
@@ -71,15 +73,18 @@ func collectAll(ctx context.Context, projectName, projectPath string, sinceTs in
 		if ctx.Err() != nil {
 			return
 		}
+		onProgress(kind, CoverageRunning)
 		sigs, err := fn()
 		if err != nil {
-			res.coverage[kind] = "failed"
+			res.coverage[kind] = CoverageFailed
 			res.partialSources = append(res.partialSources, kind)
+			onProgress(kind, CoverageFailed)
 			log.Printf("reporadar: collector %s failed: %v", kind, err)
 			return
 		}
-		res.coverage[kind] = "ok"
+		res.coverage[kind] = CoverageOK
 		res.signals = append(res.signals, sigs...)
+		onProgress(kind, CoverageOK)
 	}
 	run(CollectorStructure, func() ([]waveobj.RadarSignal, error) { return collectStructure(ctx, in) })
 	run(CollectorGit, func() ([]waveobj.RadarSignal, error) { return collectGit(ctx, in) })
@@ -110,7 +115,20 @@ func runScan(ctx context.Context, reportId string) {
 		}
 	}
 
-	cr, cerr := collectAll(ctx, rpt.ProjectName, rpt.ProjectPath, sinceTs)
+	// stream each collector's status to the frontend as it runs, so the checklist ticks off
+	// structure -> git -> ... -> config in real time rather than snapping from queued to done.
+	onProgress := func(kind, status string) {
+		if err := wstore.UpdateRadarReport(ctx, reportId, func(r *waveobj.RadarReport) {
+			if r.Coverage == nil {
+				r.Coverage = map[string]string{}
+			}
+			r.Coverage[kind] = status
+		}); err != nil {
+			return
+		}
+		publish(reportId)
+	}
+	cr, cerr := collectAll(ctx, rpt.ProjectName, rpt.ProjectPath, sinceTs, onProgress)
 	if cerr != nil {
 		finishFatal(reportId, cerr.Error())
 		return
