@@ -44,10 +44,11 @@ type CommandListBranchesRtnData struct {
 type CommandGitChangesData struct {
 	Cwd string `json:"cwd"`
 	Ref string `json:"ref,omitempty"`
-	// WorktreeBase asks the backend to auto-resolve the base (merge-base with the default branch) and
-	// diff against it, so a worktree/branch agent's committed work still shows. Ignores Ref when set;
-	// the resolved base is echoed in the response's Ref. Runs pass an explicit Ref instead.
-	WorktreeBase bool `json:"worktreebase,omitempty"`
+	// SessionStartTs, when set, asks the backend to resolve the base as the commit that was HEAD at
+	// this unix-seconds time (an agent's session start), so the diff reflects only that session's work
+	// (commits since start + uncommitted). Takes precedence over Ref; the resolved base is echoed in
+	// the response's Ref. 0 = fall through to Ref / live HEAD diff.
+	SessionStartTs int64 `json:"sessionstartts,omitempty"`
 }
 
 type CommandGitChangesRtnData struct {

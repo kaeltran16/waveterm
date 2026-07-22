@@ -176,52 +176,24 @@ func HeadCommit(ctx context.Context, cwd string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// WorktreeBase resolves the commit a worktree/branch forked from, so a diff against it shows the
-// branch's whole contribution (committed + uncommitted) instead of only the currently-uncommitted
-// edits — the failure mode where a worktree agent commits its work and its "vs HEAD" diff collapses
-// to nothing. It is the merge-base of HEAD and the repo's default branch. Unlike a fork-commit
-// captured at creation time, this recomputes each call, so it self-heals across rebases and works for
-// worktrees Wave didn't create. Returns "" (no error) when cwd is not a repo, HEAD is unborn, no
-// default branch resolves, or the base is HEAD itself (agent working on the default branch) — every
-// caller treats "" as "fall back to the live working-tree-vs-HEAD diff".
-func WorktreeBase(ctx context.Context, cwd string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
-	defer cancel()
-	head, err := run(ctx, cwd, "rev-parse", "HEAD")
-	if err != nil {
-		return "", nil // unborn or not a repo — no baseline
-	}
-	headSha := strings.TrimSpace(head)
-	base := defaultBranchRef(ctx, cwd)
-	if base == "" {
+// CommitBefore resolves the commit that was HEAD at the given time — the newest first-parent commit
+// on HEAD's history with committer-date at or before beforeUnixSec. It anchors an agent's live diff
+// to its session start, so the diff reflects only that session's work (commits since start +
+// uncommitted), not the branch's whole divergence. Returns "" (no error) when cwd is not a repo,
+// HEAD is unborn, or no commit precedes the time (a brand-new session) — every caller treats "" as
+// "fall back to the live working-tree-vs-HEAD diff".
+func CommitBefore(ctx context.Context, cwd string, beforeUnixSec int64) (string, error) {
+	if beforeUnixSec <= 0 {
 		return "", nil
 	}
-	mb, err := run(ctx, cwd, "merge-base", base, "HEAD")
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	before := time.Unix(beforeUnixSec, 0).UTC().Format(time.RFC3339)
+	out, err := run(ctx, cwd, "rev-list", "-1", "--first-parent", "--before="+before, "HEAD")
 	if err != nil {
-		return "", nil // no shared history (e.g. unrelated default branch)
+		return "", nil // not a repo / unborn HEAD — no anchor
 	}
-	mbSha := strings.TrimSpace(mb)
-	if mbSha == "" || mbSha == headSha {
-		return "", nil // HEAD is on/at the base — live HEAD diff is already correct
-	}
-	return mbSha, nil
-}
-
-// defaultBranchRef returns a ref for the repo's default branch, preferring the remote's HEAD
-// (origin/HEAD -> e.g. origin/main), then a local main, then master. Returns "" if none resolve — a
-// repo whose default branch is some other name degrades to the live HEAD diff (status quo).
-func defaultBranchRef(ctx context.Context, cwd string) string {
-	if out, err := run(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil {
-		if s := strings.TrimSpace(out); s != "" && s != "origin/HEAD" {
-			return s
-		}
-	}
-	for _, cand := range []string{"main", "master"} {
-		if _, err := run(ctx, cwd, "rev-parse", "--verify", "--quiet", cand); err == nil {
-			return cand
-		}
-	}
-	return ""
+	return strings.TrimSpace(out), nil
 }
 
 // stripPrefixZ rewrites a `status --porcelain -z` blob so its paths are relative to prefix (cwd's

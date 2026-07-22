@@ -72,10 +72,9 @@ func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.Comman
 
 func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandGitChangesData) (*wshrpc.CommandGitChangesRtnData, error) {
 	ref := data.Ref
-	if data.WorktreeBase {
-		// resolve the branch's fork point; "" degrades to the live HEAD diff (agent on the default
-		// branch, non-repo, etc.). Errors are impossible here (WorktreeBase swallows them), but guard.
-		ref, _ = gitinfo.WorktreeBase(ctx, data.Cwd)
+	if data.SessionStartTs != 0 {
+		// the commit that was HEAD when the agent's session began; "" degrades to the live HEAD diff.
+		ref, _ = gitinfo.CommitBefore(ctx, data.Cwd, data.SessionStartTs)
 	}
 	ch, err := gitinfo.GetChanges(ctx, data.Cwd, ref)
 	if err != nil {

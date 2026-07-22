@@ -13,6 +13,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { resolveCwd } from "./agentcwdresolve";
+import { ensureSessionStart } from "./agentsessionstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface RailGitState {
@@ -54,7 +55,7 @@ export async function loadRailForAgent(
     current.id = id;
     globalStore.set(railStateAtom, null);
 
-    const cwd = await resolveCwd(transcriptPath, blockId);
+    const [cwd, startTs] = await Promise.all([resolveCwd(transcriptPath, blockId), ensureSessionStart(transcriptPath)]);
     if (current.id !== id) {
         return;
     }
@@ -63,9 +64,9 @@ export async function loadRailForAgent(
         return;
     }
     try {
-        // worktreeBase: show the branch's changed-file list vs its merge-base, matching the card pill
-        // and Files surface (a plain vs-HEAD list would drop committed files).
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, worktreebase: true });
+        // sessionstartts: match the card pill / Diff tab — the branch's changed-file list vs the
+        // session-start commit. Null ts degrades to the live working-tree-vs-HEAD diff.
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined });
         if (current.id !== id) {
             return;
         }

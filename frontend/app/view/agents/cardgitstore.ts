@@ -14,6 +14,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { DiffStats } from "./agentsviewmodel";
 import { resolveCwd } from "./agentcwdresolve";
+import { ensureSessionStart } from "./agentsessionstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export const diffStatsByIdAtom = atom<Record<string, DiffStats>>({}) as PrimitiveAtom<Record<string, DiffStats>>;
@@ -49,7 +50,7 @@ function setStats(id: string, stats: DiffStats | null): void {
 export async function refreshCardGit(id: string, transcriptPath: string | undefined, blockId?: string): Promise<void> {
     const seq = (loadSeq.get(id) ?? 0) + 1;
     loadSeq.set(id, seq);
-    const cwd = await resolveCwd(transcriptPath, blockId);
+    const [cwd, startTs] = await Promise.all([resolveCwd(transcriptPath, blockId), ensureSessionStart(transcriptPath)]);
     if (loadSeq.get(id) !== seq) {
         return;
     }
@@ -58,9 +59,10 @@ export async function refreshCardGit(id: string, transcriptPath: string | undefi
         return;
     }
     try {
-        // worktreeBase: count the branch's whole contribution (committed + uncommitted) so a card's
-        // +/- stays meaningful after the agent commits — and matches the Files Diff view's base.
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, worktreebase: true });
+        // sessionstartts: anchor on the commit that was HEAD when this agent's session began, so the
+        // pill counts only this session's work (commits since start + uncommitted). Null ts (no
+        // transcript yet) degrades to the live working-tree-vs-HEAD diff.
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined });
         if (loadSeq.get(id) !== seq) {
             return;
         }
