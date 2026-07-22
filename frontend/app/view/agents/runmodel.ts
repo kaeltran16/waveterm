@@ -112,8 +112,8 @@ export function isTerminal(status: string): boolean {
     return TERMINAL.has(status);
 }
 
-export function defaultView(channel: Channel | null): "runs" | "chat" {
-    return (channel?.runs?.length ?? 0) > 0 ? "runs" : "chat";
+export function defaultView(runsLen: number): "runs" | "chat" {
+    return runsLen > 0 ? "runs" : "chat";
 }
 
 // Most-recent non-terminal run (so the user lands on live work), else the most-recent run.

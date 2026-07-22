@@ -29,6 +29,8 @@ import { ChannelRail } from "./channelrail";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
+    activeChannelMessagesAtom,
+    activeChannelRunsAtom,
     archiveChannel,
     channelDismissedRunsAtom,
     channelDraftAtom,
@@ -91,7 +93,14 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const { summary, runSummary, reset: resetSummary } = useFleetSummary();
     const [profile, setProfile] = useState<JarvisProfile | undefined>(undefined);
 
-    const runs = (active?.runs ?? []).filter((r) => !dismissed.has(r.id));
+    // Phase 2: the active channel's runs/messages come from the row-backed atoms (seeded on select,
+    // refetched on channel: bump), not the embedded Channel.runs/messages arrays. `activeForDerive` splices
+    // them onto the pinned channel so downstream consumers (ContextPanel, the @jarvis summary) that read
+    // channel.messages/runs pick up the row data without changing their signatures.
+    const allRuns = useAtomValue(activeChannelRunsAtom);
+    const messages = useAtomValue(activeChannelMessagesAtom);
+    const activeForDerive = active ? { ...active, runs: allRuns, messages } : null;
+    const runs = allRuns.filter((r) => !dismissed.has(r.id));
     const [activeRunId, setActiveRunId] = useState<string | undefined>(() => defaultRunId(runs));
 
     const [notesDraft, setNotesDraft] = useState("");
@@ -191,7 +200,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
             return;
         }
         setDismissedMap((m) => ({ ...m, [activeId]: [...(m[activeId] ?? []), id] }));
-        const visible = (active?.runs ?? []).filter((r) => r.id !== id && !dismissed.has(r.id));
+        const visible = allRuns.filter((r) => r.id !== id && !dismissed.has(r.id));
         setActiveRunId((cur) => (cur === id ? defaultRunId(visible) : cur));
     };
 
@@ -366,7 +375,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     onToggle={() => setOverviewOpen((o) => !o)}
                                     runCount={runs.length}
                                     summary={summary}
-                                    onRunSummary={() => runSummary(active, agents)}
+                                    onRunSummary={() => runSummary(activeForDerive!, agents)}
                                     notes={notesDraft}
                                     onNotesChange={onNotesChange}
                                 />
@@ -486,7 +495,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                     <ContextPanel
                         model={model}
-                        channel={active}
+                        channel={activeForDerive}
                         agents={agents}
                         runs={runs}
                         consultStreams={consultStreams}

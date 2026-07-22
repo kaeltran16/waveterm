@@ -238,11 +238,7 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 	if data.ORef == "" || data.Goal == "" {
 		return nil, fmt.Errorf("oref and goal are required")
 	}
-	channels, err := wstore.GetChannels(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("loading channels: %w", err)
-	}
-	m := jarvis.ResolveRunWorker(channels, data.ORef)
+	m := jarvis.ResolveRunWorkerFromMeta(ctx, data.ORef)
 	if m == nil {
 		return nil, fmt.Errorf("no run owns oref %q", data.ORef)
 	}
@@ -377,11 +373,7 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 	if data.ORef == "" {
 		return fmt.Errorf("oref is required")
 	}
-	channels, err := wstore.GetChannels(ctx)
-	if err != nil {
-		return fmt.Errorf("loading channels: %w", err)
-	}
-	m := jarvis.ResolveRunWorker(channels, data.ORef)
+	m := jarvis.ResolveRunWorkerFromMeta(ctx, data.ORef)
 	if m == nil {
 		log.Printf("ReportRunPhase: no run owns oref %q (ignoring)", data.ORef)
 		return nil // fail safe: a stray report is a no-op, not an error

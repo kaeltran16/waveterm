@@ -39,6 +39,22 @@ func (ws *WshServer) GetChannelsCommand(ctx context.Context) (*wshrpc.CommandGet
 	return &wshrpc.CommandGetChannelsRtnData{Channels: chans}, nil
 }
 
+func (ws *WshServer) GetChannelRunsCommand(ctx context.Context, data wshrpc.CommandGetChannelRunsData) (*wshrpc.CommandGetChannelRunsRtnData, error) {
+	runs, err := wstore.GetChannelRuns(ctx, data.ChannelId)
+	if err != nil {
+		return nil, fmt.Errorf("getting channel runs: %w", err)
+	}
+	return &wshrpc.CommandGetChannelRunsRtnData{Runs: runs}, nil
+}
+
+func (ws *WshServer) GetChannelMessagesCommand(ctx context.Context, data wshrpc.CommandGetChannelMessagesData) (*wshrpc.CommandGetChannelMessagesRtnData, error) {
+	msgs, err := wstore.GetChannelMessages(ctx, data.ChannelId, data.Before, data.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("getting channel messages: %w", err)
+	}
+	return &wshrpc.CommandGetChannelMessagesRtnData{Messages: msgs}, nil
+}
+
 func (ws *WshServer) PostChannelMessageCommand(ctx context.Context, data wshrpc.CommandPostChannelMessageData) (*waveobj.ChannelMessage, error) {
 	msg := wstore.NewChannelMessage(data.Kind, data.Author, data.Text, data.RefORef, time.Now().UnixMilli())
 	stored, err := wstore.PostChannelMessage(ctx, data.ChannelId, msg)

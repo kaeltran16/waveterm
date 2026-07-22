@@ -61,15 +61,9 @@ func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.Com
 	var channel *waveobj.Channel
 	projectPath := ""
 	if data.ChannelId != "" {
-		channels, err := wstore.GetChannels(ctx)
-		if err == nil {
-			for _, ch := range channels {
-				if ch.OID == data.ChannelId {
-					channel = ch
-					projectPath = ch.ProjectPath
-					break
-				}
-			}
+		if ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId); err == nil {
+			channel = ch
+			projectPath = ch.ProjectPath
 		}
 	}
 	subtasks := jarvis.Decompose(ctx, projectPath, data.Goal, channel)

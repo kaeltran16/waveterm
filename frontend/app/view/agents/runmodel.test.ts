@@ -98,10 +98,9 @@ describe("isTerminal / defaultView / defaultRunId", () => {
         expect(isTerminal("done")).toBe(true);
         expect(isTerminal("executing")).toBe(false);
     });
-    it("defaultView is runs when the channel has runs", () => {
-        expect(defaultView({ runs: [run()] } as unknown as Channel)).toBe("runs");
-        expect(defaultView({ runs: [] } as unknown as Channel)).toBe("chat");
-        expect(defaultView(null)).toBe("chat");
+    it("defaultView is runs when there are runs", () => {
+        expect(defaultView(1)).toBe("runs");
+        expect(defaultView(0)).toBe("chat");
     });
     it("defaultRunId prefers the most-recent non-terminal run", () => {
         const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "executing" })];

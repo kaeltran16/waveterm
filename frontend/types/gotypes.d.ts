@@ -535,6 +535,28 @@ declare global {
         onehour?: boolean;
     };
 
+    // wshrpc.CommandGetChannelMessagesData
+    type CommandGetChannelMessagesData = {
+        channelid: string;
+        before?: number;
+        limit?: number;
+    };
+
+    // wshrpc.CommandGetChannelMessagesRtnData
+    type CommandGetChannelMessagesRtnData = {
+        messages: ChannelMessage[];
+    };
+
+    // wshrpc.CommandGetChannelRunsData
+    type CommandGetChannelRunsData = {
+        channelid: string;
+    };
+
+    // wshrpc.CommandGetChannelRunsRtnData
+    type CommandGetChannelRunsRtnData = {
+        runs: Run[];
+    };
+
     // wshrpc.CommandGetChannelsRtnData
     type CommandGetChannelsRtnData = {
         channels: Channel[];

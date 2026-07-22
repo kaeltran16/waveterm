@@ -15,17 +15,21 @@ import (
 // phase artifacts (RunPhase.Artifacts) as affected paths but references run/phase identity rather
 // than copying full timelines. Retries/send-backs are not persisted, so they are not emitted.
 func collectRuns(ctx context.Context, in collectInput) ([]waveobj.RadarSignal, error) {
-	channels, err := wstore.GetChannels(ctx)
+	projectPaths, err := wstore.GetChannelProjectPaths(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("reading channels: %w", err)
+		return nil, fmt.Errorf("reading channel project paths: %w", err)
 	}
 	cp := canonPath(in.projectPath)
 	var sigs []waveobj.RadarSignal
-	for _, ch := range channels {
-		if canonPath(ch.ProjectPath) != cp {
+	for channelId, chProjectPath := range projectPaths {
+		if canonPath(chProjectPath) != cp {
 			continue
 		}
-		for _, run := range ch.Runs {
+		runs, rerr := wstore.GetChannelRuns(ctx, channelId)
+		if rerr != nil {
+			return nil, fmt.Errorf("reading runs for channel %s: %w", channelId, rerr)
+		}
+		for _, run := range runs {
 			if canonPath(run.ProjectPath) != cp && run.ProjectPath != "" {
 				continue
 			}

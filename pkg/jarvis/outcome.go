@@ -59,11 +59,16 @@ func alreadyHasFreshOutcome(ch *waveobj.Channel, workerORef string) bool {
 	return latestOutcome >= latestDispatch && latestOutcome > 0
 }
 
-// PostOutcome resolves the dispatching channel for workerORef and posts a persisted "outcome" message,
-// unless there is no owning channel or a fresh outcome already exists. Fire-and-forget by the caller.
-func PostOutcome(channels []*waveobj.Channel, workerORef, runtime string, data OutcomeData) {
-	ch := ResolveDispatchChannel(channels, workerORef)
+// PostOutcome posts a persisted "outcome" message to ch for workerORef, but only if ch actually
+// dispatched the worker (a dispatch message references it) and no fresh outcome already exists. Taking a
+// single resolved channel (not the full list) is the Phase-2 change; the dispatch-existence gate is kept
+// so run workers — which have no dispatch message — still get no outcome. Fire-and-forget by the caller.
+func PostOutcome(ch *waveobj.Channel, workerORef, runtime string, data OutcomeData) {
 	if ch == nil {
+		return
+	}
+	// preserve old semantics: only workers dispatched via a message earn an outcome
+	if ResolveDispatchChannel([]*waveobj.Channel{ch}, workerORef) == nil {
 		return
 	}
 	payload, _ := json.Marshal(data)
@@ -83,4 +88,22 @@ func PostOutcome(channels []*waveobj.Channel, workerORef, runtime string, data O
 	if posted {
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, ch.OID))
 	}
+}
+
+// resolveDispatchChannelForWorker loads the worker's dispatching channel via the channeloref stamp,
+// falling back to the full dispatch scan on a stamp miss. The PostOutcome dispatch-existence gate still
+// applies, so a wrongly-stamped run worker won't get an outcome.
+func resolveDispatchChannelForWorker(ctx context.Context, workerORef string) *waveobj.Channel {
+	if _, channelORef, err := wstore.GetWorkerOwner(ctx, workerORef); err == nil && channelORef != "" {
+		if chRef, perr := waveobj.ParseORef(channelORef); perr == nil {
+			if ch, gerr := wstore.DBMustGet[*waveobj.Channel](ctx, chRef.OID); gerr == nil && ch != nil {
+				return ch
+			}
+		}
+	}
+	channels, err := wstore.GetChannels(ctx)
+	if err != nil {
+		return nil
+	}
+	return ResolveDispatchChannel(channels, workerORef)
 }
