@@ -326,7 +326,7 @@ func finalizeFindings(ctx context.Context, reportId string, validated []waveobj.
 	}
 
 	prev := latestSuccessfulExcluding(ctx, rpt.ProjectPath, reportId)
-	reconciled := reconcile(rpt.ProjectPath, validated, prev, evidenceTs)
+	reconciled := assignFindingIDs(reconcile(rpt.ProjectPath, validated, prev, evidenceTs))
 
 	refIDs := map[string]bool{}
 	for _, f := range reconciled {

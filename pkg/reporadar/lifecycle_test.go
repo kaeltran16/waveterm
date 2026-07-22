@@ -99,3 +99,24 @@ func TestReconcileDoesNotInventInvestigationForNewFinding(t *testing.T) {
 		t.Fatalf("a brand-new finding must have no investigation, got %+v", out[0].Investigation)
 	}
 }
+
+func TestAssignFindingIDsUniqueAndDeterministic(t *testing.T) {
+	// Two lenses each number their findings f1.. independently, so the merged set collides on "f1"; a
+	// carried-forward finding brings yet another old id. All must come out uniquely renumbered in order.
+	in := []waveobj.RadarFinding{
+		{ID: "f1", Fingerprint: "RAD-corr"},
+		{ID: "f1", Fingerprint: "RAD-sec"},
+		{ID: "f7", Fingerprint: "RAD-carried"},
+	}
+	out := assignFindingIDs(in)
+	if len(out) != 3 || out[0].ID != "f1" || out[1].ID != "f2" || out[2].ID != "f3" {
+		t.Fatalf("want f1,f2,f3 in order, got %q,%q,%q", out[0].ID, out[1].ID, out[2].ID)
+	}
+	seen := map[string]bool{}
+	for _, f := range out {
+		if seen[f.ID] {
+			t.Fatalf("duplicate id %q in %+v", f.ID, out)
+		}
+		seen[f.ID] = true
+	}
+}

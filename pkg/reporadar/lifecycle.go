@@ -71,6 +71,18 @@ func reconcile(projectPath string, current []waveobj.RadarFinding, prev *waveobj
 	return out
 }
 
+// assignFindingIDs stamps report-unique, deterministic ids onto the final finding set. A finding id is a
+// within-report handle the frontend keys selection and disposition on; it is NOT the cross-scan identity
+// (that is the fingerprint). Per-lens numbering can't be unique — correctness/security/debt each number
+// f1.. independently and then merge, and reconcile carries findings forward from the prior report with
+// their old ids — so the whole reconciled set is renumbered here, once.
+func assignFindingIDs(findings []waveobj.RadarFinding) []waveobj.RadarFinding {
+	for i := range findings {
+		findings[i].ID = fmt.Sprintf("f%d", i+1)
+	}
+	return findings
+}
+
 // SetDisposition atomically applies a disposition to one finding in a report:
 //   dismiss     -> group=dismissed, records reason/note/ts
 //   suppress    -> group=suppressed, records reason/note/ts

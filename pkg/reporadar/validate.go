@@ -4,7 +4,6 @@
 package reporadar
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -40,7 +39,7 @@ func evidenceStrength(sigs []waveobj.RadarSignal) string {
 func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[string]waveobj.RadarSignal) []waveobj.RadarFinding {
 	var out []waveobj.RadarFinding
 	seenFP := map[string]bool{}
-	for i, sf := range resp.Findings {
+	for _, sf := range resp.Findings {
 		if !ValidRiskKind(mode, sf.RiskKind) {
 			continue
 		}
@@ -73,8 +72,9 @@ func validateFindings(projectPath, mode string, resp *SynthResponse, byID map[st
 			continue // duplicate within this report
 		}
 		seenFP[fp] = true
+		// ID is stamped once on the merged+reconciled set (see assignFindingIDs) — a per-lens index
+		// here collides once lenses merge, and with findings carried forward from the prior report.
 		out = append(out, waveobj.RadarFinding{
-			ID:            fmt.Sprintf("f%d", i+1),
 			Fingerprint:   fp,
 			Group:         GroupNew, // Phase F reclassifies against the previous report
 			Mode:          mode,

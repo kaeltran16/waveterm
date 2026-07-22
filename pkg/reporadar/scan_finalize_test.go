@@ -46,6 +46,30 @@ func TestFinalizePersistsFindingsAndPrunes(t *testing.T) {
 	}
 }
 
+func TestFinalizeRenumbersCollidingLensIDs(t *testing.T) {
+	// Reproduces the "both items selected at once" bug: correctness and security lenses each number
+	// their findings f1.. independently, so the merged set (fed to finalize) collides on "f1". The
+	// frontend keys selection on the id, so a collision highlights two cards for one selection. Finalize
+	// must renumber the persisted set so every finding has a distinct id.
+	ctx := context.Background()
+	// unique project path so no prior test's report reconciles in as a carried-forward finding.
+	rpt, _ := wstore.CreateRadarReport(ctx, "renumber", "/repos/renumber")
+	merged := []waveobj.RadarFinding{
+		{ID: "f1", Fingerprint: "RAD-corr", Group: GroupNew, Mode: ModeCorrectness, RiskKind: RiskTestCoverageGap, Subsystem: "src/a"},
+		{ID: "f1", Fingerprint: "RAD-sec", Group: GroupNew, Mode: ModeSecurity, RiskKind: RiskInputValidationGap, Subsystem: "src/b"},
+	}
+	runs := []waveobj.RadarModeRun{{Mode: ModeCorrectness, Status: ModeRunCompleted}, {Mode: ModeSecurity, Status: ModeRunCompleted}}
+	finalizeFindings(ctx, rpt.OID, merged, runs, nil, nil)
+
+	got, _ := wstore.GetRadarReport(ctx, rpt.OID)
+	if len(got.Findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(got.Findings))
+	}
+	if got.Findings[0].ID == got.Findings[1].ID {
+		t.Fatalf("finding ids must be unique after merge, got %q twice", got.Findings[0].ID)
+	}
+}
+
 func TestFinalizeRetainsCandidatesOnClusterFailure(t *testing.T) {
 	ctx := context.Background()
 	rpt, _ := wstore.CreateRadarReport(ctx, "pay", "/repos/pay")
