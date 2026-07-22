@@ -50,6 +50,11 @@ func InitWStore() error {
 	if err != nil {
 		return err
 	}
+	// one-shot Phase-1 channel-blob → row backfill; uses its own 30s ctx (not the 2s init ctx above)
+	// and only the write handle, so it runs after both handles exist without touching the startup order.
+	if err := BackfillChannelRows(); err != nil {
+		return err
+	}
 	log.Printf("wstore initialized\n")
 	return nil
 }

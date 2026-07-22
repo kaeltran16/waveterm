@@ -106,6 +106,15 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 		}); uerr != nil {
 			return uerr
 		}
+		// stamp the owning run/channel oref onto each worker tab so the phase-2 worker→run lookup is a
+		// direct meta read (channel-scaling design call 1); best-effort, never fatal to the spawn.
+		channelORef := waveobj.MakeORef(waveobj.OType_Channel, channelId).String()
+		runORef := waveobj.MakeORef(waveobj.OType_Run, runId).String()
+		for _, oref := range spawned {
+			if serr := wstore.StampWorkerOwner(ctx, oref, runORef, channelORef); serr != nil {
+				log.Printf("spawnRunWorkers: stamp worker %s: %v", oref, serr)
+			}
+		}
 	}
 	wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx))
 	return spawnErr // surfaced but non-fatal to already-persisted state

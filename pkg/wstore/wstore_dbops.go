@@ -361,6 +361,31 @@ func DBInsert(ctx context.Context, val waveobj.WaveObj) error {
 	})
 }
 
+// dbUpsertObjTx writes val as a row WITHOUT emitting a waveobj:update. Phase-1 channel dual-write uses
+// it to mirror the message/run still embedded in the channel blob; nothing subscribes to run:/
+// channelmessage: orefs until Phase 2, so a broadcast would be premature. Call with a tx.Context()
+// already inside a WithTx on the write handle — txwrap reuses that transaction, keeping the row write
+// atomic with the blob write.
+func dbUpsertObjTx(ctx context.Context, val waveobj.WaveObj) error {
+	oid := waveobj.GetOID(val)
+	if oid == "" {
+		return fmt.Errorf("cannot upsert %T with empty oid", val)
+	}
+	jsonData, err := waveobj.ToJson(val)
+	if err != nil {
+		return err
+	}
+	return WithTx(ctx, func(tx *TxWrap) error {
+		table := waveObjTableName(val)
+		query := fmt.Sprintf(
+			"INSERT INTO %s (oid, version, data) VALUES (?, 1, ?) "+
+				"ON CONFLICT(oid) DO UPDATE SET data = excluded.data, version = version + 1",
+			table)
+		tx.Exec(query, oid, jsonData)
+		return nil
+	})
+}
+
 func DBFindTabForBlockId(ctx context.Context, blockId string) (string, error) {
 	return WithReadTxRtn(ctx, func(tx *TxWrap) (string, error) {
 		iterNum := 1

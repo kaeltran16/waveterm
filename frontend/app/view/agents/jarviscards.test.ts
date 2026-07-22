@@ -21,7 +21,7 @@ const answered = JSON.stringify({
 
 describe("parseCardData", () => {
     it("parses an answered payload", () => {
-        const cd = parseCardData({ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answered });
+        const cd = parseCardData({ id: "1", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: answered } as ChannelMessage);
         expect(cd?.question).toBe("TTL 24h or 7d?");
         expect(cd?.options).toHaveLength(2);
         expect(cd?.choice).toBe(0);
@@ -30,21 +30,21 @@ describe("parseCardData", () => {
     });
     it("parses an escalation payload (no choice)", () => {
         const esc = JSON.stringify({ askORef: "block:a", workerORef: "tab:b", question: "q", options: [{ label: "x" }] });
-        expect(parseCardData({ id: "2", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: esc })?.choice).toBeUndefined();
+        expect(parseCardData({ id: "2", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: esc } as ChannelMessage)?.choice).toBeUndefined();
     });
     it("parses a persisted humanPick", () => {
         const esc = JSON.stringify({ askORef: "block:a", workerORef: "tab:b", question: "q", options: [{ label: "x" }, { label: "y" }], humanPick: 1 });
-        const cd = parseCardData({ id: "2h", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: esc });
+        const cd = parseCardData({ id: "2h", kind: "jarvis-escalation", author: "jarvis", text: "", ts: 0, data: esc } as ChannelMessage);
         expect(cd?.humanPick).toBe(1);
     });
     it("returns null for a legacy message (no data)", () => {
-        expect(parseCardData({ id: "3", kind: "jarvis-answered", author: "jarvis", text: "flat", ts: 0 })).toBeNull();
+        expect(parseCardData({ id: "3", kind: "jarvis-answered", author: "jarvis", text: "flat", ts: 0 } as ChannelMessage)).toBeNull();
     });
     it("returns null for malformed json", () => {
-        expect(parseCardData({ id: "4", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: "{oops" })).toBeNull();
+        expect(parseCardData({ id: "4", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: "{oops" } as ChannelMessage)).toBeNull();
     });
     it("returns null when required fields are missing", () => {
-        expect(parseCardData({ id: "5", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: "{}" })).toBeNull();
+        expect(parseCardData({ id: "5", kind: "jarvis-answered", author: "jarvis", text: "", ts: 0, data: "{}" } as ChannelMessage)).toBeNull();
     });
 });
 

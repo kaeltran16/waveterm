@@ -211,7 +211,8 @@ declare global {
     };
 
     // waveobj.ChannelMessage
-    type ChannelMessage = {
+    type ChannelMessage = WaveObj & {
+        channeloid?: string;
         id: string;
         kind: string;
         author: string;
@@ -1939,7 +1940,8 @@ declare global {
     };
 
     // waveobj.Run
-    type Run = {
+    type Run = WaveObj & {
+        channeloid?: string;
         id: string;
         goal: string;
         playbookid?: string;

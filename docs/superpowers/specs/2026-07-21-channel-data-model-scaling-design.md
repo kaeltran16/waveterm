@@ -1,7 +1,10 @@
 # Design — Channel data-model scaling (Theme A)
 
 **Date:** 2026-07-21
-**Status:** Approved design, pre-plan. Source: the 2026-07-21 improvement scan (Theme A, findings A1–A3).
+**Status:** Approved design, in progress. **Phase 0 (read-conn pool, A3) shipped 2026-07-21** (`6248d04f`,
+plan `docs/superpowers/plans/2026-07-21-channel-scaling-phase0-read-pool.md`). **Phase 1 (Expand) shipped
+2026-07-22** — plan at `docs/superpowers/plans/2026-07-22-channel-scaling-phase1-expand.md`. **Phase 2
+(migrate reads) is next.** Source: the 2026-07-21 improvement scan (Theme A, findings A1–A3).
 **Driver:** Preventive. No observed symptom; the goal is to remove the `O(session)` growth that is the
 only cluster whose cost worsens the more the product is used, before it bites at scale.
 
@@ -86,9 +89,9 @@ instead of one object.
 
 Landed as independently-shippable, reversible phases; no half-migrated state breaks the tree.
 
-- **Phase 0 — Read-connection pool (A3), fully independent.** Ships first; touches no data model. Immediate
-  latency relief, reversible by routing reads back. Detail in Section 3.
-- **Phase 1 — Expand.** Add `db_run` + `db_channelmessage` tables and expression indexes on
+- **Phase 0 — Read-connection pool (A3), fully independent.** ✅ **Shipped** (`6248d04f`). Touches no data
+  model. Immediate latency relief, reversible by routing reads back. Detail in Section 3.
+- **Phase 1 — Expand.** ✅ **Shipped 2026-07-22.** Add `db_run` + `db_channelmessage` tables and expression indexes on
   `json_extract(data,'$.channeloid')`. Introduce `OType_Run` / `OType_ChannelMessage`. **Dual-write:**
   mutations keep embedding in the channel blob *and* write the row. Backfill existing blobs into rows; stamp
   `run:`/`channel:` oref onto worker-tab meta (+ backfill). Nothing reads the rows yet — invisible,

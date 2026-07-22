@@ -28,6 +28,10 @@ function phase(over: Partial<RunPhase> = {}): RunPhase {
 }
 function run(over: Partial<Run> = {}): Run {
     return {
+        otype: "run",
+        oid: "r1",
+        version: 1,
+        meta: {},
         id: "r1",
         goal: "g",
         workspaceid: "w1",

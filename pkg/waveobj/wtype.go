@@ -22,31 +22,35 @@ const (
 )
 
 const (
-	OType_Client      = "client"
-	OType_Window      = "window"
-	OType_Workspace   = "workspace"
-	OType_Tab         = "tab"
-	OType_Channel     = "channel"
-	OType_LayoutState = "layout"
-	OType_Block       = "block"
-	OType_MainServer  = "mainserver"
-	OType_Job         = "job"
-	OType_Temp        = "temp"
-	OType_RadarReport = "radarreport"
+	OType_Client         = "client"
+	OType_Window         = "window"
+	OType_Workspace      = "workspace"
+	OType_Tab            = "tab"
+	OType_Channel        = "channel"
+	OType_LayoutState    = "layout"
+	OType_Block          = "block"
+	OType_MainServer     = "mainserver"
+	OType_Job            = "job"
+	OType_Temp           = "temp"
+	OType_RadarReport    = "radarreport"
+	OType_Run            = "run"
+	OType_ChannelMessage = "channelmessage"
 )
 
 var ValidOTypes = map[string]bool{
-	OType_Client:      true,
-	OType_Window:      true,
-	OType_Workspace:   true,
-	OType_Tab:         true,
-	OType_Channel:     true,
-	OType_LayoutState: true,
-	OType_Block:       true,
-	OType_MainServer:  true,
-	OType_Job:         true,
-	OType_Temp:        true,
-	OType_RadarReport: true,
+	OType_Client:         true,
+	OType_Window:         true,
+	OType_Workspace:      true,
+	OType_Tab:            true,
+	OType_Channel:        true,
+	OType_LayoutState:    true,
+	OType_Block:          true,
+	OType_MainServer:     true,
+	OType_Job:            true,
+	OType_Temp:           true,
+	OType_RadarReport:    true,
+	OType_Run:            true,
+	OType_ChannelMessage: true,
 }
 
 type WaveObjUpdate struct {
@@ -202,13 +206,21 @@ func (*Tab) GetOType() string {
 }
 
 type ChannelMessage struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Author  string `json:"author"`
-	Text    string `json:"text"`
-	RefORef string `json:"reforef,omitempty"`
-	Ts      int64  `json:"ts"`
-	Data    string `json:"data,omitempty"` // optional JSON payload for rich rendering (e.g. JarvisCardData)
+	OID        string      `json:"oid"`
+	Version    int         `json:"version"`
+	ChannelOID string      `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel list queries (phase 2)
+	ID         string      `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
+	Kind       string      `json:"kind"`
+	Author     string      `json:"author"`
+	Text       string      `json:"text"`
+	RefORef    string      `json:"reforef,omitempty"`
+	Ts         int64       `json:"ts"`
+	Data       string      `json:"data,omitempty"` // optional JSON payload for rich rendering (e.g. JarvisCardData)
+	Meta       MetaMapType `json:"meta"`
+}
+
+func (*ChannelMessage) GetOType() string {
+	return OType_ChannelMessage
 }
 
 // PhaseTriage is an adaptive orchestrator lead's self-reported sizing of the goal: quick (do it
@@ -233,7 +245,10 @@ type RunPhase struct {
 }
 
 type Run struct {
-	ID          string          `json:"id"`
+	OID         string          `json:"oid"`
+	Version     int             `json:"version"`
+	ChannelOID  string          `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel run queries (phase 2)
+	ID          string          `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
 	Goal        string          `json:"goal"`
 	PlaybookId  string          `json:"playbookid,omitempty"`
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
@@ -250,7 +265,12 @@ type Run struct {
 	Evidence    *RunEvidence    `json:"evidence,omitempty"`    // sealed once at completion; immutable
 	// ParentLeadORef is the tab oref ("tab:<id>") of the orchestrator lead that spawned this child run
 	// via `wsh jarvis run`. Empty for human-started runs. Drives the terminal-status notify-back.
-	ParentLeadORef string `json:"parentleadoref,omitempty"`
+	ParentLeadORef string      `json:"parentleadoref,omitempty"`
+	Meta           MetaMapType `json:"meta"`
+}
+
+func (*Run) GetOType() string {
+	return OType_Run
 }
 
 // RunEvidence is the sealed, immutable snapshot of what a run produced, derived server-side and frozen at
@@ -355,7 +375,7 @@ type RadarDisposition struct {
 type RadarFinding struct {
 	ID            string              `json:"id"`
 	Fingerprint   string              `json:"fingerprint"`
-	Group         string              `json:"group"` // new|recurring|nolonger|dismissed|suppressed
+	Group         string              `json:"group"`          // new|recurring|nolonger|dismissed|suppressed
 	Mode          string              `json:"mode,omitempty"` // correctness|security|debt (empty reads as correctness)
 	RiskKind      string              `json:"riskkind"`
 	Subsystem     string              `json:"subsystem"`               // deterministic canonical subsystem
@@ -608,6 +628,8 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&LayoutState{}),
 		reflect.TypeOf(&MainServer{}),
 		reflect.TypeOf(&Job{}),
+		reflect.TypeOf(&Run{}),
+		reflect.TypeOf(&ChannelMessage{}),
 	}
 }
 
