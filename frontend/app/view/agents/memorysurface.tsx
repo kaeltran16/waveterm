@@ -130,8 +130,11 @@ function ListView({
     const groups = groupByScope(notes);
     // upkeep sections (cleanup/archived) now sit above the Saved groups; separate the Saved list from
     // them only when at least one is actually shown (both hide when empty), so an empty vault keeps a
-    // tight top.
-    const hasUpkeep = useAtomValue(memPruneAtom).length > 0 || useAtomValue(memArchivedAtom).length > 0;
+    // tight top. Read both atoms unconditionally — a `||` short-circuit here would skip the second
+    // useAtomValue whenever the first is non-empty, changing the hook count between renders (crash).
+    const pruneCount = useAtomValue(memPruneAtom).length;
+    const archivedCount = useAtomValue(memArchivedAtom).length;
+    const hasUpkeep = pruneCount > 0 || archivedCount > 0;
     // publish the grouped note order for global j/k list-nav (list view only — this component is not
     // mounted in graph view, so the controller withdraws there). cursor==selection.
     const navIds = useMemo(() => groups.flatMap((g) => g.items.map((n) => n.id)), [groups]);
