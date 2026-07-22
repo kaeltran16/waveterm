@@ -434,6 +434,12 @@ func GetAllVarsCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshr
 	return resp, err
 }
 
+// command "getbackgroundagents", wshserver.GetBackgroundAgentsCommand
+func GetBackgroundAgentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetBackgroundAgentsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetBackgroundAgentsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetBackgroundAgentsRtnData](w, "getbackgroundagents", data, opts)
+	return resp, err
+}
+
 // command "getcachestatus", wshserver.GetCacheStatusCommand
 func GetCacheStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandGetCacheStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetCacheStatusRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetCacheStatusRtnData](w, "getcachestatus", data, opts)

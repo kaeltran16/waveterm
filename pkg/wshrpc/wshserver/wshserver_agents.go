@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
+	"github.com/wavetermdev/waveterm/pkg/bgagents"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/tasksharpen"
 	"github.com/wavetermdev/waveterm/pkg/usagestats"
@@ -149,6 +150,21 @@ func (ws *WshServer) GetCacheStatusCommand(ctx context.Context, data wshrpc.Comm
 		return &wshrpc.CommandGetCacheStatusRtnData{}, nil
 	}
 	return &wshrpc.CommandGetCacheStatusRtnData{LastWriteTs: cw.TS.Unix(), OneHour: cw.OneHour}, nil
+}
+
+func (ws *WshServer) GetBackgroundAgentsCommand(ctx context.Context, data wshrpc.CommandGetBackgroundAgentsData) (*wshrpc.CommandGetBackgroundAgentsRtnData, error) {
+	agents, err := bgagents.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing background agents: %w", err)
+	}
+	out := make([]wshrpc.BackgroundAgentData, len(agents))
+	for i, a := range agents {
+		out[i] = wshrpc.BackgroundAgentData{
+			SessionId: a.SessionId, Cwd: a.Cwd, Kind: a.Kind,
+			Name: a.Name, State: a.State, StartedTs: a.StartedTs,
+		}
+	}
+	return &wshrpc.CommandGetBackgroundAgentsRtnData{Agents: out}, nil
 }
 
 func (ws *WshServer) GetWindowTokensCommand(ctx context.Context, data wshrpc.CommandGetWindowTokensData) (*wshrpc.CommandGetWindowTokensRtnData, error) {

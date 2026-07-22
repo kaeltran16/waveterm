@@ -2,6 +2,7 @@
 
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
 import { projectNameFromTranscriptPath } from "./projectname";
+import { sessionIdFromTranscript } from "./launch";
 
 export type AgentState = "asking" | "working" | "idle";
 
@@ -87,7 +88,9 @@ export interface AgentVM {
     blockId?: string; // terminal block OID — target for ControllerInputCommand
     idleSince?: number; // idle: when it went idle (UnixMilli) — drives the keep-as-panel grace window
     usage?: AgentUsage; // latest context %, cost, and plan rate-limit snapshot (from the statusLine reporter)
-    kind?: "agent" | "terminal"; // undefined = agent (roster); "terminal" = plain shell session (no agent status)
+    kind?: "agent" | "terminal" | "background"; // undefined = agent (roster); "terminal" = plain shell; "background" = detached claude agent
+    needsInput?: boolean; // background agent parked on input (claude state "blocked") — drives the needs-input badge
+    cwd?: string; // background agent working dir — the resume target for Attach
 }
 
 // Per-card ephemeral layout prefs (full-width span + dragged height). Not persisted this pass.
@@ -913,4 +916,34 @@ export function mergePendingLaunches(base: AgentVM[], pending: PendingLaunch[], 
     const baseIds = new Set(base.map((a) => a.id));
     const overlay = pending.filter((p) => !baseIds.has(p.tabId)).map((p) => pendingToVM(p, now));
     return [...base, ...overlay];
+}
+
+/** Pure: one `claude agents --json` entry -> an AgentVM in the background lane. `blocked` (parked on
+ *  input) maps to working + needsInput so it reads as live and flags for attention; `idle` stays idle;
+ *  everything else is working. id IS the sessionId (the resume target); no transcriptPath/blockId
+ *  exists for a detached agent, so it never enters the transcript-stream or block-input paths. */
+export function backgroundAgentToVM(bg: BackgroundAgentData, projectName: string, now: number): AgentVM {
+    const state: AgentState = bg.state === "idle" ? "idle" : "working";
+    return {
+        id: bg.sessionid,
+        name: bg.name || "background agent",
+        task: "",
+        state,
+        kind: "background",
+        agent: "claude",
+        project: projectName,
+        cwd: bg.cwd,
+        needsInput: bg.state === "blocked",
+        activeMs: bg.startedts ? Math.max(0, now - bg.startedts) : undefined,
+    };
+}
+
+/** Pure: drop background agents that are already tracked as live hook-fed agents. A live agent's
+ *  session id is the stem of its transcript filename (sessionIdFromTranscript); a background agent's
+ *  id IS its session id. Same id => same session => show it once (the live, richer one wins). */
+export function dedupBackgroundAgents(background: AgentVM[], liveAgents: AgentVM[]): AgentVM[] {
+    const liveSessionIds = new Set(
+        liveAgents.map((a) => sessionIdFromTranscript(a.transcriptPath)).filter(Boolean)
+    );
+    return background.filter((b) => !liveSessionIds.has(b.id));
 }

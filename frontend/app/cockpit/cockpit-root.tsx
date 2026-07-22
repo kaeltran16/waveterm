@@ -14,6 +14,7 @@ import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
 import { useApplyCockpitFonts } from "@/app/view/agents/fontstore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
 import { NowTicker } from "@/app/view/agents/nowticker";
+import { BackgroundAgentsPoller } from "@/app/view/agents/backgroundagentspoller";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
@@ -84,6 +85,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <NowTicker model={model} />
+            <BackgroundAgentsPoller />
             <CockpitAppBar model={model} />
             <div className="min-h-0 flex-1">
                 <CockpitShell model={model} tabId={tabIdRef.current} />

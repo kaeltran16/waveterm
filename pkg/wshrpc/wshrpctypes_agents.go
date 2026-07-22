@@ -17,6 +17,7 @@ type AgentCommands interface {
 	SharpenTaskCommand(ctx context.Context, data CommandSharpenTaskData) (*CommandSharpenTaskRtnData, error)
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
+	GetBackgroundAgentsCommand(ctx context.Context, data CommandGetBackgroundAgentsData) (*CommandGetBackgroundAgentsRtnData, error)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 }
 
@@ -129,4 +130,21 @@ type CommandStreamAgentTranscriptData struct {
 
 type AgentTranscriptUpdate struct {
 	Lines []string `json:"lines"`
+}
+
+type CommandGetBackgroundAgentsData struct{}
+
+type CommandGetBackgroundAgentsRtnData struct {
+	Agents []BackgroundAgentData `json:"agents"`
+}
+
+// BackgroundAgentData is one entry from `claude agents --json`, normalized. No PR/model/token
+// fields — the listing carries none.
+type BackgroundAgentData struct {
+	SessionId string `json:"sessionid"`
+	Cwd       string `json:"cwd"`
+	Kind      string `json:"kind"` // "background" | "interactive"
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	StartedTs int64  `json:"startedts"` // epoch ms
 }

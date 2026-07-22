@@ -31,6 +31,7 @@ import {
     type GridLayout,
 } from "./agentsviewmodel";
 import { dismissKey, isCockpitEmpty, shownForChip, splitRecentlyIdle, toggleInSet } from "./cockpitsurfacemodel";
+import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
 import { answeredAskORefsAcross, needsHuman } from "./jarvisderive";
@@ -437,6 +438,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 </div>
 
                 <div className="relative flex min-h-0 flex-1 flex-col">
+                    <BackgroundAgentsStrip model={model} />
                     <AnimatePresence initial={false}>
                         {empty ? (
                             <CockpitEmptyState

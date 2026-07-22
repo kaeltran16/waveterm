@@ -109,3 +109,20 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     }
     return tabId;
 }
+
+// Attach = resume a detached background agent inside a fresh Wave terminal block. `claude --resume
+// <sessionId>` is the primitive (there is no `claude attach`); task is empty so resume reattaches
+// without replaying a prompt. Once it boots, the hook reporter registers it and the session-id dedup
+// collapses the background-lane entry into the now-live agent.
+export async function attachBackgroundAgent(
+    model: AgentsViewModel,
+    bg: { sessionId: string; cwd: string; project: string }
+): Promise<void> {
+    await launchAgent(model, {
+        runtime: "claude",
+        startupCommand: `claude --resume ${bg.sessionId}`,
+        task: "",
+        projectPath: bg.cwd,
+        projectName: bg.project || "background",
+    });
+}

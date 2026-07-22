@@ -105,6 +105,16 @@ declare global {
         askid: string;
     };
 
+    // wshrpc.BackgroundAgentData
+    type BackgroundAgentData = {
+        sessionid: string;
+        cwd: string;
+        kind: string;
+        name: string;
+        state: string;
+        startedts: number;
+    };
+
     // wconfig.BackgroundConfigType
     type BackgroundConfigType = {
         bg?: string;
@@ -504,6 +514,14 @@ declare global {
     // wshrpc.CommandGetAgentTranscriptRtnData
     type CommandGetAgentTranscriptRtnData = {
         lines: string[];
+    };
+
+    // wshrpc.CommandGetBackgroundAgentsData
+    type CommandGetBackgroundAgentsData = object;
+
+    // wshrpc.CommandGetBackgroundAgentsRtnData
+    type CommandGetBackgroundAgentsRtnData = {
+        agents: BackgroundAgentData[];
     };
 
     // wshrpc.CommandGetCacheStatusData
