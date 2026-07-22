@@ -8,7 +8,7 @@
 
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Undo2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { memArchivedAtom, restoreArchived } from "./memstore";
 import { reasonMeta, relativeAge, typeMeta } from "./memtypes";
@@ -53,13 +53,24 @@ function ArchivedRow({ a }: { a: MemoryArchivedNote }) {
 
 export function ArchivedView() {
     const archived = useAtomValue(memArchivedAtom);
+    const [open, setOpen] = useState(false);
     const [expanded, setExpanded] = useState(false);
     if (archived.length === 0) return null;
     const shown = expanded ? archived : archived.slice(0, COLLAPSED);
     const hidden = archived.length - shown.length;
     return (
         <section className="mt-[30px]">
-            <div className="mb-[6px] flex items-center gap-[10px]">
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+                className="mb-[6px] flex w-full items-center gap-[10px] text-left"
+            >
+                {open ? (
+                    <ChevronDown className="h-3 w-3 flex-none text-muted" />
+                ) : (
+                    <ChevronRight className="h-3 w-3 flex-none text-muted" />
+                )}
                 <h2 className="font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-mid">
                     Archived
                 </h2>
@@ -69,21 +80,24 @@ export function ArchivedView() {
                 <span className="text-[11.5px] text-muted">
                     auto-archived by the gardener — dormant, fully recoverable
                 </span>
-                <div className="flex-1" />
-            </div>
-            <div className="mb-[13px] h-px bg-gradient-to-r from-edge-faint to-transparent" />
-            <ul className="flex flex-col gap-[7px]">
-                {shown.map((a) => (
-                    <ArchivedRow key={a.path} a={a} />
-                ))}
-            </ul>
-            {hidden > 0 && (
-                <button
-                    onClick={() => setExpanded(true)}
-                    className="mt-[2px] px-[2px] py-[4px] font-mono text-[11.5px] font-semibold text-muted hover:text-ink-mid"
-                >
-                    show {hidden} more ↓
-                </button>
+            </button>
+            {open && (
+                <>
+                    <div className="mb-[13px] h-px bg-gradient-to-r from-edge-faint to-transparent" />
+                    <ul className="flex flex-col gap-[7px]">
+                        {shown.map((a) => (
+                            <ArchivedRow key={a.path} a={a} />
+                        ))}
+                    </ul>
+                    {hidden > 0 && (
+                        <button
+                            onClick={() => setExpanded(true)}
+                            className="mt-[2px] px-[2px] py-[4px] font-mono text-[11.5px] font-semibold text-muted hover:text-ink-mid"
+                        >
+                            show {hidden} more ↓
+                        </button>
+                    )}
+                </>
             )}
         </section>
     );

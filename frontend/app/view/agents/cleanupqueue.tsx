@@ -8,7 +8,7 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { confirmPruneAllSuperseded, memPruneAtom, prune } from "./memstore";
 import { reasonMeta, typeMeta } from "./memtypes";
@@ -58,6 +58,7 @@ function CleanupRow({ c }: { c: MemoryPruneCandidate }) {
 
 export function CleanupQueue() {
     const candidates = useAtomValue(memPruneAtom);
+    const [open, setOpen] = useState(false);
     const [expanded, setExpanded] = useState(false);
     if (candidates.length === 0) return null;
     const shown = expanded ? candidates : candidates.slice(0, COLLAPSED);
@@ -66,38 +67,54 @@ export function CleanupQueue() {
     return (
         <section className="mt-[30px]">
             <div className="mb-[6px] flex items-center gap-[10px]">
-                <h2 className="font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-hi">
-                    To clean up
-                </h2>
-                <span className="rounded-full bg-ink-mid/12 px-[8px] py-[2px] font-mono text-[11px] font-semibold text-ink-mid">
-                    {candidates.length}
-                </span>
-                <span className="text-[11.5px] text-muted">
-                    the distiller flags outdated saved notes — you remove them
-                </span>
+                <button
+                    type="button"
+                    onClick={() => setOpen((v) => !v)}
+                    aria-expanded={open}
+                    className="flex items-center gap-[10px] text-left"
+                >
+                    {open ? (
+                        <ChevronDown className="h-3 w-3 flex-none text-muted" />
+                    ) : (
+                        <ChevronRight className="h-3 w-3 flex-none text-muted" />
+                    )}
+                    <h2 className="font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-hi">
+                        To clean up
+                    </h2>
+                    <span className="rounded-full bg-ink-mid/12 px-[8px] py-[2px] font-mono text-[11px] font-semibold text-ink-mid">
+                        {candidates.length}
+                    </span>
+                    <span className="text-[11.5px] text-muted">
+                        the distiller flags outdated saved notes — you remove them
+                    </span>
+                </button>
                 <div className="flex-1" />
                 {supersededCount > 0 && (
                     <button
                         onClick={() => confirmPruneAllSuperseded(supersededCount)}
-                        className="rounded-[7px] border border-edge-strong px-[11px] py-[5px] text-[11px] font-semibold text-ink-mid hover:border-error/40 hover:text-error"
+                        className="flex-none rounded-[7px] border border-edge-strong px-[11px] py-[5px] text-[11px] font-semibold text-ink-mid hover:border-error/40 hover:text-error"
                     >
                         Clear all superseded
                     </button>
                 )}
             </div>
-            <div className="mb-[13px] h-px bg-gradient-to-r from-edge-mid to-transparent" />
-            <ul className="flex flex-col gap-[8px]">
-                {shown.map((c) => (
-                    <CleanupRow key={c.path} c={c} />
-                ))}
-            </ul>
-            {hidden > 0 && (
-                <button
-                    onClick={() => setExpanded(true)}
-                    className="mt-[2px] px-[2px] py-[4px] font-mono text-[11.5px] font-semibold text-muted hover:text-ink-mid"
-                >
-                    show {hidden} more ↓
-                </button>
+            {open && (
+                <>
+                    <div className="mb-[13px] h-px bg-gradient-to-r from-edge-mid to-transparent" />
+                    <ul className="flex flex-col gap-[8px]">
+                        {shown.map((c) => (
+                            <CleanupRow key={c.path} c={c} />
+                        ))}
+                    </ul>
+                    {hidden > 0 && (
+                        <button
+                            onClick={() => setExpanded(true)}
+                            className="mt-[2px] px-[2px] py-[4px] font-mono text-[11.5px] font-semibold text-muted hover:text-ink-mid"
+                        >
+                            show {hidden} more ↓
+                        </button>
+                    )}
+                </>
             )}
         </section>
     );

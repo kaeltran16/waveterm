@@ -45,6 +45,7 @@ import {
     memLoadedAtom,
     memNotesAtom,
     memPendingAtom,
+    memPruneAtom,
     memRailOpenAtom,
     memReflowAnimatedAtom,
     memSearchAtom,
@@ -127,6 +128,10 @@ function ListView({
     mountedEmpty: boolean;
 }) {
     const groups = groupByScope(notes);
+    // upkeep sections (cleanup/archived) now sit above the Saved groups; separate the Saved list from
+    // them only when at least one is actually shown (both hide when empty), so an empty vault keeps a
+    // tight top.
+    const hasUpkeep = useAtomValue(memPruneAtom).length > 0 || useAtomValue(memArchivedAtom).length > 0;
     // publish the grouped note order for global j/k list-nav (list view only — this component is not
     // mounted in graph view, so the controller withdraws there). cursor==selection.
     const navIds = useMemo(() => groups.flatMap((g) => g.items.map((n) => n.id)), [groups]);
@@ -150,8 +155,10 @@ function ListView({
             className="mx-auto max-w-[780px] px-[28px] pb-[60px] pt-[10px]"
         >
             <PendingBand />
+            <CleanupQueue />
+            <ArchivedView />
             <AnimatePresence mode="popLayout" initial={false}>
-                {groups.map((g) => (
+                {groups.map((g, i) => (
                     <motion.div
                         key={g.name}
                         layout
@@ -160,7 +167,7 @@ function ListView({
                         animate="animate"
                         exit={rp.exit}
                         transition={rp.transition}
-                        className="mb-[26px]"
+                        className={cn("mb-[26px]", i === 0 && hasUpkeep && "mt-[30px]")}
                     >
                         <div className="mb-[11px] flex items-center gap-[10px]">
                             <h2 className="font-mono text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-mid">
@@ -223,8 +230,6 @@ function ListView({
                     </motion.div>
                 ))}
             </AnimatePresence>
-            <CleanupQueue />
-            <ArchivedView />
         </motion.div>
     );
 }
