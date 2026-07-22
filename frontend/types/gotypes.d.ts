@@ -1003,6 +1003,11 @@ declare global {
         jobmanagerstartts: number;
     };
 
+    // wshrpc.CommandRemoveBackgroundAgentData
+    type CommandRemoveBackgroundAgentData = {
+        sessionid: string;
+    };
+
     // wshrpc.CommandRenameChannelData
     type CommandRenameChannelData = {
         channelid: string;

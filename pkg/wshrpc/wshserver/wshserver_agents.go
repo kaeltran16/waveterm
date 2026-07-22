@@ -167,6 +167,16 @@ func (ws *WshServer) GetBackgroundAgentsCommand(ctx context.Context, data wshrpc
 	return &wshrpc.CommandGetBackgroundAgentsRtnData{Agents: out}, nil
 }
 
+func (ws *WshServer) RemoveBackgroundAgentCommand(ctx context.Context, data wshrpc.CommandRemoveBackgroundAgentData) error {
+	if data.SessionId == "" {
+		return fmt.Errorf("sessionid is required")
+	}
+	if err := bgagents.Remove(data.SessionId); err != nil {
+		return fmt.Errorf("removing background agent: %w", err)
+	}
+	return nil
+}
+
 func (ws *WshServer) GetWindowTokensCommand(ctx context.Context, data wshrpc.CommandGetWindowTokensData) (*wshrpc.CommandGetWindowTokensRtnData, error) {
 	cutoffs := []time.Time{cutoffFromEpoch(data.FiveHourCutoff), cutoffFromEpoch(data.WeekCutoff)}
 	sums, err := usagestats.WindowTokens(cutoffs)

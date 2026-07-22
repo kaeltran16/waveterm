@@ -1,6 +1,10 @@
 package bgagents
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParse_BothShapes(t *testing.T) {
 	data := []byte(`[
@@ -50,5 +54,57 @@ func TestParse_EmptyArray(t *testing.T) {
 func TestParse_NonJSON(t *testing.T) {
 	if _, err := Parse([]byte(`not json`)); err == nil {
 		t.Fatal("want error on non-JSON, got nil")
+	}
+}
+
+func writeJob(t *testing.T, jobsDir, dir, sessionId string) {
+	t.Helper()
+	jd := filepath.Join(jobsDir, dir)
+	if err := os.MkdirAll(jd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"sessionId":"` + sessionId + `","state":"blocked"}`
+	if err := os.WriteFile(filepath.Join(jd, "state.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoveJobBySessionId(t *testing.T) {
+	jobs := t.TempDir()
+	writeJob(t, jobs, "aaaa1111", "aaaa1111-1111-1111-1111-111111111111")
+	writeJob(t, jobs, "bbbb2222", "bbbb2222-2222-2222-2222-222222222222")
+
+	if err := removeJobBySessionId(jobs, "aaaa1111-1111-1111-1111-111111111111"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(jobs, "aaaa1111")); !os.IsNotExist(err) {
+		t.Fatalf("expected aaaa1111 removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(jobs, "bbbb2222")); err != nil {
+		t.Fatalf("expected sibling bbbb2222 kept, stat err=%v", err)
+	}
+}
+
+func TestRemoveJobBySessionId_Unknown(t *testing.T) {
+	jobs := t.TempDir()
+	writeJob(t, jobs, "bbbb2222", "bbbb2222-2222-2222-2222-222222222222")
+
+	if err := removeJobBySessionId(jobs, "does-not-exist"); err != nil {
+		t.Fatalf("expected nil for unknown id, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(jobs, "bbbb2222")); err != nil {
+		t.Fatalf("expected sibling kept after no-op, stat err=%v", err)
+	}
+}
+
+func TestRemoveJobBySessionId_MissingJobsDir(t *testing.T) {
+	if err := removeJobBySessionId(filepath.Join(t.TempDir(), "nope"), "x-y"); err != nil {
+		t.Fatalf("expected nil for missing jobs dir, got %v", err)
+	}
+}
+
+func TestRemove_EmptySessionId(t *testing.T) {
+	if err := Remove(""); err == nil {
+		t.Fatal("expected error for empty sessionId")
 	}
 }

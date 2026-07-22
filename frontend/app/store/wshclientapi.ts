@@ -942,6 +942,12 @@ export class RpcApiType {
         return client.wshRpcCall("remotewritefile", data, opts);
     }
 
+    // command "removebackgroundagent" [call]
+    RemoveBackgroundAgentCommand(client: WshClient, data: CommandRemoveBackgroundAgentData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "removebackgroundagent", data, opts);
+        return client.wshRpcCall("removebackgroundagent", data, opts);
+    }
+
     // command "renamechannel" [call]
     RenameChannelCommand(client: WshClient, data: CommandRenameChannelData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "renamechannel", data, opts);

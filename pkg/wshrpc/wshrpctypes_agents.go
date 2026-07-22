@@ -18,6 +18,7 @@ type AgentCommands interface {
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
 	GetBackgroundAgentsCommand(ctx context.Context, data CommandGetBackgroundAgentsData) (*CommandGetBackgroundAgentsRtnData, error)
+	RemoveBackgroundAgentCommand(ctx context.Context, data CommandRemoveBackgroundAgentData) error // dismiss a background agent: delete its ~/.claude/jobs record (transcript kept)
 	StreamAgentTranscriptCommand(ctx context.Context, data CommandStreamAgentTranscriptData) chan RespOrErrorUnion[AgentTranscriptUpdate] // stream the transcript tail; new lines pushed as appended
 }
 
@@ -136,6 +137,10 @@ type CommandGetBackgroundAgentsData struct{}
 
 type CommandGetBackgroundAgentsRtnData struct {
 	Agents []BackgroundAgentData `json:"agents"`
+}
+
+type CommandRemoveBackgroundAgentData struct {
+	SessionId string `json:"sessionid"`
 }
 
 // BackgroundAgentData is one entry from `claude agents --json`, normalized. No PR/model/token

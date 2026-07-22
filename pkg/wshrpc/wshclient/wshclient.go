@@ -936,6 +936,12 @@ func RemoteWriteFileCommand(w *wshutil.WshRpc, data wshrpc.FileData, opts *wshrp
 	return err
 }
 
+// command "removebackgroundagent", wshserver.RemoveBackgroundAgentCommand
+func RemoveBackgroundAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoveBackgroundAgentData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "removebackgroundagent", data, opts)
+	return err
+}
+
 // command "renamechannel", wshserver.RenameChannelCommand
 func RenameChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandRenameChannelData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "renamechannel", data, opts)

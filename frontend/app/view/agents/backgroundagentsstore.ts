@@ -18,6 +18,21 @@ export const backgroundAgentsErrorAtom = atom<boolean>(false) as PrimitiveAtom<b
 
 let loadSeq = 0;
 
+// Dismiss a background agent: delete its ~/.claude/jobs record at the source (the transcript is
+// kept, so resume/attach still work). Optimistically drop it from the atom for instant feedback,
+// then reconcile against a fresh listing. On failure the reload restores the true state.
+export async function dismissBackgroundAgent(sessionId: string): Promise<void> {
+    globalStore.set(
+        backgroundAgentsAtom,
+        globalStore.get(backgroundAgentsAtom).filter((a) => a.sessionid !== sessionId)
+    );
+    try {
+        await RpcApi.RemoveBackgroundAgentCommand(TabRpcClient, { sessionid: sessionId });
+    } finally {
+        await loadBackgroundAgents();
+    }
+}
+
 export async function loadBackgroundAgents(): Promise<void> {
     const seq = ++loadSeq;
     try {

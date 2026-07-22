@@ -16,7 +16,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { dedupBackgroundAgents, formatAge, matchesProjectFilter, type AgentVM } from "./agentsviewmodel";
-import { backgroundAgentVMsAtom } from "./backgroundagentsstore";
+import { backgroundAgentVMsAtom, dismissBackgroundAgent } from "./backgroundagentsstore";
 import { SectionHeader } from "./sectionheader";
 
 export function BackgroundAgentsStrip({ model }: { model: AgentsViewModel }) {
@@ -34,6 +34,8 @@ export function BackgroundAgentsStrip({ model }: { model: AgentsViewModel }) {
         fireAndForget(() =>
             attachBackgroundAgent(model, { sessionId: a.id, cwd: a.cwd ?? "", project: a.project ?? "" })
         );
+
+    const dismiss = (a: AgentVM) => fireAndForget(() => dismissBackgroundAgent(a.id));
 
     return (
         <div className="shrink-0">
@@ -77,6 +79,13 @@ export function BackgroundAgentsStrip({ model }: { model: AgentsViewModel }) {
                                     className="shrink-0 rounded-[7px] border border-border px-[11px] py-[3px] text-[11px] font-semibold text-ink-mid hover:text-foreground"
                                 >
                                     Attach
+                                </button>
+                                <button
+                                    onClick={() => dismiss(a)}
+                                    title="Dismiss — remove this background session (transcript kept)"
+                                    className="shrink-0 rounded-[7px] border border-transparent px-[8px] py-[3px] text-[13px] leading-none text-ink-mid hover:border-border hover:text-warning"
+                                >
+                                    ×
                                 </button>
                             </motion.div>
                         ))}
