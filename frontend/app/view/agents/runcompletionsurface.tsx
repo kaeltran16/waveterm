@@ -5,8 +5,10 @@
 // shown when a run is done. Renders run.evidence (derived server-side, immutable). Replaces RunBody's
 // terminal phase-rail view. Read-only — the run stays done; file/artifact clicks open in the OS editor.
 
+import { cardVariants } from "@/app/element/motiontokens";
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
+import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import {
@@ -61,6 +63,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
     const counts = verifCounts(ev.verifs ?? []);
     const nodes = phaseHistory(run);
     return (
+        <MotionConfig reducedMotion="user">
         <div className="sc min-h-0 flex-1 overflow-y-auto">
             {/* header */}
             <div className="flex items-center gap-3 border-b border-border bg-surface px-6 py-[13px]">
@@ -82,7 +85,12 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
             <div className="px-6 pb-10 pt-[22px]">
                 <div className={CHANNEL_COL}>
                     {/* evidence snapshot card */}
-                    <div className="overflow-hidden rounded-2xl border border-accent/25 bg-surface shadow-[0_20px_50px_rgba(0,0,0,.35)]">
+                    <motion.div
+                        variants={cardVariants}
+                        initial="initial"
+                        animate="animate"
+                        className="overflow-hidden rounded-2xl border border-accent/25 bg-surface shadow-[0_20px_50px_rgba(0,0,0,.35)]"
+                    >
                         {/* sealed header */}
                         <div className="flex items-center gap-3 border-b border-accent/20 bg-accentbg px-[18px] py-3.5">
                             <span className="text-[13px] text-accent">🔒</span>
@@ -210,7 +218,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                             </button>
                             <span className="text-[11.5px] text-muted">Snapshot is read-only — the run stays done. No approval needed.</span>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* phase history */}
                     <div className="mx-0.5 mb-3.5 mt-[26px] flex items-center gap-3">
@@ -218,9 +226,14 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                         <div className="h-px flex-1 bg-border" />
                         <span className="font-mono text-[11px] text-muted">{nodes.length} phases · all complete</span>
                     </div>
-                    <div className="pl-0.5">
+                    <motion.div
+                        className="pl-0.5"
+                        initial="initial"
+                        animate="animate"
+                        variants={{ animate: { transition: { staggerChildren: 0.05 } } }}
+                    >
                         {nodes.map((n, i) => (
-                            <div key={i} className="flex gap-[15px]">
+                            <motion.div key={i} variants={cardVariants} className="flex gap-[15px]">
                                 <div className="flex w-[38px] flex-none flex-col items-center">
                                     <div className={"flex h-[26px] w-[26px] flex-none items-center justify-center border-[1.5px] border-success/50 bg-success/15 font-mono text-[11px] font-bold text-success " + (n.isGate || n.isBoundary ? "rounded-lg" : "rounded-full")}>
                                         {n.isBoundary ? "↻" : "✓"}
@@ -249,11 +262,12 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                         </button>
                                     ))}
                                 </div>
-                            </div>
+                            </motion.div>
                         ))}
-                    </div>
+                    </motion.div>
                 </div>
             </div>
         </div>
+        </MotionConfig>
     );
 }

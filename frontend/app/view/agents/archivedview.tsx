@@ -6,9 +6,11 @@
 // cleanup queue. This is the reversibility surface for the gardener's automatic actions: Restore is
 // one click. Hidden when empty.
 
+import { composerReveal } from "@/app/element/motiontokens";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, Undo2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { memArchivedAtom, restoreArchived } from "./memstore";
 import { reasonMeta, relativeAge, typeMeta } from "./memtypes";
@@ -81,24 +83,33 @@ export function ArchivedView() {
                     auto-archived by the gardener — dormant, fully recoverable
                 </span>
             </button>
-            {open && (
-                <>
-                    <div className="mb-[13px] h-px bg-gradient-to-r from-edge-faint to-transparent" />
-                    <ul className="flex flex-col gap-[7px]">
-                        {shown.map((a) => (
-                            <ArchivedRow key={a.path} a={a} />
-                        ))}
-                    </ul>
-                    {hidden > 0 && (
-                        <button
-                            onClick={() => setExpanded(true)}
-                            className="mt-[2px] px-[2px] py-[4px] font-mono text-[11.5px] font-semibold text-muted hover:text-ink-mid"
-                        >
-                            show {hidden} more ↓
-                        </button>
-                    )}
-                </>
-            )}
+            <AnimatePresence initial={false}>
+                {open && (
+                    <motion.div
+                        key="body"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="overflow-hidden"
+                    >
+                        <div className="mb-[13px] h-px bg-gradient-to-r from-edge-faint to-transparent" />
+                        <ul className="flex flex-col gap-[7px]">
+                            {shown.map((a) => (
+                                <ArchivedRow key={a.path} a={a} />
+                            ))}
+                        </ul>
+                        {hidden > 0 && (
+                            <button
+                                onClick={() => setExpanded(true)}
+                                className="mt-[2px] px-[2px] py-[4px] font-mono text-[11.5px] font-semibold text-muted hover:text-ink-mid"
+                            >
+                                show {hidden} more ↓
+                            </button>
+                        )}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </section>
     );
 }

@@ -7,6 +7,7 @@
 // primary action is Jump (live) or Resume (ended). @theme tokens only — no hardcoded colors.
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { cardVariants, MOTION } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -14,6 +15,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
@@ -133,6 +135,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     useSurfaceListNav(listNav);
 
     return (
+        <MotionConfig reducedMotion="user">
         <div className="flex h-full min-h-0 flex-col bg-background">
             <SurfaceHeader
                 title="Sessions"
@@ -179,7 +182,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                         type="button"
                         onClick={() => setSel("all")}
                         className={cn(
-                            "mb-3.5 flex w-full items-center gap-[11px] rounded-[11px] border px-[13px] py-[11px] text-left",
+                            "mb-3.5 flex w-full items-center gap-[11px] rounded-[11px] border px-[13px] py-[11px] text-left transition-colors duration-150",
                             sel === "all" ? "border-accent bg-surface-hover" : "border-border bg-surface hover:border-edge-strong"
                         )}
                     >
@@ -218,16 +221,22 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                     <span className="font-mono text-[10px] text-muted">{g.items.length}</span>
                                 </div>
                                 <div className="flex flex-col gap-[7px]">
+                                    <AnimatePresence initial={false} mode="popLayout">
                                     {g.items.map((s) => {
                                         const st = statusOf(s);
                                         const active = sel === `${s.runtime}:${s.id}`;
                                         return (
-                                            <button
+                                            <motion.button
                                                 key={`${s.runtime}:${s.id}`}
+                                                layout
+                                                variants={cardVariants}
+                                                initial="initial"
+                                                animate="animate"
+                                                exit="exit"
                                                 type="button"
                                                 onClick={() => setSel(`${s.runtime}:${s.id}`)}
                                                 className={cn(
-                                                    "flex flex-col gap-[7px] rounded-[11px] border px-[13px] py-[11px] text-left",
+                                                    "flex flex-col gap-[7px] rounded-[11px] border px-[13px] py-[11px] text-left transition-colors duration-150",
                                                     active ? "border-accent bg-surface-hover" : "border-border bg-surface hover:border-edge-strong"
                                                 )}
                                             >
@@ -256,9 +265,10 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                                         </>
                                                     ) : null}
                                                 </span>
-                                            </button>
+                                            </motion.button>
                                         );
                                     })}
+                                    </AnimatePresence>
                                 </div>
                             </div>
                         ))
@@ -267,14 +277,25 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
 
                 {/* RIGHT · detail */}
                 <div className="min-w-0 flex-1 overflow-y-auto px-7 pb-12 pt-5">
-                    {selected ? (
-                        <SessionDetail model={model} session={selected} now={now} />
-                    ) : (
-                        <MergedFeed model={model} list={live} now={now} />
-                    )}
+                    <AnimatePresence mode="wait" initial={false}>
+                        <motion.div
+                            key={selected ? "detail" : "feed"}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        >
+                            {selected ? (
+                                <SessionDetail model={model} session={selected} now={now} />
+                            ) : (
+                                <MergedFeed model={model} list={live} now={now} />
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
                 </div>
             </div>
         </div>
+        </MotionConfig>
     );
 }
 

@@ -1,9 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { composerReveal } from "@/app/element/motiontokens";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { cn } from "@/util/util";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useMemo, useState } from "react";
 import {
     DEFAULT_OPEN_GROUPS,
@@ -96,8 +98,17 @@ export function RadarFindingsList({
                             <span className="flex-1" />
                             <span className="text-[10px] text-muted">{meta.hint}</span>
                         </button>
-                        {isOpen
-                            ? items.map((f) => {
+                        <AnimatePresence initial={false}>
+                            {isOpen ? (
+                                <motion.div
+                                    key="items"
+                                    variants={composerReveal}
+                                    initial="initial"
+                                    animate="animate"
+                                    exit="exit"
+                                    className="overflow-hidden"
+                                >
+                                    {items.map((f) => {
                                   const active = selectedId === f.id;
                                   const muted = isMutedGroup(f.group);
                                   const fmeta = groupMeta(f.group);
@@ -108,7 +119,7 @@ export function RadarFindingsList({
                                           type="button"
                                           onClick={() => onSelect(f.id)}
                                           className={cn(
-                                              "relative flex w-full flex-col gap-2 border-l-2 px-3.5 py-2.5 text-left",
+                                              "relative flex w-full flex-col gap-2 border-l-2 px-3.5 py-2.5 text-left transition-colors duration-150",
                                               active
                                                   ? "border-accent bg-accent/10"
                                                   : "border-transparent hover:bg-surface-hover",
@@ -167,8 +178,10 @@ export function RadarFindingsList({
                                           </div>
                                       </button>
                                   );
-                              })
-                            : null}
+                                    })}
+                                </motion.div>
+                            ) : null}
+                        </AnimatePresence>
                     </div>
                 );
             })}

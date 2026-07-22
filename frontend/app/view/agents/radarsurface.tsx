@@ -1,11 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AlertTriangle, ChevronDown } from "lucide-react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsAtom } from "./projectsstore";
@@ -181,6 +183,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
     }, [report, selectedFinding, model]);
 
     return (
+        <MotionConfig reducedMotion="user">
         <div className="flex h-full w-full flex-col bg-background">
             <SurfaceHeader
                 title="Repo Radar"
@@ -228,8 +231,16 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
             />
 
             <div className="min-h-0 flex-1">
+                <AnimatePresence mode="wait" initial={false}>
                 {isResults && report ? (
-                    <div className="flex h-full flex-col">
+                    <motion.div
+                        key="results"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        className="flex h-full flex-col"
+                    >
                         {/* summary chips + hypotheses disclaimer */}
                         <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
                             {modeOptions.length > 1 ? (
@@ -242,7 +253,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                                 type="button"
                                                 onClick={() => setModeFilter(m)}
                                                 className={cn(
-                                                    "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold",
+                                                    "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors duration-150",
                                                     m === "all"
                                                         ? on
                                                             ? "border-accent/40 bg-accent/15 text-accent-soft"
@@ -319,11 +330,22 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </motion.div>
                 ) : (
-                    <RadarScanStatePanel state={state} report={report} scopePath={scope?.path} />
+                    <motion.div
+                        key="panel"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        className="h-full"
+                    >
+                        <RadarScanStatePanel state={state} report={report} scopePath={scope?.path} />
+                    </motion.div>
                 )}
+                </AnimatePresence>
             </div>
         </div>
+        </MotionConfig>
     );
 }
