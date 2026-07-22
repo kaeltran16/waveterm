@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func git(t *testing.T, dir string, args ...string) {
@@ -49,6 +50,52 @@ func TestHeadCommit(t *testing.T) {
 	// not a repo -> error, empty
 	if _, err := HeadCommit(context.Background(), t.TempDir()); err == nil {
 		t.Fatal("expected error for a non-repo dir")
+	}
+}
+
+// commitAt writes file=content, stages, and commits with a fixed committer date (rev-list --before
+// filters on committer date). Returns the new commit sha.
+func commitAt(t *testing.T, dir, file, content string, unixSec int64) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	date := time.Unix(unixSec, 0).UTC().Format(time.RFC3339)
+	env := append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_AUTHOR_DATE="+date,
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_COMMITTER_DATE="+date)
+	for _, args := range [][]string{{"add", "."}, {"commit", "-m", "c"}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	sha, err := HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sha
+}
+
+func TestCommitBefore(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	_ = commitAt(t, dir, "a.txt", "1\n", 1000)
+	c2 := commitAt(t, dir, "a.txt", "1\n2\n", 2000)
+	c3 := commitAt(t, dir, "a.txt", "1\n2\n3\n", 3000)
+
+	if got, _ := CommitBefore(context.Background(), dir, 500); got != "" {
+		t.Fatalf("before-all = %q, want empty", got)
+	}
+	if got, _ := CommitBefore(context.Background(), dir, 2500); got != c2 {
+		t.Fatalf("mid = %q, want c2 %q", got, c2)
+	}
+	if got, _ := CommitBefore(context.Background(), dir, 4000); got != c3 {
+		t.Fatalf("after-all = %q, want c3 (HEAD) %q", got, c3)
+	}
+	if got, err := CommitBefore(context.Background(), t.TempDir(), 4000); err != nil || got != "" {
+		t.Fatalf("non-repo = %q, err %v; want empty,nil", got, err)
 	}
 }
 
@@ -100,67 +147,6 @@ func repoCommittedOnBase(t *testing.T) (string, string) {
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-m", "work")
 	return dir, base
-}
-
-func TestWorktreeBase(t *testing.T) {
-	// a feature branch that has diverged from main -> base is the merge-base (the init commit)
-	dir := t.TempDir()
-	git(t, dir, "init", "-b", "main")
-	writeFile(t, dir, "a.txt", "one\ntwo\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "init")
-	base, err := HeadCommit(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	git(t, dir, "checkout", "-b", "feat")
-	writeFile(t, dir, "a.txt", "one\ntwo\nthree\n")
-	git(t, dir, "add", ".")
-	git(t, dir, "commit", "-m", "work")
-
-	got, err := WorktreeBase(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != base {
-		t.Fatalf("WorktreeBase = %q, want merge-base %q", got, base)
-	}
-	// the resolved base surfaces the committed work that HEAD-mode misses (see the assertion below)
-	ch, err := GetChanges(context.Background(), dir, got)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(ch.Numstat, "a.txt") {
-		t.Fatalf("base-anchored numstat missing committed change: %q", ch.Numstat)
-	}
-	// HEAD-mode sees nothing (work is committed) — the bug base-anchoring fixes
-	head, err := GetChanges(context.Background(), dir, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(head.Numstat, "a.txt") {
-		t.Fatalf("HEAD-mode unexpectedly shows committed change: %q", head.Numstat)
-	}
-}
-
-func TestWorktreeBaseDegrades(t *testing.T) {
-	// on the default branch (no divergence) -> "" so the caller falls back to the live HEAD diff
-	dir := repoWithChange(t) // on main: one commit + uncommitted edits
-	got, err := WorktreeBase(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Fatalf("WorktreeBase on default branch = %q, want empty", got)
-	}
-	// not a repo -> "" with no error
-	got, err = WorktreeBase(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Fatalf("WorktreeBase non-repo = %q, want empty", got)
-	}
 }
 
 func TestGetChangesRefIncludesCommitted(t *testing.T) {

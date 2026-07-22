@@ -11,6 +11,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { resolveCwd } from "./agentcwdresolve";
+import { ensureSessionStart } from "./agentsessionstore";
 import { parseUnifiedDiff, plainFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
@@ -35,12 +36,13 @@ const requestedSelection = { token: "", path: "" };
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
 
-// How to anchor the diff: an explicit base commit (runs), or worktreeBase to have the backend
-// auto-resolve the branch's merge-base (interactive worktree/branch agents) so committed work still
-// shows. Exactly one is meaningful; worktreeBase wins if both are set.
+// How to anchor the diff: an explicit base commit (runs), or a session-start unix-seconds timestamp
+// (interactive agents) that the backend resolves to the session-start commit and echoes back so
+// committed work still shows. Neither set = live working-tree-vs-HEAD (project view). sessionStartTs
+// wins if both are set.
 interface LoadOpts {
     ref?: string;
-    worktreeBase?: boolean;
+    sessionStartTs?: number;
 }
 
 // Core: fetch branch + changes for a resolved cwd and select the first file. The caller owns the
@@ -53,13 +55,17 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         return;
     }
     try {
-        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref: opts.ref, worktreebase: opts.worktreeBase });
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, {
+            cwd,
+            ...(opts.ref ? { ref: opts.ref } : {}),
+            ...(opts.sessionStartTs ? { sessionstartts: opts.sessionStartTs } : {}),
+        });
         if (current.token !== token) {
             return;
         }
-        // worktreeBase mode: the backend resolved + echoed the concrete base — thread it into per-file
+        // sessionStartTs mode: the backend resolved + echoed the concrete base — thread it into per-file
         // diffs so they match the list. Otherwise use the ref we sent ("" = live).
-        const ref = opts.worktreeBase ? (ch.ref ?? "") : (opts.ref ?? "");
+        const ref = opts.sessionStartTs ? (ch.ref ?? "") : (opts.ref ?? "");
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
         globalStore.set(filesErrorAtom, false);
@@ -109,23 +115,25 @@ export async function loadFilesForAgent(
 ): Promise<void> {
     const token = `agent:${id}`;
     beginLoad(token);
-    const cwd = await resolveCwd(transcriptPath, blockId);
+    const [cwd, sessionStartTs] = await Promise.all([
+        resolveCwd(transcriptPath, blockId),
+        ensureSessionStart(transcriptPath),
+    ]);
     if (current.token !== token) {
         return;
     }
-    // worktree/branch agents commit as they work; anchor on the branch's merge-base so committed work
-    // stays visible (a plain vs-HEAD diff would collapse to nothing). On the default branch this
-    // resolves to "" and degrades to the live diff.
-    await loadChangesForCwd(token, cwd, { worktreeBase: true });
+    // anchor on the session-start commit so committed work stays visible (a plain vs-HEAD diff would
+    // collapse to nothing after the agent commits). Null ts degrades to the live diff.
+    await loadChangesForCwd(token, cwd, { sessionStartTs: sessionStartTs ?? undefined });
 }
 
-// Project-scoped load: the registry path IS the cwd, so no transcript resolution is needed. Same
-// merge-base anchoring as agents — meaningful when the project checkout is on a feature branch,
-// identical to live when it's on the default branch.
+// Project-scoped load: the registry path IS the cwd, so no transcript / session exists to anchor to.
+// Show the live working-tree-vs-HEAD diff (uncommitted changes) — the "open this repo in a git client"
+// view.
 export async function loadFilesForProject(name: string, path: string): Promise<void> {
     const token = `project:${name}`;
     beginLoad(token);
-    await loadChangesForCwd(token, path || null, { worktreeBase: true });
+    await loadChangesForCwd(token, path || null, {});
 }
 
 // Run-scoped load: base-anchored, read-only, against the run's captured base commit (an immutable

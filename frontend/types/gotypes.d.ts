@@ -634,7 +634,7 @@ declare global {
     type CommandGitChangesData = {
         cwd: string;
         ref?: string;
-        worktreebase?: boolean;
+        sessionstartts?: number;
     };
 
     // wshrpc.CommandGitChangesRtnData
