@@ -438,7 +438,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 </div>
 
                 <div className="relative flex min-h-0 flex-1 flex-col">
-                    <BackgroundAgentsStrip model={model} />
                     <AnimatePresence initial={false}>
                         {empty ? (
                             <CockpitEmptyState
@@ -496,6 +495,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     <div className="shrink-0 px-[18px]">
                         <BackgroundedSection agents={shownBackgrounded} onRestore={(id) => toggleBackground(id)} />
                         <IdleSection agents={shownParkedIdle} onOpen={(id) => model.openTerminal(id)} />
+                        <BackgroundAgentsStrip model={model} />
                     </div>
                 </div>
 
