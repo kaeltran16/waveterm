@@ -32,6 +32,48 @@ const (
 	evidenceSealTimeout   = 30 * time.Second
 )
 
+// sealAsync dispatches the best-effort evidence seal off the RPC handler's goroutine so a slow git diff
+// can't hold the response past the caller's client timeout. A var so tests can run it inline.
+var sealAsync = func(fn func()) { go fn() }
+
+// sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
+// take many seconds) detached from any RPC budget. Self-contained and idempotent: it re-loads the run, and
+// SealEvidence refuses to seal on a git failure/timeout — leaving the run unsealed for the backfill
+// (SealRunEvidenceCommand) to retry rather than freezing an empty file list into the immutable snapshot.
+func sealDoneRunEvidence(channelId, runId string) {
+	ctx, cancel := context.WithTimeout(context.Background(), evidenceSealTimeout)
+	defer cancel()
+	run, err := wstore.GetRun(ctx, channelId, runId)
+	if err != nil || run.Status != jarvis.RunStatus_Done || run.Evidence != nil {
+		return
+	}
+	if serr := jarvis.SealEvidence(ctx, run); serr != nil {
+		log.Printf("AdvanceRun: sealing evidence for run %s deferred to backfill: %v", runId, serr)
+		return
+	}
+	if run.Evidence == nil {
+		return
+	}
+	ev, completedTs := run.Evidence, run.CompletedTs
+	if uerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
+		if r.Evidence == nil { // idempotent under concurrent advances / backfill
+			r.Evidence = ev
+			r.CompletedTs = completedTs
+		}
+		return nil
+	}); uerr != nil {
+		log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", runId, uerr)
+		return
+	}
+	if run.RadarOrigin != nil {
+		inv := reporadar.InvestigationFromRun(run, channelId, "done", run.CompletedTs)
+		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
+			log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
+		}
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+}
+
 // spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
 // attached orefs — a second write, so tab-creation never nests inside the run's state-transition write.
 //
@@ -289,39 +331,20 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if err != nil {
 		return fmt.Errorf("advancing run: %w", err)
 	}
-	// seal the immutable evidence snapshot on the non-done -> done transition, then notify the parent lead
-	// (if this is a child run). The notify is keyed on Done, not on evidence, so an empty-diff run still wakes
-	// its parent. Reached once per run: applyRunAction errors on an already-done run.
+	// on the non-done -> done transition: dispatch the evidence seal off the RPC budget, then notify the
+	// parent lead (if this is a child run). The notify is keyed on Done, not on evidence, so an empty-diff
+	// run still wakes its parent. Reached once per run: applyRunAction errors on an already-done run.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil && run.Status == jarvis.RunStatus_Done {
 		if run.Evidence == nil {
-			// detach the seal from the FE-call budget so a slow git diff can't be canceled into an empty
-			// (then immutable) snapshot; SealEvidence refuses to seal on a git failure/timeout, leaving the
-			// run unsealed for the backfill (SealRunEvidenceCommand) to retry.
-			sealCtx, sealCancel := context.WithTimeout(context.WithoutCancel(ctx), evidenceSealTimeout)
-			serr := jarvis.SealEvidence(sealCtx, run)
-			sealCancel()
-			if serr != nil {
-				log.Printf("AdvanceRun: sealing evidence for run %s deferred to backfill: %v", data.RunId, serr)
-			} else if run.Evidence != nil {
-				ev := run.Evidence
-				completedTs := run.CompletedTs
-				if uerr := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-					if r.Evidence == nil { // idempotent under concurrent advances
-						r.Evidence = ev
-						r.CompletedTs = completedTs
-					}
-					return nil
-				}); uerr != nil {
-					log.Printf("AdvanceRun: persisting evidence for run %s failed: %v", data.RunId, uerr)
-				}
-				if run.RadarOrigin != nil {
-					inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
-					if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
-						log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
-					}
-				}
-			}
+			// the seal runs a git diff + transcript reads that can outlast the caller's short client timeout;
+			// blocking the handler on it surfaced as EC-TIME even though the transition above had already
+			// persisted. It's best-effort and idempotent, with SealRunEvidenceCommand as the backfill — so
+			// dispatch it off-band and let the RPC return as soon as the transition is durable.
+			channelId, runId := data.ChannelId, data.RunId
+			sealAsync(func() { sealDoneRunEvidence(channelId, runId) })
 		}
+		// parent-notify stays synchronous: it's a cheap PTY input send, and a child's parent must learn its
+		// child is done as soon as the transition lands, not whenever the background seal happens to finish.
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
 		}
