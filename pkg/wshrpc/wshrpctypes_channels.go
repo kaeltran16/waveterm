@@ -13,6 +13,8 @@ type ChannelCommands interface {
 	CreateChannelCommand(ctx context.Context, data CommandCreateChannelData) (*waveobj.Channel, error)
 	DeleteChannelCommand(ctx context.Context, data CommandDeleteChannelData) error
 	GetChannelsCommand(ctx context.Context) (*CommandGetChannelsRtnData, error)
+	GetChannelRunsCommand(ctx context.Context, data CommandGetChannelRunsData) (*CommandGetChannelRunsRtnData, error)             // row-backed run list for a channel (Phase-2 active-channel surface)
+	GetChannelMessagesCommand(ctx context.Context, data CommandGetChannelMessagesData) (*CommandGetChannelMessagesRtnData, error) // row-backed message window for a channel (before/limit cursor)
 	PostChannelMessageCommand(ctx context.Context, data CommandPostChannelMessageData) (*waveobj.ChannelMessage, error)
 	SetChannelTierCommand(ctx context.Context, data CommandSetChannelTierData) error               // sets a channel's Jarvis autonomy tier (concierge|gatekeeper|delegator) + default dispatch mode
 	SetChannelNotesCommand(ctx context.Context, data CommandSetChannelNotesData) error             // sets a channel's free-text notes (Channel.Meta["channel:notes"])
@@ -34,6 +36,24 @@ type CommandDeleteChannelData struct {
 
 type CommandGetChannelsRtnData struct {
 	Channels []*waveobj.Channel `json:"channels"`
+}
+
+type CommandGetChannelRunsData struct {
+	ChannelId string `json:"channelid"`
+}
+
+type CommandGetChannelRunsRtnData struct {
+	Runs []*waveobj.Run `json:"runs"`
+}
+
+type CommandGetChannelMessagesData struct {
+	ChannelId string `json:"channelid"`
+	Before    int64  `json:"before,omitempty"` // ts cursor; 0 = latest
+	Limit     int    `json:"limit,omitempty"`  // 0 = server default
+}
+
+type CommandGetChannelMessagesRtnData struct {
+	Messages []*waveobj.ChannelMessage `json:"messages"`
 }
 
 type CommandPostChannelMessageData struct {

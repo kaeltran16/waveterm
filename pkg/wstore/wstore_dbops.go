@@ -361,11 +361,10 @@ func DBInsert(ctx context.Context, val waveobj.WaveObj) error {
 	})
 }
 
-// dbUpsertObjTx writes val as a row WITHOUT emitting a waveobj:update. Phase-1 channel dual-write uses
-// it to mirror the message/run still embedded in the channel blob; nothing subscribes to run:/
-// channelmessage: orefs until Phase 2, so a broadcast would be premature. Call with a tx.Context()
-// already inside a WithTx on the write handle — txwrap reuses that transaction, keeping the row write
-// atomic with the blob write.
+// dbUpsertObjTx writes val as a row AND queues a waveobj:update for its oref (published on the enclosing
+// WithTx commit) so FE per-object (run:) subscriptions get live deltas — Phase 2 turned this on (Phase 1
+// deliberately omitted it while nothing subscribed). Call with a tx.Context() already inside a WithTx on
+// the write handle; txwrap reuses that transaction, keeping the row write atomic with the blob write.
 func dbUpsertObjTx(ctx context.Context, val waveobj.WaveObj) error {
 	oid := waveobj.GetOID(val)
 	if oid == "" {
@@ -382,6 +381,7 @@ func dbUpsertObjTx(ctx context.Context, val waveobj.WaveObj) error {
 				"ON CONFLICT(oid) DO UPDATE SET data = excluded.data, version = version + 1",
 			table)
 		tx.Exec(query, oid, jsonData)
+		waveobj.ContextAddUpdate(ctx, waveobj.WaveObjUpdate{UpdateType: waveobj.UpdateType_Update, OType: val.GetOType(), OID: oid, Obj: val})
 		return nil
 	})
 }

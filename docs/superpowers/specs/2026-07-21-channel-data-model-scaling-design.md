@@ -4,7 +4,20 @@
 **Status:** Approved design, in progress. **Phase 0 (read-conn pool, A3) shipped 2026-07-21** (`6248d04f`,
 plan `docs/superpowers/plans/2026-07-21-channel-scaling-phase0-read-pool.md`). **Phase 1 (Expand) shipped
 2026-07-22** — plan at `docs/superpowers/plans/2026-07-22-channel-scaling-phase1-expand.md`. **Phase 2
-(migrate reads) is next.** Source: the 2026-07-21 improvement scan (Theme A, findings A1–A3).
+(Migrate reads) shipped 2026-07-22** — plan at
+`docs/superpowers/plans/2026-07-22-channel-scaling-phase2-migrate-reads.md`. **Phase 3 (Contract) is next.**
+Source: the 2026-07-21 improvement scan (Theme A, findings A1–A3).
+
+**Phase 2 deviations/deferrals (as-built):** (1) Radar collect adds **no** projectpath index — it reads a
+scalar `channelOID → projectpath` map and calls `GetChannelRuns` per matching channel, avoiding both the
+`O(session)` message load and the `canonPath` mismatch an exact-match index would have (Design Note 4).
+(2) FE cross-channel aggregates (rail unread badge, cross-channel ask badges) stay on the `GetChannels`
+snapshot; only the active-channel surface was cut over (Design Note 5). (3) Liveness uses the existing
+per-object `run:` broadcast (turned on in `dbUpsertObjTx`) for the focused run's content and the
+still-bumping `channel:` object as the "list membership changed, refetch" signal — no new wire event
+(Design Note 6). (4) Visual-parity CDP check (Task E4) was deferred (worktree isolation; no dev app) —
+backend `-race` suites, codegen no-drift, tsc, and 1001 FE unit tests are green, but live visual parity is
+unverified.
 **Driver:** Preventive. No observed symptom; the goal is to remove the `O(session)` growth that is the
 only cluster whose cost worsens the more the product is used, before it bites at scale.
 
@@ -96,11 +109,14 @@ Landed as independently-shippable, reversible phases; no half-migrated state bre
   mutations keep embedding in the channel blob *and* write the row. Backfill existing blobs into rows; stamp
   `run:`/`channel:` oref onto worker-tab meta (+ backfill). Nothing reads the rows yet — invisible,
   reversible (drop tables).
-- **Phase 2 — Migrate reads.** Point hot-path lookups (`handleAsk`, `OnWorkerExit`, `ReportRunPhase`, the
-  two `wshserver_runs` sites, radar collect) at the indexed rows / tab-meta instead of the `GetChannels`
-  full-scan. Add FE-facing APIs `GetChannelMessages(channelId, before, limit)` and `GetChannelRuns(channelId)`;
-  cut the FE over to assembling the channel view from message-list + run-list + per-object WOS subscriptions.
-  Blob arrays still written but no longer read.
+- **Phase 2 — Migrate reads.** ✅ **Shipped 2026-07-22.** Points hot-path lookups (`handleAsk`,
+  `OnWorkerExit`, `ReportRunPhase`, the two `wshserver_runs` sites, radar collect) at the indexed rows /
+  tab-meta instead of the `GetChannels` full-scan (meta lookups fall back to the scan on a stamp miss, so
+  resolution can't regress). Adds FE-facing APIs `GetChannelMessages(channelId, before, limit)` and
+  `GetChannelRuns(channelId)`; cuts the **active-channel** surface over to assembling from message-list +
+  run-list + per-object WOS subscriptions. Blob arrays still written but no longer read on any hot path
+  (only the `GetChannels` list RPC, three jarvis fallbacks, and the two one-shot backfills still call it).
+  See the Phase 2 deviations/deferrals note at the top of this doc.
 - **Phase 3 — Contract.** Stop embedding `Messages`/`Runs` in the channel blob; `Channel` becomes
   metadata-only; drop the dead arrays (final blob-shrink migration). This is the phase that collapses the
   `O(session)` write + broadcast cost — everything before it is scaffolding that keeps the tree safe.

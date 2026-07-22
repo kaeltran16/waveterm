@@ -446,6 +446,18 @@ func GetCacheStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandGetCacheStatusD
 	return resp, err
 }
 
+// command "getchannelmessages", wshserver.GetChannelMessagesCommand
+func GetChannelMessagesCommand(w *wshutil.WshRpc, data wshrpc.CommandGetChannelMessagesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelMessagesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelMessagesRtnData](w, "getchannelmessages", data, opts)
+	return resp, err
+}
+
+// command "getchannelruns", wshserver.GetChannelRunsCommand
+func GetChannelRunsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetChannelRunsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelRunsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelRunsRtnData](w, "getchannelruns", data, opts)
+	return resp, err
+}
+
 // command "getchannels", wshserver.GetChannelsCommand
 func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetChannelsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetChannelsRtnData](w, "getchannels", nil, opts)

@@ -26,6 +26,26 @@ export const activeChannelAtom: Atom<Channel | null> = atom((get) => {
 export const channelDraftAtom = atom<Record<string, string>>({});
 export const channelDismissedRunsAtom = atom<Record<string, string[]>>({});
 
+// Phase-2 row-backed streams for the ACTIVE channel: seeded from the per-channel row RPCs and refetched on
+// every channel: object bump (the blob still dual-writes, so channel: is the "list membership changed"
+// signal). The active-channel surface reads these instead of the embedded Channel.runs/messages arrays.
+export const activeChannelRunsAtom = atom<Run[]>([]) as PrimitiveAtom<Run[]>;
+export const activeChannelMessagesAtom = atom<ChannelMessage[]>([]) as PrimitiveAtom<ChannelMessage[]>;
+
+export async function loadActiveChannelStreams(channelId: string): Promise<void> {
+    const [runsRtn, msgsRtn] = await Promise.all([
+        RpcApi.GetChannelRunsCommand(TabRpcClient, { channelid: channelId }),
+        RpcApi.GetChannelMessagesCommand(TabRpcClient, { channelid: channelId }),
+    ]);
+    globalStore.set(activeChannelRunsAtom, runsRtn.runs ?? []);
+    globalStore.set(activeChannelMessagesAtom, msgsRtn.messages ?? []);
+}
+
+// per-run live subscription (RunBody reads this for the focused run's phase deltas via the run: WOS object)
+export function runAtom(runId: string) {
+    return WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", runId));
+}
+
 let loading = false;
 
 // fetch the channel list into the snapshot atom (sorted newest-first). shared by loadChannels (which then
@@ -73,6 +93,8 @@ export async function primeChannels(): Promise<void> {
 export async function selectChannel(channelId: string): Promise<void> {
     await WOS.loadAndPinWaveObject<Channel>(WOS.makeORef("channel", channelId));
     globalStore.set(activeChannelIdAtom, channelId);
+    // seed the row-backed streams for the newly-active channel (the bump-subscription below keeps them fresh)
+    await loadActiveChannelStreams(channelId);
     // stamp last-read so the rail unread badge clears (fire-and-forget; failure is non-fatal)
     RpcApi.SetChannelReadCommand(TabRpcClient, { channelid: channelId, ts: Date.now() }).catch(() => {});
 }
@@ -139,3 +161,22 @@ export function setConsultStream(consultId: string, runtime: string, stream: Con
     const key = consultStreamKey(consultId, runtime);
     globalStore.set(consultStreamsAtom, { ...globalStore.get(consultStreamsAtom), [key]: stream });
 }
+
+// Refetch the row-backed streams whenever the pinned channel object bumps (the blob dual-write keeps
+// channel: updating on every message/run mutation — Phase 2's list-membership signal; Phase 3 replaces
+// this). Keyed on oid:version so it fires both when the active channel changes and when it mutates in
+// place, and never loops (the loader sets only the runs/messages atoms, not the channel WOS object).
+let lastLoadedChannelKey = "";
+globalStore.sub(activeChannelAtom, () => {
+    const ch = globalStore.get(activeChannelAtom);
+    if (!ch) {
+        lastLoadedChannelKey = "";
+        return;
+    }
+    const key = `${ch.oid}:${ch.version}`;
+    if (key === lastLoadedChannelKey) {
+        return;
+    }
+    lastLoadedChannelKey = key;
+    loadActiveChannelStreams(ch.oid).catch(() => {});
+});

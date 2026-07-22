@@ -14,7 +14,7 @@ import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { planDelegate, planMessage, tierFromMeta, type RosterEntry } from "./channelmessages";
-import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
+import { activeChannelAtom, activeChannelMessagesAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
 import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
 import { composeStartupCommand, deriveBranch, runtimeStartupCommand, type Runtime } from "./launch";
 import { naFlagsAtom } from "./naflagsstore";
@@ -59,7 +59,10 @@ export async function sendChannelMessage(args: {
     const { model, channelId, projectPath, projectName, roster, agents, text } = args;
     const plan = planMessage(text, roster);
     if (plan.kind === "jarvis") {
-        const channel = globalStore.get(activeChannelAtom);
+        // splice the row-backed messages onto the pinned channel so the @jarvis fleet summary derives from
+        // the same source as the surface (Phase 2); .meta/.name/.oid are untouched.
+        const channelBase = globalStore.get(activeChannelAtom);
+        const channel = channelBase ? { ...channelBase, messages: globalStore.get(activeChannelMessagesAtom) } : null;
         // delegator-tier channels turn an @jarvis goal into a real worker dispatch; other tiers fall
         // through to the observe-only summary below. The "dispatch" message's tab: oref is what the
         // Gatekeeper watcher matches to auto-answer this worker's routine asks (Manage mode).

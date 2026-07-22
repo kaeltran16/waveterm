@@ -49,12 +49,12 @@ func OnWorkerExit(blockId string, exitCode int) {
 	if err != nil || sess == nil {
 		return
 	}
-	channels, err := wstore.GetChannels(ctx)
-	if err != nil {
+	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
+	ch := resolveDispatchChannelForWorker(ctx, workerORef)
+	if ch == nil {
 		return
 	}
-	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
-	PostOutcome(channels, workerORef, runtime, OutcomeData{
+	PostOutcome(ch, workerORef, runtime, OutcomeData{
 		Status:     OutcomeStatus(sess.Status),
 		Summary:    outcomeSummary(sess),
 		DurationMs: sess.DurationMs,

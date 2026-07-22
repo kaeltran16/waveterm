@@ -23,6 +23,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
+import { runAtom } from "./channelsstore";
 import { CHANNEL_COL, jumpToAgent } from "./channelsprimitives";
 import { ComposerShell } from "./composer-shell";
 import { InlineMarkdown } from "./inlinemarkdown";
@@ -441,12 +442,17 @@ export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entr
 // transcript streams for the run's running-phase workers, and the phase-rail entrance guard) so the
 // merged surface just renders <RunBody run={selected} /> and gets the same live behavior RunsView had.
 // Steering is the merged surface's composer Talk face, so the body hides the old inline Steer affordance.
-export function RunBody({ model, channel, agents, run }: {
+export function RunBody({ model, channel, agents, run: runProp }: {
     model: AgentsViewModel;
     channel: Channel;
     agents: AgentVM[];
     run: Run;
 }) {
+    // Focused run's live content via its run: WOS object (fetched on focus, kept live by the per-object
+    // run: broadcasts Phase 2 turned on); falls back to the list entry from activeChannelRunsAtom until the
+    // object hydrates. Both track the same run and converge, so the fallback is never wrong.
+    const liveRun = useAtomValue(runAtom(runProp.id));
+    const run = liveRun ?? runProp;
     const [expanded, setExpanded] = useState(true);
 
     // clock for liveness cues (quiet >45s) + elapsed labels; also re-runs the stream diff below

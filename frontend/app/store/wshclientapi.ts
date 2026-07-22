@@ -450,6 +450,18 @@ export class RpcApiType {
         return client.wshRpcCall("getcachestatus", data, opts);
     }
 
+    // command "getchannelmessages" [call]
+    GetChannelMessagesCommand(client: WshClient, data: CommandGetChannelMessagesData, opts?: RpcOpts): Promise<CommandGetChannelMessagesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannelmessages", data, opts);
+        return client.wshRpcCall("getchannelmessages", data, opts);
+    }
+
+    // command "getchannelruns" [call]
+    GetChannelRunsCommand(client: WshClient, data: CommandGetChannelRunsData, opts?: RpcOpts): Promise<CommandGetChannelRunsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannelruns", data, opts);
+        return client.wshRpcCall("getchannelruns", data, opts);
+    }
+
     // command "getchannels" [call]
     GetChannelsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandGetChannelsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getchannels", null, opts);
