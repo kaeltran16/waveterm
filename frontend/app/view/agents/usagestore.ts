@@ -43,6 +43,12 @@ export const usageStatsAtom = atom<UsageStats>(EMPTY) as PrimitiveAtom<UsageStat
 export const usageErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const usageLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
+// UsageSurface toggle selections live here, not in surface-local useState: the surface unmounts on
+// nav-rail switch (only the Agent surface stays mounted), so component state would reset to default
+// on every tab switch. Module-level atoms keep the user's window/metric choice across unmount.
+export const usageWindowAtom = atom<"7d" | "all">("7d");
+export const usageMetricAtom = atom<"tokens" | "spend">("tokens");
+
 // Monotonic request id: the latest loadUsage wins. Replaces a single `loading` bool that silently
 // dropped a window switch fired while a prior load was in flight (and let a slow prior-window response
 // land after the switch and clobber the new window's data). Now a switch always issues a fresh request

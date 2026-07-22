@@ -12,9 +12,9 @@ import { SkeletonLine } from "@/app/element/skeleton";
 import { MOTION, cardVariants, easeFluidCss } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
 import { prettyModel } from "./modellabel";
@@ -22,7 +22,7 @@ import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from 
 import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { modelGridClass } from "./usagestats";
 import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
-import { loadUsage, usageErrorAtom, usageLoadedAtom, usageStatsAtom } from "./usagestore";
+import { loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageStatsAtom, usageWindowAtom } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
@@ -465,8 +465,8 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const usageLoaded = useAtomValue(usageLoadedAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
-    const [usageWindow, setUsageWindow] = useState<"7d" | "all">("7d");
-    const [usageMetric, setUsageMetric] = useState<"tokens" | "spend">("tokens");
+    const [usageWindow, setUsageWindow] = useAtom(usageWindowAtom);
+    const [usageMetric, setUsageMetric] = useAtom(usageMetricAtom);
 
     useEffect(() => {
         const days = usageWindow === "7d" ? 7 : 0;
