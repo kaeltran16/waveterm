@@ -233,10 +233,43 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n])
 }
 
+// xmlTagContent returns the trimmed text between <tag>…</tag> in s, or "" if absent.
+func xmlTagContent(s, tag string) string {
+	open, closeTag := "<"+tag+">", "</"+tag+">"
+	i := strings.Index(s, open)
+	if i < 0 {
+		return ""
+	}
+	i += len(open)
+	j := strings.Index(s[i:], closeTag)
+	if j < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[i : i+j])
+}
+
+// unwrapSlashCommand turns Claude Code's transcript encoding of a slash-command turn
+//   <command-name>/foo</command-name> … <command-args>bar baz</command-args>
+// into the clean "/foo bar baz" a human would recognize. Returns "" when the prompt isn't a
+// slash-command blob, so callers fall through to plain head-text.
+func unwrapSlashCommand(prompt string) string {
+	name := xmlTagContent(prompt, "command-name")
+	if name == "" {
+		return ""
+	}
+	if args := xmlTagContent(prompt, "command-args"); args != "" {
+		return name + " " + args
+	}
+	return name
+}
+
 // titleFromPrompt turns a user prompt into a head-text title: the first non-empty line, rune-truncated.
-// A slash-command prompt (e.g. "/commit stage the diff") already carries the skill name plus the ask,
-// so no special parsing is needed. Empty prompt -> "".
+// A slash-command turn (e.g. "/brainstorming design X") is stored XML-wrapped in the transcript, so it
+// is unwrapped to "/skill args" first. Empty prompt -> "".
 func titleFromPrompt(prompt string) string {
+	if cmd := unwrapSlashCommand(prompt); cmd != "" {
+		prompt = cmd
+	}
 	for _, line := range strings.Split(prompt, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {

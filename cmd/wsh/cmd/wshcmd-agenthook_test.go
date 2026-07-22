@@ -135,7 +135,7 @@ func TestLastUserPromptStringAndEmpty(t *testing.T) {
 
 func TestTitleFromPrompt(t *testing.T) {
 	tests := []struct{ name, in, want string }{
-		{"slash command carries skill + ask", "/commit stage the diff", "/commit stage the diff"},
+		{"already-clean text passes through", "/commit stage the diff", "/commit stage the diff"},
 		{"first non-empty line only", "\n\n  do the thing  \nsecond line", "do the thing"},
 		{"empty -> empty", "   \n  ", ""},
 	}
@@ -152,6 +152,26 @@ func TestTitleFromPromptTruncatedByRune(t *testing.T) {
 	got := titleFromPrompt(strings.Repeat("x", 200))
 	if len([]rune(got)) != titleMax {
 		t.Fatalf("truncated rune-len = %d, want %d", len([]rune(got)), titleMax)
+	}
+}
+
+func TestTitleFromPromptSlashCommand(t *testing.T) {
+	// Claude Code stores a slash-command turn as an XML-wrapped string, not clean text —
+	// the fallback must unwrap it into a "/skill args" title.
+	tests := []struct{ name, in, want string }{
+		{"command with args",
+			"<command-name>/brainstorming</command-name>\n            <command-message>brainstorming</command-message>\n            <command-args>design the memory tab</command-args>",
+			"/brainstorming design the memory tab"},
+		{"command without args",
+			"<command-name>/brainstorming</command-name>\n            <command-message>brainstorming</command-message>\n            <command-args></command-args>",
+			"/brainstorming"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := titleFromPrompt(tt.in); got != tt.want {
+				t.Fatalf("titleFromPrompt(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }
 
