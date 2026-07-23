@@ -183,4 +183,84 @@ const jarvisStates = {
     },
 };
 
-export const SCENARIOS = [runsLifecycle, surfaceSmoke, jarvisStates];
+// --- jarvis fleet mode: the migrated fleet manager (Plan 3) ------------------------------------
+// Create a channel so Fleet mode has one to manage, switch to Jarvis > Fleet, select the channel via
+// Fleet mode's own selector, and assert the autonomy toggle + roster region render. No worker is
+// dispatched — the roster's empty-state is a valid render assertion and keeps the run light. Channel +
+// temp dir are cleaned up in teardown (mirrors runs-lifecycle).
+//
+// NOTE (Plan 3): this also covers the Fleet-side landing of the @jarvis summary handoff — runSummary
+// renders into the same region the handoff drives. The full composer->handoff->Fleet E2E is deferred to
+// Plan 4: nothing sends @jarvis-classified text yet (the Launch composer routes @jarvis to a run;
+// mentionCandidates' @jarvis token is wired to no composer), so the reroute's trigger has no live entry
+// point until Plan 4 adds the Ctrl+P ask-jarvis group. The reroute's decision (dispatch vs summary) is
+// covered by channelmessages.test.ts.
+const jarvisFleet = {
+    name: "jarvis-fleet",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-fleet-"));
+        const ch = await h.rpc("createchannel", { name: "verify-fleet", projectpath: cwd });
+        return { cwd, channelId: ch.oid };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        await h.goto("jarvis");
+        // switch to Fleet mode — the header toggle button's textContent is the lowercase mode name.
+        const toFleet = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'fleet');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 800))"); // settle loadChannels + render
+        const hasSelector = await h.ev(
+            `(() => { const t = document.body.innerText || ''; return t.includes('Fleet') && !!document.querySelector('select'); })()`
+        );
+        steps.push({
+            step: `switch to Fleet mode -> "Fleet" label + channel selector present`,
+            ok: toFleet === true && hasSelector === true,
+            detail: `clicked=${toFleet} selector=${hasSelector}`,
+        });
+        // select the created channel through Fleet mode's own <select> (React-controlled value setter + a
+        // bubbling change event — the standard programmatic-change pattern for a controlled select).
+        const selected = await h.ev(`(() => {
+            const sel = document.querySelector('select');
+            if (!sel) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+            setter.call(sel, ${JSON.stringify(ctx.channelId)});
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 900))"); // settle selectChannel + roster derive
+        const rendered = await h.ev(`(() => {
+            const t = document.body.innerText || '';
+            return {
+                autonomy: t.includes('Handling asks') || t.includes('Observing'),
+                roster: t.includes('No workers dispatched') && t.includes('working'),
+            };
+        })()`);
+        steps.push({
+            step: `select channel -> autonomy toggle + roster region render`,
+            ok: selected === true && rendered.autonomy === true && rendered.roster === true,
+            detail: JSON.stringify(rendered),
+        });
+        await h.shot("cdp-shots/jarvis-fleet.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
+export const SCENARIOS = [runsLifecycle, surfaceSmoke, jarvisStates, jarvisFleet];

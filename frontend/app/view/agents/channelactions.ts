@@ -10,12 +10,12 @@ import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { jarvisModeAtom, pendingFleetSummaryAtom } from "@/app/view/jarvis/jarvisstore";
 import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { planDelegate, planMessage, tierFromMeta, type RosterEntry } from "./channelmessages";
-import { activeChannelAtom, activeChannelMessagesAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
-import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
+import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
 import { composeStartupCommand, deriveBranch, runtimeStartupCommand, type Runtime } from "./launch";
 import { naFlagsAtom } from "./naflagsstore";
 
@@ -53,16 +53,14 @@ export async function sendChannelMessage(args: {
     projectPath: string;
     projectName: string;
     roster: RosterEntry[];
-    agents: AgentVM[];
     text: string;
 }): Promise<void> {
-    const { model, channelId, projectPath, projectName, roster, agents, text } = args;
+    const { model, channelId, projectPath, projectName, roster, text } = args;
     const plan = planMessage(text, roster);
     if (plan.kind === "jarvis") {
-        // splice the row-backed messages onto the pinned channel so the @jarvis fleet summary derives from
-        // the same source as the surface (Phase 2); .meta/.name/.oid are untouched.
-        const channelBase = globalStore.get(activeChannelAtom);
-        const channel = channelBase ? { ...channelBase, messages: globalStore.get(activeChannelMessagesAtom) } : null;
+        // the active channel's meta drives the delegator-tier decision below (no messages splice needed —
+        // the observe-only summary no longer runs in-channel; it hands off to the Jarvis surface).
+        const channel = globalStore.get(activeChannelAtom);
         // delegator-tier channels turn an @jarvis goal into a real worker dispatch; other tiers fall
         // through to the observe-only summary below. The "dispatch" message's tab: oref is what the
         // Gatekeeper watcher matches to auto-answer this worker's routine asks (Manage mode).
@@ -113,42 +111,10 @@ export async function sendChannelMessage(args: {
             await post(channelId, "dispatch", "claude", del.task, `tab:${tabId}`);
             return;
         }
-        const reqId = crypto.randomUUID();
-        // anchor: the user's request, grouped to its reply by requestId (mirrors the consult grouping)
-        await RpcApi.PostChannelMessageCommand(TabRpcClient, {
-            channelid: channelId,
-            kind: "jarvis",
-            author: "you",
-            text: plan.text || "summarize the fleet",
-            reforef: `jarvis:${reqId}`,
-        });
-        const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
-        if (snapshot.length === 0) {
-            // nothing dispatched here — answer without spending a model call
-            await post(channelId, "jarvis-reply", "jarvis", "No workers dispatched in this channel yet.", `jarvis:${reqId}`);
-            return;
-        }
-        const prompt = buildJarvisPrompt(snapshot, channel!, plan.text);
-        setConsultStream(reqId, "jarvis", { text: "", status: "streaming" });
-        try {
-            const gen = RpcApi.JarvisCommand(
-                TabRpcClient,
-                { channelid: channelId, prompt, requestid: reqId },
-                { timeout: CONSULT_RPC_TIMEOUT_MS }
-            );
-            let acc = "";
-            for await (const chunk of gen) {
-                acc += chunk?.text ?? "";
-                setConsultStream(reqId, "jarvis", { text: acc, status: "streaming" });
-            }
-            setConsultStream(reqId, "jarvis", { text: acc, status: "done" });
-        } catch {
-            // the backend still posts a jarvis-reply with the error; mark the live row done
-            setConsultStream(reqId, "jarvis", {
-                text: globalStore.get(consultStreamsAtom)[consultStreamKey(reqId, "jarvis")]?.text ?? "",
-                status: "error",
-            });
-        }
+        // observe-only summary: hand off to the Jarvis surface (Fleet mode) instead of streaming in-channel.
+        globalStore.set(pendingFleetSummaryAtom, { channelId, focus: plan.text });
+        globalStore.set(jarvisModeAtom, "fleet");
+        globalStore.set(model.surfaceAtom, "jarvis");
         return;
     }
     if (plan.kind === "consult") {

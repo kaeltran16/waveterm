@@ -6,23 +6,10 @@
 // Extracted from channelssurface.tsx; presentational only.
 
 import { type AgentVM } from "./agentsviewmodel";
-import { Avatar } from "./channelsprimitives";
-import { MarkdownMessage } from "./markdownmessage";
 import { PHASE_TONE_CLASS, TONE_CLASS } from "./runbody";
 import { cancelSurvivors, phaseProgressDots, runStatusView } from "./runmodel";
-import { type SummaryState } from "./usefleetsummary";
 
-export function ChannelHeader({
-    channel,
-    autonomyOn,
-    onToggleAutonomy,
-    onOpenProfile,
-}: {
-    channel: Channel | null;
-    autonomyOn: boolean;
-    onToggleAutonomy: () => void;
-    onOpenProfile: () => void;
-}) {
+export function ChannelHeader({ channel }: { channel: Channel | null }) {
     return (
         <div className="flex flex-none items-center gap-2.5 border-b border-border bg-background px-6 py-3">
             <span className="font-mono text-[17px] font-bold text-muted">#</span>
@@ -35,49 +22,6 @@ export function ChannelHeader({
                 ) : null}
             </div>
             <div className="flex-1" />
-            {channel ? (
-                <>
-                    <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">Jarvis</span>
-                    <button
-                        type="button"
-                        onClick={onToggleAutonomy}
-                        title={
-                            autonomyOn
-                                ? "Jarvis auto-answers routine asks and escalates real forks to you. Click to switch to Observing."
-                                : "Jarvis stays hands-off; every worker ask routes to you. Click to let Jarvis handle routine asks."
-                        }
-                        className={
-                            "flex cursor-pointer items-center gap-2.5 rounded-[9px] border px-2.5 py-1.5 " +
-                            (autonomyOn ? "border-accent/40 bg-accentbg/20" : "border-edge-mid bg-background")
-                        }
-                    >
-                        <span className={"text-[11.5px] font-bold " + (autonomyOn ? "text-accent-soft" : "text-secondary")}>
-                            {autonomyOn ? "Handling asks" : "Observing"}
-                        </span>
-                        <span
-                            className={
-                                "relative h-[18px] w-[34px] flex-none rounded-full transition-colors " +
-                                (autonomyOn ? "bg-accent" : "bg-edge-mid")
-                            }
-                        >
-                            <span
-                                className={
-                                    "absolute top-0.5 h-[14px] w-[14px] rounded-full transition-all " +
-                                    (autonomyOn ? "left-[18px] bg-background" : "left-0.5 bg-secondary")
-                                }
-                            />
-                        </span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onOpenProfile}
-                        title="Channel profile — run engine (pipeline vs. adaptive lead) & plan gate live here"
-                        className="flex h-8 w-8 flex-none items-center justify-center rounded border border-edge-mid bg-background text-[15px] text-muted hover:border-edge-strong hover:text-secondary"
-                    >
-                        ⚙
-                    </button>
-                </>
-            ) : null}
         </div>
     );
 }
@@ -86,16 +30,12 @@ export function OverviewStrip({
     open,
     onToggle,
     runCount,
-    summary,
-    onRunSummary,
     notes,
     onNotesChange,
 }: {
     open: boolean;
     onToggle: () => void;
     runCount: number;
-    summary: SummaryState | null;
-    onRunSummary: () => void;
     notes: string;
     onNotesChange: (value: string) => void;
 }) {
@@ -123,47 +63,17 @@ export function OverviewStrip({
                 ) : null}
             </button>
             {open ? (
-                <div className="flex items-start gap-3.5 px-6 pb-3.5 pt-0.5">
-                    <div className="min-w-0 flex-1">
-                        <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-muted">
-                            Channel notes
-                        </div>
-                        <textarea
-                            value={notes}
-                            onChange={(e) => onNotesChange(e.target.value)}
-                            placeholder="Notes for this channel…"
-                            rows={4}
-                            className="w-full resize-y rounded-[10px] border border-border bg-background px-3 py-2.5 text-[12.5px] leading-[1.6] text-secondary outline-none focus:border-accent/40"
-                        />
+                <div className="px-6 pb-3.5 pt-0.5">
+                    <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-muted">
+                        Channel notes
                     </div>
-                    <div className="w-[280px] flex-none">
-                        <div className="mb-1.5 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-muted">
-                            Jarvis summary
-                        </div>
-                        {summary ? (
-                            <div className="rounded-[10px] border border-accent/25 bg-accentbg/15 px-3 py-2.5">
-                                <div className="mb-1.5 flex items-center gap-1.5">
-                                    <Avatar name="jarvis" />
-                                    <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-accent-soft">
-                                        Jarvis {summary.status === "streaming" ? "· thinking…" : ""}
-                                    </span>
-                                </div>
-                                <MarkdownMessage text={summary.text || "…"} className="text-[12px] leading-[1.55] text-secondary" />
-                            </div>
-                        ) : (
-                            <button
-                                type="button"
-                                onClick={onRunSummary}
-                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[10px] border border-accent/25 bg-background px-3 py-2.5 text-left hover:border-accent/40"
-                            >
-                                <Avatar name="jarvis" />
-                                <span className="min-w-0 flex-1">
-                                    <span className="block text-[12px] font-bold text-accent-soft">Summarize the fleet</span>
-                                    <span className="text-[10.5px] text-muted">on-demand · not gated by autonomy</span>
-                                </span>
-                            </button>
-                        )}
-                    </div>
+                    <textarea
+                        value={notes}
+                        onChange={(e) => onNotesChange(e.target.value)}
+                        placeholder="Notes for this channel…"
+                        rows={4}
+                        className="w-full resize-y rounded-[10px] border border-border bg-background px-3 py-2.5 text-[12.5px] leading-[1.6] text-secondary outline-none focus:border-accent/40"
+                    />
                 </div>
             ) : null}
         </div>

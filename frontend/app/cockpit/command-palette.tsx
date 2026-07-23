@@ -214,7 +214,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 projectPath: ch.projectpath ?? "",
                 projectName: ch.name ?? "agent",
                 roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
-                agents,
                 text,
             });
         const deps: LaunchDeps = {

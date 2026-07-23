@@ -151,7 +151,7 @@ Ambient attribution (not one of the 12 UI-brief states; added by decision 3) is 
 1. Namespace + nav + empty surface shell (renders; nav works; unmount-safe store). **(done — Plan 1)**
 2. View-model contract + fixtures + all 12 states rendered (CDP-verified). ← pins the seam. **(done — Plan 1)**
 3. Backend shim `JarvisConverseCommand` (Go) + wire Recall mode to it (real recall over SQLite). **(done — Plan 2)**
-4. Fleet migration + Channels removal + `@jarvis` reroute (guarded by migrated tests).
+4. Fleet migration + Channels removal + `@jarvis` reroute (guarded by migrated tests). **(done — Plan 3)** — split relocation (only the fleet-UI cluster `profilepanel`/`principleseditor`/`profilemodel`/`usefleetsummary` moved to `view/jarvis/`; shared domain `jarvisderive`/`jarviscards` stayed in `view/agents/`); the ⚙ profile drawer moved into Fleet mode; the `@jarvis` *summary* hands off to Fleet mode while delegator-tier *dispatch* stays in-channel. Note: the reroute's live *trigger* (a `@jarvis` composer entry) has no wiring yet — it arrives with step 5 (Plan 4), so the handoff's end-to-end path is exercised then; step 4 verifies the decision (dispatch vs summary, via `channelmessages.test.ts`) and the Fleet-side landing (CDP `jarvis-fleet`).
 5. Ctrl+P `"ask-jarvis"` lead group + handoff.
 6. Contextual entries + ambient fixtures on Run / Radar / Memory.
 

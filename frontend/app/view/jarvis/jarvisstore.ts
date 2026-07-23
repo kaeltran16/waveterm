@@ -38,6 +38,17 @@ export const activeFixtureAtom = atom<FixtureState>("empty");
 // (mirrors channelRailOpenAtom in railstore.ts). "narrow" state == this collapsed on a small viewport.
 export const groundingRailOpenAtom = atomWithStorage("jarvis.grounding.open", false);
 
+// The Jarvis Fleet-mode profile drawer (the ⚙). Relocated from agents/railstore in Plan 3 — the profile
+// editor now lives in Fleet mode, not the Channels header. Session-scoped, not persisted.
+export const profileRailOpenAtom = atom(false);
+
+// @jarvis handoff: a Channels @jarvis summary sets this + switches to Fleet mode, which selects the channel,
+// runs the summary once, and clears it. null = no pending handoff. Module atom so it survives the nav-switch.
+// Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
+export const pendingFleetSummaryAtom = atom<{ channelId: string; focus: string } | null>(
+    null
+) as PrimitiveAtom<{ channelId: string; focus: string } | null>;
+
 // --- real conversations (Plan 2) -------------------------------------------------------------------
 // Writable source of truth for real recall conversations, keyed by id. Mirrors channelsstore's
 // Record<string,…> primitive-atom + module-setter pattern so an in-flight stream keeps writing after the

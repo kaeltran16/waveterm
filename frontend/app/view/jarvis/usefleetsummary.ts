@@ -8,8 +8,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useState } from "react";
-import { type AgentVM } from "./agentsviewmodel";
-import { buildFleetSnapshot, buildJarvisPrompt } from "./jarvisderive";
+import { type AgentVM } from "../agents/agentsviewmodel";
+import { buildFleetSnapshot, buildJarvisPrompt } from "../agents/jarvisderive";
 
 export type SummaryState = { status: "streaming" | "done" | "error"; text: string };
 
@@ -19,17 +19,17 @@ const JARVIS_RPC_TIMEOUT_MS = 130_000;
 
 export function useFleetSummary(): {
     summary: SummaryState | null;
-    runSummary: (channel: Channel, agents: AgentVM[]) => void;
+    runSummary: (channel: Channel, agents: AgentVM[], focus?: string) => void;
     reset: () => void;
 } {
     const [summary, setSummary] = useState<SummaryState | null>(null);
-    const runSummary = (channel: Channel, agents: AgentVM[]) => {
+    const runSummary = (channel: Channel, agents: AgentVM[], focus = "") => {
         const snapshot = buildFleetSnapshot(channel, agents);
         if (snapshot.length === 0) {
             setSummary({ status: "done", text: "No workers dispatched in this channel yet." });
             return;
         }
-        const prompt = buildJarvisPrompt(snapshot, channel, "");
+        const prompt = buildJarvisPrompt(snapshot, channel, focus);
         const reqId = crypto.randomUUID();
         setSummary({ status: "streaming", text: "" });
         fireAndForget(async () => {

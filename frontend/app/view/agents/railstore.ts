@@ -31,11 +31,6 @@ export const railVisibleAtom = atomWithStorage("agent.rail.visible", false);
 // narrow panes keep maximum message width; replaces the old @[1320px] container-query auto-show).
 export const channelRailOpenAtom = atomWithStorage("channel.rail.open", false);
 
-// Channels Jarvis-profile drawer (the header ⚙). It shares the context rail's right-edge slot instead
-// of stacking beside it: while this is open the context rail force-collapses to 0 (see ContextPanel),
-// so only one right rail is ever visible. Session-scoped, not persisted.
-export const profileRailOpenAtom = atom(false);
-
 // Terminal-fullscreen toggle for the Agent surface: when on, the AgentTree (and the rail) are
 // hidden so the focused agent's live terminal fills the surface. Session-scoped UI, not persisted.
 export const terminalFullscreenAtom = atom(false);

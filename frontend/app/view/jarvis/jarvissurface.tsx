@@ -11,12 +11,13 @@ import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Composer } from "./composer";
 import { ConversationView } from "./conversationview";
+import { FleetMode } from "./fleetmode";
 import { GroundingRail } from "./groundingrail";
 import { HistoryRail } from "./historyrail";
 import { JarvisFixtureBar } from "./jarvisfixturebar";
 import { activeConversationAtom, jarvisModeAtom } from "./jarvisstore";
 
-export function JarvisSurface({ model: _model }: { model: AgentsViewModel }) {
+export function JarvisSurface({ model }: { model: AgentsViewModel }) {
     const [mode, setMode] = useAtom(jarvisModeAtom);
     const conv = useAtomValue(activeConversationAtom);
     return (
@@ -43,9 +44,7 @@ export function JarvisSurface({ model: _model }: { model: AgentsViewModel }) {
             />
             <JarvisFixtureBar />
             {mode === "fleet" ? (
-                <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
-                    Fleet manager — migrated in Plan 3.
-                </div>
+                <FleetMode model={model} />
             ) : (
                 <div className="flex min-h-0 flex-1">
                     <HistoryRail />
