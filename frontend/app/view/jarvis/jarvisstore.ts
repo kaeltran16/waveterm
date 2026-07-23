@@ -9,6 +9,7 @@
 import { globalStore } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import * as WOS from "@/app/store/wos";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
@@ -23,7 +24,7 @@ import type {
     WorkingStep,
 } from "./jarviscontract";
 import { FIXTURES, FIXTURE_STATES, type FixtureState } from "./jarvisfixtures";
-import { mapWireCard, parseCitations } from "./recallderive";
+import { mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
 export type JarvisMode = "recall" | "fleet";
 
@@ -54,6 +55,7 @@ export const pendingFleetSummaryAtom = atom<{ channelId: string; focus: string }
 // Record<string,…> primitive-atom + module-setter pattern so an in-flight stream keeps writing after the
 // surface unmounts (writes go through globalStore.set at module scope, never component useState).
 export const conversationsByIdAtom = atom<Record<string, JarvisConversation>>({});
+ const persistedSummariesAtom = atom<JarvisConversationSummary[]>([]);
 
 // null => show the dev/CDP fixture selected by activeFixtureAtom; a string => show that real conversation.
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
@@ -76,12 +78,33 @@ export const activeConversationAtom = atom<JarvisConversation>((get) => {
 // read-only: the history-rail list — real conversations first (newest-first by insertion), then the dev
 // fixtures (excluding the "narrow" alias). Plan 1 showed fixtures only; real ones now prepend.
 export const conversationsAtom = atom<JarvisConversation[]>((get) => {
-    const real = Object.values(get(conversationsByIdAtom)).reverse();
+    const byId = get(conversationsByIdAtom);
+    const real = Object.values(byId).reverse();
+    const liveIds = new Set(Object.keys(byId));
+    const persisted = get(persistedSummariesAtom)
+        .filter((summary) => !liveIds.has(summary.id))
+        .map(summaryToRailConversation);
     const fixtures = FIXTURE_STATES.filter((s) => s !== "narrow").map((s) => FIXTURES[s]);
-    return [...real, ...fixtures];
+    return [...real, ...persisted, ...fixtures];
 });
 
 // --- module accessors + mutators (module scope: survive unmount) -----------------------------------
+export function summaryToRailConversation(summary: JarvisConversationSummary): JarvisConversation {
+    return {
+        id: summary.id,
+        title: summary.title,
+        turns: [],
+        scope: { mode: summary.scopemode as JarvisScope["mode"], chips: [], attached: [] },
+    };
+}
+
+export function loadJarvisConversations(): void {
+    fireAndForget(async () => {
+        const result = await RpcApi.ListJarvisConversationsCommand(TabRpcClient);
+        globalStore.set(persistedSummariesAtom, result?.conversations ?? []);
+    });
+}
+
 export function getConversation(id: string): JarvisConversation | undefined {
     return globalStore.get(conversationsByIdAtom)[id];
 }
@@ -92,7 +115,7 @@ export function setConversation(conv: JarvisConversation): void {
 
 // startConversation creates an empty real conversation, makes it active, and returns its id.
 export function startConversation(scope: JarvisScope): string {
-    const id = `conv-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const id = crypto.randomUUID();
     setConversation({ id, title: "New conversation", turns: [], scope });
     globalStore.set(activeConversationIdAtom, id);
     return id;
@@ -108,7 +131,15 @@ export function selectConversation(id: string): void {
     if ((FIXTURE_STATES as string[]).includes(id)) {
         globalStore.set(activeFixtureAtom, id as FixtureState);
         globalStore.set(activeConversationIdAtom, null);
+        return;
     }
+    globalStore.set(activeConversationIdAtom, id);
+    fireAndForget(async () => {
+        const oref = WOS.makeORef("jarvisconversation", id);
+        if (oref == null) return;
+        const record = await WOS.loadAndPinWaveObject<JarvisConvo>(oref);
+        if (record) setConversation(mapConvoRecord(record));
+    });
 }
 
 // --- streaming submit (Plan 2) ---------------------------------------------------------------------

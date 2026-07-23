@@ -4,13 +4,62 @@
 package jarvisrecall
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
+func TestAssembleCandidatesPinsAttached(t *testing.T) {
+	pinned := []candidate{{navTarget: "run:p1"}, {navTarget: "run:p2"}}
+	scoped := make([]candidate, 20)
+	for i := range scoped {
+		scoped[i] = candidate{navTarget: "run:s" + strconv.Itoa(i)}
+	}
+	out := assembleCandidates(pinned, scoped, maxCandidates)
+	if len(out) != maxCandidates {
+		t.Fatalf("len = %d, want %d", len(out), maxCandidates)
+	}
+	if out[0].navTarget != "run:p1" || out[1].navTarget != "run:p2" {
+		t.Fatalf("pinned not first: %v", out[0].navTarget)
+	}
+}
+
+func TestAssembleCandidatesKeepsAllPinnedBeyondMax(t *testing.T) {
+	pinned := make([]candidate, maxCandidates+3)
+	for i := range pinned {
+		pinned[i] = candidate{navTarget: "run:p" + strconv.Itoa(i)}
+	}
+	out := assembleCandidates(pinned, nil, maxCandidates)
+	if len(out) != maxCandidates+3 {
+		t.Fatalf("pinned truncated: len = %d, want %d", len(out), maxCandidates+3)
+	}
+}
+
+func TestAssembleCandidatesDedupesByNavTarget(t *testing.T) {
+	pinned := []candidate{{navTarget: "run:x"}}
+	scoped := []candidate{{navTarget: "run:x"}, {navTarget: "run:y"}}
+	out := assembleCandidates(pinned, scoped, maxCandidates)
+	if len(out) != 2 {
+		t.Fatalf("expected dedupe to 2, got %d", len(out))
+	}
+}
+
+func TestPriorContextCapsAndFormats(t *testing.T) {
+	if priorContext(nil, maxContextTurns) != "" {
+		t.Fatalf("empty turns should yield empty context")
+	}
+	turns := make([]waveobj.JarvisConvoTurn, 0, 10)
+	for i := 0; i < 10; i++ {
+		turns = append(turns, waveobj.JarvisConvoTurn{Role: "user", Text: "q" + strconv.Itoa(i)})
+	}
+	got := priorContext(turns, 3)
+	if strings.Contains(got, "q6") || !strings.Contains(got, "q7") || !strings.Contains(got, "q9") {
+		t.Fatalf("expected only the last 3 turns (q7..q9), got:\n%s", got)
+	}
+}
 func TestSelectTerminal(t *testing.T) {
 	cases := []struct {
 		cards, cites int
@@ -97,12 +146,12 @@ func TestBuildCards(t *testing.T) {
 }
 
 func TestInScope(t *testing.T) {
-	all := wshrpc.CommandJarvisConverseData{ScopeMode: "all"}
+	all := ScopeArgs{Mode: "all"}
 	if !inScope(all, "run", `C:\src\waveterm`) {
 		t.Error("all scope should include everything")
 	}
 	// separator normalization: a forward-slash config path matches a backslash Run.ProjectPath (same root).
-	proj := wshrpc.CommandJarvisConverseData{ScopeMode: "project", ProjectPath: "C:/src/waveterm"}
+	proj := ScopeArgs{Mode: "project", ProjectPath: "C:/src/waveterm"}
 	if !inScope(proj, "run", `C:\src\waveterm`) {
 		t.Error("project scope should match normalized paths")
 	}

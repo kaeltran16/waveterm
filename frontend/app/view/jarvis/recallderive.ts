@@ -4,7 +4,7 @@
 // Pure, deterministic view-model helpers for the Jarvis recall surface. No React, no atoms — testable
 // in isolation. Rendering components import these; they never re-derive copy inline.
 
-import type { AnswerSegment, Freshness, GroundingCard, SourceType } from "./jarviscontract";
+import type { AnswerSegment, Freshness, GroundingCard, JarvisAnswerTurn, JarvisConversation, JarvisScope, JarvisTurn, SourceRef, SourceType } from "./jarviscontract";
 import { isCitation } from "./jarviscontract";
 
 const MIN = 60_000;
@@ -61,9 +61,9 @@ export function parseCitations(text: string, cards: GroundingCard[]): AnswerSegm
     return segs;
 }
 
-// mapWireCard converts a generated JarvisGroundingCard (snake/lowercase JSON keys) into the camelCase
+// mapWireCard converts a generated JarvisConvoGroundingCard (snake/lowercase JSON keys) into the camelCase
 // view-model GroundingCard the renderer consumes.
-export function mapWireCard(w: JarvisGroundingCard): GroundingCard {
+export function mapWireCard(w: JarvisConvoGroundingCard): GroundingCard {
     return {
         n: w.n,
         sourceType: w.sourcetype as SourceType,
@@ -73,4 +73,36 @@ export function mapWireCard(w: JarvisGroundingCard): GroundingCard {
         freshness: w.freshness as Freshness,
         navTarget: w.navtarget,
     };
+}
+
+export function mapConvoRecord(record: JarvisConvo): JarvisConversation {
+    const turns: JarvisTurn[] = (record.turns ?? []).map((turn) => {
+        if (turn.role === "user") {
+            return {
+                role: "user",
+                text: turn.text ?? "",
+                attachments: (turn.attachments ?? []).map(
+                    (attachment): SourceRef => ({
+                        oref: attachment.oref,
+                        sourceType: attachment.sourcetype as SourceType,
+                        title: attachment.title,
+                    })
+                ),
+            };
+        }
+        const cards = (turn.grounding ?? []).map(mapWireCard);
+        return {
+            role: "jarvis",
+            workingSteps: [],
+            segments: parseCitations(turn.prose ?? "", cards),
+            grounding: cards,
+            terminal: (turn.terminal || "answered") as JarvisAnswerTurn["terminal"],
+        };
+    });
+    const scope: JarvisScope = {
+        mode: (record.scopemode || "all") as JarvisScope["mode"],
+        chips: [],
+        attached: [],
+    };
+    return { id: record.oid, title: record.title, turns, scope };
 }

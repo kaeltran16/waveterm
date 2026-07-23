@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -195,24 +196,106 @@ func (ws *WshServer) JarvisCommand(ctx context.Context, data wshrpc.CommandJarvi
 func (ws *WshServer) JarvisConverseCommand(ctx context.Context, data wshrpc.CommandJarvisConverseData) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
 	rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk])
 	go func() {
-		defer func() {
-			panichandler.PanicHandler("JarvisConverseCommand", recover())
-		}()
+		defer func() { panichandler.PanicHandler("JarvisConverseCommand", recover()) }()
 		defer close(rtn)
+		if _, err := waveobj.ParseORef(waveobj.OType_JarvisConversation + ":" + data.ConversationId); err != nil {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: fmt.Errorf("invalid conversationid: %w", err)}
+			return
+		}
 		emit := func(chunk wshrpc.JarvisConverseChunk) {
-			// live streaming is best-effort: never let a stalled consumer wedge the pipeline.
 			select {
 			case rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Response: chunk}:
 			case <-ctx.Done():
 			}
 		}
-		if err := jarvisrecall.Converse(ctx, data, emit); err != nil {
-			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: err}
+		convo, err := wstore.GetJarvisConversation(ctx, data.ConversationId)
+		if errors.Is(err, wstore.ErrNotFound) {
+			convo, err = wstore.CreateJarvisConversation(ctx, data.ConversationId, firstLine(data.Prompt), data.ScopeMode, data.ProjectPath, data.AttachedORefs)
+		}
+		if err != nil {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: fmt.Errorf("loading conversation: %w", err)}
+			return
+		}
+		priorTurns := convo.Turns
+		persistJarvisTurn(convo.OID, waveobj.JarvisConvoTurn{
+			Role:        "user",
+			Text:        strings.TrimSpace(data.Prompt),
+			Attachments: attachmentsFromORefs(convo.AttachedORefs),
+		})
+		scope := jarvisrecall.ScopeArgs{
+			Mode:          convo.ScopeMode,
+			ProjectPath:   convo.ProjectPath,
+			AttachedORefs: convo.AttachedORefs,
+		}
+		answerTurn, converseErr := jarvisrecall.Converse(ctx, scope, priorTurns, data.Prompt, emit)
+		if answerTurn.Role != "" {
+			persistJarvisTurn(convo.OID, answerTurn)
+		}
+		if converseErr != nil {
+			log.Printf("jarvis converse: %v", converseErr)
+			if answerTurn.Role == "" {
+				rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: converseErr}
+			}
 		}
 	}()
 	return rtn
 }
 
+func persistJarvisTurn(convoID string, turn waveobj.JarvisConvoTurn) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := wstore.AppendJarvisTurn(ctx, convoID, turn); err != nil {
+		log.Printf("jarvis: persist turn: %v", err)
+		return
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_JarvisConversation, convoID))
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	runes := []rune(s)
+	if len(runes) > 120 {
+		s = string(runes[:120])
+	}
+	if s == "" {
+		return "New conversation"
+	}
+	return s
+}
+
+func attachmentsFromORefs(orefs []string) []waveobj.JarvisConvoSourceRef {
+	if len(orefs) == 0 {
+		return nil
+	}
+	out := make([]waveobj.JarvisConvoSourceRef, 0, len(orefs))
+	for _, ref := range orefs {
+		sourceType := ref
+		if i := strings.IndexByte(ref, ':'); i > 0 {
+			sourceType = ref[:i]
+		}
+		out = append(out, waveobj.JarvisConvoSourceRef{ORef: ref, SourceType: sourceType})
+	}
+	return out
+}
+func (ws *WshServer) ListJarvisConversationsCommand(ctx context.Context) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
+	conversations, err := wstore.GetJarvisConversations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]wshrpc.JarvisConversationSummary, 0, len(conversations))
+	for _, conversation := range conversations {
+		out = append(out, wshrpc.JarvisConversationSummary{
+			Id:        conversation.OID,
+			Title:     conversation.Title,
+			ScopeMode: conversation.ScopeMode,
+			UpdatedTs: conversation.UpdatedTs,
+		})
+	}
+	return &wshrpc.CommandListJarvisConversationsRtnData{Conversations: out}, nil
+}
 func (ws *WshServer) ListConsultRuntimesCommand(ctx context.Context) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
 	var infos []wshrpc.ConsultRuntimeInfo
 	for _, rt := range consult.SupportedRuntimes() {

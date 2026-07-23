@@ -13,6 +13,7 @@ type JarvisCommands interface {
 	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                        // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                           // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]   // recall shim: streams working-steps + grounding + prose + terminal
+	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                     // list persisted recall conversations, newest-first
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)    // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
@@ -83,32 +84,29 @@ type JarvisWorkingStep struct {
 	Status string `json:"status"` // done | active | pending
 }
 
-// JarvisGroundingCard is one retrieved source, built DETERMINISTICALLY in Go (not by the model). AgeMs is a
-// snapshot at synthesis time. NavTarget is an ORef for run/radar (run:<uuid>, radarreport:<uuid>) or a
-// synthetic ref for memory (memory:<slug>, not a parseable ORef; real nav is Plan 4).
-type JarvisGroundingCard struct {
-	N          int    `json:"n"`
-	SourceType string `json:"sourcetype"` // run | radar | memory (shim); others are contract-forward
-	Title      string `json:"title"`
-	Project    string `json:"project"`
-	AgeMs      int64  `json:"agems"`
-	Freshness  string `json:"freshness"` // fresh | stale | unavailable
-	NavTarget  string `json:"navtarget"`
-}
-
 // JarvisConverseChunk is one streamed update. Exactly one payload is meaningful per chunk, keyed by Kind:
 //   - "step":      Step is set (a working-step lifecycle update)
 //   - "grounding": Grounding is set (one deterministic source card)
 //   - "text":      Text is set (an incremental fragment of the model's prose answer)
 //   - "terminal":  Terminal is set (answered | weak | notfound; the last chunk of the turn)
 type JarvisConverseChunk struct {
-	Kind      string               `json:"kind"`
-	Step      *JarvisWorkingStep   `json:"step,omitempty"`
-	Grounding *JarvisGroundingCard `json:"grounding,omitempty"`
-	Text      string               `json:"text,omitempty"`
-	Terminal  string               `json:"terminal,omitempty"`
+	Kind      string                            `json:"kind"`
+	Step      *JarvisWorkingStep                `json:"step,omitempty"`
+	Grounding *waveobj.JarvisConvoGroundingCard `json:"grounding,omitempty"`
+	Text      string                            `json:"text,omitempty"`
+	Terminal  string                            `json:"terminal,omitempty"`
 }
 
+type JarvisConversationSummary struct {
+	Id        string `json:"id"`
+	Title     string `json:"title"`
+	ScopeMode string `json:"scopemode"`
+	UpdatedTs int64  `json:"updatedts"`
+}
+
+type CommandListJarvisConversationsRtnData struct {
+	Conversations []JarvisConversationSummary `json:"conversations"`
+}
 type CommandListConsultRuntimesRtnData struct {
 	Runtimes []ConsultRuntimeInfo `json:"runtimes"`
 }

@@ -263,4 +263,52 @@ const jarvisFleet = {
     },
 };
 
-export const SCENARIOS = [runsLifecycle, surfaceSmoke, jarvisStates, jarvisFleet];
+const jarvisMultiturn = {
+    name: "jarvis-multiturn",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+        const asked = await h.ev(`(() => {
+            const input = document.querySelector('input[placeholder="Ask Jarvis…"]');
+            if (!input) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, 'what changed in the worktree work');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            return true;
+        })()`);
+        await h.ev("new Promise((resolve) => setTimeout(resolve, 4000))");
+        const firstTurn = await h.ev(
+            `(() => (document.body.innerText || '').includes('what changed in the worktree work'))()`
+        );
+        steps.push({
+            step: "first question renders as a user turn",
+            ok: asked === true && firstTurn === true,
+            detail: `asked=${asked} firstTurn=${firstTurn}`,
+        });
+
+        await h.ev("location.reload()");
+        await h.ev("new Promise((resolve) => setTimeout(resolve, 2500))");
+        await h.goto("jarvis");
+        const persisted = await h.ev(
+            `(() => (document.body.innerText || '').includes('what changed in the worktree work'))()`
+        );
+        steps.push({
+            step: "conversation persists across reload in the history rail",
+            ok: persisted === true,
+            detail: `persisted=${persisted}`,
+        });
+
+        await h.shot("cdp-shots/jarvis-multiturn.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+export const SCENARIOS = [runsLifecycle, surfaceSmoke, jarvisStates, jarvisFleet, jarvisMultiturn];
