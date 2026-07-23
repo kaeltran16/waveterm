@@ -33,6 +33,8 @@ import { RunCompletion } from "./runcompletionsurface";
 import { AskCard, BlockedCard, CancelRunButton, CancelSurvivorsCard, ReviewGateCard, ShipMarker, StartingCard, TriageChip } from "./runcards";
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
+import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
+import { AmbientTags, RelevantDecisions } from "./ambientviews";
 import {
     cancelSurvivors,
     currentPhaseIndex,
@@ -116,6 +118,7 @@ export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded
 // composer Talk face replaces the inline Steer affordance entirely.
 export function RunHeader({
     run,
+    model,
     agents,
     channel,
     steering,
@@ -126,6 +129,7 @@ export function RunHeader({
     hideSteer,
 }: {
     run: Run;
+    model: AgentsViewModel;
     agents: AgentVM[];
     channel: Channel;
     steering: boolean;
@@ -141,8 +145,9 @@ export function RunHeader({
         <>
             <div className="mb-4 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                    <div className="mb-1.5">
+                    <div className="mb-1.5 flex items-center gap-2">
                         <StatusPill status={run.status} survivorCount={cancelSurvivors(run, agents).length} />
+                        <AmbientTags oref={sourceRefForRun(run).oref} />
                     </div>
                     <div
                         onClick={() => setGoalExpanded((v) => !v)}
@@ -157,6 +162,9 @@ export function RunHeader({
                             </div>
                         )}
                     </div>
+                </div>
+                <div className="flex flex-none gap-1.5">
+                    <AskJarvisButton model={model} sourceRef={sourceRefForRun(run)} label="Ask Jarvis" />
                 </div>
                 {!hideSteer ? (
                     <div className="flex flex-none gap-1.5">
@@ -316,6 +324,7 @@ export function OrchestratorBody({
             <div className={CHANNEL_COL + " flex min-h-0 flex-1 flex-col"}>
             <RunHeader
                 run={run}
+                model={model}
                 agents={agents}
                 channel={channel}
                 steering={steering}
@@ -536,6 +545,7 @@ export function RunBody({ model, channel, agents, run: runProp }: {
                 <div className={CHANNEL_COL}>
                     <RunHeader
                         run={run}
+                        model={model}
                         agents={agents}
                         channel={channel}
                         steering={false}
@@ -545,6 +555,9 @@ export function RunBody({ model, channel, agents, run: runProp }: {
                         onSteerClose={noop}
                         hideSteer
                     />
+                    <div className="mb-4">
+                        <RelevantDecisions oref={sourceRefForRun(run).oref} />
+                    </div>
                     <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
                     <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />

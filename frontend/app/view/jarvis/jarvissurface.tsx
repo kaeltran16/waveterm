@@ -50,11 +50,11 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
                     <HistoryRail />
                     <div className="flex min-w-0 flex-1 flex-col">
                         <div className="min-h-0 flex-1 overflow-y-auto">
-                            <ConversationView conversation={conv} />
+                            <ConversationView conversation={conv} model={model} />
                         </div>
                         <Composer />
                     </div>
-                    <GroundingRail conversation={conv} />
+                    <GroundingRail conversation={conv} model={model} />
                 </div>
             )}
         </div>

@@ -5,7 +5,9 @@
 // collapsible overview/notes strip (with the on-demand Jarvis summary), and the run-tab strip.
 // Extracted from channelssurface.tsx; presentational only.
 
+import * as WOS from "@/app/store/wos";
 import { type AgentVM } from "./agentsviewmodel";
+import { AmbientTags } from "./ambientviews";
 import { PHASE_TONE_CLASS, TONE_CLASS } from "./runbody";
 import { cancelSurvivors, phaseProgressDots, runStatusView } from "./runmodel";
 
@@ -130,6 +132,7 @@ export function RunStrip({
                                 ))}
                             </span>
                         ) : null}
+                        <AmbientTags oref={WOS.makeORef("run", r.id) ?? ""} />
                         <button
                             type="button"
                             onClick={() => onDismiss(r.id)}

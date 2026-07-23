@@ -7,10 +7,12 @@
 // default so narrow panes keep conversation width (== spec state 12, narrow window).
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { BookMarked } from "lucide-react";
 import type { GroundingCard, JarvisConversation } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
+import { openORef } from "./openref";
 import { ageLabel, freshnessLabel } from "./recallderive";
 import { groundingRailOpenAtom } from "./jarvisstore";
 
@@ -25,11 +27,11 @@ function freshnessClass(f: GroundingCard["freshness"]): string {
     }
 }
 
-function Card({ card }: { card: GroundingCard }) {
+function Card({ card, model }: { card: GroundingCard; model: AgentsViewModel }) {
     return (
         <button
             type="button"
-            onClick={() => console.log("[jarvis] open source", card.navTarget)}
+            onClick={() => void openORef(model, card.navTarget)}
             className={cn(
                 "flex w-full cursor-pointer flex-col gap-1 rounded-[10px] border px-3 py-2.5 text-left hover:bg-surface-hover",
                 card.expanded ? "border-accent/40 bg-accentbg" : "border-border bg-surface"
@@ -54,7 +56,7 @@ function Card({ card }: { card: GroundingCard }) {
     );
 }
 
-export function GroundingRail({ conversation }: { conversation: JarvisConversation }) {
+export function GroundingRail({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
     const answerTurns = conversation.turns.filter(isAnswerTurn);
     const latest = answerTurns[answerTurns.length - 1];
     const cards = latest?.grounding ?? [];
@@ -69,7 +71,7 @@ export function GroundingRail({ conversation }: { conversation: JarvisConversati
                     {cards.length === 0 ? (
                         <div className="text-[12px] text-muted">No grounding sources.</div>
                     ) : (
-                        cards.map((c) => <Card key={c.n} card={c} />)
+                        cards.map((c) => <Card key={c.n} card={c} model={model} />)
                     )}
                 </div>
             ),

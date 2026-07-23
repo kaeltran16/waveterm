@@ -27,6 +27,8 @@ import { ArchivedView } from "./archivedview";
 import { PendingBand } from "./pendingband";
 import { RAIL_ICON } from "./railicons";
 import { SyncStrip } from "./syncstrip";
+import { AskJarvisButton, sourceRefForMemory } from "@/app/view/jarvis/contextualentry";
+import { AmbientTags, RelevantDecisions } from "./ambientviews";
 import {
     confirmDeleteNote,
     dismissPending,
@@ -225,6 +227,7 @@ function ListView({
                                                 {n.title}
                                             </div>
                                             <div className="truncate text-[11.5px] text-ink-mid">{n.description}</div>
+                                            <AmbientTags oref={"memory:" + n.id} />
                                         </div>
                                     </motion.button>
                                 );
@@ -250,10 +253,12 @@ function DetailBody({
     sel,
     body,
     related,
+    model,
 }: {
     sel: MemNote;
     body: { body: string; mtime: number } | null;
     related: MemNote[];
+    model: AgentsViewModel;
 }) {
     const [editing, setEditing] = useAtom(memEditingAtom);
     const [draft, setDraft] = useAtom(memDraftAtom);
@@ -283,6 +288,7 @@ function DetailBody({
                 <span className={cn("rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase", m.pillClass)} style={{ background: "rgba(255,255,255,0.05)" }}>
                     {m.label}
                 </span>
+                <AmbientTags oref={"memory:" + sel.id} />
                 <div className="flex-1" />
                 <span className="font-mono text-[10.5px] text-ink-faint">{sel.scope}</span>
             </div>
@@ -343,6 +349,7 @@ function DetailBody({
                         <button onClick={startEdit} className="flex-1 rounded border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong">
                             Edit
                         </button>
+                        <AskJarvisButton model={model} sourceRef={sourceRefForMemory(sel)} label="Ask Jarvis" />
                         <button
                             onClick={() => confirmDeleteNote(sel.path, sel.title)}
                             className="rounded border border-error/30 px-[12px] py-[8px] text-[12px] text-error hover:bg-error/10"
@@ -356,6 +363,9 @@ function DetailBody({
                 <MetaRow label="Scope" value={sel.scope} border />
                 <MetaRow label="Source" value={sel.source} border />
                 <MetaRow label="Updated" value={new Date(sel.updatedts).toLocaleDateString()} />
+            </div>
+            <div className="mb-[22px]">
+                <RelevantDecisions oref={"memory:" + sel.id} />
             </div>
             {related.length > 0 && (
                 <>
@@ -433,7 +443,7 @@ function PendingDetail({ note, index, total }: { note: MemoryPendingNote; index:
     );
 }
 
-function DetailRail({ notes }: { notes: MemNote[] }) {
+function DetailRail({ notes, model }: { notes: MemNote[]; model: AgentsViewModel }) {
     const selectedId = useAtomValue(memSelectedIdAtom);
     const selectedPending = useAtomValue(memSelectedPendingPathAtom);
     const pending = useAtomValue(memPendingAtom);
@@ -471,7 +481,7 @@ function DetailRail({ notes }: { notes: MemNote[] }) {
                         ) : !sel ? (
                             <div className="text-[13px] text-ink-mid">Select a memory to see its content.</div>
                         ) : (
-                            <DetailBody sel={sel} body={body} related={related} />
+                            <DetailBody sel={sel} body={body} related={related} model={model} />
                         )}
                     </motion.div>
                 </AnimatePresence>
@@ -621,7 +631,7 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                         )}
                     </div>
                 </div>
-                <DetailRail notes={notes} />
+                <DetailRail notes={notes} model={model} />
                 {newOpen && <NewMemoryModal onClose={() => setNewOpen(false)} cwd={focusedCwd ?? undefined} />}
             </div>
         </MotionConfig>

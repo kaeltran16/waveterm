@@ -5,11 +5,13 @@
 // streamed working-steps (done/active/pending), answer segments interleaved with [n] citations, and the
 // three terminals (answered / weak / not-found). One renderer, many states — the 12 fixtures exercise it.
 
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { cn } from "@/util/util";
 import { Brain } from "lucide-react";
 import type { JarvisAnswerTurn, JarvisConversation, JarvisTurn } from "./jarviscontract";
 import { isAnswerTurn, isCitation } from "./jarviscontract";
+import { openORef } from "./openref";
 import { groundingByN } from "./recallderive";
 
 function WorkingSteps({ turn }: { turn: JarvisAnswerTurn }) {
@@ -33,7 +35,7 @@ function WorkingSteps({ turn }: { turn: JarvisAnswerTurn }) {
     );
 }
 
-function Answer({ turn }: { turn: JarvisAnswerTurn }) {
+function Answer({ turn, model }: { turn: JarvisAnswerTurn; model: AgentsViewModel }) {
     const byN = groundingByN(turn.grounding);
     return (
         <div className="max-w-[720px]">
@@ -56,7 +58,9 @@ function Answer({ turn }: { turn: JarvisAnswerTurn }) {
                             key={i}
                             type="button"
                             title={card ? `${card.title} — open source` : undefined}
-                            onClick={() => card && console.log("[jarvis] open source", card.navTarget)}
+                            onClick={() => {
+                                if (card) void openORef(model, card.navTarget);
+                            }}
                             className="mx-0.5 inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[5px] bg-accentbg px-1 align-baseline text-[10.5px] font-bold text-accent-soft hover:bg-accent/25"
                         >
                             {seg.citationRef}
@@ -76,7 +80,7 @@ function UserTurn({ text }: { text: string }) {
     );
 }
 
-export function ConversationView({ conversation }: { conversation: JarvisConversation }) {
+export function ConversationView({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
     if (conversation.turns.length === 0) {
         return (
             <SurfaceEmptyState
@@ -92,7 +96,7 @@ export function ConversationView({ conversation }: { conversation: JarvisConvers
                 isAnswerTurn(turn) ? (
                     <div key={i} className="flex gap-3">
                         <Brain size={18} strokeWidth={1.8} className="mt-1 shrink-0 text-accent" />
-                        <Answer turn={turn} />
+                        <Answer turn={turn} model={model} />
                     </div>
                 ) : (
                     <UserTurn key={i} text={turn.text} />

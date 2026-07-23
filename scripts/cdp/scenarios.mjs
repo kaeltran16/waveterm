@@ -176,6 +176,20 @@ const jarvisStates = {
             });
             await h.shot(`cdp-shots/jarvis-${s}.png`);
         }
+        // Plan 4: citation/card click is wired to openORef (real nav for channel/run/agent; fake fixture
+        // ids no-op cleanly). Assert the click path runs without throwing.
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[data-fixture]')].find((x) => x.getAttribute('data-fixture') === 'grounded');
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+        const clickOk = await h.ev(`(() => {
+            const card = document.querySelector('button[class*="rounded-[10px]"]');
+            const cite = [...document.querySelectorAll('p button')].find((x) => /^\\d+$/.test((x.textContent||'').trim()));
+            try { card && card.click(); cite && cite.click(); return true; } catch (e) { return String(e); }
+        })()`);
+        steps.push({ step: "citation/card click runs without throwing", ok: clickOk === true, detail: String(clickOk) });
         return steps;
     },
     async teardown(h) {
@@ -263,4 +277,149 @@ const jarvisFleet = {
     },
 };
 
-export const SCENARIOS = [runsLifecycle, surfaceSmoke, jarvisStates, jarvisFleet];
+// --- jarvis ask: Ctrl+P "Ask Jarvis" lead group hands a question off to the Jarvis surface (Plan 4) ---
+// Open the palette via its global chord (Ctrl:p; bindings.ts id "palette", no `when` guard). The
+// dispatcher listens on window capture, so a keydown dispatched on document reaches it. Type a goal,
+// assert the Ask lead row renders, fire it, then assert the active surface is Jarvis and the typed
+// question shows as a user turn. We do NOT assert the streamed answer (live backend, timing-sensitive).
+const jarvisAsk = {
+    name: "jarvis-ask",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("cockpit");
+        const opened = await h.ev(`(() => {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }));
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        const typed = await h.ev(`(() => {
+            const inp = document.querySelector('input[placeholder^="Search"]');
+            if (!inp) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(inp, 'why did we drop worktrees');
+            inp.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        const askRow = await h.ev(`(() => (document.body.innerText || '').includes('Ask Jarvis'))()`);
+        steps.push({
+            step: "type goal -> Ask Jarvis lead row present",
+            ok: opened === true && typed === true && askRow === true,
+            detail: `typed=${typed} askRow=${askRow}`,
+        });
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Ask Jarvis'));
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        const activeLabel = await h.activeSurfaceLabel();
+        const userTurn = await h.ev(`(() => (document.body.innerText || '').includes('why did we drop worktrees'))()`);
+        steps.push({
+            step: "fire Ask row -> Jarvis surface shows the question as a user turn",
+            ok: activeLabel === SURFACE_LABEL.jarvis && userTurn === true,
+            detail: JSON.stringify({ activeLabel, userTurn }),
+        });
+        await h.shot("cdp-shots/jarvis-ask.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+// --- jarvis contextual entry: "Ask Jarvis" on a Memory detail attaches the source + pre-fills prompt ----
+// Memory data is loaded from the real memory store (reliably non-empty; see surface-smoke), so this needs
+// no channel/run setup. Open the memory surface (default List view), select the first note, click
+// "Ask Jarvis", and assert the Jarvis surface shows the "This memory" attached chip + the suggested prompt.
+// This is the durable contextual-entry live check (Task 3); the builders themselves are unit-tested.
+const jarvisContextual = {
+    name: "jarvis-contextual",
+    surface: "memory",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("memory");
+        const selected = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('button')].filter((b) => (b.className || '').includes('rounded-[11px]'));
+            if (rows.length === 0) return false;
+            rows[0].click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const asked = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Ask Jarvis');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const activeLabel = await h.activeSurfaceLabel();
+        const landed = await h.ev(`(() => {
+            const body = document.body.innerText || '';
+            const draft = (document.querySelector('input[placeholder="Ask Jarvis…"]') || {}).value || '';
+            return { chip: body.includes('This memory'), draft: draft.includes('Recall decisions') };
+        })()`);
+        steps.push({
+            step: "select memory note -> Ask Jarvis -> Jarvis surface + attached chip + suggested prompt",
+            ok:
+                selected === true &&
+                asked === true &&
+                activeLabel === SURFACE_LABEL.jarvis &&
+                landed.chip === true &&
+                landed.draft === true,
+            detail: JSON.stringify({ selected, asked, activeLabel, ...landed }),
+        });
+        await h.shot("cdp-shots/jarvis-contextual.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+// --- jarvis ambient: placeholder task-tag chips render on real rows (Plan 4) -------------------------
+// Ambient attribution (fixtureAmbientProvider) tags every non-empty oref, so the Memory list (real,
+// non-empty data) shows a tag chip per note. Assert at least one ambient tag chip renders. PLACEHOLDER
+// data — see docs/deferred.md.
+const jarvisAmbient = {
+    name: "jarvis-ambient",
+    surface: "memory",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("memory");
+        const tagChips = await h.ev(`(() => {
+            const els = [...document.querySelectorAll('span[title="Ambient task attribution (placeholder)"]')];
+            return els.length;
+        })()`);
+        steps.push({
+            step: "memory surface renders >=1 ambient task-tag chip",
+            ok: tagChips > 0,
+            detail: `tagChips=${tagChips}`,
+        });
+        await h.shot("cdp-shots/jarvis-ambient.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+export const SCENARIOS = [
+    runsLifecycle,
+    surfaceSmoke,
+    jarvisStates,
+    jarvisFleet,
+    jarvisAsk,
+    jarvisContextual,
+    jarvisAmbient,
+];

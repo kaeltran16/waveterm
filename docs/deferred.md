@@ -3,6 +3,26 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Jarvis sub-project G (Plan 4) — ambient attribution ships PLACEHOLDER data (2026-07-23)
+
+Plan 4 wires ambient attribution UI (task tags on Run/Radar/Memory rows + "relevant past decision" cards on their details) onto real objects, but the edges are **fabricated placeholder data**, not real attribution.
+
+- **What's deferred:** the real ambient edges (which task an object belongs to; which past decisions are relevant to it). Plan 4 ships `fixtureAmbientProvider` (`frontend/app/view/agents/ambient.ts`), which derives tags/decisions **deterministically from an oref hash** — believable but fake. Task tags are non-interactive (no Tasks surface exists in v1); relevant-decision cards are marked "placeholder" via a title attribute and surface on ~half of objects.
+- **Why:** the real edges come from **attribution engine D (v2)**, which does not exist yet. Shipping the provider seam + a deterministic fixture lets the UI land and be dev/CDP-verifiable now, without blocking on D.
+- **Where it plugs in:** the `AmbientProvider` interface in `ambient.ts` (`tagsFor(oref)` / `decisionsFor(oref)`). `ambientviews.tsx` (`AmbientTags` / `RelevantDecisions`) reads it; the surfaces pass an oref (`run:<id>` / `radar:<id>` / `memory:<id>`).
+- **To resume:** implement `AmbientProvider` backed by engine D and swap it in behind the interface — the render components and surface wiring stay unchanged.
+
+## Jarvis sub-project F (conversation backend) — model tiering deferred (2026-07-23)
+
+Decided during the F brainstorming (spec in progress: `docs/superpowers/specs/2026-07-23-jarvis-second-brain-meta-spec.md` §F). F ships the real multi-turn, WaveObj-persisted conversation backend, but **model tiering (meta-spec invariant 2) is deferred out of F** — this is the one F-cycle deferral not otherwise tracked, so it lives here.
+
+- **What's deferred:** the two-tier model split (cheap Haiku-class for grunt work + capable Opus/Sonnet for synthesis). F uses a **single (capable) model** for final synthesis via the existing `consult.Run` (headless `claude` CLI) path.
+- **Why:** F's only model call is final synthesis — retrieval is deterministic/free. The cheap-tier consumers invariant 2 names don't exist yet: **traversal navigation → sub-project C**, **boundary summaries → sub-project E**, **draft rationale → sub-project B**. Building a two-tier abstraction with only one tier used would be a single-use abstraction (YAGNI). This is deferral, not omission — invariant 2 remains the product mandate.
+- **Where it plugs in:** the model-call site in `pkg/jarvisrecall` (today `consult.Run(ctx, spec, cwd, prompt, …)`). A tier selector = choosing the CLI `--model` per call.
+- **To resume:** introduce the tier selector **together with the first real cheap-tier consumer** — whichever of C (recall traversal) / E (continuity boundary summaries) lands first. Wire that consumer to the cheap tier and synthesis to the capable tier at the same time, so the abstraction arrives with ≥2 real users.
+
+Not deferred / tracked elsewhere (recorded so a reader isn't left guessing): **continuity (E)** and **attribution (D)** are their own sub-projects with rows in the meta-spec tracking table — F only defines the F⇄E `resume(task)` seam, it doesn't implement continuity. **Attached-scope retrieval** (the `attachedorefs`-passed-but-not-retrieved gap in the Plan 2 shim) **is fixed inside F**, not deferred.
+
 ## Net-new improvement scan — un-triaged candidate backlog (2026-07-17)
 
 A four-lane read-only scan (product/UX friction · performance · reliability/correctness · tech-debt/test-gaps)
