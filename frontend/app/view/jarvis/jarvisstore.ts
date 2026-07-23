@@ -55,7 +55,7 @@ export const pendingFleetSummaryAtom = atom<{ channelId: string; focus: string }
 // Record<string,…> primitive-atom + module-setter pattern so an in-flight stream keeps writing after the
 // surface unmounts (writes go through globalStore.set at module scope, never component useState).
 export const conversationsByIdAtom = atom<Record<string, JarvisConversation>>({});
- const persistedSummariesAtom = atom<JarvisConversationSummary[]>([]);
+export const persistedSummariesAtom = atom<JarvisConversationSummary[]>([]);
 
 // null => show the dev/CDP fixture selected by activeFixtureAtom; a string => show that real conversation.
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
