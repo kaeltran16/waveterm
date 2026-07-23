@@ -79,13 +79,14 @@
     --color-avatar-5: #c98fe6;
     --color-avatar-6: #9aa3ad;
 
-    /* Runtime accents (roster/header/details badges — Wave-cockpit-live.dc.html RUNTIME map) */
-    --color-rt-claude: #8aa0ff;
-    --color-rt-claude-soft: rgba(138, 160, 255, 0.13);
-    --color-rt-claude-line: rgba(138, 160, 255, 0.34);
-    --color-rt-codex: #5bd6a4;
-    --color-rt-codex-soft: rgba(91, 214, 164, 0.13);
-    --color-rt-codex-line: rgba(91, 214, 164, 0.32);
+    /* Runtime accents — trademark colors: Claude coral (claude-color.svg #D97757); Codex is a
+       monochrome mark (codex.svg #111), inverted to near-white for legibility on the dark cockpit. */
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
     --color-rt-terminal: #9aa3ad;
     --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
     --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
