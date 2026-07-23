@@ -38,6 +38,11 @@ func TestValidateRejectsBadFindings(t *testing.T) {
 	if f.Fingerprint == "" || f.Strength != StrengthStrong {
 		t.Fatalf("expected fingerprint + strong strength, got fp=%q str=%q", f.Fingerprint, f.Strength)
 	}
+	// id must be empty here — it is stamped report-wide later by assignFindingIDs, not per-lens; a
+	// per-lens index collides once lenses merge (the selection-targets-two-cards bug).
+	if f.ID != "" {
+		t.Fatalf("validateFindings must not stamp an ID (deferred to assignFindingIDs), got %q", f.ID)
+	}
 }
 
 func TestValidateEnforcesTenCap(t *testing.T) {
