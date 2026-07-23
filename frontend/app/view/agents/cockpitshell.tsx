@@ -12,6 +12,7 @@ import { ChannelsSurface } from "./channelssurface";
 import { primeChannels } from "./channelsstore";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
+import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
 import { MemorySurface } from "./memorysurface";
 import { NavRail } from "./navrail";
 import { RadarSurface } from "./radarsurface";
@@ -99,6 +100,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                     <div className="absolute inset-0">
                         {surface === "cockpit" ? (
                             <CockpitSurface model={model} />
+                        ) : surface === "jarvis" ? (
+                            <JarvisSurface model={model} />
                         ) : surface === "channels" ? (
                             <ChannelsSurface model={model} />
                         ) : surface === "radar" ? (

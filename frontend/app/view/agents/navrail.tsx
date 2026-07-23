@@ -5,6 +5,7 @@ import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import {
     Bot,
+    Brain,
     Gauge,
     GitCompare,
     LayoutDashboard,
@@ -24,6 +25,7 @@ const iconProps = { size: 20, strokeWidth: 1.8 } as const;
 // Cockpit navigation icons. Runtime logos stay as image assets; app controls use Lucide components.
 export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: <LayoutDashboard {...iconProps} />,
+    jarvis: <Brain {...iconProps} />,
     agent: <Bot {...iconProps} />,
     channels: <MessagesSquare {...iconProps} />,
     radar: <Radar {...iconProps} />,
@@ -36,6 +38,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
 
 export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
+    { key: "jarvis", label: "Jarvis" },
     { key: "agent", label: "Agent" },
     { key: "channels", label: "Channels" },
     { key: "radar", label: "Radar" },

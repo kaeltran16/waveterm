@@ -112,7 +112,7 @@ const runsLifecycle = {
 // Navigate each key surface, screenshot it, and assert (a) the active nav label matches and (b) the
 // content region rendered non-empty text — which catches a surface that blanks out on render. No
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
-const SMOKE_SURFACES = ["cockpit", "channels", "radar", "usage", "memory", "files", "settings"];
+const SMOKE_SURFACES = ["cockpit", "jarvis", "channels", "radar", "usage", "memory", "files", "settings"];
 
 const surfaceSmoke = {
     name: "surface-smoke",
@@ -143,4 +143,44 @@ const surfaceSmoke = {
     },
 };
 
-export const SCENARIOS = [runsLifecycle, surfaceSmoke];
+// --- jarvis: render every surface state via the dev fixture bar --------------------------------
+// The bar is DEV-only and clickable (globalStore is not on window, so we drive by button text like nav).
+// Each fixture is screenshotted; we assert the conversation region rendered non-empty text.
+const jarvisStates = {
+    name: "jarvis-states",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        await h.goto("jarvis");
+        const states = ["empty", "active", "grounded", "working", "weak", "notfound", "stale", "contextual", "narrow"];
+        for (const s of states) {
+            const clicked = await h.ev(`(() => {
+                const b = [...document.querySelectorAll('[data-testid="jarvis-fixture-bar"] button')]
+                    .find((x) => x.getAttribute('data-fixture') === ${JSON.stringify(s)});
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+            // small settle for the width-reveal animation before shooting
+            await h.ev("new Promise((r) => setTimeout(r, 300))");
+            const contentLen = await h.ev(
+                `(() => { const n=document.querySelector('nav'); const c=n&&n.nextElementSibling; return c?(c.textContent||'').trim().length:0; })()`
+            );
+            steps.push({
+                step: `jarvis fixture "${s}" -> bar present + content non-empty`,
+                ok: clicked === true && contentLen > 0,
+                detail: `clicked=${clicked} contentLen=${contentLen}`,
+            });
+            await h.shot(`cdp-shots/jarvis-${s}.png`);
+        }
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+export const SCENARIOS = [runsLifecycle, surfaceSmoke, jarvisStates];
