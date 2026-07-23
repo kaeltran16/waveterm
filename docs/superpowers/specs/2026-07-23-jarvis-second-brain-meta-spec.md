@@ -148,7 +148,7 @@ Living index — link each artifact as it is produced.
 
 | # | Sub-project | Spec | Plan | Built |
 |---|---|---|---|---|
-| A | Wave Vault foundation | — | — | — |
+| A | Wave Vault foundation | [spec](2026-07-23-jarvis-a-wave-vault-design.md) | [plan](../plans/2026-07-23-jarvis-a-wave-vault.md) | Built — git-backed vault + region-aware write path + deterministic read/expand APIs + ownership-staged commits (`pkg/wavevault`) |
 | B | Dossier & structured records | — | — | — |
 | C | Recall engine | — | — | — |
 | D | Attribution engine | — | — | — |

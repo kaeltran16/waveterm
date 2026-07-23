@@ -2217,6 +2217,7 @@ declare global {
         "term:trimtrailingwhitespace"?: boolean;
         "memory:vaultpath"?: string;
         "memory:gardenerstaledays"?: number;
+        "jarvis:vaultpath"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;
         "editor:wordwrap"?: boolean;
