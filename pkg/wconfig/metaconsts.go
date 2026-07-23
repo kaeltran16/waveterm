@@ -61,6 +61,8 @@ const (
 	ConfigKey_MemoryVaultPath                = "memory:vaultpath"
 	ConfigKey_MemoryGardenerStaleDays        = "memory:gardenerstaledays"
 
+	ConfigKey_JarvisVaultPath                = "jarvis:vaultpath"
+
 	ConfigKey_EditorMinimapEnabled           = "editor:minimapenabled"
 	ConfigKey_EditorStickyScrollEnabled      = "editor:stickyscrollenabled"
 	ConfigKey_EditorWordWrap                 = "editor:wordwrap"

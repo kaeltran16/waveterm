@@ -167,6 +167,9 @@
         "memory:gardenerstaledays": {
           "type": "integer"
         },
+        "jarvis:vaultpath": {
+          "type": "string"
+        },
         "editor:minimapenabled": {
           "type": "boolean"
         },
