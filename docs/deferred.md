@@ -3,6 +3,15 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23)
+
+Decided during the A brainstorming (spec in progress: `docs/superpowers/specs/2026-07-23-jarvis-a-wave-vault-*.md`). Sub-project A stands up a **new** git-backed Wave Vault at `~/.waveterm/vault/` (`tasks/`, `decisions/`, `attachments/`, and its own `memory/`). The pre-existing memory vault (`pkg/memvault`, `~/.waveterm/memory`, scanned alongside `~/.claude/projects` + `~/.codex/memories`) and the cockpit **Memory** surface are left **untouched** — two "durable knowledge" roots coexist for now.
+
+- **What's deferred:** unifying the two into one collection. Long-term the vault's `memory/` should be the single durable-knowledge root; v1 does not migrate `~/.waveterm/memory` into the vault, does not repoint `memvault.VaultRoots()`, and does not rewire memvault's consumers (Memory surface, harvest/projection/recall).
+- **Why:** subsuming memory pulls a data migration + all of memvault's consumers into A's scope — larger and riskier, and not needed to prove the vault substrate. Coexistence is cheap: `ScanVault` already unifies multiple roots into one wikilink graph, so A's read API can treat the legacy memory root as an extra scan root and cross-collection `[[links]]` still resolve. Markdown is canonical on both sides, so the two are reconcilable later without lock-in.
+- **Where it plugs in:** `pkg/memvault` (`VaultRoots`, `DefaultVaultPath`, the `Root{Source:"vault"}` at `~/.waveterm/memory`) and the new `pkg/wavevault` vault-locate/roots. Unification = migrate the legacy memory dir under `~/.waveterm/vault/memory/`, point both packages at one root, and fold the Memory surface onto the vault read API.
+- **To resume:** brainstorm/spec the memvault→Wave-Vault unification as its own slice once A/B/C are proven; migrate the memory notes, repoint the scanners, retire the duplicate root.
+
 ## Jarvis sub-project G (Plan 4) — ambient attribution ships PLACEHOLDER data (2026-07-23)
 
 Plan 4 wires ambient attribution UI (task tags on Run/Radar/Memory rows + "relevant past decision" cards on their details) onto real objects, but the edges are **fabricated placeholder data**, not real attribution.

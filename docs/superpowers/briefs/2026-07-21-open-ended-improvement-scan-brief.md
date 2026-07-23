@@ -13,6 +13,26 @@ surfaced separately — a strong signal it is real. `V` = value, `E` = effort (S
 
 ---
 
+## Status — reconciled 2026-07-22
+
+Most of this backlog shipped within a day of the scan. This section records the delta so the tables
+below read as a **historical snapshot, not a live TODO** — do not re-surface shipped items.
+
+- **Shipped:** A3 (read-conn pool, `6248d04f`); B1 (standalone-ask Cockpit nav badge, `48a4d937`);
+  D1 / E6 / E7 / E9 / E17 (backend timing + concurrency, `e64e8540` + `1bee9692`); the whole
+  surface-coherence workstream C1–C4, D2, D3, E1, E3, E5, E10–E14 (`a4234ffc`).
+- **Theme A — approved design, in progress.** Full design at
+  `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md` (scope C: split
+  `Messages` / `Runs` out of the channel blob into `OType_Run` / `OType_ChannelMessage` indexed rows
+  + read pool, as reversible expand → migrate → contract phases). **Phase 0 (A3) shipped;** Phase 1
+  (Expand) is the active work. A1's write/broadcast payoff lands only at Phase 3 (contract).
+- **Still open, design-worthy:** B2 (OS / dock / titlebar badge when backgrounded — measure-first).
+- **Held redesigns:** E8 (connserver readiness handshake — patch saved, needs live SSH/WSL verify),
+  E15 (favicon blockstore), E16 (pty input loop), E2 (`ink-*` swap is not 1:1), E4 (list-reflow
+  motion — in progress).
+
+---
+
 ## A — Backend scaling ceiling: the channel-as-one-blob wall
 
 The whole fleet thesis rests on a foundation that grows **O(session)**. This is the only cluster that gets
