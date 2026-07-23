@@ -708,6 +708,16 @@ declare global {
         patch?: string;
     };
 
+    // wshrpc.CommandJarvisConverseData
+    type CommandJarvisConverseData = {
+        conversationid: string;
+        prompt: string;
+        scopemode: string;
+        projectpath?: string;
+        attachedorefs?: string[];
+        requestid: string;
+    };
+
     // wshrpc.CommandJarvisData
     type CommandJarvisData = {
         channelid: string;
@@ -1484,12 +1494,39 @@ declare global {
         text: string;
     };
 
+    // wshrpc.JarvisConverseChunk
+    type JarvisConverseChunk = {
+        kind: string;
+        step?: JarvisWorkingStep;
+        grounding?: JarvisGroundingCard;
+        text?: string;
+        terminal?: string;
+    };
+
+    // wshrpc.JarvisGroundingCard
+    type JarvisGroundingCard = {
+        n: number;
+        sourcetype: string;
+        title: string;
+        project: string;
+        agems: number;
+        freshness: string;
+        navtarget: string;
+    };
+
     // waveobj.JarvisProfile
     type JarvisProfile = {
         playbook: RunPhase[];
         principles?: Principle[];
         defaultmode?: string;
         defaultplangate?: boolean;
+    };
+
+    // wshrpc.JarvisWorkingStep
+    type JarvisWorkingStep = {
+        id: string;
+        label: string;
+        status: string;
     };
 
     // waveobj.Job

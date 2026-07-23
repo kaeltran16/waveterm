@@ -12,6 +12,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -187,6 +188,27 @@ func (ws *WshServer) JarvisCommand(ctx context.Context, data wshrpc.CommandJarvi
 			reply += "jarvis failed: " + runErr.Error()
 		}
 		postJarvisReply(data, reply)
+	}()
+	return rtn
+}
+
+func (ws *WshServer) JarvisConverseCommand(ctx context.Context, data wshrpc.CommandJarvisConverseData) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
+	rtn := make(chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk])
+	go func() {
+		defer func() {
+			panichandler.PanicHandler("JarvisConverseCommand", recover())
+		}()
+		defer close(rtn)
+		emit := func(chunk wshrpc.JarvisConverseChunk) {
+			// live streaming is best-effort: never let a stalled consumer wedge the pipeline.
+			select {
+			case rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Response: chunk}:
+			case <-ctx.Done():
+			}
+		}
+		if err := jarvisrecall.Converse(ctx, data, emit); err != nil {
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk]{Error: err}
+		}
 	}()
 	return rtn
 }

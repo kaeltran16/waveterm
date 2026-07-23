@@ -601,6 +601,11 @@ func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrp
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
 }
 
+// command "jarvisconverse", wshserver.JarvisConverseCommand
+func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
+	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisConverseChunk](w, "jarvisconverse", data, opts)
+}
+
 // command "jarvisdecompose", wshserver.JarvisDecomposeCommand
 func JarvisDecomposeCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDecomposeData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisDecomposeRtnData](w, "jarvisdecompose", data, opts)

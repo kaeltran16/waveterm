@@ -606,6 +606,12 @@ export class RpcApiType {
         return client.wshRpcStream("jarvis", data, opts);
     }
 
+    // command "jarvisconverse" [responsestream]
+	JarvisConverseCommand(client: WshClient, data: CommandJarvisConverseData, opts?: RpcOpts): AsyncGenerator<JarvisConverseChunk, void, boolean> {
+        if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "jarvisconverse", data, opts);
+        return client.wshRpcStream("jarvisconverse", data, opts);
+    }
+
     // command "jarvisdecompose" [call]
     JarvisDecomposeCommand(client: WshClient, data: CommandJarvisDecomposeData, opts?: RpcOpts): Promise<CommandJarvisDecomposeRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisdecompose", data, opts);

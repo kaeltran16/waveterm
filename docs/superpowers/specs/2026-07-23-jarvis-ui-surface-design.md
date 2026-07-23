@@ -148,9 +148,9 @@ Ambient attribution (not one of the 12 UI-brief states; added by decision 3) is 
 
 ## Internal decomposition (the implementation plan will order these)
 
-1. Namespace + nav + empty surface shell (renders; nav works; unmount-safe store).
-2. View-model contract + fixtures + all 12 states rendered (CDP-verified). ← pins the seam.
-3. Backend shim `JarvisConverseCommand` (Go) + wire Recall mode to it (real recall over SQLite).
+1. Namespace + nav + empty surface shell (renders; nav works; unmount-safe store). **(done — Plan 1)**
+2. View-model contract + fixtures + all 12 states rendered (CDP-verified). ← pins the seam. **(done — Plan 1)**
+3. Backend shim `JarvisConverseCommand` (Go) + wire Recall mode to it (real recall over SQLite). **(done — Plan 2)**
 4. Fleet migration + Channels removal + `@jarvis` reroute (guarded by migrated tests).
 5. Ctrl+P `"ask-jarvis"` lead group + handoff.
 6. Contextual entries + ambient fixtures on Run / Radar / Memory.
