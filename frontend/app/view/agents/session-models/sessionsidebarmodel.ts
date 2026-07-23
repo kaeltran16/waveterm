@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getTabBadgeAtom } from "@/app/store/badge";
-import { setActiveTab } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
@@ -21,13 +20,9 @@ import {
     buildDuplicateBlockMeta,
     buildSessionViewModel,
     cwdToServiceLabel,
-    cycleTarget,
     findSessionTermBlock,
-    flattenVisualOrder,
-    needsYouTarget,
     reorderWithinGroup,
     subagentExpanded,
-    waitingTarget,
     type ResolvedSessionBlock,
     type SessionInput,
     type SessionStatus,
@@ -169,39 +164,6 @@ export function setCollapsedGroups(groups: string[]) {
     );
 }
 
-export function cycleSession(offset: number) {
-    const vm = globalStore.get(sessionSidebarViewModelAtom);
-    const target = cycleTarget(vm, offset);
-    if (target != null) {
-        setActiveTab(target);
-    }
-}
-
-export function cycleWaiting(offset: number) {
-    const vm = globalStore.get(sessionSidebarViewModelAtom);
-    const target = waitingTarget(vm, offset);
-    if (target != null) {
-        setActiveTab(target);
-    }
-}
-
-/** Switch to the 1-based Nth row in sidebar visual order (Ctrl:1-9). */
-export function switchToVisualIndex(index: number) {
-    const vm = globalStore.get(sessionSidebarViewModelAtom);
-    const target = flattenVisualOrder(vm)[index - 1];
-    if (target != null) {
-        setActiveTab(target.tabId);
-    }
-}
-
-export function jumpToNeedsYou() {
-    const vm = globalStore.get(sessionSidebarViewModelAtom);
-    const target = needsYouTarget(vm);
-    if (target != null) {
-        setActiveTab(target);
-    }
-}
-
 /** The active session's terminal block id + cwd (the block the diff-split targets). */
 export function findActiveSessionTermBlock(): { blockId: string; cwd: string } | undefined {
     const ws = globalStore.get(atoms.workspace);
@@ -339,41 +301,5 @@ export function duplicateSession(model: AgentsViewModel, sourceTabId: string) {
         // Focus into the Agent surface so the clone's terminal mounts and its controller starts.
         globalStore.set(model.focusIdAtom, newTabId);
         globalStore.set(model.surfaceAtom, "agent");
-    });
-}
-
-const AGENTS_TAB_NAME = "Agents";
-
-/** Open the Agents view in its own dedicated full-tab block. Focuses the existing
- *  "Agents" tab if one is open; otherwise creates it and repurposes the new tab's
- *  default shell block into the agents view *before* activating, so no shell controller
- *  starts (the backend defers the controller until the tab renders). */
-export function openAgentsTab() {
-    const ws = globalStore.get(atoms.workspace);
-    if (ws?.oid == null) {
-        return;
-    }
-    for (const tabId of ws.tabids ?? []) {
-        const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
-        if (tab?.name === AGENTS_TAB_NAME) {
-            setActiveTab(tabId);
-            return;
-        }
-    }
-    fireAndForget(async () => {
-        const newTabId = await WorkspaceService.CreateTab(ws.oid, AGENTS_TAB_NAME, false);
-        await RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: WOS.makeORef("tab", newTabId),
-            meta: { "session:pinned": true },
-        });
-        const newTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", newTabId)));
-        const defaultBlockId = newTab?.blockids?.[0];
-        if (defaultBlockId != null) {
-            await RpcApi.SetMetaCommand(TabRpcClient, {
-                oref: WOS.makeORef("block", defaultBlockId),
-                meta: { view: "agents", controller: null, "cmd:cwd": null },
-            });
-        }
-        setActiveTab(newTabId);
     });
 }
