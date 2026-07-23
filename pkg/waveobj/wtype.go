@@ -22,35 +22,37 @@ const (
 )
 
 const (
-	OType_Client         = "client"
-	OType_Window         = "window"
-	OType_Workspace      = "workspace"
-	OType_Tab            = "tab"
-	OType_Channel        = "channel"
-	OType_LayoutState    = "layout"
-	OType_Block          = "block"
-	OType_MainServer     = "mainserver"
-	OType_Job            = "job"
-	OType_Temp           = "temp"
-	OType_RadarReport    = "radarreport"
-	OType_Run            = "run"
-	OType_ChannelMessage = "channelmessage"
+	OType_Client             = "client"
+	OType_Window             = "window"
+	OType_Workspace          = "workspace"
+	OType_Tab                = "tab"
+	OType_Channel            = "channel"
+	OType_LayoutState        = "layout"
+	OType_Block              = "block"
+	OType_MainServer         = "mainserver"
+	OType_Job                = "job"
+	OType_Temp               = "temp"
+	OType_RadarReport        = "radarreport"
+	OType_Run                = "run"
+	OType_ChannelMessage     = "channelmessage"
+	OType_JarvisConversation = "jarvisconversation"
 )
 
 var ValidOTypes = map[string]bool{
-	OType_Client:         true,
-	OType_Window:         true,
-	OType_Workspace:      true,
-	OType_Tab:            true,
-	OType_Channel:        true,
-	OType_LayoutState:    true,
-	OType_Block:          true,
-	OType_MainServer:     true,
-	OType_Job:            true,
-	OType_Temp:           true,
-	OType_RadarReport:    true,
-	OType_Run:            true,
-	OType_ChannelMessage: true,
+	OType_Client:             true,
+	OType_Window:             true,
+	OType_Workspace:          true,
+	OType_Tab:                true,
+	OType_Channel:            true,
+	OType_LayoutState:        true,
+	OType_Block:              true,
+	OType_MainServer:         true,
+	OType_Job:                true,
+	OType_Temp:               true,
+	OType_RadarReport:        true,
+	OType_Run:                true,
+	OType_ChannelMessage:     true,
+	OType_JarvisConversation: true,
 }
 
 type WaveObjUpdate struct {
@@ -630,6 +632,7 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&Job{}),
 		reflect.TypeOf(&Run{}),
 		reflect.TypeOf(&ChannelMessage{}),
+		reflect.TypeOf(&JarvisConvo{}),
 	}
 }
 

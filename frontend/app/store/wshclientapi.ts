@@ -720,6 +720,12 @@ export class RpcApiType {
         return client.wshRpcCall("listconsultruntimes", null, opts);
     }
 
+    // command "listjarvisconversations" [call]
+    ListJarvisConversationsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListJarvisConversationsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listjarvisconversations", null, opts);
+        return client.wshRpcCall("listjarvisconversations", null, opts);
+    }
+
     // command "listradarreports" [call]
     ListRadarReportsCommand(client: WshClient, data: CommandListRadarReportsData, opts?: RpcOpts): Promise<CommandListRadarReportsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listradarreports", data, opts);

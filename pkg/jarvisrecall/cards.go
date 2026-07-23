@@ -17,8 +17,8 @@ import (
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/memvault"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 // maxCandidates caps the assembled slice fed to the model (recency-ordered). Bounds prompt size + cost.
@@ -36,6 +36,55 @@ type candidate struct {
 	snippet    string
 }
 
+// maxContextTurns bounds how many prior turns are threaded into the synthesis prompt. No cheap-model
+// compaction (tiering deferred) — a fixed cap is the lever.
+const maxContextTurns = 6
+
+// assembleCandidates keeps every pinned candidate, then fills the remaining cap with scoped candidates.
+func assembleCandidates(pinned, scoped []candidate, max int) []candidate {
+	out := make([]candidate, 0, max)
+	seen := make(map[string]bool, len(pinned)+len(scoped))
+	for _, c := range pinned {
+		if seen[c.navTarget] {
+			continue
+		}
+		seen[c.navTarget] = true
+		out = append(out, c)
+	}
+	for _, c := range scoped {
+		if len(out) >= max {
+			break
+		}
+		if seen[c.navTarget] {
+			continue
+		}
+		seen[c.navTarget] = true
+		out = append(out, c)
+	}
+	return out
+}
+
+// priorContext renders bounded history as context, never as a source that may be cited.
+func priorContext(turns []waveobj.JarvisConvoTurn, maxTurns int) string {
+	if len(turns) == 0 {
+		return ""
+	}
+	start := 0
+	if len(turns) > maxTurns {
+		start = len(turns) - maxTurns
+	}
+	var b strings.Builder
+	b.WriteString("Conversation so far (context only — cite the numbered Sources below, never this):\n")
+	for _, turn := range turns[start:] {
+		if turn.Role == "user" {
+			b.WriteString("Q: " + strings.TrimSpace(turn.Text) + "\n")
+		} else {
+			b.WriteString("A: " + strings.TrimSpace(turn.Prose) + "\n")
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
 func runCandidate(r *waveobj.Run) candidate {
 	ts := r.CreatedTs
 	if r.CompletedTs > 0 {
@@ -103,10 +152,10 @@ func projectLabel(p string) string {
 	return path.Base(strings.TrimRight(p, "/"))
 }
 
-func buildCards(cands []candidate, nowMs int64) []wshrpc.JarvisGroundingCard {
-	cards := make([]wshrpc.JarvisGroundingCard, 0, len(cands))
+func buildCards(cands []candidate, nowMs int64) []waveobj.JarvisConvoGroundingCard {
+	cards := make([]waveobj.JarvisConvoGroundingCard, 0, len(cands))
 	for i, c := range cands {
-		cards = append(cards, wshrpc.JarvisGroundingCard{
+		cards = append(cards, waveobj.JarvisConvoGroundingCard{
 			N:          i + 1,
 			SourceType: c.sourceType,
 			Title:      c.title,
@@ -166,20 +215,33 @@ func countCitations(text string, cardCount int) int {
 
 // scopeProject returns the project filter for project-scope, else "" (no filter). GetRadarReports treats ""
 // as "all reports".
-func scopeProject(data wshrpc.CommandJarvisConverseData) string {
-	if data.ScopeMode == "project" {
-		return data.ProjectPath
+type ScopeArgs struct {
+	Mode          string
+	ProjectPath   string
+	AttachedORefs []string
+}
+
+func scopeProject(scope ScopeArgs) string {
+	if scope.Mode == "project" {
+		return scope.ProjectPath
 	}
 	return ""
 }
 
 // inScope decides whether a retrieved object passes the scope filter. object/attached scoping is applied at
 // retrieval time (by ORef), so here they behave like "all"; project scope matches separator-normalized paths.
-func inScope(data wshrpc.CommandJarvisConverseData, sourceType, project string) bool {
-	if data.ScopeMode != "project" {
+func inScope(scope ScopeArgs, sourceType, project string) bool {
+	if scope.Mode != "project" {
 		return true
 	}
-	return normPath(project) == normPath(data.ProjectPath)
+	return normPath(project) == normPath(scope.ProjectPath)
+}
+
+func scopeCwd(scope ScopeArgs) string {
+	if scope.ProjectPath != "" {
+		return scope.ProjectPath
+	}
+	return wavebase.GetHomeDir()
 }
 
 func normPath(p string) string {

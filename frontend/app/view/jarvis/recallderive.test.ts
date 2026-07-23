@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AnswerSegment, GroundingCard } from "./jarviscontract";
-import { ageLabel, citedNs, freshnessLabel, groundingByN, mapWireCard, parseCitations } from "./recallderive";
+import type { AnswerSegment, GroundingCard, JarvisAnswerTurn } from "./jarviscontract";
+import { ageLabel, citedNs, freshnessLabel, groundingByN, mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
 describe("ageLabel", () => {
     it("renders coarse relative ages", () => {
@@ -64,10 +64,38 @@ describe("parseCitations", () => {
 });
 
 describe("mapWireCard", () => {
-    it("maps snake/lowercase wire keys to the camelCase view-model", () => {
+    it("maps a generated JarvisConvoGroundingCard to the view-model card", () => {
         const wire = { n: 3, sourcetype: "memory", title: "t", project: "waveterm", agems: 42, freshness: "stale", navtarget: "memory:x" };
-        expect(mapWireCard(wire as JarvisGroundingCard)).toEqual({
+        expect(mapWireCard(wire as JarvisConvoGroundingCard)).toEqual({
             n: 3, sourceType: "memory", title: "t", project: "waveterm", ageMs: 42, freshness: "stale", navTarget: "memory:x",
         });
+    });
+});
+
+describe("mapConvoRecord", () => {
+    it("maps persisted turns and derives answer segments from prose", () => {
+        const record = {
+            oid: "abc",
+            title: "why worktrees",
+            scopemode: "all",
+            turns: [
+                { role: "user", text: "why?", attachments: [{ oref: "run:r1", sourcetype: "run", title: "the run" }] },
+                {
+                    role: "jarvis",
+                    prose: "because of [1] mostly",
+                    terminal: "answered",
+                    grounding: [{ n: 1, sourcetype: "run", title: "the run", project: "waveterm", agems: 1000, freshness: "fresh", navtarget: "run:r1" }],
+                },
+            ],
+        } as unknown as JarvisConvo;
+        const conversation = mapConvoRecord(record);
+        expect(conversation.id).toBe("abc");
+        expect(conversation.turns).toHaveLength(2);
+        expect(conversation.turns[0]).toMatchObject({ role: "user", text: "why?" });
+        const answer = conversation.turns[1] as JarvisAnswerTurn;
+        expect(answer.terminal).toBe("answered");
+        expect(answer.workingSteps).toEqual([]);
+        expect(answer.grounding).toHaveLength(1);
+        expect(answer.segments).toEqual([{ text: "because of " }, { citationRef: 1 }, { text: " mostly" }]);
     });
 });

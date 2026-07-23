@@ -9,17 +9,19 @@ import { SurfaceHeader } from "@/app/view/agents/surfacescaffold";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { useEffect } from "react";
 import { Composer } from "./composer";
 import { ConversationView } from "./conversationview";
 import { FleetMode } from "./fleetmode";
 import { GroundingRail } from "./groundingrail";
 import { HistoryRail } from "./historyrail";
 import { JarvisFixtureBar } from "./jarvisfixturebar";
-import { activeConversationAtom, jarvisModeAtom } from "./jarvisstore";
+import { activeConversationAtom, jarvisModeAtom, loadJarvisConversations } from "./jarvisstore";
 
 export function JarvisSurface({ model }: { model: AgentsViewModel }) {
     const [mode, setMode] = useAtom(jarvisModeAtom);
     const conv = useAtomValue(activeConversationAtom);
+    useEffect(() => loadJarvisConversations(), []);
     return (
         <div className="flex h-full w-full flex-col bg-background">
             <SurfaceHeader

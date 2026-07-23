@@ -807,6 +807,11 @@ declare global {
         runtimes: ConsultRuntimeInfo[];
     };
 
+    // wshrpc.CommandListJarvisConversationsRtnData
+    type CommandListJarvisConversationsRtnData = {
+        conversations: JarvisConversationSummary[];
+    };
+
     // wshrpc.CommandListRadarReportsData
     type CommandListRadarReportsData = {
         projectpath?: string;
@@ -1494,17 +1499,36 @@ declare global {
         text: string;
     };
 
+    // wshrpc.JarvisConversationSummary
+    type JarvisConversationSummary = {
+        id: string;
+        title: string;
+        scopemode: string;
+        updatedts: number;
+    };
+
     // wshrpc.JarvisConverseChunk
     type JarvisConverseChunk = {
         kind: string;
         step?: JarvisWorkingStep;
-        grounding?: JarvisGroundingCard;
+        grounding?: JarvisConvoGroundingCard;
         text?: string;
         terminal?: string;
     };
 
-    // wshrpc.JarvisGroundingCard
-    type JarvisGroundingCard = {
+    // waveobj.JarvisConvo
+    type JarvisConvo = WaveObj & {
+        title: string;
+        scopemode: string;
+        projectpath?: string;
+        attachedorefs?: string[];
+        turns: JarvisConvoTurn[];
+        createdts: number;
+        updatedts: number;
+    };
+
+    // waveobj.JarvisConvoGroundingCard
+    type JarvisConvoGroundingCard = {
         n: number;
         sourcetype: string;
         title: string;
@@ -1512,6 +1536,23 @@ declare global {
         agems: number;
         freshness: string;
         navtarget: string;
+    };
+
+    // waveobj.JarvisConvoSourceRef
+    type JarvisConvoSourceRef = {
+        oref: string;
+        sourcetype: string;
+        title: string;
+    };
+
+    // waveobj.JarvisConvoTurn
+    type JarvisConvoTurn = {
+        role: string;
+        text?: string;
+        attachments?: JarvisConvoSourceRef[];
+        prose?: string;
+        grounding?: JarvisConvoGroundingCard[];
+        terminal?: string;
     };
 
     // waveobj.JarvisProfile

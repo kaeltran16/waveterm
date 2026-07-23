@@ -714,6 +714,12 @@ func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrp
 	return resp, err
 }
 
+// command "listjarvisconversations", wshserver.ListJarvisConversationsCommand
+func ListJarvisConversationsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListJarvisConversationsRtnData](w, "listjarvisconversations", nil, opts)
+	return resp, err
+}
+
 // command "listradarreports", wshserver.ListRadarReportsCommand
 func ListRadarReportsCommand(w *wshutil.WshRpc, data wshrpc.CommandListRadarReportsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRadarReportsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRadarReportsRtnData](w, "listradarreports", data, opts)
