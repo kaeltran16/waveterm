@@ -65,6 +65,8 @@
     --color-provider-claude: #d97757;
     --color-provider-codex: #96aacd;
     --color-success-soft: #bfe6d6; /* working activity line */
+    --color-error-soft: #f0a9a4; /* danger CTA label on tinted fill (Canvas-13 confirm dialog) */
+    --color-warning-soft: #f0d79f; /* warning accent, lightened */
     --color-feed-label: #777f89; /* tool-line uppercase tool name */
     --color-feed-summary: #9aa3ad; /* tool-line summary text */
     --color-feed-time: #4f565f; /* tool-line faint meta */

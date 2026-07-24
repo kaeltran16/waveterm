@@ -1,22 +1,16 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Modal } from "@/app/modals/modal";
-import { modalsModel } from "@/app/store/modalmodel";
+// Stack-rendered acknowledgement (pushModal("MessageModal", { children })). A single-button info
+// alert over ConfirmDialog. Callers pass a string (or node) message as children.
 
+import { ConfirmDialog } from "@/app/modals/confirmdialog";
+import { modalsModel } from "@/app/store/modalmodel";
 import { ReactNode } from "react";
-import "./messagemodal.scss";
 
 const MessageModal = ({ children }: { children: ReactNode }) => {
-    function closeModal() {
-        modalsModel.popModal();
-    }
-
-    return (
-        <Modal className="message-modal" onOk={() => closeModal()} onClose={() => closeModal()}>
-            {children}
-        </Modal>
-    );
+    const close = () => modalsModel.popModal();
+    return <ConfirmDialog tone="info" body={children} confirmLabel="OK" onConfirm={close} onClose={close} />;
 };
 
 MessageModal.displayName = "MessageModal";
