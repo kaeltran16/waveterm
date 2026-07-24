@@ -149,12 +149,12 @@ Living index — link each artifact as it is produced.
 | # | Sub-project | Spec | Plan | Built |
 |---|---|---|---|---|
 | A | Wave Vault foundation | [spec](2026-07-23-jarvis-a-wave-vault-design.md) | [plan](../plans/2026-07-23-jarvis-a-wave-vault.md) | Built — git-backed vault + region-aware write path + deterministic read/expand APIs + ownership-staged commits (`pkg/wavevault`) |
-| B | Dossier & structured records | — | — | — |
+| B | Dossier & structured records | [spec](2026-07-24-jarvis-b-dossier-design.md) | [plan](../plans/2026-07-24-jarvis-b-dossier.md) | Built — typed Dossier + separate-file decision records over A (`pkg/jarvisdossier`); region-safe machine setters + append-only decisions + `wavevault.Create` |
 | C | Recall engine | — | — | — |
 | D | Attribution engine | — | — | — |
 | E | Continuity | — | — | — |
-| F | Jarvis conversation backend | — | — | — |
-| G | Jarvis UI surface | [spec](2026-07-23-jarvis-ui-surface-design.md) | [P1](../plans/2026-07-23-jarvis-g-surface-shell-and-contract.md) · [P2](../plans/2026-07-23-jarvis-g-recall-backend-shim.md) · [P3](../plans/2026-07-23-jarvis-g-fleet-migration.md) · [P4](../plans/2026-07-23-jarvis-g-palette-contextual-ambient.md) | Plans 1–4 of 4 — feature-complete pending merge (shell + recall shim + fleet migration + palette/contextual/ambient) |
+| F | Jarvis conversation backend | [spec](2026-07-23-jarvis-f-conversation-backend-design.md) | [plan](../plans/2026-07-23-jarvis-f-conversation-backend.md) | Built (merged) — persisted `JarvisConvo` WaveObj (SQLite, WOS-mirrored) + multi-turn `JarvisConverseCommand` + attached-scope retrieval, behind the G⇄F contract (still on the Plan-2 recall shim until C lands) |
+| G | Jarvis UI surface | [spec](2026-07-23-jarvis-ui-surface-design.md) | [P1](../plans/2026-07-23-jarvis-g-surface-shell-and-contract.md) · [P2](../plans/2026-07-23-jarvis-g-recall-backend-shim.md) · [P3](../plans/2026-07-23-jarvis-g-fleet-migration.md) · [P4](../plans/2026-07-23-jarvis-g-palette-contextual-ambient.md) | Built (merged) — Plans 1–4 of 4 (shell + recall shim + fleet migration + palette/contextual/ambient) |
 
 ## Non-goals
 

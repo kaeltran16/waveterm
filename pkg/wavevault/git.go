@@ -22,6 +22,16 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// HeadAuthorForTest returns the author name of HEAD. A thin exported wrapper for sibling-package
+// tests (jarvisdossier) that assert ownership-staged authorship.
+func HeadAuthorForTest(ctx context.Context, root string) (string, error) {
+	out, err := runGit(ctx, root, "log", "-1", "--format=%an")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // runGitErr is runGit for write operations: it captures stderr into the error so a failure's cause
 // is visible.
 func runGitErr(ctx context.Context, dir string, args ...string) (string, error) {
