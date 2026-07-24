@@ -52,7 +52,7 @@ v2 **inherits all nine v1 invariants** (determinism/cost boundary; model tiers; 
 10. **Semantic is opt-in; v2 is strictly additive.** With the embedding flag off (default), no v1 behavior changes and no standing cost is incurred. The standing cost exists only for a user who enables the flag and configures a provider.
 11. **Graceful degradation is mandatory.** Every semantic consumer defines its no-embeddings fallback = its v1 behavior: L3 recall → L1/L2 (frontmatter + full-text); L4 attribution → deterministic edges L1–3; proactive → off. A missing, misconfigured, or failing provider **degrades**, it never errors the feature.
 12. **BYOK, provider-agnostic; Wave ships no credentials.** OpenAI-compatible embeddings only (`base URL + model` in `wconfig`, key in `secretstore`). Local is a local-server base URL, not a bundled model.
-13. **The index is a rebuildable, model-tagged derived artifact.** It lives in the derived layer alongside v1's learning-store cache, **never committed to the vault** (extends v1 invariant 3). It is embedded only at explicit boundaries (commit/lifecycle), never on a background poll (extends v1 invariant 1). Changing the provider or model changes the vector space → the index is invalidated and rebuilt; content-hash invalidation reuses v1's mechanism.
+13. **The index is a rebuildable, model-tagged derived artifact.** It is Wave's first persisted derived-layer artifact, **never committed to the vault** (extends v1 invariant 3). It is embedded only at explicit boundaries (commit/lifecycle), never on a background poll (extends v1 invariant 1). Changing the provider or model changes the vector space → the index is invalidated and rebuilt; content-hash invalidation reuses v1's mechanism.
 
 ## Subsystem decomposition
 
@@ -160,7 +160,7 @@ Living index — link each artifact as it is produced.
 
 | # | Sub-project | Spec | Plan | Built |
 |---|---|---|---|---|
-| S1 | Embedding foundation | — | — | — |
+| S1 | Embedding foundation | [spec](2026-07-24-jarvis-s1-embedding-foundation-design.md) | [plan](../plans/2026-07-24-jarvis-s1-embedding-foundation.md) | Built — opt-in BYOK embedding foundation (pkg/jarvisembed): OpenAI-compatible Embedder seam + dedicated sqlite-vec derived-layer index (static-linked via `sqlite_vec.Auto()`, outside the vault) + hybrid lazy/warm Reconcile (content-hash diff, only-changed re-embed, prune, model-change rebuild) + section-level chunks + scope-filtered vec0 KNN (scope filter on the vec0 metadata column) + typed ErrEmbeddingsDisabled degradation. No consumer wired (S2 is first); adds jarvis:embed* config + secretstore key. Build wiring: vendored `pkg/jarvisembed/csrc/sqlite3.h` + global `CGO_CFLAGS -I…/csrc` (preserve `-O2`); S2 threads it into the Taskfile — see docs/deferred.md. |
 | S2 | Semantic consumers (L3 + L4) | — | — | — |
 | S3 | Proactive resurfacing | — | — | — |
 | U1 | Presence C ("Spaces") | [spec](2026-07-24-jarvis-u1-spaces-design.md) | [plan](../plans/2026-07-24-jarvis-u1-spaces.md) | Built — app-bar Space chip + Ctrl+P "Focus on task" group scope the Agent roster + Channels to a task's attributed runs (via D's EdgesFor); filter + "Show all" escape hatch; needs-you never suppressed; `ListDossiers`/`ResolveSpaceScope` pure-read RPCs (`pkg/wshrpc`). No embeddings/model/WaveObj/migration. Sessions/Radar/Jarvis-recall-default deferred |

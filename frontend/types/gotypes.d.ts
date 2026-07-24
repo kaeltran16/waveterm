@@ -2228,6 +2228,9 @@ declare global {
         "memory:vaultpath"?: string;
         "memory:gardenerstaledays"?: number;
         "jarvis:vaultpath"?: string;
+        "jarvis:embedenabled"?: boolean;
+        "jarvis:embedbaseurl"?: string;
+        "jarvis:embedmodel"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;
         "editor:wordwrap"?: boolean;

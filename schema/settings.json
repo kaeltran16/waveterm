@@ -170,6 +170,15 @@
         "jarvis:vaultpath": {
           "type": "string"
         },
+        "jarvis:embedenabled": {
+          "type": "boolean"
+        },
+        "jarvis:embedbaseurl": {
+          "type": "string"
+        },
+        "jarvis:embedmodel": {
+          "type": "string"
+        },
         "editor:minimapenabled": {
           "type": "boolean"
         },

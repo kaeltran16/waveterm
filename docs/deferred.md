@@ -3,6 +3,23 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Jarvis S1 — embedding foundation (2026-07-24)
+
+Deferred:
+- Warm-at-commit wiring: `Reconcile` is exposed but only called lazily from `Query` in S1. Wire it into a commit boundary only if first-query latency after edits proves painful.
+- Settings UI for embed config/key: S1 reads `jarvis:embed*` from config and the key from `secretstore`; a settings-surface control is deferred (S2 / a small settings add). Dev sets config via settings file + `secretstore.SetSecret`.
+- Multimodal/image embeddings, query-side reranking, bundled local embedding model — v3.
+
+Build wiring S2 must complete (discovered during the S1 spike; no consumer imports `pkg/jarvisembed` yet, so the Taskfile backend build does not link sqlite-vec today):
+- Any build/test that compiles `pkg/jarvisembed` needs `CGO_CFLAGS="-O2 -g -I<repo>/pkg/jarvisembed/csrc"`. `csrc/sqlite3.h` is a vendored copy of mattn's `sqlite3-binding.h` (the asg017 sqlite-vec module `#include`s `sqlite3.h`, which mattn ships under a different name, and CGO CFLAGS from our package do not propagate to an imported cgo module — the include must come from the global `CGO_CFLAGS`). `-O2` must be preserved or zig's Debug default turns on UBSan for `sqlite-vec.c` and the link fails on `__ubsan_handle_*`. See `pkg/jarvisembed/csrc/README.md`. When S2 wires a consumer into `wavesrv`, thread this `CGO_CFLAGS` into `Taskfile.yml`'s `build:server:*` for every target (compute the path as `<root>/pkg/jarvisembed/csrc`).
+
+PLACEHOLDER tuning (calibrate against a populated, embedded vault):
+- Query `k` (caller-supplied; no default fixed here).
+- Embed batch size (all sections of a node in one call today).
+- Section-split rule (`##` only; deeper heading levels not split).
+- HTTP timeout (60s).
+- Snippet length (240 bytes; byte-sliced, may split a multibyte rune — cosmetic for a grounding preview).
+
 ## Jarvis sub-project E (Continuity) — model tier, resume affordance, quit flush, terminal re-freshness (2026-07-24)
 
 Decided during the E brainstorming (spec `docs/superpowers/specs/2026-07-24-jarvis-e-continuity-design.md`). E ships the rest-boundary narrative writer (`pkg/jarviscontinuity`): on a Run entering a rest state (`awaiting-review | blocked | done`), it assembles deterministic facts, runs one capable-model summary, and writes the dossier's `state` block + status off-band from `AdvanceRunCommand`. Recall (C) serves that narrative during ordinary traversal. Four forks + PLACEHOLDER tuning are deferred.

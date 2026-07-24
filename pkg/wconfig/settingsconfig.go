@@ -113,6 +113,9 @@ type SettingsType struct {
 	MemoryVaultPath         string `json:"memory:vaultpath,omitempty"`
 	MemoryGardenerStaleDays int    `json:"memory:gardenerstaledays,omitempty"`
 	JarvisVaultPath         string `json:"jarvis:vaultpath,omitempty"`
+	JarvisEmbedEnabled      bool   `json:"jarvis:embedenabled,omitempty"`
+	JarvisEmbedBaseURL      string `json:"jarvis:embedbaseurl,omitempty"`
+	JarvisEmbedModel        string `json:"jarvis:embedmodel,omitempty"`
 
 	EditorMinimapEnabled      bool    `json:"editor:minimapenabled,omitempty"`
 	EditorStickyScrollEnabled bool    `json:"editor:stickyscrollenabled,omitempty"`
