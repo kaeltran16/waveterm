@@ -12,6 +12,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -46,7 +47,7 @@ func SetSynthesizeForTest(fn func(context.Context, string, string, func(string))
 // Converse retrieves grounded sources, streams one answer, and returns the durable Jarvis turn.
 func Converse(ctx context.Context, scope ScopeArgs, priorTurns []waveobj.JarvisConvoTurn, prompt string, emit Emit) (waveobj.JarvisConvoTurn, error) {
 	emit(stepChunk("retrieve", "Searching runs, radar, and memory", "active"))
-	cands, err := retrieve(ctx, scope)
+	cands, err := retrieve(ctx, scope, prompt)
 	if err != nil {
 		return waveobj.JarvisConvoTurn{}, err
 	}
@@ -87,47 +88,93 @@ func Converse(ctx context.Context, scope ScopeArgs, priorTurns []waveobj.JarvisC
 	return waveobj.JarvisConvoTurn{Role: "jarvis", Prose: prose, Grounding: cards, Terminal: terminal}, nil
 }
 
-func retrieve(ctx context.Context, scope ScopeArgs) ([]candidate, error) {
-	pinned := resolveAttached(ctx, scope.AttachedORefs)
-	scoped, err := retrieveScoped(ctx, scope)
-	if err != nil {
-		return nil, err
-	}
-	sortByRecency(scoped)
-	return assembleCandidates(pinned, scoped, maxCandidates), nil
+// openVault is a seam so tests point recall at a fixture vault.
+var openVault = wavevault.OpenVault
+
+// SetOpenVaultForTest swaps the vault opener; returns the previous value for restore.
+func SetOpenVaultForTest(fn func(context.Context) (*wavevault.Vault, error)) func(context.Context) (*wavevault.Vault, error) {
+	old := openVault
+	openVault = fn
+	return old
 }
 
-func retrieveScoped(ctx context.Context, scope ScopeArgs) ([]candidate, error) {
+// scopeToVault maps a caller scope to a vault collection scope. Interactive callers (F) see
+// everything; the worker path (WorkerScope) is exposed by A but has no wired consumer in v1.
+func scopeToVault(scope ScopeArgs) wavevault.Scope {
+	return wavevault.AllScope()
+}
+
+// retrieve assembles the grounded slice: attached objects pinned live, plus a vault traversal
+// (deterministic seeds -> Expand) with referenced Runs resolved live from wstore.
+func retrieve(ctx context.Context, scope ScopeArgs, query string) ([]candidate, error) {
+	pinned := resolveAttached(ctx, scope.AttachedORefs)
+	v, err := openVault(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r := v.Retriever(scopeToVault(scope))
+	slice, err := assembleSlice(ctx, r, scope, query)
+	if err != nil {
+		return nil, err
+	}
+	sortByRecency(slice)
+	return assembleCandidates(pinned, slice, maxCandidates), nil
+}
+
+// assembleSlice walks the vault from ranked seeds and turns the neighborhood into candidates,
+// resolving each [[run-<oid>]] reference live from wstore (or surfacing it as unavailable).
+func assembleSlice(ctx context.Context, r *wavevault.Retriever, scope ScopeArgs, query string) ([]candidate, error) {
+	seeds, err := selectSeeds(r, query)
+	if err != nil {
+		return nil, err
+	}
+	sg, err := r.Expand(seeds, wavevault.ExpandOpts{Depth: expandDepth, Fanout: expandFanout})
+	if err != nil {
+		return nil, err
+	}
 	var cands []candidate
-	runs, err := wstore.DBGetAllObjsByType[*waveobj.Run](ctx, waveobj.OType_Run)
-	if err != nil {
-		return nil, err
-	}
-	for _, run := range runs {
-		if inScope(scope, "run", run.ProjectPath) {
-			cands = append(cands, runCandidate(run))
+	seenRun := map[string]bool{}
+	var runRefs []string
+	for _, n := range sg.Nodes {
+		body := ""
+		if nb, rerr := r.Read(n.ID); rerr == nil {
+			body = nb.Body
 		}
-	}
-	reports, err := wstore.GetRadarReports(ctx, scopeProject(scope))
-	if err != nil {
-		return nil, err
-	}
-	for _, report := range reports {
-		for _, finding := range report.Findings {
-			if finding.Group == "nolonger" || finding.Group == "dismissed" || finding.Group == "suppressed" {
-				continue
-			}
-			cands = append(cands, radarCandidate(report, finding))
-		}
-	}
-	if graph, scanErr := memvault.ScanVault(memvault.VaultRoots()); scanErr == nil && graph != nil {
-		for _, note := range graph.Notes {
-			if inScope(scope, "memory", note.Scope) {
-				cands = append(cands, memoryCandidate(note))
+		cands = append(cands, nodeCandidate(n, body))
+		for _, l := range n.Links {
+			if strings.HasPrefix(l, "run-") && !seenRun[l] {
+				seenRun[l] = true
+				runRefs = append(runRefs, l)
 			}
 		}
+	}
+	for _, ref := range runRefs {
+		cands = append(cands, resolveRunRef(ctx, ref, scope)...)
 	}
 	return cands, nil
+}
+
+// resolveRunRef resolves a "run-<oid>" reference to a live candidate. A missing run is surfaced as
+// unavailable (invariant 7 — surfaced, not hidden). Project scope drops out-of-project runs.
+func resolveRunRef(ctx context.Context, ref string, scope ScopeArgs) []candidate {
+	oid := strings.TrimPrefix(ref, "run-")
+	run, err := wstore.DBMustGet[*waveobj.Run](ctx, oid)
+	if err != nil {
+		return []candidate{unavailableRunCandidate(oid)}
+	}
+	if !inScope(scope, "run", run.ProjectPath) {
+		return nil
+	}
+	return []candidate{runCandidate(run)}
+}
+
+func unavailableRunCandidate(oid string) candidate {
+	return candidate{
+		sourceType: "run",
+		title:      "Run " + oid + " (unavailable)",
+		freshness:  "unavailable",
+		navTarget:  "run:" + oid,
+	}
 }
 
 // resolveAttached skips stale references so one deleted attachment cannot sink the turn.

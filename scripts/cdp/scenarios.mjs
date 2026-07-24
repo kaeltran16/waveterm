@@ -463,6 +463,89 @@ const jarvisMultiturn = {
     },
 };
 
+// --- jarvis vault recall: a dispatched Run captures a dossier; recall traverses the vault (sub-project C) --
+// arrange dispatches a REAL Run via createrun — which now (Task 1 hook) writes a dossier into the Wave Vault
+// carrying the run's ticket + objective and a [[run-<oid>]] reference, committed before createrun returns.
+// We then ask Jarvis a question matching that ticket and assert recall surfaced a grounding card (dossier or
+// run) rather than the empty-vault notfound state. Grounding cards stream before synthesis, so the assert
+// does not depend on a live claude synthesis completing. The run goal keeps the spawned worker inert (like
+// runs-lifecycle); worker block + run + channel + temp dir are cleaned up in teardown.
+const VAULT_TICKET = "ZZZ-4242";
+const VAULT_GOAL = `${VAULT_TICKET} spawn-test only: do nothing, make no file changes, stop immediately`;
+
+const jarvisVaultRecall = {
+    name: "jarvis-vault-recall",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-vault-"));
+        const wslist = await h.rpc("workspacelist", null);
+        const workspaceId = wslist[0].workspacedata.oid;
+        const ch = await h.rpc("createchannel", { name: "verify-vault", projectpath: cwd });
+        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: VAULT_GOAL });
+        const run = created.run;
+        const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
+        return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        await h.goto("jarvis");
+        const asked = await h.ev(`(() => {
+            const input = document.querySelector('input[placeholder="Ask Jarvis…"]');
+            if (!input) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, ${JSON.stringify(`what is the ${VAULT_TICKET} spawn test about`)});
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            return true;
+        })()`);
+        // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
+        let grounded = { cards: 0, notfound: false };
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            grounded = await h.ev(`(() => {
+                const body = document.body.innerText || '';
+                const cards = document.querySelectorAll('button[class*="rounded-[10px]"]').length;
+                return { cards, notfound: body.includes('No Wave source in scope references this') };
+            })()`);
+            if (grounded.cards > 0) break;
+        }
+        steps.push({
+            step: "ask matching question -> >=1 grounding card, not the empty-vault notfound state",
+            ok: asked === true && grounded.cards > 0 && grounded.notfound === false,
+            detail: JSON.stringify(grounded),
+        });
+        await h.shot("cdp-shots/jarvis-vault-recall.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+        try {
+            await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId });
+        } catch {
+            // best-effort cleanup
+        }
+        for (const oref of ctx.workers) {
+            try {
+                const tab = await h.rpc("gettab", oref.slice(4));
+                const bid = tab && tab.blockids && tab.blockids[0];
+                if (bid) await h.rpc("deleteblock", { blockid: bid });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -472,4 +555,5 @@ export const SCENARIOS = [
     jarvisContextual,
     jarvisAmbient,
     jarvisMultiturn,
+    jarvisVaultRecall,
 ];

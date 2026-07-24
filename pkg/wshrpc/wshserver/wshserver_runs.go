@@ -12,6 +12,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -223,6 +224,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
 			log.Printf("CreateRun: recording radar investigation (executing) failed: %v", rerr)
 		}
+	}
+	if err := jarviscapture.CaptureRunDispatch(ctx, &run); err != nil {
+		log.Printf("CreateRun: capturing dossier failed (non-fatal): %v", err)
 	}
 	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
 		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry

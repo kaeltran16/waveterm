@@ -213,19 +213,12 @@ func countCitations(text string, cardCount int) int {
 	return len(seen)
 }
 
-// scopeProject returns the project filter for project-scope, else "" (no filter). GetRadarReports treats ""
-// as "all reports".
+// ScopeArgs is the caller's recall scope: mode (all|project|attached), the project path for project
+// scope, and any explicitly attached ORefs to pin.
 type ScopeArgs struct {
 	Mode          string
 	ProjectPath   string
 	AttachedORefs []string
-}
-
-func scopeProject(scope ScopeArgs) string {
-	if scope.Mode == "project" {
-		return scope.ProjectPath
-	}
-	return ""
 }
 
 // inScope decides whether a retrieved object passes the scope filter. object/attached scoping is applied at
