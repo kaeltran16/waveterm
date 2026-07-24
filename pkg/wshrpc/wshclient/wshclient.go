@@ -714,6 +714,12 @@ func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrp
 	return resp, err
 }
 
+// command "listdossiers", wshserver.ListDossiersCommand
+func ListDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListDossiersRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListDossiersRtnData](w, "listdossiers", nil, opts)
+	return resp, err
+}
+
 // command "listjarvisconversations", wshserver.ListJarvisConversationsCommand
 func ListJarvisConversationsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListJarvisConversationsRtnData](w, "listjarvisconversations", nil, opts)
@@ -968,6 +974,12 @@ func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseD
 // command "resolveids", wshserver.ResolveIdsCommand
 func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opts *wshrpc.RpcOpts) (wshrpc.CommandResolveIdsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandResolveIdsRtnData](w, "resolveids", data, opts)
+	return resp, err
+}
+
+// command "resolvespacescope", wshserver.ResolveSpaceScopeCommand
+func ResolveSpaceScopeCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveSpaceScopeData, opts *wshrpc.RpcOpts) (*wshrpc.SpaceScope, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SpaceScope](w, "resolvespacescope", data, opts)
 	return resp, err
 }
 

@@ -10,7 +10,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
 import { Archive, Bot, PanelRight, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import { channelHasAsk, filterChannels, partitionChannels } from "./channelderive";
 import { tierFromMeta, type JarvisTier } from "./channelmessages";
@@ -22,6 +22,7 @@ export function ChannelRail({
     agents,
     projects,
     picking,
+    spaceBanner,
     onSelect,
     onToggleNew,
     onPickProject,
@@ -35,6 +36,7 @@ export function ChannelRail({
     agents: AgentVM[];
     projects: Record<string, { path?: string }>;
     picking: boolean;
+    spaceBanner?: ReactNode;
     onSelect: (id: string) => void;
     onToggleNew: () => void;
     onPickProject: (name: string, path: string) => void;
@@ -98,6 +100,7 @@ export function ChannelRail({
                     />
                 </div>
             </div>
+            {spaceBanner != null ? <div className="px-2 pt-2">{spaceBanner}</div> : null}
             <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2.5">
                 <div className="flex items-center justify-between px-2 pt-1.5 pb-1">
                     <span className="font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-muted">

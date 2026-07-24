@@ -807,6 +807,11 @@ declare global {
         runtimes: ConsultRuntimeInfo[];
     };
 
+    // wshrpc.CommandListDossiersRtnData
+    type CommandListDossiersRtnData = {
+        spaces: SpaceSummary[];
+    };
+
     // wshrpc.CommandListJarvisConversationsRtnData
     type CommandListJarvisConversationsRtnData = {
         conversations: JarvisConversationSummary[];
@@ -1048,6 +1053,11 @@ declare global {
     // wshrpc.CommandResolveIdsRtnData
     type CommandResolveIdsRtnData = {
         resolvedids: {[key: string]: ORef};
+    };
+
+    // wshrpc.CommandResolveSpaceScopeData
+    type CommandResolveSpaceScopeData = {
+        dossierid: string;
     };
 
     // wshrpc.CommandRetryRadarClusteringData
@@ -2261,6 +2271,22 @@ declare global {
         "debug:pprofport"?: number;
         "debug:pprofmemprofilerate"?: number;
         "debug:webglstatus"?: boolean;
+    };
+
+    // wshrpc.SpaceScope
+    type SpaceScope = {
+        runorefs: string[];
+        channeloids: string[];
+        tabids: string[];
+    };
+
+    // wshrpc.SpaceSummary
+    type SpaceSummary = {
+        id: string;
+        objective: string;
+        ticket: string;
+        status: string;
+        updated: number;
     };
 
     // waveobj.StickerClickOptsType

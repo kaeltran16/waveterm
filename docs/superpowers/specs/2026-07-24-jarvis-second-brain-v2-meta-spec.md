@@ -163,7 +163,7 @@ Living index — link each artifact as it is produced.
 | S1 | Embedding foundation | — | — | — |
 | S2 | Semantic consumers (L3 + L4) | — | — | — |
 | S3 | Proactive resurfacing | — | — | — |
-| U1 | Presence C ("Spaces") | — | — | — |
+| U1 | Presence C ("Spaces") | [spec](2026-07-24-jarvis-u1-spaces-design.md) | [plan](../plans/2026-07-24-jarvis-u1-spaces.md) | Built — app-bar Space chip + Ctrl+P "Focus on task" group scope the Agent roster + Channels to a task's attributed runs (via D's EdgesFor); filter + "Show all" escape hatch; needs-you never suppressed; `ListDossiers`/`ResolveSpaceScope` pure-read RPCs (`pkg/wshrpc`). No embeddings/model/WaveObj/migration. Sessions/Radar/Jarvis-recall-default deferred |
 | U2 | Tasks surface | — | — | — |
 | U3 | Graph surface | — | — | — |
 

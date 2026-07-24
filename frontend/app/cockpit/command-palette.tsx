@@ -16,6 +16,7 @@ import type { Runtime } from "@/app/view/agents/launch";
 import { ITEMS as SURFACE_ITEMS } from "@/app/view/agents/navrail";
 import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
+import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,12 +27,13 @@ import {
     submitJarvisQuery,
 } from "@/app/view/jarvis/jarvisstore";
 import { buildAskItems } from "./palette-ask";
+import { buildFocusItems } from "./palette-focus";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 import { rankPaletteItems } from "./palette-match";
 import { parseScope, resolveChannelToken } from "./palette-scope";
 import { cheatsheetOpenAtom } from "./shortcuts-cheatsheet";
 
-type PaletteKind = "launch" | "ask-jarvis" | "command" | "agent" | "session" | "channel";
+type PaletteKind = "launch" | "ask-jarvis" | "focus-task" | "command" | "agent" | "session" | "channel";
 
 interface PaletteItem {
     key: string;
@@ -49,9 +51,10 @@ interface PaletteItem {
     footer?: string; // one-line echo shown in the palette footer when selected
 }
 
-const GROUP_ORDER: PaletteKind[] = ["command", "agent", "session"];
+const GROUP_ORDER: PaletteKind[] = ["focus-task", "command", "agent", "session"];
 // The launch group renders its own dynamic label ("Launch in #<channel>"), so it is excluded here.
 const GROUP_LABELS: Record<Exclude<PaletteKind, "launch" | "ask-jarvis">, string> = {
+    "focus-task": "Focus on task",
     command: "Commands",
     agent: "Agents",
     session: "Sessions",
@@ -64,6 +67,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(sessionsArchiveAtom);
     const channel = useAtomValue(activeChannelAtom);
     const channels = useAtomValue(channelsAtom);
+    const spaces = useAtomValue(spacesAtom);
+    const activeSpace = useAtomValue(activeSpaceAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
     const [runProfile, setRunProfile] = useState<{ mode?: string; planGate?: boolean } | null>(null);
@@ -87,6 +92,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         if (open && !loadedRef.current) {
             loadedRef.current = true;
             fireAndForget(loadSessionsArchive);
+        }
+        if (open) {
+            loadSpaces();
         }
     }, [open]);
 
@@ -288,6 +296,30 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         [channels, model]
     );
 
+    // "Focus on task" group: rows for each active|paused task (+ Exit focus when focused). Selecting a
+    // row enters that Space (re-lensing the scoped surfaces) and closes the palette.
+    const focusItems = useMemo<PaletteItem[]>(
+        () =>
+            buildFocusItems(spaces, activeSpace?.id ?? null, {
+                focus: (s) => {
+                    enterSpace(s);
+                    close();
+                },
+                exit: () => {
+                    exitSpace();
+                    close();
+                },
+            }).map((fi) => ({
+                key: fi.key,
+                kind: "focus-task" as const,
+                search: fi.subtitle ? `${fi.title} ${fi.subtitle}` : fi.title,
+                title: fi.title,
+                subtitle: fi.subtitle,
+                run: fi.run,
+            })),
+        [spaces, activeSpace, model]
+    );
+
     // A sigil scope narrows to one group; default keeps today's launch-lead + ranked kinds.
     let groups: { kind: PaletteKind; items: PaletteItem[] }[];
     if (parsed.scope === "channel") {
@@ -298,7 +330,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             groups = ranked.length > 0 ? [{ kind: "channel", items: ranked }] : [];
         }
     } else if (parsed.scope === "default") {
-        const ranked = rankPaletteItems(items, query);
+        const ranked = rankPaletteItems([...focusItems, ...items], query);
         groups = GROUP_ORDER.map((kind) => ({ kind, items: ranked.filter((it) => it.kind === kind) })).filter(
             (g) => g.items.length > 0
         );

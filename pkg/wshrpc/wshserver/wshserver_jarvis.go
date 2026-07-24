@@ -8,14 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
+	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
 	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -303,4 +307,98 @@ func (ws *WshServer) ListConsultRuntimesCommand(ctx context.Context) (*wshrpc.Co
 		infos = append(infos, wshrpc.ConsultRuntimeInfo{Runtime: rt, Installed: installed, Version: version})
 	}
 	return &wshrpc.CommandListConsultRuntimesRtnData{Runtimes: infos}, nil
+}
+
+func (ws *WshServer) ListDossiersCommand(ctx context.Context) (*wshrpc.CommandListDossiersRtnData, error) {
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	return listDossiers(v)
+}
+
+// listDossiers is the vault-backed core (testable with an explicit vault): the active|paused dossiers in
+// the tasks collection, projected to summaries, newest-updated first.
+func listDossiers(v *wavevault.Vault) (*wshrpc.CommandListDossiersRtnData, error) {
+	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
+	nodes, err := r.Query(wavevault.Filter{})
+	if err != nil {
+		return nil, fmt.Errorf("querying tasks: %w", err)
+	}
+	out := []wshrpc.SpaceSummary{}
+	for _, n := range nodes {
+		d, err := jarvisdossier.LoadDossier(r, n.ID)
+		if err != nil {
+			continue // tolerant: skip an unreadable/foreign node
+		}
+		if d.Status != "active" && d.Status != "paused" {
+			continue
+		}
+		out = append(out, wshrpc.SpaceSummary{Id: d.ID, Objective: d.Objective, Ticket: d.Ticket, Status: d.Status, Updated: d.Updated})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
+	return &wshrpc.CommandListDossiersRtnData{Spaces: out}, nil
+}
+
+func (ws *WshServer) ResolveSpaceScopeCommand(ctx context.Context, data wshrpc.CommandResolveSpaceScopeData) (*wshrpc.SpaceScope, error) {
+	if data.DossierId == "" {
+		return nil, fmt.Errorf("dossierid is required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	edges, err := jarvisattrib.EdgesFor(ctx, v, data.DossierId)
+	if err != nil {
+		return nil, fmt.Errorf("resolving edges: %w", err)
+	}
+	runs, err := wstore.DBGetAllObjsByType[*waveobj.Run](ctx, waveobj.OType_Run)
+	if err != nil {
+		return nil, fmt.Errorf("loading runs: %w", err)
+	}
+	byORef := make(map[string]*waveobj.Run, len(runs))
+	for _, run := range runs {
+		byORef["run:"+run.OID] = run
+	}
+	scope := buildSpaceScope(edges, byORef)
+	return &scope, nil
+}
+
+// buildSpaceScope is the pure edge->bundle core: dedup the attributed run orefs, their channel oids, and
+// the worker tab ids (tab: prefix stripped) from each run's phases. Order-stable by first appearance; an
+// edge to a run missing from byORef still contributes its run oref (surfaced, not dropped).
+func buildSpaceScope(edges []jarvisattrib.AttributedEdge, byORef map[string]*waveobj.Run) wshrpc.SpaceScope {
+	scope := wshrpc.SpaceScope{RunORefs: []string{}, ChannelOids: []string{}, TabIds: []string{}}
+	seenRun := map[string]bool{}
+	seenChan := map[string]bool{}
+	seenTab := map[string]bool{}
+	for _, e := range edges {
+		if seenRun[e.RunORef] {
+			continue
+		}
+		seenRun[e.RunORef] = true
+		scope.RunORefs = append(scope.RunORefs, e.RunORef)
+		run := byORef[e.RunORef]
+		if run == nil {
+			continue
+		}
+		if run.ChannelOID != "" && !seenChan[run.ChannelOID] {
+			seenChan[run.ChannelOID] = true
+			scope.ChannelOids = append(scope.ChannelOids, run.ChannelOID)
+		}
+		for _, ph := range run.Phases {
+			for _, wo := range ph.WorkerOrefs {
+				if !strings.HasPrefix(wo, "tab:") {
+					continue
+				}
+				tabID := strings.TrimPrefix(wo, "tab:")
+				if tabID == "" || seenTab[tabID] {
+					continue
+				}
+				seenTab[tabID] = true
+				scope.TabIds = append(scope.TabIds, tabID)
+			}
+		}
+	}
+	return scope
 }

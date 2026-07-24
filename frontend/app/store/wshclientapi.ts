@@ -720,6 +720,12 @@ export class RpcApiType {
         return client.wshRpcCall("listconsultruntimes", null, opts);
     }
 
+    // command "listdossiers" [call]
+    ListDossiersCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListDossiersRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listdossiers", null, opts);
+        return client.wshRpcCall("listdossiers", null, opts);
+    }
+
     // command "listjarvisconversations" [call]
     ListJarvisConversationsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListJarvisConversationsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listjarvisconversations", null, opts);
@@ -976,6 +982,12 @@ export class RpcApiType {
     ResolveIdsCommand(client: WshClient, data: CommandResolveIdsData, opts?: RpcOpts): Promise<CommandResolveIdsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveids", data, opts);
         return client.wshRpcCall("resolveids", data, opts);
+    }
+
+    // command "resolvespacescope" [call]
+    ResolveSpaceScopeCommand(client: WshClient, data: CommandResolveSpaceScopeData, opts?: RpcOpts): Promise<SpaceScope> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolvespacescope", data, opts);
+        return client.wshRpcCall("resolvespacescope", data, opts);
     }
 
     // command "retryradarclustering" [call]

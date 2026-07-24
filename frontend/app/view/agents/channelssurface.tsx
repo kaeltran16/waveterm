@@ -26,6 +26,9 @@ import { composerFace, parseComposerCommand } from "./composercommand";
 import { type RosterEntry } from "./channelmessages";
 import { CHANNEL_COL } from "./channelsprimitives";
 import { ChannelRail } from "./channelrail";
+import { filterChannelsBySpace, spaceBannerText } from "./spacescope";
+import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "./spacestore";
+import { SpaceBanner } from "./spacebanner";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
@@ -56,6 +59,11 @@ import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 
 export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
+    const spaceScope = useAtomValue(spaceScopeAtom);
+    const activeSpace = useAtomValue(activeSpaceAtom);
+    const channelsRevealed = useAtomValue(spaceRevealAtom).has("channels");
+    const scopedChannels = filterChannelsBySpace(channels, spaceScope, channelsRevealed);
+    const channelsHidden = (channels?.length ?? 0) - (scopedChannels?.length ?? 0);
     const channelsError = useAtomValue(channelsErrorAtom);
     const activeId = useAtomValue(activeChannelIdAtom);
     const active = useAtomValue(activeChannelAtom);
@@ -316,11 +324,20 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         <MotionConfig reducedMotion="user">
             <div className="absolute inset-0 flex bg-background">
                 <ChannelRail
-                    channels={channels}
+                    channels={scopedChannels}
                     activeId={activeId}
                     agents={agents}
                     projects={projects}
                     picking={picking}
+                    spaceBanner={
+                        activeSpace != null ? (
+                            <SpaceBanner
+                                surface="channels"
+                                text={spaceBannerText(activeSpace.objective, channelsHidden, channelsRevealed)}
+                                revealed={channelsRevealed}
+                            />
+                        ) : null
+                    }
                     onSelect={(id) => fireAndForget(() => selectChannel(id))}
                     onToggleNew={() => setPicking((p) => !p)}
                     onPickProject={pickProject}

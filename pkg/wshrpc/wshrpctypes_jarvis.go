@@ -14,6 +14,8 @@ type JarvisCommands interface {
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                           // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]   // recall shim: streams working-steps + grounding + prose + terminal
 	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                     // list persisted recall conversations, newest-first
+	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                          // list focusable task dossiers (active|paused), newest-updated first
+	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)    // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
@@ -109,4 +111,29 @@ type CommandListJarvisConversationsRtnData struct {
 }
 type CommandListConsultRuntimesRtnData struct {
 	Runtimes []ConsultRuntimeInfo `json:"runtimes"`
+}
+
+// SpaceSummary is one focusable task (Presence C). Objective is the human label; Ticket a secondary tag.
+type SpaceSummary struct {
+	Id        string `json:"id"`
+	Objective string `json:"objective"`
+	Ticket    string `json:"ticket"`
+	Status    string `json:"status"` // active | paused (the only focusable statuses)
+	Updated   int64  `json:"updated"`
+}
+
+type CommandListDossiersRtnData struct {
+	Spaces []SpaceSummary `json:"spaces"`
+}
+
+type CommandResolveSpaceScopeData struct {
+	DossierId string `json:"dossierid"`
+}
+
+// SpaceScope is a task's derived scope bundle: its attributed run orefs, their channel oids, and the
+// worker tab ids (tab: prefix stripped, so they match the roster's tabId key). Rebuildable, never stored.
+type SpaceScope struct {
+	RunORefs    []string `json:"runorefs"`
+	ChannelOids []string `json:"channeloids"`
+	TabIds      []string `json:"tabids"`
 }

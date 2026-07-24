@@ -5,6 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { liveWindowAgents, providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
+import { SpaceSwitcher } from "@/app/view/agents/spaceswitcher";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
 import { runtimeMeta } from "@/app/view/agents/runtimemeta";
 import { formatChordString } from "@/util/keysym";
@@ -53,6 +54,8 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <span className="text-[14.5px] font-bold tracking-[-0.01em] text-primary">Arc</span>
                 <span className="text-[13px] text-ink-faint">/</span>
                 <ProjectSwitcher model={model} variant="bar" />
+                <span className="text-[13px] text-ink-faint">/</span>
+                <SpaceSwitcher />
             </div>
 
             <button
