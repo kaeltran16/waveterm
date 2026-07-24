@@ -13,6 +13,7 @@ import { primeChannels } from "./channelsstore";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
+import { TasksSurface } from "@/app/view/jarvis/taskssurface";
 import { MemorySurface } from "./memorysurface";
 import { NavRail } from "./navrail";
 import { RadarSurface } from "./radarsurface";
@@ -114,6 +115,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <UsageSurface model={model} />
                         ) : surface === "memory" ? (
                             <MemorySurface model={model} />
+                        ) : surface === "tasks" ? (
+                            <TasksSurface />
                         ) : surface === "settings" ? (
                             <SettingsSurface model={model} />
                         ) : null}

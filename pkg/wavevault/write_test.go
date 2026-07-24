@@ -135,6 +135,40 @@ func TestCreateRejectsExistingFile(t *testing.T) {
 	}
 }
 
+func TestCreateHumanCommitsAsUserNotJarvis(t *testing.T) {
+	ctx := context.Background()
+	v, err := openVaultAt(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nid: h-1\n---\n\nhuman-authored body\n"
+	res, err := v.CreateHuman("decisions", "h-1.md", content)
+	if err != nil {
+		t.Fatalf("CreateHuman: %v", err)
+	}
+	p := filepath.Join(v.Root, "decisions", "h-1.md")
+	if string(mustRead(t, p)) != content {
+		t.Fatal("CreateHuman did not write the exact content")
+	}
+	if res.Hash != ContentHash([]byte(content)) {
+		t.Fatal("WriteResult.Hash must equal the content hash")
+	}
+	// the key difference from Create: NOT tracked as machine-authored
+	v.mu.Lock()
+	_, tracked := v.machineFiles[p]
+	v.mu.Unlock()
+	if tracked {
+		t.Fatal("CreateHuman must NOT record the file in machineFiles")
+	}
+	// so at commit time it lands in the user (add -A) commit, authored by the vault identity
+	if err := v.Commit(ctx, "human decision"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastAuthor(t, v.Root); got != "Wave User" {
+		t.Fatalf("human-created file commit author = %q, want Wave User", got)
+	}
+}
+
 func mustRead(t *testing.T, p string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(p)

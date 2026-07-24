@@ -9,6 +9,7 @@ import {
     Gauge,
     GitCompare,
     LayoutDashboard,
+    ListTodo,
     MessagesSquare,
     Network,
     Radar,
@@ -32,6 +33,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
     memory: <Network {...iconProps} />,
+    tasks: <ListTodo {...iconProps} />,
     usage: <Gauge {...iconProps} />,
     settings: <Settings {...iconProps} />,
 };
@@ -45,6 +47,7 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "sessions", label: "Sessions" },
     { key: "files", label: "Diff" },
     { key: "memory", label: "Memory" },
+    { key: "tasks", label: "Tasks" },
     { key: "usage", label: "Usage" },
 ];
 

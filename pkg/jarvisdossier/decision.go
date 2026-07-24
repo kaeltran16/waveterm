@@ -47,18 +47,32 @@ func newDecisionID() string {
 	return "dec-" + hex.EncodeToString(b[:])
 }
 
-// AppendDecision creates a new immutable decision file in decisions/ (machine-authored) and links its
+// createFn is Vault.Create or Vault.CreateHuman — the ownership fork for the decision file.
+type createFn func(collection, filename, content string) (*wavevault.WriteResult, error)
+
+// AppendDecision creates a new immutable machine-authored decision file in decisions/ and links its
 // id into the owning dossier's refs block. Append-only: it never rewrites an existing decision. It
-// returns the decision id even if the dossier link step fails, so the record is never lost — the
-// caller can retry the link. It reads the dossier through a fresh full-scope retriever to obtain the
-// current baseHash (appends are coarse and rare, so a scan is acceptable).
+// returns the decision id even if the dossier link step fails, so the record is never lost.
 func AppendDecision(v *wavevault.Vault, f DecisionFacts) (string, error) {
+	return appendDecision(v, f, v.Create)
+}
+
+// AppendHumanDecision is AppendDecision for a human-submitted decision: the decision file is written
+// via CreateHuman (→ user commit, honest git blame) and actor/provenance are forced to human. The
+// refs-index link stays a machine (SetRefs → Jarvis) write.
+func AppendHumanDecision(v *wavevault.Vault, f DecisionFacts) (string, error) {
+	f.Actor = "human"
+	f.Provenance = "human-submit"
+	return appendDecision(v, f, v.CreateHuman)
+}
+
+func appendDecision(v *wavevault.Vault, f DecisionFacts, create createFn) (string, error) {
 	id := newDecisionID()
 	now := nowFn()
 	date := time.UnixMilli(now).UTC().Format("2006-01-02")
 	filename := date + "-" + boundedSlug(f.Summary, id) + ".md"
 	links := append([]string{f.TaskID}, f.Links...)
-	if _, err := v.Create("decisions", filename, renderDecision(id, now, f, links)); err != nil {
+	if _, err := create("decisions", filename, renderDecision(id, now, f, links)); err != nil {
 		return "", err
 	}
 	r := v.Retriever(wavevault.AllScope())

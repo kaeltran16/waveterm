@@ -36,6 +36,12 @@ export class RpcApiType {
         return client.wshRpcCall("answeragent", data, opts);
     }
 
+    // command "appenddossierdecision" [call]
+    AppendDossierDecisionCommand(client: WshClient, data: CommandAppendDossierDecisionData, opts?: RpcOpts): Promise<CommandAppendDossierDecisionRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "appenddossierdecision", data, opts);
+        return client.wshRpcCall("appenddossierdecision", data, opts);
+    }
+
     // command "archivechannel" [call]
     ArchiveChannelCommand(client: WshClient, data: CommandArchiveChannelData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "archivechannel", data, opts);
@@ -468,6 +474,12 @@ export class RpcApiType {
         return client.wshRpcCall("getchannels", null, opts);
     }
 
+    // command "getdossier" [call]
+    GetDossierCommand(client: WshClient, data: CommandGetDossierData, opts?: RpcOpts): Promise<DossierDetail> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getdossier", data, opts);
+        return client.wshRpcCall("getdossier", data, opts);
+    }
+
     // command "getfullconfig" [call]
     GetFullConfigCommand(client: WshClient, opts?: RpcOpts): Promise<FullConfigType> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getfullconfig", null, opts);
@@ -736,6 +748,12 @@ export class RpcApiType {
     ListRadarReportsCommand(client: WshClient, data: CommandListRadarReportsData, opts?: RpcOpts): Promise<CommandListRadarReportsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listradarreports", data, opts);
         return client.wshRpcCall("listradarreports", data, opts);
+    }
+
+    // command "listtaskdossiers" [call]
+    ListTaskDossiersCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListTaskDossiersRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listtaskdossiers", null, opts);
+        return client.wshRpcCall("listtaskdossiers", null, opts);
     }
 
     // command "macosversion" [call]
@@ -1066,6 +1084,12 @@ export class RpcApiType {
     SetConnectionsConfigCommand(client: WshClient, data: ConnConfigRequest, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setconnectionsconfig", data, opts);
         return client.wshRpcCall("setconnectionsconfig", data, opts);
+    }
+
+    // command "setdossierstatus" [call]
+    SetDossierStatusCommand(client: WshClient, data: CommandSetDossierStatusData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setdossierstatus", data, opts);
+        return client.wshRpcCall("setdossierstatus", data, opts);
     }
 
     // command "setglobalprofile" [call]

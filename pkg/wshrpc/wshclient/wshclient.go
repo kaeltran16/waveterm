@@ -34,6 +34,12 @@ func AnswerAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentData, o
 	return err
 }
 
+// command "appenddossierdecision", wshserver.AppendDossierDecisionCommand
+func AppendDossierDecisionCommand(w *wshutil.WshRpc, data wshrpc.CommandAppendDossierDecisionData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAppendDossierDecisionRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAppendDossierDecisionRtnData](w, "appenddossierdecision", data, opts)
+	return resp, err
+}
+
 // command "archivechannel", wshserver.ArchiveChannelCommand
 func ArchiveChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveChannelData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "archivechannel", data, opts)
@@ -464,6 +470,12 @@ func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comman
 	return resp, err
 }
 
+// command "getdossier", wshserver.GetDossierCommand
+func GetDossierCommand(w *wshutil.WshRpc, data wshrpc.CommandGetDossierData, opts *wshrpc.RpcOpts) (*wshrpc.DossierDetail, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.DossierDetail](w, "getdossier", data, opts)
+	return resp, err
+}
+
 // command "getfullconfig", wshserver.GetFullConfigCommand
 func GetFullConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.FullConfigType, error) {
 	resp, err := sendRpcRequestCallHelper[wconfig.FullConfigType](w, "getfullconfig", nil, opts)
@@ -729,6 +741,12 @@ func ListJarvisConversationsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*w
 // command "listradarreports", wshserver.ListRadarReportsCommand
 func ListRadarReportsCommand(w *wshutil.WshRpc, data wshrpc.CommandListRadarReportsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRadarReportsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRadarReportsRtnData](w, "listradarreports", data, opts)
+	return resp, err
+}
+
+// command "listtaskdossiers", wshserver.ListTaskDossiersCommand
+func ListTaskDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListTaskDossiersRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListTaskDossiersRtnData](w, "listtaskdossiers", nil, opts)
 	return resp, err
 }
 
@@ -1058,6 +1076,12 @@ func SetConfigCommand(w *wshutil.WshRpc, data wshrpc.MetaSettingsType, opts *wsh
 // command "setconnectionsconfig", wshserver.SetConnectionsConfigCommand
 func SetConnectionsConfigCommand(w *wshutil.WshRpc, data wshrpc.ConnConfigRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setconnectionsconfig", data, opts)
+	return err
+}
+
+// command "setdossierstatus", wshserver.SetDossierStatusCommand
+func SetDossierStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandSetDossierStatusData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setdossierstatus", data, opts)
 	return err
 }
 

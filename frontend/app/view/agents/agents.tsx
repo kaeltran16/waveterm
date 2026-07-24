@@ -35,6 +35,7 @@ export type SurfaceKey =
     | "sessions"
     | "files"
     | "memory"
+    | "tasks"
     | "usage"
     | "settings";
 
@@ -48,6 +49,7 @@ export const SURFACE_ORDER: SurfaceKey[] = [
     "sessions",
     "files",
     "memory",
+    "tasks",
     "usage",
 ];
 

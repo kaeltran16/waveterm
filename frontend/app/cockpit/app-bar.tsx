@@ -55,7 +55,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <span className="text-[13px] text-ink-faint">/</span>
                 <ProjectSwitcher model={model} variant="bar" />
                 <span className="text-[13px] text-ink-faint">/</span>
-                <SpaceSwitcher />
+                <SpaceSwitcher model={model} />
             </div>
 
             <button
