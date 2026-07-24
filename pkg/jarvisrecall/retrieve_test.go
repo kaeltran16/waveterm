@@ -66,7 +66,7 @@ func TestAnalyzeQuery(t *testing.T) {
 func TestSelectSeedsRanksStructuredFirst(t *testing.T) {
 	v, dossierID := seedVault(t)
 	r := v.Retriever(wavevault.AllScope())
-	seeds, err := selectSeeds(r, "why the widget approach for ABC-123")
+	seeds, err := selectSeeds(context.Background(), v, r, "why the widget approach for ABC-123")
 	if err != nil {
 		t.Fatalf("selectSeeds: %v", err)
 	}

@@ -18,6 +18,7 @@ const (
 	weightLayer1 = 1.0 // canonical dispatch reference (written by F, read by D)
 	weightLayer2 = 0.8 // identifier (ticket) match
 	weightLayer3 = 0.3 // structural correlation (same repo + overlapping window)
+	weightLayer4 = 0.2 // semantic similarity — below bucketWeakMax, always renders "weak"
 )
 
 // Confidence display bucket cutoffs — PLACEHOLDER.
@@ -37,6 +38,7 @@ const (
 	provTicket     = "ticket-match"
 	provStructural = "structural"
 	provAccept     = "human-accept"
+	provSemantic   = "semantic"
 )
 
 // nowFn is the clock, overridable in tests for probation/time-box coverage (mirrors jarvisdossier).
@@ -73,6 +75,8 @@ func confidenceFor(layers []int) float64 {
 			w = weightLayer2
 		case 3:
 			w = weightLayer3
+		case 4:
+			w = weightLayer4
 		}
 		if w > max {
 			max = w
@@ -94,8 +98,10 @@ func provenanceFor(layers []int) string {
 		return provDispatch
 	case 2:
 		return provTicket
-	default:
+	case 3:
 		return provStructural
+	default:
+		return provSemantic
 	}
 }
 

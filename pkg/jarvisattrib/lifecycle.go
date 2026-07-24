@@ -175,7 +175,14 @@ func EdgesFor(ctx context.Context, v *wavevault.Vault, dossierID string) ([]Attr
 	if err != nil {
 		return nil, err
 	}
-	return applyOverrides(assembleEdges(d, runs, lk, nowFn()), ov), nil
+	now := nowFn()
+	det := applyOverrides(assembleEdges(d, runs, lk, now), ov)
+	if len(det) > 0 {
+		return det, nil // deterministic attribution present; L4 runs only when L1-3 are silent
+	}
+	// Orphan dossier: propose semantic (L4) edges. Degrades to det (empty) when embeddings are off.
+	// Re-apply overrides so a previously-detached semantic edge stays suppressed.
+	return applyOverrides(proposeSemanticEdges(ctx, d, runs, lk, now), ov), nil
 }
 
 // Backfill returns the still-informing (unconfirmed) subset of EdgesFor — the proposals a human would

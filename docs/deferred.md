@@ -3,6 +3,26 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Jarvis S2 — semantic consumers L3 + L4 (2026-07-24)
+
+Shipped L3 (semantic recall in `pkg/jarvisrecall`) and L4 (semantic attribution in `pkg/jarvisattrib`) over
+S1's index, plus a keyed embedding cache in `pkg/jarvisembed` (`attrib_vectors` + `EmbedCached` + `Cosine` +
+public `Embed`). Both degrade to the v1 result when embeddings are off.
+
+Deferred:
+- Semantic seed recency-ranking: L3 appends semantic seeds after the deterministic top-k (ScoredChunk has no
+  timestamp to interleave by). A reserved semantic sub-budget / recency-aware merge is deferred pending
+  evidence that the append order matters.
+- L4 gating loosening: semantic fires only when a dossier has zero deterministic (L1-3) edges. Per-run silence
+  (propose for individual unattributed runs on an otherwise-attributed dossier) is deferred pending evidence.
+- Reranking / hybrid score-fusion, proactive resurfacing (S3), auto-hardening a semantic edge — out of S2.
+
+PLACEHOLDER tuning (calibrate against a populated, embedded vault):
+- `kSem = 6` (semantic seed candidates, `pkg/jarvisrecall/retrieve.go`).
+- `semCandidateN = 20` (window-overlapping runs considered per orphan dossier, `pkg/jarvisattrib/semantic.go`).
+- `semThreshold = 0.75` (cosine floor to propose a semantic edge).
+- `weightLayer4 = 0.2` (semantic edge confidence; below `bucketWeakMax` so it renders "weak").
+
 ## Jarvis S1 — embedding foundation (2026-07-24)
 
 Deferred:

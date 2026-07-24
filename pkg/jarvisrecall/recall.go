@@ -113,7 +113,7 @@ func retrieve(ctx context.Context, scope ScopeArgs, query string) ([]candidate, 
 		return nil, err
 	}
 	r := v.Retriever(scopeToVault(scope))
-	slice, err := assembleSlice(ctx, r, scope, query)
+	slice, err := assembleSlice(ctx, v, r, scope, query)
 	if err != nil {
 		return nil, err
 	}
@@ -123,8 +123,8 @@ func retrieve(ctx context.Context, scope ScopeArgs, query string) ([]candidate, 
 
 // assembleSlice walks the vault from ranked seeds and turns the neighborhood into candidates,
 // resolving each [[run-<oid>]] reference live from wstore (or surfacing it as unavailable).
-func assembleSlice(ctx context.Context, r *wavevault.Retriever, scope ScopeArgs, query string) ([]candidate, error) {
-	seeds, err := selectSeeds(r, query)
+func assembleSlice(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriever, scope ScopeArgs, query string) ([]candidate, error) {
+	seeds, err := selectSeeds(ctx, v, r, query)
 	if err != nil {
 		return nil, err
 	}

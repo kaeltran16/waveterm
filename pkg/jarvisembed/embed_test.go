@@ -6,6 +6,7 @@ package jarvisembed
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,5 +49,37 @@ func TestOpenAICompatEmbed(t *testing.T) {
 	}
 	if e.Model() != "test-model" {
 		t.Fatalf("Model() = %q", e.Model())
+	}
+}
+
+func TestEmbedPublicDegradesWhenUnavailable(t *testing.T) {
+	ix := newTestIndex(t, nil) // nil embedder => unavailable
+	if _, err := ix.Embed(context.Background(), []string{"x"}); !errors.Is(err, ErrEmbeddingsDisabled) {
+		t.Fatalf("Embed err = %v, want ErrEmbeddingsDisabled", err)
+	}
+}
+
+func TestEmbedPublicReturnsVectors(t *testing.T) {
+	ix := newTestIndex(t, &fakeEmbedder{dims: 3})
+	vecs, err := ix.Embed(context.Background(), []string{"alpha thing"})
+	if err != nil {
+		t.Fatalf("Embed: %v", err)
+	}
+	if len(vecs) != 1 || len(vecs[0]) != 3 || vecs[0][0] != 1 {
+		t.Fatalf("unexpected vectors: %+v", vecs)
+	}
+}
+
+func TestCosine(t *testing.T) {
+	same := Cosine([]float32{1, 0, 0}, []float32{1, 0, 0})
+	if same < 0.999 {
+		t.Fatalf("identical vectors cosine = %v, want ~1", same)
+	}
+	orth := Cosine([]float32{1, 0, 0}, []float32{0, 1, 0})
+	if orth > 0.001 {
+		t.Fatalf("orthogonal vectors cosine = %v, want ~0", orth)
+	}
+	if Cosine([]float32{1, 0}, []float32{1, 0, 0}) != 0 {
+		t.Fatal("mismatched lengths should be 0")
 	}
 }

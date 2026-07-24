@@ -112,6 +112,12 @@ create table if not exists chunks (
 	content_hash text not null
 );
 create index if not exists chunks_node on chunks(node_id);
+create table if not exists attrib_vectors (
+	key text primary key,
+	content_hash text not null,
+	model text not null,
+	vec blob not null
+);
 `)
 	return err
 }
@@ -171,6 +177,48 @@ order by vc.distance`, placeholders)
 		out = append(out, sc)
 	}
 	return out, rows.Err()
+}
+
+// Embed exposes the configured embedder for consumers (S2) that need raw
+// vectors outside the vault chunk index. Unavailable => ErrEmbeddingsDisabled.
+func (ix *Index) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if !ix.Available() {
+		return nil, ErrEmbeddingsDisabled
+	}
+	return ix.emb.Embed(ctx, texts)
+}
+
+// EmbedCached returns the vector for text, cached by key. A stored row is reused
+// only when its content_hash and model both match the current embedder; otherwise
+// the text is (re-)embedded and the row replaced. This lets S2 embed a run/dossier
+// fingerprint once, not per read. Unavailable => ErrEmbeddingsDisabled.
+func (ix *Index) EmbedCached(ctx context.Context, key, contentHash, text string) ([]float32, error) {
+	if !ix.Available() {
+		return nil, ErrEmbeddingsDisabled
+	}
+	var blob []byte
+	var storedHash, storedModel string
+	err := ix.db.QueryRowContext(ctx, `select vec, content_hash, model from attrib_vectors where key = ?`, key).
+		Scan(&blob, &storedHash, &storedModel)
+	switch {
+	case err == nil && storedHash == contentHash && storedModel == ix.emb.Model():
+		return decodeVec(blob), nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return nil, err
+	}
+	vecs, err := ix.emb.Embed(ctx, []string{text})
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) == 0 {
+		return nil, nil
+	}
+	if _, err := ix.db.ExecContext(ctx,
+		`insert or replace into attrib_vectors(key, content_hash, model, vec) values (?,?,?,?)`,
+		key, contentHash, ix.emb.Model(), encodeVec(vecs[0])); err != nil {
+		return nil, err
+	}
+	return vecs[0], nil
 }
 
 func truncate(s string, max int) string {

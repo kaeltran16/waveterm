@@ -179,7 +179,7 @@ func (ix *Index) pruneMissing(ctx context.Context, live map[string]bool) (int, e
 }
 
 func (ix *Index) wipe(ctx context.Context) error {
-	for _, stmt := range []string{`drop table if exists vec_chunks`, `delete from chunks`, `delete from meta`} {
+	for _, stmt := range []string{`drop table if exists vec_chunks`, `delete from chunks`, `delete from meta`, `delete from attrib_vectors`} {
 		if _, err := ix.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
@@ -195,4 +195,32 @@ func encodeVec(v []float32) []byte {
 		b = append(b, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24))
 	}
 	return b
+}
+
+// decodeVec is the inverse of encodeVec: little-endian float32 bytes -> vector.
+func decodeVec(b []byte) []float32 {
+	out := make([]float32, len(b)/4)
+	for i := range out {
+		bits := uint32(b[i*4]) | uint32(b[i*4+1])<<8 | uint32(b[i*4+2])<<16 | uint32(b[i*4+3])<<24
+		out[i] = math.Float32frombits(bits)
+	}
+	return out
+}
+
+// Cosine is the cosine similarity of two equal-length vectors (0 on length
+// mismatch or a zero vector). Higher = more similar.
+func Cosine(a, b []float32) float32 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+	var dot, na, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return float32(dot / (math.Sqrt(na) * math.Sqrt(nb)))
 }

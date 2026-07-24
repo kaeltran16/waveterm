@@ -4,11 +4,13 @@
 package jarvisrecall
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvisembed"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
 
@@ -18,6 +20,47 @@ const (
 	expandDepth  = 2
 	expandFanout = 8
 )
+
+// kSem bounds how many semantic candidates L3 contributes (PLACEHOLDER — tune
+// against a populated vault; see docs/deferred.md).
+const kSem = 6
+
+// openIndex is a seam so tests inject a temp index + mock embedder.
+var openIndex = jarvisembed.OpenIndex
+
+// SetOpenIndexForTest swaps the index opener; returns the previous value for restore.
+func SetOpenIndexForTest(fn func(context.Context) (*jarvisembed.Index, error)) func(context.Context) (*jarvisembed.Index, error) {
+	old := openIndex
+	openIndex = fn
+	return old
+}
+
+// semanticSeeds returns up to kSem node ids from the embedding index (layer 3), or
+// nil when embeddings are unavailable or error — L3 degrades to L1/L2. The model
+// never searches; this only widens the deterministic seed set. Recall's interactive
+// scope is AllScope today (see scopeToVault); the physical collection boundary is
+// enforced inside Query.
+func semanticSeeds(ctx context.Context, v *wavevault.Vault, q string) []string {
+	ix, err := openIndex(ctx)
+	if err != nil || !ix.Available() {
+		return nil
+	}
+	defer ix.Close()
+	chunks, err := ix.Query(ctx, v, q, kSem, wavevault.AllScope())
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var ids []string
+	for _, c := range chunks {
+		if seen[c.NodeID] {
+			continue
+		}
+		seen[c.NodeID] = true
+		ids = append(ids, c.NodeID)
+	}
+	return ids
+}
 
 var (
 	queryTicketRe = regexp.MustCompile(`[A-Z][A-Z0-9]+-\d+`)
@@ -51,7 +94,7 @@ func dedupe(in []string) []string {
 
 // selectSeeds runs layer-1 (structured ticket Query) + layer-2 (full-text Search per keyword),
 // merges/dedupes, ranks structured hits first then by recency, and returns the top-k node ids.
-func selectSeeds(r *wavevault.Retriever, q string) ([]string, error) {
+func selectSeeds(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriever, q string) ([]string, error) {
 	tickets, keywords := analyzeQuery(q)
 	type hit struct {
 		id         string
@@ -98,9 +141,21 @@ func selectSeeds(r *wavevault.Retriever, q string) ([]string, error) {
 	if len(hits) > seedTopK {
 		hits = hits[:seedTopK]
 	}
-	ids := make([]string, len(hits))
-	for i, h := range hits {
-		ids[i] = h.id
+	ids := make([]string, 0, len(hits)+kSem)
+	have := map[string]bool{}
+	for _, h := range hits {
+		ids = append(ids, h.id)
+		have[h.id] = true
+	}
+	// layer 3: append semantic seeds (deduped), bounding the widen at kSem. Because
+	// ScoredChunk carries no timestamp, semantic hits are appended after the recency-
+	// ranked deterministic top-k rather than interleaved by recency.
+	for _, id := range semanticSeeds(ctx, v, q) {
+		if have[id] {
+			continue
+		}
+		have[id] = true
+		ids = append(ids, id)
 	}
 	return ids, nil
 }

@@ -16,6 +16,20 @@ import (
 // ticketRe matches a ticket-shaped identifier (e.g. PROJ-142) — used by layer-3 self-correction.
 var ticketRe = regexp.MustCompile(`\b[A-Z][A-Z0-9]+-\d+\b`)
 
+// contradictsTicket reports whether any ticket-shaped token in the commit subjects is a concrete
+// ticket other than the dossier's — a signal the work belongs elsewhere. Shared by layer-3 structural
+// self-correction and layer-4 semantic proposal.
+func contradictsTicket(dossierTicket string, commitSubjects []string) bool {
+	for _, s := range commitSubjects {
+		for _, m := range ticketRe.FindAllString(s, -1) {
+			if !strings.EqualFold(m, dossierTicket) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // extractLayer2 fires when the dossier's ticket appears in the Run's Goal, its Channel name, or any
 // commit subject in the Run's range. Deterministic, high confidence on hit.
 func extractLayer2(d *jarvisdossier.Dossier, run *waveobj.Run, channelName string, commitSubjects []string) (AttributedEdge, bool) {
@@ -77,13 +91,9 @@ func extractLayer3(d *jarvisdossier.Dossier, run *waveobj.Run, anchorPaths map[s
 	if now-runEnd > timeBoxMs {
 		return AttributedEdge{}, false
 	}
-	// self-correction: any ticket-shaped token in the commits that is not this dossier's ticket contradicts.
-	for _, s := range commitSubjects {
-		for _, m := range ticketRe.FindAllString(s, -1) {
-			if !strings.EqualFold(m, d.Ticket) {
-				return AttributedEdge{}, false
-			}
-		}
+	// self-correction: a concrete different ticket in the commits contradicts.
+	if contradictsTicket(d.Ticket, commitSubjects) {
+		return AttributedEdge{}, false
 	}
 	return AttributedEdge{
 		DossierID:  d.ID,
