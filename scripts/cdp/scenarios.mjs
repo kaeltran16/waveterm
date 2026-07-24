@@ -546,6 +546,98 @@ const jarvisVaultRecall = {
     },
 };
 
+// --- jarvis continuity resume: a completed Run writes the dossier's completion narrative (sub-project E) --
+// Builds on jarvis-vault-recall's C leg. arrange dispatches a REAL quick-mode Run (createrun -> C writes the
+// dossier + [[run-<oid>]] ref) then advances the single phase to done via advancerun complete — E's
+// AdvanceRunCommand hook then writes the dossier's "where it stands" completion narrative + flips its status
+// to completed, off-band. A bare complete carries no end commit / blockers / decisions, so E takes the terse
+// deterministic path (no model call), keeping this scenario fast and deterministic. We confirm the run
+// reached done (E's trigger) and that asking Jarvis where the ticket landed surfaces a grounding card rather
+// than the empty-vault notfound state (recall traverses the now-completed dossier). Worker block + channel +
+// temp dir cleaned up in teardown.
+const CONTINUITY_TICKET = "ZZZ-7373";
+const CONTINUITY_GOAL = `${CONTINUITY_TICKET} spawn-test only: do nothing, make no file changes, stop immediately`;
+
+const jarvisContinuityResume = {
+    name: "jarvis-continuity-resume",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-continuity-"));
+        const wslist = await h.rpc("workspacelist", null);
+        const workspaceId = wslist[0].workspacedata.oid;
+        const ch = await h.rpc("createchannel", { name: "verify-continuity", projectpath: cwd });
+        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: CONTINUITY_GOAL, mode: "quick" });
+        const run = created.run;
+        const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
+        // advance the single quick phase to done -> E's rest-boundary hook writes the completion narrative.
+        await h.rpc("advancerun", { channelid: ch.oid, runid: run.id, phaseidx: 0, action: "complete" });
+        return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        // E's trigger precondition: the run actually reached the done rest state.
+        const res = await h.rpc("getchannels", null);
+        const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
+        const doneRun = (cc.runs || []).find((x) => x.id === ctx.runId) || {};
+        steps.push({
+            step: "run advanced to done (E's rest-boundary trigger)",
+            ok: doneRun.status === "done",
+            detail: JSON.stringify({ status: doneRun.status }),
+        });
+
+        await h.goto("jarvis");
+        const asked = await h.ev(`(() => {
+            const input = document.querySelector('input[placeholder="Ask Jarvis…"]');
+            if (!input) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, ${JSON.stringify(`where did the ${CONTINUITY_TICKET} task land`)});
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            return true;
+        })()`);
+        // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
+        let grounded = { cards: 0, notfound: false };
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            grounded = await h.ev(`(() => {
+                const body = document.body.innerText || '';
+                const cards = document.querySelectorAll('button[class*="rounded-[10px]"]').length;
+                return { cards, notfound: body.includes('No Wave source in scope references this') };
+            })()`);
+            if (grounded.cards > 0) break;
+        }
+        steps.push({
+            step: "ask where the completed task landed -> >=1 grounding card, not notfound",
+            ok: asked === true && grounded.cards > 0 && grounded.notfound === false,
+            detail: JSON.stringify(grounded),
+        });
+        await h.shot("cdp-shots/jarvis-continuity-resume.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+        for (const oref of ctx.workers) {
+            try {
+                const tab = await h.rpc("gettab", oref.slice(4));
+                const bid = tab && tab.blockids && tab.blockids[0];
+                if (bid) await h.rpc("deleteblock", { blockid: bid });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -556,4 +648,5 @@ export const SCENARIOS = [
     jarvisAmbient,
     jarvisMultiturn,
     jarvisVaultRecall,
+    jarvisContinuityResume,
 ];

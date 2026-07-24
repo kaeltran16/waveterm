@@ -13,6 +13,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
+	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -36,6 +37,14 @@ const (
 // sealAsync dispatches the best-effort evidence seal off the RPC handler's goroutine so a slow git diff
 // can't hold the response past the caller's client timeout. A var so tests can run it inline.
 var sealAsync = func(fn func()) { go fn() }
+
+// captureAsync dispatches the continuity boundary summary (sub-project E) off the RPC handler's
+// goroutine — it makes a model call and must never sit on the 5s RPC budget. A seam so tests capture
+// the dispatch without running it.
+var captureAsync = func(fn func()) { go fn() }
+
+// continuityCaptureTimeout bounds the detached boundary-summary model call (PLACEHOLDER; see docs/deferred.md).
+const continuityCaptureTimeout = 90 * time.Second
 
 // sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
 // take many seconds) detached from any RPC budget. Self-contained and idempotent: it re-loads the run, and
@@ -316,6 +325,10 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
 	}
+	preStatus := ""
+	if pre, perr := wstore.GetRun(ctx, data.ChannelId, data.RunId); perr == nil {
+		preStatus = pre.Status
+	}
 	// approve-in-place: an orchestrator lead held at the plan gate resumes via steer, not a fresh worker.
 	leadToSteer := ""
 	if data.Action == jarvis.RunAction_Approve {
@@ -357,6 +370,20 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
 		}
+	}
+	// continuity (sub-project E): on entering a rest state (awaiting-review | blocked | done), write the
+	// dossier's narrative "where it stands" summary off the RPC budget. Non-fatal; a detached context so
+	// it outlives this handler.
+	if postRun, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil &&
+		jarviscontinuity.IsRestState(postRun.Status) && postRun.Status != preStatus {
+		run := *postRun
+		captureAsync(func() {
+			cctx, cancel := context.WithTimeout(context.Background(), continuityCaptureTimeout)
+			defer cancel()
+			if cerr := jarviscontinuity.CaptureRunBoundary(cctx, &run); cerr != nil {
+				log.Printf("AdvanceRun: continuity capture failed (non-fatal): %v", cerr)
+			}
+		})
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 	if err != nil {

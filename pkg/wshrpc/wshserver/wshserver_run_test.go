@@ -74,6 +74,48 @@ func TestCompleteDefersEvidenceSeal(t *testing.T) {
 	}
 }
 
+// A run entering a rest state must dispatch the continuity boundary summary off the RPC budget (it is a
+// model call). We prove the decoupling via the captureAsync seam: capture the dispatched func instead of
+// running it, and confirm a ->done transition dispatched exactly one capture.
+func TestAdvanceRunDispatchesContinuityCapture(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "continuity-dispatch", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+
+	var capturedContinuity func()
+	origCap := captureAsync
+	captureAsync = func(fn func()) { capturedContinuity = fn }
+	defer func() { captureAsync = origCap }()
+
+	// keep the evidence seal off a real goroutine / git diff for this test
+	origSeal := sealAsync
+	sealAsync = func(fn func()) {}
+	defer func() { sealAsync = origSeal }()
+
+	origSpawn := jarvis.SpawnClaudeWorker
+	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
+	}
+	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+
+	ws := &WshServer{}
+	if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete,
+	}); err != nil {
+		t.Fatalf("AdvanceRunCommand: %v", err)
+	}
+
+	if capturedContinuity == nil {
+		t.Fatal("continuity capture was not dispatched on the ->done rest transition")
+	}
+}
+
 func TestApplyRunActionTriage(t *testing.T) {
 	r := jarvis.NewRun("do X", "ws", "/p", nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	next, err := applyRunAction(r, wshrpc.CommandAdvanceRunData{Action: jarvis.RunAction_Triage, PhaseIdx: 0, Verdict: "quick", Note: "tiny fix"}, 0)
