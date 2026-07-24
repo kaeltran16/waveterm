@@ -56,6 +56,27 @@ func (v *Vault) Write(id string, spec RegionSpec, edits []RegionEdit, baseHash s
 	return &WriteResult{Hash: newHash}, nil
 }
 
+// Create writes a new file into a collection and records it as machine-authored so Commit attributes
+// it to Jarvis. It errors if the file already exists — create is not overwrite; use Write to edit an
+// existing node. B uses this to scaffold dossiers and decision records (A itself never creates files).
+func (v *Vault) Create(collection, filename, content string) (*WriteResult, error) {
+	path := filepath.Join(v.Root, collection, filename)
+	if _, err := os.Stat(path); err == nil {
+		return nil, fmt.Errorf("wavevault: %s already exists", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return nil, err
+	}
+	h := ContentHash([]byte(content))
+	v.mu.Lock()
+	v.machineFiles[path] = h
+	v.mu.Unlock()
+	return &WriteResult{Hash: h}, nil
+}
+
 func regionNames(edits []RegionEdit) []string {
 	out := make([]string, 0, len(edits))
 	for _, e := range edits {

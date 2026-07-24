@@ -95,6 +95,46 @@ func TestWriteTracksMachineHash(t *testing.T) {
 	}
 }
 
+func TestCreateTracksAsMachineAndCommitsAsJarvis(t *testing.T) {
+	v, err := openVaultAt(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := v.Create("decisions", "d-1.md", "---\nid: d-1\n---\n\nbody\n")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	p := filepath.Join(v.Root, "decisions", "d-1.md")
+	if len(mustRead(t, p)) == 0 {
+		t.Fatal("Create did not write the file")
+	}
+	v.mu.Lock()
+	h, ok := v.machineFiles[p]
+	v.mu.Unlock()
+	if !ok || h != res.Hash {
+		t.Fatalf("machineFiles[%s]=%q,%v; want %q", p, h, ok, res.Hash)
+	}
+	if err := v.Commit(context.Background(), "add d-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastAuthor(t, v.Root); got != "Jarvis" {
+		t.Fatalf("created file author = %q, want Jarvis", got)
+	}
+}
+
+func TestCreateRejectsExistingFile(t *testing.T) {
+	v, err := openVaultAt(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Create("decisions", "d-1.md", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Create("decisions", "d-1.md", "two"); err == nil {
+		t.Fatal("Create must reject an already-existing file")
+	}
+}
+
 func mustRead(t *testing.T, p string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(p)

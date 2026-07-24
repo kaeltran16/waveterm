@@ -59,6 +59,12 @@ func OpenVault(ctx context.Context) (*Vault, error) {
 	return openVaultAt(ctx, DefaultVaultRoot())
 }
 
+// OpenVaultAtForTest opens a vault at an explicit root. Exported for sibling-package tests
+// (jarvisdossier); production code uses OpenVault.
+func OpenVaultAtForTest(ctx context.Context, root string) (*Vault, error) {
+	return openVaultAt(ctx, root)
+}
+
 // openVaultAt is the test seam: open a vault at an explicit root.
 func openVaultAt(ctx context.Context, root string) (*Vault, error) {
 	for _, d := range scaffoldDirs {
