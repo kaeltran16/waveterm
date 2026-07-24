@@ -653,3 +653,11 @@ dividers/code fills in `tailwindsetup.css`), the hardcoded scrollbar hexes (`tai
 `::-webkit-scrollbar-thumb`), `cockpit.scss` fallbacks, and the greys left fixed by `buildThemeVars`
 (`muted-foreground`, `ink-mid`, `lane`, `lane-asking`, `cacheread`, `feed-*`). Convert those to themed
 tokens, then set `paper.dark = true`-equivalent exposure in the picker.
+
+## Jarvis sub-project D — attribution tuning constants (2026-07-24)
+
+`pkg/jarvisattrib/edges.go` ships PLACEHOLDER tuning values, to be calibrated against a populated vault before v2 proactive resurfacing trusts hardened edges:
+- layer confidence weights: L1=1.0, L2=0.8, L3=0.3
+- probation window: 24h (`probationMs`)
+- layer-3 time-box (drift decay): 30d (`timeBoxMs`)
+- confidence display buckets: weak <0.4, strong ≥0.75

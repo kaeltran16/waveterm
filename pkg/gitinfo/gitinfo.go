@@ -108,6 +108,39 @@ func GetRangeChanges(ctx context.Context, cwd, base, end string) (*Changes, erro
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
 }
 
+// RangeCommit is one commit in a base..end range: its SHA, author time (UnixMilli), and subject line.
+type RangeCommit struct {
+	Hash    string
+	Ts      int64
+	Subject string
+}
+
+// RangeLog returns the commits reachable from end but not base, newest first, for identifier matching
+// (layer 2). Unlike GetRangeChanges it yields commit subjects/SHAs, which git diff cannot. Uses a unit
+// separator (\x1f) between fields so subjects containing spaces parse cleanly. Empty range → empty slice.
+func RangeLog(ctx context.Context, cwd, base, end string) ([]RangeCommit, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := run(ctx, cwd, "log", "--pretty=format:%H%x1f%ct%x1f%s", base+".."+end)
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+	var commits []RangeCommit
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.SplitN(line, "\x1f", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		secs, _ := strconv.ParseInt(parts[1], 10, 64)
+		commits = append(commits, RangeCommit{Hash: parts[0], Ts: secs * 1000, Subject: parts[2]})
+	}
+	return commits, nil
+}
+
 // nameStatusToStatusZ converts `git diff --name-status -z` output into the porcelain -z entries
 // ("X  path\0") that parseStatusZ (TS) and parseNumstatStatus (Go) already consume. Rename/copy
 // (R/C) collapse to "M" on the new path, so no extra source-path field is emitted (the parsers only
