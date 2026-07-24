@@ -1,16 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
+import type { AgentsViewModel } from "./agents";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "./spacestore";
 
 // App-bar Space (Presence C) switcher: "◇ <objective> ▾" (or "Global"). Mirrors ProjectSwitcher's
-// bar trigger + PopoverReveal dropdown. Selecting a task focuses it; "Global" returns to no-focus. The
-// list refreshes on each open (dossiers change as work is dispatched).
-export function SpaceSwitcher() {
+// bar trigger + PopoverReveal dropdown. Selecting a task focuses it; "Global" returns to no-focus;
+// "Open dossier" navigates to the Tasks surface (U2) for the active Space.
+export function SpaceSwitcher({ model }: { model: AgentsViewModel }) {
     const active = useAtomValue(activeSpaceAtom);
     const spaces = useAtomValue(spacesAtom);
     const [open, setOpen] = useState(false);
@@ -58,6 +60,18 @@ export function SpaceSwitcher() {
                         <span className="h-2 w-2 shrink-0 rounded-[3px] bg-muted" />
                         <span className="flex-1 truncate text-[13px] font-medium text-secondary">Global (no focus)</span>
                     </button>
+                    {active != null ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                globalStore.set(model.surfaceAtom, "tasks");
+                                close();
+                            }}
+                            className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-2 text-left text-accent hover:bg-surface-hover"
+                        >
+                            <span className="flex-1 truncate text-[13px] font-medium">Open dossier ↗</span>
+                        </button>
+                    ) : null}
                     {spaces.map((s) => (
                         <button
                             key={s.id}

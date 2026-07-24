@@ -141,3 +141,55 @@ func TestLoadDecisionTolerantOfMissingProvenance(t *testing.T) {
 		t.Fatalf("rationale = %q", d.Rationale)
 	}
 }
+
+func TestAppendHumanDecisionAttributesToUser(t *testing.T) {
+	fixedNow(t, 1753324800000)
+	v := newVault(t)
+	taskID, _, err := CreateDossier(v, DossierFacts{Ticket: "PROJ-20", Objective: "human owns this"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decID, err := AppendHumanDecision(v, DecisionFacts{
+		TaskID: taskID, Rationale: "we chose X for durability", Summary: "chose x",
+	})
+	if err != nil {
+		t.Fatalf("AppendHumanDecision: %v", err)
+	}
+	r := v.Retriever(wavevault.AllScope())
+	dec, err := LoadDecision(r, decID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// frontmatter records human authorship regardless of what the caller passed
+	if dec.Actor != "human" || dec.Provenance != "human-submit" {
+		t.Fatalf("actor/provenance = %q/%q, want human/human-submit", dec.Actor, dec.Provenance)
+	}
+	if dec.Rationale != "we chose X for durability" {
+		t.Fatalf("rationale = %q", dec.Rationale)
+	}
+	// the decision is linked into the dossier refs (index maintained)
+	d, err := LoadDossier(r, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked := false
+	for _, ref := range d.Refs {
+		if ref == decID {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Fatalf("dossier refs %+v must link decision %q", d.Refs, decID)
+	}
+	// committed: the decision FILE is user-authored (HEAD is the user add -A commit)
+	if err := v.Commit(context.Background(), "human decision"); err != nil {
+		t.Fatal(err)
+	}
+	head, err := wavevault.HeadAuthorForTest(context.Background(), v.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head != "Wave User" {
+		t.Fatalf("decision-file commit author (HEAD) = %q, want Wave User", head)
+	}
+}

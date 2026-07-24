@@ -24,6 +24,7 @@ type Dossier struct {
 	State      string
 	Refs       []string
 	Blockers   []string
+	Notes      string // the human ## Notes prose (machine blocks stripped); read-only, U2 display
 	Hash       string
 }
 
@@ -99,6 +100,7 @@ func LoadDossier(r *wavevault.Retriever, id string) (*Dossier, error) {
 		State:      extractBlock(nb.Body, "state"),
 		Refs:       parseLinks(extractBlock(nb.Body, "refs")),
 		Blockers:   splitLines(extractBlock(nb.Body, "blockers")),
+		Notes:      strings.TrimSpace(stripBlocks(nb.Body, "state", "refs", "blockers")),
 		Hash:       nb.Node.ContentHash,
 	}, nil
 }

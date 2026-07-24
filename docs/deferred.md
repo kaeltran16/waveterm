@@ -23,6 +23,15 @@ PLACEHOLDER tuning (calibrate against a populated, embedded vault):
 - `semThreshold = 0.75` (cosine floor to propose a semantic edge).
 - `weightLayer4 = 0.2` (semantic edge confidence; below `bucketWeakMax` so it renders "weak").
 
+## Jarvis U2 — Tasks surface (dossier editor) (2026-07-24)
+
+U2 ships the read + two-write inside-Wave tier (append a decision, change status). Deferred this cycle (spec §9):
+- **In-Wave `## Notes` editing:** the human Notes prose renders read-only in the Tasks detail (`frontend/app/view/jarvis/taskdetail.tsx`). Editing needs a human-owned write path (`Vault.Write` rejects human-region edits by design; a Notes edit would append via a `CreateHuman`-style prose write + commit) plus an editor affordance. To resume: add a "Edit notes" toggle in `taskdetail.tsx` and a `SetDossierNotesCommand` that writes the `## Notes` region as a user commit.
+- **Editing non-reserved frontmatter** (arbitrary human keys) and **editing/superseding existing decisions from the UI:** backend supports `SupersedeDecision`, but no UI affordance. Decisions stay append-only in U2.
+- **Manual dossier creation** from the surface: dossiers are created by `jarviscapture`/dispatch (machine `CreateDossier`) only; no "New task" button.
+- **Semantic/probation edge rendering, the Graph surface, live push:** the detail refs render as flat id chips (`Refs` machine field); no graph view, no `wps` subscription — the surface reloads on its own writes and on nav-focus, not on external vault mutations.
+- **Notes heading normalization is FE-side:** `LoadDossier`'s `Notes` projection keeps the scaffold's `## Notes` heading; `taskdetail.tsx` strips a leading `## Notes` before display (deviation from the plan's verbatim render, which would have shown a literal `## Notes` line + an empty Notes section on every dossier). If a backend-side fix is preferred later, strip the heading in `jarvisdossier.LoadDossier` instead and drop the FE regex.
+
 ## Jarvis S1 — embedding foundation (2026-07-24)
 
 Deferred:

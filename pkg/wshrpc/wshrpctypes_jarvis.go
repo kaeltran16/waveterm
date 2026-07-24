@@ -16,6 +16,10 @@ type JarvisCommands interface {
 	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                     // list persisted recall conversations, newest-first
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                          // list focusable task dossiers (active|paused), newest-updated first
 	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
+	GetDossierCommand(ctx context.Context, data CommandGetDossierData) (*DossierDetail, error)                              // read one task dossier + its decisions for the Tasks surface
+	ListTaskDossiersCommand(ctx context.Context) (*CommandListTaskDossiersRtnData, error)                                  // list ALL task dossiers (any status) for the Tasks surface, newest-updated first
+	AppendDossierDecisionCommand(ctx context.Context, data CommandAppendDossierDecisionData) (*CommandAppendDossierDecisionRtnData, error) // human-append a decision to a dossier (user-attributed) + commit
+	SetDossierStatusCommand(ctx context.Context, data CommandSetDossierStatusData) error                                                   // set a dossier's status (active|paused|completed|archived) + commit
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)    // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
@@ -136,4 +140,59 @@ type SpaceScope struct {
 	RunORefs    []string `json:"runorefs"`
 	ChannelOids []string `json:"channeloids"`
 	TabIds      []string `json:"tabids"`
+}
+
+// DecisionCard is one decision record projected for the Tasks surface. Rationale is human prose;
+// every other field is machine-owned. Read-only in the UI (decisions are append-only).
+type DecisionCard struct {
+	Id         string   `json:"id"`
+	Created    int64    `json:"created"`
+	Actor      string   `json:"actor"`
+	Provenance string   `json:"provenance"`
+	Status     string   `json:"status"`
+	Links      []string `json:"links"`
+	Rationale  string   `json:"rationale"`
+}
+
+// DossierDetail is a task dossier projected for the Tasks surface. Every field renders read-only
+// except via the write commands (append a decision, set status). Notes is the human ## Notes prose,
+// read-only this cycle.
+type DossierDetail struct {
+	Id         string         `json:"id"`
+	Ticket     string         `json:"ticket"`
+	Objective  string         `json:"objective"`
+	Acceptance []string       `json:"acceptance"`
+	Confidence string         `json:"confidence"`
+	Status     string         `json:"status"`
+	Created    int64          `json:"created"`
+	Updated    int64          `json:"updated"`
+	State      string         `json:"state"`
+	Blockers   []string       `json:"blockers"`
+	Refs       []string       `json:"refs"`
+	Notes      string         `json:"notes"`
+	Decisions  []DecisionCard `json:"decisions"`
+}
+
+type CommandGetDossierData struct {
+	DossierId string `json:"dossierid"`
+}
+
+type CommandListTaskDossiersRtnData struct {
+	Dossiers []SpaceSummary `json:"dossiers"`
+}
+
+type CommandAppendDossierDecisionData struct {
+	DossierId string   `json:"dossierid"`
+	Summary   string   `json:"summary"`
+	Rationale string   `json:"rationale"`
+	Links     []string `json:"links,omitempty"`
+}
+
+type CommandAppendDossierDecisionRtnData struct {
+	DecisionId string `json:"decisionid"`
+}
+
+type CommandSetDossierStatusData struct {
+	DossierId string `json:"dossierid"`
+	Status    string `json:"status"`
 }

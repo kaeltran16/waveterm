@@ -142,3 +142,27 @@ func TestSetStateBlockersRefsPreserveHumanProse(t *testing.T) {
 		t.Fatalf("refs = %+v", d.Refs)
 	}
 }
+
+func TestLoadDossierProjectsHumanNotes(t *testing.T) {
+	v := newVault(t)
+	// a dossier whose human ## Notes prose sits after the machine blocks
+	content := "---\nstatus: active\nobjective: x\n---\n" +
+		"<!-- jarvis:begin state -->\nrunning\n<!-- jarvis:end state -->\n" +
+		"<!-- jarvis:begin refs -->\n<!-- jarvis:end refs -->\n" +
+		"<!-- jarvis:begin blockers -->\n<!-- jarvis:end blockers -->\n\n" +
+		"## Notes\n\nremember to rotate the infra key first\n"
+	if _, err := v.Create("tasks/active", "noted.md", content); err != nil {
+		t.Fatal(err)
+	}
+	d, err := LoadDossier(v.Retriever(wavevault.AllScope()), "noted")
+	if err != nil {
+		t.Fatalf("LoadDossier: %v", err)
+	}
+	if !strings.Contains(d.Notes, "rotate the infra key") {
+		t.Fatalf("Notes did not capture the human prose: %q", d.Notes)
+	}
+	// the machine block content must NOT leak into Notes
+	if strings.Contains(d.Notes, "running") || strings.Contains(d.Notes, "jarvis:begin") {
+		t.Fatalf("Notes leaked machine-block content: %q", d.Notes)
+	}
+}

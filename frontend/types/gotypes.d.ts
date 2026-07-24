@@ -265,6 +265,19 @@ declare global {
         answers: AgentAnswerItem[];
     };
 
+    // wshrpc.CommandAppendDossierDecisionData
+    type CommandAppendDossierDecisionData = {
+        dossierid: string;
+        summary: string;
+        rationale: string;
+        links?: string[];
+    };
+
+    // wshrpc.CommandAppendDossierDecisionRtnData
+    type CommandAppendDossierDecisionRtnData = {
+        decisionid: string;
+    };
+
     // wshrpc.CommandArchiveChannelData
     type CommandArchiveChannelData = {
         channelid: string;
@@ -562,6 +575,11 @@ declare global {
         channels: Channel[];
     };
 
+    // wshrpc.CommandGetDossierData
+    type CommandGetDossierData = {
+        dossierid: string;
+    };
+
     // wshrpc.CommandGetJarvisProfileData
     type CommandGetJarvisProfileData = {
         channelid: string;
@@ -825,6 +843,11 @@ declare global {
     // wshrpc.CommandListRadarReportsRtnData
     type CommandListRadarReportsRtnData = {
         reports: RadarReport[];
+    };
+
+    // wshrpc.CommandListTaskDossiersRtnData
+    type CommandListTaskDossiersRtnData = {
+        dossiers: SpaceSummary[];
     };
 
     // wshrpc.CommandMemoryArchiveListRtnData
@@ -1103,6 +1126,12 @@ declare global {
         mode?: string;
     };
 
+    // wshrpc.CommandSetDossierStatusData
+    type CommandSetDossierStatusData = {
+        dossierid: string;
+        status: string;
+    };
+
     // wshrpc.CommandSetGlobalProfileData
     type CommandSetGlobalProfileData = {
         profile: JarvisProfile;
@@ -1367,6 +1396,17 @@ declare global {
         version?: string;
     };
 
+    // wshrpc.DecisionCard
+    type DecisionCard = {
+        id: string;
+        created: number;
+        actor: string;
+        provenance: string;
+        status: string;
+        links: string[];
+        rationale: string;
+    };
+
     // vdom.DomRect
     type DomRect = {
         top: number;
@@ -1375,6 +1415,23 @@ declare global {
         bottom: number;
         width: number;
         height: number;
+    };
+
+    // wshrpc.DossierDetail
+    type DossierDetail = {
+        id: string;
+        ticket: string;
+        objective: string;
+        acceptance: string[];
+        confidence: string;
+        status: string;
+        created: number;
+        updated: number;
+        state: string;
+        blockers: string[];
+        refs: string[];
+        notes: string;
+        decisions: DecisionCard[];
     };
 
     // waveobj.EvidenceArtifact

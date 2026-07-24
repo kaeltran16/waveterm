@@ -77,6 +77,23 @@ func (v *Vault) Create(collection, filename, content string) (*WriteResult, erro
 	return &WriteResult{Hash: h}, nil
 }
 
+// CreateHuman is Create's twin but does NOT record the file in machineFiles, so Commit's `add -A`
+// stage attributes it to the user, not Jarvis. The one human-authored create path from inside Wave
+// (the Tasks surface's append-decision). Errors if the file already exists.
+func (v *Vault) CreateHuman(collection, filename, content string) (*WriteResult, error) {
+	path := filepath.Join(v.Root, collection, filename)
+	if _, err := os.Stat(path); err == nil {
+		return nil, fmt.Errorf("wavevault: %s already exists", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return nil, err
+	}
+	return &WriteResult{Hash: ContentHash([]byte(content))}, nil
+}
+
 func regionNames(edits []RegionEdit) []string {
 	out := make([]string, 0, len(edits))
 	for _, e := range edits {

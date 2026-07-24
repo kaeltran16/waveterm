@@ -317,9 +317,10 @@ func (ws *WshServer) ListDossiersCommand(ctx context.Context) (*wshrpc.CommandLi
 	return listDossiers(v)
 }
 
-// listDossiers is the vault-backed core (testable with an explicit vault): the active|paused dossiers in
-// the tasks collection, projected to summaries, newest-updated first.
-func listDossiers(v *wavevault.Vault) (*wshrpc.CommandListDossiersRtnData, error) {
+// collectDossiers projects the tasks collection to SpaceSummaries, keeping those whose status passes
+// keep, newest-updated first. The shared core behind ListDossiers (U1, active|paused) and
+// ListTaskDossiers (U2, all statuses).
+func collectDossiers(v *wavevault.Vault, keep func(status string) bool) ([]wshrpc.SpaceSummary, error) {
 	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
 	nodes, err := r.Query(wavevault.Filter{})
 	if err != nil {
@@ -331,13 +332,119 @@ func listDossiers(v *wavevault.Vault) (*wshrpc.CommandListDossiersRtnData, error
 		if err != nil {
 			continue // tolerant: skip an unreadable/foreign node
 		}
-		if d.Status != "active" && d.Status != "paused" {
+		if !keep(d.Status) {
 			continue
 		}
 		out = append(out, wshrpc.SpaceSummary{Id: d.ID, Objective: d.Objective, Ticket: d.Ticket, Status: d.Status, Updated: d.Updated})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Updated > out[j].Updated })
-	return &wshrpc.CommandListDossiersRtnData{Spaces: out}, nil
+	return out, nil
+}
+
+// listDossiers is U1's focusable-task core (active|paused only), unchanged in behavior.
+func listDossiers(v *wavevault.Vault) (*wshrpc.CommandListDossiersRtnData, error) {
+	spaces, err := collectDossiers(v, func(s string) bool { return s == "active" || s == "paused" })
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandListDossiersRtnData{Spaces: spaces}, nil
+}
+
+// listTaskDossiers is U2's all-statuses core (the Tasks surface groups them Active/Paused/Done).
+func listTaskDossiers(v *wavevault.Vault) (*wshrpc.CommandListTaskDossiersRtnData, error) {
+	dossiers, err := collectDossiers(v, func(string) bool { return true })
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandListTaskDossiersRtnData{Dossiers: dossiers}, nil
+}
+
+// getDossier assembles a dossier's read view-model: its machine fields/blocks, the human ## Notes
+// prose, and its decisions (resolved by the decisions that [[link]] back to it), newest-first.
+func getDossier(v *wavevault.Vault, id string) (*wshrpc.DossierDetail, error) {
+	r := v.Retriever(wavevault.AllScope())
+	d, err := jarvisdossier.LoadDossier(r, id)
+	if err != nil {
+		return nil, fmt.Errorf("loading dossier: %w", err)
+	}
+	cards, err := dossierDecisions(v, id)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.DossierDetail{
+		Id: d.ID, Ticket: d.Ticket, Objective: d.Objective, Acceptance: d.Acceptance,
+		Confidence: d.Confidence, Status: d.Status, Created: d.Created, Updated: d.Updated,
+		State: d.State, Blockers: d.Blockers, Refs: d.Refs, Notes: d.Notes, Decisions: cards,
+	}, nil
+}
+
+// dossierDecisions resolves the decision records linking back to dossierID, projected to cards,
+// newest-created first. A decisions-scoped HasLink query (robust vs. parsing the mixed refs block).
+func dossierDecisions(v *wavevault.Vault, dossierID string) ([]wshrpc.DecisionCard, error) {
+	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollDecisions}})
+	nodes, err := r.Query(wavevault.Filter{HasLink: dossierID})
+	if err != nil {
+		return nil, fmt.Errorf("querying decisions: %w", err)
+	}
+	cards := []wshrpc.DecisionCard{}
+	for _, n := range nodes {
+		dec, err := jarvisdossier.LoadDecision(r, n.ID)
+		if err != nil {
+			continue
+		}
+		cards = append(cards, wshrpc.DecisionCard{
+			Id: dec.ID, Created: dec.Created, Actor: dec.Actor, Provenance: dec.Provenance,
+			Status: dec.Status, Links: dec.Links, Rationale: dec.Rationale,
+		})
+	}
+	sort.SliceStable(cards, func(i, j int) bool { return cards[i].Created > cards[j].Created })
+	return cards, nil
+}
+
+var validDossierStatuses = map[string]bool{"active": true, "paused": true, "completed": true, "archived": true}
+
+// appendDossierDecision writes a human-attributed decision and commits at the boundary. Returns the
+// decision id even on a commit error so the caller can surface a partial success.
+func appendDossierDecision(ctx context.Context, v *wavevault.Vault, data wshrpc.CommandAppendDossierDecisionData) (string, error) {
+	decID, err := jarvisdossier.AppendHumanDecision(v, jarvisdossier.DecisionFacts{
+		TaskID:    data.DossierId,
+		Links:     data.Links,
+		Rationale: data.Rationale,
+		Summary:   data.Summary,
+	})
+	if err != nil {
+		return "", fmt.Errorf("appending decision: %w", err)
+	}
+	if err := v.Commit(ctx, "human: decision added — "+data.DossierId); err != nil {
+		return decID, fmt.Errorf("committing decision: %w", err)
+	}
+	return decID, nil
+}
+
+// setDossierStatus validates and writes the machine-owned status, retrying once on a concurrent
+// external edit (baseHash mismatch), then commits.
+func setDossierStatus(ctx context.Context, v *wavevault.Vault, id, status string) error {
+	if !validDossierStatuses[status] {
+		return fmt.Errorf("invalid status %q", status)
+	}
+	d, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), id)
+	if err != nil {
+		return fmt.Errorf("loading dossier: %w", err)
+	}
+	res, err := jarvisdossier.SetStatus(v, id, status, d.Hash)
+	if err != nil {
+		return fmt.Errorf("setting status: %w", err)
+	}
+	if res.Conflict {
+		d2, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), id)
+		if err != nil {
+			return fmt.Errorf("reloading after conflict: %w", err)
+		}
+		if _, err := jarvisdossier.SetStatus(v, id, status, d2.Hash); err != nil {
+			return fmt.Errorf("retry after conflict: %w", err)
+		}
+	}
+	return v.Commit(ctx, id+" → "+status)
 }
 
 func (ws *WshServer) ResolveSpaceScopeCommand(ctx context.Context, data wshrpc.CommandResolveSpaceScopeData) (*wshrpc.SpaceScope, error) {
@@ -362,6 +469,54 @@ func (ws *WshServer) ResolveSpaceScopeCommand(ctx context.Context, data wshrpc.C
 	}
 	scope := buildSpaceScope(edges, byORef)
 	return &scope, nil
+}
+
+func (ws *WshServer) GetDossierCommand(ctx context.Context, data wshrpc.CommandGetDossierData) (*wshrpc.DossierDetail, error) {
+	if data.DossierId == "" {
+		return nil, fmt.Errorf("dossierid is required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	return getDossier(v, data.DossierId)
+}
+
+func (ws *WshServer) ListTaskDossiersCommand(ctx context.Context) (*wshrpc.CommandListTaskDossiersRtnData, error) {
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	return listTaskDossiers(v)
+}
+
+func (ws *WshServer) AppendDossierDecisionCommand(ctx context.Context, data wshrpc.CommandAppendDossierDecisionData) (*wshrpc.CommandAppendDossierDecisionRtnData, error) {
+	if data.DossierId == "" {
+		return nil, fmt.Errorf("dossierid is required")
+	}
+	if strings.TrimSpace(data.Rationale) == "" {
+		return nil, fmt.Errorf("rationale is required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	decID, err := appendDossierDecision(ctx, v, data)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandAppendDossierDecisionRtnData{DecisionId: decID}, nil
+}
+
+func (ws *WshServer) SetDossierStatusCommand(ctx context.Context, data wshrpc.CommandSetDossierStatusData) error {
+	if data.DossierId == "" {
+		return fmt.Errorf("dossierid is required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return fmt.Errorf("opening vault: %w", err)
+	}
+	return setDossierStatus(ctx, v, data.DossierId, data.Status)
 }
 
 // buildSpaceScope is the pure edge->bundle core: dedup the attributed run orefs, their channel oids, and
