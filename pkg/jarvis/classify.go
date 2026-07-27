@@ -18,6 +18,11 @@ import (
 const classifyTimeout = 120 * time.Second
 const maxTimeline = 12
 
+// runFn is the process-runner seam shared by this package's two headless claude calls (Classify and
+// Decompose). Production uses consult.Run; tests override it so nothing shells out and so the spec
+// each call selects — notably its tier — is observable.
+var runFn = consult.Run
+
 // Decision is the classifier's structured verdict. OptionIndex is a pointer so a missing index in
 // the model's reply is distinguishable from index 0 and fails safe to escalate.
 type Decision struct {
@@ -117,7 +122,7 @@ func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQu
 	principles := resolveGatekeeperPrinciples(channel)
 	runCtx, cancel := context.WithTimeout(ctx, classifyTimeout)
 	defer cancel()
-	reply, err := consult.Run(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(q, task, channel, principles), func(string) {})
+	reply, err := runFn(runCtx, spec, channel.ProjectPath, BuildClassifyPrompt(q, task, channel, principles), func(string) {})
 	if err != nil {
 		return Decision{Action: "escalate", Reason: "classifier error: " + err.Error()}
 	}

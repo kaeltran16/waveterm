@@ -73,7 +73,7 @@ func Decompose(ctx context.Context, projectPath, goal string, channel *waveobj.C
 	}
 	runCtx, cancel := context.WithTimeout(ctx, decomposeTimeout)
 	defer cancel()
-	reply, err := consult.Run(runCtx, spec, projectPath, BuildDecomposePrompt(goal, channel), func(string) {})
+	reply, err := runFn(runCtx, spec, projectPath, BuildDecomposePrompt(goal, channel), func(string) {})
 	if err != nil {
 		return []string{goal}
 	}

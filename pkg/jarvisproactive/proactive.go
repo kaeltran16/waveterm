@@ -17,6 +17,11 @@ import (
 
 var errNoClaude = fmt.Errorf("proactive relevance judge requires the claude CLI, which is not available")
 
+// judgeRun is the inner process-runner seam. judge itself is swappable, but SetJudgeForTest replaces
+// spec construction along with the call, so a test using it cannot observe which tier the real body
+// selects. Overriding this instead runs the real judge and exposes the spec.
+var judgeRun = consult.Run
+
 // judge runs on the cheap tier: picking one shortlist entry or "none" is bounded
 // classification, not synthesis. It returns the model's raw reply ("<n>" or "none");
 // parsing is parseJudgeReply's job. A seam so tests mock it. One-shot and unstreamed,
@@ -26,7 +31,7 @@ var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
 	if !ok {
 		return "", errNoClaude
 	}
-	return consult.Run(ctx, spec, cwd, prompt, func(string) {})
+	return judgeRun(ctx, spec, cwd, prompt, func(string) {})
 }
 
 // SetJudgeForTest swaps the model call and returns a restore func the caller defers.

@@ -20,16 +20,17 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 | J2 | No way to enable embeddings from the app → S1–S3 are dark code | reachability | S | — | ✅ Resolved 2026-07-27 |
 | J3 | Model tiering (invariant 2) never landed — C + E both burn the capable tier | cost | M | — | ✅ Resolved 2026-07-27 |
 | J4 | `jarviscontinuity.Resume` has no consumer (no "pick up where you left off") | feature gap | S–M | — | ✅ Resolved 2026-07-27 |
-| J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | corpus depth | 🔲 Open — partially unblocked |
+| J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | corpus depth | 🔲 Open — semantic window fitted 2026-07-27 (10/10 end-to-end); rest of the inventory stands |
 | J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | ✅ Resolved 2026-07-27 |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
-| J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 |
+| J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 · verified live, 10.6× cheaper; latency inversion remains |
 | J9 | Retrieval reads only part of a note — L2 misses frontmatter, embedding misses the id | correctness / reachability | S–M | — | ✅ Resolved 2026-07-27 |
 
 **Dependency order.** J1–J4, J6 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
-`cmd/jarvisbackfill` and J6 (same day) added ~354 federated memory notes to what the vault reads;
-what remains is corpus **depth**, not tooling — read J5's "Corpus reality" section before planning any
-calibration, because two of D's four weights cannot be measured from today's history at all.
+`cmd/jarvisbackfill` and J6 (same day) added ~354 federated memory notes to what the vault reads; the
+semantic-window constants were fitted the same day (J5, first section). What remains is corpus
+**depth**, not tooling — read J5's "Corpus reality" section before planning any further calibration,
+because two of D's four weights cannot be measured from today's history at all.
 
 ---
 
@@ -196,7 +197,7 @@ matches on all 14. Any future paraphrase set must avoid the marker vocabulary th
 ## J3 — Model tiering never landed; C and E burn the capable tier
 
 **Status:** ✅ Resolved 2026-07-27 — `consult.Tier` + `SpecForTier(runtime, tier)` (`pkg/consult/consult.go`)
-is the shared selector; E's boundary summary takes `TierCheap`, recall's synthesis takes `TierCapable`.
+is the shared selector; E's boundary summary takes `TierCheap`, recall's synthesis takes `TierCapable`. **Guarded 2026-07-27** — see "Test coverage" below.
 `TierCapable` deliberately emits **no** `--model` flag, so it keeps the operator's configured CLI default
 and the capable path is byte-identical to before tiering — the change is additive, not a re-pointing.
 Cheap alias is `haiku` (Claude Haiku 4.5, ~1/5 Opus input cost). **Note:** `pkg/tasksharpen` calls
@@ -206,9 +207,23 @@ The three grunt-tier call sites left on the default (out of J3's stated scope) w
 2026-07-27 cleanup pass: S3's relevance judge (`pkg/jarvisproactive/proactive.go`) and the gatekeeper
 classifier / delegator decomposer (`pkg/jarvis/{classify,decompose}.go`) now all take `TierCheap`. Each
 is a bounded, structured-reply call that already fails safe — the classifier in particular degrades
-toward *escalate to the human*, not toward a confident wrong answer. **Not test-covered:** neither
-`Classify` nor `Decompose` has a seam that exposes the spec, and `jarvisproactive`'s `judge` seam
-replaces spec construction wholesale, so no test fails if a site is reverted to `SpecFor`.
+toward *escalate to the human*, not toward a confident wrong answer.
+
+### Test coverage — closed 2026-07-27
+J3 originally shipped with **no guard**: neither `Classify` nor `Decompose` had a seam exposing the
+spec, and `jarvisproactive`'s `judge` seam replaced spec construction wholesale, so reverting any site
+to `SpecFor` was a silent, free change that quietly restored the capable-tier bill. Three tests now
+assert the spec the *production path* actually hands its runner, which is the only place the revert is
+observable: `pkg/jarvis/tier_test.go` (Classify, Decompose, plus a shared-spec-mutation check) and
+`pkg/jarvisproactive/tier_test.go` (the real `judge`, via a new inner `judgeRun` seam — overriding
+`SetJudgeForTest` would have skipped the spec construction under test). Each asserts `--model` and the
+cheap alias as an **adjacent pair**, so a bare `--model` flag can't satisfy it.
+
+These are regression guards over already-correct behavior, so passing proves nothing on its own —
+**the failure was demonstrated**: with all three sites reverted to `consult.SpecFor("claude")` the
+tests fail with `expected --model haiku in the spec handed to the runner, got [-p --output-format
+stream-json --verbose]`, and pass once restored. The seams (`jarvis.runFn`, `jarvisproactive.judgeRun`)
+mirror the `runFn` convention `tasksharpen` already used.
 
 **Effort:** M · **Kind:** standing cost
 
@@ -288,7 +303,115 @@ Returning to a task that hit a rest boundary surfaces its narrative without a fr
 
 ## J5 — Every tuning constant is an uncalibrated PLACEHOLDER
 
-**Status:** 🔲 Open · **Effort:** M · **Blocked by:** corpus depth, not tooling · **Kind:** correctness / tuning
+**Status:** 🔲 Open — the semantic-window slice is closed (below); the rest of the inventory stands ·
+**Effort:** M · **Blocked by:** corpus depth, not tooling · **Kind:** correctness / tuning
+
+### Semantic window fitted 2026-07-27 — `kSem` → per-collection, plus a score floor
+
+The calibration this file named as "the one to do first" is done. It was not one change but three,
+because each fix exposed the next, and the second and third were only visible end-to-end.
+
+**1. The window is per-collection** (`jarvisembed.QueryPerCollection`). `kSem = 6` was a single global
+KNN; on a corpus of 406 memory / 14 tasks / 4 decisions that is a near-total memory filter. The query
+embeds once and each collection gets its own KNN against vec0's `collection` metadata column, so the
+fan-out costs no extra network round trip. `kSemPerCollection = 6`.
+
+**2. A relevance floor** (`semSeedFloor = 0.325`). L3 previously had **no score floor at all** — a
+measured consequence, not a theoretical one: an orthogonal query still returned six arbitrary semantic
+seeds, because top-k with no threshold always returns k.
+
+**3. Seeds outrank incidental neighbours** (`orderCandidates`, replacing `sortByRecency`). Getting a
+node into the seed set turned out not to get it in front of the model: seeds are expanded,
+**recency-sorted**, then truncated at `maxCandidates = 12`. Recency is not a relevance signal, so a
+node the query actually matched was evicted by neighbours that merely turned up during expansion.
+Seeds now sort ahead of expansion-only nodes, keeping their incoming rank.
+
+Fixes 2 and 3 were both found by the end-to-end leg. Fix 1 alone moves the seed-set number and changes
+nothing a user sees — which is exactly what this file warned about being unable to tell.
+
+#### Measured (real vault, real provider)
+Harness: `pkg/jarvisrecall/liveprobe_test.go` (tag `liveprobe`), against a copy of the installed
+profile — 424 nodes, `openai/text-embedding-3-small` via OpenRouter. 10 paraphrase queries spanning
+all three collections, each sharing **zero** ≥4-char tokens with its target, plus 4 off-topic controls.
+The probe re-inits wstore against the copy, so `[[run-]]` references resolve and run candidates
+genuinely compete for the 12 slots rather than sorting last as "unavailable".
+
+| | before | after |
+|---|---|---|
+| targets reaching the seed set | 3/5 (old 5-case probe) | **10/10** |
+| targets surviving to the final candidate list | not measured | **10/10** |
+| same, with embeddings off | — | 0/10 |
+| off-topic controls admitting a semantic seed | 4/4 | **1/4** (2 seeds) |
+
+Per-target detail, and the two ranks that matter — within its own collection, versus in one global
+window:
+
+| case | collection | cos | rank in collection | rank in one global window |
+|---|---|---|---|---|
+| dossier/crash | tasks | 0.3967 | #1 | #1 |
+| dossier/pill | tasks | 0.3758 | #1 | #1 |
+| dossier/shim | tasks | 0.3482 | #2 | **absent from the top 60** |
+| dossier/naming | tasks | 0.3921 | #1 | #1 |
+| dossier/usage | tasks | 0.3839 | #1 | #5 |
+| decision/validation | decisions | 0.3442 | #1 | **#16** |
+| decision/evidence | decisions | 0.4751 | #1 | #2 |
+| memory/popgap | memory | 0.4199 | #1 | #1 |
+| memory/theme | memory | 0.4141 | #2 | #2 |
+| memory/styling | memory | 0.5117 | #1 | #1 |
+
+`decision/validation` at global #16 independently reproduces the figure [J9](#j9--retrieval-reads-only-part-of-a-note)
+recorded, so the harness is measuring the same thing J9 measured. `dossier/shim` is the sharpest case:
+**#2 of 14 dossiers, and not in the global top 60 nodes at all.**
+
+#### The finding that changed the design
+Retrieving per collection is only half the job. `QueryPerCollection` merges the windows **by raw
+score**, and that is itself a global ranking — so `decision/validation` (0.3442) landed past seed #12
+behind higher-scoring memory notes and was still cut by the candidate cap. Fixing the retrieval
+without fixing the *ordering* just moves the crowding one stage downstream. Semantic seeds are now
+emitted **round-robin across collections**, best-first within each, so every collection's top hit
+reaches the head of the list. This was caught only because the probe asserted end-to-end; the
+seed-set number was already 10/10 while the end-to-end number was 9/10.
+
+#### Why `semSeedFloor` is a cost/benefit pick, not a threshold
+The distributions **overlap**: the weakest true target scores 0.3442, the loudest off-topic hit 0.3596.
+No value separates them. The floor was chosen off a measured sweep instead:
+
+| floor | targets kept | off-topic seeds admitted |
+|---|---|---|
+| 0.300 | 10/10 | 9 across 2 of 4 controls |
+| 0.320 | 10/10 | 5 across 2 of 4 |
+| **0.325** | **10/10** | **2 across 1 of 4** |
+| 0.340 | 10/10 | 1 across 1 of 4 |
+| 0.350 | 8/10 | 1 across 1 of 4 |
+| 0.400 | 4/10 | 0 |
+
+0.325 is the knee — ~78% less off-topic noise than 0.30 at no measured recall cost. 0.34 scores
+marginally better but sits 0.004 below the weakest true positive, i.e. fitted to a single data point.
+The error is asymmetric: a lost seed is silently missing context, an extra seed is a candidate the
+model can ignore and `selectTerminal` can report as `weak`. Both figures are specific to
+`text-embedding-3-small` — the same per-model, per-comparison-type caveat as `cosThreshold` 0.40 and
+`semThreshold` 0.65.
+
+`kSemPerCollection` is **not fitted**: every measured target ranked #1 or #2 within its collection, so
+the requirement is ≥2. It is left at 6 for headroom, and the honest statement is that on this corpus
+the floor bounds admission and no measurement distinguishes 3 from 6.
+
+#### Two things this turned up that are not J5's
+- **A negative control is only negative against the *federated* corpus.** "who owns the mobile push
+  notification delivery pipeline" scored 0.3467 and pulled in `project-managementpanel-mobile` —
+  `memory:vaultpath` federates an Obsidian work vault of SIEM and project-management notes, so the
+  corpus is far broader than this repo. The rejected control is kept in the probe as a comment.
+- **L2 keyword search leaks ~6 junk seeds on an off-topic query**, because common tokens ("cluster",
+  "before", "expire") substring-match widely. Every off-topic control fills `seedTopK` from L1/L2
+  alone. That is a pre-existing lexical-noise problem, untouched here, and it is why the negative
+  numbers above count the **L3 delta** rather than total seeds.
+
+#### Still uncalibrated after this slice
+`seedTopK`, `expandDepth`, `expandFanout`, `maxCandidates` (the *value* — its ordering is fixed),
+`semCandidateN`, `weightLayer2/3/4`, both bucket cutoffs, `probationMs`, `timeBoxMs`, S3's `queryK`
+and `shortlistMax`, and E's and S1's constants. **J5 does not close.** S3's gate has the identical
+global-window shape and is now a follow-on with a known fix and a proven method rather than an open
+question.
 
 ### Corpus reality (measured 2026-07-27 — read this before planning any calibration)
 J5's stated precondition, "populate + embed a real vault", was never satisfied, and the gap is deeper
@@ -373,8 +496,9 @@ admitted 46 of 238 non-pairs (19.3% FP). The original 0.75 was very nearly right
 wrong for the gate. Any future re-tune must re-measure per comparison type, and per model —
 both figures are specific to `text-embedding-3-small`.
 
-Still uncalibrated: `queryK`, `shortlistMax`, `semCandidateN`, `kSem`, `seedTopK`, `expandDepth`,
-`expandFanout`, `weightLayer2/3/4`, the bucket cutoffs, `probationMs`, `timeBoxMs`.
+Still uncalibrated: `queryK`, `shortlistMax`, `semCandidateN`, `seedTopK`, `expandDepth`,
+`expandFanout`, `weightLayer2/3/4`, the bucket cutoffs, `probationMs`, `timeBoxMs`. *(`kSem` was
+struck later the same day — it is now `kSemPerCollection` + `semSeedFloor`; see the top of this entry.)*
 
 **`kSem` now has evidence (2026-07-27, from the J2 probe).** The federated corpus is
 **406 memory / 14 tasks / 4 decisions**, so the memory collection outnumbers everything the second
@@ -394,6 +518,9 @@ notes. That upgrades the evidence from "memory dominates the window" to "a case 
 other respect fails *only* here", and it settles the two candidate reads in favour of **per-collection
 top-k** — raising a global `k` from 6 to past 16 to catch this one would drag 10+ more memory notes in
 with it. This is the calibration to do first; it has the clearest before/after test in the file.
+*(Done — see "Semantic window fitted 2026-07-27" at the top of this entry. Per-collection top-k was
+the right read, but it was not sufficient on its own: the merge and the downstream candidate ordering
+each re-imposed the same global ranking one stage later.)*
 
 ### Measured 2026-07-27 (L4 semantic, against the completed index)
 The threshold calibration above scored dossier/run pairs offline. This measures L4 through the real
@@ -454,7 +581,7 @@ hardened edges** — S3 shipped on exactly those uncalibrated weights.
 |---|---|---|
 | D attribution | `weightLayer1..4` (1.0 / 0.8 / 0.3 / 0.2), `bucketWeakMax` 0.4, `bucketStrongMin` 0.75, `probationMs` 24h, `timeBoxMs` 30d | `pkg/jarvisattrib/edges.go:18-33` |
 | C recall | `seedTopK` 6, `expandDepth` 2, `expandFanout` 8, `maxCandidates` 12 | `pkg/jarvisrecall/retrieve.go:19-21` |
-| S2 L3 | `kSem` 6 | `pkg/jarvisrecall/retrieve.go:26` |
+| ~~S2 L3~~ | ~~`kSem` 6~~ — fitted 2026-07-27 as `kSemPerCollection` 6 + `semSeedFloor` 0.325 | `pkg/jarvisrecall/retrieve.go` |
 | S2 L4 | `semCandidateN` 20, `semThreshold` 0.75 | `pkg/jarvisattrib/semantic.go` |
 | E continuity | summary cap (≤4 sentences), rest-state set, `continuityCaptureTimeout` 90s | `pkg/jarviscontinuity`, `wshserver_runs.go` |
 | S1 index | query `k`, embed batch size, `##`-only section split, 60s HTTP timeout, 240-byte snippet | `pkg/jarvisembed` |
@@ -649,9 +776,60 @@ comment. **Not done in the J3 pass** because `mode` is a user-facing choice surf
 flow — swapping the model behind an existing mode changes output quality for a gesture people already
 rely on, so it wants its own confirm rather than riding along in a cost refactor.
 
-### Verify
-A `fast` sharpen still produces a usable rewrite; measure the before/after cost and latency delta;
-`sonnet` mode is unchanged.
+### Verify — measured 2026-07-27 (live, against a real claude CLI)
+Harness: `pkg/tasksharpen/liveprobe_test.go` (build tag `liveprobe`, out of the normal suite; filter
+with `PROBE_MODELS=`). Three rough New-Agent tasks — terse, vague, multi-part — against three aliases,
+driven through the **real `Sharpen` path**: only the `--model` value is rewritten as the spec reaches
+the runner, so validation, prompt construction, the 45s timeout and `normalize` are all production
+code. Token counts are sniffed off the stream-json `usage` events, so cost is measured, not estimated.
+
+| alias | mode | ok | median latency | prompt tok (write/read) | output tok | cost (3 tasks) |
+|---|---|---|---|---|---|---|
+| `haiku` | fast (current) | 3/3 | 22.9s | 33695 / 20846 | 4763 | **$0.093** |
+| `fable` | fast (pre-J8) | 3/3 | 22.2s | 43120 / 15494 | 2304 | $0.993 |
+| `sonnet` | sonnet (control) | 3/3 | 12.8s | 45325 / 28598 | 1470 | $0.303 |
+
+3 tasks × 1 run per alias; a prior `haiku` pass showed a ~16% run-to-run spread on output tokens, so
+read the ratios as indicative, not precise.
+
+All three legs:
+- **"a `fast` sharpen still produces a usable rewrite"** — ✅ 3/3 usable; intent preserved, nothing
+  invented. But with a **shape change**: haiku prepends a "Clarify these before starting:" question
+  block on 2 of 3 tasks, which neither fable nor sonnet produced. Not a failure — the rewrite is still
+  a usable agent task — but the output shape of a gesture people already rely on did change, which is
+  exactly the risk J8 named when it declined to ride along in the J3 cost refactor.
+- **cost/latency delta vs `fable`** — ✅ **10.6× cheaper** ($0.093 vs $0.993), i.e. the full price
+  ratio; latency **essentially unchanged** (22.9s vs 22.2s median). J8's cost argument holds as filed.
+- **`sonnet` unchanged** — ✅ code path untouched, ran 3/3.
+
+### Cost inversion: removed. Latency inversion: still there.
+J8's stated problem was that *"the mode labelled 'fast' is the slowest and roughly 3× the cost of the
+mode labelled 'sonnet'."* Measured after the fix, **`fast` is 3.2× cheaper than `sonnet`** — the cost
+inversion is gone, not merely reduced. What survives is latency: `fast` is still **~1.8× slower**
+(22.9s vs 12.8s median), so the name is wrong on speed even though it is now right on cost.
+
+Why the swap wins the full price ratio despite haiku's verbosity: **the prompt side dominates**. The
+claude CLI caches its own ~13–19k-token system prompt per call, so prompt tokens (write + read) run
+50–75k per alias across the three tasks against 1.5–4.8k output tokens. Input is **74% of haiku's
+bill, 93% of sonnet's** — and that side is priced at each model's own base rate ($1 vs $3 vs $10 per
+MTok). Haiku's 3–5× output verbosity is real but rounds off against a prompt side that is 15× larger.
+Bounding the rewrite in `buildPrompt` would therefore buy little; if the latency inversion matters,
+renaming the modes ("fast" → "cheap") is the honest fix. Either way, a follow-on slice, not J8.
+
+> **Methodology trap, recorded because it inverted the answer once.** The first pass of this probe read
+> `input_tokens` alone and concluded haiku cost *more* than sonnet. `input_tokens` is only the
+> **uncached remainder** — single digits here — with the real prompt cost in
+> `cache_creation_input_tokens` (1h TTL, bills 2× base input) and `cache_read_input_tokens` (0.1×).
+> Dropping those made the comparison output-only, which is the one axis that favours sonnet. Any future
+> cost measurement against the CLI must sum all four fields; `sniffUsage` in the probe does.
+
+
+
+**Caveat on the environment.** The probe runs with the repo as the process cwd, so the CLI may load
+project `CLAUDE.md`; production passes `cwd: ""`, which is wavesrv's cwd. Related and worth its own
+look: sonnet's multi-part rewrite cited a real repo convention (`@theme` tokens in `tailwindsetup.css`)
+— the prompt's rule 8 tells it not to infer repository facts, and `--tools ""` blocks reads, so that
+context arrived through a loaded `CLAUDE.md` rather than the rewrite staying repo-blind as designed.
 
 ---
 
