@@ -8,29 +8,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 )
 
 func TestRepoPathForHubDir(t *testing.T) {
 	repo := `C:\Users\k\proj`
 	projects := map[string]string{"proj": repo}
-	hub := filepath.Join("root", ".claude", "projects", projectHash(repo), "memory")
+	hub := filepath.Join("root", ".claude", "projects", memroots.ProjectHash(repo), "memory")
 	if got := repoPathForHubDir(hub, projects); got != repo {
 		t.Fatalf("want %q got %q", repo, got)
 	}
 	if got := repoPathForHubDir(filepath.Join("root", ".claude", "projects", "C--unknown", "memory"), projects); got != "" {
 		t.Fatalf("unknown hub should resolve to empty, got %q", got)
-	}
-}
-
-func TestProjectHash(t *testing.T) {
-	got := projectHash(`C:\Users\kael02\IdeaProjects\waveterm`)
-	want := "C--Users-kael02-IdeaProjects-waveterm"
-	if got != want {
-		t.Fatalf("projectHash = %q, want %q", got, want)
-	}
-	// forward slashes normalize the same way
-	if g := projectHash("/home/k/code/krypton"); g != "-home-k-code-krypton" {
-		t.Fatalf("posix projectHash = %q", g)
 	}
 }
 
@@ -43,14 +33,6 @@ func TestProjectLabel(t *testing.T) {
 	// miss -> leaf folder
 	if l := projectLabel(`C:\Users\kael02\IdeaProjects\waveterm`, projects); l != "waveterm" {
 		t.Fatalf("leaf label = %q", l)
-	}
-	// label from an encoded hash, registry miss -> last segment
-	if l := labelFromHash("C--Users-kael02-IdeaProjects-waveterm", projects); l != "waveterm" {
-		t.Fatalf("hash leaf label = %q", l)
-	}
-	// label from an encoded hash, registry hit
-	if l := labelFromHash("C--Users-kael02-IdeaProjects-krypton", projects); l != "Krypton API" {
-		t.Fatalf("hash registry label = %q", l)
 	}
 }
 

@@ -174,6 +174,7 @@ func nodeCandidate(n wavevault.Node, body string) candidate {
 	return candidate{
 		sourceType: st,
 		title:      nodeTitle(n),
+		project:    n.Scope, // a mirrored hub note is another project's — say so rather than imply it is this one's
 		ts:         n.UpdatedTs,
 		freshness:  "fresh",
 		navTarget:  "vault:" + n.ID,

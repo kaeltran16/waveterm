@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -204,7 +205,7 @@ func codexMemoryPath() string {
 
 var (
 	lastHarvestMu    sync.Mutex
-	lastHarvestMtime = map[string]int64{} // projectHash(cwd) -> MEMORY.md mtime at last harvest
+	lastHarvestMtime = map[string]int64{} // memroots.ProjectHash(cwd) -> MEMORY.md mtime at last harvest
 )
 
 // Harvest ingests cwd's Codex reusable-knowledge facts into that project's Claude hub. Returns
@@ -219,7 +220,7 @@ func Harvest(cwd string) (int, int, error) {
 	if err != nil {
 		return 0, 0, nil // no Codex memory file -> nothing to harvest
 	}
-	key := projectHash(cwd)
+	key := memroots.ProjectHash(cwd)
 	mtime := info.ModTime().UnixMilli()
 	lastHarvestMu.Lock()
 	last, seen := lastHarvestMtime[key]

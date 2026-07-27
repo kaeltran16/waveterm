@@ -13,16 +13,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
-
-// projectHash encodes a cwd the way Claude Code names its per-project dir: every path separator
-// (both \ and /) and colon becomes '-'. e.g. C:\Users\k\p -> C--Users-k-p.
-func projectHash(cwd string) string {
-	r := strings.NewReplacer(`\`, "-", "/", "-", ":", "-")
-	return r.Replace(cwd)
-}
 
 // projectLabel is the human-readable name for a cwd: its Projects-registry name if the cwd
 // matches a registered path, else the leaf folder. projects maps registry name -> path.
@@ -38,22 +31,6 @@ func projectLabel(cwd string, projects map[string]string) string {
 		return clean
 	}
 	return base
-}
-
-// labelFromHash resolves a readable label from an encoded hash dir name (reverse of projectHash,
-// which is lossy). Tries a registry match by re-encoding each registered path; falls back to the
-// last '-'-delimited segment (the leaf folder in the common case).
-func labelFromHash(hash string, projects map[string]string) string {
-	for name, p := range projects {
-		if projectHash(filepath.Clean(p)) == hash {
-			return name
-		}
-	}
-	parts := strings.Split(strings.TrimRight(hash, "-"), "-")
-	if len(parts) == 0 {
-		return hash
-	}
-	return parts[len(parts)-1]
 }
 
 // projectionHeader is embedded in the region's BEGIN line so the status command can read back
@@ -171,24 +148,12 @@ func projectHubToTargets(hubDir, label string, targets []steeringTarget) error {
 	return nil
 }
 
-// registryProjects reads the Projects registry (name -> path) from live config.
-func registryProjects() map[string]string {
-	out := map[string]string{}
-	cfg := wconfig.GetWatcher().GetFullConfig()
-	for name, pk := range cfg.Projects {
-		if pk.Path != "" {
-			out[name] = pk.Path
-		}
-	}
-	return out
-}
-
 // HubDirForCwd returns the Claude per-project memory dir for a cwd, or "" for an empty cwd.
 func HubDirForCwd(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
-	return filepath.Join(wavebase.GetHomeDir(), ".claude", "projects", projectHash(cwd), "memory")
+	return filepath.Join(wavebase.GetHomeDir(), ".claude", "projects", memroots.ProjectHash(cwd), "memory")
 }
 
 // Project renders cwd's Claude hub memory into all lackey steering files. This is the public
@@ -198,7 +163,7 @@ func Project(cwd string) error {
 		return fmt.Errorf("cwd is required")
 	}
 	hubDir := HubDirForCwd(cwd)
-	label := projectLabel(cwd, registryProjects())
+	label := projectLabel(cwd, memroots.RegistryProjects())
 	return projectHubToTargets(hubDir, label, steeringTargets())
 }
 
@@ -247,16 +212,16 @@ func ClaudeHubDirs() []string {
 }
 
 // RepoPathForHubDir reverse-resolves a hub dir to its repo path via the Projects registry, or "" when
-// unknown (projectHash is lossy; we re-encode each registered path to match).
+// unknown (the hash is lossy; we re-encode each registered path to match).
 func RepoPathForHubDir(hubDir string) string {
-	return repoPathForHubDir(hubDir, registryProjects())
+	return repoPathForHubDir(hubDir, memroots.RegistryProjects())
 }
 
 // repoPathForHubDir is the pure core (testable without config).
 func repoPathForHubDir(hubDir string, projects map[string]string) string {
 	hash := filepath.Base(filepath.Dir(hubDir)) // .../projects/<hash>/memory
 	for _, p := range projects {
-		if projectHash(filepath.Clean(p)) == hash {
+		if memroots.ProjectHash(filepath.Clean(p)) == hash {
 			return p
 		}
 	}

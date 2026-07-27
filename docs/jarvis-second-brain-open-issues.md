@@ -21,14 +21,14 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 | J3 | Model tiering (invariant 2) never landed — C + E both burn the capable tier | cost | M | — | ✅ Resolved 2026-07-27 |
 | J4 | `jarviscontinuity.Resume` has no consumer (no "pick up where you left off") | feature gap | S–M | — | ✅ Resolved 2026-07-27 |
 | J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | corpus depth | 🔲 Open — partially unblocked |
-| J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | 🔲 Open |
+| J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | ✅ Resolved 2026-07-27 |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
 | J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 |
 
-**Dependency order.** J1–J4 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
-`cmd/jarvisbackfill`; what remains is corpus **depth**, not tooling — read J5's "Corpus reality"
-section before planning any calibration, because two of D's four weights cannot be measured from
-today's history at all. J6 is an independent slice of its own.
+**Dependency order.** J1–J4, J6 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
+`cmd/jarvisbackfill` and J6 (same day) added ~354 federated memory notes to what the vault reads;
+what remains is corpus **depth**, not tooling — read J5's "Corpus reality" section before planning any
+calibration, because two of D's four weights cannot be measured from today's history at all.
 
 ---
 
@@ -238,6 +238,14 @@ tracked here). Calibrating against that would have replaced one set of invented 
 So the corpus unblocks *some* of J5, not J5. Calibrating D's weights honestly still needs either
 dogfooding depth or an embedding provider — the backfill moved the blocker, it did not remove it.
 
+**Update 2026-07-27 (J6).** The "populate a real vault" precondition is now satisfied on the memory
+side too: root unification federated the agent-native memory dirs into the vault's `memory/`
+collection, so a vault `Retriever` returns **375 nodes / 106 edges** where it returned ~3. That makes
+U3's dense-graph legibility item live rather than theoretical, and it means the first `jarvisembed`
+reconcile after embeddings are enabled will index ~354 nodes on the operator's own key — real spend,
+intended, but know it before flipping J2's toggle. The dossier/decision thinness above is unchanged;
+L2 and L4 remain uncalibratable from this history.
+
 ### Problem
 Every threshold, weight, window and cap across the second brain was fabricated to be plausible in
 isolation and marked `// PLACEHOLDER`, to be calibrated *"against a populated vault"*. None has been.
@@ -304,29 +312,93 @@ prior work at the calibrated `cosThreshold`.
 
 ## J6 — Two durable-knowledge roots
 
-**Status:** 🔲 Open · **Effort:** M–L · **Kind:** architecture / single source of truth
+**Status:** ✅ Resolved 2026-07-27 · **Effort:** M–L · **Kind:** architecture / single source of truth
+
+Spec: [`docs/superpowers/specs/2026-07-27-jarvis-j6-memory-root-unification-design.md`](superpowers/specs/2026-07-27-jarvis-j6-memory-root-unification-design.md).
 
 ### Problem
 `~/.waveterm/memory` (`pkg/memvault`, feeding the cockpit **Memory** surface, harvest, projection and
-recall) coexists with the Wave Vault's own `memory/` at `~/.waveterm/vault/memory/`. A's deferral
+recall) coexisted with the Wave Vault's own `memory/` at `~/.waveterm/vault/memory/`. A's deferral
 states the long-term intent plainly: the vault's `memory/` should be *the single durable-knowledge
-root*. Two roots is the interim state, not the design.
+root*. Two roots was the interim state, not the design.
 
-### Evidence
-- `pkg/memvault/memvault.go:207` `VaultRoots()`, `:216` `DefaultVaultPath()` — the legacy root.
-- `docs/deferred.md` § "Jarvis sub-project A — memory vault coexists, unify later", whose resume
-  condition is *"once A/B/C are proven"* — all three are built.
+### Correction to this entry's original framing
+This entry called unification *"a consolidation, not a capability change"*. **That was wrong**, and the
+correction is why the work mattered. `~/.waveterm/vault/memory/` **had no writer and never had one** —
+it was scaffolded on every `OpenVault` and included in `AllScope()`/`WorkerScope()`, so every
+vault-backed consumer traversed it and every one of them read nothing:
 
-### Fix
-Its own brainstorm → spec → plan slice (the deferral says so, and it carries a data migration):
-migrate the legacy memory dir under the vault, point both packages at one root, fold the Memory
-surface onto the vault read API, retire the duplicate root. `ScanVault` already unifies multiple roots
-into one wikilink graph, so cross-collection `[[links]]` resolve either way — this is a consolidation,
-not a capability change.
+- `jarvisrecall.retrieve` → `selectSeeds` + `Expand`
+- `jarvisembed` index / reconcile
+- `jarvisattrib` semantic attribution (L4)
+- `jarvisproactive` gate (S3)
+- U3's whole-vault graph surface
 
-### Verify
-One root on disk; the Memory surface reads through the vault API; existing notes and wikilinks all
-resolve post-migration; memvault's other consumers (harvest / projection / recall) still pass.
+The memory lane was a **no-op**, not a duplicate. The only route by which a memory note reached recall
+was an explicit user attachment (`resolveAttached`'s `"memory"` case, reaching into `memvault.ScanVault`
+directly).
+
+### What shipped
+- **`pkg/memroots`** — the single registry of durable-knowledge locations: vault root, memory root
+  (the one write target), the external mirrors, project-label + scope derivation, and the one-shot
+  legacy-root migration. Leaf package: `memvault` and `wavevault` both import it, neither imports the
+  other.
+- **`wavevault.Retriever.load`** federates the agent-native memory dirs (`~/.claude/projects/*/memory`,
+  `~/.codex/memories`) into the memory collection as **read-only mirrors** — `resolvePath` and `Commit`
+  stay `v.Root`-scoped, so a mirrored file can be neither written nor committed. Nodes gain
+  `Source` ("vault" | "claude" | "codex") and `Scope` (project label). Id precedence is now explicit
+  vault-wins instead of accidental last-seen-wins.
+- Mirrors are installed **only by `OpenVault`**, never `openVaultAt` — fixture vaults across
+  `jarvisdossier` / `jarvisrecall` / `wshserver` stay hermetic.
+- **`memvault`** derives its roots, scope and hub-path helpers from `memroots`; `Root` is now a type
+  alias of `memroots.Mirror`, so `memdistill`, `memgarden`, `reporadar` and `wshserver_memory` needed
+  no edits. Per-hub `MEMORY.md` index files no longer enter either graph.
+- The legacy root is migrated under the vault on first `OpenVault` (idempotent, collisions skipped and
+  logged, source dir removed only when empty). A custom `memory:vaultpath` is read in place, never
+  moved.
+- **`jarvisrecall.nodeCandidate`** carries `Scope` into the citation's `project`, so a mirrored hub note
+  is labelled with the project it came from instead of implying it is this one's.
+
+### Deliberately not done
+The original **Verify** line *"the Memory surface reads through the vault API"* is amended rather than
+met. `memvault.Note`'s typed projection (`Reviewed`, `CapturedAt`, `GardenerFlag`, `SupersededBy`)
+drives the review / prune / archive UI, and re-deriving it from `Node.Frontmatter`'s generic
+`map[string]any` buys nothing while touching 17 files across 5 packages. The property that mattered —
+**both APIs read the same bytes from the same roots** — holds and is measured below.
+
+Also unchanged: the agent-native dirs stay where they are (moving them would break the agents loading
+that memory natively), `memory-pending` / `memory-archive` stay outside the graph, and retrieval still
+does not filter by project (cross-project notes are tagged, not hidden).
+
+### Verify — measured 2026-07-27 against the real machine
+| Check | Result |
+|---|---|
+| One Wave-owned root on disk | `~/.waveterm/memory` absent; its note under `~/.waveterm/vault/memory/` |
+| Vault `Retriever(AllScope())` sees the federated notes | **375 nodes** (354 memory / 17 tasks / 4 decisions), by source `claude:282 codex:71 vault:22`. Before: the memory collection held **1**. |
+| Graph density | 375 nodes / 106 edges (was ~3 nodes) |
+| Both APIs read the same bytes | `memvault.ScanVault(VaultRoots())` = 354 notes; memvault notes **not** visible to the vault Retriever: **0** |
+| `MEMORY.md` index files excluded | 0 nodes with id `MEMORY` (4 rows fewer on the Memory surface) |
+| Every memory node scoped | 0 memory notes with an empty `Scope`, across 41 distinct scopes |
+| Cross-project retrieval | `Search("_NON_BACKTESTABLE")` → the krypton hub note, `source=claude scope=krypton`, with **no** user attachment — impossible before |
+| Vault repo stays clean | `git -C ~/.waveterm/vault status --porcelain` empty after open + federated read; no `~/.claude` or `~/.codex` path ever enters vault history |
+| Consumers unaffected | `go test ./pkg/...` green; `memdistill` / `memgarden` / `reporadar` / `wshserver` pass with zero source edits |
+
+Two legs were **not** exercised live, recorded so the table is not read as more than it is:
+
+- The migration *move*. `cmd/jarvisbackfill` had already folded `~/.waveterm/memory` into the vault
+  earlier the same day, so `MigrateLegacyRoot` ran here as the no-op it is designed to be. The move
+  path is covered by 5 unit tests (happy path, collision-skip, absent source, second run,
+  non-markdown leftovers).
+- A full recall through the app producing a grounding card. Everything feeding it is verified — the
+  Retriever returns the cross-project note, and `nodeCandidate` mapping `Scope` → `project` is
+  unit-tested — but the model call itself was not run.
+
+### Known residue
+`memvault.parseNote` lets frontmatter `metadata.source` override the root tag (so it reports sources
+like `agent`), while `wavevault` sets `Source` purely from the root it walked — the source *vocabulary*
+is pinned to `vault|claude|codex` there. The note **sets** are identical (0 missing either way) and
+`Node.Source` only drives id precedence, so this is inert today; worth collapsing if `Source` ever
+becomes user-visible.
 
 ---
 
