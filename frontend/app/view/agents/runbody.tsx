@@ -36,6 +36,7 @@ import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
 import { AmbientTags, RelevantDecisions } from "./ambientviews";
 import { ProactiveCard } from "./proactiveviews";
+import { ResumeCard } from "./resumeviews";
 import {
     cancelSurvivors,
     currentPhaseIndex,
@@ -180,6 +181,7 @@ export function RunHeader({
                     </div>
                 ) : null}
             </div>
+            <ResumeCard run={run} />
             <ProactiveCard run={run} />
             {!hideSteer && steering && target ? (
                 <div className="mb-4 max-w-[760px]">

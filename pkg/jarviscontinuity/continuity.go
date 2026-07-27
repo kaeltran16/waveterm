@@ -17,10 +17,12 @@ import (
 
 var errNoClaude = fmt.Errorf("continuity summary requires the claude CLI, which is not available")
 
-// summarize is the one model call (the capable model — tiering is deferred). A seam so tests mock it.
-// Capture is one-shot and unstreamed, so the emit callback is discarded.
+// summarize is the one model call. It runs on the cheap tier: the narrative is mechanical prose over
+// facts assembleFacts already gathered deterministically, not synthesis, and boundaries fire once per
+// rest transition on every run. A seam so tests mock it; capture is one-shot and unstreamed, so the
+// emit callback is discarded.
 var summarize = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecFor("claude")
+	spec, ok := consult.SpecForTier("claude", consult.TierCheap)
 	if !ok {
 		return "", errNoClaude
 	}
@@ -65,31 +67,32 @@ func dossierStatus(status string) string {
 }
 
 // CaptureRunBoundary writes the dossier's narrative state summary + status at a run rest boundary,
-// against the default vault. Contract: the caller dispatches this off-band and logs errors (it makes a
-// model call and must never block/fail a run transition).
-func CaptureRunBoundary(ctx context.Context, run *waveobj.Run) error {
+// against the default vault, and returns the resume card for that dossier (nil when there is nothing
+// to resurface). Contract: the caller dispatches this off-band and logs errors (it makes a model call
+// and must never block/fail a run transition).
+func CaptureRunBoundary(ctx context.Context, run *waveobj.Run) (*ResumeCard, error) {
 	v, err := wavevault.OpenVault(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return captureRunBoundary(ctx, v, run)
 }
 
 // captureRunBoundary takes an explicit vault so tests exercise it against a fixture vault. No-op if no
 // dossier references the run (C's dispatch capture is the only creator — E never creates).
-func captureRunBoundary(ctx context.Context, v *wavevault.Vault, run *waveobj.Run) error {
+func captureRunBoundary(ctx context.Context, v *wavevault.Vault, run *waveobj.Run) (*ResumeCard, error) {
 	r := v.Retriever(wavevault.AllScope())
 	linked, err := r.Query(wavevault.Filter{HasLink: "run-" + run.OID})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(linked) == 0 {
-		return nil
+		return nil, nil
 	}
 	id := linked[0].ID
 	d, err := jarvisdossier.LoadDossier(r, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	facts := assembleFacts(r, d, run)
@@ -97,7 +100,7 @@ func captureRunBoundary(ctx context.Context, v *wavevault.Vault, run *waveobj.Ru
 	if facts.hasActivity() {
 		out, serr := summarize(ctx, run.ProjectPath, buildSummaryPrompt(facts))
 		if serr != nil {
-			return serr
+			return nil, serr
 		}
 		if s := strings.TrimSpace(out); s != "" {
 			narrative = s
@@ -106,15 +109,35 @@ func captureRunBoundary(ctx context.Context, v *wavevault.Vault, run *waveobj.Ru
 
 	res, err := jarvisdossier.SetState(v, id, narrative, d.Hash)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if res.Conflict {
-		return nil // a concurrent human edit won; do not clobber (invariant 5). Next boundary retries.
+		// a concurrent human edit won; do not clobber (invariant 5). Next boundary retries — but the
+		// human's text is now the truth about where this stands, so still surface it.
+		return resumeCard(v, id)
 	}
 	if _, err := jarvisdossier.SetStatus(v, id, dossierStatus(run.Status), res.Hash); err != nil {
-		return err
+		return nil, err
 	}
-	return v.Commit(ctx, "jarvis: continuity summary for run "+run.OID)
+	if err := v.Commit(ctx, "jarvis: continuity summary for run "+run.OID); err != nil {
+		return nil, err
+	}
+	return resumeCard(v, id)
+}
+
+// resumeCard reads the committed dossier back through Resume — the named E seam — so the card carries
+// exactly what a Tasks-surface reader sees rather than what this boundary happened to compute. The
+// retriever must be fresh: Retriever caches its graph on first load, so the one used above predates
+// the writes.
+func resumeCard(v *wavevault.Vault, id string) (*ResumeCard, error) {
+	n, err := Resume(v.Retriever(wavevault.AllScope()), id)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(n.Summary) == "" {
+		return nil, nil // nothing worth resurfacing
+	}
+	return &ResumeCard{TaskID: id, Summary: n.Summary, Status: n.Status, Updated: n.Updated}, nil
 }
 
 // assembleFacts gathers the deterministic narrative inputs: the dossier's objective + non-empty
@@ -158,9 +181,26 @@ type Narrative struct {
 	RunRefs []string
 }
 
+// MetaKeyResume is the run.Meta key holding the resume card written at the run's rest boundary.
+// Hand-kept contract mirrored on the frontend (view/agents/resume.ts) — keep identical.
+const MetaKeyResume = "jarvis:resume"
+
+// MetaKeyResumeDismissed is the run.Meta bool the frontend sets when the human dismisses the card. A
+// later boundary clears it: the narrative has changed, so it is worth showing again.
+const MetaKeyResumeDismissed = "jarvis:resume:dismissed"
+
+// ResumeCard is the run.Meta payload — "where this task stands", already written at the boundary so
+// rendering it costs no model call. Written by Go, read by TS: json tags are the wire contract.
+type ResumeCard struct {
+	TaskID  string `json:"taskId"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
+	Updated int64  `json:"updated"`
+}
+
 // Resume reads the precomputed continuity narrative for a task. Pure, deterministic, free (no model):
-// it returns whatever E last wrote at a boundary. No wired v1 consumer — recall reads the state block
-// during ordinary traversal; this is the named seam for a later ambient/UI slice.
+// it returns whatever E last wrote at a boundary. Consumed by resumeCard at the rest boundary, and
+// available to any later surface that wants "pick up where you left off" without a fresh call.
 func Resume(r *wavevault.Retriever, taskID string) (Narrative, error) {
 	d, err := jarvisdossier.LoadDossier(r, taskID)
 	if err != nil {

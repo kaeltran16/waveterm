@@ -30,8 +30,10 @@ func stepChunk(id, label, status string) wshrpc.JarvisConverseChunk {
 	return wshrpc.JarvisConverseChunk{Kind: "step", Step: &wshrpc.JarvisWorkingStep{Id: id, Label: label, Status: status}}
 }
 
+// synthesize is the grounded answer: the capable tier, selected explicitly. TierCapable adds no
+// --model flag, so this keeps the operator's configured default exactly as before tiering.
 var synthesize = func(ctx context.Context, cwd, prompt string, onChunk func(string)) (string, error) {
-	spec, ok := consult.SpecFor("claude")
+	spec, ok := consult.SpecForTier("claude", consult.TierCapable)
 	if !ok {
 		return "", errNoClaude
 	}

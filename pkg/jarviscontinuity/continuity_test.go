@@ -63,7 +63,7 @@ func TestCaptureWritesNarrativeAndFlipsPaused(t *testing.T) {
 	defer SetSummarizeForTest(restore)
 
 	run := &waveobj.Run{OID: testRunOID, ID: testRunOID, Goal: "ship ABC-7 the widget", Status: "blocked"}
-	if err := captureRunBoundary(ctx, v, run); err != nil {
+	if _, err := captureRunBoundary(ctx, v, run); err != nil {
 		t.Fatalf("captureRunBoundary: %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestCaptureDoneFlipsCompleted(t *testing.T) {
 	defer SetSummarizeForTest(restore)
 
 	run := &waveobj.Run{OID: testRunOID, ID: testRunOID, Goal: "ship it", Status: "done", EndCommit: "abc123"}
-	if err := captureRunBoundary(ctx, v, run); err != nil {
+	if _, err := captureRunBoundary(ctx, v, run); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
 	d, _ := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), id)
@@ -106,11 +106,15 @@ func TestCaptureNoDossierIsNoOpNoModel(t *testing.T) {
 	defer SetSummarizeForTest(restore)
 
 	run := &waveobj.Run{OID: "no-such-run", Status: "done"}
-	if err := captureRunBoundary(ctx, v, run); err != nil {
+	card, err := captureRunBoundary(ctx, v, run)
+	if err != nil {
 		t.Fatalf("capture: %v", err)
 	}
 	if called {
 		t.Fatal("no dossier for the run -> must not call the model")
+	}
+	if card != nil {
+		t.Fatalf("no dossier -> no resume card, got %+v", card)
 	}
 }
 
@@ -132,7 +136,7 @@ func TestCaptureEmptyTaskWritesTerseNoModel(t *testing.T) {
 	defer SetSummarizeForTest(restore)
 
 	run := &waveobj.Run{OID: testRunOID, Status: "blocked"} // no blockers/decisions, no EndCommit
-	if err := captureRunBoundary(ctx, v, run); err != nil {
+	if _, err := captureRunBoundary(ctx, v, run); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
 	if called {
@@ -144,6 +148,40 @@ func TestCaptureEmptyTaskWritesTerseNoModel(t *testing.T) {
 	}
 }
 
+// The card must reflect the *committed* dossier, not the values this boundary computed. A dossier is
+// created "active" and only flips to paused/completed by the SetStatus write below, so a card reading
+// back "paused" proves the read went through a retriever built after the write (a stale one would
+// still report "active" and an empty state block).
+func TestCaptureReturnsResumeCardFromCommittedState(t *testing.T) {
+	ctx := context.Background()
+	v, id := seedDossier(t)
+	restore := SetSummarizeForTest(func(context.Context, string, string) (string, error) {
+		return "Blocked on the token-refresh test; middleware extracted.", nil
+	})
+	defer SetSummarizeForTest(restore)
+
+	run := &waveobj.Run{OID: testRunOID, ID: testRunOID, Goal: "ship ABC-7", Status: "blocked"}
+	card, err := captureRunBoundary(ctx, v, run)
+	if err != nil {
+		t.Fatalf("captureRunBoundary: %v", err)
+	}
+	if card == nil {
+		t.Fatal("a rest boundary with a narrative must yield a resume card")
+	}
+	if card.TaskID != id {
+		t.Errorf("taskID = %q, want %q", card.TaskID, id)
+	}
+	if !strings.Contains(card.Summary, "token-refresh") {
+		t.Errorf("summary = %q, want the committed narrative", card.Summary)
+	}
+	if card.Status != "paused" {
+		t.Errorf("status = %q, want the post-write dossier status", card.Status)
+	}
+	if card.Updated == 0 {
+		t.Error("updated should carry the dossier timestamp")
+	}
+}
+
 func TestResumeReadsPrecomputedState(t *testing.T) {
 	ctx := context.Background()
 	v, id := seedDossier(t)
@@ -151,7 +189,7 @@ func TestResumeReadsPrecomputedState(t *testing.T) {
 	defer SetSummarizeForTest(restore)
 
 	run := &waveobj.Run{OID: testRunOID, ID: testRunOID, Goal: "g", Status: "blocked", EndCommit: "x"}
-	if err := captureRunBoundary(ctx, v, run); err != nil {
+	if _, err := captureRunBoundary(ctx, v, run); err != nil {
 		t.Fatalf("capture: %v", err)
 	}
 

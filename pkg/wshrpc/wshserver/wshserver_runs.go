@@ -413,12 +413,33 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if postRun, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil &&
 		jarviscontinuity.IsRestState(postRun.Status) && postRun.Status != preStatus {
 		run := *postRun
+		channelId, runId := data.ChannelId, data.RunId
 		captureAsync(func() {
 			cctx, cancel := context.WithTimeout(context.Background(), continuityCaptureTimeout)
 			defer cancel()
-			if cerr := jarviscontinuity.CaptureRunBoundary(cctx, &run); cerr != nil {
+			card, cerr := jarviscontinuity.CaptureRunBoundary(cctx, &run)
+			if cerr != nil {
 				log.Printf("AdvanceRun: continuity capture failed (non-fatal): %v", cerr)
+				return
 			}
+			if card == nil {
+				return // no dossier references this run, or it has no narrative yet
+			}
+			// persist the narrative onto the run so returning to it resurfaces where it stands with no
+			// second model call — same run.Meta + waveobj:update channel S3's proactive card rides.
+			if uerr := wstore.UpdateRun(cctx, channelId, runId, func(r *waveobj.Run) error {
+				if r.Meta == nil {
+					r.Meta = waveobj.MetaMapType{}
+				}
+				r.Meta[jarviscontinuity.MetaKeyResume] = *card
+				// a later boundary means the narrative changed, so an earlier dismissal is stale.
+				delete(r.Meta, jarviscontinuity.MetaKeyResumeDismissed)
+				return nil
+			}); uerr != nil {
+				log.Printf("AdvanceRun: persisting resume card failed (non-fatal): %v", uerr)
+				return
+			}
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 		})
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)

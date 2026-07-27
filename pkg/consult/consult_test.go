@@ -173,6 +173,58 @@ func TestSpecFor_streamingModes(t *testing.T) {
 	}
 }
 
+func TestSpecForTier_capableKeepsTheCLIDefault(t *testing.T) {
+	base, _ := SpecFor("claude")
+	spec, ok := SpecForTier("claude", TierCapable)
+	if !ok {
+		t.Fatal("expected claude to resolve")
+	}
+	if strings.Join(spec.BaseArgs, " ") != strings.Join(base.BaseArgs, " ") {
+		t.Errorf("capable must add no --model flag (it keeps the operator's default), got %v", spec.BaseArgs)
+	}
+}
+
+func TestSpecForTier_cheapSelectsTheCheapModel(t *testing.T) {
+	spec, ok := SpecForTier("claude", TierCheap)
+	if !ok {
+		t.Fatal("expected claude to resolve")
+	}
+	if !strings.Contains(strings.Join(spec.BaseArgs, " "), "--model "+cheapModel) {
+		t.Errorf("cheap tier must select --model %s, got %v", cheapModel, spec.BaseArgs)
+	}
+}
+
+func TestSpecForTier_neverMutatesTheSharedSpec(t *testing.T) {
+	before, _ := SpecFor("claude")
+	want := strings.Join(before.BaseArgs, " ")
+	SpecForTier("claude", TierCheap)
+	SpecForTier("claude", TierCheap)
+	after, _ := SpecFor("claude")
+	if got := strings.Join(after.BaseArgs, " "); got != want {
+		t.Errorf("shared claude spec mutated: %q -> %q", want, got)
+	}
+}
+
+func TestSpecForTier_nonClaudeRuntimesAreUnchanged(t *testing.T) {
+	// only claude has a --model contract here; a tier must not invent flags for the others.
+	for _, rt := range []string{"codex", "antigravity"} {
+		base, _ := SpecFor(rt)
+		spec, ok := SpecForTier(rt, TierCheap)
+		if !ok {
+			t.Fatalf("%s: expected it to resolve", rt)
+		}
+		if strings.Join(spec.BaseArgs, " ") != strings.Join(base.BaseArgs, " ") {
+			t.Errorf("%s: args changed to %v", rt, spec.BaseArgs)
+		}
+	}
+}
+
+func TestSpecForTier_unsupportedRuntime(t *testing.T) {
+	if _, ok := SpecForTier("gemini", TierCheap); ok {
+		t.Error("gemini should be unsupported")
+	}
+}
+
 func TestBuildPromptNoPrinciplesMatchesLegacy(t *testing.T) {
 	history := []waveobj.ChannelMessage{{Author: "you", Text: "hello"}}
 	got := BuildPrompt(history, "do the thing", "")
