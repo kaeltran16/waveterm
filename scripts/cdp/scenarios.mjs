@@ -384,29 +384,53 @@ const jarvisContextual = {
     },
 };
 
-// --- jarvis ambient: placeholder task-tag chips render on real rows (Plan 4) -------------------------
-// Ambient attribution (fixtureAmbientProvider) tags every non-empty oref, so the Memory list (real,
-// non-empty data) shows a tag chip per note. Assert at least one ambient tag chip renders. PLACEHOLDER
-// data — see docs/deferred.md.
+// --- jarvis ambient: engine D's real task-tag chips render on real rows (J1) -------------------------
+// Ambient attribution renders a chip per attributed dossier, titled "<label> · <bucket> confidence ·
+// <state>" (ambientviews.tagTitle). This asserts the *join*: D's dossier->Run edges reaching rows the
+// user actually sees. It is only meaningful against a profile whose wstore holds the runs the vault's
+// dossiers reference — with an unrelated wstore the correct result is zero chips everywhere, which
+// proves nothing (see docs/jarvis-second-brain-open-issues.md J1).
+const AMBIENT_SURFACES = ["cockpit", "channels", "radar", "memory"];
+
 const jarvisAmbient = {
     name: "jarvis-ambient",
-    surface: "memory",
+    surface: "cockpit",
     async arrange() {
         return {};
     },
     async assert(h) {
         const steps = [];
-        await h.goto("memory");
-        const tagChips = await h.ev(`(() => {
-            const els = [...document.querySelectorAll('span[title="Ambient task attribution (placeholder)"]')];
-            return els.length;
-        })()`);
+        const counts = {};
+        let total = 0;
+        for (const surface of AMBIENT_SURFACES) {
+            await h.goto(surface);
+            const seen = await h.ev(`(() => {
+                const chips = [...document.querySelectorAll('span[title*=" confidence \\u00b7 "]')];
+                const dashed = chips.filter((e) => e.className.includes("border-dashed")).length;
+                const decisions = [...document.querySelectorAll("div")].filter(
+                    (e) => e.textContent.trim() === "Relevant past decisions"
+                ).length;
+                return { chips: chips.length, dashed, decisions, labels: chips.slice(0, 4).map((e) => e.title) };
+            })()`);
+            counts[surface] = seen;
+            total += seen.chips;
+            await h.shot(`cdp-shots/ambient-${surface}.png`);
+        }
         steps.push({
-            step: "memory surface renders >=1 ambient task-tag chip",
-            ok: tagChips > 0,
-            detail: `tagChips=${tagChips}`,
+            step: "an attributed row renders >=1 real ambient tag chip",
+            ok: total > 0,
+            detail: JSON.stringify(counts),
         });
-        await h.shot("cdp-shots/jarvis-ambient.png");
+        // Weak/informing edges must recede rather than read as canonical — D emits 0.3 layer-3 edges on
+        // this corpus, so a run with only structural attribution should carry a dashed chip.
+        const dashedAnywhere = Object.values(counts).some((c) => c.dashed > 0);
+        steps.push({
+            step: "informing (weak) edges render dashed, not solid",
+            ok: total === 0 || dashedAnywhere,
+            detail: `dashed by surface: ${JSON.stringify(
+                Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v.dashed]))
+            )}`,
+        });
         return steps;
     },
     async teardown(h) {

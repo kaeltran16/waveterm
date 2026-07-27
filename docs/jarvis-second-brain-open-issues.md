@@ -24,6 +24,7 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 | J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | ✅ Resolved 2026-07-27 |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
 | J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 |
+| J9 | Retrieval reads only part of a note — L2 misses frontmatter, embedding misses the id | correctness / reachability | S–M | — | 🔲 Open — found verifying J2 |
 
 **Dependency order.** J1–J4, J6 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
 `cmd/jarvisbackfill` and J6 (same day) added ~354 federated memory notes to what the vault reads;
@@ -34,7 +35,7 @@ calibration, because two of D's four weights cannot be measured from today's his
 
 ## J1 — Ambient layer renders fabricated edges
 
-**Status:** ✅ Resolved 2026-07-27 · **Effort:** S · **Kind:** correctness / product trust
+**Status:** ✅ Resolved 2026-07-27 (verified end-to-end on a populated profile) · **Effort:** S · **Kind:** correctness / product trust
 
 ### Problem
 The ambient presence layer — task tags on Run/Radar/Memory rows and "relevant past decision" cards on
@@ -70,14 +71,57 @@ the second brain is *felt* through day to day, so the most-seen part of the feat
 Unit-covered: an unattributed object yields no tag; a run attributed to two dossiers gets both, in
 confidence order; a wikilink to a non-dossier is not attribution; the pre-load provider yields nothing.
 `fixtureAmbientProvider` and the `title="…placeholder"` marker are gone from the tree.
-**Not done:** the CDP surface-smoke on Cockpit + Radar + Memory, and no check against a *populated*
-vault — with an empty vault the correct result is no tags anywhere, which is weak evidence.
+**CDP surface-smoke against a populated profile — ✅ measured 2026-07-27**, after seeding the dev
+profile per the procedure below. `task verify:ui -- jarvis-ambient`, 2/2 steps:
+
+| surface | chips | dashed | sample label |
+|---|---|---|---|
+| cockpit | 0 | 0 | — (no live agents; ambient tags don't render here — see below) |
+| channels | 6 | 2 | `how can both items are selected at once · strong confidence · confirmed` |
+| radar | 2 | 1 | `Grep the frontend for remaining getApi()… · weak confidence · informing` |
+| memory | 0 | 0 | — |
+
+Both buckets are represented and weak edges render dashed, so this exercises the styling branch rather
+than just the happy path. The labels are real dossier titles resolved through real Run edges — the
+thing J1 was filed about.
+
+Two zero rows that are **correct, not failures**:
+- **Cockpit renders no `AmbientTags` at all** — the consumers are `channelchrome`, `radarfindingslist`,
+  `radarfindingdetail`, `runbody` and `memorysurface`. Cockpit was in the scenario's surface list as a
+  regression tripwire, not because it should ever show a chip.
+- **Memory shows none** because a memory note resolves attribution through its own `[[wikilinks]]`, and
+  this corpus's memory notes link other memory notes, not dossiers.
+
+### The profile split this smoke keeps running into (measured 2026-07-27)
+The reason this leg stayed open is structural, not effort, and it costs an hour to rediscover:
+
+- **The vault is shared, Runs are not.** `memroots.VaultRoot()` is home-based (`~/.waveterm/vault`), so
+  every profile sees the same 14 dossiers. Runs live in the per-profile wstore. Ambient tags are
+  dossier→Run edges, so they only render where both halves are present.
+- **Measured:** the installed profile (`%LOCALAPPDATA%\dev.arc.app`) resolves **14/14** dossier run
+  refs; the dev profile (`…-dev`, what `task dev` uses) resolves **0/14** — its 14 runs are unrelated.
+  So a smoke run against a stock dev profile renders zero tags and proves nothing, which is the same
+  vacuous pass the empty-vault check produced.
+- **CDP only exists in dev.** The `--remote-debugging-port` flag is `#[cfg(debug_assertions)]`, so the
+  installed build — the one with the data — cannot be driven. `paths.rs` derives the dev base as
+  `<base>-dev` with no env override, so the dev shell cannot be pointed at the populated profile either.
+- **Therefore:** seed the dev profile before smoking it. Snapshot the installed DB with
+  `VACUUM INTO` (consistent against a live app, unlike a file copy), drop the dev profile's stale
+  `waveterm.db-wal`/`-shm` — applying them to a different DB corrupts it — and restart `task dev`.
+- The `jarvis-ambient` CDP scenario was **stale**: it asserted on
+  `span[title="Ambient task attribution (placeholder)"]`, the exact marker J1 deleted, so it could only
+  ever report 0. Rewritten against the real title format (`<label> · <bucket> confidence · <state>`).
+- **Expect a boot burst of `object.GetObject … context deadline exceeded` on the seeded profile.** The
+  imported blocks resolve against a `filestore.db` that is still the dev profile's own, so their
+  contents are missing. It is a bounded storm — it stops once boot settles, the cockpit renders, and
+  the surfaces are fully drivable — but it looks alarming in the log and is not a symptom of the swap
+  having failed. Terminal scrollback for imported runs will be empty for the same reason.
 
 ---
 
 ## J2 — No way to enable embeddings from the app
 
-**Status:** ✅ Resolved 2026-07-27 (reachable; not yet exercised) · **Effort:** S (frontend-only) · **Kind:** reachability
+**Status:** ✅ Resolved 2026-07-27 (reachable **and** exercised against a real provider) · **Effort:** S (frontend-only) · **Kind:** reachability
 
 ### Problem
 The whole semantic lane (S1 index, S2 L3 recall + L4 attribution, S3 proactive card) is gated behind
@@ -106,11 +150,44 @@ per invariant 12. While the toggle is on, a hint names whatever is still missing
 
 ### Verified
 Typecheck and the full vitest suite pass; the section renders through the existing settings primitives.
-**Not verified — the substantive half:** nobody has toggled it on against a real OpenAI-compatible
-endpoint, so S1/S2/S3 are *reachable* but still have never run against a provider. The original verify
-step (index builds; a differently-worded recall query finds its source; toggling off restores exact v1
-behavior) needs an endpoint and key and remains outstanding. **J5 is unblocked in principle only** until
-someone does this.
+~~**Not verified — the substantive half:** nobody has toggled it on against a real OpenAI-compatible
+endpoint~~ — **partially closed 2026-07-27.** It has now run against a real provider
+(`openai/text-embedding-3-small` via OpenRouter), which took three fixes: request batching
+(`8fb19f13` — one round-trip per note took 5m17s against a 90s dispatch budget, so the lazy build never
+finished), durable secret storage (`bf7bfd98` — the BYOK key could not persist at all under Tauri), and
+the blank-note fix (`a01700a6`). Of the three original verify legs:
+
+- **index builds** — ✅ done. 793 chunks / 422 nodes, full build 46s, incremental ~22s.
+- **a differently-worded recall query finds its source** — ✅ measured 2026-07-27, below.
+- **toggling off restores exact v1 behavior** — ✅ measured 2026-07-27, below.
+
+### Measured 2026-07-27 (paraphrase recall, real provider)
+Harness: `pkg/jarvisrecall/liveprobe_test.go` (build tag `liveprobe`, out of the normal suite), run
+against a **copy** of the installed profile — its config, its DPAPI secret and its 8.5 MB index — so
+neither running app was touched. Five queries, each sharing **zero** ≥4-char tokens with its target,
+scored on whether `selectSeeds` returns the target.
+
+| case | embeddings off | embeddings on | semantic rank |
+|---|---|---|---|
+| dossier — app crash on the memory tab | missing | **found** | #1 of 49 (cos 0.3967) |
+| dossier — claude/codex pill colour | missing | **found** | #1 of 46 (cos 0.3758) |
+| dossier — auto tab renaming | missing | **found** | #1 of 50 (cos 0.3921) |
+| dossier — grep frontend for `getApi()` shims | missing | missing | not in top 37 |
+| decision — input-validation boundary | missing | missing | not in top 52 |
+
+**3/5 on, 0/5 off.** The hits are not marginal: every one ranks **#1**, so the paraphrase lands on the
+right node rather than scraping in at the window edge. The two misses are **not** a `kSem` problem —
+neither target appears at six times the window depth — and both have identified causes, recorded as
+[J9](#j9--retrieval-reads-only-part-of-a-note) rather than as tuning debt.
+
+**Toggle-off** was exercised through the real config flag, not a stub: with `jarvis:embedenabled`
+false, `Available()` is false, L3 contributes nothing, the seed set is identical (6 both ways), no
+error surfaces, and the run drops from 8.67s to 0.47s with zero network calls. Graceful degradation
+holds — but read J9 for what "v1 behavior" actually means for the `tasks/` collection.
+
+One caveat on the corpus: an earlier pass of this probe scored 1/5 as a *false pass*, because the
+query said "notes" and every dossier body carries a literal `## Notes` heading, which L2 substring-
+matches on all 14. Any future paraphrase set must avoid the marker vocabulary the templates emit.
 
 ---
 
@@ -239,7 +316,9 @@ dispatch goals start carrying a ticket id. What the corpus does *not* reach:
 
 - **`weightLayer2` and `weightLayer4` can never be calibrated from this history.** L2 needs a ticket
   id and none of the 18 runs carries one; L4 needs embeddings. Neither signal can fire, so the only
-  observable confidences are L1 (1.0) and L3 (0.3).
+  observable confidences are L1 (1.0) and L3 (0.3). *(Half-superseded — see "Measured 2026-07-27 (L4)"
+  below. Embeddings are live and L4 was measured, but it still emits zero edges here for a different
+  reason than assumed: the L1–L3 gate, not the missing provider. L2 is unchanged.)*
 - **The bucket cutoffs are consequently untestable.** `bucketWeakMax` 0.4 and `bucketStrongMin` 0.75
   only ever have to separate 0.3 from 1.0 — a gap so wide that any value between them "passes".
 - **Exactly one multi-run dossier exists** (the 5-run `deferred-appendix-briefs` group), so the mixed
@@ -260,8 +339,10 @@ dispatch goals start carrying a ticket id. What the corpus does *not* reach:
 So the corpus unblocks *some* of J5, not J5. Scored against the ~13 placeholder constants: **1 is now
 interrogable** (`weightLayer3` — 13 concrete structural guesses exist to judge, though turning them
 into a weight still needs human ground-truth labeling, not just data), **1 unlocks with time**
-(`timeBoxMs`), **6 are hard-blocked on an embedding provider** (`weightLayer4`, `semCandidateN`,
-`semThreshold`, `kSem`, `cosThreshold`, `queryK`), and the remainder have no discrimination pressure
+(`timeBoxMs`), ~~**6 are hard-blocked on an embedding provider** (`weightLayer4`, `semCandidateN`,
+`semThreshold`, `kSem`, `cosThreshold`, `queryK`)~~ *(stale — the provider shipped 2026-07-27;
+`cosThreshold` and `semThreshold` are now measured, the other four are unblocked but unfitted)*,
+and the remainder have no discrimination pressure
 because the corpus produces only two distinct confidences. The backfill moved the blocker, it did not
 remove it.
 
@@ -292,6 +373,65 @@ both figures are specific to `text-embedding-3-small`.
 
 Still uncalibrated: `queryK`, `shortlistMax`, `semCandidateN`, `kSem`, `seedTopK`, `expandDepth`,
 `expandFanout`, `weightLayer2/3/4`, the bucket cutoffs, `probationMs`, `timeBoxMs`.
+
+**`kSem` now has evidence (2026-07-27, from the J2 probe).** The federated corpus is
+**406 memory / 14 tasks / 4 decisions**, so the memory collection outnumbers everything the second
+brain writes by ~23:1. Measured across five queries, the `kSem = 6` semantic window went to memory
+notes 4–6 times out of 6; tasks got 1–2 slots and only when the dossier ranked #1 outright. `kSem` is
+therefore not a neutral bound — on this corpus it is a near-total memory filter, and a dossier that
+ranks anywhere below the top two is dropped before recall sees it. Two candidate reads, not yet
+separated: raise `kSem`, or take top-k **per collection** rather than globally. The second is the
+better shape if the ratio holds, since raising a global k trades cost for a window memory still
+dominates. Note this is a *ranking-window* finding only — it does not explain J2's two misses, whose
+targets are absent from the ranking entirely (see J9).
+
+### Measured 2026-07-27 (L4 semantic, against the completed index)
+The threshold calibration above scored dossier/run pairs offline. This measures L4 through the real
+pipeline, after the index was actually complete — the first build indexed only `memory/`, because two
+blank notes made every batch containing a `tasks/` or `decisions/` chunk fail (fixed in `a01700a6`;
+the index now holds 793 chunks / 422 nodes including all 14 dossiers and 4 decisions).
+
+**L4 emits nothing in production, and the reason is not the one this doc assumed.** `edgesForDossier`
+runs the semantic pass *only when L1–L3 are silent* (`pkg/jarvisattrib/lifecycle.go:183`). All **14 of
+14** dossiers carry at least one deterministic edge, so the orphan set is empty, `proposeSemanticEdges`
+is never reached, and `attrib_vectors` in the live index is **0**. The distribution is unchanged:
+`{1.0: 14, 0.3: 13}`. The empty middle stays empty because the gate never opens — not because
+embeddings were missing.
+
+**Counterfactual (gate bypassed, L4 forced on all 14 dossiers, scored against their L1 owner refs):**
+
+| | |
+|---|---|
+| owners correctly proposed | 14 |
+| owners missed | 0 |
+| extra edges | 4 |
+| recall | **1.00** |
+| raw precision | 0.78 |
+
+Recall is the load-bearing figure: at `semThreshold` 0.65, L4 recovered **every** known owner through
+the real pipeline — independent corroboration of the offline pair-scoring, using cached vectors and
+the production fingerprints.
+
+**The 4 "extra" edges are not false positives.** All four belong to the single 5-run
+`deferred-appendix-briefs` fan-out — five workers dispatched on one goal, only one of which is recorded
+as the dossier's canonical ref. Their cosines (0.978 / 0.982 / 0.982 / 0.989) sit just below the
+owner's 1.000 and far above the 0.719 worst true pair, so no threshold separates them without
+destroying real recall — and none should, since those runs *did* work on that dossier. Read the other
+way: **L4's only disagreement with L1 on this corpus is L1 under-recording a fan-out.** That is the
+argument for keeping L4 as an informing layer rather than suppressing it.
+
+**What this does and does not settle.** `weightLayer4` still has **zero** production observations, so
+0.2 remains a judgment, not a fit — what the counterfactual adds is a floor it previously lacked:
+L4's proposals here are correct-or-sibling, never unrelated. Treat that cautiously — 14 dossiers, one
+multi-run group, and the positives are partly circular (a dossier objective is seeded from its run's
+goal). "Weak/informing" is defensible; **0.2 specifically is not yet fitted.** `bucketWeakMax` 0.4
+remains vacuous: L4 (0.2) and L3 (0.3) both fall below it, L1 (1.0) far above, so nothing measured has
+ever landed in the 0.4–0.75 mid band.
+
+**Consequence for J5 planning:** more dogfooding will *not* produce L4 edges. The orphan set only
+becomes non-empty when a dossier exists whose work was never dispatch-linked and shares no anchor repo
+— i.e. manually-written dossiers, or runs whose `ProjectPath` differs from the dossier's anchors.
+Calibrating `weightLayer4` from production requires deliberately creating that case, not waiting.
 
 ### Problem
 Every threshold, weight, window and cap across the second brain was fabricated to be plausible in
@@ -502,6 +642,61 @@ rely on, so it wants its own confirm rather than riding along in a cost refactor
 ### Verify
 A `fast` sharpen still produces a usable rewrite; measure the before/after cost and latency delta;
 `sonnet` mode is unchanged.
+
+---
+
+## J9 — Retrieval reads only part of a note
+
+**Status:** 🔲 Open · **Effort:** S–M · **Kind:** correctness / reachability · **Found while verifying J2**
+
+### Problem
+Both retrieval layers read a *different* proper subset of a note, and neither reads all of it. The two
+gaps are independent bugs with one shape, and together they explain both of J2's paraphrase misses.
+
+**(a) L2 keyword search never sees frontmatter.** `wavevault.Retriever.Search` matches
+`strings.Index` over `r.g.bodies[id]` only (`pkg/wavevault/read.go:186-202`); `parseNode` splits
+frontmatter off into `Node.Frontmatter` before the body is stored. A dossier's entire human-readable
+content — its `objective` — lives in frontmatter, and its body is two marker-comment pairs plus an
+empty `## Notes`. So **no dossier is reachable by keyword search at all**, whatever the query.
+
+**(b) Embedding never sees the node id.** `jarvisembed.embedText` builds frontmatter + heading +
+section text (`pkg/jarvisembed/chunk.go:68-92`) — deliberately, and it is why dossiers *are*
+semantically reachable. But decision notes carry frontmatter of only `id / created / actor /
+provenance / status`, and their body is the rationale prose. A decision's **subject** exists solely in
+its filename-derived id. `2026-07-23-the-input-validation-security-boundary-was-modif` embeds as
+`actor: radar … status: active` plus prose about which branch the fix was committed on — nothing about
+input validation. Querying a decision by its topic cannot match it.
+
+### Evidence
+- Measured: the J2 probe's two misses are exactly one instance of each. The decision target is absent
+  from the top 52 semantic nodes for a query about its own title.
+- The `getApi()` shim dossier is a third, milder case: an identifier-dense objective
+  (`getApi().closeTab/setActiveTab/createTab`, `commands.rs`) is lexically reachable but not
+  conceptually — and (a) removes the lexical route, leaving it unreachable by either layer.
+
+### Why it matters beyond the miss rate
+It changes what J2's "graceful degradation" claim means. Turning embeddings off does restore v1
+behavior exactly, as verified — but for `tasks/`, v1 behavior is *unreachable*, not *degraded*.
+The semantic lane is not an enhancement over keyword recall for dossiers; it is the only seed path
+that exists. That is a materially stronger dependency on a BYOK, opt-in, paid feature than
+invariant 11's graceful-degradation contract reads as promising, and it should be stated outright
+rather than left implicit.
+
+### Fix
+Two small, independent changes; neither needs a re-index of unrelated notes:
+1. Include the node id (and, for tasks, `objective`) in the text `Search` matches — or index
+   frontmatter values alongside the body. Restores a lexical route to dossiers and decisions.
+2. Give decisions a `title`/`subject` frontmatter field written at authoring time
+   (`jarvisbackfill` and the live decision writer both already know it — they derive the filename from
+   it). Re-embedding the 4 existing decisions is trivial.
+
+Order matters: (2) is a one-line authoring change plus a backfill; (1) touches a shared read path used
+by recall, S3's gate and U3's graph, so it wants its own slice.
+
+### Verify
+The decision case from J2's probe table retrieves its target; a dossier is reachable by a keyword drawn
+from its `objective` with embeddings **off**; the paraphrase probe re-run scores better than 3/5 with
+no regression on the three that already pass.
 
 ---
 
