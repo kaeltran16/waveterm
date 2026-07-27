@@ -6,6 +6,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
+import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { selectChannel } from "@/app/view/agents/channelsstore";
 import { fireAndForget } from "@/util/util";
@@ -28,6 +29,10 @@ export const subjectFilterAtom = atom<string>("");
 // ResolveSpaceScope read a Space uses, and consumed by both the record's thread and the rail's
 // fleet-on-record roster — a dossier has no run list of its own.
 export const recordScopeAtom = atom<Record<string, SpaceScope>>({}) as PrimitiveAtom<Record<string, SpaceScope>>;
+
+// the Run snapshots behind those orefs, so a record's activity can name what actually ran. A snapshot,
+// not a live subscription: a record's attributed runs are history by the time they are attributed.
+export const recordRunsAtom = atom<Record<string, Run[]>>({}) as PrimitiveAtom<Record<string, Run[]>>;
 
 export function selectSubject(subject: ActiveSubject): void {
     globalStore.set(activeSubjectAtom, subject);
@@ -53,5 +58,13 @@ export function loadRecordScope(dossierId: string): void {
             return;
         }
         globalStore.set(recordScopeAtom, { ...globalStore.get(recordScopeAtom), [dossierId]: scope });
+        const runs: Run[] = [];
+        for (const oref of scope.runorefs ?? []) {
+            const run = await WOS.loadAndPinWaveObject<Run>(oref).catch(() => null);
+            if (run != null) {
+                runs.push(run);
+            }
+        }
+        globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [dossierId]: runs });
     });
 }
