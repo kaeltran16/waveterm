@@ -51,6 +51,27 @@ func TestOpenVaultAtIdempotent(t *testing.T) {
 	}
 }
 
+// The migration must hang off OpenVault, never openVaultAt — otherwise every fixture vault in the
+// suite would reach into the developer's real ~/.waveterm/memory.
+func TestOpenVaultAtForTestDoesNotMigrate(t *testing.T) {
+	base := t.TempDir()
+	legacy := filepath.Join(base, "legacy")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(legacy, "keep.md")
+	if err := os.WriteFile(note, []byte("---\nname: keep\n---\n\n# Keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := OpenVaultAtForTest(context.Background(), filepath.Join(base, "vault")); err != nil {
+		t.Fatalf("OpenVaultAtForTest: %v", err)
+	}
+	if _, err := os.Stat(note); err != nil {
+		t.Fatalf("fixture open touched a legacy root: %v", err)
+	}
+}
+
 func TestScopes(t *testing.T) {
 	if got := WorkerScope().Collections; len(got) != 2 {
 		t.Fatalf("WorkerScope = %v, want 2 collections (memory, decisions)", got)

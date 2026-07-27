@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 )
 
 func TestParseNote(t *testing.T) {
@@ -101,18 +103,20 @@ func TestScanVaultRoots(t *testing.T) {
 	}
 }
 
-func TestVaultRootsIncludesSources(t *testing.T) {
-	roots := buildRoots("/home/u", "/home/u/.waveterm/memory")
-	var sources []string
-	for _, r := range roots {
-		sources = append(sources, r.Source)
+func TestScanVaultSkipsIndexFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, memroots.IndexFile), []byte("# Index\n- [a](a.md)\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	want := []string{"vault", "claude", "codex"}
-	if !reflect.DeepEqual(sources, want) {
-		t.Fatalf("sources = %v, want %v", sources, want)
+	if err := os.WriteFile(filepath.Join(dir, "real.md"), []byte("---\nname: real\n---\n\n# Real\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if roots[0].Path != "/home/u/.waveterm/memory" {
-		t.Fatalf("vault root = %q", roots[0].Path)
+	g, err := ScanVault([]Root{{Path: dir, Source: "vault"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Notes) != 1 || g.Notes[0].ID != "real" {
+		t.Fatalf("notes = %+v, want only real", g.Notes)
 	}
 }
 
@@ -177,17 +181,17 @@ func TestCreateNoteWritesToVault(t *testing.T) {
 	}
 }
 
-func TestDeriveScopeReadableForClaude(t *testing.T) {
-	r := Root{Path: `/home/k/.claude/projects`, Source: "claude"}
+func TestDeriveScope(t *testing.T) {
+	r := Root{Path: filepath.Join(`/home/k`, ".claude", "projects"), Source: "claude"}
 	// note lives under the encoded-hash project dir
-	path := `/home/k/.claude/projects/-home-k-code-krypton/memory/note.md`
+	path := filepath.Join(r.Path, "C--Users-kael02-IdeaProjects-krypton", "memory", "n.md")
 	if got := deriveScope(r, path); got != "krypton" {
-		t.Fatalf("claude scope = %q, want readable leaf 'krypton'", got)
+		t.Fatalf("claude scope = %q, want krypton", got)
 	}
 	// vault-source notes keep the raw folder name
 	rv := Root{Path: `/vault`, Source: "vault"}
-	if got := deriveScope(rv, `/vault/teamx/note.md`); got != "teamx" {
-		t.Fatalf("vault scope = %q, want 'teamx'", got)
+	if got := deriveScope(rv, filepath.Join(`/vault`, "teamx", "note.md")); got != "teamx" {
+		t.Fatalf("vault scope = %q, want teamx", got)
 	}
 }
 

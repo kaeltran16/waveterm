@@ -77,3 +77,16 @@ func TestSelectSeedsRanksStructuredFirst(t *testing.T) {
 		t.Fatalf("structured (ticket) hit should rank first, got %v", seeds)
 	}
 }
+
+func TestNodeCandidateCarriesScopeAsProject(t *testing.T) {
+	n := wavevault.Node{
+		ID:         "hub-note",
+		Collection: wavevault.CollMemory,
+		Source:     "claude",
+		Scope:      "krypton",
+	}
+	got := nodeCandidate(n, "body text")
+	if got.project != "krypton" {
+		t.Fatalf("project = %q, want krypton", got.project)
+	}
+}

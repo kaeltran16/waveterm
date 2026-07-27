@@ -17,11 +17,13 @@ import (
 )
 
 // Node is one parsed vault file. Body is returned separately by parseNode (the graph stores it
-// alongside). Collection and UpdatedTs are filled in by the scanner, not by parseNode.
+// alongside). Collection, Source, Scope and UpdatedTs are filled in by the scanner, not by parseNode.
 type Node struct {
 	ID          string         `json:"id"`
 	Path        string         `json:"path"`
 	Collection  string         `json:"collection"`
+	Source      string         `json:"source"` // "vault" | "claude" | "codex" — which root it came from
+	Scope       string         `json:"scope"`  // memory only: project label for a mirrored hub note, else "shared"
 	Frontmatter map[string]any `json:"frontmatter"`
 	Links       []string       `json:"links"`
 	ContentHash string         `json:"contenthash"`

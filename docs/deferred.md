@@ -76,7 +76,9 @@ Decided during the C brainstorming (spec `docs/superpowers/specs/2026-07-24-jarv
 - **PLACEHOLDER tuning** (`pkg/jarvisrecall`, calibrate against a populated vault): seed top-k = 6; `Expand` Depth = 2 / Fanout = 8; `maxCandidates` = 12; and the v1 **one-dossier-per-Run** capture grouping (the many-Runs-to-one-task dossier needs a task identity Wave lacks — D/E territory).
 - **To resume:** each is independently pickable — (1) with the tiering slice, (2) on repeat-question evidence, (3) anytime a cold vault needs seeding.
 
-## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23)
+## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23) — ✅ RESOLVED 2026-07-27
+
+**Resolved by J6**, spec `docs/superpowers/specs/2026-07-27-jarvis-j6-memory-root-unification-design.md`. `pkg/memroots` is now the single registry of durable-knowledge roots; the agent-native memory dirs are federated into the vault's `memory/` collection as read-only mirrors; the legacy `~/.waveterm/memory` root is migrated under the vault on first open. The one item below deliberately **not** done is folding the Memory surface onto the vault read API — memvault's typed projection drives the review/prune/archive UI, and both APIs now read the same bytes from the same roots anyway. The deferral discovered one thing this entry got wrong: coexistence was **not** cheap, because the vault's `memory/` had no writer, so every vault-backed consumer was reading an empty collection. See J6 in `docs/jarvis-second-brain-open-issues.md`.
 
 Decided during the A brainstorming (spec in progress: `docs/superpowers/specs/2026-07-23-jarvis-a-wave-vault-*.md`). Sub-project A stands up a **new** git-backed Wave Vault at `~/.waveterm/vault/` (`tasks/`, `decisions/`, `attachments/`, and its own `memory/`). The pre-existing memory vault (`pkg/memvault`, `~/.waveterm/memory`, scanned alongside `~/.claude/projects` + `~/.codex/memories`) and the cockpit **Memory** surface are left **untouched** — two "durable knowledge" roots coexist for now.
 

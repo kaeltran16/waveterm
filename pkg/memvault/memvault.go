@@ -14,8 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wavetermdev/waveterm/pkg/wavebase"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"gopkg.in/yaml.v3"
 )
 
@@ -118,11 +117,9 @@ func parseNote(path string, data []byte, source string) (Note, string) {
 	return n, body
 }
 
-// Root is one scan location and its provenance tag.
-type Root struct {
-	Path   string
-	Source string // "vault" | "claude" | "codex"
-}
+// Root is one scan location and its provenance tag. An alias, not a new type: memroots owns the
+// registry, and existing Root{...} literals in consumers keep compiling.
+type Root = memroots.Mirror
 
 // ScanVault walks each root for .md files, parses them, derives scope, and resolves [[links]]
 // into edges (only links whose target ID exists become edges — dangling links are dropped).
@@ -132,7 +129,7 @@ func ScanVault(roots []Root) (*Graph, error) {
 	var order []string
 	for _, r := range roots {
 		_ = filepath.WalkDir(r.Path, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".md") || d.Name() == memroots.IndexFile {
 				return nil
 			}
 			data, readErr := os.ReadFile(path)
@@ -172,55 +169,20 @@ func ScanVault(roots []Root) (*Graph, error) {
 	return g, nil
 }
 
-// deriveScope: the note's immediate parent folder name if it sits below the root
-// (e.g. Claude's per-project dir), else "shared".
+// deriveScope defers to the shared registry so the Memory surface and the vault Retriever derive
+// identical scopes from identical paths.
 func deriveScope(r Root, path string) string {
-	rel, err := filepath.Rel(r.Path, path)
-	if err != nil {
-		return "shared"
-	}
-	dir := filepath.Dir(rel)
-	if dir == "." || dir == "" {
-		return "shared"
-	}
-	parts := strings.Split(filepath.ToSlash(dir), "/")
-	first := parts[0]
-	if r.Source == "claude" {
-		// first is Claude's encoded project-hash dir; show a readable label instead.
-		return labelFromHash(first, registryProjects())
-	}
-	return first
+	return memroots.ScopeForPath(r.Path, r.Source, path)
 }
 
-const defaultVaultSubpath = ".waveterm/memory"
-
-// buildRoots is the pure core of VaultRoots (testable without config/home lookups).
-func buildRoots(home, vaultPath string) []Root {
-	return []Root{
-		{Path: vaultPath, Source: "vault"},
-		{Path: filepath.Join(home, ".claude", "projects"), Source: "claude"},
-		{Path: filepath.Join(home, ".codex", "memories"), Source: "codex"},
-	}
-}
-
-// VaultRoots resolves the scan roots from config (memory:vaultpath) + home.
+// VaultRoots is every durable-knowledge scan root, the vault's own memory collection first.
 func VaultRoots() []Root {
-	home := wavebase.GetHomeDir()
-	vaultPath := filepath.Join(home, defaultVaultSubpath)
-	if cfg := wconfig.GetWatcher().GetFullConfig(); cfg.Settings.MemoryVaultPath != "" {
-		vaultPath = wavebase.ExpandHomeDirSafe(cfg.Settings.MemoryVaultPath)
-	}
-	return buildRoots(home, vaultPath)
+	return memroots.AllRoots()
 }
 
 // DefaultVaultPath is the write target for cockpit-created notes.
 func DefaultVaultPath() string {
-	for _, r := range VaultRoots() {
-		if r.Source == "vault" {
-			return r.Path
-		}
-	}
-	return filepath.Join(wavebase.GetHomeDir(), defaultVaultSubpath)
+	return memroots.MemoryRoot()
 }
 
 // NoteWithBody is a note plus its markdown body (ReadNote only).

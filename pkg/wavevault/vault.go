@@ -5,13 +5,13 @@ package wavevault
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/wavetermdev/waveterm/pkg/wavebase"
-	"github.com/wavetermdev/waveterm/pkg/wconfig"
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 )
 
 const (
@@ -20,8 +20,6 @@ const (
 	CollDecisions   = "decisions"
 	CollAttachments = "attachments"
 )
-
-const defaultVaultSubpath = ".waveterm/vault"
 
 // scaffoldDirs are the directories created on first open. tasks has active/archive subdirs; the
 // read scopes address the top-level "tasks" collection (the scanner recurses).
@@ -37,26 +35,41 @@ func AllScope() Scope    { return Scope{Collections: []string{CollMemory, CollTa
 func WorkerScope() Scope { return Scope{Collections: []string{CollMemory, CollDecisions}} }
 
 // Vault is a handle to one on-disk git-backed vault. machineFiles records, per absolute path, the
-// content hash Jarvis last wrote — Commit uses it to author machine-only changes as Jarvis.
+// content hash Jarvis last wrote — Commit uses it to author machine-only changes as Jarvis. mirrors
+// resolves the external read-only roots federated into the memory collection; nil means none, which
+// is what keeps fixture vaults out of the developer's ~/.claude and ~/.codex.
 type Vault struct {
 	Root         string
+	mirrors      func() []memroots.Mirror
 	mu           sync.Mutex
 	machineFiles map[string]string
 }
 
-// DefaultVaultRoot resolves the vault path from config (jarvis:vaultpath) + home. Default
-// ~/.waveterm/vault.
+// DefaultVaultRoot resolves the vault path from config (jarvis:vaultpath) + home.
 func DefaultVaultRoot() string {
-	root := filepath.Join(wavebase.GetHomeDir(), defaultVaultSubpath)
-	if cfg := wconfig.GetWatcher().GetFullConfig(); cfg.Settings.JarvisVaultPath != "" {
-		root = wavebase.ExpandHomeDirSafe(cfg.Settings.JarvisVaultPath)
-	}
-	return root
+	return memroots.VaultRoot()
 }
 
-// OpenVault opens (creating + git-initializing if needed) the configured vault.
+// migrateOnce guards the one-shot legacy-root fold. OpenVault is called from several packages per
+// session; without this two concurrent opens would race on the same file moves.
+var migrateOnce sync.Once
+
+// OpenVault opens (creating + git-initializing if needed) the configured vault. It is also the only
+// path that federates the external memory mirrors and, on the first call of the process, folds the
+// legacy ~/.waveterm/memory root into the vault's memory collection — openVaultAt stays hermetic.
 func OpenVault(ctx context.Context) (*Vault, error) {
-	return openVaultAt(ctx, DefaultVaultRoot())
+	// after openVaultAt deliberately: it scaffolds <root>/memory, the migration's destination
+	v, err := openVaultAt(ctx, DefaultVaultRoot())
+	if err != nil {
+		return nil, err
+	}
+	migrateOnce.Do(func() {
+		if _, _, mErr := memroots.MigrateLegacyRoot(); mErr != nil {
+			log.Printf("wavevault: legacy memory migration failed: %v", mErr) // non-fatal: the legacy root stays a readable mirror
+		}
+	})
+	v.mirrors = memroots.Mirrors
+	return v, nil
 }
 
 // OpenVaultAt opens a vault at an explicit root, bypassing config. For tools that must target a
