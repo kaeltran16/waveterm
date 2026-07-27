@@ -55,6 +55,49 @@ func TestSearchFullText(t *testing.T) {
 	}
 }
 
+// A dossier keeps its only prose in frontmatter `objective` — its body is machine marker comments and
+// an empty `## Notes`. Matching the body alone therefore made no dossier reachable by keyword at all,
+// whatever the query (J9a), which left the semantic lane as the only seed path into tasks/.
+func TestSearchReachesFrontmatterContentAndID(t *testing.T) {
+	v, err := openVaultAt(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, content string) {
+		if err := os.WriteFile(filepath.Join(v.Root, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("tasks/active/the-auth-token-refresh-loop.md",
+		"---\nid: the-auth-token-refresh-loop\nstatus: active\nobjective: stop the silent mobile reauth storm\n---\n\n"+
+			"<!-- jarvis:begin links -->\n<!-- jarvis:end links -->\n\n## Notes\n")
+
+	r := func() *Retriever { return v.Retriever(AllScope()) }
+	for _, tc := range []struct{ name, query string }{
+		{"keyword from the objective", "reauth"},
+		{"keyword from the slugged id", "refresh"},
+		{"phrase spanning id hyphens", "token refresh"},
+	} {
+		hits, err := r().Search(tc.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hits) != 1 || hits[0].Node.ID != "the-auth-token-refresh-loop" {
+			t.Errorf("%s: Search(%q) = %v, want the dossier", tc.name, tc.query, hitIDs(hits))
+		}
+	}
+
+	// Structured metadata must stay out of the haystack: it is Filter's job, and a query mentioning
+	// "active" matching every open note would crowd out real hits wherever seeds are capped.
+	hits, err := r().Search("active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("Search(\"active\") = %v, want none — frontmatter metadata must not be searchable", hitIDs(hits))
+	}
+}
+
 func TestReadReturnsBody(t *testing.T) {
 	v := seedVault(t)
 	nb, err := v.Retriever(AllScope()).Read("d-1")

@@ -38,12 +38,40 @@ type Edge struct {
 }
 
 // graph is the in-memory derived layer for one Retriever's scope: nodes by id (insertion order in
-// `order`), their bodies, and resolved edges.
+// `order`), their bodies, the text Search matches, and resolved edges.
 type graph struct {
-	byID   map[string]Node
-	bodies map[string]string
-	order  []string
-	edges  []Edge
+	byID     map[string]Node
+	bodies   map[string]string
+	searchTx map[string]string
+	order    []string
+	edges    []Edge
+}
+
+// contentFrontmatterKeys are the frontmatter fields that carry a note's human-readable content rather
+// than structured metadata about it. Search folds these in because for whole collections the content
+// lives nowhere else: a dossier's `objective` is its only prose (its body is marker comments and an
+// empty `## Notes`), so matching the body alone makes dossiers unreachable by keyword entirely.
+// Metadata (status/actor/provenance/created/…) is deliberately excluded — that is Filter's job, and
+// folding it in would make a query containing "active" match every open note and crowd out the real
+// hits, since callers cap how many seeds they keep.
+var contentFrontmatterKeys = []string{"objective", "acceptance", "summary", "name", "description"}
+
+// searchableText is the haystack for one node: its id both raw and de-slugified (ids are slugs of the
+// title/objective, so "memory tab" should reach `…-memory-tab-…`), its content frontmatter, then the
+// body. Built once at load rather than per query — Search is called once per keyword.
+func searchableText(n Node, body string) string {
+	var b strings.Builder
+	b.WriteString(n.ID)
+	b.WriteString("\n")
+	b.WriteString(strings.ReplaceAll(n.ID, "-", " "))
+	for _, k := range contentFrontmatterKeys {
+		if v, ok := n.Frontmatter[k]; ok {
+			fmt.Fprintf(&b, "\n%v", v)
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(body)
+	return b.String()
 }
 
 // Retriever is a scope-limited read handle. It scans its scope's directories once on first use and
@@ -81,7 +109,7 @@ func (r *Retriever) load() error {
 	if r.loaded {
 		return nil
 	}
-	g := &graph{byID: map[string]Node{}, bodies: map[string]string{}}
+	g := &graph{byID: map[string]Node{}, bodies: map[string]string{}, searchTx: map[string]string{}}
 
 	// absorb applies one file. Precedence: the vault's own copy wins an id conflict, else first-seen
 	// wins. (Before mirrors there was only one root, and this was last-seen-wins by accident.)
@@ -116,6 +144,7 @@ func (r *Retriever) load() error {
 		}
 		g.byID[n.ID] = n
 		g.bodies[n.ID] = body
+		g.searchTx[n.ID] = searchableText(n, body)
 	}
 
 	walk := func(root, coll, source string) {
@@ -193,9 +222,9 @@ func (r *Retriever) Search(query string) ([]Hit, error) {
 	}
 	var hits []Hit
 	for _, id := range r.g.order {
-		body := r.g.bodies[id]
-		if idx := strings.Index(strings.ToLower(body), q); idx >= 0 {
-			hits = append(hits, Hit{Node: r.g.byID[id], Snippet: snippet(body, idx, len(q))})
+		text := r.g.searchTx[id]
+		if idx := strings.Index(strings.ToLower(text), q); idx >= 0 {
+			hits = append(hits, Hit{Node: r.g.byID[id], Snippet: snippet(text, idx, len(q))})
 		}
 	}
 	return hits, nil

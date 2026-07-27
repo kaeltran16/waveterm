@@ -19,6 +19,7 @@ import (
 type Decision struct {
 	ID         string
 	Created    int64
+	Summary    string
 	Actor      string
 	Provenance string
 	Status     string
@@ -30,7 +31,9 @@ type Decision struct {
 // DecisionFacts are the deterministic inputs code captures when a decision is submitted or a worker
 // reports one. TaskID is the dossier this decision belongs to; it is auto-added to the links block
 // and appended to the dossier's refs. Rationale is a seed draft (may be empty); the model/human owns
-// the final prose. Summary feeds the filename slug only.
+// the final prose. Summary is the decision's subject: it drives the filename slug and is stamped into
+// frontmatter, which is what makes the decision retrievable by what it is about (see J9) — the
+// rationale prose says why, and often never restates the topic.
 type DecisionFacts struct {
 	TaskID     string
 	Actor      string
@@ -99,6 +102,7 @@ func renderDecision(id string, created int64, f DecisionFacts, links []string) s
 	b.WriteString("---\n")
 	b.WriteString("id: " + id + "\n")
 	b.WriteString("created: " + strconv.FormatInt(created, 10) + "\n")
+	b.WriteString("summary: " + yamlScalar(f.Summary) + "\n")
 	b.WriteString("actor: " + yamlScalar(f.Actor) + "\n")
 	b.WriteString("provenance: " + yamlScalar(f.Provenance) + "\n")
 	b.WriteString("status: active\n")
@@ -112,7 +116,7 @@ func renderDecision(id string, created int64, f DecisionFacts, links []string) s
 // the machine links block. The rationale body is human-owned (a human edit locks the seed draft).
 func DecisionSpec() wavevault.RegionSpec {
 	return wavevault.RegionSpec{
-		MachineKeys: []string{"id", "created", "actor", "provenance", "status"},
+		MachineKeys: []string{"id", "created", "summary", "actor", "provenance", "status"},
 		Blocks:      []string{"links"},
 	}
 }
@@ -128,6 +132,7 @@ func LoadDecision(r *wavevault.Retriever, id string) (*Decision, error) {
 	return &Decision{
 		ID:         nb.Node.ID,
 		Created:    fmInt(fm, "created"),
+		Summary:    fmString(fm, "summary"),
 		Actor:      fmString(fm, "actor"),
 		Provenance: fmString(fm, "provenance"),
 		Status:     fmString(fm, "status"),

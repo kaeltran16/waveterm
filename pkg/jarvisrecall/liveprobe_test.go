@@ -117,6 +117,73 @@ func TestLiveRecallProbe(t *testing.T) {
 	t.Logf("\nRESULT  target found: %d/%d with embeddings on, %d/%d with embeddings off", onFound, total, offFound, total)
 }
 
+// TestLiveKeywordReachesDossier is J9a's verify against the real corpus. A dossier's only prose is its
+// frontmatter `objective`; its body is marker comments and an empty `## Notes`. So a keyword drawn from
+// a dossier's own objective is the weakest possible lexical query, and before wavevault.searchableText
+// it retrieved nothing for *every* dossier — meaning the semantic lane was the only seed path into
+// tasks/, which is not the graceful degradation invariant 11 describes.
+func TestLiveKeywordReachesDossier(t *testing.T) {
+	if err := wavebase.CacheAndRemoveEnvVars(); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	wconfig.GetWatcher().Start()
+	ctx := context.Background()
+	v, err := openVault(ctx)
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+	r := v.Retriever(wavevault.AllScope())
+	nodes, err := r.Query(wavevault.Filter{})
+	if err != nil {
+		t.Fatalf("load vault: %v", err)
+	}
+
+	var checked, reached int
+	for _, n := range nodes {
+		if n.Collection != wavevault.CollTasks {
+			continue
+		}
+		obj, _ := n.Frontmatter["objective"].(string)
+		if strings.TrimSpace(obj) == "" {
+			continue
+		}
+		// the longest token is the most distinctive one the objective offers
+		_, toks := analyzeQuery(obj)
+		kw := ""
+		for _, tk := range toks {
+			if len(tk) > len(kw) {
+				kw = tk
+			}
+		}
+		if kw == "" {
+			continue
+		}
+		checked++
+		hits, err := v.Retriever(wavevault.AllScope()).Search(kw)
+		if err != nil {
+			t.Fatalf("search %q: %v", kw, err)
+		}
+		if containsHit(hits, n.ID) {
+			reached++
+		} else {
+			t.Errorf("dossier %s unreachable by %q, its own objective's most distinctive keyword", n.ID, kw)
+		}
+	}
+	if checked == 0 {
+		t.Skip("no dossiers with an objective in this vault")
+	}
+	t.Logf("RESULT  %d/%d dossiers reachable by a keyword from their own objective", reached, checked)
+}
+
+func containsHit(hits []wavevault.Hit, id string) bool {
+	for _, h := range hits {
+		if h.Node.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // TestLiveAmbientPremise answers whether a given profile's wstore can produce ambient tags at all:
 // the vault is shared across profiles but Runs are per-profile, so a dossier ref that resolves to no
 // Run yields no edge and no tag. Pass DBs as PROBE_DBS=<path>[,<path>...].

@@ -24,7 +24,7 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 | J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | ✅ Resolved 2026-07-27 |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
 | J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 |
-| J9 | Retrieval reads only part of a note — L2 misses frontmatter, embedding misses the id | correctness / reachability | S–M | — | 🔲 Open — found verifying J2 |
+| J9 | Retrieval reads only part of a note — L2 misses frontmatter, embedding misses the id | correctness / reachability | S–M | — | ✅ Resolved 2026-07-27 |
 
 **Dependency order.** J1–J4, J6 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
 `cmd/jarvisbackfill` and J6 (same day) added ~354 federated memory notes to what the vault reads;
@@ -176,9 +176,11 @@ scored on whether `selectSeeds` returns the target.
 | decision — input-validation boundary | missing | missing | not in top 52 |
 
 **3/5 on, 0/5 off.** The hits are not marginal: every one ranks **#1**, so the paraphrase lands on the
-right node rather than scraping in at the window edge. The two misses are **not** a `kSem` problem —
-neither target appears at six times the window depth — and both have identified causes, recorded as
-[J9](#j9--retrieval-reads-only-part-of-a-note) rather than as tuning debt.
+right node rather than scraping in at the window edge. The two misses were **not** a `kSem` problem at
+the time of this table — neither target appeared at six times the window depth — and both had
+identified causes, recorded as [J9](#j9--retrieval-reads-only-part-of-a-note) rather than as tuning
+debt. *(J9 has since shipped: the decision target now ranks #16 and so has become a `kSem` problem —
+the table above is the pre-J9 measurement, kept as the baseline it was.)*
 
 **Toggle-off** was exercised through the real config flag, not a stub: with `jarvis:embedenabled`
 false, `Available()` is false, L3 contributes nothing, the seed set is identical (6 both ways), no
@@ -384,6 +386,14 @@ separated: raise `kSem`, or take top-k **per collection** rather than globally. 
 better shape if the ratio holds, since raising a global k trades cost for a window memory still
 dominates. Note this is a *ranking-window* finding only — it does not explain J2's two misses, whose
 targets are absent from the ranking entirely (see J9).
+
+**Update after J9 shipped — `kSem` is now the sole blocker on a known-good case.** With decisions
+embedding their subject, J2's decision target ranks **#16 of 52** for a query about its own topic:
+correctly retrieved, correctly scored, and still dropped, because all 6 `kSem` slots went to memory
+notes. That upgrades the evidence from "memory dominates the window" to "a case that is right in every
+other respect fails *only* here", and it settles the two candidate reads in favour of **per-collection
+top-k** — raising a global `k` from 6 to past 16 to catch this one would drag 10+ more memory notes in
+with it. This is the calibration to do first; it has the clearest before/after test in the file.
 
 ### Measured 2026-07-27 (L4 semantic, against the completed index)
 The threshold calibration above scored dossier/run pairs offline. This measures L4 through the real
@@ -647,7 +657,7 @@ A `fast` sharpen still produces a usable rewrite; measure the before/after cost 
 
 ## J9 — Retrieval reads only part of a note
 
-**Status:** 🔲 Open · **Effort:** S–M · **Kind:** correctness / reachability · **Found while verifying J2**
+**Status:** ✅ Resolved 2026-07-27 (both fixes measured; the decision case now lands behind J5's `kSem`, see Verify) · **Effort:** S–M · **Kind:** correctness / reachability · **Found while verifying J2**
 
 ### Problem
 Both retrieval layers read a *different* proper subset of a note, and neither reads all of it. The two
@@ -693,10 +703,44 @@ Two small, independent changes; neither needs a re-index of unrelated notes:
 Order matters: (2) is a one-line authoring change plus a backfill; (1) touches a shared read path used
 by recall, S3's gate and U3's graph, so it wants its own slice.
 
-### Verify
-The decision case from J2's probe table retrieves its target; a dossier is reachable by a keyword drawn
-from its `objective` with embeddings **off**; the paraphrase probe re-run scores better than 3/5 with
-no regression on the three that already pass.
+### Verify — both fixes shipped and measured 2026-07-27
+
+**(a) `Search` reads the whole note — fixed, and the effect is total.** `wavevault.searchableText`
+composes the node id (raw *and* de-slugified, since ids are slugs of the title) + content-bearing
+frontmatter + body, built once at load. Measured on the real 424-node corpus with
+`TestLiveKeywordReachesDossier`, which asks the weakest possible question — is a dossier reachable by
+the most distinctive keyword in *its own* objective:
+
+| | dossiers reachable |
+|---|---|
+| before | **0 / 14** |
+| after | **14 / 14** |
+
+The before number is measured, not inferred — the change was stashed and the probe re-run. Metadata
+keys are deliberately excluded from the haystack (`contentFrontmatterKeys`): `status`/`actor`/
+`provenance` are `Filter`'s job, and folding them in would make a query containing "active" match every
+open note and crowd out real hits. A unit test asserts that exclusion so it can't be casually widened.
+
+**(b) Decisions embed their subject — fixed, necessary but *not sufficient*.** `renderDecision` now
+stamps `summary:` (already carried by `DecisionFacts`, previously used for the filename slug only), and
+the 4 existing decisions were backfilled. The J2 probe's decision case moved:
+
+| | rank of the target for a query about its own subject |
+|---|---|
+| before | **absent** from the top 52 nodes |
+| after | **node #16 of 52** (cos 0.3442) |
+
+So the decision went from *unretrievable* to *retrieved* — the correctness bug is gone. But the probe
+still scores **3/5**, unchanged, because `kSem = 6` truncates at 6 and that window is **100% memory
+notes**. The remaining blocker is J5's crowding, not J9's coverage. This is the honest result: J9 was a
+necessary fix that is not on its own sufficient, and the doc's original "scores better than 3/5"
+criterion was wrong to assume otherwise.
+
+**Caveat on the backfilled 4.** Their subjects were recovered from the filename slug, which
+`boundedSlug` truncates at 47 chars, so they are slightly clipped ("…security boundary was modified"
+reconstructs a cut-off word). The exact `f.Risk` text is in the radar findings, but two of the four
+collided on the same truncated slug and cannot be unambiguously matched back. Decisions written from
+now on carry the full untruncated subject.
 
 ---
 

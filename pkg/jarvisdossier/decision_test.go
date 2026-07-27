@@ -126,6 +126,56 @@ func TestSupersedeDecisionPreservesRationale(t *testing.T) {
 	}
 }
 
+// A decision's subject must live in frontmatter, not only in the filename. jarvisembed.embedText
+// serializes frontmatter + body, and never the node id — so a subject that exists only in the filename
+// is absent from the vector, and the decision cannot be retrieved by what it is about (J9b). The
+// rationale body says *why* and routinely never restates the topic, so it is not a fallback.
+func TestAppendDecisionStampsSubjectIntoFrontmatter(t *testing.T) {
+	fixedNow(t, 1753324800000)
+	v := newVault(t)
+	taskID, _, err := CreateDossier(v, DossierFacts{Ticket: "PROJ-12", Objective: "z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const subject = "the input validation security boundary was modified"
+	decID, err := AppendDecision(v, DecisionFacts{
+		TaskID: taskID, Actor: "radar", Provenance: "radar-investigation",
+		Rationale: "committed on the release branch after review", Summary: subject,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nb, err := v.Retriever(wavevault.AllScope()).Read(decID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmString(nb.Node.Frontmatter, "summary"); got != subject {
+		t.Fatalf("frontmatter summary = %q, want %q — the embedded text will not mention the subject", got, subject)
+	}
+	if strings.Contains(nb.Body, subject) {
+		t.Fatal("test is vacuous: the body happens to contain the subject, so frontmatter is not the only carrier")
+	}
+
+	// the new machine key must survive a status rewrite rather than be stripped as human-owned
+	d, err := LoadDecision(v.Retriever(wavevault.AllScope()), decID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Summary != subject {
+		t.Fatalf("projected Summary = %q, want %q", d.Summary, subject)
+	}
+	if _, err := SupersedeDecision(v, decID, "superseded", d.Hash); err != nil {
+		t.Fatalf("SupersedeDecision: %v", err)
+	}
+	after, err := LoadDecision(v.Retriever(wavevault.AllScope()), decID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Summary != subject {
+		t.Fatalf("summary lost across a status mutation: %q", after.Summary)
+	}
+}
+
 func TestLoadDecisionTolerantOfMissingProvenance(t *testing.T) {
 	v := newVault(t)
 	// an "old" decision missing provenance and the links block
