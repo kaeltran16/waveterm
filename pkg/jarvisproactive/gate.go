@@ -12,11 +12,19 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
 
-// Gate tunables (PLACEHOLDER — a deliberately HIGH bar; tune against a populated,
-// embedded vault; see docs/deferred.md).
+// Gate tunables. cosThreshold was calibrated 2026-07-27 against the real vault (647 chunks,
+// text-embedding-3-small via OpenRouter): across five probe queries the best on-topic hit was 0.4579
+// and an off-topic control topped out at 0.2342, so the whole usable range sits near 0.23–0.46. The
+// previous 0.82 was set as if comparing a query to a near-paraphrase (which does score ~0.85), but
+// retrieval compares a short query against a long chunk and those cosines run about half that — at
+// 0.82 the gate admitted nothing at all and the proactive card could never fire.
+//
+// 0.40 keeps the "deliberately high bar" intent (it fired on 2 of the 5 probe queries) while being
+// reachable. It is model-specific: switching jarvis:embedmodel shifts the distribution and this needs
+// re-measuring. queryK and shortlistMax remain uncalibrated.
 const (
 	queryK       = 8    // semantic candidates requested from the index
-	cosThreshold = 0.82 // minimum cosine to survive the pre-filter
+	cosThreshold = 0.40 // minimum cosine to survive the pre-filter
 	shortlistMax = 5    // max candidates handed to the model judge
 )
 

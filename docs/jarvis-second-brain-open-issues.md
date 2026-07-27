@@ -273,6 +273,26 @@ reconcile after embeddings are enabled will index ~354 nodes on the operator's o
 intended, but know it before flipping J2's toggle. The dossier/decision thinness above is unchanged;
 L2 and L4 remain uncalibratable from this history.
 
+### Calibrated 2026-07-27 (embeddings on, OpenRouter)
+Embeddings went live (`openai/text-embedding-3-small` via OpenRouter) after two defects that made the
+BYOK path impossible to use were fixed — see commit `307380ee`. Index: **373 nodes → 647 chunks**.
+Two constants are now measured rather than guessed:
+
+| constant | was | now | basis |
+|---|---|---|---|
+| `jarvisproactive.cosThreshold` | 0.82 | **0.40** | query→chunk over 647 real chunks: best on-topic hit 0.4579, off-topic control 0.2342. At 0.82 the gate admitted **nothing** — the proactive card could never fire. |
+| `jarvisattrib.semThreshold` | 0.75 | **0.65** | doc→doc over 14 known dossier→owner-run pairs vs 238 non-pairs: 100% recall at ~2.1% false positives. |
+
+**The load-bearing lesson: these two thresholds measure different comparisons and their distributions
+are not interchangeable.** Query→chunk tops out near 0.46; doc→doc positives have a median of 0.961.
+An earlier pass set `semThreshold` to 0.33 by transplanting the query→chunk figure and would have
+admitted 46 of 238 non-pairs (19.3% FP). The original 0.75 was very nearly right for L4 and badly
+wrong for the gate. Any future re-tune must re-measure per comparison type, and per model —
+both figures are specific to `text-embedding-3-small`.
+
+Still uncalibrated: `queryK`, `shortlistMax`, `semCandidateN`, `kSem`, `seedTopK`, `expandDepth`,
+`expandFanout`, `weightLayer2/3/4`, the bucket cutoffs, `probationMs`, `timeBoxMs`.
+
 ### Problem
 Every threshold, weight, window and cap across the second brain was fabricated to be plausible in
 isolation and marked `// PLACEHOLDER`, to be calibrated *"against a populated vault"*. None has been.

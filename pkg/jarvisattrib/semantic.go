@@ -16,10 +16,24 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// Semantic-layer (L4) tuning — PLACEHOLDER, calibrate against a populated vault (see docs/deferred.md).
+// Semantic-layer (L4) tuning. semThreshold was calibrated 2026-07-27 against the real corpus
+// (text-embedding-3-small via OpenRouter), scoring 14 known dossier→owner-run pairs against 238
+// non-pairs. This comparison is doc-to-doc and its distribution is much higher than the query-to-chunk
+// one jarvisproactive's gate sees — do not transplant a threshold between the two:
+//
+//	positive pairs: min 0.719, p50 0.961      negative pairs: p50 0.243, p90 0.416
+//	0.50 -> 100% recall,  5.9% false positives
+//	0.65 -> 100% recall, ~2.1% false positives   <- chosen
+//	0.75 ->  93% recall,  1.7% false positives   (drops a true pair)
+//
+// 0.65 sits below the worst true pair (0.719) with margin while holding false positives near their
+// floor — the FP rate is nearly flat from 0.60 to 0.70, so buying recall headroom there is free.
+// Caveat: positives are partly circular, since a dossier objective is seeded from its run's goal, so
+// real drifted pairs will score lower than this sample — which is the argument for the lower end of
+// that band. Model-specific; re-measure if jarvis:embedmodel changes. semCandidateN is uncalibrated.
 const (
 	semCandidateN = 20   // most-recent window-overlapping runs considered per orphan dossier
-	semThreshold  = 0.75 // cosine floor to propose a semantic edge
+	semThreshold  = 0.65 // cosine floor to propose a semantic edge
 )
 
 // openIndex is a seam so tests inject a temp index + mock embedder.
