@@ -748,3 +748,18 @@ values were picked to be legible in isolation, not against a dense graph):
 Also deferred in U3: search/filter over the graph, a read rail, cross-surface nav out of a node,
 live push (the base graph is a snapshot per surface open), and whole-vault attribution — the
 attribution bloom is resolved per focused task, never for every dossier at once.
+
+## Jarvis S3 — proactive resurfacing (2026-07-24)
+
+PLACEHOLDER tunables (calibrate against a populated, embedded vault):
+- `pkg/jarvisproactive/gate.go`: `queryK = 8`, `cosThreshold = 0.82` (deliberately high), `shortlistMax = 5`, and the `buildJudgePrompt` wording.
+- `pkg/wshrpc/wshserver/wshserver_runs.go`: `proactiveDispatchTimeout = 90s`.
+
+Deferred out of the S3 first cycle:
+- Triggers other than Run dispatch — rest-boundary/continuity resurfacing (would wire E's exposed-but-unwired `jarviscontinuity.Resume`), and conversation-turn resurfacing.
+- Global proactive feed / cross-event inbox (card is run-anchored only).
+- Ranked lists (single best match only).
+- Click-to-open the cited vault node (`vault:<id>` deep-link) — the card is informational this cycle, matching the non-interactive `ambientviews.RelevantDecisions` precedent. U2 (Tasks) and U3 (Graph) have since landed, so the deep-link target now exists and this is the natural next increment.
+- An "Ask Jarvis about this" card action.
+- Model tiering (interim capable model, shared deferred lever).
+- Auto-promotion of a surfaced insight into `memory/**` (v3; stays human-gated).
