@@ -20,6 +20,7 @@ import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./r
 import { pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { setDisposition } from "./radarstore";
 import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
+import { ambientRefForFinding } from "./ambient";
 import { AmbientTags, RelevantDecisions } from "./ambientviews";
 
 // Diff-renderer decision (plan D3 Step 1): RadarSignal.snippet is a plain unified-diff string, and the
@@ -101,7 +102,7 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                         </span>
                         <span className="uppercase tracking-wide">{finding.strength}</span>
                     </span>
-                    <AmbientTags oref={"radar:" + finding.id} />
+                    <AmbientTags {...ambientRefForFinding(finding)} />
                     <span className="flex-1" />
                     <span className="font-mono text-[11px] text-muted">{finding.subsystem}</span>
                 </div>
@@ -112,7 +113,7 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                 <p className="text-sm leading-relaxed text-muted-foreground">{finding.why}</p>
             </Section>
 
-            <RelevantDecisions oref={"radar:" + finding.id} />
+            <RelevantDecisions {...ambientRefForFinding(finding)} />
 
             <Section title="Supporting evidence" meta={`${findingSignalCount(finding)} signals · ${findingSourceCount(finding, report)} sources`}>
                 {referenced.length > 0 ? (

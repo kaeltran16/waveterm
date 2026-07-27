@@ -18,6 +18,7 @@ type JarvisCommands interface {
 	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
 	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                             // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
 	ResolveDossierEdgesCommand(ctx context.Context, data CommandResolveDossierEdgesData) (*CommandResolveDossierEdgesRtnData, error) // a dossier's attributed run nodes + typed attribution edges (U3 focus bloom)
+	ResolveAmbientCommand(ctx context.Context) (*CommandResolveAmbientRtnData, error)                                              // whole-vault ambient attribution: every dossier, its attributed run orefs, and its decisions
 	GetDossierCommand(ctx context.Context, data CommandGetDossierData) (*DossierDetail, error)                              // read one task dossier + its decisions for the Tasks surface
 	ListTaskDossiersCommand(ctx context.Context) (*CommandListTaskDossiersRtnData, error)                                  // list ALL task dossiers (any status) for the Tasks surface, newest-updated first
 	AppendDossierDecisionCommand(ctx context.Context, data CommandAppendDossierDecisionData) (*CommandAppendDossierDecisionRtnData, error) // human-append a decision to a dossier (user-attributed) + commit
@@ -177,6 +178,41 @@ type CommandResolveDossierEdgesData struct {
 type CommandResolveDossierEdgesRtnData struct {
 	Runs  []GraphNode `json:"runs"`
 	Links []GraphLink `json:"links"`
+}
+
+// AmbientTask is a dossier reduced to what an ambient tag renders: its id and display label. The whole
+// set ships (not just attributed ones) so a memory note's [[wikilink]] can resolve to a tag too.
+type AmbientTask struct {
+	Id    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// AmbientEdge is one attributed object -> dossier link. ORef is the object the tag renders on (a run
+// oref today). Provenance/Bucket/State mirror the U3 attribution encoding so the ambient layer can give
+// a provisional edge a distinct treatment — a low-confidence edge must never read as canonical.
+type AmbientEdge struct {
+	ORef       string `json:"oref"`
+	DossierId  string `json:"dossierid"`
+	Provenance string `json:"provenance"`
+	Bucket     string `json:"bucket"` // weak | medium | strong
+	State      string `json:"state"`  // informing | confirmed
+}
+
+// AmbientDecision is one decision record reachable from a dossier, projected for the ambient
+// "relevant past decisions" card. Title is lifted off the rationale — decisions carry no title field.
+type AmbientDecision struct {
+	DossierId string `json:"dossierid"`
+	Id        string `json:"id"`
+	Title     string `json:"title"`
+	Created   int64  `json:"created"`
+}
+
+// CommandResolveAmbientRtnData is the whole ambient map in one read: the frontend joins Edges to Tasks
+// by dossier id and renders Decisions on an object's detail. Loaded once per surface, not per row.
+type CommandResolveAmbientRtnData struct {
+	Tasks     []AmbientTask     `json:"tasks"`
+	Edges     []AmbientEdge     `json:"edges"`
+	Decisions []AmbientDecision `json:"decisions"`
 }
 
 // DecisionCard is one decision record projected for the Tasks surface. Rationale is human prose;

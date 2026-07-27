@@ -100,6 +100,29 @@ declare global {
         weekreset?: number;
     };
 
+    // wshrpc.AmbientDecision
+    type AmbientDecision = {
+        dossierid: string;
+        id: string;
+        title: string;
+        created: number;
+    };
+
+    // wshrpc.AmbientEdge
+    type AmbientEdge = {
+        oref: string;
+        dossierid: string;
+        provenance: string;
+        bucket: string;
+        state: string;
+    };
+
+    // wshrpc.AmbientTask
+    type AmbientTask = {
+        id: string;
+        label: string;
+    };
+
     // wshrpc.AskRtnData
     type AskRtnData = {
         askid: string;
@@ -1065,6 +1088,13 @@ declare global {
         verdict?: string;
         note?: string;
         commit?: string;
+    };
+
+    // wshrpc.CommandResolveAmbientRtnData
+    type CommandResolveAmbientRtnData = {
+        tasks: AmbientTask[];
+        edges: AmbientEdge[];
+        decisions: AmbientDecision[];
     };
 
     // wshrpc.CommandResolveDossierEdgesData

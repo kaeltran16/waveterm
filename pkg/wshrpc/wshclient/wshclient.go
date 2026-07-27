@@ -989,6 +989,12 @@ func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseD
 	return err
 }
 
+// command "resolveambient", wshserver.ResolveAmbientCommand
+func ResolveAmbientCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandResolveAmbientRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandResolveAmbientRtnData](w, "resolveambient", nil, opts)
+	return resp, err
+}
+
 // command "resolvedossieredges", wshserver.ResolveDossierEdgesCommand
 func ResolveDossierEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveDossierEdgesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandResolveDossierEdgesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandResolveDossierEdgesRtnData](w, "resolvedossieredges", data, opts)
