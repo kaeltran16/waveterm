@@ -132,6 +132,46 @@ func TestReconcileSplitsOversizedBatch(t *testing.T) {
 	}
 }
 
+// An empty note must not become an empty embed input. Real providers answer 200 with no data for "",
+// which fails the whole request — so one blank file in the vault blocked every other node from being
+// indexed. Found against the real vault: two notes ("UI issues", "Untitled") had no frontmatter and no
+// body, and stopped all 14 dossiers and 4 decisions from ever reaching the index.
+func TestReconcileSkipsEmptyNodes(t *testing.T) {
+	v, err := wavevault.OpenVaultAtForTest(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenVaultAtForTest: %v", err)
+	}
+	writeNode(t, v, "memory/blank.md", "")
+	writeNode(t, v, "memory/whitespace.md", "   \n\n\t\n")
+	writeNode(t, v, "memory/real.md", "---\nid: real\n---\nalpha content\n")
+
+	fe := &fakeEmbedder{dims: 3}
+	ix := newTestIndex(t, fe)
+
+	st, err := ix.Reconcile(context.Background(), v)
+	if err != nil {
+		t.Fatalf("a blank note broke the whole reconcile: %v", err)
+	}
+	if st.Embedded == 0 {
+		t.Fatal("embedded nothing — the real node should still be indexed")
+	}
+	var n int
+	if err := ix.db.QueryRow(`select count(*) from chunks where node_id = 'real'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("the non-empty node next to a blank one was not indexed")
+	}
+}
+
+func TestSplitSectionsYieldsNothingForEmptyBody(t *testing.T) {
+	for _, body := range []string{"", "   ", "\n\n\t\n"} {
+		if got := splitSections(body); len(got) != 0 {
+			t.Fatalf("splitSections(%q) = %d sections, want 0", body, len(got))
+		}
+	}
+}
+
 func TestReconcilePrunesRemoved(t *testing.T) {
 	v := seedVault(t)
 	ix := newTestIndex(t, &fakeEmbedder{dims: 3})

@@ -24,6 +24,14 @@ type fakeEmbedder struct {
 
 func (f *fakeEmbedder) Model() string { return "fake-model" }
 func (f *fakeEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	// real providers reject an empty input: OpenAI-compatible endpoints answer 200 with an empty data
+	// array, which surfaces as "embedded 0 of N inputs" and kills the whole request. Mirroring that here
+	// is what makes an empty chunk a test failure rather than a silent pass.
+	for _, tx := range texts {
+		if tx == "" {
+			return nil, errors.New("fakeEmbedder: empty input rejected")
+		}
+	}
 	f.calls += len(texts)
 	f.requests++
 	out := make([][]float32, len(texts))

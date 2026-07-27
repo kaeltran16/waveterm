@@ -44,8 +44,13 @@ func splitSections(body string) []Section {
 		buf = append(buf, ln)
 	}
 	flush()
+	// A body with no `##` still yields one section — but only if it has content. A wholly empty note must
+	// yield none: it would otherwise become an empty embed input, and providers answer 200 with no data
+	// for "", which fails the entire request and every other chunk batched alongside it.
 	if len(sections) == 0 {
-		sections = append(sections, Section{Idx: 0, Text: strings.TrimSpace(body)})
+		if txt := strings.TrimSpace(body); txt != "" {
+			sections = append(sections, Section{Idx: 0, Text: txt})
+		}
 	}
 	return sections
 }
