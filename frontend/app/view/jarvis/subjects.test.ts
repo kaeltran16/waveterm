@@ -86,6 +86,15 @@ describe("buildSubjectGroups", () => {
         expect(groups.find((g) => g.key === "threads")!.items.map((i) => i.id)).toEqual(["v1"]);
     });
 
+    it("scopes records and threads to nothing when the Space has no dossier id, rather than leaking the global lists", () => {
+        const groups = buildSubjectGroups({
+            ...BASE,
+            spaceScope: { channeloids: ["c1"], tabids: [], runorefs: [] } as unknown as SpaceScope,
+            spaceDossierId: null,
+        });
+        expect(groups.map((g) => g.key)).toEqual(["project:payments"]);
+    });
+
     it("passes everything through when the Space is revealed — the show-all escape hatch", () => {
         const groups = buildSubjectGroups({
             ...BASE,

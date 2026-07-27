@@ -45,6 +45,11 @@ describe("mentionedDossierIds", () => {
         expect(mentionedDossierIds(c)).toEqual(["task-418"]);
     });
 
+    it("ignores a task card whose target points at another otype rather than inventing an id from it", () => {
+        const c = convo([[card(1, "task", "run:r1")]]);
+        expect(mentionedDossierIds(c)).toEqual([]);
+    });
+
     it("skips a task card with an empty target rather than yielding an empty id", () => {
         const c = convo([[card(1, "task", "")]]);
         expect(mentionedDossierIds(c)).toEqual([]);

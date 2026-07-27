@@ -7,11 +7,21 @@
 import type { JarvisConversation } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
 
+const DOSSIER_OTYPE = "task";
+
 // A dossier citation's navTarget is either a bare dossier id or an oref ("task:<id>"). Only the oid half
-// is the dossier id; a target with an empty oid is not a citation we can resolve.
+// is the dossier id. An oref of any other otype is not resolvable to a dossier, so it yields null rather
+// than a confidently wrong id built from whatever followed the colon.
 function dossierIdFromTarget(navTarget: string): string | null {
     const target = navTarget ?? "";
-    const id = target.includes(":") ? target.slice(target.indexOf(":") + 1) : target;
+    const sep = target.indexOf(":");
+    if (sep < 0) {
+        return target === "" ? null : target;
+    }
+    if (target.slice(0, sep) !== DOSSIER_OTYPE) {
+        return null;
+    }
+    const id = target.slice(sep + 1);
     return id === "" ? null : id;
 }
 

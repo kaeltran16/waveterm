@@ -5,10 +5,10 @@
 // cannot have is not rendered, never greyed out and parked. One table so a control cannot drift onto the
 // wrong subject.
 
-import { subjectMark, type SubjectKind } from "./subjects";
+import { subjectMark, type SubjectKind, type SubjectMark } from "./subjects";
 
 export interface StageComposition {
-    mark: "#" | "▤" | "~";
+    mark: SubjectMark;
     showAutonomy: boolean;
     showProfile: boolean;
     reachText: string | null; // static statement of grounding reach; not a control (Spaces own scoping)

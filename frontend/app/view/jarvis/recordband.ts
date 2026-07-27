@@ -29,14 +29,21 @@ function rank(tag: AmbientTag): number {
     return state + (BUCKET_RANK[tag.bucket] ?? 0);
 }
 
-const LINE: Record<string, { style: "solid" | "dashed" | "dotted"; weightPx: number }> = {
+export interface EdgeLine {
+    style: "solid" | "dashed" | "dotted";
+    weightPx: number;
+}
+
+const LINE: Record<string, EdgeLine> = {
     strong: { style: "solid", weightPx: 2.5 },
     medium: { style: "dashed", weightPx: 1.5 },
     weak: { style: "dotted", weightPx: 1 },
 };
 
-export function edgeLineStyle(tag: AmbientTag): { style: "solid" | "dashed" | "dotted"; weightPx: number } {
-    return LINE[tag.bucket] ?? LINE.weak;
+// copied on the way out: the table is module state, and a caller adjusting a returned weight for a hover
+// treatment would otherwise change every later edge.
+export function edgeLineStyle(tag: AmbientTag): EdgeLine {
+    return { ...(LINE[tag.bucket] ?? LINE.weak) };
 }
 
 export function edgeLabel(tag: AmbientTag): string {
@@ -48,7 +55,7 @@ export function recordBandCase(input: BandInput): BandCase {
         return { case: "subject" };
     }
     if (input.kind === "conversation") {
-        return { case: "mentions", ids: input.mentionedIds };
+        return { case: "mentions", ids: input.mentionedIds ?? [] };
     }
     const tags = input.tags ?? [];
     if (tags.length === 0) {

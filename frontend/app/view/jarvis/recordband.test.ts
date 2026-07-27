@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AmbientTag } from "@/app/view/agents/ambient";
-import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
+import { edgeLabel, edgeLineStyle, recordBandCase, type BandInput } from "./recordband";
 
 function tag(taskId: string, state: string, bucket: string): AmbientTag {
     return { taskId, label: taskId.toUpperCase(), state, bucket };
@@ -50,6 +50,13 @@ describe("recordBandCase", () => {
     it("gives a conversation that cited no record an empty mentions band, not none", () => {
         expect(recordBandCase({ kind: "conversation", tags: [], mentionedIds: [] })).toEqual({ case: "mentions", ids: [] });
     });
+
+    it("defaults a missing mentioned-id list to empty rather than handing the band an undefined", () => {
+        expect(recordBandCase({ kind: "conversation", tags: [] } as unknown as BandInput)).toEqual({
+            case: "mentions",
+            ids: [],
+        });
+    });
 });
 
 describe("edgeLineStyle", () => {
@@ -64,6 +71,11 @@ describe("edgeLineStyle", () => {
 
     it("falls back to the weakest treatment for an unknown bucket rather than overstating it", () => {
         expect(edgeLineStyle(tag("t", "informing", "nonsense"))).toEqual({ style: "dotted", weightPx: 1 });
+    });
+
+    it("hands back a fresh object so one caller's tweak cannot corrupt every later edge", () => {
+        edgeLineStyle(tag("t", "confirmed", "strong")).weightPx = 99;
+        expect(edgeLineStyle(tag("t", "confirmed", "strong"))).toEqual({ style: "solid", weightPx: 2.5 });
     });
 });
 
