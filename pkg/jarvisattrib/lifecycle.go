@@ -159,6 +159,35 @@ func gatherLookups(ctx context.Context) (edgeLookups, []*waveobj.Run, error) {
 	return lk, runs, nil
 }
 
+// memoizeCommits wraps a lookups' commit resolver in a per-run cache. AllEdges runs the extractors over
+// every dossier against the same run set, so uncached the git range-log for a run would re-run once per
+// dossier.
+func memoizeCommits(lk edgeLookups) edgeLookups {
+	cache := map[string][]string{}
+	inner := lk.commits
+	lk.commits = func(r *waveobj.Run) []string {
+		if cs, ok := cache[r.OID]; ok {
+			return cs
+		}
+		cs := inner(r)
+		cache[r.OID] = cs
+		return cs
+	}
+	return lk
+}
+
+// edgesForDossier is the shared per-dossier core behind EdgesFor and AllEdges: the deterministic layers
+// with the override log applied, falling back to the semantic (L4) proposal only when they are silent.
+func edgesForDossier(ctx context.Context, d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups, ov map[string]string, now int64) []AttributedEdge {
+	det := applyOverrides(assembleEdges(d, runs, lk, now), ov)
+	if len(det) > 0 {
+		return det // deterministic attribution present; L4 runs only when L1-3 are silent
+	}
+	// Orphan dossier: propose semantic (L4) edges. Degrades to det (empty) when embeddings are off.
+	// Re-apply overrides so a previously-detached semantic edge stays suppressed.
+	return applyOverrides(proposeSemanticEdges(ctx, d, runs, lk, now), ov)
+}
+
 // EdgesFor is the D->C seam: the unified, confidence-descending dossier->Run edges (canonical layer-1
 // refs + inferred layers 2-3), with the human override log applied and detached edges dropped.
 // Read-only — it performs no writes (hardening is Harden/Accept).
@@ -175,14 +204,40 @@ func EdgesFor(ctx context.Context, v *wavevault.Vault, dossierID string) ([]Attr
 	if err != nil {
 		return nil, err
 	}
-	now := nowFn()
-	det := applyOverrides(assembleEdges(d, runs, lk, now), ov)
-	if len(det) > 0 {
-		return det, nil // deterministic attribution present; L4 runs only when L1-3 are silent
+	return edgesForDossier(ctx, d, runs, lk, ov, nowFn()), nil
+}
+
+// AllEdges is EdgesFor over every dossier in the vault, sharing one run load, one override read and one
+// commit cache. The ambient layer needs the whole run->dossier map at once; looping EdgesFor instead
+// would reload every Run and re-shell the git range-log per dossier. Dossiers that fail to load are
+// skipped (tolerant, mirroring the tasks-collection projection); dossiers with no edges are omitted.
+func AllEdges(ctx context.Context, v *wavevault.Vault) (map[string][]AttributedEdge, error) {
+	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
+	nodes, err := r.Query(wavevault.Filter{})
+	if err != nil {
+		return nil, fmt.Errorf("jarvisattrib: querying tasks: %w", err)
 	}
-	// Orphan dossier: propose semantic (L4) edges. Degrades to det (empty) when embeddings are off.
-	// Re-apply overrides so a previously-detached semantic edge stays suppressed.
-	return applyOverrides(proposeSemanticEdges(ctx, d, runs, lk, now), ov), nil
+	lk, runs, err := gatherLookups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lk = memoizeCommits(lk)
+	ov, err := readOverrides(v)
+	if err != nil {
+		return nil, err
+	}
+	now := nowFn()
+	out := map[string][]AttributedEdge{}
+	for _, n := range nodes {
+		d, err := jarvisdossier.LoadDossier(r, n.ID)
+		if err != nil {
+			continue
+		}
+		if edges := edgesForDossier(ctx, d, runs, lk, ov, now); len(edges) > 0 {
+			out[d.ID] = edges
+		}
+	}
+	return out, nil
 }
 
 // Backfill returns the still-informing (unconfirmed) subset of EdgesFor — the proposals a human would

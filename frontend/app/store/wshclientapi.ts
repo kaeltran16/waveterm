@@ -996,6 +996,12 @@ export class RpcApiType {
         return client.wshRpcCall("reportrunphase", data, opts);
     }
 
+    // command "resolveambient" [call]
+    ResolveAmbientCommand(client: WshClient, opts?: RpcOpts): Promise<CommandResolveAmbientRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveambient", null, opts);
+        return client.wshRpcCall("resolveambient", null, opts);
+    }
+
     // command "resolvedossieredges" [call]
     ResolveDossierEdgesCommand(client: WshClient, data: CommandResolveDossierEdgesData, opts?: RpcOpts): Promise<CommandResolveDossierEdgesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolvedossieredges", data, opts);

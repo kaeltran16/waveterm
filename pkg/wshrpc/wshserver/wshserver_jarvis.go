@@ -673,3 +673,118 @@ func buildDossierGraph(dossierID string, edges []jarvisattrib.AttributedEdge, by
 	}
 	return out
 }
+
+func (ws *WshServer) ResolveAmbientCommand(ctx context.Context) (*wshrpc.CommandResolveAmbientRtnData, error) {
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	dossiers, err := collectDossiers(v, func(string) bool { return true })
+	if err != nil {
+		return nil, err
+	}
+	byDossier, err := jarvisattrib.AllEdges(ctx, v)
+	if err != nil {
+		return nil, fmt.Errorf("resolving edges: %w", err)
+	}
+	decisions, err := allDecisions(v)
+	if err != nil {
+		return nil, err
+	}
+	out := buildAmbient(dossiers, byDossier, decisions)
+	return &out, nil
+}
+
+// allDecisions reads every decision record once. The ambient layer needs them grouped by dossier, and
+// dossierDecisions' per-dossier HasLink query would re-scan the collection for each one.
+func allDecisions(v *wavevault.Vault) ([]wshrpc.DecisionCard, error) {
+	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollDecisions}})
+	nodes, err := r.Query(wavevault.Filter{})
+	if err != nil {
+		return nil, fmt.Errorf("querying decisions: %w", err)
+	}
+	cards := []wshrpc.DecisionCard{}
+	for _, n := range nodes {
+		dec, err := jarvisdossier.LoadDecision(r, n.ID)
+		if err != nil {
+			continue
+		}
+		cards = append(cards, wshrpc.DecisionCard{
+			Id: dec.ID, Created: dec.Created, Actor: dec.Actor, Provenance: dec.Provenance,
+			Status: dec.Status, Links: dec.Links, Rationale: dec.Rationale,
+		})
+	}
+	return cards, nil
+}
+
+// Ambient text bounds — a tag sits inline on a dense row and a card title on one line.
+const (
+	ambientLabelMax = 40
+	ambientTitleMax = 80
+)
+
+// boundRunes truncates on a rune boundary (a byte slice would split a multi-byte character).
+func boundRunes(s string, n int) string {
+	rs := []rune(strings.TrimSpace(s))
+	if len(rs) <= n {
+		return string(rs)
+	}
+	return strings.TrimSpace(string(rs[:n])) + "…"
+}
+
+// ambientLabel is a dossier's tag text: its ticket when it has one (short and scannable), else the
+// objective bounded so a long one cannot blow out a row.
+func ambientLabel(d wshrpc.SpaceSummary) string {
+	if d.Ticket != "" {
+		return d.Ticket
+	}
+	return boundRunes(d.Objective, ambientLabelMax)
+}
+
+// decisionTitle is a decision's ambient card line: the first non-empty line of the human rationale,
+// stripped of markdown lead-ins and bounded. Decisions have no title field — the rationale is the record.
+func decisionTitle(rationale string) string {
+	for _, line := range strings.Split(rationale, "\n") {
+		s := strings.TrimSpace(strings.TrimLeft(line, "#>-*+ \t"))
+		if s == "" {
+			continue
+		}
+		return boundRunes(s, ambientTitleMax)
+	}
+	return ""
+}
+
+// buildAmbient is the pure projection behind ResolveAmbient: every dossier as a labelled tag target, its
+// attributed object edges, and the decisions that link back to it. Dossier order drives output order
+// (the edge map alone would iterate nondeterministically); a decision linking an unknown id is dropped.
+func buildAmbient(dossiers []wshrpc.SpaceSummary, byDossier map[string][]jarvisattrib.AttributedEdge, decisions []wshrpc.DecisionCard) wshrpc.CommandResolveAmbientRtnData {
+	out := wshrpc.CommandResolveAmbientRtnData{
+		Tasks: []wshrpc.AmbientTask{}, Edges: []wshrpc.AmbientEdge{}, Decisions: []wshrpc.AmbientDecision{},
+	}
+	known := make(map[string]bool, len(dossiers))
+	for _, d := range dossiers {
+		known[d.Id] = true
+		out.Tasks = append(out.Tasks, wshrpc.AmbientTask{Id: d.Id, Label: ambientLabel(d)})
+		for _, e := range byDossier[d.Id] {
+			out.Edges = append(out.Edges, wshrpc.AmbientEdge{
+				ORef:       e.RunORef,
+				DossierId:  d.Id,
+				Provenance: e.Provenance,
+				Bucket:     jarvisattrib.Bucket(e.Confidence),
+				State:      string(e.State),
+			})
+		}
+	}
+	for _, dec := range decisions {
+		for _, link := range dec.Links {
+			if !known[link] {
+				continue
+			}
+			out.Decisions = append(out.Decisions, wshrpc.AmbientDecision{
+				DossierId: link, Id: dec.Id, Title: decisionTitle(dec.Rationale), Created: dec.Created,
+			})
+		}
+	}
+	sort.SliceStable(out.Decisions, func(i, j int) bool { return out.Decisions[i].Created > out.Decisions[j].Created })
+	return out
+}

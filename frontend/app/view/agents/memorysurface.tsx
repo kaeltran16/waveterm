@@ -227,7 +227,7 @@ function ListView({
                                                 {n.title}
                                             </div>
                                             <div className="truncate text-[11.5px] text-ink-mid">{n.description}</div>
-                                            <AmbientTags oref={"memory:" + n.id} />
+                                            <AmbientTags links={n.links} />
                                         </div>
                                     </motion.button>
                                 );
@@ -288,7 +288,7 @@ function DetailBody({
                 <span className={cn("rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase", m.pillClass)} style={{ background: "rgba(255,255,255,0.05)" }}>
                     {m.label}
                 </span>
-                <AmbientTags oref={"memory:" + sel.id} />
+                <AmbientTags links={sel.links} />
                 <div className="flex-1" />
                 <span className="font-mono text-[10.5px] text-ink-faint">{sel.scope}</span>
             </div>
@@ -365,7 +365,7 @@ function DetailBody({
                 <MetaRow label="Updated" value={new Date(sel.updatedts).toLocaleDateString()} />
             </div>
             <div className="mb-[22px]">
-                <RelevantDecisions oref={"memory:" + sel.id} />
+                <RelevantDecisions links={sel.links} />
             </div>
             {related.length > 0 && (
                 <>
