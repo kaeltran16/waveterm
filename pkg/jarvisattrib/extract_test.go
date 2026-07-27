@@ -80,6 +80,76 @@ func TestPastProbation(t *testing.T) {
 	}
 }
 
+// The backfill importer (pkg/jarvisbackfill) writes a deliberate corpus shape: a dossier grouping
+// several runs, but a canonical ref for only the *owner*. This asserts that shape yields a mixed
+// confirmed/informing edge set rather than a single-valued one — the entire reason the importer does
+// not ref every run. It also pins the two ways that shape can silently degenerate: a dossier stamped
+// at import time instead of its run window attracts no layer-3 edges at all, and a corpus with a ref
+// per run reports everything at 1.0.
+func TestAssembleBackfillShapeYieldsMixedEdges(t *testing.T) {
+	const now = int64(1_000_000_000_000)
+	const hour = int64(3_600_000)
+	// window as the importer writes it: created = earliest run, updated = latest run end, completed.
+	d := &jarvisdossier.Dossier{
+		ID: "task-briefs", Status: "completed",
+		Created: now - 10*hour, Updated: now - 4*hour,
+		Refs: []string{"run-owner"},
+	}
+	runs := []*waveobj.Run{
+		{OID: "owner", ProjectPath: "/repo/wave", CreatedTs: now - 10*hour, CompletedTs: now - 9*hour},
+		{OID: "sib1", ProjectPath: "/repo/wave", CreatedTs: now - 8*hour, CompletedTs: now - 7*hour},
+		{OID: "sib2", ProjectPath: "/repo/wave", CreatedTs: now - 6*hour, CompletedTs: now - 4*hour},
+	}
+	lk := edgeLookups{
+		channelName: func(string) string { return "" },
+		commits:     func(*waveobj.Run) []string { return nil },
+	}
+
+	byORef := map[string]AttributedEdge{}
+	for _, e := range assembleEdges(d, runs, lk, now) {
+		byORef[e.RunORef] = e
+	}
+
+	owner := byORef["run:owner"]
+	if owner.State != StateConfirmed || owner.Confidence != weightLayer1 {
+		t.Fatalf("owner must be the canonical confirmed edge, got %+v", owner)
+	}
+	for _, oid := range []string{"run:sib1", "run:sib2"} {
+		e, ok := byORef[oid]
+		if !ok {
+			t.Fatalf("%s produced no edge — the dossier window does not reach its runs, so layer 3 never fires", oid)
+		}
+		if e.State != StateInforming || e.Confidence != weightLayer3 || e.Provenance != provStructural {
+			t.Fatalf("%s should be a weak structural edge, got %+v", oid, e)
+		}
+	}
+	if len(byORef) != 3 {
+		t.Fatalf("want 3 edges, got %d", len(byORef))
+	}
+}
+
+// A dossier stamped "now" instead of backdated to its runs is the silent-failure mode: the importer
+// looks like it worked, but D attributes nothing structurally.
+func TestAssembleRejectsImportTimeStampedDossier(t *testing.T) {
+	const now = int64(1_000_000_000_000)
+	const hour = int64(3_600_000)
+	d := &jarvisdossier.Dossier{
+		ID: "task-x", Status: "completed",
+		Created: now, Updated: now, // the bug: import time, not the run window
+		Refs: []string{"run-owner"},
+	}
+	runs := []*waveobj.Run{
+		{OID: "owner", ProjectPath: "/repo/wave", CreatedTs: now - 10*hour, CompletedTs: now - 9*hour},
+		{OID: "sib1", ProjectPath: "/repo/wave", CreatedTs: now - 8*hour, CompletedTs: now - 7*hour},
+	}
+	lk := edgeLookups{channelName: func(string) string { return "" }, commits: func(*waveobj.Run) []string { return nil }}
+	for _, e := range assembleEdges(d, runs, lk, now) {
+		if e.RunORef == "run:sib1" {
+			t.Fatal("sibling attracted an edge despite the dossier post-dating every run; the backdating guard is not doing anything")
+		}
+	}
+}
+
 func TestAssembleMergesAndOrders(t *testing.T) {
 	const now = int64(1_000_000_000_000)
 	// dossier already has a canonical layer-1 ref to run r0, ticket matches r1, r2 is a weak same-repo prior.

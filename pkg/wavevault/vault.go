@@ -59,6 +59,13 @@ func OpenVault(ctx context.Context) (*Vault, error) {
 	return openVaultAt(ctx, DefaultVaultRoot())
 }
 
+// OpenVaultAt opens a vault at an explicit root, bypassing config. For tools that must target a
+// vault other than the configured one — the backfill importer runs against a throwaway copy before
+// it is pointed at the real vault.
+func OpenVaultAt(ctx context.Context, root string) (*Vault, error) {
+	return openVaultAt(ctx, root)
+}
+
 // OpenVaultAtForTest opens a vault at an explicit root. Exported for sibling-package tests
 // (jarvisdossier); production code uses OpenVault.
 func OpenVaultAtForTest(ctx context.Context, root string) (*Vault, error) {

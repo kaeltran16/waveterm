@@ -20,14 +20,15 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 | J2 | No way to enable embeddings from the app → S1–S3 are dark code | reachability | S | — | ✅ Resolved 2026-07-27 |
 | J3 | Model tiering (invariant 2) never landed — C + E both burn the capable tier | cost | M | — | ✅ Resolved 2026-07-27 |
 | J4 | `jarviscontinuity.Resume` has no consumer (no "pick up where you left off") | feature gap | S–M | — | ✅ Resolved 2026-07-27 |
-| J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | J2 | 🔲 Open |
+| J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | corpus depth | 🔲 Open — partially unblocked |
 | J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | 🔲 Open |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
 | J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 |
 
-**Dependency order.** J1–J4 and J8 are done. J5 was gated on J2 and is now unblocked — but note it
-needs more than the settings UI: someone has to point it at a real provider and populate a vault. J6 is
-an independent slice of its own.
+**Dependency order.** J1–J4 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
+`cmd/jarvisbackfill`; what remains is corpus **depth**, not tooling — read J5's "Corpus reality"
+section before planning any calibration, because two of D's four weights cannot be measured from
+today's history at all. J6 is an independent slice of its own.
 
 ---
 
@@ -208,8 +209,34 @@ Returning to a task that hit a rest boundary surfaces its narrative without a fr
 
 ## J5 — Every tuning constant is an uncalibrated PLACEHOLDER
 
-**Status:** 🔲 Open · **Effort:** M · **Blocked by:** a provider-backed vault (J2 shipped the UI, but
-nothing has run against a real endpoint yet) · **Kind:** correctness / tuning
+**Status:** 🔲 Open · **Effort:** M · **Blocked by:** corpus depth, not tooling · **Kind:** correctness / tuning
+
+### Corpus reality (measured 2026-07-27 — read this before planning any calibration)
+J5's stated precondition, "populate + embed a real vault", was never satisfied, and the gap is deeper
+than the missing embeddings. As found: the Wave Vault held **3 dossiers, all
+`spawn-test-only-do-nothing` artifacts, and 0 decisions**; embeddings were off with no index on disk;
+`memory:vaultpath` pointed at `IdeaProjects/obsidian_vault`, which holds **0 markdown files** (the real
+Obsidian vault appears to be `IdeaProjects/obsidian/Work`, 51 files — a separate misconfiguration, not
+tracked here). Calibrating against that would have replaced one set of invented numbers with another.
+
+`cmd/jarvisbackfill` was built to fix the corpus half (see below). Against real history it yields
+**14 dossiers and 4 decisions**. What that does *not* reach:
+
+- **`weightLayer2` and `weightLayer4` can never be calibrated from this history.** L2 needs a ticket
+  id and none of the 18 runs carries one; L4 needs embeddings. Neither signal can fire, so the only
+  observable confidences are L1 (1.0) and L3 (0.3).
+- **The bucket cutoffs are consequently untestable.** `bucketWeakMax` 0.4 and `bucketStrongMin` 0.75
+  only ever have to separate 0.3 from 1.0 — a gap so wide that any value between them "passes".
+- **Exactly one multi-run dossier exists** (the 5-run `deferred-appendix-briefs` group), so the mixed
+  confirmed/informing shape is real but single-sampled.
+- **Decisions are thin for a recorded reason:** 42 Radar investigations exist and 33 have a terminal
+  status with a worker-written summary, but **12 of the 14 investigated run ids no longer exist in
+  `db_run`** — those runs were pruned and the reports kept dangling references. Only the 2 surviving
+  runs yield decisions.
+- **U3's "legible against a dense vault" stays unverified.** 14 dossiers is not dense.
+
+So the corpus unblocks *some* of J5, not J5. Calibrating D's weights honestly still needs either
+dogfooding depth or an embedding provider — the backfill moved the blocker, it did not remove it.
 
 ### Problem
 Every threshold, weight, window and cap across the second brain was fabricated to be plausible in
@@ -232,10 +259,41 @@ hardened edges** — S3 shipped on exactly those uncalibrated weights.
 All are recorded in `docs/deferred.md` under their sub-project's section.
 
 ### Fix
-Sequenced, not one pass: (1) land J2, (2) populate + embed a real vault, (3) calibrate the
-**deterministic** constants first (D weights, C seeds, U3 visuals — these need no provider), (4) then
-the semantic thresholds (S2, S3) against real cosine distributions. Record each calibrated value and
-strike its `// PLACEHOLDER` marker plus its `docs/deferred.md` line as you go.
+Sequenced, not one pass: (1) land J2 ✅, (2) populate + embed a real vault — **populate** shipped as
+`cmd/jarvisbackfill`, **embed** still needs a provider, (3) calibrate the **deterministic** constants
+first (D weights, C seeds, U3 visuals — these need no provider), (4) then the semantic thresholds (S2,
+S3) against real cosine distributions. Record each calibrated value and strike its `// PLACEHOLDER`
+marker plus its `docs/deferred.md` line as you go. Per the corpus section above, step 3 can only
+partially succeed on today's history.
+
+### The backfill importer (shipped 2026-07-27)
+`cmd/jarvisbackfill` imports recorded wstore history into the vault as a real corpus. It graduates the
+"historical backfill from SQLite" item out of J7 (`docs/deferred.md` § C, item 3).
+
+- **Strict fidelity.** Only recorded facts are written. Runs supply the dossier (goal → objective,
+  status, window); Radar investigations that reached a terminal state with a worker-written summary
+  supply the decisions, rationale verbatim. `ticket`, `acceptance` and rationale prose are left empty
+  where the history recorded none, and every gap lands in `Plan.Skipped` rather than being invented.
+- **Grouping.** Runs naming the same markdown artifact join one dossier — the only grouping signal
+  this history carries, since there are no ticket ids.
+- **Owner-only refs.** A canonical ref is written for the group's *owner* run (D layer 1, confirmed,
+  1.0); siblings are deliberately left unreferenced so D infers them structurally (layer 3, informing,
+  0.3). Referencing every run would report the whole graph at 1.0 and calibrate nothing.
+- **Backdating is load-bearing.** `windowsOverlap` requires `runEnd >= dossier.Created`, so a dossier
+  stamped at import time attracts *no* layer-3 edges — the importer looks successful and silently
+  produces a degenerate corpus. `DossierFacts.Created` was added for this, and the failure mode is
+  pinned by `TestAssembleRejectsImportTimeStampedDossier` in `pkg/jarvisattrib`.
+- **Safe to re-run.** Read-only against the database (it never opens wstore, whose init would migrate
+  a production DB), idempotent via deterministic slugs, `--dry-run` and `--vault` for rehearsal, and
+  one git commit in the vault so the whole import reverts at once.
+
+Two collisions found and fixed while running it against real data, both from `boundedSlug` truncating:
+two distinct "execute this plan …" dossiers and two same-day decisions each collapsed onto one
+filename, silently losing the second. Ids are now deduped at plan time, so an "already exists" at
+apply time unambiguously means re-import.
+
+**Prerequisite before calibrating:** delete the 3 `spawn-test-only-do-nothing` dossiers from the real
+vault — they are test artifacts and will skew any measurement.
 
 ### Verify
 No `// PLACEHOLDER` markers remain in the listed files; the U3 graph is legible against a *dense*
@@ -285,7 +343,7 @@ Listed so they are not re-discovered as if new; **do not build them off the spec
   whole-vault attribution (bloom is per-focused-task).
 - **S2:** recency-aware semantic seed merge; loosening L4 gating to per-run silence.
 - **S1:** warm-at-`Reconcile`-on-commit wiring (lazy from `Query` today).
-- **C:** learning/cache tier; historical backfill from SQLite.
+- **C:** learning/cache tier. (Historical backfill from SQLite graduated out 2026-07-27 — shipped as `cmd/jarvisbackfill`, see J5.)
 - **E:** app idle/quit continuity flush (A's quit commit already covers it); completed-task prose
   re-freshness.
 

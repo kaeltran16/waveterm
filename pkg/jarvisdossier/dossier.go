@@ -34,6 +34,11 @@ type DossierFacts struct {
 	Objective  string
 	Acceptance []string
 	Confidence string // defaults to "med"
+	// Created overrides the created/updated stamp, for importing work whose dispatch already
+	// happened (see pkg/jarvisbackfill). Zero means now, so live dispatch is unaffected. It must be
+	// the real dispatch time: D's layer-3 windowing compares run end against dossier created, so a
+	// historical dossier stamped "now" silently attracts no structural edges.
+	Created int64
 }
 
 // DossierSpec is the region-ownership contract A enforces for a dossier: the machine frontmatter keys
@@ -43,6 +48,20 @@ func DossierSpec() wavevault.RegionSpec {
 		MachineKeys: []string{"status", "ticket", "objective", "acceptance", "confidence", "created", "updated"},
 		Blocks:      []string{"state", "refs", "blockers"},
 	}
+}
+
+// DossierID returns the node id (filename stem) CreateDossier derives for these facts, without
+// writing anything. Exported so bulk importers can detect id collisions before they hit the vault:
+// the slug is length-bounded, so two distinct objectives sharing a long prefix collapse onto the
+// same file and the second loses to a create-collision.
+func DossierID(f DossierFacts) string {
+	return boundedSlug(f.Ticket+" "+f.Objective, "task")
+}
+
+// DecisionSlug returns the slug portion of the filename AppendDecision derives from a summary. Same
+// collision caveat, and same reason for exporting it.
+func DecisionSlug(summary string) string {
+	return boundedSlug(summary, "decision")
 }
 
 // CreateDossier scaffolds a new dossier in tasks/active (frontmatter + empty state/refs/blockers
@@ -62,7 +81,11 @@ func CreateDossier(v *wavevault.Vault, f DossierFacts) (string, string, error) {
 }
 
 func renderDossier(f DossierFacts, conf string) string {
-	now := strconv.FormatInt(nowFn(), 10)
+	stamp := f.Created
+	if stamp == 0 {
+		stamp = nowFn()
+	}
+	ts := strconv.FormatInt(stamp, 10)
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("status: active\n")
@@ -70,8 +93,8 @@ func renderDossier(f DossierFacts, conf string) string {
 	b.WriteString("objective: " + yamlScalar(f.Objective) + "\n")
 	b.WriteString("acceptance: " + flowList(f.Acceptance) + "\n")
 	b.WriteString("confidence: " + conf + "\n")
-	b.WriteString("created: " + now + "\n")
-	b.WriteString("updated: " + now + "\n")
+	b.WriteString("created: " + ts + "\n")
+	b.WriteString("updated: " + ts + "\n")
 	b.WriteString("---\n")
 	b.WriteString(emptyBlock("state"))
 	b.WriteString(emptyBlock("refs"))
