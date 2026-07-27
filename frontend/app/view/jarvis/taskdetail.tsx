@@ -73,7 +73,9 @@ function StatusControl({ dossierId, status }: { dossierId: string; status: strin
     );
 }
 
-export function TaskDetail({ detail }: { detail: DossierDetail }) {
+// showDecisions=false when the caller renders the decision log itself: on the merged surface a dossier
+// subject's record band shows the record's fields while its thread below owns the record's activity.
+export function TaskDetail({ detail, showDecisions = true }: { detail: DossierDetail; showDecisions?: boolean }) {
     // The dossier scaffold seeds an empty "## Notes" heading; the read projection keeps it. Strip that
     // redundant leading heading so the FE's own "Notes" section is the only heading and a dossier with
     // no real notes renders no Notes section at all.
@@ -154,9 +156,11 @@ export function TaskDetail({ detail }: { detail: DossierDetail }) {
                 </Section>
             ) : null}
 
-            <Section title="Decisions">
-                <DecisionLog decisions={decisions} dossierId={detail.id} />
-            </Section>
+            {showDecisions ? (
+                <Section title="Decisions">
+                    <DecisionLog decisions={decisions} dossierId={detail.id} />
+                </Section>
+            ) : null}
         </div>
     );
 }
