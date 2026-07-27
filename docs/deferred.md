@@ -734,3 +734,18 @@ tokens, then set `paper.dark = true`-equivalent exposure in the picker.
 - probation window: 24h (`probationMs`)
 - layer-3 time-box (drift decay): 30d (`timeBoxMs`)
 - confidence display buckets: weak <0.4, strong ≥0.75
+
+## Jarvis S3 — proactive resurfacing (2026-07-24)
+
+PLACEHOLDER tunables (calibrate against a populated, embedded vault):
+- `pkg/jarvisproactive/gate.go`: `queryK = 8`, `cosThreshold = 0.82` (deliberately high), `shortlistMax = 5`, and the `buildJudgePrompt` wording.
+- `pkg/wshrpc/wshserver/wshserver_runs.go`: `proactiveDispatchTimeout = 90s`.
+
+Deferred out of the S3 first cycle:
+- Triggers other than Run dispatch — rest-boundary/continuity resurfacing (would wire E's exposed-but-unwired `jarviscontinuity.Resume`), and conversation-turn resurfacing.
+- Global proactive feed / cross-event inbox (card is run-anchored only).
+- Ranked lists (single best match only).
+- Click-to-open the cited vault node (`vault:<id>` deep-link) — no Tasks (U2) / Graph (U3) surface exists yet; the card is informational this cycle, matching the non-interactive `ambientviews.RelevantDecisions` precedent.
+- An "Ask Jarvis about this" card action.
+- Model tiering (interim capable model, shared deferred lever).
+- Auto-promotion of a surfaced insight into `memory/**` (v3; stays human-gated).
