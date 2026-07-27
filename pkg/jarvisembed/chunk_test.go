@@ -39,3 +39,27 @@ func TestEmbedTextIncludesFrontmatter(t *testing.T) {
 		t.Fatalf("embedText missing parts: %q", txt)
 	}
 }
+
+// A single oversized note must not be able to kill the whole reconcile. Real corpora contain them
+// (a 200k-char memory note was what surfaced this), providers cap input at a few thousand tokens,
+// and OpenRouter signals the overflow as 200-with-empty-data rather than an error status — so
+// without a guard the failure is both total and unreadable.
+func TestEmbedTextCapsOversizedSections(t *testing.T) {
+	huge := strings.Repeat("x", 300_000)
+	got := embedText(map[string]any{"name": "big"}, Section{Heading: "Notes", Text: huge})
+	if len(got) > maxEmbedChars {
+		t.Fatalf("embedText returned %d chars, want <= %d", len(got), maxEmbedChars)
+	}
+	// the metadata prefix is the most identifying part; truncation must keep it
+	if !strings.HasPrefix(got, "name: big\n## Notes\n") {
+		t.Fatalf("truncation dropped the frontmatter/heading prefix: %.40q", got)
+	}
+}
+
+// Ordinary content must pass through untouched.
+func TestEmbedTextLeavesNormalSectionsAlone(t *testing.T) {
+	got := embedText(map[string]any{"name": "n"}, Section{Heading: "H", Text: "short body"})
+	if got != "name: n\n## H\nshort body" {
+		t.Fatalf("unexpected rewrite: %q", got)
+	}
+}

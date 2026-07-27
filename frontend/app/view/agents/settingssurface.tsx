@@ -771,7 +771,8 @@ function MemorySection() {
 }
 
 // The secret the embedding provider reads (pkg/jarvisembed/embed.go). Never read back into the UI.
-const EMBED_SECRET_NAME = "jarvis:embedapikey";
+// Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
+const EMBED_SECRET_NAME = "jarvis_embedapikey";
 
 function SaveButton({ label, onClick }: { label: string; onClick: () => void }) {
     return (

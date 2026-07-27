@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Section is one embeddable unit of a node body: the text under a `##` heading
@@ -49,8 +50,16 @@ func splitSections(body string) []Section {
 	return sections
 }
 
+// maxEmbedChars bounds one embed input. Embedding models cap input at a few thousand tokens
+// (text-embedding-3-small: 8192); a real corpus contains notes far past that, and an overflow is not
+// a graceful failure — the provider drops the vector and Embed fails the whole batch, so one big note
+// leaves the entire index unbuilt. ~3 chars/token is deliberately pessimistic (code and non-English
+// tokenize worse than prose) and the cap is not model-derived: baseURL/model are user-configurable,
+// so this is a floor that keeps mainstream models safe rather than an exact limit.
+const maxEmbedChars = 24000
+
 // embedText builds the string sent to the embedder: frontmatter as metadata
-// (sorted for determinism) + the section heading + the section text.
+// (sorted for determinism) + the section heading + the section text, truncated to maxEmbedChars.
 func embedText(fm map[string]any, s Section) string {
 	var b strings.Builder
 	keys := make([]string, 0, len(fm))
@@ -65,5 +74,14 @@ func embedText(fm map[string]any, s Section) string {
 		fmt.Fprintf(&b, "## %s\n", s.Heading)
 	}
 	b.WriteString(s.Text)
-	return b.String()
+	out := b.String()
+	if len(out) > maxEmbedChars {
+		// truncate the tail, not the head: the metadata/heading prefix is what identifies the chunk
+		out = out[:maxEmbedChars]
+		// ...back off to a rune boundary so the payload stays valid UTF-8
+		for len(out) > 0 && !utf8.ValidString(out) {
+			out = out[:len(out)-1]
+		}
+	}
+	return out
 }

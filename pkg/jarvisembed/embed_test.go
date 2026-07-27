@@ -9,12 +9,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/secretstore"
 )
 
 func TestSecretKeyNameStable(t *testing.T) {
-	if secretKeyName != "jarvis:embedapikey" {
-		t.Fatalf("secretKeyName = %q, want jarvis:embedapikey", secretKeyName)
+	if secretKeyName != "jarvis_embedapikey" {
+		t.Fatalf("secretKeyName = %q, want jarvis_embedapikey", secretKeyName)
 	}
 }
 
@@ -81,5 +84,15 @@ func TestCosine(t *testing.T) {
 	}
 	if Cosine([]float32{1, 0}, []float32{1, 0, 0}) != 0 {
 		t.Fatal("mismatched lengths should be 0")
+	}
+}
+
+// The BYOK path shipped unreachable because secretKeyName contained a colon: GetSecret does not
+// validate names but SetSecret does, so the key could be read and never written, and nothing failed
+// until someone actually tried to save one. Pin the coupling to secretstore's rule.
+func TestSecretKeyNameIsWritable(t *testing.T) {
+	if !regexp.MustCompile(secretstore.SecretNamePattern).MatchString(secretKeyName) {
+		t.Fatalf("secretKeyName %q violates secretstore.SecretNamePattern %q — SetSecret would reject it",
+			secretKeyName, secretstore.SecretNamePattern)
 	}
 }

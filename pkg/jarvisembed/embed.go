@@ -21,7 +21,10 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
-const secretKeyName = "jarvis:embedapikey"
+// secretKeyName must satisfy secretstore.SecretNamePattern (letters, digits, underscore — the shell
+// env-var charset). It is deliberately not "jarvis:embedapikey": SetSecret rejects colons, so that
+// name could be read but never written, which left the whole BYOK path unreachable.
+const secretKeyName = "jarvis_embedapikey"
 
 // resolveConfig reads the BYOK settings. enabled is false unless the flag is on
 // and both base URL and model are set.
