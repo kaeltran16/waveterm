@@ -638,6 +638,151 @@ const jarvisContinuityResume = {
     },
 };
 
+// --- jarvis proactive: the S3 "related prior work" card renders on a run, and dismissal persists ------
+// The eval pipeline (cosine pre-filter -> model judge) is covered by pkg/jarvisproactive's Go tests, so
+// this scenario needs neither live embeddings nor a model: arrange dispatches a REAL quick-mode run and
+// then writes a hit suggestion straight onto run.Meta via setmeta — the same wstore.UpdateObjectMeta path
+// the backend hook writes through. What it proves is the delivery + render + dismiss legs: the card shows
+// on the run body, the × clears it, and the dismissal is persisted server-side (so it stays gone across a
+// reload — the "flag present => no card" half is unit-tested in proactive.test.ts).
+const PROACTIVE_GOAL = "spawn-test only: do nothing, make no file changes, stop immediately";
+const PROACTIVE_TITLE = "Drop-oldest on overflow";
+const PROACTIVE_SUGGESTION = {
+    status: "hit",
+    nodeId: "dec-demo",
+    sourceType: "decision",
+    title: PROACTIVE_TITLE,
+    snippet: "chose drop-oldest to bound memory",
+    why: "Related to this run",
+};
+
+const jarvisProactive = {
+    name: "jarvis-proactive",
+    surface: "channels",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-proactive-"));
+        const wslist = await h.rpc("workspacelist", null);
+        const workspaceId = wslist[0].workspacedata.oid;
+        const ch = await h.rpc("createchannel", { name: "verify-proactive", projectpath: cwd });
+        const created = await h.rpc("createrun", {
+            channelid: ch.oid,
+            workspaceid: workspaceId,
+            goal: PROACTIVE_GOAL,
+            mode: "quick",
+        });
+        const run = created.run;
+        const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
+        await h.rpc("setmeta", { oref: `run:${run.id}`, meta: { "jarvis:proactive": PROACTIVE_SUGGESTION } });
+        return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const runMeta = async () => {
+            const rtn = await h.rpc("getchannelruns", { channelid: ctx.channelId });
+            const r = (rtn.runs || []).find((x) => x.id === ctx.runId) || {};
+            return r.meta || {};
+        };
+        // innerText reflects CSS text-transform, and the card's eyebrow is uppercased — compare case-insensitively.
+        const cardState = () =>
+            h.ev(`(() => {
+                const body = (document.body.innerText || '').toUpperCase();
+                return {
+                    label: body.includes('RELATED PRIOR WORK'),
+                    title: body.includes(${JSON.stringify(PROACTIVE_TITLE.toUpperCase())}),
+                    btn: !!document.querySelector('button[aria-label="Dismiss suggestion"]'),
+                };
+            })()`);
+
+        // The channel rail renders a snapshot refreshed by loadChannels(), so a channel created out-of-band
+        // over RPC is invisible to an already-running app. Reload to re-fetch the list (same pattern as
+        // jarvis-multiturn), then select the scenario's channel; the surface auto-resolves its single run.
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
+        await h.goto("channels");
+        const picked = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')]
+                .find((x) => (x.textContent || '').includes('verify-proactive'));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        // the run strip + body mount after the channel's row-backed streams load; poll briefly.
+        let shown = { label: false, title: false, btn: false };
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            shown = await cardState();
+            if (shown.label && shown.title) break;
+        }
+        const rendered = picked === true && shown.label && shown.title && shown.btn;
+        steps.push({
+            step: "proactive card renders on the run body (label + suggestion title)",
+            ok: rendered,
+            detail: JSON.stringify({ picked, ...shown }),
+        });
+        await h.shot("cdp-shots/jarvis-proactive.png");
+
+        // dismiss -> the card leaves the DOM immediately (optimistic atom). Requires the button to have been
+        // there: without this the step would pass vacuously whenever the card never rendered.
+        const clicked = await h.ev(`(() => {
+            const b = document.querySelector('button[aria-label="Dismiss suggestion"]');
+            if (b) b.click();
+            return !!b;
+        })()`);
+        let gone = { label: true, title: true, btn: true };
+        for (let i = 0; i < 10; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 300))");
+            gone = await cardState();
+            if (!gone.label && !gone.btn) break;
+        }
+        steps.push({
+            step: "dismiss (×) removes the card from the run body",
+            ok: clicked === true && !gone.label && !gone.btn,
+            detail: JSON.stringify({ clicked, ...gone }),
+        });
+
+        // ...and the dismissal is persisted server-side, so it stays gone across a reload
+        let persisted;
+        for (let i = 0; i < 10; i++) {
+            persisted = await runMeta();
+            if (persisted["jarvis:proactive:dismissed"] === true) break;
+            await h.ev("new Promise((r) => setTimeout(r, 300))");
+        }
+        steps.push({
+            step: "dismissal persisted to run.meta (survives reload)",
+            ok: persisted["jarvis:proactive:dismissed"] === true,
+            detail: JSON.stringify(persisted),
+        });
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+        try {
+            await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId });
+        } catch {
+            // best-effort cleanup
+        }
+        for (const oref of ctx.workers) {
+            try {
+                const tab = await h.rpc("gettab", oref.slice(4));
+                const bid = tab && tab.blockids && tab.blockids[0];
+                if (bid) await h.rpc("deleteblock", { blockid: bid });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -649,4 +794,5 @@ export const SCENARIOS = [
     jarvisMultiturn,
     jarvisVaultRecall,
     jarvisContinuityResume,
+    jarvisProactive,
 ];
