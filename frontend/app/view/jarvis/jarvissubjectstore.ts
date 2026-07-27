@@ -11,7 +11,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { selectChannel } from "@/app/view/agents/channelsstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import { selectConversation } from "./jarvisstore";
+import { selectConversation, startConversation, submitJarvisQuery } from "./jarvisstore";
 import type { SubjectKind } from "./subjects";
 import { selectDossier } from "./tasksstore";
 
@@ -91,6 +91,24 @@ export function toggleRecordBand(subjectId: string): void {
 export function setActiveRunId(channelId: string, runId: string | undefined): void {
     const prev = globalStore.get(activeRunIdAtom);
     globalStore.set(activeRunIdAtom, { ...prev, [channelId]: runId });
+}
+
+// A record's own Jarvis thread. Asking about a record has to land somewhere, and a record has no turn
+// list: this starts one conversation per record, attached to it. That attachment is also what makes the
+// thread discoverable later — a conversation's only link to a record is what it cited.
+export const recordConversationAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+export function askAboutRecord(dossierId: string, objective: string, text: string): void {
+    let convId = globalStore.get(recordConversationAtom)[dossierId];
+    if (convId == null) {
+        convId = startConversation({
+            mode: "object",
+            chips: [{ label: dossierId, active: true }],
+            attached: [{ oref: "task:" + dossierId, sourceType: "task", title: objective }],
+        });
+        globalStore.set(recordConversationAtom, { ...globalStore.get(recordConversationAtom), [dossierId]: convId });
+    }
+    submitJarvisQuery(convId, text);
 }
 
 export function loadRecordDetail(dossierId: string): void {

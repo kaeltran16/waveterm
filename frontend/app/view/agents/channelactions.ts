@@ -10,7 +10,7 @@ import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { jarvisModeAtom, pendingFleetSummaryAtom } from "@/app/view/jarvis/jarvisstore";
+import { pendingFleetSummaryAtom } from "@/app/view/jarvis/jarvisstore";
 import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
@@ -111,10 +111,9 @@ export async function sendChannelMessage(args: {
             await post(channelId, "dispatch", "claude", del.task, `tab:${tabId}`);
             return;
         }
-        // observe-only summary: hand off to the Jarvis surface (Fleet mode) instead of streaming in-channel.
+        // observe-only summary: request it in place. The rail's Fleet section picks this up and runs the
+        // same summary its own button runs — @jarvis must not move the user off the subject they are on.
         globalStore.set(pendingFleetSummaryAtom, { channelId, focus: plan.text });
-        globalStore.set(jarvisModeAtom, "fleet");
-        globalStore.set(model.surfaceAtom, "jarvis");
         return;
     }
     if (plan.kind === "consult") {

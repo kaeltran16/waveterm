@@ -4,11 +4,16 @@
 // A record's thread region. The record's own fields live in the band above; this is its activity — the
 // runs attributed to it and the decisions appended to it.
 
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { runStatusView } from "@/app/view/agents/runmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { Brain } from "lucide-react";
 import { DecisionLog } from "./decisionlog";
-import { recordRunsAtom } from "./jarvissubjectstore";
+import { isAnswerTurn } from "./jarviscontract";
+import { conversationsByIdAtom } from "./jarvisstore";
+import { recordConversationAtom, recordRunsAtom } from "./jarvissubjectstore";
+import { JarvisAnswer, JarvisUserTurn } from "./jarvisturn";
 
 const RUN_TONE: Record<string, string> = {
     running: "text-success",
@@ -18,9 +23,12 @@ const RUN_TONE: Record<string, string> = {
     cancelled: "text-ink-faint",
 };
 
-export function RecordThread({ detail }: { detail: DossierDetail | null }) {
+export function RecordThread({ detail, model }: { detail: DossierDetail | null; model: AgentsViewModel }) {
     const byRecord = useAtomValue(recordRunsAtom);
+    const convIds = useAtomValue(recordConversationAtom);
+    const convsById = useAtomValue(conversationsByIdAtom);
     const runs = detail != null ? (byRecord[detail.id] ?? []) : [];
+    const conversation = detail != null ? convsById[convIds[detail.id] ?? ""] : undefined;
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-5 pb-2.5 pt-4">
             <div className="flex items-center gap-2.5">
@@ -77,6 +85,21 @@ export function RecordThread({ detail }: { detail: DossierDetail | null }) {
                         </span>
                         <DecisionLog decisions={detail.decisions ?? []} dossierId={detail.id} />
                     </div>
+                    {/* asking Jarvis about a record lands here, drawn by the one shared turn renderer */}
+                    {conversation != null && conversation.turns.length > 0 ? (
+                        <div className="flex flex-col gap-4 border-t border-border pt-3.5">
+                            {conversation.turns.map((turn, i) =>
+                                isAnswerTurn(turn) ? (
+                                    <div key={i} className="flex gap-3">
+                                        <Brain size={18} strokeWidth={1.8} className="mt-1 shrink-0 text-accent" />
+                                        <JarvisAnswer turn={turn} model={model} />
+                                    </div>
+                                ) : (
+                                    <JarvisUserTurn key={i} text={turn.text} />
+                                )
+                            )}
+                        </div>
+                    ) : null}
                 </>
             )}
         </div>

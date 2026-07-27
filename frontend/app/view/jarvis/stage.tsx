@@ -8,13 +8,18 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { tierFromMeta } from "@/app/view/agents/channelmessages";
-import { activeChannelAtom, activeChannelRunsAtom, channelDismissedRunsAtom } from "@/app/view/agents/channelsstore";
-import { pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import {
+    activeChannelAtom,
+    activeChannelRunsAtom,
+    channelDismissedRunsAtom,
+    channelsAtom,
+} from "@/app/view/agents/channelsstore";
+import { getJarvisProfile, pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ConversationView } from "./conversationview";
 import { activeConversationAtom } from "./jarvisstore";
 import {
@@ -31,6 +36,7 @@ import { mentionedDossierIds } from "./mentions";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
 import { RecordThread } from "./recordthread";
+import { StageComposer } from "./stagecomposer";
 import { composeStage } from "./stagecompose";
 import { StageHeader } from "./stageheader";
 import { dossierDetailAtom } from "./tasksstore";
@@ -47,10 +53,33 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const bandOpen = useAtomValue(recordBandOpenAtom);
     const runIds = useAtomValue(activeRunIdAtom);
     const bandDetails = useAtomValue(recordDetailAtom);
+    const channels = useAtomValue(channelsAtom);
     const pendingFocus = useAtomValue(pendingRunFocusAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
+    const [profile, setProfile] = useState<JarvisProfile | undefined>(undefined);
 
     useEffect(() => ensureAmbient(), []);
+
+    // the channel's resolved profile drives the composer's run footer and every createRun default; the ⚙
+    // drawer edits it. Refetched when the channel on the Stage changes.
+    useEffect(() => {
+        const channelId = subject?.kind === "channel" ? subject.id : null;
+        if (channelId == null) {
+            setProfile(undefined);
+            return;
+        }
+        let live = true;
+        getJarvisProfile(channelId)
+            .then((r) => {
+                if (live) {
+                    setProfile(r.resolved);
+                }
+            })
+            .catch(() => {});
+        return () => {
+            live = false;
+        };
+    }, [subject?.kind, subject?.id]);
 
     // land a "Open run" focus request (Radar, the graph peek): put its channel on the Stage, then select
     // the run once that channel's runs have loaded. Clearing the atom is the one-shot guard.
@@ -142,13 +171,24 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                         />
                     )
                 ) : comp.thread === "record" ? (
-                    <RecordThread detail={detail} />
+                    <RecordThread detail={detail} model={model} />
                 ) : (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <ConversationView conversation={conversation} model={model} />
                     </div>
                 )}
             </div>
+            <StageComposer
+                model={model}
+                comp={comp}
+                channel={channel}
+                channels={channels ?? []}
+                agents={agents}
+                run={run}
+                recordId={subject.kind === "dossier" ? subject.id : null}
+                recordObjective={detail?.objective ?? ""}
+                profile={profile}
+            />
         </div>
     );
 }
