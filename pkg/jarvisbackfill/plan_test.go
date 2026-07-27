@@ -178,6 +178,35 @@ func TestBuildPlanDerivesDecisionsFromCompletedInvestigations(t *testing.T) {
 	}
 }
 
+// Same rule as the dossier window: a backfilled decision carries the time it was actually reached.
+// Stamped at import time instead, every imported decision claims to be today's, which both misdates
+// the record and files it under the wrong day.
+func TestBuildPlanBackdatesDecisionToInvestigation(t *testing.T) {
+	base := int64(1_000_000)
+	runs := []*waveobj.Run{run("r1", "fix the thing", "done", base, base+day)}
+	reps := []*waveobj.RadarReport{report(
+		finding("f1", "completed", &waveobj.RadarInvestigation{
+			RunID: "r1", Status: "done", Summary: "s", StartedTs: base, CompletedTs: base + day,
+		}),
+		// no completion recorded: fall back to the start, never to now
+		finding("f2", "no completion stamp", &waveobj.RadarInvestigation{
+			RunID: "r1", Status: "done", Summary: "s", StartedTs: base + 2*day,
+		}),
+	)}
+	p := BuildPlan(runs, reps, base+99*day)
+
+	byRisk := map[string]int64{}
+	for _, d := range p.Decisions {
+		byRisk[d.Facts.Summary] = d.Facts.Created
+	}
+	if got := byRisk["completed"]; got != base+day {
+		t.Errorf("Created = %d, want the recorded completion %d", got, base+day)
+	}
+	if got := byRisk["no completion stamp"]; got != base+2*day {
+		t.Errorf("Created = %d, want a fallback to StartedTs %d", got, base+2*day)
+	}
+}
+
 // Strict fidelity: an investigation with no recorded summary is not a decision, it is a gap.
 func TestBuildPlanSkipsInvestigationsWithoutRecordedOutcome(t *testing.T) {
 	base := int64(1_000_000)

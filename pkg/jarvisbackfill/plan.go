@@ -126,6 +126,16 @@ func runEnd(r *waveobj.Run) int64 {
 	return r.CreatedTs
 }
 
+// investigationEnd is when the decision was actually reached: the investigation's completion, or its
+// start if it recorded none. Same rule as runEnd — never the import time, so a backfilled decision
+// files under the day it was decided instead of claiming to be today's.
+func investigationEnd(inv *waveobj.RadarInvestigation) int64 {
+	if inv.CompletedTs != 0 {
+		return inv.CompletedTs
+	}
+	return inv.StartedTs
+}
+
 // BuildPlan maps recorded history onto a vault corpus. now is accepted for symmetry with the rest of
 // the attribution code and to keep the function total; nothing in the plan is stamped with it,
 // because a backfilled dossier must carry its run's window rather than the import time. Getting that
@@ -223,6 +233,7 @@ func BuildPlan(runs []*waveobj.Run, reports []*waveobj.RadarReport, now int64) P
 					Rationale:  strings.TrimSpace(inv.Summary),
 					Summary:    normalizeObjective(f.Risk),
 					Links:      []string{"run-" + inv.RunID},
+					Created:    investigationEnd(inv),
 				},
 			})
 		}

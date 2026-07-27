@@ -38,6 +38,11 @@ type DecisionFacts struct {
 	Links      []string
 	Rationale  string
 	Summary    string
+	// Created overrides the decision timestamp, for importing decisions that were actually made
+	// earlier (see pkg/jarvisbackfill). Zero means now, so live capture is unaffected. It drives both
+	// the frontmatter stamp and the filename date, so an imported decision files under the day it was
+	// decided rather than the day it was imported.
+	Created int64
 }
 
 // newDecisionID mints an opaque stable id "dec-<8hex>". Callers link by this id, never the filename.
@@ -68,11 +73,14 @@ func AppendHumanDecision(v *wavevault.Vault, f DecisionFacts) (string, error) {
 
 func appendDecision(v *wavevault.Vault, f DecisionFacts, create createFn) (string, error) {
 	id := newDecisionID()
-	now := nowFn()
-	date := time.UnixMilli(now).UTC().Format("2006-01-02")
+	stamp := f.Created
+	if stamp == 0 {
+		stamp = nowFn()
+	}
+	date := time.UnixMilli(stamp).UTC().Format("2006-01-02")
 	filename := date + "-" + boundedSlug(f.Summary, id) + ".md"
 	links := append([]string{f.TaskID}, f.Links...)
-	if _, err := create("decisions", filename, renderDecision(id, now, f, links)); err != nil {
+	if _, err := create("decisions", filename, renderDecision(id, stamp, f, links)); err != nil {
 		return "", err
 	}
 	r := v.Retriever(wavevault.AllScope())
@@ -86,11 +94,11 @@ func appendDecision(v *wavevault.Vault, f DecisionFacts, create createFn) (strin
 	return id, nil
 }
 
-func renderDecision(id string, now int64, f DecisionFacts, links []string) string {
+func renderDecision(id string, created int64, f DecisionFacts, links []string) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("id: " + id + "\n")
-	b.WriteString("created: " + strconv.FormatInt(now, 10) + "\n")
+	b.WriteString("created: " + strconv.FormatInt(created, 10) + "\n")
 	b.WriteString("actor: " + yamlScalar(f.Actor) + "\n")
 	b.WriteString("provenance: " + yamlScalar(f.Provenance) + "\n")
 	b.WriteString("status: active\n")
