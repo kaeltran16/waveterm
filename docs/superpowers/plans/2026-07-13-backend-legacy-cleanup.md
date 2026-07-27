@@ -13,7 +13,7 @@
 - **Go is the source of truth for the wire protocol.** After changing any wshrpc / waveobj / wconfig / service type, run `task generate` and commit the regenerated files (`frontend/app/store/wshclientapi.ts`, `frontend/app/store/services.ts`, `frontend/types/gotypes.d.ts`, etc.) together with the Go change. Never hand-edit generated files.
 - **`npx tsc` stack-overflows on this repo.** Typecheck with `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`. Baseline is exit 0 — any error it reports is yours.
 - **Go sqlite tests need CGO+zig.** Run Go tests as `CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu" go test ./pkg/...`.
-- **Do NOT touch `secretstore`.** It stores live user data (AI tokens, SSH passwords, waveapp secrets) and is runtime-broken under Tauri (encrypt/decrypt route to the dead "electron" route). Rewiring it to a Go/Tauri-native crypto path is a separate follow-up, not cleanup. Consequently, `ElectronEncryptCommand` and `ElectronDecryptCommand` (`wshrpctypes.go`) and `CommandElectronEncryptData`/`CommandElectronDecryptData` MUST be preserved — secretstore is their only remaining caller.
+- ~~**Do NOT touch `secretstore`.**~~ **Resolved 2026-07-27** — the rewire this constraint deferred has shipped. `secretstore` now encrypts at rest in-process (DPAPI on Windows, `pkg/secretstore/crypt_*.go`) and no longer calls the `"electron"` route. Consequence for Task 5: `ElectronEncryptCommand`/`ElectronDecryptCommand` and `CommandElectronEncryptData`/`CommandElectronDecryptData` **no longer have any caller** and may be removed with the rest of the cluster.
 - **Do NOT delete the `aifilediff` view.** It is AI-diff functionality (registered, has a preview harness + passing test) that reads as not-yet-wired future work for the agent cockpit, not terminal-era legacy. Leave it and its `WaveAIGetToolDiffCommand` backend intact.
 - **Do NOT delete the `vdom` view or its backend.** It renders the terminal's toolbar via `SubBlock` (`term-wsh.tsx`, `term.tsx`). Removing it breaks live terminals.
 - **Commits require explicit user approval** (per project git rules). Do the work per-task; present the batched diff and proposed commit message for approval rather than auto-committing.
@@ -159,7 +159,7 @@ Commands routed to `wshutil.ElectronRoute` (`"electron"`) that nothing services 
 
 **Remove commands + impls** (`wshrpctypes.go` + `wshserver.go` if impl exists):
 - `WebSelectorCommand` (:188), `NotifyCommand` (:189), `FocusWindowCommand` (:190), `NetworkOnlineCommand` (:191-ish), `ElectronSystemBellCommand`, `GetUpdateChannelCommand` (:203).
-- **Keep** `ElectronEncryptCommand`/`ElectronDecryptCommand` + `CommandElectronEncryptData`/`CommandElectronDecryptData` (secretstore depends on them — see Global Constraints).
+- `ElectronEncryptCommand`/`ElectronDecryptCommand` + `CommandElectronEncryptData`/`CommandElectronDecryptData` — **now removable too** (was "keep"): secretstore stopped calling them on 2026-07-27, so the cluster has no caller left.
 
 **Remove/adjust the now-dead callers:**
 - `cmd/wsh/cmd/wshcmd-badge.go` and `wshcmd-tabindicator.go` — the `ElectronSystemBellCommand` calls; if the whole subcommand exists only to call it, remove the subcommand (and its cobra registration).
@@ -213,7 +213,7 @@ Commands routed to `wshutil.ElectronRoute` (`"electron"`) that nothing services 
 
 ## Follow-ups (out of scope for this cleanup — report to user)
 
-- **secretstore rewire.** `pkg/secretstore` is runtime-broken under Tauri: it delegates encrypt/decrypt to the dead `"electron"` route, so `secrets.enc` writes time out and are silently dropped (in-memory secrets work per-session but never persist). It backs live features (AI API tokens, SSH passwords, waveapp secrets, the secrets RPC). Needs a Go/Tauri-native crypto path (OS keychain or local key file). Track separately.
+- ~~**secretstore rewire.**~~ **Done 2026-07-27.** Encryption moved in-process behind a per-platform `protect`/`unprotect` seam: DPAPI on Windows (the same primitive Electron's safeStorage used there), `ErrPersistUnsupported` elsewhere, so non-Windows degrades to the in-memory behavior it already had. Writes are now write-then-rename, and an undecryptable file errors rather than reading as an empty store. Covered by `pkg/secretstore/secretstore_test.go`.
 - **aifilediff view wiring.** Registered but not mounted in the cockpit; confirm whether it is intended for agent file-diff display and wire it, or remove it, in a deliberate decision.
 - **LayoutState model reduction.** `Tab.LayoutState` (RootNode/MagnifiedNodeId/LeafOrder/…) is largely unexercised by the single pane but is structurally created per tab by `ApplyPortableLayout`. Reducing it requires reworking tab creation — larger than cleanup, defer.
 

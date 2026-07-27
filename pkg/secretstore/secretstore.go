@@ -4,28 +4,22 @@
 package secretstore
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
-	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 const (
 	SecretsFileName   = "secrets.enc"
 	WriteDebounceMs   = 1000
-	EncryptionTimeout = 5000
 	InitRetryMs       = 1000
 	SecretNamePattern = `^[A-Za-z][A-Za-z0-9_]*$`
 	WriteTsKey        = "wave:writets"
@@ -38,85 +32,26 @@ var initialized bool
 var lastInitTryTime time.Time
 var lastInitErr error
 var secretNameRegexp = regexp.MustCompile(SecretNamePattern)
-var linuxStorageBackend string
-
-// must hold lock
-func getLinuxStorageBackend() error {
-	if runtime.GOOS != "linux" {
-		return nil
-	}
-
-	rpcClient := wshclient.GetBareRpcClient()
-	ctx, cancel := context.WithTimeout(context.Background(), EncryptionTimeout*time.Millisecond)
-	defer cancel()
-
-	encryptData := wshrpc.CommandElectronEncryptData{
-		PlainText: "hello",
-	}
-	rpcOpts := &wshrpc.RpcOpts{
-		Route:   wshutil.ElectronRoute,
-		Timeout: EncryptionTimeout,
-	}
-
-	result, err := wshclient.ElectronEncryptCommand(rpcClient, encryptData, rpcOpts)
-	if err != nil {
-		return fmt.Errorf("failed to get storage backend: %w", err)
-	}
-
-	if ctx.Err() != nil {
-		return fmt.Errorf("encryption timeout: %w", ctx.Err())
-	}
-
-	if result.StorageBackend != "" {
-		linuxStorageBackend = result.StorageBackend
-	}
-
-	return nil
-}
 
 // must hold lock
 func readSecretsFromFile() (map[string]string, error) {
-	configDir := wavebase.GetWaveConfigDir()
-	secretsPath := filepath.Join(configDir, SecretsFileName)
+	secretsPath := filepath.Join(wavebase.GetWaveConfigDir(), SecretsFileName)
 
 	encryptedData, err := os.ReadFile(secretsPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("secretstore: could not read secrets file: %v\n", err)
 		}
-		if err := getLinuxStorageBackend(); err != nil {
-			log.Printf("secretstore: could not get linux storage backend: %v\n", err)
-		}
 		return make(map[string]string), nil
 	}
 
-	rpcClient := wshclient.GetBareRpcClient()
-	ctx, cancel := context.WithTimeout(context.Background(), EncryptionTimeout*time.Millisecond)
-	defer cancel()
-
-	decryptData := wshrpc.CommandElectronDecryptData{
-		CipherText: string(encryptedData),
-	}
-	rpcOpts := &wshrpc.RpcOpts{
-		Route:   wshutil.ElectronRoute,
-		Timeout: EncryptionTimeout,
-	}
-
-	result, err := wshclient.ElectronDecryptCommand(rpcClient, decryptData, rpcOpts)
+	plainText, err := unprotect(encryptedData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt secrets: %w", err)
 	}
 
-	if ctx.Err() != nil {
-		return nil, fmt.Errorf("decryption timeout: %w", ctx.Err())
-	}
-
-	if result.StorageBackend != "" {
-		linuxStorageBackend = result.StorageBackend
-	}
-
 	var decryptedSecrets map[string]string
-	if err := json.Unmarshal([]byte(result.PlainText), &decryptedSecrets); err != nil {
+	if err := json.Unmarshal(plainText, &decryptedSecrets); err != nil {
 		return nil, fmt.Errorf("failed to parse secrets: %w", err)
 	}
 
@@ -178,32 +113,21 @@ func writeSecretsToFile() error {
 		return fmt.Errorf("failed to marshal secrets: %w", err)
 	}
 
-	rpcClient := wshclient.GetBareRpcClient()
-	ctx, cancel := context.WithTimeout(context.Background(), EncryptionTimeout*time.Millisecond)
-	defer cancel()
-
-	encryptData := wshrpc.CommandElectronEncryptData{
-		PlainText: string(jsonData),
-	}
-	rpcOpts := &wshrpc.RpcOpts{
-		Route:   wshutil.ElectronRoute,
-		Timeout: EncryptionTimeout,
-	}
-
-	result, err := wshclient.ElectronEncryptCommand(rpcClient, encryptData, rpcOpts)
+	cipherText, err := protect(jsonData)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt secrets: %w", err)
 	}
 
-	if ctx.Err() != nil {
-		return fmt.Errorf("encryption timeout: %w", ctx.Err())
-	}
-
-	configDir := wavebase.GetWaveConfigDir()
-	secretsPath := filepath.Join(configDir, SecretsFileName)
-
-	if err := os.WriteFile(secretsPath, []byte(result.CipherText), 0600); err != nil {
+	// write-then-rename: a torn write here would leave an undecryptable file, which loses every secret
+	// rather than the one being changed
+	secretsPath := filepath.Join(wavebase.GetWaveConfigDir(), SecretsFileName)
+	tmpPath := secretsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, cipherText, 0600); err != nil {
 		return fmt.Errorf("failed to write secrets file: %w", err)
+	}
+	if err := os.Rename(tmpPath, secretsPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to replace secrets file: %w", err)
 	}
 
 	return nil
@@ -298,25 +222,11 @@ func CountSecrets() (int, error) {
 	return count, nil
 }
 
+// GetLinuxStorageBackend reported which OS keyring the Electron shell's safeStorage had selected
+// (gnome-libsecret, kwallet, basic_text). Under Tauri there is no shell-side keyring to ask — at-rest
+// encryption is now in-process, per platform — so there is no backend to name and this reports empty.
+// It is kept rather than deleted because it backs a generated wshrpc command; retiring that is a
+// codegen change tracked in the backend-legacy-cleanup plan.
 func GetLinuxStorageBackend() (string, error) {
-	if runtime.GOOS != "linux" {
-		return "", nil
-	}
-
-	lock.Lock()
-	defer lock.Unlock()
-
-	if linuxStorageBackend != "" {
-		return linuxStorageBackend, nil
-	}
-
-	if err := getLinuxStorageBackend(); err != nil {
-		return "", err
-	}
-
-	if linuxStorageBackend == "" {
-		return "", fmt.Errorf("failed to determine linux storage backend")
-	}
-
-	return linuxStorageBackend, nil
+	return "", nil
 }
