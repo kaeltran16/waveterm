@@ -24,6 +24,7 @@ out
 .kilocode/package-lock.json
 frontend/tauri/public/cockpit-fixtures/active.json
 cdp-shots/
+docs/handoff/images/2026-07-27-jarvis-second-brain-verification/
 
 # Yarn Modern
 .pnp.*

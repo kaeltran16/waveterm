@@ -78,6 +78,12 @@ export function TaskDetail({ detail }: { detail: DossierDetail }) {
     // redundant leading heading so the FE's own "Notes" section is the only heading and a dossier with
     // no real notes renders no Notes section at all.
     const notes = detail.notes.replace(/^##\s+Notes\s*/i, "").trim();
+    // A Go nil slice (a dossier with no recorded acceptance/blockers/refs/decisions, e.g. backfilled
+    // history) marshals as JSON null, not []; normalize once so every section below can just check .length.
+    const acceptance = detail.acceptance ?? [];
+    const blockers = detail.blockers ?? [];
+    const refs = detail.refs ?? [];
+    const decisions = detail.decisions ?? [];
     return (
         <div className="mx-auto max-w-[720px] px-8 py-6">
             <div className="mb-5">
@@ -105,10 +111,10 @@ export function TaskDetail({ detail }: { detail: DossierDetail }) {
 
             <Section title="Machine-maintained">
                 <div className="rounded-xl border border-border bg-surface/50 px-4 py-3.5">
-                    {detail.acceptance.length > 0 ? (
+                    {acceptance.length > 0 ? (
                         <MachineField label="Acceptance">
                             <ul className="list-inside list-disc">
-                                {detail.acceptance.map((a, i) => (
+                                {acceptance.map((a, i) => (
                                     <li key={i}>{a}</li>
                                 ))}
                             </ul>
@@ -119,19 +125,19 @@ export function TaskDetail({ detail }: { detail: DossierDetail }) {
                             <div className="whitespace-pre-wrap">{detail.state}</div>
                         </MachineField>
                     ) : null}
-                    {detail.blockers.length > 0 ? (
+                    {blockers.length > 0 ? (
                         <MachineField label="Blockers">
                             <ul className="list-inside list-disc">
-                                {detail.blockers.map((b, i) => (
+                                {blockers.map((b, i) => (
                                     <li key={i}>{b}</li>
                                 ))}
                             </ul>
                         </MachineField>
                     ) : null}
-                    {detail.refs.length > 0 ? (
+                    {refs.length > 0 ? (
                         <MachineField label="Refs">
                             <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
-                                {detail.refs.map((r) => (
+                                {refs.map((r) => (
                                     <span key={r} className="rounded bg-surface-hover px-1.5 py-0.5">
                                         {r}
                                     </span>
@@ -149,7 +155,7 @@ export function TaskDetail({ detail }: { detail: DossierDetail }) {
             ) : null}
 
             <Section title="Decisions">
-                <DecisionLog decisions={detail.decisions} dossierId={detail.id} />
+                <DecisionLog decisions={decisions} dossierId={detail.id} />
             </Section>
         </div>
     );
