@@ -68,3 +68,40 @@ export function loadRecordScope(dossierId: string): void {
         globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [dossierId]: runs });
     });
 }
+
+// keyed by subject id, not a single value: switching subjects must return each one to the state it was in
+// (spec: "the last subject you were on, exactly as you left it").
+export const recordBandOpenAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
+export const activeRunIdAtom = atom<Record<string, string | undefined>>({}) as PrimitiveAtom<
+    Record<string, string | undefined>
+>;
+
+// The record an *attributed* band expands to, keyed by dossier id. Distinct from tasksstore's
+// dossierDetailAtom, which holds the record the user selected as a subject: a channel's band opens the
+// record its run is attributed to, which is usually not that one.
+export const recordDetailAtom = atom<Record<string, DossierDetail>>({}) as PrimitiveAtom<
+    Record<string, DossierDetail>
+>;
+
+export function toggleRecordBand(subjectId: string): void {
+    const prev = globalStore.get(recordBandOpenAtom);
+    globalStore.set(recordBandOpenAtom, { ...prev, [subjectId]: !prev[subjectId] });
+}
+
+export function setActiveRunId(channelId: string, runId: string | undefined): void {
+    const prev = globalStore.get(activeRunIdAtom);
+    globalStore.set(activeRunIdAtom, { ...prev, [channelId]: runId });
+}
+
+export function loadRecordDetail(dossierId: string): void {
+    if (globalStore.get(recordDetailAtom)[dossierId] != null) {
+        return;
+    }
+    fireAndForget(async () => {
+        const detail = await RpcApi.GetDossierCommand(TabRpcClient, { dossierid: dossierId });
+        if (detail == null) {
+            return;
+        }
+        globalStore.set(recordDetailAtom, { ...globalStore.get(recordDetailAtom), [dossierId]: detail });
+    });
+}

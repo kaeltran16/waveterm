@@ -10,14 +10,20 @@ import { activeChannelRunsAtom, channelsAtom, createChannel } from "@/app/view/a
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot } from "@/app/view/agents/jarvisderive";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
-import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
+import { resolveActiveRunId, runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { SpaceBanner } from "@/app/view/agents/spacebanner";
 import { spaceBannerText } from "@/app/view/agents/spacescope";
 import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
-import { activeSubjectAtom, selectSubject, subjectFilterAtom } from "./jarvissubjectstore";
+import {
+    activeRunIdAtom,
+    activeSubjectAtom,
+    selectSubject,
+    setActiveRunId,
+    subjectFilterAtom,
+} from "./jarvissubjectstore";
 import { conversationsAtom, loadJarvisConversations, startConversation } from "./jarvisstore";
 import { buildSubjectGroups, subjectMark, type Subject } from "./subjects";
 import { loadTaskList, taskListAtom } from "./tasksstore";
@@ -45,6 +51,7 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
     const projects = useAtomValue(projectsAtom);
     const agents = useAtomValue(model.agentsAtom);
     const runs = useAtomValue(activeChannelRunsAtom);
+    const runIds = useAtomValue(activeRunIdAtom);
     const active = useAtomValue(activeSubjectAtom);
     const activeSpace = useAtomValue(activeSpaceAtom);
     const spaceScope = useAtomValue(spaceScopeAtom);
@@ -88,6 +95,8 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
                   .filter((g) => g.items.length > 0);
 
     const isActive = (s: Subject) => active?.kind === s.kind && active?.id === s.id;
+    // the same resolution the Stage does, so the highlighted row is the run the Stage is showing
+    const activeRunId = active?.kind === "channel" ? resolveActiveRunId(runs, runIds[active.id]) : undefined;
 
     const newThread = () => {
         const id = startConversation({ mode: "all", chips: [], attached: [] });
@@ -262,15 +271,20 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
                                             </span>
                                         ) : null}
                                     </button>
-                                    {/* the selected channel expands to its runs — the only run list we hold */}
+                                    {/* the selected channel expands to its runs — this list is the run switcher */}
                                     {selected && s.kind === "channel" && runs.length > 0 ? (
-                                        <div className="ml-[18px] mt-0.5 mb-1 flex flex-col gap-px border-l border-border pl-2.5">
+                                        <div className="mb-1 ml-[18px] mt-0.5 flex flex-col gap-px border-l border-border pl-2.5">
                                             {runs.map((r) => {
                                                 const view = runStatusView(r.status);
                                                 return (
-                                                    <div
+                                                    <button
                                                         key={r.id}
-                                                        className="flex items-center gap-[7px] rounded-[7px] px-2 py-[5px]"
+                                                        type="button"
+                                                        onClick={() => setActiveRunId(s.id, r.id)}
+                                                        className={cn(
+                                                            "flex cursor-pointer items-center gap-[7px] rounded-[7px] px-2 py-[5px] text-left hover:bg-surface-hover",
+                                                            r.id === activeRunId && "bg-surface-selected"
+                                                        )}
                                                     >
                                                         <span
                                                             className={cn(
@@ -278,13 +292,18 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
                                                                 RUN_DOT[view.tone]
                                                             )}
                                                         />
-                                                        <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-ink-mid">
+                                                        <span
+                                                            className={cn(
+                                                                "min-w-0 flex-1 truncate text-[11.5px] font-medium",
+                                                                r.id === activeRunId ? "text-primary" : "text-ink-mid"
+                                                            )}
+                                                        >
                                                             {r.goal}
                                                         </span>
                                                         <span className="flex-none font-mono text-[9.5px] text-muted">
                                                             {view.label}
                                                         </span>
-                                                    </div>
+                                                    </button>
                                                 );
                                             })}
                                         </div>

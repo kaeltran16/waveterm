@@ -8,14 +8,27 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { tierFromMeta } from "@/app/view/agents/channelmessages";
-import { activeChannelAtom } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, activeChannelRunsAtom, channelDismissedRunsAtom } from "@/app/view/agents/channelsstore";
+import { pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import { RunBody } from "@/app/view/agents/runbody";
+import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect } from "react";
 import { ConversationView } from "./conversationview";
 import { activeConversationAtom } from "./jarvisstore";
-import { activeSubjectAtom } from "./jarvissubjectstore";
+import {
+    activeRunIdAtom,
+    activeSubjectAtom,
+    loadRecordDetail,
+    recordBandOpenAtom,
+    recordDetailAtom,
+    selectSubject,
+    setActiveRunId,
+    toggleRecordBand,
+} from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
+import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
 import { RecordThread } from "./recordthread";
 import { composeStage } from "./stagecompose";
@@ -28,8 +41,48 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const detail = useAtomValue(dossierDetailAtom);
     const conversation = useAtomValue(activeConversationAtom);
     const ambient = useAtomValue(ambientProviderAtom);
+    const agents = useAtomValue(model.agentsAtom);
+    const allRuns = useAtomValue(activeChannelRunsAtom);
+    const dismissedMap = useAtomValue(channelDismissedRunsAtom);
+    const bandOpen = useAtomValue(recordBandOpenAtom);
+    const runIds = useAtomValue(activeRunIdAtom);
+    const bandDetails = useAtomValue(recordDetailAtom);
+    const pendingFocus = useAtomValue(pendingRunFocusAtom);
+    const setPendingFocus = useSetAtom(pendingRunFocusAtom);
 
     useEffect(() => ensureAmbient(), []);
+
+    // land a "Open run" focus request (Radar, the graph peek): put its channel on the Stage, then select
+    // the run once that channel's runs have loaded. Clearing the atom is the one-shot guard.
+    useEffect(() => {
+        if (pendingFocus == null) {
+            return;
+        }
+        if (subject?.kind !== "channel" || subject.id !== pendingFocus.channelId) {
+            selectSubject({ kind: "channel", id: pendingFocus.channelId });
+            return;
+        }
+        if (allRuns.some((r) => r.id === pendingFocus.runId)) {
+            setActiveRunId(pendingFocus.channelId, pendingFocus.runId);
+            setPendingFocus(null);
+        }
+    }, [pendingFocus, subject, allRuns, setPendingFocus]);
+
+    const open = subject != null ? (bandOpen[subject.id] ?? false) : false;
+    const tags =
+        subject?.kind === "channel" && subject.id === channel?.oid
+            ? ambient.tagsFor({ oref: "run:" + (resolveActiveRunId(allRuns, runIds[subject.id]) ?? "") })
+            : [];
+    const band = recordBandCase({ kind: subject?.kind ?? "channel", tags, mentionedIds: [] });
+    const bandRecordId = band.case === "one" ? band.edge.taskId : band.case === "several" ? band.primary.taskId : null;
+
+    // the band's record is loaded only once it is actually expanded — a collapsed band needs the edge, not
+    // the whole dossier.
+    useEffect(() => {
+        if (open && bandRecordId != null) {
+            loadRecordDetail(bandRecordId);
+        }
+    }, [open, bandRecordId]);
 
     if (subject == null) {
         return (
@@ -52,6 +105,11 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               : conversation.title;
     const subtitle = subject.kind === "channel" ? (channel?.projectpath ?? "") : "";
 
+    const dismissed = new Set(dismissedMap[subject.id] ?? []);
+    const runs = allRuns.filter((r) => !dismissed.has(r.id));
+    const run = runs.find((r) => r.id === resolveActiveRunId(runs, runIds[subject.id]));
+    const bandDetail = subject.kind === "dossier" ? detail : bandRecordId != null ? (bandDetails[bandRecordId] ?? null) : null;
+
     return (
         <div className="relative flex min-w-0 flex-1 flex-col bg-background">
             <StageHeader
@@ -66,21 +124,30 @@ export function Stage({ model }: { model: AgentsViewModel }) {
             />
             <RecordBand
                 kind={subject.kind}
-                tags={comp.recordBand === "attributed" ? ambient.tagsFor({ oref: "run:" + subject.id }) : []}
+                tags={tags}
                 mentionedIds={comp.recordBand === "mentions" ? mentionedDossierIds(conversation) : []}
-                detail={detail}
-                open={false}
-                onToggle={() => {}}
+                detail={bandDetail}
+                open={open}
+                onToggle={() => toggleRecordBand(subject.id)}
             />
             {/* one thread slot, three renderers — a sibling of the band above and the overlay below */}
             <div className="flex min-h-0 flex-1 flex-col">
-                {comp.thread === "record" ? (
+                {comp.thread === "run" ? (
+                    run != null && channel != null ? (
+                        <RunBody model={model} channel={channel} agents={agents} run={run} />
+                    ) : (
+                        <SurfaceEmptyState
+                            title={`Start a run in #${channel?.name ?? "channel"}`}
+                            body="Give Jarvis a goal below. @quick spawns one worker, @run kicks off the channel's full strategy, and @ask is a one-shot consult."
+                        />
+                    )
+                ) : comp.thread === "record" ? (
                     <RecordThread detail={detail} />
-                ) : comp.thread === "turns" ? (
+                ) : (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <ConversationView conversation={conversation} model={model} />
                     </div>
-                ) : null}
+                )}
             </div>
         </div>
     );
