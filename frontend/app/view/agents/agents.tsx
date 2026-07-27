@@ -28,24 +28,30 @@ import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
 
 export type SurfaceKey =
     | "cockpit"
+    | "jarvis"
     | "agent"
     | "channels"
     | "radar"
     | "sessions"
     | "files"
     | "memory"
+    | "graph"
+    | "tasks"
     | "usage"
     | "settings";
 
 // Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees.
 export const SURFACE_ORDER: SurfaceKey[] = [
     "cockpit",
+    "jarvis",
     "agent",
     "channels",
     "radar",
     "sessions",
     "files",
     "memory",
+    "graph",
+    "tasks",
     "usage",
 ];
 

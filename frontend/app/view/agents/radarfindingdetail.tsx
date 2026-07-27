@@ -19,6 +19,9 @@ import {
 import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 import { pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { setDisposition } from "./radarstore";
+import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
+import { ambientRefForFinding } from "./ambient";
+import { AmbientTags, RelevantDecisions } from "./ambientviews";
 
 // Diff-renderer decision (plan D3 Step 1): RadarSignal.snippet is a plain unified-diff string, and the
 // repo's diff components both require structured input, not a raw patch. Per the plan we render the
@@ -99,6 +102,7 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                         </span>
                         <span className="uppercase tracking-wide">{finding.strength}</span>
                     </span>
+                    <AmbientTags {...ambientRefForFinding(finding)} />
                     <span className="flex-1" />
                     <span className="font-mono text-[11px] text-muted">{finding.subsystem}</span>
                 </div>
@@ -108,6 +112,8 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
             <Section title="Why it matters">
                 <p className="text-sm leading-relaxed text-muted-foreground">{finding.why}</p>
             </Section>
+
+            <RelevantDecisions {...ambientRefForFinding(finding)} />
 
             <Section title="Supporting evidence" meta={`${findingSignalCount(finding)} signals · ${findingSourceCount(finding, report)} sources`}>
                 {referenced.length > 0 ? (
@@ -251,6 +257,7 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                             {dismissed ? "Reopen finding" : "Unsuppress pattern"}
                         </button>
                     ) : null}
+                    <AskJarvisButton model={model} sourceRef={sourceRefForRadar(finding)} label="Explain with Jarvis" />
                 </div>
 
                 {!dismissed && !suppressed ? (

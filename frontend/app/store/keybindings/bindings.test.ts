@@ -56,8 +56,8 @@ describe("surface switch [ / ]", () => {
         expect(next.keys).toBe("]");
         expect(prev.keys).toBe("[");
 
-        next.run(ctx()); // cockpit -> agent
-        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        next.run(ctx()); // cockpit -> jarvis
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
 
         globalStore.set(model.surfaceAtom, "channels");
         next.run(ctx()); // channels -> radar (radar is in SURFACE_ORDER)

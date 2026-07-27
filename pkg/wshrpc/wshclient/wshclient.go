@@ -34,6 +34,12 @@ func AnswerAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentData, o
 	return err
 }
 
+// command "appenddossierdecision", wshserver.AppendDossierDecisionCommand
+func AppendDossierDecisionCommand(w *wshutil.WshRpc, data wshrpc.CommandAppendDossierDecisionData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAppendDossierDecisionRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAppendDossierDecisionRtnData](w, "appenddossierdecision", data, opts)
+	return resp, err
+}
+
 // command "archivechannel", wshserver.ArchiveChannelCommand
 func ArchiveChannelCommand(w *wshutil.WshRpc, data wshrpc.CommandArchiveChannelData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "archivechannel", data, opts)
@@ -464,6 +470,12 @@ func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comman
 	return resp, err
 }
 
+// command "getdossier", wshserver.GetDossierCommand
+func GetDossierCommand(w *wshutil.WshRpc, data wshrpc.CommandGetDossierData, opts *wshrpc.RpcOpts) (*wshrpc.DossierDetail, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.DossierDetail](w, "getdossier", data, opts)
+	return resp, err
+}
+
 // command "getfullconfig", wshserver.GetFullConfigCommand
 func GetFullConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.FullConfigType, error) {
 	resp, err := sendRpcRequestCallHelper[wconfig.FullConfigType](w, "getfullconfig", nil, opts)
@@ -601,6 +613,11 @@ func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrp
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
 }
 
+// command "jarvisconverse", wshserver.JarvisConverseCommand
+func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
+	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisConverseChunk](w, "jarvisconverse", data, opts)
+}
+
 // command "jarvisdecompose", wshserver.JarvisDecomposeCommand
 func JarvisDecomposeCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDecomposeData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisDecomposeRtnData](w, "jarvisdecompose", data, opts)
@@ -709,9 +726,27 @@ func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrp
 	return resp, err
 }
 
+// command "listdossiers", wshserver.ListDossiersCommand
+func ListDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListDossiersRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListDossiersRtnData](w, "listdossiers", nil, opts)
+	return resp, err
+}
+
+// command "listjarvisconversations", wshserver.ListJarvisConversationsCommand
+func ListJarvisConversationsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListJarvisConversationsRtnData](w, "listjarvisconversations", nil, opts)
+	return resp, err
+}
+
 // command "listradarreports", wshserver.ListRadarReportsCommand
 func ListRadarReportsCommand(w *wshutil.WshRpc, data wshrpc.CommandListRadarReportsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListRadarReportsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListRadarReportsRtnData](w, "listradarreports", data, opts)
+	return resp, err
+}
+
+// command "listtaskdossiers", wshserver.ListTaskDossiersCommand
+func ListTaskDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListTaskDossiersRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListTaskDossiersRtnData](w, "listtaskdossiers", nil, opts)
 	return resp, err
 }
 
@@ -954,9 +989,27 @@ func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseD
 	return err
 }
 
+// command "resolveambient", wshserver.ResolveAmbientCommand
+func ResolveAmbientCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandResolveAmbientRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandResolveAmbientRtnData](w, "resolveambient", nil, opts)
+	return resp, err
+}
+
+// command "resolvedossieredges", wshserver.ResolveDossierEdgesCommand
+func ResolveDossierEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveDossierEdgesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandResolveDossierEdgesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandResolveDossierEdgesRtnData](w, "resolvedossieredges", data, opts)
+	return resp, err
+}
+
 // command "resolveids", wshserver.ResolveIdsCommand
 func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opts *wshrpc.RpcOpts) (wshrpc.CommandResolveIdsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandResolveIdsRtnData](w, "resolveids", data, opts)
+	return resp, err
+}
+
+// command "resolvespacescope", wshserver.ResolveSpaceScopeCommand
+func ResolveSpaceScopeCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveSpaceScopeData, opts *wshrpc.RpcOpts) (*wshrpc.SpaceScope, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.SpaceScope](w, "resolvespacescope", data, opts)
 	return resp, err
 }
 
@@ -1035,6 +1088,12 @@ func SetConfigCommand(w *wshutil.WshRpc, data wshrpc.MetaSettingsType, opts *wsh
 // command "setconnectionsconfig", wshserver.SetConnectionsConfigCommand
 func SetConnectionsConfigCommand(w *wshutil.WshRpc, data wshrpc.ConnConfigRequest, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setconnectionsconfig", data, opts)
+	return err
+}
+
+// command "setdossierstatus", wshserver.SetDossierStatusCommand
+func SetDossierStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandSetDossierStatusData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setdossierstatus", data, opts)
 	return err
 }
 
@@ -1148,6 +1207,12 @@ func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, op
 func UpdateWorkspaceTabIdsCommand(w *wshutil.WshRpc, arg1 string, arg2 []string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "updateworkspacetabids", wshrpc.MultiArg{Args: []any{arg1, arg2}}, opts)
 	return err
+}
+
+// command "vaultgraph", wshserver.VaultGraphCommand
+func VaultGraphCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandVaultGraphRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandVaultGraphRtnData](w, "vaultgraph", nil, opts)
+	return resp, err
 }
 
 // command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand

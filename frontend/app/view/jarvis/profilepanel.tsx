@@ -14,10 +14,10 @@ import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "./runactions";
+import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "../agents/runactions";
 import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
 import { PrinciplesEditor } from "./principleseditor";
-import { profileRailOpenAtom } from "./railstore";
+import { profileRailOpenAtom } from "./jarvisstore";
 
 const PHASE_KINDS = ["brainstorm", "plan", "execute", "custom"] as const;
 

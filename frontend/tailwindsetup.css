@@ -65,6 +65,8 @@
     --color-provider-claude: #d97757;
     --color-provider-codex: #96aacd;
     --color-success-soft: #bfe6d6; /* working activity line */
+    --color-error-soft: #f0a9a4; /* danger CTA label on tinted fill (Canvas-13 confirm dialog) */
+    --color-warning-soft: #f0d79f; /* warning accent, lightened */
     --color-feed-label: #777f89; /* tool-line uppercase tool name */
     --color-feed-summary: #9aa3ad; /* tool-line summary text */
     --color-feed-time: #4f565f; /* tool-line faint meta */
@@ -79,13 +81,14 @@
     --color-avatar-5: #c98fe6;
     --color-avatar-6: #9aa3ad;
 
-    /* Runtime accents (roster/header/details badges — Wave-cockpit-live.dc.html RUNTIME map) */
-    --color-rt-claude: #8aa0ff;
-    --color-rt-claude-soft: rgba(138, 160, 255, 0.13);
-    --color-rt-claude-line: rgba(138, 160, 255, 0.34);
-    --color-rt-codex: #5bd6a4;
-    --color-rt-codex-soft: rgba(91, 214, 164, 0.13);
-    --color-rt-codex-line: rgba(91, 214, 164, 0.32);
+    /* Runtime accents — trademark colors: Claude coral (claude-color.svg #D97757); Codex is a
+       monochrome mark (codex.svg #111), inverted to near-white for legibility on the dark cockpit. */
+    --color-rt-claude: #d97757;
+    --color-rt-claude-soft: rgba(217, 119, 87, 0.13);
+    --color-rt-claude-line: rgba(217, 119, 87, 0.34);
+    --color-rt-codex: #ececec;
+    --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-codex-line: rgba(236, 236, 236, 0.32);
     --color-rt-terminal: #9aa3ad;
     --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
     --color-rt-terminal-line: rgba(154, 163, 173, 0.28);
@@ -95,6 +98,13 @@
     --color-mem-reference: #54c79a; /* fact-green */
     --color-mem-feedback: #e6b450; /* convention-amber */
     --color-mem-user: #a78bfa; /* preference-purple */
+
+    /* Jarvis vault graph node kinds + the semantic attribution-edge hue (U3) */
+    --color-graph-task: #8aa0ff; /* task/dossier — decision-blue */
+    --color-graph-decision: #54c79a; /* decision node — fact-green */
+    --color-graph-memory: #a78bfa; /* memory note — preference-purple */
+    --color-graph-run: #e6b450; /* run evidence — amber */
+    --color-graph-semantic: #d98cff; /* L4 semantic attribution edge hue */
 
     /* Neutral overlays (theme-agnostic, preserved) */
     --color-hover: rgba(255, 255, 255, 0.1);

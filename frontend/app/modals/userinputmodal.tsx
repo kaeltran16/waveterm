@@ -1,7 +1,8 @@
 // Copyright 2025, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { Modal } from "@/app/modals/modal";
+import { DialogButton } from "@/app/modals/dialogbutton";
+import { ModalShell } from "@/app/modals/modalshell";
 import { Markdown } from "@/element/markdown";
 import { modalsModel } from "@/store/modalmodel";
 import * as keyutil from "@/util/keyutil";
@@ -147,21 +148,30 @@ const UserInputModal = (userInputRequest: UserInputRequest) => {
     }, [userInputRequest.responsetype, handleSendErrResponse, handleSendConfirm]);
 
     return (
-        <Modal
-            className="pt-6 pb-4 px-5"
-            onOk={() => handleSubmit()}
-            onCancel={() => handleNegativeResponse()}
+        <ModalShell
+            open
             onClose={() => handleSendErrResponse()}
-            okLabel={userInputRequest.oklabel}
-            cancelLabel={userInputRequest.cancellabel}
+            onSubmit={() => handleSubmit()}
+            align="center"
+            className="w-[min(520px,92vw)]"
         >
-            <div className="font-bold text-primary mx-4 pb-2.5">{userInputRequest.title + ` (${countdown}s)`}</div>
-            <div className="flex flex-col justify-between gap-4 mx-4 mb-4 max-w-[500px] font-mono text-primary">
-                {queryText}
-                {inputBox}
-                {optionalCheckbox}
+            <div className="px-5 pt-6 pb-4">
+                <div className="pb-2.5 font-bold text-primary">{userInputRequest.title + ` (${countdown}s)`}</div>
+                <div className="mb-5 flex flex-col gap-4 font-mono text-primary">
+                    {queryText}
+                    {inputBox}
+                    {optionalCheckbox}
+                </div>
+                <div className="flex justify-end gap-2.5">
+                    <DialogButton variant="secondary" hint="esc" onClick={() => handleNegativeResponse()}>
+                        {userInputRequest.cancellabel || "Cancel"}
+                    </DialogButton>
+                    <DialogButton variant="primary" hint="⏎" onClick={() => handleSubmit()}>
+                        {userInputRequest.oklabel || "Ok"}
+                    </DialogButton>
+                </div>
             </div>
-        </Modal>
+        </ModalShell>
     );
 };
 

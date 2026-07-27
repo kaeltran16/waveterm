@@ -522,14 +522,6 @@ function getConnStatusAtom(conn: string): PrimitiveAtom<ConnStatus> {
     return rtn;
 }
 
-function createTab() {
-    getApi().createTab();
-}
-
-function setActiveTab(tabId: string) {
-    getApi().setActiveTab(tabId);
-}
-
 function recordTEvent(event: string, props?: TEventProps) {
     if (isPreviewWindow()) return;
     if (props == null) {
@@ -540,7 +532,6 @@ function recordTEvent(event: string, props?: TEventProps) {
 
 export {
     atoms,
-    createTab,
     fetchWaveFile,
     getAllBlockComponentModels,
     getApi,
@@ -571,7 +562,6 @@ export {
     recordTEvent,
     refocusNode,
     registerBlockComponentModel,
-    setActiveTab,
     setPlatform,
     subscribeToConnEvents,
     unregisterBlockComponentModel,

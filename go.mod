@@ -5,6 +5,7 @@ go 1.25.6
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/alexflint/go-filemutex v1.3.0
+	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/creack/pty v1.1.24
 	github.com/ebitengine/purego v0.10.0
 	github.com/emirpasic/gods v1.18.1

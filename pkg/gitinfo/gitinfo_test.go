@@ -683,3 +683,49 @@ func TestRevertHunkStaleFails(t *testing.T) {
 		t.Fatal("expected stale patch to fail")
 	}
 }
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestRangeLog(t *testing.T) {
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q")
+	gitRun(t, dir, "commit", "-q", "--allow-empty", "-m", "base commit")
+	base := gitRun(t, dir, "rev-parse", "HEAD")
+	gitRun(t, dir, "commit", "-q", "--allow-empty", "-m", "PROJ-142 add pkce flow")
+	gitRun(t, dir, "commit", "-q", "--allow-empty", "-m", "fix token rotation")
+	end := gitRun(t, dir, "rev-parse", "HEAD")
+
+	commits, err := RangeLog(context.Background(), dir, base, end)
+	if err != nil {
+		t.Fatalf("RangeLog: %v", err)
+	}
+	if len(commits) != 2 {
+		t.Fatalf("want 2 commits in base..end, got %d: %+v", len(commits), commits)
+	}
+	// git log lists newest first
+	if commits[0].Subject != "fix token rotation" || commits[1].Subject != "PROJ-142 add pkce flow" {
+		t.Fatalf("subjects wrong: %+v", commits)
+	}
+	if commits[0].Hash == "" || commits[0].Ts == 0 {
+		t.Fatalf("hash/ts not populated: %+v", commits[0])
+	}
+
+	// empty range returns empty, not an error
+	empty, err := RangeLog(context.Background(), dir, end, end)
+	if err != nil {
+		t.Fatalf("RangeLog empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("want 0 commits for end..end, got %d", len(empty))
+	}
+}

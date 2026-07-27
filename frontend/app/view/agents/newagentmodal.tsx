@@ -4,6 +4,7 @@
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { composerReveal } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { DialogButton } from "@/app/modals/dialogbutton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -625,19 +626,12 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         ) : null}
                     </div>
                     <div className="flex-1" />
-                    <button
-                        onClick={close}
-                        className="cursor-pointer rounded border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
-                    >
+                    <DialogButton variant="secondary" hint="esc" onClick={close}>
                         Cancel
-                    </button>
-                    <button
-                        onClick={() => void launch()}
-                        className="flex cursor-pointer items-center gap-[7px] rounded border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover"
-                    >
+                    </DialogButton>
+                    <DialogButton variant="primary" hint={formatChordString("Cmd:Enter")} onClick={() => void launch()}>
                         {runtimeLaunchLabel(runtime)}
-                        <span className="font-mono text-[10.5px] opacity-70">{formatChordString("Cmd:Enter")}</span>
-                    </button>
+                    </DialogButton>
                 </div>
                 </>
             ) : null}

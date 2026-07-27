@@ -12,6 +12,9 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
+	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
+	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -46,6 +49,22 @@ func publishRunUpdate(channelId, runId string) {
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runId))
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 }
+
+// captureAsync dispatches the continuity boundary summary (sub-project E) off the RPC handler's
+// goroutine — it makes a model call and must never sit on the 5s RPC budget. A seam so tests capture
+// the dispatch without running it.
+var captureAsync = func(fn func()) { go fn() }
+
+// continuityCaptureTimeout bounds the detached boundary-summary model call (PLACEHOLDER; see docs/deferred.md).
+const continuityCaptureTimeout = 90 * time.Second
+
+// proactiveAsync dispatches the S3 proactive-resurfacing evaluation off the RPC
+// handler's goroutine — it makes an embedding + model call and must never sit on
+// the 5s RPC budget. A seam so tests capture the dispatch without running it.
+var proactiveAsync = func(fn func()) { go fn() }
+
+// proactiveDispatchTimeout bounds the detached dispatch evaluation (PLACEHOLDER; see docs/deferred.md).
+const proactiveDispatchTimeout = 90 * time.Second
 
 // sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
 // take many seconds) detached from any RPC budget. Self-contained and idempotent: it re-loads the run, and
@@ -230,12 +249,42 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
+	// AppendRun stamps identity on its own copy (it takes the run by value), so mirror it locally:
+	// the dossier capture below links [[run-<oid>]], and S3 excludes that node by the same key.
+	run.OID = run.ID
+	run.ChannelOID = data.ChannelId
 	if run.RadarOrigin != nil {
 		inv := reporadar.InvestigationFromRun(&run, data.ChannelId, "executing", run.CreatedTs)
 		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
 			log.Printf("CreateRun: recording radar investigation (executing) failed: %v", rerr)
 		}
 	}
+	if err := jarviscapture.CaptureRunDispatch(ctx, &run); err != nil {
+		log.Printf("CreateRun: capturing dossier failed (non-fatal): %v", err)
+	}
+	proactiveAsync(func() {
+		pctx, cancel := context.WithTimeout(context.Background(), proactiveDispatchTimeout)
+		defer cancel()
+		sug, perr := jarvisproactive.EvaluateDispatch(pctx, &run)
+		if perr != nil {
+			log.Printf("CreateRun: proactive dispatch eval failed (non-fatal): %v", perr)
+			return
+		}
+		if sug == nil {
+			return // embeddings off / degraded — leave run.Meta untouched
+		}
+		if uerr := wstore.UpdateRun(pctx, data.ChannelId, run.ID, func(r *waveobj.Run) error {
+			if r.Meta == nil {
+				r.Meta = waveobj.MetaMapType{}
+			}
+			r.Meta[jarvisproactive.MetaKeyProactive] = *sug
+			return nil
+		}); uerr != nil {
+			log.Printf("CreateRun: persisting proactive suggestion failed (non-fatal): %v", uerr)
+			return
+		}
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	})
 	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
 		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
@@ -324,6 +373,10 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
 	}
+	preStatus := ""
+	if pre, perr := wstore.GetRun(ctx, data.ChannelId, data.RunId); perr == nil {
+		preStatus = pre.Status
+	}
 	// approve-in-place: an orchestrator lead held at the plan gate resumes via steer, not a fresh worker.
 	leadToSteer := ""
 	if data.Action == jarvis.RunAction_Approve {
@@ -365,6 +418,41 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
 		}
+	}
+	// continuity (sub-project E): on entering a rest state (awaiting-review | blocked | done), write the
+	// dossier's narrative "where it stands" summary off the RPC budget. Non-fatal; a detached context so
+	// it outlives this handler.
+	if postRun, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil &&
+		jarviscontinuity.IsRestState(postRun.Status) && postRun.Status != preStatus {
+		run := *postRun
+		channelId, runId := data.ChannelId, data.RunId
+		captureAsync(func() {
+			cctx, cancel := context.WithTimeout(context.Background(), continuityCaptureTimeout)
+			defer cancel()
+			card, cerr := jarviscontinuity.CaptureRunBoundary(cctx, &run)
+			if cerr != nil {
+				log.Printf("AdvanceRun: continuity capture failed (non-fatal): %v", cerr)
+				return
+			}
+			if card == nil {
+				return // no dossier references this run, or it has no narrative yet
+			}
+			// persist the narrative onto the run so returning to it resurfaces where it stands with no
+			// second model call — same run.Meta + waveobj:update channel S3's proactive card rides.
+			if uerr := wstore.UpdateRun(cctx, channelId, runId, func(r *waveobj.Run) error {
+				if r.Meta == nil {
+					r.Meta = waveobj.MetaMapType{}
+				}
+				r.Meta[jarviscontinuity.MetaKeyResume] = *card
+				// a later boundary means the narrative changed, so an earlier dismissal is stale.
+				delete(r.Meta, jarviscontinuity.MetaKeyResumeDismissed)
+				return nil
+			}); uerr != nil {
+				log.Printf("AdvanceRun: persisting resume card failed (non-fatal): %v", uerr)
+				return
+			}
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+		})
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 	if err != nil {

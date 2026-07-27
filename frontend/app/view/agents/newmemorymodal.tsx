@@ -5,8 +5,10 @@
 // hub (via memstore.createNote with the focused agent's cwd), falling back to the dedicated vault
 // when no agent is focused. Esc / backdrop click cancels.
 
+import { DialogButton } from "@/app/modals/dialogbutton";
+import { ModalShell } from "@/app/modals/modalshell";
 import { cn, fireAndForget } from "@/util/util";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createNote } from "./memstore";
 import { typeMeta } from "./memtypes";
 
@@ -18,17 +20,6 @@ export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: st
     const [scope, setScope] = useState("shared");
     const [body, setBody] = useState("");
 
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                e.preventDefault();
-                onClose();
-            }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [onClose]);
-
     const canSave = name.trim().length > 0 && body.trim().length > 0;
     const save = () => {
         if (!canSave) return;
@@ -39,14 +30,8 @@ export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: st
     };
 
     return (
-        <div
-            onClick={onClose}
-            className="fixed inset-0 z-[75] flex items-start justify-center bg-black/60 pt-[12vh] backdrop-blur-[3px]"
-        >
-            <div
-                onClick={(e) => e.stopPropagation()}
-                className="w-[min(560px,93vw)] overflow-hidden rounded-[14px] border border-edge-mid bg-surface-raised shadow-2xl"
-            >
+        <ModalShell open onClose={onClose} onSubmit={save} className="w-[min(560px,93vw)]" topClass="pt-[12vh]">
+            <div>
                 <div className="flex items-center gap-[11px] border-b border-edge-faint px-[18px] py-[15px]">
                     <span className="flex-1 text-[15px] font-semibold text-foreground">New memory</span>
                     <span className="rounded-[5px] border border-edge-mid px-[7px] py-[2px] font-mono text-[10.5px] text-ink-faint">
@@ -112,21 +97,14 @@ export function NewMemoryModal({ onClose, cwd }: { onClose: () => void; cwd?: st
                         {typeMeta(type).label} · <span className="text-accent-soft">{scope || "shared"}</span>
                     </span>
                     <div className="flex-1" />
-                    <button
-                        onClick={onClose}
-                        className="rounded border border-border px-[15px] py-[8px] text-[12.5px] font-semibold text-ink-mid hover:text-foreground"
-                    >
+                    <DialogButton variant="secondary" hint="esc" onClick={onClose}>
                         Cancel
-                    </button>
-                    <button
-                        onClick={save}
-                        disabled={!canSave}
-                        className="rounded bg-accent px-[16px] py-[8px] text-[12.5px] font-semibold text-background disabled:opacity-50"
-                    >
+                    </DialogButton>
+                    <DialogButton variant="primary" hint="⌘⏎" disabled={!canSave} onClick={save}>
                         Save memory
-                    </button>
+                    </DialogButton>
                 </div>
             </div>
-        </div>
+        </ModalShell>
     );
 }

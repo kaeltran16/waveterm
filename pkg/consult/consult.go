@@ -114,6 +114,35 @@ func SpecFor(runtime string) (RuntimeSpec, bool) {
 	return s, ok
 }
 
+// Tier is the model class for a one-shot call: cheap for mechanical grunt work, capable for
+// synthesis. TierCapable deliberately adds no --model flag — it keeps whatever default the operator
+// configured for the CLI, which is exactly what every call did before tiering existed, so selecting
+// it explicitly is a no-op rather than a downgrade.
+type Tier string
+
+const (
+	TierCapable Tier = "capable"
+	TierCheap   Tier = "cheap"
+)
+
+// cheapModel is the claude alias for the cheap tier. Haiku 4.5 is the cheapest current alias
+// (~1/5 of Opus per input token). Note "fable" is not a small model despite the naming — Claude
+// Fable 5 prices above Opus — so it is the wrong alias for a cost-driven tier.
+const cheapModel = "haiku"
+
+// SpecForTier resolves a runtime spec with the tier's model selection applied. Only claude has a
+// --model contract here, so the other runtimes come back untouched.
+func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
+	spec, ok := SpecFor(runtime)
+	if !ok || tier != TierCheap || runtime != "claude" {
+		return spec, ok
+	}
+	// SpecFor returns a by-value copy whose BaseArgs still shares the map's backing array; copy
+	// before appending so a tiered call can never mutate the spec every other caller reads.
+	spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", cheapModel)
+	return spec, true
+}
+
 func SupportedRuntimes() []string {
 	return []string{"claude", "codex", "antigravity"}
 }

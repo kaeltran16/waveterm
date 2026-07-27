@@ -100,6 +100,29 @@ declare global {
         weekreset?: number;
     };
 
+    // wshrpc.AmbientDecision
+    type AmbientDecision = {
+        dossierid: string;
+        id: string;
+        title: string;
+        created: number;
+    };
+
+    // wshrpc.AmbientEdge
+    type AmbientEdge = {
+        oref: string;
+        dossierid: string;
+        provenance: string;
+        bucket: string;
+        state: string;
+    };
+
+    // wshrpc.AmbientTask
+    type AmbientTask = {
+        id: string;
+        label: string;
+    };
+
     // wshrpc.AskRtnData
     type AskRtnData = {
         askid: string;
@@ -263,6 +286,19 @@ declare global {
     type CommandAnswerAgentData = {
         oref: string;
         answers: AgentAnswerItem[];
+    };
+
+    // wshrpc.CommandAppendDossierDecisionData
+    type CommandAppendDossierDecisionData = {
+        dossierid: string;
+        summary: string;
+        rationale: string;
+        links?: string[];
+    };
+
+    // wshrpc.CommandAppendDossierDecisionRtnData
+    type CommandAppendDossierDecisionRtnData = {
+        decisionid: string;
     };
 
     // wshrpc.CommandArchiveChannelData
@@ -562,6 +598,11 @@ declare global {
         channels: Channel[];
     };
 
+    // wshrpc.CommandGetDossierData
+    type CommandGetDossierData = {
+        dossierid: string;
+    };
+
     // wshrpc.CommandGetJarvisProfileData
     type CommandGetJarvisProfileData = {
         channelid: string;
@@ -708,6 +749,16 @@ declare global {
         patch?: string;
     };
 
+    // wshrpc.CommandJarvisConverseData
+    type CommandJarvisConverseData = {
+        conversationid: string;
+        prompt: string;
+        scopemode: string;
+        projectpath?: string;
+        attachedorefs?: string[];
+        requestid: string;
+    };
+
     // wshrpc.CommandJarvisData
     type CommandJarvisData = {
         channelid: string;
@@ -797,6 +848,16 @@ declare global {
         runtimes: ConsultRuntimeInfo[];
     };
 
+    // wshrpc.CommandListDossiersRtnData
+    type CommandListDossiersRtnData = {
+        spaces: SpaceSummary[];
+    };
+
+    // wshrpc.CommandListJarvisConversationsRtnData
+    type CommandListJarvisConversationsRtnData = {
+        conversations: JarvisConversationSummary[];
+    };
+
     // wshrpc.CommandListRadarReportsData
     type CommandListRadarReportsData = {
         projectpath?: string;
@@ -805,6 +866,11 @@ declare global {
     // wshrpc.CommandListRadarReportsRtnData
     type CommandListRadarReportsRtnData = {
         reports: RadarReport[];
+    };
+
+    // wshrpc.CommandListTaskDossiersRtnData
+    type CommandListTaskDossiersRtnData = {
+        dossiers: SpaceSummary[];
     };
 
     // wshrpc.CommandMemoryArchiveListRtnData
@@ -1024,6 +1090,24 @@ declare global {
         commit?: string;
     };
 
+    // wshrpc.CommandResolveAmbientRtnData
+    type CommandResolveAmbientRtnData = {
+        tasks: AmbientTask[];
+        edges: AmbientEdge[];
+        decisions: AmbientDecision[];
+    };
+
+    // wshrpc.CommandResolveDossierEdgesData
+    type CommandResolveDossierEdgesData = {
+        dossierid: string;
+    };
+
+    // wshrpc.CommandResolveDossierEdgesRtnData
+    type CommandResolveDossierEdgesRtnData = {
+        runs: GraphNode[];
+        links: GraphLink[];
+    };
+
     // wshrpc.CommandResolveIdsData
     type CommandResolveIdsData = {
         blockid: string;
@@ -1033,6 +1117,11 @@ declare global {
     // wshrpc.CommandResolveIdsRtnData
     type CommandResolveIdsRtnData = {
         resolvedids: {[key: string]: ORef};
+    };
+
+    // wshrpc.CommandResolveSpaceScopeData
+    type CommandResolveSpaceScopeData = {
+        dossierid: string;
     };
 
     // wshrpc.CommandRetryRadarClusteringData
@@ -1076,6 +1165,12 @@ declare global {
         channelid: string;
         tier: string;
         mode?: string;
+    };
+
+    // wshrpc.CommandSetDossierStatusData
+    type CommandSetDossierStatusData = {
+        dossierid: string;
+        status: string;
     };
 
     // wshrpc.CommandSetGlobalProfileData
@@ -1210,6 +1305,12 @@ declare global {
         exists: boolean;
     };
 
+    // wshrpc.CommandVaultGraphRtnData
+    type CommandVaultGraphRtnData = {
+        nodes: GraphNode[];
+        links: GraphLink[];
+    };
+
     // wshrpc.CommandWaitForRouteData
     type CommandWaitForRouteData = {
         routeid: string;
@@ -1342,6 +1443,17 @@ declare global {
         version?: string;
     };
 
+    // wshrpc.DecisionCard
+    type DecisionCard = {
+        id: string;
+        created: number;
+        actor: string;
+        provenance: string;
+        status: string;
+        links: string[];
+        rationale: string;
+    };
+
     // vdom.DomRect
     type DomRect = {
         top: number;
@@ -1350,6 +1462,23 @@ declare global {
         bottom: number;
         width: number;
         height: number;
+    };
+
+    // wshrpc.DossierDetail
+    type DossierDetail = {
+        id: string;
+        ticket: string;
+        objective: string;
+        acceptance: string[];
+        confidence: string;
+        status: string;
+        created: number;
+        updated: number;
+        state: string;
+        blockers: string[];
+        refs: string[];
+        notes: string;
+        decisions: DecisionCard[];
     };
 
     // waveobj.EvidenceArtifact
@@ -1479,9 +1608,84 @@ declare global {
         buildtime: string;
     };
 
+    // wshrpc.GraphLink
+    type GraphLink = {
+        from: string;
+        to: string;
+        kind: string;
+        provenance?: string;
+        bucket?: string;
+        state?: string;
+    };
+
+    // wshrpc.GraphNode
+    type GraphNode = {
+        id: string;
+        kind: string;
+        label: string;
+        status?: string;
+        updated?: number;
+    };
+
     // wshrpc.JarvisChunk
     type JarvisChunk = {
         text: string;
+    };
+
+    // wshrpc.JarvisConversationSummary
+    type JarvisConversationSummary = {
+        id: string;
+        title: string;
+        scopemode: string;
+        updatedts: number;
+    };
+
+    // wshrpc.JarvisConverseChunk
+    type JarvisConverseChunk = {
+        kind: string;
+        step?: JarvisWorkingStep;
+        grounding?: JarvisConvoGroundingCard;
+        text?: string;
+        terminal?: string;
+    };
+
+    // waveobj.JarvisConvo
+    type JarvisConvo = WaveObj & {
+        title: string;
+        scopemode: string;
+        projectpath?: string;
+        attachedorefs?: string[];
+        turns: JarvisConvoTurn[];
+        createdts: number;
+        updatedts: number;
+    };
+
+    // waveobj.JarvisConvoGroundingCard
+    type JarvisConvoGroundingCard = {
+        n: number;
+        sourcetype: string;
+        title: string;
+        project: string;
+        agems: number;
+        freshness: string;
+        navtarget: string;
+    };
+
+    // waveobj.JarvisConvoSourceRef
+    type JarvisConvoSourceRef = {
+        oref: string;
+        sourcetype: string;
+        title: string;
+    };
+
+    // waveobj.JarvisConvoTurn
+    type JarvisConvoTurn = {
+        role: string;
+        text?: string;
+        attachments?: JarvisConvoSourceRef[];
+        prose?: string;
+        grounding?: JarvisConvoGroundingCard[];
+        terminal?: string;
     };
 
     // waveobj.JarvisProfile
@@ -1490,6 +1694,13 @@ declare global {
         principles?: Principle[];
         defaultmode?: string;
         defaultplangate?: boolean;
+    };
+
+    // wshrpc.JarvisWorkingStep
+    type JarvisWorkingStep = {
+        id: string;
+        label: string;
+        status: string;
     };
 
     // waveobj.Job
@@ -2139,6 +2350,10 @@ declare global {
         "term:trimtrailingwhitespace"?: boolean;
         "memory:vaultpath"?: string;
         "memory:gardenerstaledays"?: number;
+        "jarvis:vaultpath"?: string;
+        "jarvis:embedenabled"?: boolean;
+        "jarvis:embedbaseurl"?: string;
+        "jarvis:embedmodel"?: string;
         "editor:minimapenabled"?: boolean;
         "editor:stickyscrollenabled"?: boolean;
         "editor:wordwrap"?: boolean;
@@ -2182,6 +2397,22 @@ declare global {
         "debug:pprofport"?: number;
         "debug:pprofmemprofilerate"?: number;
         "debug:webglstatus"?: boolean;
+    };
+
+    // wshrpc.SpaceScope
+    type SpaceScope = {
+        runorefs: string[];
+        channeloids: string[];
+        tabids: string[];
+    };
+
+    // wshrpc.SpaceSummary
+    type SpaceSummary = {
+        id: string;
+        objective: string;
+        ticket: string;
+        status: string;
+        updated: number;
     };
 
     // waveobj.StickerClickOptsType

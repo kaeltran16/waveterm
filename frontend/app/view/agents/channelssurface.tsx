@@ -23,9 +23,12 @@ import { appendAttachments, useComposerAttachments } from "./composerattachments
 import { ContextPanel } from "./channelcontextpanel";
 import { resolveTargetChannel } from "./channelderive";
 import { composerFace, parseComposerCommand } from "./composercommand";
-import { tierFromMeta, type RosterEntry } from "./channelmessages";
+import { type RosterEntry } from "./channelmessages";
 import { CHANNEL_COL } from "./channelsprimitives";
 import { ChannelRail } from "./channelrail";
+import { filterChannelsBySpace, spaceBannerText } from "./spacescope";
+import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "./spacestore";
+import { SpaceBanner } from "./spacebanner";
 import {
     activeChannelAtom,
     activeChannelIdAtom,
@@ -46,19 +49,21 @@ import {
     setChannelTier,
 } from "./channelsstore";
 import { projectsAtom } from "./projectsstore";
-import { ProfilePanel } from "./profilepanel";
-import { profileRailOpenAtom } from "./railstore";
 import { createRun, getJarvisProfile, pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { currentPhaseIndex, defaultRunId, liveWorkers, resolveActiveRunId } from "./runmodel";
 import { RunBody } from "./runbody";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
-import { useFleetSummary } from "./usefleetsummary";
 
 // ── The surface ──────────────────────────────────────────────────────────────────────────────────────
 
 export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
+    const spaceScope = useAtomValue(spaceScopeAtom);
+    const activeSpace = useAtomValue(activeSpaceAtom);
+    const channelsRevealed = useAtomValue(spaceRevealAtom).has("channels");
+    const scopedChannels = filterChannelsBySpace(channels, spaceScope, channelsRevealed);
+    const channelsHidden = (channels?.length ?? 0) - (scopedChannels?.length ?? 0);
     const channelsError = useAtomValue(channelsErrorAtom);
     const activeId = useAtomValue(activeChannelIdAtom);
     const active = useAtomValue(activeChannelAtom);
@@ -69,7 +74,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const pendingFocus = useAtomValue(pendingRunFocusAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
-    const setProfileOpen = useSetAtom(profileRailOpenAtom);
 
     // draft + dismissals live in per-channel atoms (keyed by activeId), not surface-local state, so they
     // survive the surface unmount on nav-rail switch and the channel switch (see channelsstore).
@@ -90,7 +94,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
     const attach = useComposerAttachments();
     const [picking, setPicking] = useState(false);
     const [overviewOpen, setOverviewOpen] = useState(false);
-    const { summary, runSummary, reset: resetSummary } = useFleetSummary();
     const [profile, setProfile] = useState<JarvisProfile | undefined>(undefined);
 
     // Phase 2: the active channel's runs/messages come from the row-backed atoms (seeded on select,
@@ -124,16 +127,12 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         }, 600);
     };
 
-    const tier = tierFromMeta(active?.meta as Record<string, unknown> | undefined);
-    const autonomyOn = tier !== "concierge";
-
     // keep a valid run selection as the channel / visible runs change
     useEffect(() => {
         setActiveRunId((cur) => resolveActiveRunId(runs, cur));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active?.oid, runs.length]);
     useEffect(() => {
-        resetSummary();
         attach.clear();
         setOverviewOpen(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,15 +226,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         setActiveRunId(id);
     };
 
-    const toggleAutonomy = () => {
-        if (!active) {
-            return;
-        }
-        const next = autonomyOn ? "concierge" : "gatekeeper";
-        const mode = ((active.meta as Record<string, unknown> | undefined)?.["delegator:mode"] as string) ?? "report";
-        fireAndForget(() => setChannelTier(active.oid, next, mode));
-    };
-
     const launchValue = pendingDraft ? pendingDraft.goal : draft;
     const onLaunchChange = pendingDraft ? (v: string) => setPendingDraft((d) => (d ? { ...d, goal: v } : d)) : setDraft;
 
@@ -315,7 +305,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                 projectPath: active.projectpath ?? "",
                 projectName: active.name ?? "agent",
                 roster,
-                agents,
                 text: transport,
             })
         );
@@ -335,11 +324,20 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
         <MotionConfig reducedMotion="user">
             <div className="absolute inset-0 flex bg-background">
                 <ChannelRail
-                    channels={channels}
+                    channels={scopedChannels}
                     activeId={activeId}
                     agents={agents}
                     projects={projects}
                     picking={picking}
+                    spaceBanner={
+                        activeSpace != null ? (
+                            <SpaceBanner
+                                surface="channels"
+                                text={spaceBannerText(activeSpace.objective, channelsHidden, channelsRevealed)}
+                                revealed={channelsRevealed}
+                            />
+                        ) : null
+                    }
                     onSelect={(id) => fireAndForget(() => selectChannel(id))}
                     onToggleNew={() => setPicking((p) => !p)}
                     onPickProject={pickProject}
@@ -361,12 +359,7 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
 
                 <div className="@container flex min-w-0 flex-1">
                     <div className="flex min-w-0 flex-1 flex-col">
-                        <ChannelHeader
-                            channel={active}
-                            autonomyOn={autonomyOn}
-                            onToggleAutonomy={toggleAutonomy}
-                            onOpenProfile={() => setProfileOpen((o) => !o)}
-                        />
+                        <ChannelHeader channel={active} />
 
                         {active ? (
                             <>
@@ -374,8 +367,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                                     open={overviewOpen}
                                     onToggle={() => setOverviewOpen((o) => !o)}
                                     runCount={runs.length}
-                                    summary={summary}
-                                    onRunSummary={() => runSummary(activeForDerive!, agents)}
                                     notes={notesDraft}
                                     onNotesChange={onNotesChange}
                                 />
@@ -502,7 +493,6 @@ export function ChannelsSurface({ model }: { model: AgentsViewModel }) {
                         onSelectRun={goToRun}
                         onDispatchConsult={dispatchToRun}
                     />
-                    <ProfilePanel channelId={active?.oid ?? ""} />
                 </div>
             </div>
         </MotionConfig>

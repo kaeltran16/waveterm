@@ -16,15 +16,24 @@ import type { Runtime } from "@/app/view/agents/launch";
 import { ITEMS as SURFACE_ITEMS } from "@/app/view/agents/navrail";
 import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
+import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    activeConversationIdAtom,
+    jarvisModeAtom,
+    startConversation,
+    submitJarvisQuery,
+} from "@/app/view/jarvis/jarvisstore";
+import { buildAskItems } from "./palette-ask";
+import { buildFocusItems } from "./palette-focus";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 import { rankPaletteItems } from "./palette-match";
 import { parseScope, resolveChannelToken } from "./palette-scope";
 import { cheatsheetOpenAtom } from "./shortcuts-cheatsheet";
 
-type PaletteKind = "launch" | "command" | "agent" | "session" | "channel";
+type PaletteKind = "launch" | "ask-jarvis" | "focus-task" | "command" | "agent" | "session" | "channel";
 
 interface PaletteItem {
     key: string;
@@ -42,9 +51,10 @@ interface PaletteItem {
     footer?: string; // one-line echo shown in the palette footer when selected
 }
 
-const GROUP_ORDER: PaletteKind[] = ["command", "agent", "session"];
+const GROUP_ORDER: PaletteKind[] = ["focus-task", "command", "agent", "session"];
 // The launch group renders its own dynamic label ("Launch in #<channel>"), so it is excluded here.
-const GROUP_LABELS: Record<Exclude<PaletteKind, "launch">, string> = {
+const GROUP_LABELS: Record<Exclude<PaletteKind, "launch" | "ask-jarvis">, string> = {
+    "focus-task": "Focus on task",
     command: "Commands",
     agent: "Agents",
     session: "Sessions",
@@ -57,6 +67,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(sessionsArchiveAtom);
     const channel = useAtomValue(activeChannelAtom);
     const channels = useAtomValue(channelsAtom);
+    const spaces = useAtomValue(spacesAtom);
+    const activeSpace = useAtomValue(activeSpaceAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
     const [runProfile, setRunProfile] = useState<{ mode?: string; planGate?: boolean } | null>(null);
@@ -80,6 +92,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         if (open && !loadedRef.current) {
             loadedRef.current = true;
             fireAndForget(loadSessionsArchive);
+        }
+        if (open) {
+            loadSpaces();
         }
     }, [open]);
 
@@ -214,7 +229,6 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 projectPath: ch.projectpath ?? "",
                 projectName: ch.name ?? "agent",
                 roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
-                agents,
                 text,
             });
         const deps: LaunchDeps = {
@@ -242,6 +256,28 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }));
     }, [showLaunch, targetChannel, launchGoal, runProfile, agents, model]);
 
+    // "Ask Jarvis" lead group: turn the typed goal into a recall conversation and open the Jarvis surface.
+    // Reuses jarvisstore's module-scope streaming so the answer keeps arriving after the palette closes.
+    const askDeps = {
+        ask: (question: string) => {
+            const scope = {
+                mode: "all" as const,
+                chips: [
+                    { label: "This project", active: false },
+                    { label: "All Wave", active: true },
+                ],
+                attached: [],
+            };
+            const id = startConversation(scope);
+            submitJarvisQuery(id, question);
+            globalStore.set(activeConversationIdAtom, id);
+            globalStore.set(jarvisModeAtom, "recall");
+            globalStore.set(model.surfaceAtom, "jarvis");
+            close();
+        },
+    };
+    const askItems = buildAskItems(launchGoal, askDeps);
+
     // Channel picker rows (# scope, no goal). Enter switches the active channel and opens the surface.
     const channelItems = useMemo<PaletteItem[]>(
         () =>
@@ -260,6 +296,30 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         [channels, model]
     );
 
+    // "Focus on task" group: rows for each active|paused task (+ Exit focus when focused). Selecting a
+    // row enters that Space (re-lensing the scoped surfaces) and closes the palette.
+    const focusItems = useMemo<PaletteItem[]>(
+        () =>
+            buildFocusItems(spaces, activeSpace?.id ?? null, {
+                focus: (s) => {
+                    enterSpace(s);
+                    close();
+                },
+                exit: () => {
+                    exitSpace();
+                    close();
+                },
+            }).map((fi) => ({
+                key: fi.key,
+                kind: "focus-task" as const,
+                search: fi.subtitle ? `${fi.title} ${fi.subtitle}` : fi.title,
+                title: fi.title,
+                subtitle: fi.subtitle,
+                run: fi.run,
+            })),
+        [spaces, activeSpace, model]
+    );
+
     // A sigil scope narrows to one group; default keeps today's launch-lead + ranked kinds.
     let groups: { kind: PaletteKind; items: PaletteItem[] }[];
     if (parsed.scope === "channel") {
@@ -270,10 +330,24 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             groups = ranked.length > 0 ? [{ kind: "channel", items: ranked }] : [];
         }
     } else if (parsed.scope === "default") {
-        const ranked = rankPaletteItems(items, query);
+        const ranked = rankPaletteItems([...focusItems, ...items], query);
         groups = GROUP_ORDER.map((kind) => ({ kind, items: ranked.filter((it) => it.kind === kind) })).filter(
             (g) => g.items.length > 0
         );
+        const askPalItems = askItems.map((ai) => ({
+            key: ai.key,
+            kind: "ask-jarvis" as const,
+            search: "",
+            title: ai.mode,
+            glyph: ai.glyph,
+            mode: ai.mode,
+            desc: ai.desc,
+            footer: ai.footer,
+            run: ai.run,
+        }));
+        if (askPalItems.length > 0) {
+            groups = [{ kind: "ask-jarvis", items: askPalItems }, ...groups];
+        }
         if (launchItems.length > 0) {
             groups = [{ kind: "launch", items: launchItems }, ...groups];
         }
@@ -297,7 +371,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const selClamped = flat.length === 0 ? 0 : Math.min(sel, flat.length - 1);
     const flatIndex = new Map(flat.map((it, i) => [it.key, i]));
     const selected = flat[selClamped];
-    const selFooter = selected?.kind === "launch" ? selected.footer : undefined;
+    const selFooter =
+        selected?.kind === "launch" || selected?.kind === "ask-jarvis" ? selected.footer : undefined;
 
     const onKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "ArrowDown") {
@@ -349,15 +424,22 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                         <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
                     ) : (
                         groups.map((g) =>
-                            g.kind === "launch" ? (
+                            g.kind === "launch" || g.kind === "ask-jarvis" ? (
                                 <div
-                                    key="launch"
+                                    key={g.kind}
                                     className="relative mx-0.5 mb-2 mt-1 rounded-[10px] bg-accent/5 px-1 pb-1"
                                 >
                                     {/* accent rail marks the one group that acts on your typed goal */}
                                     <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
                                     <div className="px-3 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
-                                        Launch in <span className="text-accent-100">#{targetChannel?.name}</span>
+                                        {g.kind === "launch" ? (
+                                            <>
+                                                Launch in{" "}
+                                                <span className="text-accent-100">#{targetChannel?.name}</span>
+                                            </>
+                                        ) : (
+                                            "Ask Jarvis"
+                                        )}
                                     </div>
                                     {g.items.map((it) => {
                                         const myIdx = flatIndex.get(it.key)!;

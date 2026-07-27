@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { DialogButton } from "@/app/modals/dialogbutton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -54,7 +55,7 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
         }
     };
     return (
-        <ModalShell open={open} onClose={close} className="w-[min(480px,92vw)]" topClass="pt-[14vh]" dismissOnBackdrop={false}>
+        <ModalShell open={open} onClose={close} onSubmit={() => void create()} className="w-[min(480px,92vw)]" topClass="pt-[14vh]" dismissOnBackdrop={false}>
             {open ? (
                 <>
                 <div className="flex items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
@@ -100,19 +101,12 @@ export function NewProjectModal({ model }: { model: AgentsViewModel }) {
                 </div>
                 <div className="flex items-center gap-3 border-t border-border px-[18px] py-[13px]">
                     <div className="flex-1" />
-                    <button
-                        onClick={close}
-                        className="cursor-pointer rounded border border-edge-mid bg-transparent px-[15px] py-2 text-[12.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-primary"
-                    >
+                    <DialogButton variant="secondary" hint="esc" onClick={close}>
                         Cancel
-                    </button>
-                    <button
-                        onClick={() => void create()}
-                        disabled={!canCreate}
-                        className="cursor-pointer rounded border-0 bg-accent px-4 py-2 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-not-allowed disabled:bg-edge-strong disabled:text-muted"
-                    >
+                    </DialogButton>
+                    <DialogButton variant="primary" hint="⌘⏎" disabled={!canCreate} onClick={() => void create()}>
                         Create project
-                    </button>
+                    </DialogButton>
                 </div>
                 </>
             ) : null}

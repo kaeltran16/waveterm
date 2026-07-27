@@ -7,11 +7,11 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { atoms, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { cn } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { Folder } from "lucide-react";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceAtom, startupSurfaceOptions, vaultPathError } from "./cockpitprefsstore";
 import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
@@ -65,6 +65,8 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     <TerminalSection />
                     <SectionGap />
                     <MemorySection />
+                    <SectionGap />
+                    <EmbeddingsSection />
                 </motion.div>
             </div>
         </MotionConfig>
@@ -763,6 +765,232 @@ function MemorySection() {
                     {showSaved ? "Saved ✓" : "Save"}
                 </button>
             </div>
+            {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
+        </div>
+    );
+}
+
+// The secret the embedding provider reads (pkg/jarvisembed/embed.go). Never read back into the UI.
+const EMBED_SECRET_NAME = "jarvis:embedapikey";
+
+function SaveButton({ label, onClick }: { label: string; onClick: () => void }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+                "shrink-0 rounded-[9px] border px-[18px] py-2.5 text-[13px] font-semibold transition-colors",
+                label === "Saved ✓"
+                    ? "border-success/40 bg-success/[0.14] text-success-soft animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                    : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
+            )}
+        >
+            {label}
+        </button>
+    );
+}
+
+function TextInput({
+    value,
+    placeholder,
+    password,
+    onChange,
+}: {
+    value: string;
+    placeholder: string;
+    password?: boolean;
+    onChange: (v: string) => void;
+}) {
+    return (
+        <input
+            type={password ? "password" : "text"}
+            value={value}
+            placeholder={placeholder}
+            spellCheck={false}
+            autoComplete={password ? "off" : undefined}
+            onChange={(e) => onChange(e.target.value)}
+            className="min-w-0 flex-1 rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-2.5 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
+        />
+    );
+}
+
+// One text-valued config key with its own draft/Save state, mirroring MemorySection's field (which keeps
+// its own copy — it carries a folder picker and a stat check this has no use for).
+function ConfigField({
+    title,
+    desc,
+    placeholder,
+    stored,
+    onSave,
+}: {
+    title: string;
+    desc: string;
+    placeholder: string;
+    stored: string;
+    onSave: (value: string) => void;
+}) {
+    const [draft, setDraft] = useState(stored);
+    const [saved, setSaved] = useState(false);
+    const showSaved = saved && draft === stored;
+    return (
+        <div className="border-t border-edge-faint py-3.5 first:border-t-0">
+            <div className="text-[14px] font-semibold text-primary">{title}</div>
+            <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">{desc}</div>
+            <div className="flex gap-2.5">
+                <TextInput
+                    value={draft}
+                    placeholder={placeholder}
+                    onChange={(v) => {
+                        setDraft(v);
+                        setSaved(false);
+                    }}
+                />
+                <SaveButton
+                    label={showSaved ? "Saved ✓" : "Save"}
+                    onClick={() => {
+                        onSave(draft.trim());
+                        setSaved(true);
+                    }}
+                />
+            </div>
+        </div>
+    );
+}
+
+// Embeddings (BYOK) — the opt-in semantic lane behind jarvisembed. Config goes through the ordinary
+// settings-write path; the key goes to the OS secret store via SetSecrets, write-only in both directions
+// (the UI can ask whether a key exists, never what it is).
+function EmbeddingsSection() {
+    const enabled = (useAtomValue(getSettingsKeyAtom("jarvis:embedenabled")) as boolean) ?? false;
+    const baseURL = (useAtomValue(getSettingsKeyAtom("jarvis:embedbaseurl")) as string) ?? "";
+    const model = (useAtomValue(getSettingsKeyAtom("jarvis:embedmodel")) as string) ?? "";
+
+    const [keyDraft, setKeyDraft] = useState("");
+    const [hasKey, setHasKey] = useState(false);
+    const [keySaved, setKeySaved] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        fireAndForget(async () => {
+            try {
+                const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
+                setHasKey((names ?? []).includes(EMBED_SECRET_NAME));
+            } catch (e) {
+                setError(String(e));
+            }
+        });
+    }, []);
+
+    const write = (patch: Record<string, unknown>) =>
+        void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
+
+    const saveKey = () => {
+        const key = keyDraft.trim();
+        if (key === "") {
+            return;
+        }
+        fireAndForget(async () => {
+            setError(null);
+            try {
+                await RpcApi.SetSecretsCommand(TabRpcClient, { [EMBED_SECRET_NAME]: key });
+                setKeyDraft(""); // write-only: the key is never held in the input after it lands
+                setHasKey(true);
+                setKeySaved(true);
+            } catch (e) {
+                setError(String(e));
+            }
+        });
+    };
+
+    // A null value deletes the secret (wshserver_secrets takes map[string]*string). The generated client
+    // types values as string, so expressing "delete" needs the cast.
+    const clearKey = () =>
+        fireAndForget(async () => {
+            setError(null);
+            try {
+                await RpcApi.SetSecretsCommand(TabRpcClient, { [EMBED_SECRET_NAME]: null } as unknown as Record<
+                    string,
+                    string
+                >);
+                setHasKey(false);
+                setKeyDraft("");
+                setKeySaved(false);
+            } catch (e) {
+                setError(String(e));
+            }
+        });
+
+    // jarvisembed.Available() needs all four; short of that the lane stays dark however the toggle reads.
+    const missing = [baseURL === "" && "a base URL", model === "" && "a model", !hasKey && "an API key"].filter(
+        Boolean
+    ) as string[];
+
+    return (
+        <div>
+            <SectionLabel>Embeddings</SectionLabel>
+            <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
+                Semantic recall calls an OpenAI-compatible{" "}
+                <span className="font-mono text-[11.5px] text-secondary">/embeddings</span> endpoint that you supply
+                and pay for — Wave never proxies it. For a local setup, point the base URL at a local server. Off by
+                default: with it off, recall behaves exactly as it does today.
+            </div>
+            <div>
+                <Row
+                    title="Enable semantic recall"
+                    desc="Index the vault and match on meaning, not just wording."
+                >
+                    <Toggle on={enabled} onToggle={() => write({ "jarvis:embedenabled": !enabled })} />
+                </Row>
+                <ConfigField
+                    title="Base URL"
+                    desc="Root of the OpenAI-compatible API, without the /embeddings suffix."
+                    placeholder="https://api.openai.com/v1"
+                    stored={baseURL}
+                    onSave={(v) => write({ "jarvis:embedbaseurl": v })}
+                />
+                <ConfigField
+                    title="Model"
+                    desc="Embedding model id. Changing it re-indexes the vault on the next query."
+                    placeholder="text-embedding-3-small"
+                    stored={model}
+                    onSave={(v) => write({ "jarvis:embedmodel": v })}
+                />
+                <div className="border-t border-edge-faint py-3.5">
+                    <div className="text-[14px] font-semibold text-primary">API key</div>
+                    <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
+                        Stored in the OS secret store, never in settings and never shown again.{" "}
+                        <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
+                            {hasKey ? "A key is stored." : "No key stored."}
+                        </span>
+                    </div>
+                    <div className="flex gap-2.5">
+                        <TextInput
+                            value={keyDraft}
+                            placeholder={hasKey ? "••••••••  (enter a new key to replace)" : "sk-…"}
+                            password
+                            onChange={(v) => {
+                                setKeyDraft(v);
+                                setKeySaved(false);
+                            }}
+                        />
+                        <SaveButton label={keySaved ? "Saved ✓" : "Save"} onClick={saveKey} />
+                        {hasKey ? (
+                            <button
+                                type="button"
+                                onClick={clearKey}
+                                className="shrink-0 rounded-[9px] border border-edge-mid bg-surface-raised px-[18px] py-2.5 text-[13px] font-semibold text-secondary transition-colors hover:border-error/50 hover:text-error"
+                            >
+                                Clear
+                            </button>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+            {enabled && missing.length > 0 ? (
+                <div className="mt-3 text-[12px] text-warning">
+                    Enabled, but still needs {missing.join(", ")} — semantic recall stays off until then.
+                </div>
+            ) : null}
             {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
         </div>
     );

@@ -61,6 +61,11 @@ const (
 	ConfigKey_MemoryVaultPath                = "memory:vaultpath"
 	ConfigKey_MemoryGardenerStaleDays        = "memory:gardenerstaledays"
 
+	ConfigKey_JarvisVaultPath                = "jarvis:vaultpath"
+	ConfigKey_JarvisEmbedEnabled             = "jarvis:embedenabled"
+	ConfigKey_JarvisEmbedBaseURL             = "jarvis:embedbaseurl"
+	ConfigKey_JarvisEmbedModel               = "jarvis:embedmodel"
+
 	ConfigKey_EditorMinimapEnabled           = "editor:minimapenabled"
 	ConfigKey_EditorStickyScrollEnabled      = "editor:stickyscrollenabled"
 	ConfigKey_EditorWordWrap                 = "editor:wordwrap"

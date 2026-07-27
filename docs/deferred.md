@@ -3,6 +3,108 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Jarvis S2 — semantic consumers L3 + L4 (2026-07-24)
+
+Shipped L3 (semantic recall in `pkg/jarvisrecall`) and L4 (semantic attribution in `pkg/jarvisattrib`) over
+S1's index, plus a keyed embedding cache in `pkg/jarvisembed` (`attrib_vectors` + `EmbedCached` + `Cosine` +
+public `Embed`). Both degrade to the v1 result when embeddings are off.
+
+Deferred:
+- Semantic seed recency-ranking: L3 appends semantic seeds after the deterministic top-k (ScoredChunk has no
+  timestamp to interleave by). A reserved semantic sub-budget / recency-aware merge is deferred pending
+  evidence that the append order matters.
+- L4 gating loosening: semantic fires only when a dossier has zero deterministic (L1-3) edges. Per-run silence
+  (propose for individual unattributed runs on an otherwise-attributed dossier) is deferred pending evidence.
+- Reranking / hybrid score-fusion, proactive resurfacing (S3), auto-hardening a semantic edge — out of S2.
+
+PLACEHOLDER tuning (calibrate against a populated, embedded vault):
+- `kSem = 6` (semantic seed candidates, `pkg/jarvisrecall/retrieve.go`).
+- `semCandidateN = 20` (window-overlapping runs considered per orphan dossier, `pkg/jarvisattrib/semantic.go`).
+- `semThreshold = 0.75` (cosine floor to propose a semantic edge).
+- `weightLayer4 = 0.2` (semantic edge confidence; below `bucketWeakMax` so it renders "weak").
+
+## Jarvis U2 — Tasks surface (dossier editor) (2026-07-24)
+
+U2 ships the read + two-write inside-Wave tier (append a decision, change status). Deferred this cycle (spec §9):
+- **In-Wave `## Notes` editing:** the human Notes prose renders read-only in the Tasks detail (`frontend/app/view/jarvis/taskdetail.tsx`). Editing needs a human-owned write path (`Vault.Write` rejects human-region edits by design; a Notes edit would append via a `CreateHuman`-style prose write + commit) plus an editor affordance. To resume: add a "Edit notes" toggle in `taskdetail.tsx` and a `SetDossierNotesCommand` that writes the `## Notes` region as a user commit.
+- **Editing non-reserved frontmatter** (arbitrary human keys) and **editing/superseding existing decisions from the UI:** backend supports `SupersedeDecision`, but no UI affordance. Decisions stay append-only in U2.
+- **Manual dossier creation** from the surface: dossiers are created by `jarviscapture`/dispatch (machine `CreateDossier`) only; no "New task" button.
+- **Semantic/probation edge rendering, the Graph surface, live push:** the detail refs render as flat id chips (`Refs` machine field); no graph view, no `wps` subscription — the surface reloads on its own writes and on nav-focus, not on external vault mutations.
+- **Notes heading normalization is FE-side:** `LoadDossier`'s `Notes` projection keeps the scaffold's `## Notes` heading; `taskdetail.tsx` strips a leading `## Notes` before display (deviation from the plan's verbatim render, which would have shown a literal `## Notes` line + an empty Notes section on every dossier). If a backend-side fix is preferred later, strip the heading in `jarvisdossier.LoadDossier` instead and drop the FE regex.
+
+## Jarvis S1 — embedding foundation (2026-07-24)
+
+Deferred:
+- Warm-at-commit wiring: `Reconcile` is exposed but only called lazily from `Query` in S1. Wire it into a commit boundary only if first-query latency after edits proves painful.
+- Settings UI for embed config/key: S1 reads `jarvis:embed*` from config and the key from `secretstore`; a settings-surface control is deferred (S2 / a small settings add). Dev sets config via settings file + `secretstore.SetSecret`.
+- Multimodal/image embeddings, query-side reranking, bundled local embedding model — v3.
+
+Build wiring S2 must complete (discovered during the S1 spike; no consumer imports `pkg/jarvisembed` yet, so the Taskfile backend build does not link sqlite-vec today):
+- Any build/test that compiles `pkg/jarvisembed` needs `CGO_CFLAGS="-O2 -g -I<repo>/pkg/jarvisembed/csrc"`. `csrc/sqlite3.h` is a vendored copy of mattn's `sqlite3-binding.h` (the asg017 sqlite-vec module `#include`s `sqlite3.h`, which mattn ships under a different name, and CGO CFLAGS from our package do not propagate to an imported cgo module — the include must come from the global `CGO_CFLAGS`). `-O2` must be preserved or zig's Debug default turns on UBSan for `sqlite-vec.c` and the link fails on `__ubsan_handle_*`. See `pkg/jarvisembed/csrc/README.md`. When S2 wires a consumer into `wavesrv`, thread this `CGO_CFLAGS` into `Taskfile.yml`'s `build:server:*` for every target (compute the path as `<root>/pkg/jarvisembed/csrc`).
+
+PLACEHOLDER tuning (calibrate against a populated, embedded vault):
+- Query `k` (caller-supplied; no default fixed here).
+- Embed batch size (all sections of a node in one call today).
+- Section-split rule (`##` only; deeper heading levels not split).
+- HTTP timeout (60s).
+- Snippet length (240 bytes; byte-sliced, may split a multibyte rune — cosmetic for a grounding preview).
+
+## Jarvis sub-project E (Continuity) — model tier, resume affordance, quit flush, terminal re-freshness (2026-07-24)
+
+Decided during the E brainstorming (spec `docs/superpowers/specs/2026-07-24-jarvis-e-continuity-design.md`). E ships the rest-boundary narrative writer (`pkg/jarviscontinuity`): on a Run entering a rest state (`awaiting-review | blocked | done`), it assembles deterministic facts, runs one capable-model summary, and writes the dossier's `state` block + status off-band from `AdvanceRunCommand`. Recall (C) serves that narrative during ordinary traversal. Four forks + PLACEHOLDER tuning are deferred.
+
+- **What's deferred:**
+  1. **Haiku model tier for boundary summaries** (fork 2) — E's one model call reuses the capable model via `consult.SpecFor("claude") → consult.Run`, with no `--model` selection. The cheap tier is a shared concern (C's synthesis + E's summary both want it) and lands as its own cross-cutting slice, not a one-off inside E. Boundary summaries are event-bounded (one per rest transition, never a poll), so the interim cost is bounded.
+  2. **Resume UI/RPC + ambient "pick up where you left off"** (fork 1) — `jarviscontinuity.Resume(r, taskID) → Narrative` is exposed and unit-tested but has **no wired v1 consumer** (recall reads the `state` block during traversal, so nothing calls it). A dedicated resume card / `resume` RPC is a *push* affordance adjacent to v2 proactive resurfacing — an ambient-presence follow-on, not E.
+  3. **App idle/quit continuity flush** — no separate E flush on app idle or quit. A (Wave Vault) already performs a quit-safety commit, so a speculative E-owned flush is unjustified.
+  4. **Completed-task prose re-freshness** (§3 caveat) — a **completed** task's prose can drift if facts change after `done`, because there is no further transition to re-trigger a summary. Low-stakes: it is a historical record and C still resolves live run status at query time. Re-freshness of terminal dossiers is out of scope.
+- **Why:** each is either blocked on a not-yet-built substrate (1 needs the tiering slice; 2 needs the v2 ambient-presence surface) or is speculative against an existing guarantee (3 duplicates A's quit commit; 4 is a low-stakes drift on a historical record that C already backstops with live leaf resolution). Building any now would be a single-use abstraction or premature.
+- **Where it plugs in:** (1) the `summarize` var in `pkg/jarviscontinuity/continuity.go` (a `--model` per call, wired with C's traversal at the shared `consult.Run` site — arrives with ≥2 real cheap-tier users per the F tiering-defer entry). (2) a resume card / RPC consuming `Resume` (`continuity.go`), surfaced on the Jarvis/ambient surface. (3) an app-lifecycle hook alongside A's quit commit. (4) a re-summarize trigger on post-`done` fact changes (or accept the drift).
+- **PLACEHOLDER tuning** (`pkg/jarviscontinuity`, calibrate against a populated vault): the summary length cap (`<= 4 sentences`, in `buildSummaryPrompt`); the rest-state set `{awaiting-review, blocked, done}` (`IsRestState` — drop `awaiting-review` if plan-gate-heavy runs prove noisy, keeping `blocked`/`done`); `continuityCaptureTimeout = 90s` (the detached boundary-summary model-call bound, `pkg/wshrpc/wshserver/wshserver_runs.go`).
+- **To resume:** each is independently pickable — (1) with the tiering slice, (2) with the v2 ambient/resume surface, (3) if a quit-time gap surfaces, (4) on evidence that terminal-dossier drift matters.
+
+## Jarvis sub-project C (Recall engine) — traversal loop, learning store, backfill (2026-07-24)
+
+Decided during the C brainstorming (spec `docs/superpowers/specs/2026-07-24-jarvis-c-recall-design.md`). C ships pure-vault recall (deterministic seed selection → layer-1/2 → bounded `Expand` → one synthesis), a thin `dispatch → dossier` capture writer, and the F swap. Three pieces the meta spec scopes to C are deferred, plus PLACEHOLDER tuning.
+
+- **What's deferred:**
+  1. **Model-in-the-loop (agentic) traversal** — the north-star loop where a cheap model picks seed nodes and may request one more named re-expansion. v1 uses **deterministic** seed selection (regex ticket ids + full-text keyword ranking → top-k) and a single synthesis over one `Expand`.
+  2. **Cache-tier learning store** — materializing high-confidence, fully-cited answers to the rebuildable derived layer with content-hash invalidation. v1 re-walks each question (retrieval is deterministic and free; the only cost is one synthesis per question).
+  3. **Historical backfill** — seeding the vault from existing SQLite objects (Runs/decisions/memory). Left as an optional, decoupled one-shot; recall is fed by live capture, not backfill.
+- **Why:** (1) is against the cost model without model tiering (F deferred it — only a capable model exists; running the agentic loop on it over a sparse v1 vault is expensive) — it lands **with** the cheap tier. (2) pays off only with repeated identical questions over a populated vault — no evidence yet, and it adds a keyed store + hash-set invalidation (YAGNI now). (3) manufacturing canonical Markdown from transient objects brushes the "no copying Run evidence into Markdown" non-goal; backfill is a bootstrap nicety, not the feeding mechanism.
+- **Where it plugs in:** (1) the seed-selection + `Expand` loop in `pkg/jarvisrecall/retrieve.go` (add a cheap-model seed-pick + a bounded re-expansion request; wire together with the tier selector at the `consult.Run` site, per the F tiering-defer entry — arrives with ≥2 real cheap-tier users: C traversal + E boundary summaries). (2) a new derived-layer cache keyed by query + cited-node hashes, invalidated at commit against A's `ContentHash` (mirrors A's index / C's learning-store posture). (3) a one-shot migration reading `wstore` → `jarvisdossier.CreateDossier`/`AppendDecision`.
+- **PLACEHOLDER tuning** (`pkg/jarvisrecall`, calibrate against a populated vault): seed top-k = 6; `Expand` Depth = 2 / Fanout = 8; `maxCandidates` = 12; and the v1 **one-dossier-per-Run** capture grouping (the many-Runs-to-one-task dossier needs a task identity Wave lacks — D/E territory).
+- **To resume:** each is independently pickable — (1) with the tiering slice, (2) on repeat-question evidence, (3) anytime a cold vault needs seeding.
+
+## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23)
+
+Decided during the A brainstorming (spec in progress: `docs/superpowers/specs/2026-07-23-jarvis-a-wave-vault-*.md`). Sub-project A stands up a **new** git-backed Wave Vault at `~/.waveterm/vault/` (`tasks/`, `decisions/`, `attachments/`, and its own `memory/`). The pre-existing memory vault (`pkg/memvault`, `~/.waveterm/memory`, scanned alongside `~/.claude/projects` + `~/.codex/memories`) and the cockpit **Memory** surface are left **untouched** — two "durable knowledge" roots coexist for now.
+
+- **What's deferred:** unifying the two into one collection. Long-term the vault's `memory/` should be the single durable-knowledge root; v1 does not migrate `~/.waveterm/memory` into the vault, does not repoint `memvault.VaultRoots()`, and does not rewire memvault's consumers (Memory surface, harvest/projection/recall).
+- **Why:** subsuming memory pulls a data migration + all of memvault's consumers into A's scope — larger and riskier, and not needed to prove the vault substrate. Coexistence is cheap: `ScanVault` already unifies multiple roots into one wikilink graph, so A's read API can treat the legacy memory root as an extra scan root and cross-collection `[[links]]` still resolve. Markdown is canonical on both sides, so the two are reconcilable later without lock-in.
+- **Where it plugs in:** `pkg/memvault` (`VaultRoots`, `DefaultVaultPath`, the `Root{Source:"vault"}` at `~/.waveterm/memory`) and the new `pkg/wavevault` vault-locate/roots. Unification = migrate the legacy memory dir under `~/.waveterm/vault/memory/`, point both packages at one root, and fold the Memory surface onto the vault read API.
+- **To resume:** brainstorm/spec the memvault→Wave-Vault unification as its own slice once A/B/C are proven; migrate the memory notes, repoint the scanners, retire the duplicate root.
+
+## Jarvis sub-project G (Plan 4) — ambient attribution ships PLACEHOLDER data (2026-07-23)
+
+Plan 4 wires ambient attribution UI (task tags on Run/Radar/Memory rows + "relevant past decision" cards on their details) onto real objects, but the edges are **fabricated placeholder data**, not real attribution.
+
+- **What's deferred:** the real ambient edges (which task an object belongs to; which past decisions are relevant to it). Plan 4 ships `fixtureAmbientProvider` (`frontend/app/view/agents/ambient.ts`), which derives tags/decisions **deterministically from an oref hash** — believable but fake. Task tags are non-interactive (no Tasks surface exists in v1); relevant-decision cards are marked "placeholder" via a title attribute and surface on ~half of objects.
+- **Why:** the real edges come from **attribution engine D (v2)**, which does not exist yet. Shipping the provider seam + a deterministic fixture lets the UI land and be dev/CDP-verifiable now, without blocking on D.
+- **Where it plugs in:** the `AmbientProvider` interface in `ambient.ts` (`tagsFor(oref)` / `decisionsFor(oref)`). `ambientviews.tsx` (`AmbientTags` / `RelevantDecisions`) reads it; the surfaces pass an oref (`run:<id>` / `radar:<id>` / `memory:<id>`).
+- **To resume:** implement `AmbientProvider` backed by engine D and swap it in behind the interface — the render components and surface wiring stay unchanged.
+
+## Jarvis sub-project F (conversation backend) — model tiering deferred (2026-07-23)
+
+Decided during the F brainstorming (spec in progress: `docs/superpowers/specs/2026-07-23-jarvis-second-brain-meta-spec.md` §F). F ships the real multi-turn, WaveObj-persisted conversation backend, but **model tiering (meta-spec invariant 2) is deferred out of F** — this is the one F-cycle deferral not otherwise tracked, so it lives here.
+
+- **What's deferred:** the two-tier model split (cheap Haiku-class for grunt work + capable Opus/Sonnet for synthesis). F uses a **single (capable) model** for final synthesis via the existing `consult.Run` (headless `claude` CLI) path.
+- **Why:** F's only model call is final synthesis — retrieval is deterministic/free. The cheap-tier consumers invariant 2 names don't exist yet: **traversal navigation → sub-project C**, **boundary summaries → sub-project E**, **draft rationale → sub-project B**. Building a two-tier abstraction with only one tier used would be a single-use abstraction (YAGNI). This is deferral, not omission — invariant 2 remains the product mandate.
+- **Where it plugs in:** the model-call site in `pkg/jarvisrecall` (today `consult.Run(ctx, spec, cwd, prompt, …)`). A tier selector = choosing the CLI `--model` per call.
+- **To resume:** introduce the tier selector **together with the first real cheap-tier consumer** — whichever of C (recall traversal) / E (continuity boundary summaries) lands first. Wire that consumer to the cheap tier and synthesis to the capable tier at the same time, so the abstraction arrives with ≥2 real users.
+
+Not deferred / tracked elsewhere (recorded so a reader isn't left guessing): **continuity (E)** and **attribution (D)** are their own sub-projects with rows in the meta-spec tracking table — F only defines the F⇄E `resume(task)` seam, it doesn't implement continuity. **Attached-scope retrieval** (the `attachedorefs`-passed-but-not-retrieved gap in the Plan 2 shim) **is fixed inside F**, not deferred.
+
 ## Net-new improvement scan — un-triaged candidate backlog (2026-07-17)
 
 A four-lane read-only scan (product/UX friction · performance · reliability/correctness · tech-debt/test-gaps)
@@ -624,3 +726,40 @@ dividers/code fills in `tailwindsetup.css`), the hardcoded scrollbar hexes (`tai
 `::-webkit-scrollbar-thumb`), `cockpit.scss` fallbacks, and the greys left fixed by `buildThemeVars`
 (`muted-foreground`, `ink-mid`, `lane`, `lane-asking`, `cacheread`, `feed-*`). Convert those to themed
 tokens, then set `paper.dark = true`-equivalent exposure in the picker.
+
+## Jarvis sub-project D — attribution tuning constants (2026-07-24)
+
+`pkg/jarvisattrib/edges.go` ships PLACEHOLDER tuning values, to be calibrated against a populated vault before v2 proactive resurfacing trusts hardened edges:
+- layer confidence weights: L1=1.0, L2=0.8, L3=0.3
+- probation window: 24h (`probationMs`)
+- layer-3 time-box (drift decay): 30d (`timeBoxMs`)
+- confidence display buckets: weak <0.4, strong ≥0.75
+
+## Jarvis U3 — graph edge/node visual tunables (2026-07-27)
+
+`frontend/app/view/jarvis/jarvisgraphderive.ts` (`attributionStyle`) and `jarvisgraph.tsx` ship
+PLACEHOLDER visual constants, to be calibrated once a real populated vault is rendered (the current
+values were picked to be legible in isolation, not against a dense graph):
+- confidence bucket → edge opacity: strong 1.0, medium 0.6, weak 0.35
+- confidence bucket → edge width: strong 1.4, medium 1.0, weak 0.7
+- `informing` dash pattern: `[3, 3]` (`DASH_INFORMING`)
+- run-node square half-extent vs a same-degree circle radius: `RUN_SQUARE_SCALE` = 1.6
+
+Also deferred in U3: search/filter over the graph, a read rail, cross-surface nav out of a node,
+live push (the base graph is a snapshot per surface open), and whole-vault attribution — the
+attribution bloom is resolved per focused task, never for every dossier at once.
+
+## Jarvis S3 — proactive resurfacing (2026-07-24)
+
+PLACEHOLDER tunables (calibrate against a populated, embedded vault):
+- `pkg/jarvisproactive/gate.go`: `queryK = 8`, `cosThreshold = 0.82` (deliberately high), `shortlistMax = 5`, and the `buildJudgePrompt` wording.
+- `pkg/wshrpc/wshserver/wshserver_runs.go`: `proactiveDispatchTimeout = 90s`.
+
+Deferred out of the S3 first cycle:
+- Triggers other than Run dispatch — rest-boundary/continuity resurfacing (would wire E's exposed-but-unwired `jarviscontinuity.Resume`), and conversation-turn resurfacing.
+- Global proactive feed / cross-event inbox (card is run-anchored only).
+- Ranked lists (single best match only).
+- Click-to-open the cited vault node (`vault:<id>` deep-link) — the card is informational this cycle, matching the non-interactive `ambientviews.RelevantDecisions` precedent. U2 (Tasks) and U3 (Graph) have since landed, so the deep-link target now exists and this is the natural next increment.
+- An "Ask Jarvis about this" card action.
+- Model tiering (interim capable model, shared deferred lever).
+- Auto-promotion of a surfaced insight into `memory/**` (v3; stays human-gated).

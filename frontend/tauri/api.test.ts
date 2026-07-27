@@ -113,6 +113,17 @@ describe("stubs fill the rest of ElectronApi with benign defaults", () => {
         await expect(api.saveTextFile("a", "b")).resolves.toBe(false);
         await expect(api.clearWebviewStorage(1)).resolves.toBeUndefined();
     });
+    // Contract: the Electron-era tab methods stay inert. Real tab ops go through the Go backend
+    // (WorkspaceService.CreateTab/CloseTab) and the cockpit focus pane (focusIdAtom) — never this
+    // bridge. If someone re-wires a getApi().createTab/setActiveTab/closeTab caller expecting it to
+    // work, these assertions catch that the bridge does nothing.
+    it("tab methods are inert stubs (no live callers; ops live in WorkspaceService/focusIdAtom)", async () => {
+        installTauriApi(INIT);
+        const api = (window as any).api;
+        expect(api.createTab()).toBeUndefined();
+        expect(api.setActiveTab("t1")).toBeUndefined();
+        await expect(api.closeTab("w", "t", false)).resolves.toBe(false);
+    });
 });
 
 describe("phase-2 chrome methods", () => {

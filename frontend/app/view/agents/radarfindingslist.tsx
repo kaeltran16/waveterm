@@ -21,6 +21,8 @@ import {
     type RadarGroup,
 } from "./radarmodel";
 import { modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
+import { ambientRefForFinding } from "./ambient";
+import { AmbientTags } from "./ambientviews";
 
 function StrengthPips({ strength }: { strength: string }) {
     const filled = strengthPips(strength);
@@ -156,6 +158,7 @@ export function RadarFindingsList({
                                               </span>
                                               <span className="text-border">·</span>
                                               <span>{findingSignalCount(f)} signals</span>
+                                              <AmbientTags {...ambientRefForFinding(f)} />
                                               {badge ? (
                                                   <span
                                                       className={cn(

@@ -15,7 +15,8 @@ interface ModalShellProps {
     onClose: () => void; // Esc + (optional) backdrop click
     onSubmit?: () => void; // Cmd/Ctrl+Enter primary action; no-op when unset
     className?: string; // panel width / max-height, per modal
-    topClass?: string; // backdrop top offset; default pt-[11vh]
+    align?: "top" | "center"; // vertical placement; default "top" (topClass offset). "center" for alerts.
+    topClass?: string; // backdrop top offset when align="top"; default pt-[11vh]
     dismissOnBackdrop?: boolean; // default true
     children: ReactNode;
 }
@@ -25,6 +26,7 @@ export function ModalShell({
     onClose,
     onSubmit,
     className,
+    align = "top",
     topClass = "pt-[11vh]",
     dismissOnBackdrop = true,
     children,
@@ -56,8 +58,8 @@ export function ModalShell({
                         animate="animate"
                         exit="exit"
                         className={cn(
-                            "fixed inset-0 z-[70] flex items-start justify-center bg-black/60 backdrop-blur-sm",
-                            topClass
+                            "fixed inset-0 z-[70] flex justify-center bg-black/60 backdrop-blur-sm",
+                            align === "center" ? "items-center p-10" : cn("items-start", topClass)
                         )}
                         onMouseDown={
                             dismissOnBackdrop

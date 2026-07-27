@@ -29,6 +29,9 @@ func TestMain(m *testing.M) {
 	// seal evidence inline in tests: deterministic, and no seal goroutine outlives a test to touch the
 	// shared package-level store. Tests that assert on the dispatch itself override sealAsync locally.
 	sealAsync = func(fn func()) { fn() }
+	// Continuity capture opens the real vault + calls a model; keep it out of the package's run tests.
+	// The dedicated wiring test overrides this locally to observe the dispatch.
+	captureAsync = func(fn func()) {}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
