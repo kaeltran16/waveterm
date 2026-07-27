@@ -36,6 +36,17 @@ const (
 // can't hold the response past the caller's client timeout. A var so tests can run it inline.
 var sealAsync = func(fn func()) { go fn() }
 
+// publishRunUpdate broadcasts a mutated run to the frontend on BOTH orefs: run:<id> (the focused-run view
+// subscribes to the per-run WOS object — channel-scaling Phase 2) and channel:<id> (the run-list read
+// model). These handlers persist via wstore.UpdateRun, but run on a ctx without ContextWithUpdates, so the
+// run: waveobj:update that dbUpsertObjTx queues is dropped (ContextAddUpdate is a no-op with no sink). A
+// channel: bump alone can't refresh a run: object (WOS updates are per-oref), so an existing run's status
+// would freeze at its last-focused state. Re-broadcast run: explicitly to keep the focused view live.
+func publishRunUpdate(channelId, runId string) {
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runId))
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+}
+
 // sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
 // take many seconds) detached from any RPC budget. Self-contained and idempotent: it re-loads the run, and
 // SealEvidence refuses to seal on a git failure/timeout — leaving the run unsealed for the backfill
@@ -71,7 +82,8 @@ func sealDoneRunEvidence(channelId, runId string) {
 			log.Printf("AdvanceRun: recording radar investigation (done) failed: %v", rerr)
 		}
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+	// run: carries the sealed evidence to the focused view (RunCompletion needs status==done && evidence).
+	publishRunUpdate(channelId, runId)
 }
 
 // spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
@@ -359,13 +371,13 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		return fmt.Errorf("loading channel: %w", err)
 	}
 	if err := spawnRunWorkers(ctx, data.ChannelId, data.RunId, ch.Name); err != nil {
-		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+		publishRunUpdate(data.ChannelId, data.RunId)
 		return fmt.Errorf("spawning next worker: %w", err)
 	}
 	if leadToSteer != "" {
 		steerRunLead(ctx, leadToSteer, "approved, proceed\r")
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	publishRunUpdate(data.ChannelId, data.RunId)
 	return nil
 }
 
@@ -416,7 +428,7 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	} else {
 		log.Printf("CancelRun: reload for worker stop failed: %v", gerr)
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	publishRunUpdate(data.ChannelId, data.RunId)
 	return nil
 }
 
@@ -481,6 +493,6 @@ func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.Com
 			log.Printf("SealRunEvidence: recording radar investigation (done) failed: %v", rerr)
 		}
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	publishRunUpdate(data.ChannelId, data.RunId)
 	return nil
 }

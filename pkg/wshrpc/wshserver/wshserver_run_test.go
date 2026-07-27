@@ -5,15 +5,80 @@ package wshserver
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func bptr(b bool) *bool { return &b }
+
+// captureClient records every event the broker sends, for asserting waveobj broadcasts in tests.
+type captureClient struct {
+	mu     sync.Mutex
+	events []wps.WaveEvent
+}
+
+func (c *captureClient) SendEvent(_ string, event wps.WaveEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, event)
+}
+
+func (c *captureClient) sawScope(scope string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, e := range c.events {
+		for _, s := range e.Scopes {
+			if s == scope {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// A completing run must broadcast a run: waveobj update, not just channel:. The focused-run view subscribes
+// to the per-run run:<id> object (channel-scaling Phase 2); a channel-only bump left it frozen at its
+// last-focused state ("executing") with no completion card. Regression guard for that publish.
+func TestCompleteBroadcastsRunUpdate(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "bcast-run", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+
+	cc := &captureClient{}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	defer wps.Broker.SetClient(prevClient)
+	routeId := "test-capture-route"
+	wps.Broker.Subscribe(routeId, wps.SubscriptionRequest{Event: wps.Event_WaveObjUpdate, AllScopes: true})
+	defer wps.Broker.Unsubscribe(routeId, wps.Event_WaveObjUpdate)
+
+	origAsync := sealAsync
+	sealAsync = func(func()) {} // drop the deferred seal; we only assert the transition broadcast
+	defer func() { sealAsync = origAsync }()
+
+	if err := (&WshServer{}).AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete,
+	}); err != nil {
+		t.Fatalf("AdvanceRunCommand: %v", err)
+	}
+
+	runScope := waveobj.MakeORef(waveobj.OType_Run, run.ID).String()
+	if !cc.sawScope(runScope) {
+		t.Fatalf("completion did not broadcast %s; focused run would stay stale", runScope)
+	}
+}
 
 // A run reaching done must persist the phase transition synchronously (the ack `wsh jarvis complete`
 // waits on) while the slow evidence seal (a git diff) is dispatched off the RPC budget. Sealing inline
