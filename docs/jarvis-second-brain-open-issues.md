@@ -219,8 +219,23 @@ than the missing embeddings. As found: the Wave Vault held **3 dossiers, all
 Obsidian vault appears to be `IdeaProjects/obsidian/Work`, 51 files — a separate misconfiguration, not
 tracked here). Calibrating against that would have replaced one set of invented numbers with another.
 
-`cmd/jarvisbackfill` was built to fix the corpus half (see below). Against real history it yields
-**14 dossiers and 4 decisions**. What that does *not* reach:
+`cmd/jarvisbackfill` was built to fix the corpus half (see below). It was **applied to the real vault
+on 2026-07-27**, yielding **14 dossiers and 4 decisions** (the 3 spawn-test dossiers were deleted in
+the same pass). Running D's real attribution over that corpus measures:
+
+```
+dossiers=14  runs=18  totalEdges=27
+edges per dossier: [1 1 1 1 1 2 2 2 2 2 2 2 3 5]
+by layer:   L1=14  L2=0  L3=13  L4=0
+by bucket:  strong=14  weak=13  mid=0
+distinct confidences: {1.0: 14, 0.3: 13}
+```
+
+Read that distribution before planning calibration — **the confidence space is bimodal with an empty
+middle**, and that is a structural property of this history, not a sample-size problem. Two useful
+readings: L3's windowing is *discriminating rather than promiscuous* (≈1 structural sibling per
+dossier, not a same-repo blanket), and no amount of additional dogfooding moves L2 off zero unless
+dispatch goals start carrying a ticket id. What the corpus does *not* reach:
 
 - **`weightLayer2` and `weightLayer4` can never be calibrated from this history.** L2 needs a ticket
   id and none of the 18 runs carries one; L4 needs embeddings. Neither signal can fire, so the only
@@ -235,8 +250,20 @@ tracked here). Calibrating against that would have replaced one set of invented 
   runs yield decisions.
 - **U3's "legible against a dense vault" stays unverified.** 14 dossiers is not dense.
 
-So the corpus unblocks *some* of J5, not J5. Calibrating D's weights honestly still needs either
-dogfooding depth or an embedding provider — the backfill moved the blocker, it did not remove it.
+- **`probationMs` and `timeBoxMs` are unexercised.** All imported history is 4–7 days old, so every
+  edge is uniformly past the 24h probation and uniformly inside the 30-day time-box; neither boundary
+  is crossed by the data. `timeBoxMs` is the one constant that becomes measurable by *waiting* rather
+  than by collecting more — the oldest edges cross it around 2026-08-19.
+- **C's traversal bounds are untested, not validated.** `expandFanout` 8 against a measured maximum of
+  5 edges (typical 1–2) means the cap never binds; the same holds for `seedTopK` 6.
+
+So the corpus unblocks *some* of J5, not J5. Scored against the ~13 placeholder constants: **1 is now
+interrogable** (`weightLayer3` — 13 concrete structural guesses exist to judge, though turning them
+into a weight still needs human ground-truth labeling, not just data), **1 unlocks with time**
+(`timeBoxMs`), **6 are hard-blocked on an embedding provider** (`weightLayer4`, `semCandidateN`,
+`semThreshold`, `kSem`, `cosThreshold`, `queryK`), and the remainder have no discrimination pressure
+because the corpus produces only two distinct confidences. The backfill moved the blocker, it did not
+remove it.
 
 ### Problem
 Every threshold, weight, window and cap across the second brain was fabricated to be plausible in
