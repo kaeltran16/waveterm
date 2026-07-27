@@ -118,6 +118,42 @@ func TestExpandUnknownSeedIsEmpty(t *testing.T) {
 	}
 }
 
+func TestGraphReturnsAllNodesAndResolvedEdges(t *testing.T) {
+	v := seedVault(t)
+	sg, err := v.Retriever(AllScope()).Graph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// seedVault writes m-1, m-2, t-1, d-1 = 4 nodes across memory/tasks/decisions.
+	if len(sg.Nodes) != 4 {
+		t.Fatalf("Graph nodes = %v, want 4 (m-1,m-2,t-1,d-1)", ids(sg.Nodes))
+	}
+	// resolved edges: m-1->m-2 and t-1->m-1 (both endpoints in scope); no dangling edge is emitted.
+	if len(sg.Edges) != 2 {
+		t.Fatalf("Graph edges = %v, want 2 (m-1>m-2, t-1>m-1)", sg.Edges)
+	}
+	got := map[string]bool{}
+	for _, e := range sg.Edges {
+		got[e.From+">"+e.To] = true
+	}
+	if !got["m-1>m-2"] || !got["t-1>m-1"] {
+		t.Fatalf("edges = %v, want m-1>m-2 and t-1>m-1", sg.Edges)
+	}
+}
+
+func TestGraphScopeExcludesTasks(t *testing.T) {
+	v := seedVault(t)
+	sg, err := v.Retriever(WorkerScope()).Graph() // memory + decisions only
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range sg.Nodes {
+		if n.Collection == CollTasks {
+			t.Fatalf("WorkerScope leaked a tasks node: %+v", n)
+		}
+	}
+}
+
 func hasNode(sg *Subgraph, id string) bool {
 	for _, n := range sg.Nodes {
 		if n.ID == id {

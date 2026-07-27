@@ -989,6 +989,12 @@ func ReportRunPhaseCommand(w *wshutil.WshRpc, data wshrpc.CommandReportRunPhaseD
 	return err
 }
 
+// command "resolvedossieredges", wshserver.ResolveDossierEdgesCommand
+func ResolveDossierEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveDossierEdgesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandResolveDossierEdgesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandResolveDossierEdgesRtnData](w, "resolvedossieredges", data, opts)
+	return resp, err
+}
+
 // command "resolveids", wshserver.ResolveIdsCommand
 func ResolveIdsCommand(w *wshutil.WshRpc, data wshrpc.CommandResolveIdsData, opts *wshrpc.RpcOpts) (wshrpc.CommandResolveIdsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.CommandResolveIdsRtnData](w, "resolveids", data, opts)
@@ -1195,6 +1201,12 @@ func TestMultiArgCommand(w *wshutil.WshRpc, arg1 string, arg2 int, arg3 bool, op
 func UpdateWorkspaceTabIdsCommand(w *wshutil.WshRpc, arg1 string, arg2 []string, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "updateworkspacetabids", wshrpc.MultiArg{Args: []any{arg1, arg2}}, opts)
 	return err
+}
+
+// command "vaultgraph", wshserver.VaultGraphCommand
+func VaultGraphCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandVaultGraphRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandVaultGraphRtnData](w, "vaultgraph", nil, opts)
+	return resp, err
 }
 
 // command "vdomasyncinitiation", wshserver.VDomAsyncInitiationCommand

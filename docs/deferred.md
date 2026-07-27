@@ -734,3 +734,17 @@ tokens, then set `paper.dark = true`-equivalent exposure in the picker.
 - probation window: 24h (`probationMs`)
 - layer-3 time-box (drift decay): 30d (`timeBoxMs`)
 - confidence display buckets: weak <0.4, strong ≥0.75
+
+## Jarvis U3 — graph edge/node visual tunables (2026-07-27)
+
+`frontend/app/view/jarvis/jarvisgraphderive.ts` (`attributionStyle`) and `jarvisgraph.tsx` ship
+PLACEHOLDER visual constants, to be calibrated once a real populated vault is rendered (the current
+values were picked to be legible in isolation, not against a dense graph):
+- confidence bucket → edge opacity: strong 1.0, medium 0.6, weak 0.35
+- confidence bucket → edge width: strong 1.4, medium 1.0, weak 0.7
+- `informing` dash pattern: `[3, 3]` (`DASH_INFORMING`)
+- run-node square half-extent vs a same-degree circle radius: `RUN_SQUARE_SCALE` = 1.6
+
+Also deferred in U3: search/filter over the graph, a read rail, cross-surface nav out of a node,
+live push (the base graph is a snapshot per surface open), and whole-vault attribution — the
+attribution bloom is resolved per focused task, never for every dossier at once.

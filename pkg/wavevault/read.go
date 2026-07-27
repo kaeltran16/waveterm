@@ -242,3 +242,18 @@ func (r *Retriever) Expand(seeds []string, opts ExpandOpts) (*Subgraph, error) {
 	}
 	return sg, nil
 }
+
+// Graph returns the entire scope as a subgraph: every node (insertion order) and every resolved
+// wikilink edge — the whole-vault read U3's graph surface renders. Same derived layer Expand walks,
+// without a seed/BFS. Dangling links are already excluded (load resolves edges against the node set).
+func (r *Retriever) Graph() (*Subgraph, error) {
+	if err := r.load(); err != nil {
+		return nil, err
+	}
+	sg := &Subgraph{}
+	for _, id := range r.g.order {
+		sg.Nodes = append(sg.Nodes, r.g.byID[id])
+	}
+	sg.Edges = append(sg.Edges, r.g.edges...)
+	return sg, nil
+}

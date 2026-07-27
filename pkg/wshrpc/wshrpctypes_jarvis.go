@@ -16,6 +16,8 @@ type JarvisCommands interface {
 	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                     // list persisted recall conversations, newest-first
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                          // list focusable task dossiers (active|paused), newest-updated first
 	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
+	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                             // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
+	ResolveDossierEdgesCommand(ctx context.Context, data CommandResolveDossierEdgesData) (*CommandResolveDossierEdgesRtnData, error) // a dossier's attributed run nodes + typed attribution edges (U3 focus bloom)
 	GetDossierCommand(ctx context.Context, data CommandGetDossierData) (*DossierDetail, error)                              // read one task dossier + its decisions for the Tasks surface
 	ListTaskDossiersCommand(ctx context.Context) (*CommandListTaskDossiersRtnData, error)                                  // list ALL task dossiers (any status) for the Tasks surface, newest-updated first
 	AppendDossierDecisionCommand(ctx context.Context, data CommandAppendDossierDecisionData) (*CommandAppendDossierDecisionRtnData, error) // human-append a decision to a dossier (user-attributed) + commit
@@ -140,6 +142,41 @@ type SpaceScope struct {
 	RunORefs    []string `json:"runorefs"`
 	ChannelOids []string `json:"channeloids"`
 	TabIds      []string `json:"tabids"`
+}
+
+// GraphNode is one node in the vault graph surface (U3). Kind: task|decision|memory|run.
+// Status is frontmatter-derived (absent for memory notes; runs carry their run status).
+type GraphNode struct {
+	Id      string `json:"id"`
+	Kind    string `json:"kind"`
+	Label   string `json:"label"`
+	Status  string `json:"status,omitempty"`
+	Updated int64  `json:"updated,omitempty"`
+}
+
+// GraphLink is one edge. Kind: wikilink|attribution. Provenance/Bucket/State are set only on
+// attribution edges (dossier->run, from D's EdgesFor); wikilinks leave them empty.
+type GraphLink struct {
+	From       string `json:"from"`
+	To         string `json:"to"`
+	Kind       string `json:"kind"`
+	Provenance string `json:"provenance,omitempty"`
+	Bucket     string `json:"bucket,omitempty"`
+	State      string `json:"state,omitempty"`
+}
+
+type CommandVaultGraphRtnData struct {
+	Nodes []GraphNode `json:"nodes"`
+	Links []GraphLink `json:"links"`
+}
+
+type CommandResolveDossierEdgesData struct {
+	DossierId string `json:"dossierid"`
+}
+
+type CommandResolveDossierEdgesRtnData struct {
+	Runs  []GraphNode `json:"runs"`
+	Links []GraphLink `json:"links"`
 }
 
 // DecisionCard is one decision record projected for the Tasks surface. Rationale is human prose;

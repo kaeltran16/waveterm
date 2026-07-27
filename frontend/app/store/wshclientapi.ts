@@ -996,6 +996,12 @@ export class RpcApiType {
         return client.wshRpcCall("reportrunphase", data, opts);
     }
 
+    // command "resolvedossieredges" [call]
+    ResolveDossierEdgesCommand(client: WshClient, data: CommandResolveDossierEdgesData, opts?: RpcOpts): Promise<CommandResolveDossierEdgesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolvedossieredges", data, opts);
+        return client.wshRpcCall("resolvedossieredges", data, opts);
+    }
+
     // command "resolveids" [call]
     ResolveIdsCommand(client: WshClient, data: CommandResolveIdsData, opts?: RpcOpts): Promise<CommandResolveIdsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "resolveids", data, opts);
@@ -1204,6 +1210,12 @@ export class RpcApiType {
     UpdateWorkspaceTabIdsCommand(client: WshClient, arg1: string, arg2: string[], opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "updateworkspacetabids", { args: [arg1, arg2] }, opts);
         return client.wshRpcCall("updateworkspacetabids", { args: [arg1, arg2] }, opts);
+    }
+
+    // command "vaultgraph" [call]
+    VaultGraphCommand(client: WshClient, opts?: RpcOpts): Promise<CommandVaultGraphRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "vaultgraph", null, opts);
+        return client.wshRpcCall("vaultgraph", null, opts);
     }
 
     // command "vdomasyncinitiation" [call]

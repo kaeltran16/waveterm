@@ -15,6 +15,7 @@ import {
     Radar,
     Settings,
     SquareStack,
+    Waypoints,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -33,6 +34,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
     memory: <Network {...iconProps} />,
+    graph: <Waypoints {...iconProps} />,
     tasks: <ListTodo {...iconProps} />,
     usage: <Gauge {...iconProps} />,
     settings: <Settings {...iconProps} />,
@@ -47,6 +49,7 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "sessions", label: "Sessions" },
     { key: "files", label: "Diff" },
     { key: "memory", label: "Memory" },
+    { key: "graph", label: "Graph" },
     { key: "tasks", label: "Tasks" },
     { key: "usage", label: "Usage" },
 ];

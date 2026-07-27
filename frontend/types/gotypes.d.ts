@@ -1067,6 +1067,17 @@ declare global {
         commit?: string;
     };
 
+    // wshrpc.CommandResolveDossierEdgesData
+    type CommandResolveDossierEdgesData = {
+        dossierid: string;
+    };
+
+    // wshrpc.CommandResolveDossierEdgesRtnData
+    type CommandResolveDossierEdgesRtnData = {
+        runs: GraphNode[];
+        links: GraphLink[];
+    };
+
     // wshrpc.CommandResolveIdsData
     type CommandResolveIdsData = {
         blockid: string;
@@ -1262,6 +1273,12 @@ declare global {
         key: string;
         val: string;
         exists: boolean;
+    };
+
+    // wshrpc.CommandVaultGraphRtnData
+    type CommandVaultGraphRtnData = {
+        nodes: GraphNode[];
+        links: GraphLink[];
     };
 
     // wshrpc.CommandWaitForRouteData
@@ -1559,6 +1576,25 @@ declare global {
         configerrors: ConfigError[];
         version: string;
         buildtime: string;
+    };
+
+    // wshrpc.GraphLink
+    type GraphLink = {
+        from: string;
+        to: string;
+        kind: string;
+        provenance?: string;
+        bucket?: string;
+        state?: string;
+    };
+
+    // wshrpc.GraphNode
+    type GraphNode = {
+        id: string;
+        kind: string;
+        label: string;
+        status?: string;
+        updated?: number;
     };
 
     // wshrpc.JarvisChunk
