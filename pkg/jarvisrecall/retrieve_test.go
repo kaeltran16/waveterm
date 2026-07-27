@@ -85,7 +85,7 @@ func TestNodeCandidateCarriesScopeAsProject(t *testing.T) {
 		Source:     "claude",
 		Scope:      "krypton",
 	}
-	got := nodeCandidate(n, "body text")
+	got := nodeCandidate(n, "body text", 0)
 	if got.project != "krypton" {
 		t.Fatalf("project = %q, want krypton", got.project)
 	}

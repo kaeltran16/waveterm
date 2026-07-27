@@ -47,6 +47,46 @@ func TestAssembleCandidatesDedupesByNavTarget(t *testing.T) {
 	}
 }
 
+// A node the query actually matched must not be evicted by the maxCandidates cap in favour of
+// neighbours that merely turned up during expansion. Measured against the real corpus: a memory note
+// that was the #1 semantic hit for its query reached the seed set and was still dropped before the
+// model saw it, because the nodes expanded around it all happened to be newer.
+func TestOrderCandidatesKeepsSeedsAheadOfNewerNeighbours(t *testing.T) {
+	cands := []candidate{
+		{navTarget: "vault:neighbour-old", ts: 2000},
+		{navTarget: "vault:seed", ts: 1000, seedRank: 1},
+		{navTarget: "vault:neighbour-new", ts: 3000},
+	}
+	orderCandidates(cands)
+	if cands[0].navTarget != "vault:seed" {
+		t.Fatalf("seed evicted by newer neighbours: %+v", cands)
+	}
+	if cands[1].navTarget != "vault:neighbour-new" || cands[2].navTarget != "vault:neighbour-old" {
+		t.Fatalf("non-seeds should still order newest-first: %+v", cands)
+	}
+}
+
+// Seed order already encodes L1/L2's structured-then-recency ranking followed by L3's score ranking.
+// Re-sorting seeds among themselves by recency would throw that work away.
+func TestOrderCandidatesPreservesSeedRanking(t *testing.T) {
+	cands := []candidate{
+		{navTarget: "vault:seed-second", ts: 9000, seedRank: 2},
+		{navTarget: "vault:seed-first", ts: 1, seedRank: 1},
+	}
+	orderCandidates(cands)
+	if cands[0].navTarget != "vault:seed-first" {
+		t.Fatalf("seed ranking not preserved: %+v", cands)
+	}
+}
+
+func TestOrderCandidatesFallsBackToRecency(t *testing.T) {
+	cands := []candidate{{navTarget: "a", ts: 10}, {navTarget: "b", ts: 30}, {navTarget: "c", ts: 20}}
+	orderCandidates(cands)
+	if cands[0].navTarget != "b" || cands[1].navTarget != "c" || cands[2].navTarget != "a" {
+		t.Fatalf("want newest-first when nothing is a seed: %+v", cands)
+	}
+}
+
 func TestPriorContextCapsAndFormats(t *testing.T) {
 	if priorContext(nil, maxContextTurns) != "" {
 		t.Fatalf("empty turns should yield empty context")

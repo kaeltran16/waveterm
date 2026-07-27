@@ -119,7 +119,7 @@ func retrieve(ctx context.Context, scope ScopeArgs, query string) ([]candidate, 
 	if err != nil {
 		return nil, err
 	}
-	sortByRecency(slice)
+	orderCandidates(slice)
 	return assembleCandidates(pinned, slice, maxCandidates), nil
 }
 
@@ -134,6 +134,12 @@ func assembleSlice(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriev
 	if err != nil {
 		return nil, err
 	}
+	// Expand returns the neighbourhood unordered, losing which nodes the query actually matched.
+	// Carry that through so orderCandidates can keep seeds ahead of incidental neighbours.
+	seedRank := make(map[string]int, len(seeds))
+	for i, id := range seeds {
+		seedRank[id] = i + 1
+	}
 	var cands []candidate
 	seenRun := map[string]bool{}
 	var runRefs []string
@@ -142,7 +148,7 @@ func assembleSlice(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriev
 		if nb, rerr := r.Read(n.ID); rerr == nil {
 			body = nb.Body
 		}
-		cands = append(cands, nodeCandidate(n, body))
+		cands = append(cands, nodeCandidate(n, body, seedRank[n.ID]))
 		for _, l := range n.Links {
 			if strings.HasPrefix(l, "run-") && !seenRun[l] {
 				seenRun[l] = true

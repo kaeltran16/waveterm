@@ -10,15 +10,24 @@ S1's index, plus a keyed embedding cache in `pkg/jarvisembed` (`attrib_vectors` 
 public `Embed`). Both degrade to the v1 result when embeddings are off.
 
 Deferred:
-- Semantic seed recency-ranking: L3 appends semantic seeds after the deterministic top-k (ScoredChunk has no
+- ~~Semantic seed recency-ranking: L3 appends semantic seeds after the deterministic top-k (ScoredChunk has no
   timestamp to interleave by). A reserved semantic sub-budget / recency-aware merge is deferred pending
-  evidence that the append order matters.
+  evidence that the append order matters.~~ **Evidence arrived 2026-07-27 (J5).** Order mattered, but not in
+  the way this framed it: recency was the wrong axis. L3 still appends after the deterministic top-k, and
+  within L3 seeds are now emitted round-robin across collections (best-first per collection) rather than by
+  raw score, because a merged score ranking is a global ranking and memory wins it. Downstream,
+  `orderCandidates` ranks seeds ahead of expansion-only nodes so the `maxCandidates` cut no longer discards a
+  node the query matched. Still open: a *recency-aware* merge, which remains unevidenced.
 - L4 gating loosening: semantic fires only when a dossier has zero deterministic (L1-3) edges. Per-run silence
   (propose for individual unattributed runs on an otherwise-attributed dossier) is deferred pending evidence.
 - Reranking / hybrid score-fusion, proactive resurfacing (S3), auto-hardening a semantic edge — out of S2.
 
 PLACEHOLDER tuning (calibrate against a populated, embedded vault):
-- `kSem = 6` (semantic seed candidates, `pkg/jarvisrecall/retrieve.go`).
+- ~~`kSem = 6` (semantic seed candidates, `pkg/jarvisrecall/retrieve.go`).~~ **Fitted 2026-07-27 (J5)** against
+  the real 424-node corpus: replaced by `kSemPerCollection = 6` (a per-collection KNN — measured requirement
+  is ≥2, kept at 6 for headroom) plus `semSeedFloor = 0.325`, a floor L3 previously lacked entirely. Both are
+  specific to `text-embedding-3-small`. Measurement and the floor sweep are in
+  `docs/jarvis-second-brain-open-issues.md` § J5; harness is `pkg/jarvisrecall/liveprobe_test.go`.
 - `semCandidateN = 20` (window-overlapping runs considered per orphan dossier, `pkg/jarvisattrib/semantic.go`).
 - `semThreshold = 0.75` (cosine floor to propose a semantic edge).
 - `weightLayer4 = 0.2` (semantic edge confidence; below `bucketWeakMax` so it renders "weak").
@@ -73,7 +82,7 @@ Decided during the C brainstorming (spec `docs/superpowers/specs/2026-07-24-jarv
   3. **Historical backfill** — seeding the vault from existing SQLite objects (Runs/decisions/memory). Left as an optional, decoupled one-shot; recall is fed by live capture, not backfill.
 - **Why:** (1) is against the cost model without model tiering (F deferred it — only a capable model exists; running the agentic loop on it over a sparse v1 vault is expensive) — it lands **with** the cheap tier. (2) pays off only with repeated identical questions over a populated vault — no evidence yet, and it adds a keyed store + hash-set invalidation (YAGNI now). (3) manufacturing canonical Markdown from transient objects brushes the "no copying Run evidence into Markdown" non-goal; backfill is a bootstrap nicety, not the feeding mechanism.
 - **Where it plugs in:** (1) the seed-selection + `Expand` loop in `pkg/jarvisrecall/retrieve.go` (add a cheap-model seed-pick + a bounded re-expansion request; wire together with the tier selector at the `consult.Run` site, per the F tiering-defer entry — arrives with ≥2 real cheap-tier users: C traversal + E boundary summaries). (2) a new derived-layer cache keyed by query + cited-node hashes, invalidated at commit against A's `ContentHash` (mirrors A's index / C's learning-store posture). (3) a one-shot migration reading `wstore` → `jarvisdossier.CreateDossier`/`AppendDecision`.
-- **PLACEHOLDER tuning** (`pkg/jarvisrecall`, calibrate against a populated vault): seed top-k = 6; `Expand` Depth = 2 / Fanout = 8; `maxCandidates` = 12; and the v1 **one-dossier-per-Run** capture grouping (the many-Runs-to-one-task dossier needs a task identity Wave lacks — D/E territory).
+- **PLACEHOLDER tuning** (`pkg/jarvisrecall`, calibrate against a populated vault): seed top-k = 6; `Expand` Depth = 2 / Fanout = 8; `maxCandidates` = 12; and the v1 **one-dossier-per-Run** capture grouping (the many-Runs-to-one-task dossier needs a task identity Wave lacks — D/E territory). *(2026-07-27, J5: `maxCandidates`'s **ordering** is fixed — `orderCandidates` replaced the pure recency sort after a measured case showed the cap discarding the #1 semantic hit. The cap **value** 12 is still an unfitted guess; with seeds now sorted first it binds on the seed list rather than on expansion neighbours.)*
 - **To resume:** each is independently pickable — (1) with the tiering slice, (2) on repeat-question evidence, (3) anytime a cold vault needs seeding.
 
 ## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23) — ✅ RESOLVED 2026-07-27

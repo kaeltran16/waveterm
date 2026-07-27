@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -134,6 +135,38 @@ func (ix *Index) ensureVecTable(ctx context.Context, dims int) error {
 // collection is within scope (the physical boundary — a WorkerScope query can
 // never return a tasks/ chunk). It reconciles lazily first (invariant 1).
 func (ix *Index) Query(ctx context.Context, v *wavevault.Vault, queryText string, k int, scope wavevault.Scope) ([]ScoredChunk, error) {
+	vec, err := ix.prepareQuery(ctx, v, queryText)
+	if err != nil || vec == nil {
+		return nil, err
+	}
+	return ix.knn(ctx, vec, k, scope.Collections)
+}
+
+// QueryPerCollection runs one KNN per collection in scope instead of a single global one, so a
+// collection holding few nodes cannot be crowded out of the window by one holding many. The query
+// embeds once and each KNN is a local indexed lookup against vec0's collection metadata column, so
+// the fan-out adds no network round trips. Results merge score-descending; the caller decides which
+// of them are relevant enough to use.
+func (ix *Index) QueryPerCollection(ctx context.Context, v *wavevault.Vault, queryText string, kPerColl int, scope wavevault.Scope) ([]ScoredChunk, error) {
+	vec, err := ix.prepareQuery(ctx, v, queryText)
+	if err != nil || vec == nil {
+		return nil, err
+	}
+	var out []ScoredChunk
+	for _, coll := range scope.Collections {
+		hits, err := ix.knn(ctx, vec, kPerColl, []string{coll})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, hits...)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	return out, nil
+}
+
+// prepareQuery reconciles lazily (invariant 1) and embeds the query once. A nil vector with a nil
+// error means nothing is indexed yet.
+func (ix *Index) prepareQuery(ctx context.Context, v *wavevault.Vault, queryText string) ([]float32, error) {
 	if !ix.Available() {
 		return nil, ErrEmbeddingsDisabled
 	}
@@ -147,9 +180,12 @@ func (ix *Index) Query(ctx context.Context, v *wavevault.Vault, queryText string
 	if len(vecs) == 0 || ix.dims == 0 {
 		return nil, nil // nothing indexed yet
 	}
-	colls := scope.Collections
+	return vecs[0], nil
+}
+
+func (ix *Index) knn(ctx context.Context, vec []float32, k int, colls []string) ([]ScoredChunk, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(colls)), ",")
-	args := []any{encodeVec(vecs[0]), k}
+	args := []any{encodeVec(vec), k}
 	for _, c := range colls {
 		args = append(args, c)
 	}

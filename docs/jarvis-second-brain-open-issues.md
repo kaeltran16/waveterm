@@ -338,10 +338,15 @@ genuinely compete for the 12 slots rather than sorting last as "unavailable".
 
 | | before | after |
 |---|---|---|
-| targets reaching the seed set | 3/5 (old 5-case probe) | **10/10** |
-| targets surviving to the final candidate list | not measured | **10/10** |
+| targets reaching the seed set | 3/5 on the old 5-case probe | **10/10** |
+| targets surviving to the final candidate list | never measured | **10/10** |
 | same, with embeddings off | — | 0/10 |
-| off-topic controls admitting a semantic seed | 4/4 | **1/4** (2 seeds) |
+| off-topic controls admitting a semantic seed | 4/4, 6 seeds each † | **1/4**, 2 seeds |
+
+† Inferred, not measured: an unfiltered top-k returns k whenever the index holds ≥ k chunks, and it
+holds 793 — so the old global `kSem = 6` with no floor returned six semantic seeds for *every* query,
+related or not. The unit test `TestSelectSeedsAdmitsNothingWhenNothingIsRelevant` pins that behaviour
+against the fixture: before the floor, an orthogonal query returned six arbitrary seeds.
 
 Per-target detail, and the two ranks that matter — within its own collection, versus in one global
 window:

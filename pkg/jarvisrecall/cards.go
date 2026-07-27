@@ -25,7 +25,8 @@ import (
 const maxCandidates = 12
 
 // candidate is one retrieved source before it is numbered into a grounding card. snippet feeds the prompt
-// only (it is not sent to the FE as part of the card).
+// only (it is not sent to the FE as part of the card). seedRank is the candidate's 1-based position in the
+// ranked seed list, or 0 when it was reached only by expansion — see orderCandidates.
 type candidate struct {
 	sourceType string
 	title      string
@@ -34,6 +35,7 @@ type candidate struct {
 	freshness  string
 	navTarget  string
 	snippet    string
+	seedRank   int
 }
 
 // maxContextTurns bounds how many prior turns are threaded into the synthesis prompt. No cheap-model
@@ -241,7 +243,24 @@ func normPath(p string) string {
 	return strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/")
 }
 
-// sortByRecency orders candidates newest-first (ties keep input order for determinism).
-func sortByRecency(cands []candidate) {
-	sort.SliceStable(cands, func(i, j int) bool { return cands[i].ts > cands[j].ts })
+// orderCandidates ranks seeds ahead of everything reached only by expansion, then orders the rest
+// newest-first (ties keep input order for determinism).
+//
+// Recency alone is not a relevance signal, and maxCandidates is a hard truncation: on the real
+// corpus a memory note that was the #1 semantic hit for its query reached the seed set and was still
+// cut before the model saw it, purely because the neighbours expanded around it were newer. A seed
+// matched the question; an expanded node is only a neighbour of something that did. Seeds keep their
+// incoming order, which already encodes L1/L2's structured-then-recency ranking followed by L3's
+// score ranking.
+func orderCandidates(cands []candidate) {
+	sort.SliceStable(cands, func(i, j int) bool {
+		a, b := cands[i], cands[j]
+		if (a.seedRank == 0) != (b.seedRank == 0) {
+			return a.seedRank != 0
+		}
+		if a.seedRank != b.seedRank {
+			return a.seedRank < b.seedRank
+		}
+		return a.ts > b.ts
+	})
 }
