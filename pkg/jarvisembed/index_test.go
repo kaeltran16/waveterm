@@ -17,13 +17,15 @@ func allScopeForTest() wavevault.Scope { return wavevault.AllScope() }
 // fakeEmbedder returns deterministic vectors: a keyword->basis-vector map so KNN
 // ordering is assertable. Unknown text embeds to a small uniform vector.
 type fakeEmbedder struct {
-	dims  int
-	calls int
+	dims     int
+	calls    int // texts embedded
+	requests int // Embed invocations — batching is about this, not calls
 }
 
 func (f *fakeEmbedder) Model() string { return "fake-model" }
 func (f *fakeEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	f.calls += len(texts)
+	f.requests++
 	out := make([][]float32, len(texts))
 	for i, tx := range texts {
 		v := make([]float32, f.dims)

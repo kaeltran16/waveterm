@@ -5,6 +5,7 @@ package jarvisembed
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,6 +65,70 @@ func TestReconcileEmbedsOnlyChanged(t *testing.T) {
 	}
 	if fe.calls != before+1 {
 		t.Fatalf("edit re-embedded %d sections, want 1", fe.calls-before)
+	}
+}
+
+// A first build must not cost one round-trip per node: that is what made the real 373-note build take
+// 5m17s and blow past the 90s budget jarvisproactive's dispatch eval runs under.
+func TestReconcileBatchesAcrossNodes(t *testing.T) {
+	v, err := wavevault.OpenVaultAtForTest(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenVaultAtForTest: %v", err)
+	}
+	const nodes = 30
+	for i := range nodes {
+		id := fmt.Sprintf("n%02d", i)
+		writeNode(t, v, "memory/"+id+".md", "---\nid: "+id+"\n---\nalpha content "+id+"\n")
+	}
+	fe := &fakeEmbedder{dims: 3}
+	ix := newTestIndex(t, fe)
+
+	st, err := ix.Reconcile(context.Background(), v)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if st.Embedded != nodes {
+		t.Fatalf("embedded %d sections, want %d", st.Embedded, nodes)
+	}
+	// 30 small single-section nodes fit one batch; the pre-batching code issued 30 requests.
+	if fe.requests != 1 {
+		t.Fatalf("issued %d embed requests for %d nodes, want 1", fe.requests, nodes)
+	}
+	var chunks int
+	if err := ix.db.QueryRow(`select count(*) from chunks`).Scan(&chunks); err != nil {
+		t.Fatal(err)
+	}
+	if chunks != nodes {
+		t.Fatalf("indexed %d chunks, want %d", chunks, nodes)
+	}
+}
+
+// The chunk ceiling must actually split a batch, and every node still lands.
+func TestReconcileSplitsOversizedBatch(t *testing.T) {
+	v, err := wavevault.OpenVaultAtForTest(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenVaultAtForTest: %v", err)
+	}
+	const nodes = embedBatchChunks + 10
+	for i := range nodes {
+		id := fmt.Sprintf("n%03d", i)
+		writeNode(t, v, "memory/"+id+".md", "---\nid: "+id+"\n---\nalpha content "+id+"\n")
+	}
+	fe := &fakeEmbedder{dims: 3}
+	ix := newTestIndex(t, fe)
+
+	st, err := ix.Reconcile(context.Background(), v)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if st.Embedded != nodes {
+		t.Fatalf("embedded %d sections, want %d", st.Embedded, nodes)
+	}
+	if fe.requests != 2 {
+		t.Fatalf("issued %d embed requests, want 2 for %d chunks at a %d ceiling", fe.requests, nodes, embedBatchChunks)
+	}
+	if fe.calls != nodes {
+		t.Fatalf("embedded %d texts, want %d — a split must not drop or duplicate", fe.calls, nodes)
 	}
 }
 

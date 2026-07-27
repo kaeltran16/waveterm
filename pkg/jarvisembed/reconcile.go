@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
@@ -58,6 +59,17 @@ func (ix *Index) Reconcile(ctx context.Context, v *wavevault.Vault) (ReconcileSt
 	}
 
 	live := map[string]bool{}
+	var batch []pendingNode
+	batchChunks, batchChars := 0, 0
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		n, err := ix.embedBatch(ctx, batch)
+		st.Embedded += n
+		batch, batchChunks, batchChars = nil, 0, 0
+		return err
+	}
 	for _, n := range nodes {
 		live[n.ID] = true
 		var have string
@@ -72,11 +84,20 @@ func (ix *Index) Reconcile(ctx context.Context, v *wavevault.Vault) (ReconcileSt
 		if err != nil {
 			return st, err
 		}
-		emb, err := ix.embedNode(ctx, n, nwb.Body)
-		if err != nil {
-			return st, err
+		p := newPendingNode(n, nwb.Body)
+		// the batchChunks>0 guard keeps a single over-budget node from flushing an empty batch: it goes
+		// out alone, which is exactly what every node did before batching
+		if batchChunks > 0 && (batchChunks+len(p.texts) > embedBatchChunks || batchChars+p.chars > embedBatchChars) {
+			if err := flush(); err != nil {
+				return st, err
+			}
 		}
-		st.Embedded += emb
+		batch = append(batch, p)
+		batchChunks += len(p.texts)
+		batchChars += p.chars
+	}
+	if err := flush(); err != nil {
+		return st, err
 	}
 
 	// Prune nodes no longer present.
@@ -88,13 +109,47 @@ func (ix *Index) Reconcile(ctx context.Context, v *wavevault.Vault) (ReconcileSt
 	return st, nil
 }
 
-// embedNode re-embeds all sections of one node: delete its old rows, split,
-// embed, insert. Returns the number of sections embedded.
-func (ix *Index) embedNode(ctx context.Context, n wavevault.Node, body string) (int, error) {
+// Embed-request batching. Reconcile used to make one request per node, so a first build cost one
+// network round-trip per note — measured at 5m17s for a 373-note vault, against the 90s budget
+// jarvisproactive's detached dispatch eval allows. S3 could therefore never finish its own lazy build:
+// each dispatch died partway and surfaced no card. Both bounds exist because providers cap a request on
+// both axes; embedBatchChars is the binding one (an input tops out at maxEmbedChars, and 64 of those far
+// exceeds what a single request may carry), while embedBatchChunks keeps one response a sane size.
+const (
+	embedBatchChunks = 64
+	embedBatchChars  = 100000
+)
+
+// pendingNode is one node's chunked, embed-ready text, buffered until its batch flushes.
+type pendingNode struct {
+	node     wavevault.Node
+	sections []Section
+	texts    []string
+	chars    int
+}
+
+func newPendingNode(n wavevault.Node, body string) pendingNode {
 	sections := splitSections(body)
 	texts := make([]string, len(sections))
+	chars := 0
 	for i, s := range sections {
 		texts[i] = embedText(n.Frontmatter, s)
+		chars += len(texts[i])
+	}
+	return pendingNode{node: n, sections: sections, texts: texts, chars: chars}
+}
+
+// embedBatch embeds every buffered node's sections in one request, then writes each node's rows in its
+// own transaction. Per-node commits are deliberate and survive batching: a reconcile cancelled mid-build
+// keeps every node it finished, and the next pass skips those on the content-hash check instead of
+// re-paying for them. Returns the number of sections written.
+func (ix *Index) embedBatch(ctx context.Context, batch []pendingNode) (int, error) {
+	var texts []string
+	for _, p := range batch {
+		texts = append(texts, p.texts...)
+	}
+	if len(texts) == 0 {
+		return 0, nil
 	}
 	vecs, err := ix.emb.Embed(ctx, texts)
 	if err != nil {
@@ -102,6 +157,9 @@ func (ix *Index) embedNode(ctx context.Context, n wavevault.Node, body string) (
 	}
 	if len(vecs) == 0 {
 		return 0, nil
+	}
+	if len(vecs) != len(texts) {
+		return 0, fmt.Errorf("jarvisembed: embedder returned %d vectors for %d inputs", len(vecs), len(texts))
 	}
 	if ix.dims == 0 {
 		ix.dims = len(vecs[0])
@@ -112,35 +170,44 @@ func (ix *Index) embedNode(ctx context.Context, n wavevault.Node, body string) (
 	if err := ix.ensureVecTable(ctx, ix.dims); err != nil {
 		return 0, err
 	}
+	written, off := 0, 0
+	for _, p := range batch {
+		if err := ix.writeNode(ctx, p, vecs[off:off+len(p.texts)]); err != nil {
+			return written, err
+		}
+		off += len(p.texts)
+		written += len(p.texts)
+	}
+	return written, nil
+}
 
+// writeNode replaces one node's chunk + vector rows in a single transaction.
+func (ix *Index) writeNode(ctx context.Context, p pendingNode, vecs [][]float32) error {
 	tx, err := ix.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `delete from vec_chunks where rowid in (select rowid from chunks where node_id = ?)`, n.ID); err != nil {
-		return 0, err
+	if _, err := tx.ExecContext(ctx, `delete from vec_chunks where rowid in (select rowid from chunks where node_id = ?)`, p.node.ID); err != nil {
+		return err
 	}
-	if _, err := tx.ExecContext(ctx, `delete from chunks where node_id = ?`, n.ID); err != nil {
-		return 0, err
+	if _, err := tx.ExecContext(ctx, `delete from chunks where node_id = ?`, p.node.ID); err != nil {
+		return err
 	}
-	for i, s := range sections {
+	for i, s := range p.sections {
 		res, err := tx.ExecContext(ctx,
 			`insert into chunks(node_id, collection, section_idx, section_heading, section_text, content_hash) values (?,?,?,?,?,?)`,
-			n.ID, n.Collection, s.Idx, s.Heading, s.Text, n.ContentHash)
+			p.node.ID, p.node.Collection, s.Idx, s.Heading, s.Text, p.node.ContentHash)
 		if err != nil {
-			return 0, err
+			return err
 		}
 		rowid, _ := res.LastInsertId()
 		if _, err := tx.ExecContext(ctx, `insert into vec_chunks(rowid, embedding, collection) values (?,?,?)`,
-			rowid, encodeVec(vecs[i]), n.Collection); err != nil {
-			return 0, err
+			rowid, encodeVec(vecs[i]), p.node.Collection); err != nil {
+			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return len(sections), nil
+	return tx.Commit()
 }
 
 func (ix *Index) pruneMissing(ctx context.Context, live map[string]bool) (int, error) {
