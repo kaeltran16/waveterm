@@ -16,23 +16,24 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 
 | # | Issue | Kind | Effort | Blocked by | Status |
 |---|---|---|---|---|---|
-| J1 | Ambient layer renders **fabricated** task tags / decision cards | correctness / trust | S | — | 🔲 Open |
-| J2 | No way to enable embeddings from the app → S1–S3 are dark code | reachability | S | — | 🔲 Open |
+| J1 | Ambient layer renders **fabricated** task tags / decision cards | correctness / trust | S | — | ✅ Resolved 2026-07-27 |
+| J2 | No way to enable embeddings from the app → S1–S3 are dark code | reachability | S | — | ✅ Resolved 2026-07-27 |
 | J3 | Model tiering (invariant 2) never landed — C + E both burn the capable tier | cost | M | — | ✅ Resolved 2026-07-27 |
 | J4 | `jarviscontinuity.Resume` has no consumer (no "pick up where you left off") | feature gap | S–M | — | ✅ Resolved 2026-07-27 |
 | J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | J2 | 🔲 Open |
 | J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | 🔲 Open |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
-| J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | 🔲 Open (found during J3) |
+| J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 |
 
-**Dependency order.** J1 and J2 are independent and both cheap — start there. J5 is gated on J2 (you
-cannot calibrate against a vault you cannot embed). J3, J4 and J6 are independent slices of their own.
+**Dependency order.** J1–J4 and J8 are done. J5 was gated on J2 and is now unblocked — but note it
+needs more than the settings UI: someone has to point it at a real provider and populate a vault. J6 is
+an independent slice of its own.
 
 ---
 
 ## J1 — Ambient layer renders fabricated edges
 
-**Status:** 🔲 Open · **Effort:** S · **Kind:** correctness / product trust
+**Status:** ✅ Resolved 2026-07-27 · **Effort:** S · **Kind:** correctness / product trust
 
 ### Problem
 The ambient presence layer — task tags on Run/Radar/Memory rows and "relevant past decision" cards on
@@ -50,27 +51,32 @@ the second brain is *felt* through day to day, so the most-seen part of the feat
 - `docs/deferred.md` § "Jarvis sub-project G (Plan 4)" — records the deferral and names D as the
   unblocker. D is built (v2 meta-spec tracking table, row D).
 
-### Fix
-Implement `AmbientProvider` over D's `EdgesFor` and swap it in behind the existing interface. The
-render components and surface wiring stay unchanged — that was the point of the seam. Two sub-parts:
-1. `tagsFor(oref)` → the dossier(s) a Run/Radar/Memory object is attributed to.
-2. `decisionsFor(oref)` → decision records reachable from those dossiers.
+### What shipped
+- `jarvisattrib.AllEdges` — `EdgesFor` over every dossier, sharing one run load, one override read and a
+  per-run commit cache. Its per-dossier body is now a shared core both entry points call. Neither
+  `ResolveSpaceScope` nor `GetDossier` covered this: both are per-dossier, and the ambient layer needs
+  the inverse (object → dossiers) for every object at once.
+- `ResolveAmbient` (new wshrpc command) returns the whole map in one read: every dossier as a labelled
+  tag target, its attributed run edges carrying D's provenance/bucket/state, and its decisions. Loaded
+  once per session into a module-scope atom, never per row.
+- Frontend joins that map per row. **The seam widened**: `tagsFor(oref)` became `tagsFor({oref, links})`,
+  because D only produces dossier→Run edges. A Radar finding has no edge of its own and inherits the
+  attribution of the run that investigated it (`investigation.runid`); a memory note resolves through
+  its own `[[wikilinks]]` (`MemNote.links` is already client-side, so no extra vault scan).
+- Weak/informing edges render dashed and recede, mirroring `jarvisgraphderive.attributionStyle`.
 
-Needs a read path from the frontend (D's `EdgesFor` is Go-side); check whether U1's `ResolveSpaceScope`
-or U2's `GetDossier` already covers it before adding a new command. Low-confidence / probation edges
-must render distinctly, matching U3's treatment (v2 invariant: a provisional edge never reads as
-canonical).
-
-### Verify
-Tags on a Run row match the dossier that Run is actually attributed to; an unattributed object shows
-**no** tag (the fixture always showed something); the `title="placeholder"` marker is gone from
-`ambientviews.tsx`; CDP surface-smoke on Cockpit + Radar + Memory.
+### Verified
+Unit-covered: an unattributed object yields no tag; a run attributed to two dossiers gets both, in
+confidence order; a wikilink to a non-dossier is not attribution; the pre-load provider yields nothing.
+`fixtureAmbientProvider` and the `title="…placeholder"` marker are gone from the tree.
+**Not done:** the CDP surface-smoke on Cockpit + Radar + Memory, and no check against a *populated*
+vault — with an empty vault the correct result is no tags anywhere, which is weak evidence.
 
 ---
 
 ## J2 — No way to enable embeddings from the app
 
-**Status:** 🔲 Open · **Effort:** S (frontend-only) · **Kind:** reachability
+**Status:** ✅ Resolved 2026-07-27 (reachable; not yet exercised) · **Effort:** S (frontend-only) · **Kind:** reachability
 
 ### Problem
 The whole semantic lane (S1 index, S2 L3 recall + L4 attribution, S3 proactive card) is gated behind
@@ -87,22 +93,23 @@ never run against a real provider — they are written, unit-tested, and dark.
   deferred (S2 / a small settings add). Dev sets config via settings file + `secretstore.SetSecret`."*
   S2 shipped without picking it up.
 
-### Fix
-Add an embeddings section to the settings surface. **No new backend is required:**
-- config writes go through the existing settings-write path used by the other sections;
-- the key writes through the **already-generated** `SetSecretsCommand`
-  (`pkg/wshrpc/wshrpctypes_secrets.go:12`, `pkg/wshrpc/wshserver/wshserver_secrets.go:35`).
+### What shipped
+`EmbeddingsSection` in `frontend/app/view/agents/settingssurface.tsx`, after `MemorySection`. No backend
+was needed, as predicted: the toggle / base URL / model go through the ordinary `SetConfigCommand` path,
+and the key through the already-generated `SetSecretsCommand`. The key field is write-only in both
+directions — the UI asks `GetSecretsNamesCommand` *whether* a key exists, never what it is, and clears
+the input once the secret lands. Clear deletes it (a `null` value, which the `map[string]*string` handler
+treats as a delete; the generated client types values as `string`, so that needs a cast). BYOK framing
+per invariant 12. While the toggle is on, a hint names whatever is still missing, since
+`jarvisembed.Available()` needs all four. Index state (chunk count / rebuild) was left out as noted.
 
-Plugs into `frontend/app/view/agents/settingssurface.tsx` alongside the existing sections
-(`MemorySection` at line 67 is the closest precedent). Fields: enabled toggle, base URL, model, API
-key (write-only, never read back into the input). BYOK framing per v2 invariant 12 — make it explicit
-that the user supplies the endpoint and bears the cost, and that "local" is just a local-server base
-URL. Surfacing index state (chunk count / model tag / rebuild) is a nice-to-have, not required.
-
-### Verify
-Toggle on with an OpenAI-compatible endpoint → S1 builds an index over a populated vault; a recall
-query phrased in different words than the source finds it (S2's L3, the stated "first demoable
-semantic win"); toggle off → identical v1 behavior, no error anywhere (invariant 11).
+### Verified
+Typecheck and the full vitest suite pass; the section renders through the existing settings primitives.
+**Not verified — the substantive half:** nobody has toggled it on against a real OpenAI-compatible
+endpoint, so S1/S2/S3 are *reachable* but still have never run against a provider. The original verify
+step (index builds; a differently-worded recall query finds its source; toggling off restores exact v1
+behavior) needs an endpoint and key and remains outstanding. **J5 is unblocked in principle only** until
+someone does this.
 
 ---
 
@@ -115,9 +122,13 @@ and the capable path is byte-identical to before tiering — the change is addit
 Cheap alias is `haiku` (Claude Haiku 4.5, ~1/5 Opus input cost). **Note:** `pkg/tasksharpen` calls
 `fastModel = "fable"` "the currently-advertised small-model alias" — that is wrong (Claude Fable 5 prices
 *above* Opus), but it drives a user-facing "fast" sharpen mode and was left alone; see J8 below.
-Two grunt-tier call sites remain on the default deliberately (out of J3's stated scope): S3's relevance
-judge (`pkg/jarvisproactive/proactive.go:23`) and the gatekeeper classifier / delegator decomposer
-(`pkg/jarvis/{classify,decompose}.go`). Each is now a one-line change against the same selector.
+The three grunt-tier call sites left on the default (out of J3's stated scope) were picked up in the
+2026-07-27 cleanup pass: S3's relevance judge (`pkg/jarvisproactive/proactive.go`) and the gatekeeper
+classifier / delegator decomposer (`pkg/jarvis/{classify,decompose}.go`) now all take `TierCheap`. Each
+is a bounded, structured-reply call that already fails safe — the classifier in particular degrades
+toward *escalate to the human*, not toward a confident wrong answer. **Not test-covered:** neither
+`Classify` nor `Decompose` has a seam that exposes the spec, and `jarvisproactive`'s `judge` seam
+replaces spec construction wholesale, so no test fails if a site is reverted to `SpecFor`.
 
 **Effort:** M · **Kind:** standing cost
 
@@ -162,8 +173,13 @@ boundary discarded. `AdvanceRunCommand` persists the card to `run.Meta["jarvis:r
 the existing `waveobj:update` — the same channel S3's card rides, no second ambient path. FE:
 `resume.ts` (read + dismiss, mirrors `proactive.ts`) and `resumeviews.tsx`, rendered in `RunBody` above
 `ProactiveCard`. A later boundary clears the dismissal flag, since the narrative has changed.
-**Deferred:** the three ambient cards (`RelevantDecisions`, `ProactiveCard`, `ResumeCard`) now duplicate
-their chrome; unify into one shell **after J1** lands, when all three are in view.
+**Chrome unification — done 2026-07-27** (the deferred follow-on, unblocked once J1 landed and all three
+cards were in view). With all three visible the "one shell" framing turned out to be half right:
+`ProactiveCard` and `ResumeCard` are the same object — a single dismissible card — and now share
+`AmbientCard` (`frontend/app/view/agents/ambientcard.tsx`) whole. `RelevantDecisions` is a different
+shape (a *list*, no dismiss affordance, eyebrow outside the box), so it borrows only the `AMBIENT_BOX` /
+`AMBIENT_EYEBROW` tokens; bending one component to cover both shapes would have cost more configuration
+than the duplication it removed.
 
 **Effort:** S–M · **Kind:** feature gap
 
@@ -192,7 +208,8 @@ Returning to a task that hit a rest boundary surfaces its narrative without a fr
 
 ## J5 — Every tuning constant is an uncalibrated PLACEHOLDER
 
-**Status:** 🔲 Open · **Effort:** M · **Blocked by:** J2 · **Kind:** correctness / tuning
+**Status:** 🔲 Open · **Effort:** M · **Blocked by:** a provider-backed vault (J2 shipped the UI, but
+nothing has run against a real endpoint yet) · **Kind:** correctness / tuning
 
 ### Problem
 Every threshold, weight, window and cap across the second brain was fabricated to be plausible in
@@ -279,7 +296,13 @@ dense-graph legibility failure.
 
 ## J8 — Task-sharpen's "fast" mode selects the most expensive model
 
-**Status:** 🔲 Open 2026-07-27 · **Effort:** S · **Kind:** cost / correctness · **Found while doing J3**
+**Status:** ✅ Resolved 2026-07-27 — `fastModel` now reads `consult.CheapModel` (`haiku`) rather than a
+second hardcoded alias. J3's `cheapModel` was promoted to exported `CheapModel` for this: `tasksharpen`
+builds its own `--model` args (it appends `--tools ""` / `--no-session-persistence` to a cloned spec) so
+it needs the alias *string*, not `SpecForTier`'s tiered spec — and two packages independently hardcoding
+"haiku" would re-create exactly the desync that made this bug. The `sonnet` mode is untouched.
+
+**Effort:** S · **Kind:** cost / correctness · **Found while doing J3**
 
 ### Problem
 `tasksharpen` offers two sharpen modes, `fast` and `sonnet`. `fast` resolves to the `fable` alias under

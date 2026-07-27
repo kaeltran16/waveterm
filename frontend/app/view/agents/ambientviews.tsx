@@ -10,6 +10,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { ageLabel, type AmbientRef, type AmbientTag } from "./ambient";
+import { AMBIENT_BOX, AMBIENT_EYEBROW } from "./ambientcard";
 import { ambientProviderAtom, ensureAmbient } from "./ambientstore";
 
 // Bucket -> chip weight. Mirrors jarvisgraphderive.attributionStyle's three steps, expressed as tokens
@@ -64,11 +65,9 @@ export function RelevantDecisions({ oref, links }: AmbientRef) {
     }
     return (
         <div className="flex flex-col gap-1.5">
-            <div className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted">
-                Relevant past decisions
-            </div>
+            <div className={AMBIENT_EYEBROW}>Relevant past decisions</div>
             {decisions.map((d) => (
-                <div key={d.id} className="rounded-[9px] border border-border bg-surface px-3 py-2">
+                <div key={d.id} className={AMBIENT_BOX}>
                     <div className="text-[12.5px] font-semibold text-secondary">{d.title}</div>
                     <div className="text-[11px] text-muted">{ageLabel(d.ageMs)}</div>
                 </div>

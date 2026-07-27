@@ -30,7 +30,7 @@ describe("isCurrentRequest", () => {
 });
 
 describe("undoAvailable", () => {
-    const proposed: SharpenState = { kind: "proposed", undoTask: "old", proposedTask: "new", model: "fable" };
+    const proposed: SharpenState = { kind: "proposed", undoTask: "old", proposedTask: "new", model: "haiku" };
     it("is available while the textarea still holds the proposed text", () => {
         expect(undoAvailable(proposed, "new")).toBe(true);
     });

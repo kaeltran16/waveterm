@@ -38,7 +38,7 @@ func TestBuildPrompt_excludesRepoContext(t *testing.T) {
 }
 
 func TestResolveModel(t *testing.T) {
-	cases := map[string]string{"fast": "fable", "sonnet": "sonnet"}
+	cases := map[string]string{"fast": "haiku", "sonnet": "sonnet"}
 	for mode, want := range cases {
 		got, err := resolveModel(mode)
 		if err != nil {
@@ -133,8 +133,8 @@ func TestSharpen_success(t *testing.T) {
 	if res.Task != "a clearer task" {
 		t.Fatalf("Task = %q", res.Task)
 	}
-	if res.Model != "fable" {
-		t.Fatalf("Model = %q, want fable", res.Model)
+	if res.Model != "haiku" {
+		t.Fatalf("Model = %q, want haiku", res.Model)
 	}
 	if calls != 1 {
 		t.Fatalf("runner called %d times", calls)

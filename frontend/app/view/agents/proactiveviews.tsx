@@ -7,6 +7,7 @@
 // visually as ambient so it never reads as a confirmed edge.
 
 import { useAtomValue } from "jotai";
+import { AmbientCard } from "./ambientcard";
 import { dismissProactive, dismissedProactiveAtom, readProactiveSuggestion } from "./proactive";
 
 export function ProactiveCard({ run }: { run: Run }) {
@@ -16,24 +17,15 @@ export function ProactiveCard({ run }: { run: Run }) {
         return null;
     }
     return (
-        <div className="mb-3 flex items-start gap-2 rounded-[9px] border border-border bg-surface px-3 py-2">
-            <div className="min-w-0 flex-1">
-                <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted">
-                    Related prior work · {vm.sourceType}
-                </div>
-                <div className="truncate text-[12.5px] font-semibold text-secondary" title={vm.title}>
-                    {vm.title}
-                </div>
-                {vm.snippet ? <div className="mt-0.5 line-clamp-2 text-[11px] text-muted">{vm.snippet}</div> : null}
+        <AmbientCard
+            eyebrow={`Related prior work · ${vm.sourceType}`}
+            dismissLabel="Dismiss suggestion"
+            onDismiss={() => dismissProactive(run)}
+        >
+            <div className="truncate text-[12.5px] font-semibold text-secondary" title={vm.title}>
+                {vm.title}
             </div>
-            <button
-                type="button"
-                aria-label="Dismiss suggestion"
-                onClick={() => dismissProactive(run)}
-                className="flex-none rounded-[4px] px-1.5 py-px text-[13px] leading-none text-muted hover:text-secondary"
-            >
-                ×
-            </button>
-        </div>
+            {vm.snippet ? <div className="mt-0.5 line-clamp-2 text-[11px] text-muted">{vm.snippet}</div> : null}
+        </AmbientCard>
     );
 }

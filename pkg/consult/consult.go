@@ -125,10 +125,12 @@ const (
 	TierCheap   Tier = "cheap"
 )
 
-// cheapModel is the claude alias for the cheap tier. Haiku 4.5 is the cheapest current alias
+// CheapModel is the claude alias for the cheap tier. Haiku 4.5 is the cheapest current alias
 // (~1/5 of Opus per input token). Note "fable" is not a small model despite the naming — Claude
 // Fable 5 prices above Opus — so it is the wrong alias for a cost-driven tier.
-const cheapModel = "haiku"
+// Exported so callers that need the alias itself rather than a tiered spec (tasksharpen builds its
+// own --model args) share this one definition instead of re-hardcoding it.
+const CheapModel = "haiku"
 
 // SpecForTier resolves a runtime spec with the tier's model selection applied. Only claude has a
 // --model contract here, so the other runtimes come back untouched.
@@ -139,7 +141,7 @@ func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
 	}
 	// SpecFor returns a by-value copy whose BaseArgs still shares the map's backing array; copy
 	// before appending so a tiered call can never mutate the spec every other caller reads.
-	spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", cheapModel)
+	spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", CheapModel)
 	return spec, true
 }
 

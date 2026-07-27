@@ -189,8 +189,8 @@ func TestSpecForTier_cheapSelectsTheCheapModel(t *testing.T) {
 	if !ok {
 		t.Fatal("expected claude to resolve")
 	}
-	if !strings.Contains(strings.Join(spec.BaseArgs, " "), "--model "+cheapModel) {
-		t.Errorf("cheap tier must select --model %s, got %v", cheapModel, spec.BaseArgs)
+	if !strings.Contains(strings.Join(spec.BaseArgs, " "), "--model "+CheapModel) {
+		t.Errorf("cheap tier must select --model %s, got %v", CheapModel, spec.BaseArgs)
 	}
 }
 

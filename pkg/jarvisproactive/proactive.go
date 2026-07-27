@@ -17,11 +17,12 @@ import (
 
 var errNoClaude = fmt.Errorf("proactive relevance judge requires the claude CLI, which is not available")
 
-// judge is the one capable-model call (tiering deferred). It returns the model's
-// raw reply ("<n>" or "none"); parsing is parseJudgeReply's job. A seam so tests
-// mock it. One-shot and unstreamed, so the emit callback is discarded.
+// judge runs on the cheap tier: picking one shortlist entry or "none" is bounded
+// classification, not synthesis. It returns the model's raw reply ("<n>" or "none");
+// parsing is parseJudgeReply's job. A seam so tests mock it. One-shot and unstreamed,
+// so the emit callback is discarded.
 var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecFor("claude")
+	spec, ok := consult.SpecForTier("claude", consult.TierCheap)
 	if !ok {
 		return "", errNoClaude
 	}

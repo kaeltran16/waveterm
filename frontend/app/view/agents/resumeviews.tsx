@@ -7,6 +7,7 @@
 // beside. Marked visually as ambient so it never reads as a confirmed edge.
 
 import { useAtomValue } from "jotai";
+import { AmbientCard } from "./ambientcard";
 import { dismissResume, dismissedResumeAtom, readResumeCard } from "./resume";
 
 export function ResumeCard({ run }: { run: Run }) {
@@ -16,21 +17,12 @@ export function ResumeCard({ run }: { run: Run }) {
         return null;
     }
     return (
-        <div className="mb-3 flex items-start gap-2 rounded-[9px] border border-border bg-surface px-3 py-2">
-            <div className="min-w-0 flex-1">
-                <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted">
-                    Where this stands{vm.status ? ` · ${vm.status}` : ""}
-                </div>
-                <div className="whitespace-pre-wrap text-[12.5px] leading-[1.5] text-secondary">{vm.summary}</div>
-            </div>
-            <button
-                type="button"
-                aria-label="Dismiss resume summary"
-                onClick={() => dismissResume(run)}
-                className="flex-none rounded-[4px] px-1.5 py-px text-[13px] leading-none text-muted hover:text-secondary"
-            >
-                ×
-            </button>
-        </div>
+        <AmbientCard
+            eyebrow={`Where this stands${vm.status ? ` · ${vm.status}` : ""}`}
+            dismissLabel="Dismiss resume summary"
+            onDismiss={() => dismissResume(run)}
+        >
+            <div className="whitespace-pre-wrap text-[12.5px] leading-[1.5] text-secondary">{vm.summary}</div>
+        </AmbientCard>
     );
 }

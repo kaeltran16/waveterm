@@ -22,9 +22,11 @@ const (
 	// MaxSharpenTaskChars bounds both the input task and the rewritten output, in Unicode code points.
 	MaxSharpenTaskChars = 4000
 
-	// Model aliases kept in one place so a Claude alias change is a single edit. "fable" is the
-	// currently-advertised small-model alias; "sonnet" is the stable mid alias.
-	fastModel   = "fable"
+	// Model aliases kept in one place so a Claude alias change is a single edit. "fast" rides the
+	// shared cheap-tier alias — a bounded, tool-less rewrite is grunt work, and "fable" (the previous
+	// value) is not a small model despite the naming: Claude Fable 5 prices above Opus, so the mode
+	// labelled fast was both the slowest and the priciest. "sonnet" is the stable mid alias.
+	fastModel   = consult.CheapModel
 	sonnetModel = "sonnet"
 )
 
