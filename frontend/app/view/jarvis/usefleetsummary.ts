@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Fleet rail section's on-demand Jarvis fleet summary, run either from its own button or by an @jarvis
-// handoff. Streams JarvisCommand into local state (not autonomy-gated).
+// The Fleet rail section's on-demand Jarvis fleet summary, run from its own button. Streams JarvisCommand
+// into local state (not autonomy-gated).
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";

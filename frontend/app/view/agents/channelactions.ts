@@ -1,22 +1,23 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Impure side of the Channels composer: turns a typed message into the right verb-command(s).
-// dispatch -> launchAgent (a new worker) + a "dispatch" message; steer -> ControllerInputCommand
-// (inject into a live worker's PTY) + a "directive" message; post -> a "human" message. Every branch
-// records a channel message so the timeline is the single source of truth (and a manager can replay it).
+// Impure side of a channel message: turns typed text into the right verb-command(s). dispatch ->
+// launchAgent (a new worker) + a "dispatch" message; consult -> a streamed one-shot review; steer ->
+// ControllerInputCommand (inject into a live worker's PTY) + a "directive" message; post -> a "human"
+// message. Every branch records a channel message so the timeline is the single source of truth (and a
+// manager can replay it). The one caller left is the command palette's fast-dispatch rows, which
+// synthesize the "@runtime goal" / "ask @runtime goal" transport strings themselves.
 
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { pendingFleetSummaryAtom } from "@/app/view/jarvis/jarvisstore";
 import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { planDelegate, planMessage, tierFromMeta, type RosterEntry } from "./channelmessages";
-import { activeChannelAtom, consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
-import { composeStartupCommand, deriveBranch, runtimeStartupCommand, type Runtime } from "./launch";
+import { planMessage, type RosterEntry } from "./channelmessages";
+import { consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
+import { composeStartupCommand, runtimeStartupCommand, type Runtime } from "./launch";
 import { naFlagsAtom } from "./naflagsstore";
 
 // A consult runs a headless CLI that can take up to the backend's 120s consultTimeout. The RPC layer
@@ -57,65 +58,6 @@ export async function sendChannelMessage(args: {
 }): Promise<void> {
     const { model, channelId, projectPath, projectName, roster, text } = args;
     const plan = planMessage(text, roster);
-    if (plan.kind === "jarvis") {
-        // the active channel's meta drives the delegator-tier decision below (no messages splice needed —
-        // the observe-only summary no longer runs in-channel; it hands off to the Jarvis surface).
-        const channel = globalStore.get(activeChannelAtom);
-        // delegator-tier channels turn an @jarvis goal into a real worker dispatch; other tiers fall
-        // through to the observe-only summary below. The "dispatch" message's tab: oref is what the
-        // Gatekeeper watcher matches to auto-answer this worker's routine asks (Manage mode).
-        const tier = tierFromMeta(channel?.meta as Record<string, unknown> | undefined);
-        const defaultMode = ((channel?.meta as Record<string, unknown>)?.["delegator:mode"] as
-            | "report"
-            | "manage"
-            | "fanout") ?? "report";
-        const del = planDelegate({ tier, defaultMode, override: plan.mode, goal: plan.text });
-        if (del.action === "dispatch") {
-            if (del.mode === "fanout") {
-                const { subtasks } = await RpcApi.JarvisDecomposeCommand(
-                    TabRpcClient,
-                    { channelid: channelId, goal: plan.text },
-                    { timeout: CONSULT_RPC_TIMEOUT_MS }
-                );
-                let existing: string[] = [];
-                try {
-                    const br = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: projectPath });
-                    existing = (br.branches ?? []).map((b) => b.name);
-                } catch {
-                    // no git / listing failed — deriveBranch still yields unique names off an empty set
-                }
-                const base = projectName || "agent";
-                for (let i = 0; i < subtasks.length; i++) {
-                    const branch = deriveBranch(`${base}-${i + 1}`, existing);
-                    existing.push(branch);
-                    const task = `/goal ${subtasks[i]}`;
-                    const tabId = await launchAgent(model, {
-                        runtime: "claude",
-                        startupCommand: flaggedStartup("claude"),
-                        task,
-                        projectPath,
-                        projectName: `${base}-${i + 1}`,
-                        branch,
-                    });
-                    await post(channelId, "dispatch", "claude", task, `tab:${tabId}`);
-                }
-                return;
-            }
-            const tabId = await launchAgent(model, {
-                runtime: "claude",
-                startupCommand: flaggedStartup("claude"),
-                task: del.task,
-                projectPath,
-                projectName: projectName || "agent",
-            });
-            await post(channelId, "dispatch", "claude", del.task, `tab:${tabId}`);
-            return;
-        }
-        // observe-only summary: request it in place. The rail's Fleet section picks this up and runs the
-        // same summary its own button runs — @jarvis must not move the user off the subject they are on.
-        globalStore.set(pendingFleetSummaryAtom, { channelId, focus: plan.text });
-        return;
-    }
     if (plan.kind === "consult") {
         const consultId = crypto.randomUUID();
         // one question row (author "you"), grouped to its replies by the shared consultId

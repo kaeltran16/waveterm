@@ -21,16 +21,9 @@ import { createRun, pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import { spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect } from "react";
 import { fleetForRecord } from "./fleetscope";
 import { groundingSection, hasGroundingAnswer } from "./groundingrail";
-import {
-    activeConversationAtom,
-    conversationsByIdAtom,
-    pendingFleetSummaryAtom,
-    profileRailOpenAtom,
-    stageRailOpenAtom,
-} from "./jarvisstore";
+import { activeConversationAtom, conversationsByIdAtom, profileRailOpenAtom, stageRailOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
     recordConversationAtom,
@@ -66,25 +59,12 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
     const convsById = useAtomValue(conversationsByIdAtom);
     const recordScopes = useAtomValue(recordScopeAtom);
     const profileOpen = useAtomValue(profileRailOpenAtom);
-    const pendingSummary = useAtomValue(pendingFleetSummaryAtom);
-    const setPendingSummary = useSetAtom(pendingFleetSummaryAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
     const { summary, runSummary } = useFleetSummary();
 
     // the pinned Channel's own messages lag the row-backed list, so splice them the way the Channels
     // surface did — the roster and the summary must derive from the same source the thread renders.
     const channelForDerive = channel != null ? { ...channel, messages } : null;
-
-    // an @jarvis in the composer lands here instead of switching surfaces: run the same summary the
-    // section's own button runs, once, for the channel it was typed in.
-    useEffect(() => {
-        if (pendingSummary == null || channelForDerive == null || pendingSummary.channelId !== channelForDerive.oid) {
-            return;
-        }
-        runSummary(channelForDerive, agents, pendingSummary.focus);
-        setPendingSummary(null);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pendingSummary, channel?.oid, messages]);
 
     const needs = buildRailNeeds({ channels, agents, scope: spaceScope });
 

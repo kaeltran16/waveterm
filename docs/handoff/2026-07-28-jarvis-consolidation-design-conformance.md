@@ -172,6 +172,8 @@ The design draws this state green (`impl-2 · run 4c`) because its mock run has 
 
 Behind it, spec §7's deletion is real: `channelactions.ts` no longer writes `surfaceAtom` at all (grep returns nothing), and `jarvisModeAtom` no longer exists in the tree. `pendingFleetSummaryAtom` survives, repurposed — `channelactions.ts:116` sets it and `stagerail.tsx:65` consumes it in place, with the comment "`@jarvis` must not move the user off the subject they are on."
 
+> **Superseded later the same day.** That handoff turned out to be unreachable — no composer path could produce a leading `@jarvis` — so the atom, the branch and the `StageRail` effect were deleted rather than rewired. See finding 6 in [`2026-07-28-jarvis-tab-findings.md`](2026-07-28-jarvis-tab-findings.md). The screenshot below records behaviour that no longer exists.
+
 ![@jarvis retargets without navigating](images/2026-07-28-jarvis-consolidation-conformance/09-composer-jarvis.png)
 
 ### Deletions (spec §14)

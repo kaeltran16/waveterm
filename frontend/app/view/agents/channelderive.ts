@@ -123,16 +123,16 @@ export function standalonePendingAskCount(channels: Channel[], agents: AgentVM[]
 // --- composer @mentions ------------------------------------------------------
 // A single mentionable target for the composer's highlight + suggestion dropdown.
 export interface MentionCandidate {
-    name: string; // the token inserted after "@" (lower-case runtime id, "jarvis", or a roster name)
-    kind: "runtime" | "manager" | "agent";
+    name: string; // the token inserted after "@" (a lower-case runtime id or a roster name)
+    kind: "runtime" | "agent";
 }
 
 // The chars that make up a mention token after the "@" (mirrors parseMentions).
 const MENTION_CHAR = /[\w./-]/;
 
-// Everything a channel can address: dispatch runtimes, the jarvis manager handle, and the live roster
-// (for steering). Deduped case-insensitively, first-wins — so a runtime beats a same-named roster row,
-// matching planMessage's runtime-before-roster precedence. Order: runtimes, jarvis, then agents.
+// Everything a channel can address: dispatch runtimes, then the live roster (for steering). Deduped
+// case-insensitively, first-wins — so a runtime beats a same-named roster row, matching planMessage's
+// runtime-before-roster precedence.
 export function mentionCandidates(installedRuntimes: string[], roster: RosterEntry[]): MentionCandidate[] {
     const out: MentionCandidate[] = [];
     const seen = new Set<string>();
@@ -147,7 +147,6 @@ export function mentionCandidates(installedRuntimes: string[], roster: RosterEnt
     for (const r of installedRuntimes) {
         add(r, "runtime");
     }
-    add("jarvis", "manager");
     for (const e of roster) {
         add(e.name, "agent");
     }

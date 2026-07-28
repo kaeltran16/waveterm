@@ -171,17 +171,17 @@ describe("mentionCandidates", () => {
         expect(c).toContainEqual({ name: "codex", kind: "runtime" });
     });
 
-    it("includes the jarvis manager handle", () => {
-        expect(mentionCandidates([], [])).toContainEqual({ name: "jarvis", kind: "manager" });
-    });
-
     it("includes live roster names tagged as agent", () => {
-        expect(mentionCandidates([], roster("loom"))).toContainEqual({ name: "loom", kind: "agent" });
+        expect(mentionCandidates([], roster("api-auth"))).toContainEqual({ name: "api-auth", kind: "agent" });
     });
 
-    it("orders runtimes, then jarvis, then agents", () => {
-        const names = mentionCandidates(["claude"], roster("loom")).map((c) => c.name);
-        expect(names).toEqual(["claude", "jarvis", "loom"]);
+    it("orders runtimes, then agents", () => {
+        const names = mentionCandidates(["claude"], roster("api-auth")).map((c) => c.name);
+        expect(names).toEqual(["claude", "api-auth"]);
+    });
+
+    it("no longer offers a reserved jarvis handle", () => {
+        expect(mentionCandidates([], []).map((c) => c.name)).not.toContain("jarvis");
     });
 
     it("dedupes case-insensitively, keeping the runtime over a same-named agent", () => {
@@ -218,7 +218,8 @@ describe("activeMentionQuery", () => {
 });
 
 describe("highlightSegments", () => {
-    const known = new Set(["claude", "codex", "jarvis"]);
+    // "api-auth" is a roster worker: a known mention target that is not a dispatch runtime.
+    const known = new Set(["claude", "codex", "api-auth"]);
     const runtimes = new Set(["claude", "codex"]);
 
     it("returns an empty array for empty text", () => {
@@ -267,10 +268,10 @@ describe("highlightSegments", () => {
     });
 
     it("does not treat 'ask' as a command when the target is not a runtime", () => {
-        // jarvis is known but is the manager handle, not a dispatch runtime -> not a consult
-        expect(highlightSegments("ask @jarvis hey", known, runtimes)).toEqual([
+        // api-auth is a known mention target but not a dispatch runtime -> not a consult
+        expect(highlightSegments("ask @api-auth hey", known, runtimes)).toEqual([
             { text: "ask ", kind: "text" },
-            { text: "@jarvis", kind: "mention" },
+            { text: "@api-auth", kind: "mention" },
             { text: " hey", kind: "text" },
         ]);
     });

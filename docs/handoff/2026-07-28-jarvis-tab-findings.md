@@ -4,8 +4,8 @@ Driven against the live dev app over CDP at 1600×1000 on 2026-07-28 (commit `94
 reference for the surface is [`docs/jarvis-tab.md`](../jarvis-tab.md); this is the dated record of one
 verification pass, kept because the reproductions are worth more than the summary.
 
-Findings 1–5 and 11 were fixed in the follow-up commit; each carries its resolution inline. The rest are
-open. `docs/jarvis-tab.md` holds the live status table — trust that over this file for what is still true.
+Findings 1–6 and 11 have been fixed; each carries its resolution inline. The rest are open.
+`docs/jarvis-tab.md` holds the live status table — trust that over this file for what is still true.
 
 The fixes for findings 3, 4 and 5 were re-verified against the running app the same day by the new
 `jarvis-drawer` scenario — 6/6, plus `jarvis-states` 10/10, `jarvis-fleet` 1/1, `surface-smoke` 7/7. That
@@ -169,10 +169,17 @@ subject.
 
 ### 6. The `@jarvis` handoff is unreachable, and typing it dispatches a run instead — medium
 
-**OPEN.** The atom's comment was corrected to say so — it had just been rewritten to describe the path as
-working. The recommendation is deletion, not wiring: `@jarvis` is undiscoverable, and the rail's
-"Summarize the fleet" button already does the same thing, so wiring it in means two paths to one action
-with a booby trap on one of them. Held because it spans the agents surface.
+**FIXED — deleted, not wired.** `@jarvis` was undiscoverable and the rail's "Summarize the fleet" button
+already does the reachable half, so wiring it in would have meant two paths to one action with a booby trap
+on one of them. Removed: the `jarvis` `MessagePlan` kind and its regex, `DispatchMode`, `planDelegate`,
+`describePlan`, the `plan.kind === "jarvis"` branch in `channelactions.ts`, `pendingFleetSummaryAtom`, and
+the `StageRail` effect that consumed it. `mentionCandidates` no longer offers a `jarvis` handle, so the
+autocomplete cannot advertise a target that does nothing; the `"manager"` mention kind goes with it.
+`JarvisTier` and `tierFromMeta` stay — the autonomy ladder reads them (`stage.tsx`).
+
+The name is now ordinary, and a test pins that: `@jarvis` steers a roster worker actually called jarvis and
+otherwise posts. Backend note: `JarvisDecomposeCommand` lost its only frontend caller (the fan-out path) and
+is now unused from the FE.
 
 `channelactions.ts` routes an `@jarvis <focus>` message to `pendingFleetSummaryAtom`, which `StageRail`
 consumes to stream a fleet summary into the rail — the documented "`@jarvis` must not move the user off

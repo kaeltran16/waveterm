@@ -219,8 +219,8 @@ absent, but Needs you must not wait on the user selecting something.
    age and freshness; clicking one opens the source in its native surface.
 4. **Fleet** — channel: `N working · M waiting · $cost`. Record: rolled up across every channel owning an
    attributed run (`fleetscope.ts`), deduped by worker oref. `Summarize the fleet` streams a Jarvis
-   summary **into the rail** — an `@jarvis` typed in the composer lands here too, so the user never
-   leaves the subject they are on.
+   summary **into the rail**, so the user never leaves the subject they are on. It is the only way to ask
+   for one: the `@jarvis` handle the consolidation orphaned was deleted rather than rewired.
 
 ## 8. Autonomy ladder
 
@@ -358,12 +358,11 @@ is what used to leak fixture scope chips onto records nobody had asked anything 
 
 ## Known gaps
 
-Open items only. Full reproductions, and the six findings closed on 2026-07-28, are in the dated record at
+Open items only. Full reproductions, and the seven findings closed on 2026-07-28, are in the dated record at
 [`docs/handoff/2026-07-28-jarvis-tab-findings.md`](handoff/2026-07-28-jarvis-tab-findings.md).
 
 | # | Gap | Severity |
 |---|---|---|
-| 6 | `@jarvis` is unreachable from the composer, and typing it falls through to `@run` — **dispatching a real worker** whose goal is the literal string. Recommendation is to delete the branch, the atom and the `StageRail` effect together; the rail's "Summarize the fleet" button already does the job. | medium |
 | 7 | The graph peek only self-focuses for a record. From a channel or thread it opens on the whole vault with nothing selected and no filter. | medium |
 | 8 | Two legends in the graph peek — one in `GraphPeek`'s header, one in `JarvisGraph`'s canvas, differing in case and order. | medium |
 | 9 | `jarvisDraftAtom` and the channel picker's `picking` flag are global, not keyed by subject, so a half-typed draft and an open picker follow you to the next subject. | medium |

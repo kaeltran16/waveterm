@@ -57,18 +57,6 @@ export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
 // neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
 export const graphPeekOpenAtom = atom(false);
 
-// @jarvis handoff: the rail's Fleet section runs a summary once for the channel named here and clears it,
-// so the summary lands in place rather than moving the user off their subject. null = no pending handoff.
-// Module atom so it survives a nav-switch mid-flight.
-// UNREACHABLE as of the consolidation: the only writer is channelactions' @jarvis branch, and no composer
-// path can produce a leading "@jarvis" any more (parseComposerCommand knows @quick/@run/@ask only, and both
-// callers synthesize their own transport string). Either wire it up or delete the branch, the atom and the
-// StageRail effect together — do not leave it looking live.
-// Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
-export const pendingFleetSummaryAtom = atom<{ channelId: string; focus: string } | null>(
-    null
-) as PrimitiveAtom<{ channelId: string; focus: string } | null>;
-
 // --- real conversations (Plan 2) -------------------------------------------------------------------
 // Writable source of truth for real recall conversations, keyed by id. Mirrors channelsstore's
 // Record<string,…> primitive-atom + module-setter pattern so an in-flight stream keeps writing after the

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Contextual entry into Jarvis from Run / Radar / Memory: build a SourceRef for the object, start a recall
-// conversation in an "attached" scope with a suggested prompt pre-filled, and open the Jarvis surface. This
-// is the same producer->consumer handoff direction as channelactions' @jarvis handoff (agents surface ->
-// Jarvis), so the agents surfaces importing AskJarvisButton is a sanctioned agents->jarvis import.
+// conversation in an "attached" scope with a suggested prompt pre-filled, and open the Jarvis surface. The
+// handoff runs agents -> Jarvis, so the agents surfaces importing AskJarvisButton is a sanctioned
+// agents->jarvis import.
 
 import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";

@@ -102,8 +102,8 @@ export function fleetCostUsd(snapshot: WorkerState[]): number {
     return snapshot.reduce((sum, w) => sum + (w.costUsd ?? 0), 0);
 }
 
-// Compose the fleet snapshot + a capped recent timeline into the prompt for `claude -p`. focus is the
-// user's optional "@jarvis <focus>" text; empty focus => a general fleet summary.
+// Compose the fleet snapshot + a capped recent timeline into the prompt for `claude -p`. focus narrows the
+// summary to one question; empty focus => a general fleet summary.
 export function buildJarvisPrompt(snapshot: WorkerState[], channel: Channel, focus: string): string {
     const fleetLines = snapshot.length
         ? snapshot
