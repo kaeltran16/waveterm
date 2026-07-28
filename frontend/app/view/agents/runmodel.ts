@@ -216,7 +216,10 @@ export function planDirty(edited: string, saved: string): boolean {
 }
 
 // The run id to select given the currently-visible tabs: keep the current selection if it is still
-// visible, else land on the default (most-recent non-terminal). Undefined selects the new-run state.
+// visible, else land on the default (most-recent non-terminal).
+// NOTE: undefined does NOT mean "no run" — it means "pick one for me", and with a live run present it
+// picks that one. Callers wanting an explicit new-run state need their own flag (composingRunAtom); this
+// comment used to claim the opposite, which is how "＋ New run" shipped as a no-op.
 export function resolveActiveRunId(visibleRuns: Run[], current: string | undefined): string | undefined {
     if (current && visibleRuns.some((r) => r.id === current)) {
         return current;

@@ -11,13 +11,13 @@ import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail
 import { MOTION } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "../agents/runactions";
 import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
 import { PrinciplesEditor } from "./principleseditor";
-import { profileRailOpenAtom } from "./jarvisstore";
+import { graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
 
 const PHASE_KINDS = ["brainstorm", "plan", "execute", "custom"] as const;
 
@@ -406,7 +406,8 @@ function DefaultsSection({
 }
 
 export function ProfilePanel({ channelId }: { channelId: string }) {
-    const open = useAtomValue(profileRailOpenAtom);
+    const [open, setOpen] = useAtom(profileRailOpenAtom);
+    const peekOpen = useAtomValue(graphPeekOpenAtom);
     const [scope, setScope] = useState<"project" | "global">("project");
     const [loaded, setLoaded] = useState<Loaded | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -425,6 +426,10 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
         setError(null);
         setGlobalLoaded(null);
         setGlobalDraft(null);
+        // scope is a function of the channel, re-derived on every open/channel change. It used to move one
+        // way only — to global when the channel went away — and latch there, so a glance at a record left
+        // the drawer writing global defaults for every project the next time Save was pressed on a channel.
+        setScope(channelId ? "project" : "global");
         fireAndForget(async () => {
             try {
                 if (channelId) {
@@ -439,13 +444,27 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
                     const g = await getGlobalProfile();
                     setGlobalLoaded(g);
                     setGlobalDraft(g);
-                    setScope("global");
                 }
             } catch (e) {
                 setError(String(e));
             }
         });
     }, [open, channelId]);
+
+    // Esc dismisses the drawer, as it does the graph peek. The peek is an overlay above everything and
+    // consumes Esc first: closing both on one keypress would silently drop a drawer the user left open.
+    useEffect(() => {
+        if (!open || peekOpen) {
+            return;
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                setOpen(false);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [open, peekOpen, setOpen]);
 
     const save = () => {
         setSaving(true);
@@ -556,9 +575,9 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
     const sections: RailSection[] = [
         { id: "profile", icon: <span className="text-[16px]">⚙</span>, label: "Profile", content: body },
     ];
-    // no collapsed strip of its own (hideWhenCollapsed): the ⚙ trigger lives in the channel header, and
-    // while this drawer is open the sibling context rail force-collapses to 0 (see ContextPanel), so the
-    // two share the single right-edge slot instead of doubling up.
+    // no collapsed strip of its own (hideWhenCollapsed): the ⚙ trigger lives in the Stage header, and while
+    // this drawer is open the sibling context rail force-collapses to 0 (see StageRail's forceCollapsed), so
+    // the two share the single right-edge slot instead of doubling up.
     return (
         <CollapsibleRail
             openAtom={profileRailOpenAtom}

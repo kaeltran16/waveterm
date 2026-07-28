@@ -1,6 +1,6 @@
-// Shared CDP transport for the verification harness. Extracted from the duplicated pickTarget +
-// websocket wrappers in cdp-shot.mjs / cdp-e2e-runs.mjs / cdp-goto-channels.mjs. Requires the dev
-// app running with the debug flag (dev-only in src-tauri/src/main.rs): --remote-debugging-port=9222.
+// Shared CDP transport for the verification harness — one pickTarget + websocket wrapper, instead of the
+// copy per one-off driver this replaced. Requires the dev app running with the debug flag (dev-only in
+// src-tauri/src/main.rs): --remote-debugging-port=9222.
 // Node 21+ (global WebSocket + fetch; the repo runs Node 24).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
@@ -8,12 +8,11 @@ import { basename, dirname } from "node:path";
 // SurfaceKey -> nav-rail label, mirrored from frontend/app/view/agents/navrail.tsx ITEMS. goto clicks
 // the nav button by label because globalStore/the agents model are NOT exposed on window (boot-core
 // exposes only globalAtoms/globalWS/TabRpcClient) — the nav click is the proven, app-change-free way
-// to switch surfaces (see cdp-goto-channels.mjs). Note: the "files" surface is labelled "Diff".
+// to switch surfaces. Note: the "files" surface is labelled "Diff".
 export const SURFACE_LABEL = {
     cockpit: "Cockpit",
     jarvis: "Jarvis",
     agent: "Agent",
-    channels: "Channels",
     radar: "Radar",
     sessions: "Sessions",
     files: "Diff",
@@ -152,7 +151,7 @@ export async function attach(port = 9222) {
                 return true;
             })()`);
             if (!clicked) throw new Error(`nav button "${label}" not found for surface "${surface}"`);
-            await sleep(800); // settle before asserting/screenshotting (matches cdp-goto-channels.mjs)
+            await sleep(800); // settle before asserting/screenshotting
         },
         activeSurfaceLabel: () =>
             ev(`(() => {

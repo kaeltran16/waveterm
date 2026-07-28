@@ -11,7 +11,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { selectChannel } from "@/app/view/agents/channelsstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import { selectConversation, startConversation, submitJarvisQuery } from "./jarvisstore";
+import { profileRailOpenAtom, selectConversation, startConversation, submitJarvisQuery } from "./jarvisstore";
 import type { SubjectKind } from "./subjects";
 import { selectDossier } from "./tasksstore";
 
@@ -40,6 +40,9 @@ export function selectSubject(subject: ActiveSubject): void {
         fireAndForget(() => selectChannel(subject.id));
         return;
     }
+    // the ⚙ drawer is channel-only and the Stage header drops its trigger off-channel, so leaving it open
+    // strands it: no control closes it, and its forceCollapsed keeps "Needs you" hidden the whole time.
+    globalStore.set(profileRailOpenAtom, false);
     if (subject.kind === "dossier") {
         selectDossier(subject.id);
         loadRecordScope(subject.id);
@@ -91,6 +94,17 @@ export function toggleRecordBand(subjectId: string): void {
 export function setActiveRunId(channelId: string, runId: string | undefined): void {
     const prev = globalStore.get(activeRunIdAtom);
     globalStore.set(activeRunIdAtom, { ...prev, [channelId]: runId });
+}
+
+// "the user is composing a new run in this channel", keyed by channel id. Sticky, because clearing the
+// active run id cannot express it: resolveActiveRunId reads undefined as "pick one for me" and lands back
+// on the most-recent non-terminal run — the very run the Talk face was steering. So while any run in a
+// channel was live, the channel's own composer could not start another one.
+export const composingRunAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
+
+export function setComposingRun(channelId: string, composing: boolean): void {
+    const prev = globalStore.get(composingRunAtom);
+    globalStore.set(composingRunAtom, { ...prev, [channelId]: composing });
 }
 
 // A record's own Jarvis thread. Asking about a record has to land somewhere, and a record has no turn

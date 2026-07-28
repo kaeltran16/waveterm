@@ -23,7 +23,9 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
             <div className="flex min-h-0 flex-1">
                 <SubjectsColumn model={model} />
                 <Stage model={model} />
-                {comp != null ? <StageRail model={model} comp={comp} /> : null}
+                {/* always mounted, comp or not: the rail carries Needs you, which must not wait on the
+                    user selecting a subject. Its other sections are subject-derived and stay absent. */}
+                <StageRail model={model} comp={comp} />
             </div>
         </div>
     );

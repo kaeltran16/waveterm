@@ -1,7 +1,7 @@
 // DEV-only verification for the Jarvis profile RPCs (Piece 3), over CDP against the running tauri dev
 // app via the websocket wshrpc. Exercises getjarvisprofile / setchannelprofile round-trip + section
-// resolution + CreateRun playbook resolution. Blast radius contained like cdp-e2e-runs.mjs: isolated
-// temp cwd, the one spawned worker is deleted, the throwaway channel is deleted at the end.
+// resolution + CreateRun playbook resolution. Blast radius contained: isolated temp cwd, the one spawned
+// worker is deleted, the throwaway channel is deleted at the end.
 //   node scripts/cdp-profile-verify.mjs "<isolated-cwd>"
 const port = "9222";
 const CWD = process.argv[2];

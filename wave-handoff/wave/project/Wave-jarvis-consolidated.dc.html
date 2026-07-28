@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#08090c;font-family:'Hanken Grotesk',system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#e6e9ed}
+a{color:#8aa0ff;text-decoration:none}
+a:hover{color:#a4b5ff}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#262c34;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#343c46;background-clip:padding-box}
+@keyframes wpulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes wring{0%{box-shadow:0 0 0 0 rgba(230,180,80,.5)}70%{box-shadow:0 0 0 7px rgba(230,180,80,0)}100%{box-shadow:0 0 0 0 rgba(230,180,80,0)}}
+@keyframes wfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes wcaret{0%,100%{opacity:1}50%{opacity:0}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;padding:52px 60px 130px;background:radial-gradient(1200px 620px at 26% -12%,#12151b,#08090c)">
+
+  <div style="max-width:1300px;margin:0 0 42px;display:flex;flex-direction:column;gap:13px">
+    <div style="font:600 11px 'JetBrains Mono';letter-spacing:.16em;text-transform:uppercase;color:#7c95ff">Wave · Jarvis consolidation · interaction design</div>
+    <h1 style="font-size:33px;font-weight:700;letter-spacing:-.02em;line-height:1.12;max-width:960px;text-wrap:pretty">One surface, one thread: the run, its record, and the recall are the same conversation</h1>
+    <p style="font-size:15px;line-height:1.65;color:#9aa3ad;max-width:900px;text-wrap:pretty">Channels, Jarvis, Tasks and Graph collapse into a single destination — not into four sub-tabs. The <strong style="color:#c6ccd3">Stage</strong> holds one persistent thread where worker narration and Jarvis answers interleave; the task record is a <strong style="color:#c6ccd3">band docked above it</strong>, not a destination; the graph is a <strong style="color:#c6ccd3">peek</strong> you enter from any object and leave by opening one. One composer, one roster, one autonomy control, one grounding treatment.</p>
+    <div style="display:flex;gap:8px;margin-top:5px;flex-wrap:wrap">
+      <a href="#f1" style="font:600 11px 'JetBrains Mono';color:#aebfff;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.26);border-radius:20px;padding:5px 12px">1 · The surface (13 live states)</a>
+      <a href="#f2" style="font:600 11px 'JetBrains Mono';color:#aebfff;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.26);border-radius:20px;padding:5px 12px">2 · First use</a>
+      <a href="#f3" style="font:600 11px 'JetBrains Mono';color:#aebfff;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.26);border-radius:20px;padding:5px 12px">3 · Narrow window</a>
+      <a href="#f4" style="font:600 11px 'JetBrains Mono';color:#aebfff;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.26);border-radius:20px;padding:5px 12px">4 · Entry points &amp; rules</a>
+    </div>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:64px">
+
+    <div id="f1" style="display:flex;flex-direction:column;gap:15px;width:1420px">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <span style="font:700 12px 'JetBrains Mono';color:#0b0e14;background:#7c95ff;border-radius:6px;padding:3px 9px;margin-top:2px">1</span>
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:340px">
+          <h2 style="font-size:19px;font-weight:700;letter-spacing:-.01em">The consolidated Jarvis surface</h2>
+          <p style="font-size:13.5px;line-height:1.55;color:#8b939d;max-width:880px;text-wrap:pretty">Subjects (left) · Stage: record band + thread + composer (center) · Context rail (right). Three subject kinds share it — # channel, ~ conversation, ▤ record. Switch states below; the frame is live.</p>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:9px;background:#0e1116;border:1px solid #1c2128;border-radius:11px;padding:7px 9px 7px 13px;flex-wrap:wrap">
+        <span style="font:600 9px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">State</span>
+        <div style="display:flex;gap:3px;flex-wrap:wrap">
+          <sc-for list="{{ tabs }}" as="s" hint-placeholder-count="11">
+            <button onClick="{{ s.go }}" style="border:1px solid {{ s.bd }};cursor:pointer;border-radius:7px;padding:5px 10px;font:600 11px 'Hanken Grotesk';background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="width:1420px;height:892px;border-radius:14px;overflow:hidden;border:1px solid #1c2128;box-shadow:0 30px 80px -30px rgba(0,0,0,.72);display:flex;flex-direction:column;background:#0c0e11;position:relative">
+
+        <div style="height:46px;flex:none;display:flex;align-items:center;gap:15px;padding:0 13px 0 15px;background:#0e1116;border-bottom:1px solid #1c2128">
+          <div style="display:flex;gap:7px"><div style="width:11px;height:11px;border-radius:50%;background:#f0625a"></div><div style="width:11px;height:11px;border-radius:50%;background:#f5bf4f"></div><div style="width:11px;height:11px;border-radius:50%;background:#5fc95a"></div></div>
+          <div style="display:flex;align-items:center;gap:8px;padding-left:6px">
+            <div style="width:18px;height:18px;border-radius:6px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;border-radius:50%;background:#0e1116"></div></div>
+            <span style="font-weight:700;font-size:14px;letter-spacing:-.01em">Wave</span><span style="color:#3a424c;font-size:13px">/</span><span style="color:#c6ccd3;font:500 13px 'Hanken Grotesk'">Jarvis</span>
+          </div>
+          <sc-if value="{{ spaceOn }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.3);border-radius:7px;padding:4px 8px 4px 9px">
+              <span style="font:600 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#8ea3f5">Space</span>
+              <span style="font:600 11.5px 'Hanken Grotesk';color:#dfe4f7">TASK-418 Coupon abuse guardrails</span>
+              <span style="color:#6b7178;font-size:13px;line-height:1;cursor:pointer">×</span>
+            </div>
+          </sc-if>
+          <div style="margin:0 auto;width:min(420px,32%);display:flex;align-items:center;gap:10px;background:#13171d;border:1px solid #20262e;border-radius:9px;padding:7px 12px;color:#6b7178"><div style="width:13px;height:13px;border-radius:50%;border:1.5px solid #5b626b;position:relative;flex:none"><div style="position:absolute;width:5px;height:1.5px;background:#5b626b;bottom:-2px;right:-3px;transform:rotate(45deg)"></div></div><span style="flex:1;font-size:12.5px">Search, launch work, or ask Jarvis…</span><span style="font:500 10.5px 'JetBrains Mono';border:1px solid #262c34;border-radius:5px;padding:1px 6px">⌘P</span></div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="display:flex;align-items:center;gap:7px"><div style="width:20px;height:20px;border-radius:50%;background:conic-gradient(#e6b450 0 62%,#262c34 62% 100%);display:flex;align-items:center;justify-content:center"><div style="width:13px;height:13px;border-radius:50%;background:#0e1116"></div></div><span style="font:600 10px 'JetBrains Mono';color:#cfd5db">62%</span></div>
+            <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#3a4250,#23282f);border:1px solid #2c333d;display:flex;align-items:center;justify-content:center;font:600 10px 'JetBrains Mono';color:#cfd5db">DK</div>
+          </div>
+        </div>
+
+        <div style="flex:1;display:flex;min-height:0">
+
+          <nav style="width:78px;flex:none;background:#0e1116;border-right:1px solid #1c2128;display:flex;flex-direction:column;padding:10px 0;gap:2px">
+            <sc-for list="{{ nav }}" as="n" hint-placeholder-count="9">
+              <div title="{{ n.title }}" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 0;margin:0 8px;border-radius:10px;color:{{ n.color }};background:{{ n.bg }};cursor:pointer">
+                <sc-if value="{{ n.on }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:3px;height:20px;border-radius:0 3px 3px 0;background:#7c95ff"></div></sc-if>
+                <sc-if value="{{ n.isJarvis }}" hint-placeholder-val="{{ true }}"><div style="width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;border-radius:50%;background:#0e1116"></div></div></sc-if>
+                <sc-if value="{{ n.isDot }}" hint-placeholder-val="{{ false }}"><div style="width:18px;height:18px;border-radius:5px;border:1.6px solid currentColor;opacity:.85"></div></sc-if>
+                <span style="font:600 10px 'Hanken Grotesk'">{{ n.label }}</span>
+                <sc-if value="{{ n.chord }}" hint-placeholder-val="{{ true }}"><span style="position:absolute;top:5px;right:7px;font:500 8.5px 'JetBrains Mono';color:#3f4751">{{ n.chord }}</span></sc-if>
+                <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:4px;right:6px;font:700 9px 'JetBrains Mono';color:#1a1306;background:#e6b450;border-radius:20px;padding:1px 5px;animation:wring 2.6s infinite">{{ n.badge }}</span></sc-if>
+              </div>
+            </sc-for>
+            <div style="flex:1"></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 0;margin:0 8px;color:#6b7178"><div style="width:18px;height:18px;border-radius:50%;border:1.6px solid currentColor"></div><span style="font:600 10px 'Hanken Grotesk'">Settings</span></div>
+          </nav>
+
+          <div style="width:272px;flex:none;background:#0b0e12;border-right:1px solid #1a1f26;display:flex;flex-direction:column;min-height:0">
+            <div style="padding:12px 12px 10px;display:flex;flex-direction:column;gap:9px;border-bottom:1px solid #14181e">
+              <div style="display:flex;align-items:center;gap:8px;background:#13171d;border:1px solid #20262e;border-radius:8px;padding:6px 9px">
+                <span style="font:600 11px 'JetBrains Mono';color:#4c545e">⌕</span>
+                <span style="flex:1;font-size:12px;color:#5b626b">Filter subjects</span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.3);border-radius:8px;padding:7px;color:#c3cffb;font:600 11.5px 'Hanken Grotesk';cursor:pointer">+ Channel</button>
+                <button style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#13171d;border:1px solid #232a32;border-radius:8px;padding:7px;color:#aeb6bf;font:600 11.5px 'Hanken Grotesk';cursor:pointer">+ Thread</button>
+              </div>
+            </div>
+
+            <sc-if value="{{ spaceOn }}" hint-placeholder-val="{{ false }}">
+              <div style="margin:10px 10px 2px;padding:8px 10px;border-radius:9px;background:rgba(124,149,255,.08);border:1px solid rgba(124,149,255,.22);display:flex;flex-direction:column;gap:4px">
+                <span style="font:600 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#8ea3f5">Scoped to TASK-418</span>
+                <span style="font-size:11.5px;color:#9aa3ad;line-height:1.4">Showing only subjects attributed to this task.</span>
+                <span style="font:600 11px 'Hanken Grotesk';color:#aebfff;cursor:pointer">Show all · 4 hidden</span>
+              </div>
+            </sc-if>
+
+            <div style="flex:1;overflow-y:auto;padding:8px 8px 14px">
+              <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+                <div style="margin-bottom:9px">
+                  <div style="display:flex;align-items:center;gap:7px;padding:7px 8px 6px">
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">{{ g.label }}</span>
+                    <div style="flex:1;height:1px;background:#161b21"></div>
+                  </div>
+                  <sc-for list="{{ g.items }}" as="c" hint-placeholder-count="2">
+                    <div style="margin-bottom:1px">
+                      <div onClick="{{ c.go }}" style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;background:{{ c.bg }}" style-hover="background:#151a21">
+                        <span style="font:600 12px 'JetBrains Mono';color:{{ c.markColor }};width:9px;flex:none">{{ c.mark }}</span>
+                        <span style="flex:1;font:{{ c.font }} 12.5px 'Hanken Grotesk';color:{{ c.color }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</span>
+                        <sc-if value="{{ c.asking }}" hint-placeholder-val="{{ false }}"><span title="asking you" style="width:7px;height:7px;border-radius:50%;background:#e6b450;flex:none;animation:wring 2.2s infinite"></span></sc-if>
+                        <sc-if value="{{ c.working }}" hint-placeholder-val="{{ false }}"><span style="font:600 9.5px 'JetBrains Mono';color:#54c79a;flex:none">{{ c.workingLabel }}</span></sc-if>
+                        <sc-if value="{{ c.tag }}" hint-placeholder-val="{{ false }}"><span title="attributed task" style="font:500 9px 'JetBrains Mono';color:#8ea3f5;border:1px dashed rgba(124,149,255,.4);border-radius:4px;padding:0 4px;flex:none">{{ c.tag }}</span></sc-if>
+                      </div>
+                      <sc-if value="{{ c.expanded }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;flex-direction:column;gap:1px;margin:2px 0 4px 18px;padding-left:10px;border-left:1px solid #1c222a">
+                          <sc-for list="{{ c.runs }}" as="r" hint-placeholder-count="3">
+                            <div style="display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;cursor:pointer;background:{{ r.bg }}" style-hover="background:#151a21">
+                              <span style="width:6px;height:6px;border-radius:50%;flex:none;background:{{ r.dot }}"></span>
+                              <span style="flex:1;font:500 11.5px 'Hanken Grotesk';color:{{ r.color }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                              <span style="font:500 9.5px 'JetBrains Mono';color:#5b626b">{{ r.meta }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <main style="flex:1;min-width:0;display:flex;flex-direction:column;background:#0c0e11;position:relative">
+
+            <div style="height:44px;flex:none;display:flex;align-items:center;gap:11px;padding:0 16px;border-bottom:1px solid #161b21;background:#0d1014">
+              <span style="font:600 13px 'JetBrains Mono';color:#8ea3f5">{{ stage.mark }}</span>
+              <span style="font:700 14px 'Hanken Grotesk';letter-spacing:-.01em;color:#eef1f5">{{ stage.title }}</span>
+              <span style="font:500 11px 'JetBrains Mono';color:#6b7178">{{ stage.sub }}</span>
+              <div style="flex:1"></div>
+              <sc-if value="{{ header.scope }}" hint-placeholder-val="{{ false }}">
+                <span title="What this subject can be grounded in. Not a retrieval setting — just a statement of reach." style="display:flex;align-items:center;gap:6px;background:#13171d;border:1px solid #232a32;border-radius:7px;padding:4px 9px;font:600 11px 'Hanken Grotesk';color:#aeb6bf">{{ header.scope }} <span style="color:#5b626b">▾</span></span>
+              </sc-if>
+              <sc-if value="{{ header.chip }}" hint-placeholder-val="{{ false }}">
+                <span style="font:500 10.5px 'JetBrains Mono';color:#5b626b;border:1px dashed #232a32;border-radius:6px;padding:3px 8px">{{ header.chip }}</span>
+              </sc-if>
+              <sc-if value="{{ header.isChannel }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:9px;background:#0f1318;border:1px solid #232a32;border-radius:8px;padding:3px 5px 3px 10px">
+                  <span style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b">Autonomy</span>
+                  <div style="display:flex;align-items:flex-end;gap:2px">
+                    <sc-for list="{{ tiers }}" as="t" hint-placeholder-count="3">
+                      <button onClick="{{ t.go }}" title="{{ t.title }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;background:{{ t.bg }};border:1px solid {{ t.bd }};border-radius:6px;padding:3px 8px 4px;cursor:pointer">
+                        <span style="font:700 10.5px 'Hanken Grotesk';color:{{ t.fg }}">{{ t.label }}</span>
+                        <span style="width:100%;height:{{ t.barH }};background:{{ t.barBg }};border-radius:2px"></span>
+                      </button>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ dispatch.show }}" hint-placeholder-val="{{ false }}">
+                    <span style="width:1px;height:16px;background:#232a32"></span>
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span style="font:600 9px 'JetBrains Mono';letter-spacing:.09em;text-transform:uppercase;color:#5b626b">{{ dispatch.note }}</span>
+                      <div style="display:flex;gap:2px">
+                        <sc-for list="{{ dispatch.modes }}" as="m" hint-placeholder-count="3">
+                          <button onClick="{{ m.go }}" style="background:{{ m.bg }};border:1px solid {{ m.bd }};border-radius:5px;padding:3px 7px;font:600 10.5px 'JetBrains Mono';color:{{ m.fg }};cursor:pointer">{{ m.label }}</button>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </sc-if>
+                </div>
+                <button title="Channel profile — playbook, principles, run engine, plan gate, and per-playbook autonomy overrides. The only profile drawer in the product." style="width:28px;height:26px;border-radius:7px;background:#13171d;border:1px solid #232a32;color:#9aa3ad;font-size:12px;cursor:pointer">⚙</button>
+              </sc-if>
+              <button onClick="{{ openGraph }}" title="Peek the vault graph around this subject — G" style="display:flex;align-items:center;gap:7px;background:#13171d;border:1px solid #232a32;border-radius:7px;padding:5px 9px;color:#aeb6bf;font:600 11px 'Hanken Grotesk';cursor:pointer">
+                <span style="width:11px;height:11px;border-radius:2px;border:1.4px solid #7c95ff;transform:rotate(45deg);display:inline-block"></span>Graph
+              </button>
+            </div>
+
+            <div onClick="{{ toggleRec }}" style="flex:none;background:{{ rec.bg }};border-bottom:1px solid #161b21;cursor:pointer">
+              <sc-if value="{{ rec.one }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 16px">
+                  <span title="machine-maintained" style="font-size:10px;color:#6b7178">🔒</span>
+                  <span style="font:600 11px 'JetBrains Mono';color:#8ea3f5">TASK-418</span>
+                  <span style="font:600 12.5px 'Hanken Grotesk';color:#dfe3e8">Coupon abuse guardrails</span>
+                  <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:#bfe6d6;background:rgba(84,199,154,.14);border:1px solid rgba(84,199,154,.4);border-radius:5px;padding:1px 6px">Active</span>
+                  <span title="attribution edge state and confidence" style="display:flex;align-items:center;gap:6px;font:600 9.5px 'JetBrains Mono';color:#bfe6d6;border:1px solid rgba(84,199,154,.34);border-radius:5px;padding:1px 6px"><span style="width:14px;height:0;border-top:2px solid #54c79a"></span>confirmed · strong</span>
+                  <span style="font:500 11px 'JetBrains Mono';color:#6b7178">3 runs attributed</span>
+                  <div style="flex:1"></div>
+                  <span style="font:600 11px 'Hanken Grotesk';color:#9aa3ad">{{ rec.cta }}</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ rec.subject }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 16px">
+                  <span title="machine-maintained" style="font-size:10px;color:#6b7178">🔒</span>
+                  <span style="font:600 11px 'JetBrains Mono';color:#8ea3f5">TASK-418</span>
+                  <span style="font:600 12.5px 'Hanken Grotesk';color:#dfe3e8">Selected directly from Records — no run beneath it</span>
+                  <div style="flex:1"></div>
+                  <span style="font:500 11px 'JetBrains Mono';color:#5b626b">{{ rec.cta }}</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ rec.none }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 16px">
+                  <span style="font:500 11px 'JetBrains Mono';color:#5b626b">No record attributed to this run — the common case</span>
+                  <div style="flex:1"></div>
+                  <span style="font:600 11px 'Hanken Grotesk';color:#aebfff">Attach a record</span>
+                  <span style="font:600 11px 'Hanken Grotesk';color:#6b7178">Create one from this run</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ rec.mentions }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 16px">
+                  <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Mentioned here</span>
+                  <span style="font:600 11px 'JetBrains Mono';color:#8ea3f5;border:1px dotted rgba(124,149,255,.4);border-radius:5px;padding:1px 6px">TASK-418</span>
+                  <span style="font:600 11px 'JetBrains Mono';color:#8b939d;border:1px dotted #2c333d;border-radius:5px;padding:1px 6px">MEM-77</span>
+                  <span style="font:500 11px 'JetBrains Mono';color:#5b626b">derived from this thread's citations — a conversation carries no attribution of its own</span>
+                </div>
+              </sc-if>
+            </div>
+
+            <sc-if value="{{ rec.open }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:none;max-height:420px;overflow-y:auto;background:#0b0e12;border-bottom:1px solid #161b21;padding:16px 16px 18px;animation:wfade .18s both">
+                <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:16px">
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <div style="border:1px solid #1c2128;border-radius:11px;background:#0d1116;padding:12px 13px;display:flex;flex-direction:column;gap:10px">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Machine-maintained</span>
+                        <span style="font:500 9.5px 'JetBrains Mono';color:#4c545e;border:1px solid #232a32;border-radius:4px;padding:1px 5px">🔒 read-only</span>
+                        <div style="flex:1"></div>
+                        <span style="font:500 10px 'JetBrains Mono';color:#4c545e">rewritten by the run engine</span>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:7px">
+                        <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">Acceptance</span>
+                        <sc-for list="{{ acceptance }}" as="a" hint-placeholder-count="3">
+                          <div style="display:flex;gap:9px;align-items:flex-start">
+                            <span style="font:600 11px 'JetBrains Mono';color:{{ a.color }};margin-top:1px">{{ a.mark }}</span>
+                            <span style="font-size:12.5px;line-height:1.45;color:#c2c8cf;flex:1">{{ a.text }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div style="height:1px;background:#161b21"></div>
+                      <div style="display:flex;gap:20px;flex-wrap:wrap">
+                        <div style="display:flex;flex-direction:column;gap:5px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">Blockers</span><span style="font-size:12.5px;color:#eddcb8">1 · shared counter placement undecided</span></div>
+                        <div style="display:flex;flex-direction:column;gap:5px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">Refs index</span><span style="font:500 11px 'JetBrains Mono';color:#9aa3ad">7 files · 2 decisions · 1 memory</span></div>
+                      </div>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Runs attributed to this task</span>
+                        <div style="flex:1;height:1px;background:#161b21"></div>
+                      </div>
+                      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px">
+                        <sc-for list="{{ attributedRuns }}" as="r" hint-placeholder-count="3">
+                          <div style="border:1px solid {{ r.bd }};border-radius:10px;background:{{ r.bg }};padding:10px 11px;display:flex;flex-direction:column;gap:6px;cursor:pointer">
+                            <div style="display:flex;align-items:center;gap:6px">
+                              <span style="width:6px;height:6px;border-radius:50%;background:{{ r.dot }}"></span>
+                              <span style="font:600 11px 'JetBrains Mono';color:#c6ccd3">{{ r.id }}</span>
+                              <div style="flex:1"></div>
+                              <span style="font:500 9px 'JetBrains Mono';color:{{ r.edgeColor }};border:1px {{ r.edgeStyle }} {{ r.edgeColor }};border-radius:4px;padding:0 4px">{{ r.edge }}</span>
+                            </div>
+                            <span style="font-size:12px;line-height:1.4;color:#c2c8cf">{{ r.title }}</span>
+                            <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ r.meta }}</span>
+                            <sc-if value="{{ r.here }}" hint-placeholder-val="{{ false }}"><span style="font:600 10px 'Hanken Grotesk';color:#8ea3f5">● on the Stage now</span></sc-if>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <div style="border:1px solid #1c2128;border-radius:11px;background:#0d1116;padding:12px 13px;display:flex;flex-direction:column;gap:8px">
+                      <div style="display:flex;align-items:center;gap:8px"><span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Notes</span><span style="font:500 9.5px 'JetBrains Mono';color:#54c79a">yours · editable</span></div>
+                      <p style="font-size:12.5px;line-height:1.55;color:#c2c8cf;text-wrap:pretty">Growth wants this before the August promo. Don't let the guardrail block legitimate multi-account households — false positives cost more than the abuse here.</p>
+                    </div>
+                    <div style="border:1px solid #1c2128;border-radius:11px;background:#0d1116;padding:12px 13px;display:flex;flex-direction:column;gap:10px">
+                      <div style="display:flex;align-items:center;gap:8px"><span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Decisions</span><span style="font:500 9.5px 'JetBrains Mono';color:#4c545e">append-only</span></div>
+                      <div style="display:flex;flex-direction:column;gap:9px">
+                        <sc-for list="{{ decisions }}" as="d" hint-placeholder-count="2">
+                          <div style="display:flex;gap:9px">
+                            <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding-top:3px"><span style="width:5px;height:5px;border-radius:50%;background:#7c95ff"></span><span style="flex:1;width:1px;background:#1c222a"></span></div>
+                            <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+                              <span style="font-size:12.5px;line-height:1.45;color:#dfe3e8">{{ d.text }}</span>
+                              <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ d.meta }}</span>
+                            </div>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <button style="width:100%;background:#13171d;border:1px solid #232a32;border-radius:8px;padding:7px;color:#aeb6bf;font:600 11.5px 'Hanken Grotesk';cursor:pointer">+ Append a decision</button>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                      <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">Status</span>
+                      <div style="display:flex;background:#0f1318;border:1px solid #232a32;border-radius:8px;padding:2px">
+                        <span style="font:600 11px 'Hanken Grotesk';color:#bfe6d6;background:rgba(84,199,154,.14);border-radius:6px;padding:4px 9px">Active</span>
+                        <span style="font:600 11px 'Hanken Grotesk';color:#8b939d;padding:4px 9px;cursor:pointer">Paused</span>
+                        <span style="font:600 11px 'Hanken Grotesk';color:#8b939d;padding:4px 9px;cursor:pointer">Done</span>
+                      </div>
+                      <span style="font-size:11px;color:#6b7178;line-height:1.4;flex:1;min-width:150px">Moving to <em style="color:#9aa3ad;font-style:normal">Done</em> asks for confirmation — it is terminal.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="flex:1;overflow-y:auto;min-height:0;padding:16px 20px 10px;display:flex;flex-direction:column;gap:14px">
+
+              <sc-if value="{{ t.radar }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid rgba(230,180,80,.28);border-radius:12px;background:rgba(230,180,80,.05);padding:13px 14px;display:flex;flex-direction:column;gap:11px;animation:wfade .2s both">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#e6b450">From Radar · drafted, not started</span>
+                    <div style="flex:1"></div>
+                    <span style="font:500 10px 'JetBrains Mono';color:#6b7178">finding RF-092 · 14m ago</span>
+                  </div>
+                  <span style="font-size:14.5px;font-weight:600;color:#eef1f5;line-height:1.35">Investigate the 3.1× rise in coupon redemptions from single-device accounts since 07-19</span>
+                  <div style="display:flex;gap:7px;flex-wrap:wrap">
+                    <sc-for list="{{ radarChips }}" as="c" hint-placeholder-count="4">
+                      <span style="font:500 10.5px 'JetBrains Mono';color:#aeb6bf;background:#13171d;border:1px solid #232a32;border-radius:5px;padding:3px 7px">{{ c }}</span>
+                    </sc-for>
+                  </div>
+                  <p style="font-size:12.5px;line-height:1.55;color:#9aa3ad;text-wrap:pretty">Jarvis drafted the goal, attached the evidence and pre-selected <span style="color:#c6ccd3">@run</span> with the standard investigation playbook. Nothing has been dispatched.</p>
+                  <div style="display:flex;gap:8px">
+                    <button style="background:#7c95ff;border:none;border-radius:8px;padding:7px 14px;color:#0b0e14;font:700 12px 'Hanken Grotesk';cursor:pointer">Start run</button>
+                    <button style="background:#13171d;border:1px solid #232a32;border-radius:8px;padding:7px 14px;color:#aeb6bf;font:600 12px 'Hanken Grotesk';cursor:pointer">Edit the goal</button>
+                    <button style="background:transparent;border:none;padding:7px 8px;color:#6b7178;font:600 12px 'Hanken Grotesk';cursor:pointer">Dismiss</button>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.pipeline }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;padding:2px 0 2px">
+                  <sc-for list="{{ phases }}" as="p" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:7px;padding-right:9px">
+                      <span style="width:7px;height:7px;border-radius:50%;background:{{ p.dot }};animation:{{ p.anim }}"></span>
+                      <span style="font:600 11px 'Hanken Grotesk';color:{{ p.color }}">{{ p.name }}</span>
+                      <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ p.meta }}</span>
+                      <span style="width:16px;height:1px;background:#1e242c"></span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-for list="{{ entries }}" as="e" hint-placeholder-count="4">
+                <div style="display:flex;gap:11px;animation:wfade .2s both">
+                  <div style="width:6px;flex:none;display:flex;flex-direction:column;align-items:center;padding-top:5px">
+                    <span style="width:6px;height:6px;border-radius:50%;background:{{ e.dot }};animation:{{ e.anim }}"></span>
+                    <span style="flex:1;width:1px;background:#161b21;margin-top:4px"></span>
+                  </div>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;padding-bottom:2px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font:600 11px 'JetBrains Mono';color:{{ e.nameColor }}">{{ e.name }}</span>
+                      <span style="font:500 10px 'JetBrains Mono';color:#4c545e">{{ e.time }}</span>
+                      <sc-if value="{{ e.badge }}" hint-placeholder-val="{{ false }}"><span style="font:600 9px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ e.badgeColor }};border:1px solid {{ e.badgeBd }};border-radius:4px;padding:0 5px">{{ e.badge }}</span></sc-if>
+                    </div>
+                    <sc-if value="{{ e.plain }}" hint-placeholder-val="{{ true }}">
+                      <span style="font-size:12.5px;line-height:1.55;color:#b9c0c8;text-wrap:pretty">{{ e.text }}</span>
+                    </sc-if>
+                    <sc-if value="{{ e.mono }}" hint-placeholder-val="{{ false }}">
+                      <span style="font:500 11px 'JetBrains Mono';color:#6b7178;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.meta }}</span>
+                    </sc-if>
+                    <sc-if value="{{ e.card }}" hint-placeholder-val="{{ false }}">
+                      <div style="border:1px solid rgba(124,149,255,.24);border-radius:11px;background:rgba(124,149,255,.05);padding:11px 12px;display:flex;flex-direction:column;gap:8px;max-width:660px">
+                        <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#8ea3f5">{{ e.cardTitle }}</span>
+                        <span style="font-size:12.5px;line-height:1.55;color:#c2c8cf;text-wrap:pretty">{{ e.cardText }}</span>
+                        <div style="display:flex;gap:8px;align-items:center">
+                          <button style="background:#13171d;border:1px solid #232a32;border-radius:7px;padding:5px 10px;color:#aebfff;font:600 11px 'Hanken Grotesk';cursor:pointer">{{ e.cardCta }}</button>
+                          <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ e.cardMeta }}</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-for>
+
+              <sc-if value="{{ t.ask }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid rgba(230,180,80,.34);border-radius:12px;background:rgba(230,180,80,.06);padding:13px 14px;display:flex;flex-direction:column;gap:11px;animation:wfade .2s both;max-width:720px">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <span style="width:7px;height:7px;border-radius:50%;background:#e6b450;animation:wring 2.2s infinite"></span>
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#e6b450">impl-2 is asking · run 4c blocked</span>
+                    <div style="flex:1"></div>
+                    <span style="font:500 10px 'JetBrains Mono';color:#6b7178">waiting 2m 10s</span>
+                  </div>
+                  <span style="font-size:14px;font-weight:600;color:#eef1f5;line-height:1.4">Where should the shared redemption counter live?</span>
+                  <p style="font-size:12px;line-height:1.5;color:#9aa3ad">A real fork — it sets lasting infra cost. Jarvis escalated instead of answering it.</p>
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    <sc-for list="{{ askOptions }}" as="o" hint-placeholder-count="3">
+                      <div style="display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border-radius:9px;background:#0f1318;border:1px solid #1e242c;cursor:pointer" style-hover="background:#151a21">
+                        <span style="font:700 11px 'JetBrains Mono';color:#e6b450;width:14px;flex:none">{{ o.n }}</span>
+                        <div style="display:flex;flex-direction:column;gap:2px;flex:1">
+                          <span style="font-size:12.5px;font-weight:600;color:#dfe3e8">{{ o.title }}</span>
+                          <span style="font-size:11.5px;color:#8b939d;line-height:1.45">{{ o.note }}</span>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:9px;background:#0f1318;border:1px solid #232a32;border-radius:9px;padding:8px 11px">
+                    <span style="font:500 12px 'JetBrains Mono';color:#5b626b">Type 1–3, or answer in your own words…</span>
+                    <span style="width:1.5px;height:13px;background:#7c95ff;animation:wcaret 1.1s infinite"></span>
+                  </div>
+                  <span style="font-size:11px;color:#6b7178">Answering here resumes the worker in place. The answer is appended to TASK-418's decision log.</span>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.dossierBody }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:9px;padding:2px 0 2px">
+                  <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Record activity</span>
+                  <div style="flex:1;height:1px;background:#161b21"></div>
+                  <span style="font:500 10.5px 'JetBrains Mono';color:#5b626b">no phases — a record does not run</span>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.prior }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ priorTurns }}" as="p" hint-placeholder-count="2">
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    <sc-if value="{{ p.isUser }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:flex;justify-content:flex-end"><div style="max-width:560px;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.22);border-radius:11px;padding:10px 13px;font-size:13px;line-height:1.5;color:#dfe4f7">{{ p.text }}</div></div>
+                    </sc-if>
+                    <sc-if value="{{ p.meta }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;gap:11px">
+                        <div style="width:22px;flex:none;padding-top:1px"><div style="width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;border-radius:50%;background:#0e1116"></div></div></div>
+                        <div style="flex:1;max-width:700px;display:flex;flex-direction:column;gap:6px">
+                          <p style="font-size:13px;line-height:1.65;color:#b9c0c8;text-wrap:pretty">{{ p.text }}</p>
+                          <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ p.meta }}</span>
+                        </div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <sc-if value="{{ t.userTurn }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;justify-content:flex-end;padding-top:4px">
+                  <div style="max-width:560px;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.22);border-radius:11px;padding:10px 13px;font-size:13px;line-height:1.5;color:#dfe4f7">{{ t.userText }}</div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.steps }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:11px">
+                  <div style="width:22px;flex:none;padding-top:1px"><div style="width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;border-radius:50%;background:#0e1116"></div></div></div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#8ea3f5">{{ t.stepsTitle }}</span>
+                    <div style="display:flex;flex-direction:column;gap:5px">
+                      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+                        <div style="display:flex;align-items:center;gap:9px">
+                          <span style="font:600 10px 'JetBrains Mono';color:{{ s.color }};width:12px">{{ s.mark }}</span>
+                          <span style="font-size:12px;color:{{ s.color }};animation:{{ s.anim }}">{{ s.text }}</span>
+                          <span style="font:500 10px 'JetBrains Mono';color:#4c545e">{{ s.meta }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.answer }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:11px;animation:wfade .2s both">
+                  <div style="width:22px;flex:none"></div>
+                  <div style="flex:1;max-width:700px;display:flex;flex-direction:column;gap:10px">
+                    <p style="font-size:13.5px;line-height:1.7;color:#dfe3e8;text-wrap:pretty">The Redis counter was dropped in run <span style="color:#c6ccd3">3f</span> because it made redemption a cross-region write on the checkout path and added 40–60 ms at p95<span style="font:600 9.5px 'JetBrains Mono';color:#8ea3f5;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.26);border-radius:4px;padding:0 4px;margin-left:3px;vertical-align:1px">1</span>. The team recorded the fallback explicitly: keep the counter in the primary Postgres row and accept per-account contention until redemption volume passes ~2k/min<span style="font:600 9.5px 'JetBrains Mono';color:#8ea3f5;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.26);border-radius:4px;padding:0 4px;margin-left:3px;vertical-align:1px">2</span>. Current volume is well under that, so the Postgres row is still the right home<span style="font:600 9.5px 'JetBrains Mono';color:#8ea3f5;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.26);border-radius:4px;padding:0 4px;margin-left:3px;vertical-align:1px">3</span>.</p>
+                    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                      <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#bfe6d6;background:rgba(84,199,154,.12);border:1px solid rgba(84,199,154,.34);border-radius:5px;padding:2px 7px">Answered · 4 sources</span>
+                      <sc-if value="{{ t.inRun }}" hint-placeholder-val="{{ true }}"><button style="background:#13171d;border:1px solid #232a32;border-radius:7px;padding:5px 10px;color:#aebfff;font:600 11px 'Hanken Grotesk';cursor:pointer">Answer impl-2 with this</button></sc-if>
+                      <button style="background:#13171d;border:1px solid #232a32;border-radius:7px;padding:5px 10px;color:#aeb6bf;font:600 11px 'Hanken Grotesk';cursor:pointer">Append to TASK-418</button>
+                    </div>
+                    <sc-if value="{{ t.inRun }}" hint-placeholder-val="{{ true }}"><span style="font-size:11px;color:#6b7178;line-height:1.5;max-width:600px">This answer arrived in the run's own thread — the run kept running behind it. No navigation happened.</span></sc-if>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.weak }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:11px;animation:wfade .2s both">
+                  <div style="width:22px;flex:none"></div>
+                  <div style="flex:1;max-width:700px;border:1px solid rgba(230,180,80,.3);border-radius:12px;background:rgba(230,180,80,.05);padding:13px 14px;display:flex;flex-direction:column;gap:10px">
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#e6b450">Weak grounding — I would not act on this</span>
+                    <p style="font-size:13px;line-height:1.65;color:#dfe3e8;text-wrap:pretty">The closest thing I have is a memory note from March saying rate limits "should be regional eventually". It is not about coupons, it predates the June work, and nothing confirms it. I am not going to turn that into an answer.</p>
+                    <div style="display:flex;flex-direction:column;gap:5px;padding:9px 11px;border-radius:9px;background:#0f1318;border:1px solid #1e242c">
+                      <span style="font:600 10px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#6b7178">What would make this answerable</span>
+                      <span style="font-size:12px;line-height:1.5;color:#9aa3ad">A decision record on the regional split, or a run that actually measured it.</span>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                      <button style="background:#13171d;border:1px solid #232a32;border-radius:7px;padding:6px 11px;color:#aebfff;font:600 11.5px 'Hanken Grotesk';cursor:pointer">@quick — go find out</button>
+                      <button style="background:transparent;border:none;padding:6px 4px;color:#6b7178;font:600 11.5px 'Hanken Grotesk';cursor:pointer">Show the weak candidate</button>
+                    </div>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ t.notfound }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:11px;animation:wfade .2s both">
+                  <div style="width:22px;flex:none"></div>
+                  <div style="flex:1;max-width:700px;border:1px solid #232a32;border-radius:12px;background:#0f1318;padding:13px 14px;display:flex;flex-direction:column;gap:10px">
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#9aa3ad">Not found — nothing in the vault covers this</span>
+                    <p style="font-size:13px;line-height:1.65;color:#dfe3e8;text-wrap:pretty">There is no record of a load test against the coupon endpoint. I searched runs, decisions, memory notes and session transcripts across payments-api and platform for the last 180 days.</p>
+                    <div style="display:flex;gap:7px;flex-wrap:wrap">
+                      <sc-for list="{{ searched }}" as="s" hint-placeholder-count="4">
+                        <span style="font:500 10.5px 'JetBrains Mono';color:#6b7178;background:#0d1116;border:1px solid #1e242c;border-radius:5px;padding:3px 7px">{{ s }}</span>
+                      </sc-for>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <button style="background:#7c95ff;border:none;border-radius:8px;padding:6px 12px;color:#0b0e14;font:700 11.5px 'Hanken Grotesk';cursor:pointer">Dispatch a run to find out</button>
+                      <span style="font:500 10.5px 'JetBrains Mono';color:#5b626b">the same composer, one keystroke away</span>
+                    </div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+
+            <div style="flex:none;border-top:1px solid #161b21;background:#0d1014;padding:9px 16px 11px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Talking to</span>
+                <span style="display:flex;align-items:center;gap:7px;background:{{ composer.chipBg }};border:1px solid {{ composer.chipBd }};border-radius:6px;padding:2px 8px;font:600 11px 'Hanken Grotesk';color:{{ composer.chipFg }}">{{ composer.target }}</span>
+                <span style="font-size:11.5px;color:#6b7178">{{ composer.hint }}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;background:#13171d;border:1px solid {{ composer.bd }};border-radius:10px;padding:10px 12px">
+                <span style="font:600 12px 'JetBrains Mono';color:{{ composer.chipFg }}">{{ composer.prefix }}</span>
+                <span style="flex:1;font-size:13px;color:#5b626b">{{ composer.placeholder }}</span>
+                <span style="width:1.5px;height:14px;background:#7c95ff;animation:wcaret 1.1s infinite"></span>
+                <button style="background:#7c95ff;border:none;border-radius:7px;padding:5px 12px;color:#0b0e14;font:700 11.5px 'Hanken Grotesk';cursor:pointer">{{ composer.send }}</button>
+              </div>
+              <div style="display:flex;gap:14px;flex-wrap:wrap">
+                <sc-for list="{{ cmds }}" as="c" hint-placeholder-count="4">
+                  <span style="display:flex;align-items:center;gap:6px"><span style="font:600 10.5px 'JetBrains Mono';color:{{ c.color }}">{{ c.cmd }}</span><span style="font-size:10.5px;color:#5b626b">{{ c.desc }}</span></span>
+                </sc-for>
+              </div>
+            </div>
+
+            <sc-if value="{{ t.graph }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;inset:0;background:rgba(8,9,12,.93);backdrop-filter:blur(3px);display:flex;flex-direction:column;animation:wfade .18s both">
+                <div style="height:44px;flex:none;display:flex;align-items:center;gap:11px;padding:0 16px;border-bottom:1px solid #161b21;background:#0d1014">
+                  <span style="width:11px;height:11px;border-radius:2px;border:1.4px solid #7c95ff;transform:rotate(45deg)"></span>
+                  <span style="font:700 13px 'Hanken Grotesk';color:#eef1f5">Graph peek</span>
+                  <span style="font:500 11px 'JetBrains Mono';color:#6b7178">312 nodes · centred on run 4c · 2 hops</span>
+                  <div style="flex:1"></div>
+                  <div style="display:flex;gap:12px;align-items:center">
+                    <sc-for list="{{ legend }}" as="l" hint-placeholder-count="4">
+                      <span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:{{ l.color }}"></span><span style="font:500 10px 'JetBrains Mono';color:#8b939d">{{ l.label }}</span></span>
+                    </sc-for>
+                  </div>
+                  <button onClick="{{ closeGraph }}" style="background:#13171d;border:1px solid #232a32;border-radius:7px;padding:5px 11px;color:#aeb6bf;font:600 11px 'Hanken Grotesk';cursor:pointer">Close · Esc</button>
+                </div>
+                <div style="flex:1;position:relative;min-height:0;display:flex">
+                  <div style="flex:1;min-width:0;position:relative">{{ graphSvg }}</div>
+                  <div style="width:288px;flex:none;border-left:1px solid #161b21;background:#0b0e12;padding:14px;display:flex;flex-direction:column;gap:12px">
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Selected node</span>
+                      <span style="font:600 11px 'JetBrains Mono';color:#54c79a">run · 3f</span>
+                      <span style="font-size:13.5px;font-weight:600;color:#eef1f5;line-height:1.35">Redis redemption counter spike</span>
+                      <span style="font:500 10.5px 'JetBrains Mono';color:#6b7178">#checkout-revamp · June 14 · reverted</span>
+                    </div>
+                    <div style="height:1px;background:#161b21"></div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Edges</span>
+                      <sc-for list="{{ graphEdges }}" as="g" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="width:22px;height:0;border-top:{{ g.w }} {{ g.style }} {{ g.color }};flex:none;opacity:{{ g.op }}"></span>
+                          <span style="font-size:11.5px;color:#aeb6bf;flex:1">{{ g.text }}</span>
+                          <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ g.conf }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="height:1px;background:#161b21"></div>
+                    <div style="display:flex;flex-direction:column;gap:7px">
+                      <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Leave the graph by opening something</span>
+                      <button onClick="{{ closeGraph }}" style="width:100%;background:#7c95ff;border:none;border-radius:8px;padding:8px;color:#0b0e14;font:700 11.5px 'Hanken Grotesk';cursor:pointer">Open run 3f on the Stage</button>
+                      <button onClick="{{ closeGraph }}" style="width:100%;background:#13171d;border:1px solid #232a32;border-radius:8px;padding:8px;color:#aeb6bf;font:600 11.5px 'Hanken Grotesk';cursor:pointer">Open TASK-418 record</button>
+                      <button onClick="{{ closeGraph }}" style="width:100%;background:#13171d;border:1px solid #232a32;border-radius:8px;padding:8px;color:#aeb6bf;font:600 11.5px 'Hanken Grotesk';cursor:pointer">Ask Jarvis about this node</button>
+                    </div>
+                    <p style="font-size:11px;line-height:1.5;color:#6b7178;margin-top:auto;text-wrap:pretty">The peek is never a destination: it opens from an object and closes into one. There is no graph entry in the nav rail.</p>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+          </main>
+
+          <aside style="width:{{ rail.w }};flex:none;border-left:1px solid #1a1f26;background:#0e1116;display:flex;flex-direction:column;min-height:0">
+            <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column">
+
+              <div style="padding:14px 15px 12px;border-bottom:1px solid #161b21;display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Needs you</span>
+                  <span style="font:700 10px 'JetBrains Mono';color:#1a1306;background:#e6b450;border-radius:20px;padding:1px 7px">{{ needs.count }}</span>
+                  <div style="flex:1"></div>
+                  <span style="font:500 9.5px 'JetBrains Mono';color:#4c545e">never filtered</span>
+                </div>
+                <sc-for list="{{ needs.items }}" as="n" hint-placeholder-count="2">
+                  <div style="border:1px solid {{ n.bd }};border-radius:10px;background:{{ n.bg }};padding:10px 11px;display:flex;flex-direction:column;gap:6px;cursor:pointer">
+                    <div style="display:flex;align-items:center;gap:7px">
+                      <span style="width:6px;height:6px;border-radius:50%;background:#e6b450;flex:none"></span>
+                      <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:#e6b450">{{ n.kind }}</span>
+                      <div style="flex:1"></div>
+                      <span style="font:500 9.5px 'JetBrains Mono';color:#5b626b">{{ n.wait }}</span>
+                    </div>
+                    <span style="font-size:12px;line-height:1.45;color:#dfe3e8">{{ n.text }}</span>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="font:500 10px 'JetBrains Mono';color:#6b7178;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.source }}</span>
+                      <sc-if value="{{ n.outside }}" hint-placeholder-val="{{ false }}"><span style="font:600 9px 'JetBrains Mono';color:#8ea3f5;border:1px solid rgba(124,149,255,.3);border-radius:4px;padding:0 4px">outside focus</span></sc-if>
+                      <span style="font:600 10.5px 'Hanken Grotesk';color:#aebfff">{{ n.action }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+
+              <sc-if value="{{ grounding.show }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:14px 15px 12px;border-bottom:1px solid #161b21;display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Grounding</span>
+                    <div style="flex:1"></div>
+                    <span style="font:500 9.5px 'JetBrains Mono';color:#4c545e">{{ grounding.meta }}</span>
+                  </div>
+                  <sc-for list="{{ grounding.items }}" as="s" hint-placeholder-count="4">
+                    <div style="border:1px solid {{ s.bd }};border-radius:10px;background:{{ s.bg }};padding:10px 11px;display:flex;flex-direction:column;gap:6px;cursor:pointer">
+                      <div style="display:flex;align-items:center;gap:7px">
+                        <sc-if value="{{ s.n }}" hint-placeholder-val="{{ true }}"><span style="font:700 9.5px 'JetBrains Mono';color:#8ea3f5;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.26);border-radius:4px;padding:0 4px">{{ s.n }}</span></sc-if>
+                        <span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:{{ s.kindColor }}">{{ s.kind }}</span>
+                        <div style="flex:1"></div>
+                        <span style="font:600 9px 'JetBrains Mono';color:{{ s.freshColor }};border:1px solid {{ s.freshBd }};border-radius:4px;padding:0 4px">{{ s.fresh }}</span>
+                      </div>
+                      <span style="font-size:12px;line-height:1.45;color:#dfe3e8">{{ s.title }}</span>
+                      <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ s.meta }}</span>
+                      <sc-if value="{{ s.open }}" hint-placeholder-val="{{ false }}">
+                        <div style="border-top:1px solid #1a1f26;padding-top:8px;display:flex;flex-direction:column;gap:7px">
+                          <p style="font-size:11.5px;line-height:1.6;color:#9aa3ad;border-left:2px solid #2c333d;padding-left:9px;text-wrap:pretty">{{ s.excerpt }}</p>
+                          <div style="display:flex;gap:7px"><span style="font:600 10.5px 'Hanken Grotesk';color:#aebfff">Open source</span><span style="font:600 10.5px 'Hanken Grotesk';color:#6b7178">Peek in graph</span></div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ s.warn }}" hint-placeholder-val="{{ false }}">
+                        <span style="font-size:11px;line-height:1.45;color:{{ s.warnColor }}">{{ s.warn }}</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ fleet.show }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:14px 15px 18px;display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b;white-space:nowrap">{{ fleet.title }}</span>
+                  <div style="flex:1"></div>
+                  <span style="font:600 9.5px 'JetBrains Mono';color:#54c79a;white-space:nowrap">{{ fleet.counts }}</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:2px">
+                  <sc-for list="{{ fleet.roster }}" as="w" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:{{ w.bg }};cursor:pointer" style-hover="background:#151a21">
+                      <span style="width:6px;height:6px;border-radius:50%;flex:none;background:{{ w.dot }};animation:{{ w.anim }}"></span>
+                      <span style="flex:1;font:500 11.5px 'JetBrains Mono';color:{{ w.color }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ w.name }}</span>
+                      <span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ w.meta }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;background:#101216;border:1px solid #1c2128">
+                  <div style="display:flex;flex-direction:column;gap:2px;flex:1"><span style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Spend</span><span style="font:700 13px 'JetBrains Mono';color:#e6e9ed">{{ fleet.cost }}</span></div>
+                  <div style="display:flex;flex-direction:column;gap:2px;flex:1"><span style="font:700 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Tokens</span><span style="font:700 13px 'JetBrains Mono';color:#e6e9ed">{{ fleet.tokens }}</span></div>
+                </div>
+                <button style="width:100%;display:flex;align-items:center;gap:9px;background:#0f1217;border:1px solid rgba(124,149,255,.24);border-radius:9px;padding:9px 11px;cursor:pointer;text-align:left">
+                  <span style="width:20px;height:20px;flex:none;border-radius:6px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center"><span style="width:6px;height:6px;border-radius:50%;background:#0e1116"></span></span>
+                  <span style="flex:1;display:flex;flex-direction:column;gap:1px"><span style="font:700 11.5px 'Hanken Grotesk';color:#c3cffb">Summarize the fleet</span><span style="font-size:10px;color:#6b7178">posts into this thread — not a new place</span></span>
+                </button>
+                <sc-if value="{{ fleet.expanded }}" hint-placeholder-val="{{ false }}">
+                  <div style="border:1px solid #1c2128;border-radius:10px;background:#0d1116;padding:11px;display:flex;flex-direction:column;gap:8px">
+                    <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Where fleet mode went</span>
+                    <p style="font-size:11.5px;line-height:1.55;color:#9aa3ad;text-wrap:pretty">This section <em style="font-style:normal;color:#c6ccd3">is</em> the old Fleet mode. The autonomy ladder and ⚙ profile drawer sit in the Stage header above — one instance each, always for the channel on the Stage. <span style="color:#c6ccd3">@jarvis</span> typed in the composer no longer switches surfaces; it posts a fleet summary into this thread.</p>
+                  </div>
+                </sc-if>
+              </div>
+              </sc-if>
+              <sc-if value="{{ railNoFleet }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:14px 15px 18px;display:flex;flex-direction:column;gap:7px">
+                  <span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Fleet</span>
+                  <span style="font-size:11.5px;line-height:1.55;color:#4c545e;text-wrap:pretty">A conversation has no workers, so the section is absent rather than empty. The roster is one component whose scope follows the Stage subject.</span>
+                </div>
+              </sc-if>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;width:1420px;border:1px solid #1c2128;border-radius:13px;background:#0d1014;padding:14px 15px 16px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#8ea3f5">The record band, all three attribution cases</span>
+          <div style="flex:1;height:1px;background:#161b21"></div>
+          <span style="font:500 10.5px 'JetBrains Mono';color:#5b626b">a run has zero or more records, not one</span>
+        </div>
+        <sc-for list="{{ bandCases }}" as="b" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <span style="font-size:11.5px;color:#8b939d">{{ b.label }}</span>
+            <div style="border:1px solid #1c2128;border-radius:9px;background:#0b0e12;padding:9px 13px;display:flex;align-items:center;gap:10px;min-height:38px">
+              <sc-if value="{{ b.empty }}" hint-placeholder-val="{{ false }}">
+                <span style="font:500 11px 'JetBrains Mono';color:#5b626b">No record attributed to this run</span>
+                <div style="flex:1"></div>
+                <span style="font:600 11px 'Hanken Grotesk';color:#aebfff">Attach a record</span>
+                <span style="font:600 11px 'Hanken Grotesk';color:#6b7178">Create one from this run</span>
+              </sc-if>
+              <sc-for list="{{ b.chips }}" as="c" hint-placeholder-count="2">
+                <span style="display:flex;align-items:center;gap:7px;border:1px solid #232a32;border-radius:6px;padding:3px 8px">
+                  <span style="width:16px;height:0;border-top:{{ c.weight }} {{ c.style }} {{ c.color }}"></span>
+                  <span style="font:600 11.5px 'Hanken Grotesk';color:#dfe3e8">{{ c.text }}</span>
+                  <span style="font:500 9.5px 'JetBrains Mono';color:{{ c.color }}">{{ c.edge }} · {{ c.conf }}</span>
+                </span>
+              </sc-for>
+              <sc-if value="{{ b.cta }}" hint-placeholder-val="{{ false }}">
+                <div style="flex:1"></div>
+                <span style="font:600 11px 'Hanken Grotesk';color:#9aa3ad">{{ b.cta }}</span>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+        <p style="font-size:11.5px;line-height:1.55;color:#6b7178;max-width:900px;text-wrap:pretty">Expanding a multi-record band opens the strongest edge in full and leaves the others as one-line rows beneath it — the band never becomes a tab strip.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:1420px">
+        <sc-for list="{{ notes }}" as="n" hint-placeholder-count="3">
+          <div style="border:1px solid #1c2128;border-radius:11px;background:#0d1014;padding:12px 13px;display:flex;flex-direction:column;gap:6px">
+            <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#8ea3f5">{{ n.title }}</span>
+            <p style="font-size:12.5px;line-height:1.6;color:#9aa3ad;text-wrap:pretty">{{ n.text }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div id="f2" style="display:flex;flex-direction:column;gap:15px;width:1420px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <span style="font:700 12px 'JetBrains Mono';color:#0b0e14;background:#7c95ff;border-radius:6px;padding:3px 9px;margin-top:2px">2</span>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <h2 style="font-size:19px;font-weight:700;letter-spacing:-.01em">First use — no channels, no tasks, no conversations</h2>
+          <p style="font-size:13.5px;line-height:1.55;color:#8b939d;max-width:880px;text-wrap:pretty">The surface opens as Jarvis, not as an empty project dashboard. One composer, already focused, and three things it can do. The rails stay, empty and quiet, so the shape of the surface is learned before it fills.</p>
+        </div>
+      </div>
+
+      <div style="width:1420px;height:520px;border-radius:14px;overflow:hidden;border:1px solid #1c2128;box-shadow:0 30px 80px -30px rgba(0,0,0,.72);display:flex;background:#0c0e11">
+        <div style="width:78px;flex:none;background:#0e1116;border-right:1px solid #1c2128;display:flex;flex-direction:column;padding:10px 0;gap:2px">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 0;margin:0 8px;border-radius:10px;color:#aebfff;background:rgba(124,149,255,.1)"><div style="position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:3px;height:20px;border-radius:0 3px 3px 0;background:#7c95ff"></div><div style="width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;border-radius:50%;background:#0e1116"></div></div><span style="font:600 10px 'Hanken Grotesk'">Jarvis</span></div>
+          <sc-for list="{{ emptyNav }}" as="n" hint-placeholder-count="7">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 0;margin:0 8px;border-radius:10px;color:#4c545e"><div style="width:18px;height:18px;border-radius:5px;border:1.6px solid currentColor;opacity:.7"></div><span style="font:600 10px 'Hanken Grotesk'">{{ n }}</span></div>
+          </sc-for>
+        </div>
+
+        <div style="width:272px;flex:none;background:#0b0e12;border-right:1px solid #1a1f26;display:flex;flex-direction:column">
+          <div style="padding:12px;border-bottom:1px solid #14181e;display:flex;gap:6px">
+            <button style="flex:1;background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.3);border-radius:8px;padding:7px;color:#c3cffb;font:600 11.5px 'Hanken Grotesk';cursor:pointer">+ Channel</button>
+            <button style="flex:1;background:#13171d;border:1px solid #232a32;border-radius:8px;padding:7px;color:#aeb6bf;font:600 11.5px 'Hanken Grotesk';cursor:pointer">+ Thread</button>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px">
+            <span style="font:500 11.5px 'JetBrains Mono';color:#3f4751">no subjects yet</span>
+            <span style="font-size:12px;line-height:1.5;color:#5b626b;text-align:center;text-wrap:pretty">Channels and conversations both land here, in one list.</span>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 44px;gap:22px">
+            <div style="width:44px;height:44px;border-radius:13px;background:linear-gradient(135deg,#8aa0ff,#5f74e0);display:flex;align-items:center;justify-content:center;box-shadow:0 0 22px -4px rgba(124,149,255,.6)"><div style="width:12px;height:12px;border-radius:50%;background:#0e1116"></div></div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <h3 style="font-size:26px;font-weight:700;letter-spacing:-.02em;color:#f0f3f6">Point me at some work.</h3>
+              <p style="font-size:14px;line-height:1.6;color:#9aa3ad;max-width:560px;text-wrap:pretty">I dispatch runs, keep the record of what they did, and remember it afterwards. Start a channel and I'll drive it — or just ask me something and I'll tell you what I can and can't ground.</p>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:720px">
+              <sc-for list="{{ emptyCards }}" as="c" hint-placeholder-count="3">
+                <div style="border:1px solid #1c2128;border-radius:11px;background:#0d1116;padding:12px 13px;display:flex;flex-direction:column;gap:6px;cursor:pointer" style-hover="border-color:#2c333d">
+                  <span style="font:600 11px 'JetBrains Mono';color:#8ea3f5">{{ c.cmd }}</span>
+                  <span style="font-size:12.5px;font-weight:600;color:#dfe3e8">{{ c.title }}</span>
+                  <span style="font-size:11.5px;line-height:1.45;color:#8b939d">{{ c.note }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="flex:none;border-top:1px solid #161b21;background:#0d1014;padding:11px 16px 13px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px"><span style="font:600 9.5px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Talking to</span><span style="background:rgba(124,149,255,.12);border:1px solid rgba(124,149,255,.3);border-radius:6px;padding:2px 8px;font:600 11px 'Hanken Grotesk';color:#c3cffb">Jarvis</span><span style="font-size:11.5px;color:#6b7178">nothing is indexed yet — I'll say so rather than guess</span></div>
+            <div style="display:flex;align-items:center;gap:10px;background:#13171d;border:1px solid rgba(124,149,255,.28);border-radius:10px;padding:11px 12px">
+              <span style="font:600 12px 'JetBrains Mono';color:#c3cffb">@ask</span>
+              <span style="flex:1;font-size:13px;color:#5b626b">Ask me anything, or type @run to start work…</span>
+              <span style="width:1.5px;height:14px;background:#7c95ff;animation:wcaret 1.1s infinite"></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="width:300px;flex:none;border-left:1px solid #1a1f26;background:#0e1116;padding:14px 15px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Needs you</span><span style="font-size:12px;color:#4c545e">Nothing is waiting on you.</span></div>
+          <div style="height:1px;background:#161b21"></div>
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Grounding</span><span style="font-size:12px;line-height:1.5;color:#4c545e">Sources appear here the moment I answer anything.</span></div>
+          <div style="height:1px;background:#161b21"></div>
+          <div style="display:flex;flex-direction:column;gap:8px"><span style="font:600 10px 'JetBrains Mono';letter-spacing:.11em;text-transform:uppercase;color:#5b626b">Fleet</span><span style="font-size:12px;color:#4c545e">No workers running.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="f3" style="display:flex;flex-direction:column;gap:15px;width:1420px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <span style="font:700 12px 'JetBrains Mono';color:#0b0e14;background:#7c95ff;border-radius:6px;padding:3px 9px;margin-top:2px">3</span>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <h2 style="font-size:19px;font-weight:700;letter-spacing:-.01em">Narrow window — what collapses, and in what order</h2>
+          <p style="font-size:13.5px;line-height:1.55;color:#8b939d;max-width:880px;text-wrap:pretty">The live thread and the composer never collapse — tearing down a running transcript to make room is the one thing the layout must not do.</p>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
+        <div style="width:840px;height:520px;border-radius:14px;overflow:hidden;border:1px solid #1c2128;box-shadow:0 30px 80px -30px rgba(0,0,0,.72);display:flex;background:#0c0e11">
+          <div style="width:56px;flex:none;background:#0e1116;border-right:1px solid #1c2128;display:flex;flex-direction:column;padding:9px 0;gap:4px;align-items:center">
+            <div style="width:34px;height:34px;border-radius:9px;background:rgba(124,149,255,.1);display:flex;align-items:center;justify-content:center"><div style="width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#8aa0ff,#5f74e0)"></div></div>
+            <sc-for list="{{ emptyNav }}" as="n" hint-placeholder-count="7">
+              <div style="width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center"><div style="width:15px;height:15px;border-radius:4px;border:1.5px solid #4c545e"></div></div>
+            </sc-for>
+          </div>
+
+          <div style="width:48px;flex:none;background:#0b0e12;border-right:1px solid #1a1f26;display:flex;flex-direction:column;align-items:center;padding:11px 0;gap:9px">
+            <span style="font:600 9px 'JetBrains Mono';writing-mode:vertical-rl;letter-spacing:.14em;text-transform:uppercase;color:#5b626b">Subjects</span>
+            <div style="width:9px;height:9px;border-radius:50%;background:#54c79a"></div>
+            <div style="width:9px;height:9px;border-radius:50%;background:#e6b450;animation:wring 2.2s infinite"></div>
+            <div style="width:9px;height:9px;border-radius:50%;background:#2c333d"></div>
+            <div style="width:9px;height:9px;border-radius:50%;background:#2c333d"></div>
+          </div>
+
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+            <div style="height:42px;flex:none;display:flex;align-items:center;gap:9px;padding:0 13px;border-bottom:1px solid #161b21;background:#0d1014">
+              <span style="font:600 12px 'JetBrains Mono';color:#8ea3f5">#</span><span style="font:700 13px 'Hanken Grotesk';color:#eef1f5">checkout-revamp</span><span style="font:500 10.5px 'JetBrains Mono';color:#6b7178">· run 4c</span>
+              <div style="flex:1"></div>
+              <span style="font:600 10.5px 'Hanken Grotesk';color:#c3cffb;background:rgba(124,149,255,.1);border:1px solid rgba(124,149,255,.3);border-radius:7px;padding:3px 8px">Handling asks</span>
+              <span style="width:24px;height:22px;border-radius:6px;background:#13171d;border:1px solid #232a32;color:#9aa3ad;font-size:11px;display:flex;align-items:center;justify-content:center">⚙</span>
+            </div>
+            <div style="flex:none;padding:8px 13px;border-bottom:1px solid #161b21;display:flex;align-items:center;gap:8px;background:#0d1014">
+              <span style="font-size:10px">🔒</span><span style="font:600 10.5px 'JetBrains Mono';color:#8ea3f5">TASK-418</span><span style="font-size:11.5px;color:#8b939d">Coupon abuse guardrails</span><div style="flex:1"></div><span style="font:600 10.5px 'Hanken Grotesk';color:#9aa3ad">⌄</span>
+            </div>
+            <div style="flex:1;overflow:hidden;padding:13px;display:flex;flex-direction:column;gap:11px">
+              <sc-for list="{{ narrowFeed }}" as="e" hint-placeholder-count="4">
+                <div style="display:flex;gap:9px">
+                  <span style="width:6px;height:6px;border-radius:50%;background:{{ e.dot }};flex:none;margin-top:5px"></span>
+                  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+                    <span style="font:600 10.5px 'JetBrains Mono';color:{{ e.nameColor }}">{{ e.name }}</span>
+                    <span style="font-size:12px;line-height:1.5;color:#b9c0c8">{{ e.text }}</span>
+                  </div>
+                </div>
+              </sc-for>
+              <div style="border:1px solid rgba(230,180,80,.34);border-radius:10px;background:rgba(230,180,80,.06);padding:10px 11px;display:flex;align-items:center;gap:9px">
+                <span style="width:7px;height:7px;border-radius:50%;background:#e6b450;animation:wring 2.2s infinite;flex:none"></span>
+                <span style="flex:1;font-size:12px;color:#dfe3e8">impl-2 is asking · 1 more needs you</span>
+                <span style="font:600 10.5px 'Hanken Grotesk';color:#eddcb8">Open</span>
+              </div>
+            </div>
+            <div style="flex:none;border-top:1px solid #161b21;background:#0d1014;padding:9px 13px 11px;display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:7px"><span style="font:600 9px 'JetBrains Mono';letter-spacing:.1em;text-transform:uppercase;color:#5b626b">Talking to</span><span style="background:rgba(84,199,154,.12);border:1px solid rgba(84,199,154,.34);border-radius:6px;padding:2px 7px;font:600 10.5px 'Hanken Grotesk';color:#bfe6d6">impl-2 · run 4c</span></div>
+              <div style="display:flex;align-items:center;gap:9px;background:#13171d;border:1px solid #232a32;border-radius:9px;padding:9px 11px"><span style="font:600 11.5px 'JetBrains Mono';color:#bfe6d6">›</span><span style="flex:1;font-size:12.5px;color:#5b626b">Message the worker…</span><span style="width:1.5px;height:13px;background:#7c95ff;animation:wcaret 1.1s infinite"></span></div>
+            </div>
+          </div>
+
+          <div style="width:44px;flex:none;border-left:1px solid #1a1f26;background:#0e1116;display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:12px">
+            <span style="font:700 9px 'JetBrains Mono';color:#1a1306;background:#e6b450;border-radius:20px;padding:1px 6px">2</span>
+            <span style="font:600 9px 'JetBrains Mono';writing-mode:vertical-rl;letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Needs you</span>
+            <div style="width:22px;height:1px;background:#1c2128"></div>
+            <span style="font:600 9px 'JetBrains Mono';writing-mode:vertical-rl;letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Grounding · 4</span>
+            <div style="width:22px;height:1px;background:#1c2128"></div>
+            <span style="font:600 9px 'JetBrains Mono';writing-mode:vertical-rl;letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Fleet · 2</span>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:300px;display:flex;flex-direction:column;gap:10px">
+          <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Collapse order</span>
+          <sc-for list="{{ collapseOrder }}" as="c" hint-placeholder-count="5">
+            <div style="display:flex;gap:11px;border:1px solid #1c2128;border-radius:10px;background:#0d1014;padding:11px 12px">
+              <span style="font:700 11px 'JetBrains Mono';color:{{ c.color }};flex:none">{{ c.n }}</span>
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:12.5px;font-weight:600;color:#dfe3e8">{{ c.title }}</span><span style="font-size:11.5px;line-height:1.45;color:#8b939d">{{ c.note }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div id="f4" style="display:flex;flex-direction:column;gap:15px;width:1420px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <span style="font:700 12px 'JetBrains Mono';color:#0b0e14;background:#7c95ff;border-radius:6px;padding:3px 9px;margin-top:2px">4</span>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <h2 style="font-size:19px;font-weight:700;letter-spacing:-.01em">Entry points, and the rules that keep the merge honest</h2>
+          <p style="font-size:13.5px;line-height:1.55;color:#8b939d;max-width:880px">Every handoff that exists today lands somewhere visible on the one surface.</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.25fr 1fr;gap:16px;width:1420px;align-items:start">
+        <div style="border:1px solid #1c2128;border-radius:13px;background:#0d1014;overflow:hidden">
+          <div style="display:flex;gap:12px;padding:11px 15px;border-bottom:1px solid #1c2128;background:#0e1116">
+            <span style="flex:1.1;font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Entry point</span>
+            <span style="flex:1.6;font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#5b626b">Lands as</span>
+          </div>
+          <sc-for list="{{ entryPoints }}" as="e" hint-placeholder-count="7">
+            <div style="display:flex;gap:12px;padding:11px 15px;border-bottom:1px solid #14181e;align-items:flex-start">
+              <div style="flex:1.1;display:flex;flex-direction:column;gap:3px"><span style="font-size:12.5px;font-weight:600;color:#dfe3e8">{{ e.from }}</span><span style="font:500 10px 'JetBrains Mono';color:#5b626b">{{ e.meta }}</span></div>
+              <span style="flex:1.6;font-size:12.5px;line-height:1.5;color:#9aa3ad;text-wrap:pretty">{{ e.to }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="border:1px solid rgba(224,114,108,.25);border-radius:13px;background:rgba(224,114,108,.05);padding:14px 15px;display:flex;flex-direction:column;gap:8px">
+            <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#e0726c">The failure mode this avoids</span>
+            <p style="font-size:12.5px;line-height:1.6;color:#c2c8cf;text-wrap:pretty">A <span style="font-family:'JetBrains Mono';font-size:11.5px">Runs │ Recall │ Tasks │ Graph</span> switch would shorten the nav rail and move every hop one level inward. There is no such switch here. The thread is one region that never swaps out; the record expands above it; the graph floats over it; the composer retargets in place.</p>
+          </div>
+          <sc-for list="{{ rules }}" as="r" hint-placeholder-count="5">
+            <div style="border:1px solid #1c2128;border-radius:11px;background:#0d1014;padding:12px 13px;display:flex;flex-direction:column;gap:5px">
+              <span style="font:700 9.5px 'JetBrains Mono';letter-spacing:.12em;text-transform:uppercase;color:#8ea3f5">{{ r.title }}</span>
+              <p style="font-size:12.5px;line-height:1.55;color:#9aa3ad;text-wrap:pretty">{{ r.text }}</p>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+  </section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1560,&quot;height&quot;:1200}}">
+class Component extends DCLogic {
+  state = { view:'live', recOpen:false, tier:1, mode:'manage' };
+
+  go(v){ return () => this.setState({ view:v, recOpen: v==='record' }); }
+
+  renderVals(){
+    const v = this.state.view;
+    const is = (...a) => a.indexOf(v) >= 0;
+
+    const tabDefs = [['live','Live run'],['ask','Blocked ask'],['record','Task + its runs'],['answer','Answer + grounding'],['working','Jarvis working'],['weak','Weak grounding'],['notfound','Not found'],['radar','Radar handoff'],['space','Space focus'],['fleet','Fleet'],['graph','Graph peek'],['conversation','Subject: conversation'],['dossier','Subject: dossier']];
+    const tabs = tabDefs.map(([id,label]) => ({ label, go:this.go(id),
+      bg: v===id ? 'rgba(124,149,255,.14)' : '#13171d',
+      fg: v===id ? '#c3cffb' : '#9aa3ad',
+      bd: v===id ? 'rgba(124,149,255,.34)' : '#232a32' }));
+
+    const navDefs = [['Cockpit','1'],['Jarvis','2'],['Agent','3'],['Radar','4'],['Sessions','5'],['Diff','6'],['Memory','7'],['Usage','8']];
+    const nav = navDefs.map(([label,chord]) => {
+      const on = label === 'Jarvis';
+      return { label, chord: on ? false : '⌘'+chord, on, isJarvis:on, isDot:!on,
+        badge: on ? '3' : false,
+        title: on ? 'Jarvis · 3 need you — 2 from channel workers, 1 from a standalone agent. Visible from every surface.' : label,
+        color: on ? '#aebfff' : '#6b7178',
+        bg: on ? 'rgba(124,149,255,.1)' : 'transparent' };
+    });
+
+    const spaceOn = is('space');
+    const subj = is('conversation') ? 'convo' : is('dossier') ? 'dossier' : 'channel';
+    const isCh = subj === 'channel';
+
+    // ---- subjects column ----
+    const runsFor = (sel) => [
+      { name:'4c · Redemption guardrail', meta:'live', dot:'#54c79a', sel:sel },
+      { name:'4b · Abuse heuristics spike', meta:'2d', dot:'#3f4751', sel:false },
+      { name:'3f · Redis counter spike', meta:'Jun 14', dot:'#3f4751', sel:false }
+    ].map(r => ({ ...r, bg: r.sel ? 'rgba(124,149,255,.1)' : 'transparent', color: r.sel ? '#dfe4f7' : '#9aa3ad' }));
+
+    const row = (name, mark, o) => ({ name, mark, markColor:o.on?'#8ea3f5':'#4c545e',
+      color:o.on?'#eef1f5':'#aeb6bf', font:o.on?'600':'500',
+      bg:o.on?'rgba(124,149,255,.1)':'transparent',
+      asking:!!o.asking, working:!!o.working, workingLabel:o.working||'',
+      tag:o.tag||false, expanded:!!(o.on && o.children && o.children.length), runs:o.children||[], go:o.go||this.go(v) });
+
+    const attributed = [
+      { name:'4c · #checkout-revamp', meta:'live', dot:'#54c79a', sel:true },
+      { name:'4b · #checkout-revamp', meta:'2d', dot:'#3f4751', sel:false },
+      { name:'3f · #checkout-revamp', meta:'Jun 14', dot:'#3f4751', sel:false }
+    ].map(r => ({ ...r, bg:'transparent', color:'#9aa3ad' }));
+
+    const ch = (name, o) => row(name, '#', { ...o, on: o.on && isCh, children: (o.on && isCh) ? runsFor(true) : [] });
+    const thread = (name) => row(name, '~', { on:false, go:this.go('conversation'), children:[] });
+    const dossier = (name, o) => row(name, '▤', { ...o, go:this.go('dossier'), tag:o.tag||false, children: o.on ? attributed : [] });
+
+    const selConvo = subj === 'convo';
+    const selDos = subj === 'dossier';
+
+    let groups;
+    if (spaceOn) {
+      groups = [
+        { label:'In focus · TASK-418', items:[
+          ch('checkout-revamp',{ on:true, working:'2 working', tag:'418' }),
+          ch('coupon-abuse',{ asking:true, tag:'418' }) ]},
+        { label:'Records', items:[ dossier('TASK-418 Coupon abuse guardrails',{ on:selDos }) ]},
+        { label:'Threads on this task', items:[ row('Why did we drop the Redis counter?','~',{ on:selConvo, go:this.go('conversation') }) ]}
+      ];
+    } else {
+      groups = [
+        { label:'payments-api', items:[
+          ch('checkout-revamp',{ on:true, working:'2 working', tag:'418' }),
+          ch('coupon-abuse',{ asking:true, tag:'418' }),
+          ch('billing-events',{}) ]},
+        { label:'platform', items:[
+          ch('rate-limits',{ working:'1 working' }),
+          ch('docs-refresh',{}) ]},
+        { label:'Records · dossiers', items:[
+          dossier('TASK-418 Coupon abuse guardrails',{ on:selDos, working:'active' }),
+          dossier('TASK-402 Idempotent refunds',{ }),
+          dossier('TASK-377 Webhook retry policy',{ }) ]},
+        { label:'Threads', items:[
+          row('Why did we drop the Redis counter?','~',{ on:selConvo, go:this.go('conversation') }),
+          thread('Cold-start regressions since June'),
+          thread('What shipped in week 30') ]}
+      ];
+    }
+
+    // ---- stage header ----
+    const stage = isCh
+      ? { mark:'#', title:'checkout-revamp', sub: is('graph') ? '· run 4c' : '· run 4c · live' }
+      : selConvo
+      ? { mark:'~', title:'Why did we drop the Redis counter?', sub:'· conversation · 3 turns · started 12m ago' }
+      : { mark:'▤', title:'TASK-418 Coupon abuse guardrails', sub:'· record · updated 6m ago' };
+
+    const tierNames = ['Concierge','Gatekeeper','Delegator'];
+    const tierNotes = [
+      'Concierge — Jarvis watches and narrates. Every ask reaches you.',
+      'Gatekeeper — implies Concierge, and answers routine asks itself. Real forks still escalate.',
+      'Delegator — implies Gatekeeper, and dispatches follow-up work without asking first.'
+    ];
+    const tier = this.state.tier;
+    const tiers = tierNames.map((label,i) => ({ label, title:tierNotes[i],
+      go: () => this.setState({ tier:i }),
+      bg: i <= tier ? (i === tier ? 'rgba(124,149,255,.22)' : 'rgba(124,149,255,.09)') : 'transparent',
+      fg: i === tier ? '#dfe4f7' : i < tier ? '#8ea3f5' : '#5b626b',
+      bd: i === tier ? 'rgba(124,149,255,.42)' : 'transparent',
+      barH: (3 + i*2) + 'px',
+      barBg: i <= tier ? '#7c95ff' : '#232a32' }));
+    const modeNames = ['report','manage','fanout'];
+    const dispatch = { show: tier === 2, note:'dispatch mode',
+      modes: modeNames.map(label => ({ label,
+        go: () => this.setState({ mode:label }),
+        bg: this.state.mode === label ? 'rgba(84,199,154,.14)' : 'transparent',
+        fg: this.state.mode === label ? '#bfe6d6' : '#5b626b',
+        bd: this.state.mode === label ? 'rgba(84,199,154,.36)' : 'transparent' })) };
+
+    const header = { isChannel: isCh,
+      chip: selConvo ? 'No channel · no fleet · no profile' : selDos ? 'Record · not a run' : false,
+      scope: selConvo ? 'Grounded in: all projects' : selDos ? 'Grounded in: this record + its runs' : false };
+
+    // ---- record band ----
+    const bandKind = selDos ? 'subject' : selConvo ? 'mentions' : is('radar') ? 'none' : 'one';
+    const recOpen = bandKind === 'subject' ? true : (bandKind === 'one' && this.state.recOpen);
+    const rec = { open:recOpen, bg: recOpen ? '#0b0e12' : '#0d1014',
+      kind:bandKind, one:bandKind==='one', none:bandKind==='none', mentions:bandKind==='mentions', subject:bandKind==='subject',
+      cta: bandKind === 'subject' ? 'the subject itself' : recOpen ? 'Collapse ⌃' : 'Expand the record ⌄' };
+
+    const bandCases = [
+      { label:'One attributed record — the shape drawn in every state above', empty:false, cta:'Expand the record ⌄',
+        chips:[{ text:'TASK-418 Coupon abuse guardrails', edge:'confirmed', conf:'strong', color:'#54c79a', style:'solid', weight:'2.5px' }] },
+      { label:'No attribution — the most common case today. Nothing is invented to fill the band', empty:true, cta:false, chips:[] },
+      { label:'Several — every edge carries its state and confidence on the collapsed line, so a weak inferred link never reads like a confirmed one', empty:false, cta:'Expand ⌄',
+        chips:[
+          { text:'TASK-418 Coupon abuse guardrails', edge:'confirmed', conf:'strong', color:'#54c79a', style:'solid', weight:'2.5px' },
+          { text:'TASK-402 Idempotent refunds', edge:'informing', conf:'medium', color:'#8b939d', style:'dashed', weight:'1.5px' },
+          { text:'TASK-377 Webhook retry policy', edge:'informing', conf:'weak', color:'#5c6672', style:'dotted', weight:'1px' } ] }
+    ];
+
+    const acceptance = [
+      { mark:'✓', color:'#54c79a', text:'Redemption counter is per-account and survives process restart.' },
+      { mark:'✓', color:'#54c79a', text:'Legitimate multi-account households are not blocked (false-positive rate under 0.5%).' },
+      { mark:'○', color:'#5b626b', text:'Guardrail is behind the coupon_guard flag with a documented rollback.' }
+    ];
+    const attributedRuns = [
+      { id:'run 4c', title:'Redemption guardrail implementation', meta:'live · 2 workers', dot:'#54c79a', edge:'confirmed', edgeStyle:'solid', edgeColor:'#54c79a', bd:'rgba(124,149,255,.3)', bg:'rgba(124,149,255,.07)', here:true },
+      { id:'run 4b', title:'Abuse heuristics spike', meta:'2 days ago · merged', dot:'#5b626b', edge:'confirmed', edgeStyle:'solid', edgeColor:'#54c79a', bd:'#1c2128', bg:'#0d1116', here:false },
+      { id:'run 3f', title:'Redis counter spike', meta:'Jun 14 · reverted', dot:'#5b626b', edge:'informing 0.62', edgeStyle:'dashed', edgeColor:'#8b939d', bd:'#1c2128', bg:'#0d1116', here:false }
+    ];
+    const decisions = [
+      { text:'Counter stays in the primary Postgres row until redemptions exceed ~2k/min.', meta:'you · Jun 14 · after run 3f' },
+      { text:'Guardrail ships behind a flag; Growth owns the enable date.', meta:'you · Jul 21' }
+    ];
+
+    // ---- thread ----
+    const t = {
+      radar: is('radar'),
+      pipeline: !is('radar') && isCh,
+      ask: is('ask'),
+      prior: selConvo,
+      dossierBody: selDos,
+      inRun: isCh,
+      userTurn: is('answer','working','weak','notfound','conversation'),
+      steps: is('answer','working','weak','notfound','conversation'),
+      stepsTitle: is('working') ? 'Jarvis · retrieving' : 'Jarvis · 4 sources · 1.2s',
+      answer: is('answer','conversation'),
+      weak: is('weak'),
+      notfound: is('notfound'),
+      graph: is('graph'),
+      userText: is('weak') ? 'Are we meant to split rate limits per region?'
+        : is('notfound') ? 'Have we ever load-tested the coupon endpoint?'
+        : selConvo ? 'So is the Postgres row still the right home for it?'
+        : 'Why did we drop the Redis counter here?'
+    };
+
+    const priorTurns = [
+      { isUser:true, text:'Why did we drop the Redis counter?', meta:'' },
+      { isUser:false, text:'Run 3f moved the redemption counter to a regional Redis cluster on June 14 and reverted it the same afternoon — the cross-region write put 40–60 ms onto p95 on the checkout path.', meta:'2 sources · run 3f, decision log' }
+    ];
+
+    const phaseDefs = [['Scope','done','12:01'],['Plan','done','12:03'],['Gate','done','approved by you'],['Implement','run','impl-2'],['Validate','todo',''],['Ship','todo','']];
+    const phases = phaseDefs.map(([name,st,meta]) => ({ name, meta,
+      dot: st==='done' ? '#54c79a' : st==='run' ? '#7c95ff' : '#2c333d',
+      anim: st==='run' ? 'wpulse 1.6s infinite' : 'none',
+      color: st==='todo' ? '#5b626b' : st==='run' ? '#dfe4f7' : '#9aa3ad' }));
+
+    const E = (o) => ({ dot:'#54c79a', anim:'none', nameColor:'#9aa3ad', badge:false, badgeColor:'#e6b450', badgeBd:'rgba(230,180,80,.3)',
+      plain:true, mono:false, card:false, cardTitle:'', cardText:'', cardCta:'', cardMeta:'', meta:'', ...o });
+
+    let entries = [];
+    if (selDos) {
+      entries = [
+        E({ name:'run 4c · #checkout-revamp', time:'now', text:'Two workers are on this record right now. Opening the run puts it on the Stage; this record stays docked above it.', dot:'#54c79a', anim:'wpulse 1.6s infinite', badge:'confirmed · strong' }),
+        E({ name:'you', time:'Jul 21', text:'Appended a decision: guardrail ships behind a flag; Growth owns the enable date.', dot:'#7c95ff', nameColor:'#8ea3f5' }),
+        E({ name:'Jarvis', time:'Jul 26', nameColor:'#8ea3f5', dot:'#7c95ff', plain:false, card:true,
+          cardTitle:'Unprompted — acceptance drift',
+          cardText:'Acceptance criterion 3 has not moved in 6 days while two runs closed. Either the flag work is not attributed here, or the criterion is stale.',
+          cardCta:'Ask about criterion 3', cardMeta:'record watch · no run dispatched' })
+      ];
+    } else if (selConvo) {
+      entries = [];
+    } else if (!is('radar')) {
+      entries = [
+        E({ name:'scout-1', time:'12:04', text:'Read the redemption path and the June incident note.', mono:true, meta:'src/coupons/redeem.ts · redeem.test.ts · notes/2026-06-14-incident.md', dot:'#3f4751' }),
+        E({ name:'impl-2', time:'12:06', text:'Added a per-account redemption counter behind the coupon_guard flag.', mono:true, meta:'+128 −14 · 3 files · worktree coupon-field', dot:'#3f4751' }),
+        E({ name:'Jarvis', time:'12:07', nameColor:'#8ea3f5', dot:'#7c95ff', plain:false, card:true,
+          cardTitle:'Related prior work — unprompted',
+          cardText:'Run 3f tried exactly this in June with a Redis counter and reverted it on latency. The decision that came out of it is in TASK-418.',
+          cardCta:'Read the decision', cardMeta:'informing · confidence 0.62' })
+      ];
+      if (is('live','space','fleet','graph')) entries.push(E({ name:'validation-tests', time:'12:09', text:'Running 41 tests against the guarded path…', dot:'#54c79a', anim:'wpulse 1.6s infinite', badge:'working' }));
+    }
+
+    const askOptions = [
+      { n:'1', title:'Keep it in the primary Postgres row', note:'Matches the June decision. Contention above ~2k/min.' },
+      { n:'2', title:'Move it to a regional Redis cluster', note:'Fast, but this is what run 3f reverted on latency.' },
+      { n:'3', title:'Defer — ship the flag off and decide after the promo', note:'No infra commitment now.' }
+    ];
+
+    const stepDefs = is('working')
+      ? [['done','Searched decisions in payments-api','7 hits'],['done','Pulled run 3f transcript','Jun 14'],['active','Reading memory note: counter placement',''],['pending','Cross-checking TASK-418 refs','']]
+      : is('notfound')
+      ? [['done','Searched runs, decisions, memory, sessions','180 days'],['done','Widened to platform','0 hits'],['done','Checked session transcripts','0 hits']]
+      : is('weak')
+      ? [['done','Searched decisions','0 hits'],['done','Searched memory notes','1 weak candidate'],['done','Searched runs','0 hits']]
+      : [['done','Searched decisions in payments-api','7 hits'],['done','Pulled run 3f transcript','Jun 14'],['done','Read memory note: counter placement','Jun 15'],['done','Cross-checked TASK-418 refs','2 refs']];
+    const steps = stepDefs.map(([st,text,meta]) => ({ text, meta,
+      mark: st==='done' ? '✓' : st==='active' ? '▸' : '·',
+      color: st==='done' ? '#8b939d' : st==='active' ? '#dfe4f7' : '#4c545e',
+      anim: st==='active' ? 'wpulse 1.6s infinite' : 'none' }));
+
+    const radarChips = ['3 evidence signals','redemptions.sql','anomaly window 07-19 → 07-26','suggested playbook: investigate'];
+    const searched = ['runs · 412','decisions · 96','memory · 240','sessions · 1.1k'];
+
+    // ---- composer ----
+    const asking = is('answer','working','weak','notfound');
+    const composer = selConvo
+      ? { target:'Jarvis · this thread', prefix:'@ask', placeholder:'Keep asking — the thread holds the whole exchange…',
+          hint:'no worker exists here · @run or @quick asks which channel to dispatch into',
+          chipBg:'rgba(124,149,255,.12)', chipBd:'rgba(124,149,255,.3)', chipFg:'#c3cffb', bd:'rgba(124,149,255,.28)', send:'Ask' }
+      : selDos
+      ? { target:'Jarvis · scoped to TASK-418', prefix:'@ask', placeholder:'Ask about this record, or dispatch work against it…',
+          hint:'@run here opens a channel picker and pre-attributes the run to this record',
+          chipBg:'rgba(124,149,255,.12)', chipBd:'rgba(124,149,255,.3)', chipFg:'#c3cffb', bd:'rgba(124,149,255,.28)', send:'Ask' }
+      : asking
+      ? { target:'Jarvis', prefix:'@ask', placeholder:'Ask about this run, this task, or anything in the vault…',
+          hint:'grounded in run 4c + TASK-418 + the vault · Enter sends · Esc returns to the worker',
+          chipBg:'rgba(124,149,255,.12)', chipBd:'rgba(124,149,255,.3)', chipFg:'#c3cffb', bd:'rgba(124,149,255,.28)', send:'Ask' }
+      : is('radar')
+      ? { target:'#checkout-revamp · drafted run', prefix:'@run', placeholder:'Investigate the 3.1× rise in coupon redemptions…',
+          hint:'pre-filled by Radar · nothing dispatches until you press Start run',
+          chipBg:'rgba(230,180,80,.12)', chipBd:'rgba(230,180,80,.3)', chipFg:'#eddcb8', bd:'#232a32', send:'Start' }
+      : { target:'impl-2 · run 4c', prefix:'›', placeholder:'Message the live worker — or type @run, @quick, @ask, @jarvis…',
+          hint:'this goes to the worker, not to Jarvis',
+          chipBg:'rgba(84,199,154,.12)', chipBd:'rgba(84,199,154,.34)', chipFg:'#bfe6d6', bd:'#232a32', send:'Send' };
+
+    const cmds = [
+      { cmd:'@run', desc:'full strategy, new run', color:'#8ea3f5' },
+      { cmd:'@quick', desc:'one worker', color:'#8ea3f5' },
+      { cmd:'@ask', desc:'consult Jarvis, no worker', color:'#8ea3f5' },
+      { cmd:'@jarvis', desc:'fleet summary into this thread', color:'#8ea3f5' }
+    ];
+
+    // ---- rail ----
+    const needsItems = [];
+    if (is('ask')) needsItems.push({ kind:'worker ask', wait:'waiting 2m', text:'Where should the shared redemption counter live?', source:'impl-2 · run 4c · on the Stage', action:'Answer', outside:false, bd:'rgba(230,180,80,.34)', bg:'rgba(230,180,80,.06)' });
+    needsItems.push({ kind:'worker ask', wait:'waiting 6m', text:'Which accounts count as duplicates — device, or payment method?', source:'probe-1 · #coupon-abuse', action:'Open', outside:spaceOn, bd:'#1c2128', bg:'#0d1116' });
+    if (!is('ask')) needsItems.push({ kind:'plan gate', wait:'waiting 18m', text:'Plan ready for review before implementation starts.', source:'run 2a · #rate-limits', action:'Review', outside:spaceOn, bd:'#1c2128', bg:'#0d1116' });
+    const needs = { count:String(needsItems.length), items:needsItems };
+
+    const gs = (o) => ({ n:false, kindColor:'#8b939d', bd:'#1c2128', bg:'#0d1116', open:false, warn:false, warnColor:'#eddcb8', excerpt:'', ...o });
+    const grounding = {
+      show: is('answer','weak','notfound','working','conversation'),
+      meta: is('working') ? 'arriving…' : is('answer','conversation') ? '4 sources · click to expand' : is('weak') ? '1 weak candidate' : '0 sources',
+      items: is('answer','conversation') ? [
+        gs({ n:'1', kind:'run', title:'run 3f — Redis counter spike', meta:'payments-api · Jun 14 · reverted', fresh:'fresh', freshColor:'#bfe6d6', freshBd:'rgba(84,199,154,.34)',
+          open:true, bd:'rgba(124,149,255,.3)', bg:'rgba(124,149,255,.06)',
+          excerpt:'p95 on POST /redeem moved 118 ms → 174 ms with the cross-region write. Reverted at 16:40; counter returned to the primary row.' }),
+        gs({ n:'2', kind:'decision', title:'Counter stays in Postgres until ~2k/min', meta:'TASK-418 · Jun 14', fresh:'fresh', freshColor:'#bfe6d6', freshBd:'rgba(84,199,154,.34)' }),
+        gs({ n:'3', kind:'memory', title:'Redemption volume baseline', meta:'platform · 41 days old', fresh:'stale', freshColor:'#eddcb8', freshBd:'rgba(230,180,80,.34)',
+          warn:'Measured before the July promo — the number it cites may have moved. Re-measure before relying on the headroom claim.' }),
+        gs({ n:'4', kind:'session', title:'Pairing session — counter placement', meta:'transcript purged by retention', fresh:'unavailable', freshColor:'#e9b9b6', freshBd:'rgba(224,114,108,.3)',
+          warn:'The source no longer exists. Cited for provenance only; nothing in the answer rests on it alone.', warnColor:'#e9b9b6' })
+      ] : is('weak') ? [
+        gs({ kind:'memory', title:'"Rate limits should be regional eventually"', meta:'platform · 134 days old', fresh:'stale', freshColor:'#eddcb8', freshBd:'rgba(230,180,80,.34)',
+          warn:'Not about coupons. Predates the June work. Unconfirmed by any run or decision.' })
+      ] : is('working') ? [
+        gs({ n:'1', kind:'run', title:'run 3f — Redis counter spike', meta:'payments-api · Jun 14', fresh:'fresh', freshColor:'#bfe6d6', freshBd:'rgba(84,199,154,.34)' }),
+        gs({ kind:'searching', title:'memory · counter placement', meta:'reading…', fresh:'…', freshColor:'#6b7178', freshBd:'#232a32' })
+      ] : [
+        gs({ kind:'none', title:'No source met the bar', meta:'nothing was fabricated to fill the gap', fresh:'0', freshColor:'#8b939d', freshBd:'#232a32' })
+      ]
+    };
+
+    const fleet = {
+      show: !selConvo,
+      title: selDos ? 'Fleet · on this record' : 'Fleet',
+      counts: selDos ? '2 working · across 1 channel' : '2 working · 1 waiting',
+      cost:'$4.12', tokens:'218k',
+      expanded: is('fleet'),
+      roster: [
+        { name:'impl-2', meta: is('ask') ? 'asking · 2m' : 'working · 4m', dot: is('ask') ? '#e6b450' : '#54c79a', anim:'wpulse 1.6s infinite', bg:'#0d1116', color:'#dfe3e8' },
+        { name:'validation-tests', meta:'working · 1m', dot:'#54c79a', anim:'wpulse 1.6s infinite', bg:'#0d1116', color:'#dfe3e8' },
+        { name:'scout-1', meta:'idle', dot:'#3f4751', anim:'none', bg:'transparent', color:'#9aa3ad' },
+        { name:'gate-reviewer', meta:'waiting', dot:'#e6b450', anim:'none', bg:'transparent', color:'#9aa3ad' }
+      ]
+    };
+
+    const rail = { w: '300px' };
+    const railNoFleet = selConvo;
+
+    const legend = [
+      { label:'task', color:'#7c95ff' },{ label:'run', color:'#54c79a' },
+      { label:'decision', color:'#e6b450' },{ label:'memory', color:'#8b939d' }
+    ];
+    const graphEdges = [
+      { text:'informs TASK-418', conf:'0.62', color:'#8b939d', style:'dashed', w:'1.5px', op:'.7' },
+      { text:'confirmed by run 4b', conf:'0.94', color:'#54c79a', style:'solid', w:'2.5px', op:'1' },
+      { text:'inferred: same decision', conf:'0.41', color:'#b892ff', style:'dashed', w:'1.5px', op:'.6' }
+    ];
+
+    const notes = [
+      { title:'The hop count', text:'Drive the run, read TASK-418, ask what happened in June — all on this Stage. The record is a band above the thread; the answer arrives inside the thread. Zero destinations changed.' },
+      { title:'Why this is not four sub-tabs', text:'There is no Runs │ Recall │ Tasks │ Graph switch. The thread never swaps out — the live region persists while a record expands above it and a graph peek floats over it.' },
+      { title:'What Jarvis is looking at', text:'The Stage header names the subject; the composer names its target and changes chip colour the instant you type an @ command. Green means a worker hears you, indigo means Jarvis does.' },
+      { title:'Three subject kinds, one Stage', text:'# channel, ~ conversation, ▤ record. The Stage keeps its four bands in every case and drops the ones the subject cannot have — a conversation has no autonomy tier, no profile and no fleet, so those simply are not drawn. Nothing is greyed out and parked.' },
+      { title:'The autonomy ladder is nested', text:'Concierge → Gatekeeper → Delegator, each filling the rungs below it, so the ladder reads as accumulation rather than as three alternatives. The dispatch mode appears only at Delegator, where it is the only tier it can mean anything for. Per-playbook overrides stay in the ⚙ drawer.' },
+      { title:'Attribution is a list, usually empty', text:'Most runs are attributed to nothing, so the band states that plainly and offers to attach one. When there are several, each edge shows its state and confidence on the collapsed line — a weak inferred link never reads like a confirmed one.' }
+    ];
+
+    // ---- graph peek svg ----
+    let graphSvg = null;
+    if (is('graph')) {
+      const h = React.createElement;
+      let seed = 9;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+      const W = 620, H = 1000;
+      const kinds = [{ c:'#7c95ff', r:7.4 },{ c:'#54c79a', r:5.2 },{ c:'#e6b450', r:5.8 },{ c:'#8b939d', r:4.4 }];
+      const clusters = [[160,180],[330,470],[470,220],[210,760],[480,860],[110,560],[520,620]];
+      const nodes = [];
+      for (let i=0;i<312;i++){
+        const c = clusters[i % clusters.length];
+        const a = rnd()*6.2832, d = rnd()*rnd()*230;
+        const k = kinds[i%9===0?0:(i%3===0?1:(i%4===0?2:3))];
+        nodes.push({ x:Math.max(18,Math.min(W-18,c[0]+Math.cos(a)*d*0.72)), y:Math.max(18,Math.min(H-18,c[1]+Math.sin(a)*d*1.15)), c:k.c, r:k.r });
+      }
+      const focus = { x:330, y:470 };
+      const eEls = [];
+      for (let i=0;i<620;i++){
+        const a = nodes[Math.floor(rnd()*nodes.length)], b = nodes[Math.floor(rnd()*nodes.length)];
+        const dist = Math.hypot(a.x-b.x, a.y-b.y);
+        if (dist > 165 || dist < 9) continue;
+        const conf = rnd();
+        const inferred = rnd() > 0.82;
+        const informing = rnd() > 0.45;
+        eEls.push(h('line', { key:'e'+i, x1:a.x, y1:a.y, x2:b.x, y2:b.y,
+          stroke: inferred ? '#b892ff' : (informing ? '#6a7480' : '#54c79a'),
+          strokeWidth: 0.9 + conf*3.0,
+          strokeDasharray: informing || inferred ? '6 5' : undefined,
+          strokeOpacity: 0.18 + conf*0.44 }));
+      }
+      const nEls = nodes.map((n,i) => h('circle', { key:'n'+i, cx:n.x, cy:n.y, r:n.r, fill:n.c, fillOpacity:0.72 }));
+      const focusEls = [
+        h('line', { key:'fl', x1:focus.x, y1:focus.y, x2:focus.x-118, y2:focus.y-104, stroke:'#8b939d', strokeWidth:3, strokeDasharray:'7 5', strokeOpacity:.85 }),
+        h('circle', { key:'fr', cx:focus.x, cy:focus.y, r:30, fill:'none', stroke:'#7c95ff', strokeWidth:2, strokeOpacity:.6 }),
+        h('circle', { key:'fd', cx:focus.x, cy:focus.y, r:12, fill:'#8aa0ff' }),
+        h('text', { key:'ft', x:focus.x+40, y:focus.y+7, fill:'#dfe4f7', fontSize:20, fontWeight:600, fontFamily:'JetBrains Mono' }, 'run 3f'),
+        h('circle', { key:'f2', cx:focus.x-118, cy:focus.y-104, r:16, fill:'none', stroke:'#7c95ff', strokeWidth:1.6, strokeOpacity:.55 }),
+        h('circle', { key:'f2d', cx:focus.x-118, cy:focus.y-104, r:9, fill:'#7c95ff' }),
+        h('text', { key:'f2t', x:focus.x-108, y:focus.y-126, fill:'#aebfff', fontSize:18, fontWeight:600, fontFamily:'JetBrains Mono' }, 'TASK-418')
+      ];
+      graphSvg = h('svg', { viewBox:'0 0 '+W+' '+H, width:'100%', height:'100%', preserveAspectRatio:'xMidYMid meet',
+        style:{ display:'block' } }, eEls, nEls, focusEls);
+    }
+
+    const emptyNav = ['Cockpit','Agent','Radar','Sessions','Diff','Memory','Usage'];
+    const emptyCards = [
+      { cmd:'@run', title:'Start a channel', note:'Bind it to a project and I drive the runs inside it.' },
+      { cmd:'@ask', title:'Ask about the codebase', note:'I answer only where I can cite. Otherwise I say not found.' },
+      { cmd:'⌘P', title:'Ask from anywhere', note:'The same Jarvis, reached from any surface. No second palette.' }
+    ];
+
+    const narrowFeed = [
+      { name:'scout-1', text:'Read the redemption path and the June incident note.', dot:'#3f4751', nameColor:'#9aa3ad' },
+      { name:'impl-2', text:'Added a per-account counter behind coupon_guard.', dot:'#3f4751', nameColor:'#9aa3ad' },
+      { name:'Jarvis', text:'Run 3f tried this in June and reverted it on latency.', dot:'#7c95ff', nameColor:'#8ea3f5' }
+    ];
+
+    const collapseOrder = [
+      { n:'1', color:'#8ea3f5', title:'The context rail collapses to a 44px strip', note:'Needs you, Grounding and Fleet keep their counts as vertical labels. Click any label to slide it back over the thread.' },
+      { n:'2', color:'#8ea3f5', title:'The subjects column collapses to status dots', note:'Live state survives — a green dot per working channel, an amber pulse per asking one. Hover expands it as an overlay.' },
+      { n:'3', color:'#8ea3f5', title:'The record band collapses to its one-line chip', note:'Expanding it at this width overlays the thread rather than pushing it, so nothing is remounted.' },
+      { n:'4', color:'#8ea3f5', title:'The nav rail drops its labels', note:'78px → 56px, icons only. It is the last chrome to give ground.' },
+      { n:'5', color:'#e0726c', title:'Never: the thread and the composer', note:'Live worker output is expensive to remount. Under any width the thread keeps its DOM and the composer keeps its target.' }
+    ];
+
+    const entryPoints = [
+      { from:'Nav rail click', meta:'no context', to:'The last subject you were on, exactly as you left it — thread scrolled, record band in the same state.' },
+      { from:'⌘P → Ask Jarvis', meta:'from any surface', to:'A new thread in the Subjects list, opened on the Stage with the composer targeted at Jarvis. The palette stays the only global entry.' },
+      { from:'"Ask Jarvis about this"', meta:'memory note · run · radar finding', to:'Same thread landing, with the object pre-attached as source card 1 in the Grounding rail and a suggested prompt in the composer.' },
+      { from:'@jarvis <focus> in a composer', meta:'was: a cross-tab hop', to:'Nothing navigates. The fleet summary posts into the thread you are already in — the reason this handoff existed is gone.' },
+      { from:'Radar finding → investigation', meta:'drafted, unstarted', to:'A drafted-run card at the top of the channel thread, composer pre-filled with @run. Dispatch needs an explicit Start run.' },
+      { from:'"Open run"', meta:'deep link', to:'That channel selected in Subjects, that run on the Stage, its record band attached above the thread.' },
+      { from:'Space chip → Open dossier', meta:'deep link', to:'The record band expands in place, with its attributed runs beneath it. The task never becomes a separate destination.' }
+    ];
+
+    const rules = [
+      { title:'One of each', text:'One worker roster, one autonomy toggle, one ⚙ profile drawer, one composer, one grounding treatment. The Stage header owns the controls; the rail owns the roster; nothing is re-derived twice.' },
+      { title:'Attention beats focus', text:'A Space filter scopes the Subjects list and the thread, never the Needs you section — a blocked worker in a hidden channel still surfaces, tagged "outside focus".' },
+      { title:'The graph is a device, not a place', text:'It opens from an object and can only be left by opening one. No nav entry, no home screen, and Memory keeps its own graph untouched.' },
+      { title:'A blocked worker is visible from everywhere',
+        text:'The Jarvis nav entry carries one amber count — channel-dispatched and standalone asks summed, split in its tooltip. It is the only badge on the rail, it survives a Space filter, and it is the reason no other surface needs an assistant panel.' },
+      { title:'Grounding is stated, not implied', text:'Fresh, stale and unavailable are all shown. Weak grounding and not found are answers with their own affordances — the latter offers to dispatch a run instead.' }
+    ];
+
+    return { emptyNav, emptyCards, narrowFeed, collapseOrder, entryPoints, rules,
+      tabs, nav, spaceOn, groups, stage, header, tiers, dispatch, rec, bandCases, acceptance, attributedRuns, decisions,
+      t, phases, entries, priorTurns, askOptions, steps, radarChips, searched, composer, cmds,
+      needs, grounding, fleet, rail, railNoFleet, legend, graphEdges, notes, graphSvg,
+      toggleRec: () => this.setState(s => ({ recOpen: !s.recOpen })),
+      toggleAutonomy: () => {},
+      openGraph: this.go('graph'), closeGraph: this.go('live') };
+  }
+}
+</script>
+</body>
+</html>

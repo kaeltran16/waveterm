@@ -71,8 +71,8 @@ export interface UseComposerAttachments {
     };
 }
 
-// Owns attachment state + the three capture sources. Lives in channelssurface (both faces share `draft`
-// and the single send handler), passed down to the presentational composers.
+// Owns attachment state + the three capture sources. Held by the Stage composer (every face shares one
+// `draft` and one send handler), passed down to the presentational composers.
 export function useComposerAttachments(): UseComposerAttachments {
     const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [isDragging, setIsDragging] = useState(false);

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
 
-// --- exemplar 1: behavioral (reparented from cdp-e2e-runs.mjs) ---------------------------------
+// --- exemplar 1: behavioral --------------------------------------------------------------------
 // Drives the real CreateRun/AdvanceRun/CancelRun RPCs, which spawn REAL claude worker tabs. Blast
 // radius is contained: the worker cwd is an isolated temp dir, spawned worker blocks are killed in
 // teardown (deleteblock -> ShellProc.Close kills claude in ~1s), and the channel is deleted at the end.
@@ -15,7 +15,7 @@ const workerOf = (phase) => phase && phase.workerorefs && phase.workerorefs[0];
 
 const runsLifecycle = {
     name: "runs-lifecycle",
-    surface: "channels",
+    surface: "jarvis",
     async arrange(h) {
         const cwd = mkdtempSync(join(tmpdir(), "verify-runs-"));
         const wslist = await h.rpc("workspacelist", null);
@@ -112,7 +112,9 @@ const runsLifecycle = {
 // Navigate each key surface, screenshot it, and assert (a) the active nav label matches and (b) the
 // content region rendered non-empty text — which catches a surface that blanks out on render. No
 // arrange needed; a populated-roster visual still relies on the manual inject-live-agents path.
-const SMOKE_SURFACES = ["cockpit", "jarvis", "channels", "radar", "usage", "memory", "files", "settings"];
+// Channels/Graph/Tasks merged into Jarvis and have no nav button left, so listing one here would make
+// h.goto throw before any step is recorded.
+const SMOKE_SURFACES = ["cockpit", "jarvis", "radar", "usage", "memory", "files", "settings"];
 
 const surfaceSmoke = {
     name: "surface-smoke",
@@ -142,6 +144,31 @@ const surfaceSmoke = {
         await h.goto("cockpit"); // leave the app where a human expects it
     },
 };
+
+// --- shared jarvis drivers ---------------------------------------------------------------------
+// The Stage's ask box exists only once a subject is selected, and only the record/thread faces are an ask
+// box (a channel subject gets the Launch composer instead). "+ Thread" is the deterministic way in: the
+// active subject is session state a prior scenario may have left on a channel or a dev fixture.
+const newThread = (h) =>
+    h.ev(`(() => {
+        const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === '+ Thread');
+        if (!b) return false;
+        b.click();
+        return true;
+    })()`);
+
+// Type a question into the Stage's ask box and submit it. The placeholder varies by subject kind
+// ("Ask Jarvis anything…" for a thread, "Ask Jarvis about this record…"), so match the stable prefix.
+const askJarvis = (h, text) =>
+    h.ev(`(() => {
+        const input = document.querySelector('input[placeholder^="Ask Jarvis"]');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, ${JSON.stringify(text)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        return true;
+    })()`);
 
 // --- jarvis: render every surface state via the dev fixture bar --------------------------------
 // The bar is DEV-only and clickable (globalStore is not on window, so we drive by button text like nav).
@@ -197,18 +224,16 @@ const jarvisStates = {
     },
 };
 
-// --- jarvis fleet mode: the migrated fleet manager (Plan 3) ------------------------------------
-// Create a channel so Fleet mode has one to manage, switch to Jarvis > Fleet, select the channel via
-// Fleet mode's own selector, and assert the autonomy toggle + roster region render. No worker is
-// dispatched — the roster's empty-state is a valid render assertion and keeps the run light. Channel +
-// temp dir are cleaned up in teardown (mirrors runs-lifecycle).
+// --- jarvis fleet: the fleet manager on the merged surface -------------------------------------
+// Create a channel, select it in the Subjects column, and assert the Stage header's autonomy ladder plus
+// the context rail's Fleet section render. No worker is dispatched — the roster's empty-state is a valid
+// render assertion and keeps the run light. Channel + temp dir are cleaned up in teardown (mirrors
+// runs-lifecycle).
 //
-// NOTE (Plan 3): this also covers the Fleet-side landing of the @jarvis summary handoff — runSummary
-// renders into the same region the handoff drives. The full composer->handoff->Fleet E2E is deferred to
-// Plan 4: nothing sends @jarvis-classified text yet (the Launch composer routes @jarvis to a run;
-// mentionCandidates' @jarvis token is wired to no composer), so the reroute's trigger has no live entry
-// point until Plan 4 adds the Ctrl+P ask-jarvis group. The reroute's decision (dispatch vs summary) is
-// covered by channelmessages.test.ts.
+// This also covers where the @jarvis summary handoff lands: pendingFleetSummaryAtom drives runSummary into
+// the same Fleet section as its own "Summarize the fleet" button, so asserting that button is present is
+// asserting the handoff has a home. The reroute's decision (dispatch vs summary) is covered by
+// channelmessages.test.ts; the atom hop itself has no keyboard entry point to drive from here.
 const jarvisFleet = {
     name: "jarvis-fleet",
     surface: "jarvis",
@@ -217,47 +242,51 @@ const jarvisFleet = {
         const ch = await h.rpc("createchannel", { name: "verify-fleet", projectpath: cwd });
         return { cwd, channelId: ch.oid };
     },
-    async assert(h, ctx) {
+    async assert(h) {
         const steps = [];
+        // channelsAtom is a loadChannels snapshot with no refresh on surface mount, so a channel created
+        // out-of-band over RPC is invisible to an already-running app. Reload to re-fetch the list (same
+        // pattern as jarvis-proactive).
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
         await h.goto("jarvis");
-        // switch to Fleet mode — the header toggle button's textContent is the lowercase mode name.
-        const toFleet = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'fleet');
+        // stageRailOpenAtom is persisted, so a prior run may have left the rail collapsed to its 44px
+        // strip. Expand it if the strip is showing; the sections only exist in the DOM while open.
+        await h.ev(`(() => {
+            const b = document.querySelector('button[aria-label="Stage context"]');
+            if (b) b.click();
+            return true;
+        })()`);
+        // select the channel by its row label in the Subjects column (same drive-by-text pattern as nav).
+        // A row's textContent is the kind glyph immediately followed by the label ("#verify-fleet"), so
+        // strip the leading mark before comparing.
+        const selected = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')]
+                .find((x) => (x.textContent || '').trim().replace(/^[#▤~]/, '') === 'verify-fleet');
             if (!b) return false;
             b.click();
             return true;
         })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 800))"); // settle loadChannels + render
-        const hasSelector = await h.ev(
-            `(() => { const t = document.body.innerText || ''; return t.includes('Fleet') && !!document.querySelector('select'); })()`
-        );
-        steps.push({
-            step: `switch to Fleet mode -> "Fleet" label + channel selector present`,
-            ok: toFleet === true && hasSelector === true,
-            detail: `clicked=${toFleet} selector=${hasSelector}`,
-        });
-        // select the created channel through Fleet mode's own <select> (React-controlled value setter + a
-        // bubbling change event — the standard programmatic-change pattern for a controlled select).
-        const selected = await h.ev(`(() => {
-            const sel = document.querySelector('select');
-            if (!sel) return false;
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-            setter.call(sel, ${JSON.stringify(ctx.channelId)});
-            sel.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-        })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 900))"); // settle selectChannel + roster derive
+        await h.ev("new Promise((r) => setTimeout(r, 900))"); // settle selectSubject + roster derive
+        // innerText reflects CSS text-transform and the ladder's eyebrow is uppercased, so compare the
+        // header case-insensitively (same caveat as jarvis-proactive).
         const rendered = await h.ev(`(() => {
             const t = document.body.innerText || '';
+            const upper = t.toUpperCase();
             return {
-                autonomy: t.includes('Handling asks') || t.includes('Observing'),
+                autonomy: upper.includes('AUTONOMY') && upper.includes('CONCIERGE') && upper.includes('DELEGATOR'),
                 roster: t.includes('No workers dispatched') && t.includes('working'),
+                summarize: t.includes('Summarize the fleet'),
             };
         })()`);
         steps.push({
-            step: `select channel -> autonomy toggle + roster region render`,
-            ok: selected === true && rendered.autonomy === true && rendered.roster === true,
-            detail: JSON.stringify(rendered),
+            step: `select the channel subject -> autonomy ladder + Fleet roster + summary button render`,
+            ok:
+                selected === true &&
+                rendered.autonomy === true &&
+                rendered.roster === true &&
+                rendered.summarize === true,
+            detail: `clicked=${selected} ${JSON.stringify(rendered)}`,
         });
         await h.shot("cdp-shots/jarvis-fleet.png");
         return steps;
@@ -363,7 +392,7 @@ const jarvisContextual = {
         const activeLabel = await h.activeSurfaceLabel();
         const landed = await h.ev(`(() => {
             const body = document.body.innerText || '';
-            const draft = (document.querySelector('input[placeholder="Ask Jarvis…"]') || {}).value || '';
+            const draft = (document.querySelector('input[placeholder^="Ask Jarvis"]') || {}).value || '';
             return { chip: body.includes('This memory'), draft: draft.includes('Recall decisions') };
         })()`);
         steps.push({
@@ -390,7 +419,9 @@ const jarvisContextual = {
 // user actually sees. It is only meaningful against a profile whose wstore holds the runs the vault's
 // dossiers reference — with an unrelated wstore the correct result is zero chips everywhere, which
 // proves nothing (see docs/jarvis-second-brain-open-issues.md J1).
-const AMBIENT_SURFACES = ["cockpit", "channels", "radar", "memory"];
+// jarvis replaces channels here: the run body that carries a run's ambient chips (runbody AmbientTags) now
+// renders in the Stage.
+const AMBIENT_SURFACES = ["cockpit", "jarvis", "radar", "memory"];
 
 const jarvisAmbient = {
     name: "jarvis-ambient",
@@ -404,6 +435,18 @@ const jarvisAmbient = {
         let total = 0;
         for (const surface of AMBIENT_SURFACES) {
             await h.goto(surface);
+            if (surface === "jarvis") {
+                // the Stage starts with no subject, so a run body (and its chips) only exists once a channel
+                // is selected. "#" marks a channel row in the Subjects column; the old Channels surface got
+                // this for free from loadChannels' auto-select.
+                await h.ev(`(() => {
+                    const b = [...document.querySelectorAll('button')]
+                        .find((x) => (x.textContent || '').trim().startsWith('#'));
+                    if (b) b.click();
+                    return true;
+                })()`);
+                await h.ev("new Promise((r) => setTimeout(r, 900))");
+            }
             const seen = await h.ev(`(() => {
                 const chips = [...document.querySelectorAll('span[title*=" confidence \\u00b7 "]')];
                 const dashed = chips.filter((e) => e.className.includes("border-dashed")).length;
@@ -448,23 +491,17 @@ const jarvisMultiturn = {
     async assert(h) {
         const steps = [];
         await h.goto("jarvis");
-        const asked = await h.ev(`(() => {
-            const input = document.querySelector('input[placeholder="Ask Jarvis…"]');
-            if (!input) return false;
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, 'what changed in the worktree work');
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-            return true;
-        })()`);
+        const threaded = await newThread(h);
+        await h.ev("new Promise((resolve) => setTimeout(resolve, 400))");
+        const asked = await askJarvis(h, "what changed in the worktree work");
         await h.ev("new Promise((resolve) => setTimeout(resolve, 4000))");
         const firstTurn = await h.ev(
             `(() => (document.body.innerText || '').includes('what changed in the worktree work'))()`
         );
         steps.push({
             step: "first question renders as a user turn",
-            ok: asked === true && firstTurn === true,
-            detail: `asked=${asked} firstTurn=${firstTurn}`,
+            ok: threaded === true && asked === true && firstTurn === true,
+            detail: `threaded=${threaded} asked=${asked} firstTurn=${firstTurn}`,
         });
 
         await h.ev("location.reload()");
@@ -513,15 +550,9 @@ const jarvisVaultRecall = {
     async assert(h, ctx) {
         const steps = [];
         await h.goto("jarvis");
-        const asked = await h.ev(`(() => {
-            const input = document.querySelector('input[placeholder="Ask Jarvis…"]');
-            if (!input) return false;
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, ${JSON.stringify(`what is the ${VAULT_TICKET} spawn test about`)});
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-            return true;
-        })()`);
+        await newThread(h);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const asked = await askJarvis(h, `what is the ${VAULT_TICKET} spawn test about`);
         // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
         let grounded = { cards: 0, notfound: false };
         for (let i = 0; i < 20; i++) {
@@ -610,15 +641,9 @@ const jarvisContinuityResume = {
         });
 
         await h.goto("jarvis");
-        const asked = await h.ev(`(() => {
-            const input = document.querySelector('input[placeholder="Ask Jarvis…"]');
-            if (!input) return false;
-            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            setter.call(input, ${JSON.stringify(`where did the ${CONTINUITY_TICKET} task land`)});
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-            return true;
-        })()`);
+        await newThread(h);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const asked = await askJarvis(h, `where did the ${CONTINUITY_TICKET} task land`);
         // grounding cards stream before synthesis; poll briefly for a non-notfound grounded answer.
         let grounded = { cards: 0, notfound: false };
         for (let i = 0; i < 20; i++) {
@@ -682,7 +707,7 @@ const PROACTIVE_SUGGESTION = {
 
 const jarvisProactive = {
     name: "jarvis-proactive",
-    surface: "channels",
+    surface: "jarvis",
     async arrange(h) {
         const cwd = mkdtempSync(join(tmpdir(), "verify-proactive-"));
         const wslist = await h.rpc("workspacelist", null);
@@ -717,12 +742,13 @@ const jarvisProactive = {
                 };
             })()`);
 
-        // The channel rail renders a snapshot refreshed by loadChannels(), so a channel created out-of-band
-        // over RPC is invisible to an already-running app. Reload to re-fetch the list (same pattern as
-        // jarvis-multiturn), then select the scenario's channel; the surface auto-resolves its single run.
+        // The Subjects column renders a snapshot refreshed by loadChannels(), so a channel created
+        // out-of-band over RPC is invisible to an already-running app. Reload to re-fetch the list (same
+        // pattern as jarvis-multiturn), then select the scenario's channel; the Stage auto-resolves its
+        // single run.
         await h.ev("location.reload()");
         await h.ev("new Promise((r) => setTimeout(r, 2500))");
-        await h.goto("channels");
+        await h.goto("jarvis");
         const picked = await h.ev(`(() => {
             const b = [...document.querySelectorAll('button')]
                 .find((x) => (x.textContent || '').includes('verify-proactive'));
@@ -807,6 +833,166 @@ const jarvisProactive = {
     },
 };
 
+// --- jarvis drawer: the ⚙ drawer's scope + dismissal, and Needs-you with no subject ------------
+// Covers three state-machine defects that the unit suite structurally cannot see, because each one lives
+// in the hop between atoms rather than in any pure function:
+//   - the rail is mounted with no subject, so Needs you is drawn on a fresh boot (its stated contract is
+//     "always drawn, never filtered" — an ask that waits on a click is not an attention channel);
+//   - selecting a non-channel subject closes the drawer, which the header has no trigger to close there;
+//   - the scope toggle is re-derived per open instead of latching to global once a channel goes away,
+//     which used to make Save write global defaults for every project while reading as "This project".
+// Case-insensitive: the section heading is Tailwind `uppercase`, and innerText applies text-transform,
+// so the rail reads "NEEDS YOU" on screen even though the source says "Needs you".
+const HAS_NEEDS = "/needs you/i.test(document.body.innerText || '')";
+const jarvisDrawer = {
+    name: "jarvis-drawer",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-drawer-"));
+        const ch = await h.rpc("createchannel", { name: "verify-drawer", projectpath: cwd });
+        return { cwd, channelId: ch.oid };
+    },
+    // the channel is found by name in the Subjects column rather than by ctx.channelId: selecting a
+    // subject is a click, and clicking what the user would click is the point of the scenario.
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        // channelsAtom is a load-once snapshot, so a channel created over RPC needs a reload to appear
+        // (same pattern as jarvis-fleet). The reload also gives us the fresh-boot, no-subject state.
+        await h.ev("location.reload()");
+        await settle(2500);
+        await h.goto("jarvis");
+        await settle(400);
+
+        // 1. no subject selected: the rail must still be mounted. Before the fix JarvisSurface mounted
+        // StageRail only when activeSubjectAtom was non-null, and that atom is not persisted.
+        // The aria-label sits on the <aside> itself; the matching *button* only exists in the collapsed
+        // strip, so asserting on the aside covers both states. Width, because a force-collapsed rail is
+        // still in the DOM at zero width.
+        const fresh = await h.ev(`(() => {
+            const rail = document.querySelector('aside[aria-label="Stage context"]');
+            return {
+                rail: rail != null,
+                width: rail ? rail.getBoundingClientRect().width : 0,
+                needs: ${HAS_NEEDS},
+            };
+        })()`);
+        rec(
+            "1. fresh boot, no subject -> the context rail is mounted",
+            fresh.rail === true && fresh.width > 0,
+            JSON.stringify(fresh)
+        );
+        await h.shot("cdp-shots/jarvis-drawer-nosubject.png");
+
+        // expand the rail if a prior run left it on its 44px strip (stageRailOpenAtom is persisted).
+        await h.ev(`(() => {
+            const b = document.querySelector('button[aria-label="Stage context"]');
+            if (b) b.click();
+            return true;
+        })()`);
+        await settle(300);
+        const needsDrawn = await h.ev(`(() => ${HAS_NEEDS})()`);
+        rec("2. Needs you renders before any subject is selected", needsDrawn === true, `needs=${needsDrawn}`);
+
+        const selectChannel = () =>
+            h.ev(`(() => {
+                const b = [...document.querySelectorAll('button')]
+                    .find((x) => (x.textContent || '').trim().replace(/^[#▤~]/, '') === 'verify-drawer');
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+        const openGear = () =>
+            h.ev(`(() => {
+                const b = document.querySelector('button[title^="Channel profile"]');
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+        // the drawer's Save button is the scope tell: "Save" on project scope, "Save global defaults" on
+        // global. Reading the label is how a user would tell the two apart, so assert what they see.
+        const drawerState = () =>
+            h.ev(`(() => {
+                const save = [...document.querySelectorAll('button')]
+                    .map((x) => (x.textContent || '').trim())
+                    .find((x) => x === 'Save' || x === 'Save global defaults' || x === 'Saving…');
+                return {
+                    gear: !!document.querySelector('button[title^="Channel profile"]'),
+                    open: save != null,
+                    save: save || null,
+                    needs: ${HAS_NEEDS},
+                };
+            })()`);
+
+        const picked = await selectChannel();
+        await settle(900);
+        const opened = await openGear();
+        await settle(700);
+        const onChannel = await drawerState();
+        rec(
+            "3. gear on a channel -> drawer opens on project scope",
+            picked === true && opened === true && onChannel.open === true && onChannel.save === "Save",
+            JSON.stringify(onChannel)
+        );
+        await h.shot("cdp-shots/jarvis-drawer-channel.png");
+
+        // 4. move to a non-channel subject. The dev fixture bar's buttons select a conversation subject,
+        // which is a kind with no ⚙ in the header — exactly the state the drawer used to be stranded in.
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[data-fixture]')].find((x) => x.getAttribute('data-fixture') === 'grounded');
+            if (b) b.click();
+            return true;
+        })()`);
+        await settle(700);
+        const offChannel = await drawerState();
+        rec(
+            "4. switch to a thread -> drawer closes, gear gone, Needs you back",
+            offChannel.gear === false && offChannel.open === false && offChannel.needs === true,
+            JSON.stringify(offChannel)
+        );
+        await h.shot("cdp-shots/jarvis-drawer-offchannel.png");
+
+        // 5. back to the channel: scope must be project again. It used to latch to global on the visit
+        // above and stay there, so Save wrote global defaults while the user believed otherwise.
+        await selectChannel();
+        await settle(900);
+        await openGear();
+        await settle(700);
+        const back = await drawerState();
+        rec(
+            "5. back on the channel -> scope is project again, not latched to global",
+            back.open === true && back.save === "Save",
+            JSON.stringify(back)
+        );
+
+        // 6. Esc dismisses the drawer, as it does the graph peek.
+        await h.ev(`(() => {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            return true;
+        })()`);
+        await settle(500);
+        const afterEsc = await drawerState();
+        rec("6. Esc closes the drawer", afterEsc.open === false, JSON.stringify(afterEsc));
+        await h.shot("cdp-shots/jarvis-drawer-esc.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit");
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -819,4 +1005,5 @@ export const SCENARIOS = [
     jarvisVaultRecall,
     jarvisContinuityResume,
     jarvisProactive,
+    jarvisDrawer,
 ];

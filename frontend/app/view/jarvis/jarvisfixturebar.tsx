@@ -7,14 +7,14 @@
 
 import { cn } from "@/util/util";
 import { useAtom, useSetAtom } from "jotai";
-import { activeFixtureAtom, groundingRailOpenAtom } from "./jarvisstore";
+import { activeFixtureAtom, stageRailOpenAtom } from "./jarvisstore";
 import { FIXTURE_STATES } from "./jarvisfixtures";
 import { selectSubject } from "./jarvissubjectstore";
 
 export function JarvisFixtureBar() {
     if (!import.meta.env.DEV) return null;
     const [active, setActive] = useAtom(activeFixtureAtom);
-    const setRailOpen = useSetAtom(groundingRailOpenAtom);
+    const setRailOpen = useSetAtom(stageRailOpenAtom);
     return (
         <div
             data-testid="jarvis-fixture-bar"

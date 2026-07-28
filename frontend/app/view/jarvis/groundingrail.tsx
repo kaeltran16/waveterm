@@ -1,12 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Right grounding rail. Shows the grounding cards of the conversation's latest jarvis turn: source type,
-// title, project, age, freshness. One card may be expanded. Freshness (stale/unavailable) is surfaced,
-// not hidden (spec invariant 7). Uses the shared CollapsibleRail (300/44px), persisted-collapsed by
-// default so narrow panes keep conversation width (== spec state 12, narrow window).
+// The Sources card treatment: the grounding cards of a conversation's latest jarvis turn — source type,
+// title, project, age, freshness. Freshness (stale/unavailable) is surfaced, not hidden (spec invariant 7).
+// Exported as a RailSection, not a rail: after the consolidation there is exactly one rail (StageRail),
+// which draws this section among its own.
 
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { type RailSection } from "@/app/element/collapsiblerail";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { BookMarked } from "lucide-react";
@@ -14,7 +14,6 @@ import type { GroundingCard, JarvisConversation } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
 import { openORef } from "./openref";
 import { ageLabel, freshnessLabel } from "./recallderive";
-import { groundingRailOpenAtom } from "./jarvisstore";
 
 function freshnessClass(f: GroundingCard["freshness"]): string {
     switch (f) {
@@ -83,9 +82,4 @@ export function groundingSection(conversation: JarvisConversation, model: Agents
             </div>
         ),
     };
-}
-
-export function GroundingRail({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
-    const sections: RailSection[] = [groundingSection(conversation, model)];
-    return <CollapsibleRail openAtom={groundingRailOpenAtom} ariaLabel="Grounding sources" sections={sections} />;
 }

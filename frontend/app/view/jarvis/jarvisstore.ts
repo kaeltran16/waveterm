@@ -26,16 +26,27 @@ import type {
 import { FIXTURES, FIXTURE_STATES, type FixtureState } from "./jarvisfixtures";
 import { mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
-// which fixture the surface renders. In Plan 2+ this is superseded by a real active-conversation id;
-// kept in Plan 1 as the single source that the dev fixture bar and CDP drive.
-export const activeFixtureAtom = atom<FixtureState>("empty");
+// DEV-ONLY fixtures. A fabricated thread carrying fabricated citations and freshness badges is
+// indistinguishable from a real one, so the fixture *data* is gated exactly like the fixture bar that
+// drives it. import.meta.env.DEV is statically false in a production build, so every branch below folds
+// away and jarvisfixtures.ts leaves the bundle.
+const DEV_FIXTURES = import.meta.env.DEV;
 
-// grounding rail expanded state — persisted, default collapsed so narrow panes keep conversation width
-// (mirrors channelRailOpenAtom in railstore.ts). "narrow" state == this collapsed on a small viewport.
-export const groundingRailOpenAtom = atomWithStorage("jarvis.grounding.open", false);
+// which fixture the surface renders, or null for none. Only the dev fixture bar (and CDP through it) ever
+// sets this: null is the ordinary state, and it must mean "no conversation", not "the empty fixture" —
+// conflating the two is what leaked fixture scope chips onto records that had never been asked anything.
+export const activeFixtureAtom = atom<FixtureState | null>(null) as PrimitiveAtom<FixtureState | null>;
 
-// The Jarvis Fleet-mode profile drawer (the ⚙). Relocated from agents/railstore in Plan 3 — the profile
-// editor now lives in Fleet mode, not the Channels header. Session-scoped, not persisted.
+// what the Stage shows when nothing is selected. A real value rather than null so every consumer can read
+// .scope/.turns without a guard.
+const NO_CONVERSATION: JarvisConversation = {
+    id: "",
+    title: "New conversation",
+    turns: [],
+    scope: { mode: "all", chips: [], attached: [] },
+};
+
+// The channel profile drawer (the ⚙), opened from the Stage header. Session-scoped, not persisted.
 export const profileRailOpenAtom = atom(false);
 
 // The merged surface's one context rail. Open by default, unlike the two rails it replaces: it now carries
@@ -46,8 +57,13 @@ export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
 // neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
 export const graphPeekOpenAtom = atom(false);
 
-// @jarvis handoff: a Channels @jarvis summary sets this + switches to Fleet mode, which selects the channel,
-// runs the summary once, and clears it. null = no pending handoff. Module atom so it survives the nav-switch.
+// @jarvis handoff: the rail's Fleet section runs a summary once for the channel named here and clears it,
+// so the summary lands in place rather than moving the user off their subject. null = no pending handoff.
+// Module atom so it survives a nav-switch mid-flight.
+// UNREACHABLE as of the consolidation: the only writer is channelactions' @jarvis branch, and no composer
+// path can produce a leading "@jarvis" any more (parseComposerCommand knows @quick/@run/@ask only, and both
+// callers synthesize their own transport string). Either wire it up or delete the branch, the atom and the
+// StageRail effect together — do not leave it looking live.
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
 export const pendingFleetSummaryAtom = atom<{ channelId: string; focus: string } | null>(
     null
@@ -67,19 +83,20 @@ export const activeConversationIdAtom = atom<string | null>(null) as PrimitiveAt
 // ephemeral composer draft; a module atom (not useState) so a nav-switch away and back keeps the draft.
 export const jarvisDraftAtom = atom<string>("");
 
-// read-only: the conversation currently shown. Real conversation wins; else the fixture (Plan 1 behavior,
-// which the dev fixture bar + every Plan 1 CDP scenario still drive). Same read signature as Plan 1.
+// read-only: the conversation currently shown. Real conversation wins; else a dev fixture if the fixture
+// bar has explicitly selected one; else the empty conversation.
 export const activeConversationAtom = atom<JarvisConversation>((get) => {
     const id = get(activeConversationIdAtom);
     if (id != null) {
         const conv = get(conversationsByIdAtom)[id];
         if (conv) return conv;
     }
-    return FIXTURES[get(activeFixtureAtom)];
+    const fixture = DEV_FIXTURES ? get(activeFixtureAtom) : null;
+    return fixture != null ? FIXTURES[fixture] : NO_CONVERSATION;
 });
 
 // read-only: the history-rail list — real conversations first (newest-first by insertion), then the dev
-// fixtures (excluding the "narrow" alias). Plan 1 showed fixtures only; real ones now prepend.
+// fixtures (excluding the "narrow" alias), which exist only in a dev build.
 export const conversationsAtom = atom<JarvisConversation[]>((get) => {
     const byId = get(conversationsByIdAtom);
     const real = Object.values(byId).reverse();
@@ -87,6 +104,9 @@ export const conversationsAtom = atom<JarvisConversation[]>((get) => {
     const persisted = get(persistedSummariesAtom)
         .filter((summary) => !liveIds.has(summary.id))
         .map(summaryToRailConversation);
+    if (!DEV_FIXTURES) {
+        return [...real, ...persisted];
+    }
     const fixtures = FIXTURE_STATES.filter((s) => s !== "narrow").map((s) => FIXTURES[s]);
     return [...real, ...persisted, ...fixtures];
 });
@@ -131,7 +151,7 @@ export function selectConversation(id: string): void {
         globalStore.set(activeConversationIdAtom, id);
         return;
     }
-    if ((FIXTURE_STATES as string[]).includes(id)) {
+    if (DEV_FIXTURES && (FIXTURE_STATES as string[]).includes(id)) {
         globalStore.set(activeFixtureAtom, id as FixtureState);
         globalStore.set(activeConversationIdAtom, null);
         return;

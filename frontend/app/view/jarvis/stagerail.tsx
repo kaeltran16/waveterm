@@ -49,7 +49,11 @@ function formatUsd(n: number): string {
     return `$${n.toFixed(2)}`;
 }
 
-export function StageRail({ model, comp }: { model: AgentsViewModel; comp: StageComposition }) {
+// comp is null when no subject is selected. The rail still mounts: Needs you is the surface's attention
+// channel and its contract is "always drawn, never filtered" — an ask that is only visible once the user
+// happens to click a subject is not an attention channel. Every other section is subject-derived and
+// stays absent, per the surface's absent-rather-than-empty rule.
+export function StageRail({ model, comp }: { model: AgentsViewModel; comp: StageComposition | null }) {
     const subject = useAtomValue(activeSubjectAtom);
     const channels = useAtomValue(channelsAtom);
     const channel = useAtomValue(activeChannelAtom);
@@ -115,7 +119,7 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
     // grounding follows the Stage's thread: a conversation subject shows its own answers, a record shows
     // the answers to what was asked about it. A channel has no Jarvis thread of its own.
     const stageConversation =
-        recordId != null ? convsById[convIdByRecord[recordId] ?? ""] : comp.thread === "turns" ? conversation : undefined;
+        recordId != null ? convsById[convIdByRecord[recordId] ?? ""] : comp?.thread === "turns" ? conversation : undefined;
 
     const sections: RailSection[] = [
         {
@@ -161,7 +165,7 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
         },
     ];
 
-    if (comp.composerTarget === "worker-or-jarvis" && channelForDerive != null) {
+    if (comp?.composerTarget === "worker-or-jarvis" && channelForDerive != null) {
         sections.push({
             id: "consults",
             label: "Consults",
@@ -189,7 +193,7 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
         sections.push(groundingSection(stageConversation, model));
     }
 
-    if (comp.showFleet) {
+    if (comp?.showFleet) {
         sections.push({
             id: "fleet",
             label: comp.fleetTitle ?? "Fleet",
@@ -242,7 +246,7 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
             />
             {/* the ⚙ drawer shares the right-edge slot: it has no strip of its own and the rail above
                 force-collapses while it is open, so the two never stack. */}
-            <ProfilePanel channelId={comp.showProfile && subject?.kind === "channel" ? subject.id : ""} />
+            <ProfilePanel channelId={comp?.showProfile && subject?.kind === "channel" ? subject.id : ""} />
         </>
     );
 }

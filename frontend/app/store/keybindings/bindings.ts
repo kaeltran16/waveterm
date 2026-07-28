@@ -312,14 +312,14 @@ export function buildChannelsAskBindings(
     const digits: Binding[] = Array.from({ length: 9 }, (_, i) => i + 1).map((n) => ({
         id: `channels:answer-${n}`,
         keys: String(n),
-        group: "Channels",
+        group: "Jarvis",
         label: `Answer option ${n}`,
         when: ready,
         run: () => toggleDigit(n),
     }));
     return [
         ...digits,
-        { id: "channels:submit", keys: "Enter", group: "Channels", label: "Submit answer", when: ready, run: submit },
+        { id: "channels:submit", keys: "Enter", group: "Jarvis", label: "Submit answer", when: ready, run: submit },
     ];
 }
 

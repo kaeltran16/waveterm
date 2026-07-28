@@ -18,8 +18,9 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { resolveComposerTarget } from "./composertarget";
-import { activeConversationIdAtom, jarvisDraftAtom, submitJarvisQuery } from "./jarvisstore";
-import { askAboutRecord, setActiveRunId } from "./jarvissubjectstore";
+import type { ScopeChip } from "./jarviscontract";
+import { activeConversationAtom, activeConversationIdAtom, jarvisDraftAtom, submitJarvisQuery } from "./jarvisstore";
+import { askAboutRecord, composingRunAtom, setActiveRunId, setComposingRun } from "./jarvissubjectstore";
 import type { StageComposition } from "./stagecompose";
 
 function TalkingTo({ label, audience }: { label: string; audience: "worker" | "jarvis" }) {
@@ -87,36 +88,59 @@ function ChannelPicker({
 }
 
 // The Jarvis face: one plain ask box, used by a record and by a thread. Deliberately not the Launch face —
-// off a channel there is no run strategy footer to state.
+// off a channel there is no run strategy footer to state. The scope chips sit above the box: a contextual
+// entry ("Ask Jarvis" on a memory note, a graph node, a record) attaches its source to the conversation, and
+// this row is the only place that attachment is visible.
 function JarvisAsk({
     draft,
     onChange,
     onSubmit,
     placeholder,
+    chips,
 }: {
     draft: string;
     onChange: (next: string) => void;
     onSubmit: () => void;
     placeholder: string;
+    chips: ScopeChip[];
 }) {
     return (
-        <div className="flex items-center gap-2 rounded-[10px] border border-edge-mid bg-surface px-3.5 py-2.5">
-            <input
-                value={draft}
-                onChange={(e) => onChange(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        onSubmit();
-                    }
-                }}
-                placeholder={placeholder}
-                className="min-w-0 flex-1 bg-transparent text-[14px] text-secondary placeholder:text-muted focus:outline-none"
-            />
-            <span className="flex-none font-mono text-[10px] text-muted">
-                {LAUNCH_COMMANDS.map((c) => c.cmd).join(" · ")}
-            </span>
-        </div>
+        <>
+            {chips.length > 0 ? (
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    {chips.map((chip) => (
+                        <span
+                            key={chip.label}
+                            className={cn(
+                                "rounded-full border px-2.5 py-0.5 text-[11.5px]",
+                                chip.active
+                                    ? "border-accent/40 bg-accentbg text-accent-soft"
+                                    : "border-border text-ink-mid"
+                            )}
+                        >
+                            {chip.label}
+                        </span>
+                    ))}
+                </div>
+            ) : null}
+            <div className="flex items-center gap-2 rounded-[10px] border border-edge-mid bg-surface px-3.5 py-2.5">
+                <input
+                    value={draft}
+                    onChange={(e) => onChange(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            onSubmit();
+                        }
+                    }}
+                    placeholder={placeholder}
+                    className="min-w-0 flex-1 bg-transparent text-[14px] text-secondary placeholder:text-muted focus:outline-none"
+                />
+                <span className="flex-none font-mono text-[10px] text-muted">
+                    {LAUNCH_COMMANDS.map((c) => c.cmd).join(" · ")}
+                </span>
+            </div>
+        </>
     );
 }
 
@@ -145,15 +169,22 @@ export function StageComposer({
     const [channelDraft, setChannelDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const activeConvId = useAtomValue(activeConversationIdAtom);
+    const conversation = useAtomValue(activeConversationAtom);
     const radarDraft = useAtomValue(pendingRunDraftAtom);
     const setRadarDraft = useSetAtom(pendingRunDraftAtom);
     const attach = useComposerAttachments();
 
+    const composing = useAtomValue(composingRunAtom)[channel?.oid ?? ""] ?? false;
+
     const onChannel = comp.composerTarget === "worker-or-jarvis";
     // a pending Radar draft forces the Launch face and owns the field: it is an investigation awaiting
-    // review, so nothing dispatches until the user presses Start.
+    // review, so nothing dispatches until the user presses Start. "＋ New run" forces it the same way —
+    // only the Launch face can create a run, and the live worker that renders the button is also what
+    // would drag the face straight back to Talk.
     const value = onChannel ? (radarDraft != null ? radarDraft.goal : channelDraft) : draft;
-    const face = onChannel && channel != null && radarDraft == null ? composerFace(run, agents) : { face: "launch" as const };
+    // the face the channel would show on its own, before either override.
+    const naturalFace = onChannel && channel != null ? composerFace(run, agents) : { face: "launch" as const };
+    const face = radarDraft == null && !composing ? naturalFace : { face: "launch" as const };
     const target = resolveComposerTarget({
         composerTarget: comp.composerTarget,
         draft: value,
@@ -216,6 +247,8 @@ export function StageComposer({
         }
         setChannelDraft("");
         attach.clear();
+        // whatever this dispatches, the Launch face has done its job — release the face back to the run.
+        setComposingRun(channel.oid, false);
         const cmd = parseComposerCommand(text);
         if (cmd.mode === "run") {
             launchInto(channel.oid, cmd.body);
@@ -278,7 +311,7 @@ export function StageComposer({
                         value={channelDraft}
                         onChange={setChannelDraft}
                         onSubmit={sendOnChannel}
-                        onNewRun={() => setActiveRunId(channel.oid, undefined)}
+                        onNewRun={() => setComposingRun(channel.oid, true)}
                         attach={attach}
                     />
                 ) : (
@@ -297,6 +330,23 @@ export function StageComposer({
                                     className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
                                 >
                                     Discard
+                                </button>
+                            </div>
+                        ) : null}
+                        {composing && radarDraft == null && naturalFace.face === "talk" ? (
+                            <div className="mb-2 flex items-center gap-2.5 rounded-[10px] border border-edge-mid bg-surface px-3 py-2">
+                                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-muted">
+                                    New run
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
+                                    The run already going keeps running — this starts a second one.
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setComposingRun(channel.oid, false)}
+                                    className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
+                                >
+                                    Cancel
                                 </button>
                             </div>
                         ) : null}
@@ -325,6 +375,7 @@ export function StageComposer({
                             ? "Ask Jarvis about this record…"
                             : "Ask Jarvis anything…"
                     }
+                    chips={conversation.scope.chips}
                 />
             )}
         </div>

@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Shared UI atoms for the Channels + Runs surfaces: avatars, tags, the live-ask answer row, a fleet
-// worker row, and small worker-resolution helpers. Extracted from channelssurface.tsx so runssurface.tsx
-// reuses them without duplication.
+// Shared UI atoms for the run body and the Stage's context rail: avatars, tags, the live-ask answer row, a
+// fleet worker row, and small worker-resolution helpers. One copy, so every surface that shows a worker or
+// an ask shows the same treatment.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
