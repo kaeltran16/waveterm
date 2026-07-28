@@ -14,7 +14,7 @@ import { buildNeeds } from "./channelneeds";
 import { WorkerRow } from "./channelsprimitives";
 import { type ConsultStream } from "./channelsstore";
 import { fleetCounts } from "./jarviscards";
-import { buildFleetSnapshot, fleetCostUsd } from "./jarvisderive";
+import { buildFleetSnapshot, fleetCostUsd, type WorkerState } from "./jarvisderive";
 import { RAIL_ICON } from "./railicons";
 import { channelRailOpenAtom } from "./railstore";
 
@@ -28,7 +28,21 @@ function formatUsd(n: number): string {
 
 // One compact attention card for the Needs-you list. Clicking it selects the owning run so the full
 // gate/ask card in the run body is one navigation away.
-function NeedsRow({ kind, source, text, action, onGo }: { kind: string; source: string; text: string; action: string; onGo?: () => void }) {
+export function NeedsRow({
+    kind,
+    source,
+    text,
+    action,
+    note,
+    onGo,
+}: {
+    kind: string;
+    source: string;
+    text: string;
+    action: string;
+    note?: string;
+    onGo?: () => void;
+}) {
     // no onGo → the owning run couldn't be resolved (e.g. a bare @quick worker in no run); render the
     // card as static info, not a clickable-looking affordance that silently no-ops.
     const interactive = !!onGo;
@@ -55,7 +69,58 @@ function NeedsRow({ kind, source, text, action, onGo }: { kind: string; source: 
             <span className="inline-block rounded-sm bg-asking px-2.5 py-1 font-mono text-[10.5px] font-bold text-background">
                 {action}
             </span>
+            {note != null ? <span className="ml-2 font-mono text-[9.5px] text-muted">{note}</span> : null}
         </button>
+    );
+}
+
+// The fleet roster body: live workers, then a "Done · N" disclosure of the gone ones. Shared by the
+// channel context panel and the merged surface's rail so there is one roster treatment.
+export function FleetRoster({
+    model,
+    snapshot,
+    channelId,
+}: {
+    model: AgentsViewModel;
+    snapshot: WorkerState[];
+    channelId?: string;
+}) {
+    const [showGone, setShowGone] = useState(false);
+    const liveWorkers = snapshot.filter((w) => w.state !== "gone");
+    const goneWorkers = snapshot.filter((w) => w.state === "gone");
+    if (snapshot.length === 0) {
+        return <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>;
+    }
+    return (
+        <>
+            {liveWorkers.length === 0 ? (
+                <p className="text-[11.5px] text-muted">No active workers.</p>
+            ) : (
+                liveWorkers.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
+            )}
+            {goneWorkers.length > 0 ? (
+                <div className="mt-1">
+                    <button
+                        type="button"
+                        onClick={() => setShowGone((v) => !v)}
+                        className="mb-1.5 flex w-full cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-[.09em] text-muted hover:text-secondary"
+                    >
+                        <span>{showGone ? "▾" : "▸"}</span> Done · {goneWorkers.length}
+                    </button>
+                    {showGone
+                        ? goneWorkers.map((w) => (
+                              <WorkerRow
+                                  key={w.oref}
+                                  model={model}
+                                  w={w}
+                                  channelId={channelId}
+                                  onDismiss={(cid, oref) => fireAndForget(() => dismissWorker(cid, oref))}
+                              />
+                          ))
+                        : null}
+                </div>
+            ) : null}
+        </>
     );
 }
 
@@ -121,6 +186,50 @@ function ConsultCard({
     );
 }
 
+// The Consults body: every @ask question in this channel with its replies, each promotable to a run.
+// Shared by the channel context panel and the merged surface's rail — a channel's consult answers have
+// exactly one home, and it is this section.
+export function ConsultsSection({
+    channelId,
+    messages,
+    streams,
+    onDispatch,
+}: {
+    channelId: string | undefined;
+    messages: ChannelMessage[];
+    streams: Record<string, ConsultStream>;
+    onDispatch: (question: string) => void;
+}) {
+    const [dispatched, setDispatched] = useState<Set<string>>(new Set());
+    // the dispatched-consult set is view-local; drop it on channel switch so a "Promoted to a run"
+    // marker from one channel never bleeds into another
+    useEffect(() => setDispatched(new Set()), [channelId]);
+    const consultMsgs = messages.filter((m) => m.kind === "consult");
+    if (consultMsgs.length === 0) {
+        return <p className="text-[11.5px] text-muted">No consults yet — try @ask in the composer.</p>;
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            {consultMsgs.map((m) => {
+                const cid = consultIdOf(m.reforef) ?? m.id;
+                return (
+                    <ConsultCard
+                        key={m.id}
+                        msg={m}
+                        allMessages={messages}
+                        streams={streams}
+                        dispatched={dispatched.has(cid)}
+                        onDispatch={() => {
+                            setDispatched((d) => new Set(d).add(cid));
+                            onDispatch(m.text);
+                        }}
+                    />
+                );
+            })}
+        </div>
+    );
+}
+
 export function ContextPanel({
     model,
     channel,
@@ -138,21 +247,13 @@ export function ContextPanel({
     onSelectRun: (runId: string) => void;
     onDispatchConsult: (question: string) => void;
 }) {
-    const [dispatched, setDispatched] = useState<Set<string>>(new Set());
-    const [showGone, setShowGone] = useState(false);
-    // the dispatched-consult set is view-local; drop it on channel switch so a "Promoted to a run"
-    // marker from one channel never bleeds into another
-    useEffect(() => setDispatched(new Set()), [channel?.oid]);
     const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
     const messages = channel?.messages ?? [];
     const counts = fleetCounts(snapshot);
     const costUsd = fleetCostUsd(snapshot);
-    const liveWorkers = snapshot.filter((w) => w.state !== "gone");
-    const goneWorkers = snapshot.filter((w) => w.state === "gone");
 
     const needs = buildNeeds({ runs, messages, agents, snapshot });
 
-    const consultMsgs = messages.filter((m) => m.kind === "consult");
     const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
 
     const sections: RailSection[] = [
@@ -192,28 +293,12 @@ export function ContextPanel({
             content: (
                 <div>
                     <div className={label}>Consults · Ask-mode results</div>
-                    {consultMsgs.length === 0 ? (
-                        <p className="text-[11.5px] text-muted">No consults yet — try @ask in the composer.</p>
-                    ) : (
-                        <div className="flex flex-col gap-2">
-                            {consultMsgs.map((m) => {
-                                const cid = consultIdOf(m.reforef) ?? m.id;
-                                return (
-                                    <ConsultCard
-                                        key={m.id}
-                                        msg={m}
-                                        allMessages={messages}
-                                        streams={consultStreams}
-                                        dispatched={dispatched.has(cid)}
-                                        onDispatch={() => {
-                                            setDispatched((d) => new Set(d).add(cid));
-                                            onDispatchConsult(m.text);
-                                        }}
-                                    />
-                                );
-                            })}
-                        </div>
-                    )}
+                    <ConsultsSection
+                        channelId={channel?.oid}
+                        messages={messages}
+                        streams={consultStreams}
+                        onDispatch={onDispatchConsult}
+                    />
                 </div>
             ),
         },
@@ -227,39 +312,7 @@ export function ContextPanel({
                         Fleet here · {counts.working} working · {counts.waiting} waiting
                         {costUsd > 0 ? ` · ${formatUsd(costUsd)}` : ""}
                     </div>
-                    {snapshot.length === 0 ? (
-                        <p className="text-[11.5px] text-muted">No workers dispatched here yet.</p>
-                    ) : (
-                        <>
-                            {liveWorkers.length === 0 ? (
-                                <p className="text-[11.5px] text-muted">No active workers.</p>
-                            ) : (
-                                liveWorkers.map((w) => <WorkerRow key={w.oref} model={model} w={w} />)
-                            )}
-                            {goneWorkers.length > 0 ? (
-                                <div className="mt-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowGone((v) => !v)}
-                                        className="mb-1.5 flex w-full cursor-pointer items-center gap-1.5 font-mono text-[10px] uppercase tracking-[.09em] text-muted hover:text-secondary"
-                                    >
-                                        <span>{showGone ? "▾" : "▸"}</span> Done · {goneWorkers.length}
-                                    </button>
-                                    {showGone
-                                        ? goneWorkers.map((w) => (
-                                              <WorkerRow
-                                                  key={w.oref}
-                                                  model={model}
-                                                  w={w}
-                                                  channelId={channel?.oid}
-                                                  onDismiss={(cid, oref) => fireAndForget(() => dismissWorker(cid, oref))}
-                                              />
-                                          ))
-                                        : null}
-                                </div>
-                            ) : null}
-                        </>
-                    )}
+                    <FleetRoster model={model} snapshot={snapshot} channelId={channel?.oid} />
                 </div>
             ),
         },

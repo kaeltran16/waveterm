@@ -21,7 +21,8 @@ import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useState } from "react";
 import { ConversationView } from "./conversationview";
-import { activeConversationAtom } from "./jarvisstore";
+import { GraphPeek } from "./graphpeek";
+import { activeConversationAtom, graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
@@ -56,6 +57,9 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
     const pendingFocus = useAtomValue(pendingRunFocusAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
+    const graphOpen = useAtomValue(graphPeekOpenAtom);
+    const setGraphOpen = useSetAtom(graphPeekOpenAtom);
+    const setProfileOpen = useSetAtom(profileRailOpenAtom);
     const [profile, setProfile] = useState<JarvisProfile | undefined>(undefined);
 
     useEffect(() => ensureAmbient(), []);
@@ -148,8 +152,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 channelId={subject.kind === "channel" ? subject.id : null}
                 tier={tier}
                 mode={mode}
-                onOpenProfile={() => {}}
-                onOpenGraph={() => {}}
+                onOpenProfile={() => setProfileOpen((o) => !o)}
+                onOpenGraph={() => setGraphOpen(true)}
             />
             <RecordBand
                 kind={subject.kind}
@@ -189,6 +193,14 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 recordObjective={detail?.objective ?? ""}
                 profile={profile}
             />
+            {/* last child, so the overlay layers above the whole Stage while containing none of it */}
+            {graphOpen ? (
+                <GraphPeek
+                    model={model}
+                    onClose={() => setGraphOpen(false)}
+                    onOpenSubject={(next) => selectSubject(next)}
+                />
+            ) : null}
         </div>
     );
 }

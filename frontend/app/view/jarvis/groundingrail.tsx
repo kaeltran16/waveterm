@@ -56,26 +56,36 @@ function Card({ card, model }: { card: GroundingCard; model: AgentsViewModel }) 
     );
 }
 
-export function GroundingRail({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
+// whether this conversation has answered at all — the merged surface draws the section only then, so a
+// thread that has never been asked anything shows no empty Sources heading.
+export function hasGroundingAnswer(conversation: JarvisConversation): boolean {
+    return conversation.turns.some(isAnswerTurn);
+}
+
+// The Sources section as a RailSection, so the merged surface's single rail draws this exact card
+// treatment instead of a second copy of it.
+export function groundingSection(conversation: JarvisConversation, model: AgentsViewModel): RailSection {
     const answerTurns = conversation.turns.filter(isAnswerTurn);
     const latest = answerTurns[answerTurns.length - 1];
     const cards = latest?.grounding ?? [];
-    const sections: RailSection[] = [
-        {
-            id: "grounding",
-            icon: <BookMarked size={18} strokeWidth={1.8} />,
-            label: "Sources",
-            content: (
-                <div className="flex flex-col gap-2.5">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Sources</div>
-                    {cards.length === 0 ? (
-                        <div className="text-[12px] text-muted">No grounding sources.</div>
-                    ) : (
-                        cards.map((c) => <Card key={c.n} card={c} model={model} />)
-                    )}
-                </div>
-            ),
-        },
-    ];
+    return {
+        id: "grounding",
+        icon: <BookMarked size={18} strokeWidth={1.8} />,
+        label: "Sources",
+        content: (
+            <div className="flex flex-col gap-2.5">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Sources</div>
+                {cards.length === 0 ? (
+                    <div className="text-[12px] text-muted">No grounding sources.</div>
+                ) : (
+                    cards.map((c) => <Card key={c.n} card={c} model={model} />)
+                )}
+            </div>
+        ),
+    };
+}
+
+export function GroundingRail({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
+    const sections: RailSection[] = [groundingSection(conversation, model)];
     return <CollapsibleRail openAtom={groundingRailOpenAtom} ariaLabel="Grounding sources" sections={sections} />;
 }

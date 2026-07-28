@@ -43,6 +43,14 @@ export const groundingRailOpenAtom = atomWithStorage("jarvis.grounding.open", fa
 // editor now lives in Fleet mode, not the Channels header. Session-scoped, not persisted.
 export const profileRailOpenAtom = atom(false);
 
+// The merged surface's one context rail. Open by default, unlike the two rails it replaces: it now carries
+// Needs you, which is the surface's attention channel and must not start hidden behind a 44px strip.
+export const stageRailOpenAtom = atomWithStorage("jarvis.stagerail.open", true);
+
+// The graph peek overlay. Session-scoped, not persisted: a peek is a momentary look at one object's
+// neighbourhood, so reopening the app on top of one would be reopening a destination it is not.
+export const graphPeekOpenAtom = atom(false);
+
 // @jarvis handoff: a Channels @jarvis summary sets this + switches to Fleet mode, which selects the channel,
 // runs the summary once, and clears it. null = no pending handoff. Module atom so it survives the nav-switch.
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
