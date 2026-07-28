@@ -12,10 +12,10 @@ import { LaunchComposer, TalkComposer } from "@/app/view/agents/channelcomposers
 import { type RosterEntry } from "@/app/view/agents/channelmessages";
 import { LAUNCH_COMMANDS, composerFace, parseComposerCommand } from "@/app/view/agents/composercommand";
 import { appendAttachments, useComposerAttachments } from "@/app/view/agents/composerattachments";
-import { createRun } from "@/app/view/agents/runactions";
+import { createRun, pendingRunDraftAtom } from "@/app/view/agents/runactions";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { resolveComposerTarget } from "./composertarget";
 import { activeConversationIdAtom, jarvisDraftAtom, submitJarvisQuery } from "./jarvisstore";
@@ -145,11 +145,15 @@ export function StageComposer({
     const [channelDraft, setChannelDraft] = useState("");
     const [picking, setPicking] = useState(false);
     const activeConvId = useAtomValue(activeConversationIdAtom);
+    const radarDraft = useAtomValue(pendingRunDraftAtom);
+    const setRadarDraft = useSetAtom(pendingRunDraftAtom);
     const attach = useComposerAttachments();
 
     const onChannel = comp.composerTarget === "worker-or-jarvis";
-    const value = onChannel ? channelDraft : draft;
-    const face = onChannel && channel != null ? composerFace(run, agents) : { face: "launch" as const };
+    // a pending Radar draft forces the Launch face and owns the field: it is an investigation awaiting
+    // review, so nothing dispatches until the user presses Start.
+    const value = onChannel ? (radarDraft != null ? radarDraft.goal : channelDraft) : draft;
+    const face = onChannel && channel != null && radarDraft == null ? composerFace(run, agents) : { face: "launch" as const };
     const target = resolveComposerTarget({
         composerTarget: comp.composerTarget,
         draft: value,
@@ -173,6 +177,25 @@ export function StageComposer({
 
     const sendOnChannel = () => {
         if (channel == null || attach.uploading) {
+            return;
+        }
+        // the Radar path keeps radarOrigin on the created run — that origin is what lets the finding's
+        // outcome be written back when the run finishes.
+        if (radarDraft != null) {
+            const goal = appendAttachments(radarDraft.goal.trim(), attach.attachments);
+            if (!goal) {
+                return;
+            }
+            attach.clear();
+            setRadarDraft(null);
+            fireAndForget(async () => {
+                const created = await createRun(channel.oid, goal, {
+                    mode: profile?.defaultmode,
+                    planGate: profile?.defaultplangate,
+                    radarOrigin: radarDraft.radarOrigin,
+                });
+                setActiveRunId(channel.oid, created.id);
+            });
             return;
         }
         if (face.face === "talk") {
@@ -259,15 +282,38 @@ export function StageComposer({
                         attach={attach}
                     />
                 ) : (
-                    <LaunchComposer
-                        value={channelDraft}
-                        onChange={setChannelDraft}
-                        onSubmit={sendOnChannel}
-                        profile={profile}
-                        channelName={channel.name ?? "channel"}
-                        pending={false}
-                        attach={attach}
-                    />
+                    <>
+                        {radarDraft != null ? (
+                            <div className="mb-2 flex items-center gap-2.5 rounded-[10px] border border-accent/30 bg-accentbg px-3 py-2">
+                                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-accent-soft">
+                                    From Radar
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
+                                    Review the goal, then start it — nothing dispatches until you do.
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setRadarDraft(null)}
+                                    className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
+                                >
+                                    Discard
+                                </button>
+                            </div>
+                        ) : null}
+                        <LaunchComposer
+                            value={value}
+                            onChange={
+                                radarDraft != null
+                                    ? (next) => setRadarDraft({ ...radarDraft, goal: next })
+                                    : setChannelDraft
+                            }
+                            onSubmit={sendOnChannel}
+                            profile={profile}
+                            channelName={channel.name ?? "channel"}
+                            pending={radarDraft != null}
+                            attach={attach}
+                        />
+                    </>
                 )
             ) : (
                 <JarvisAsk

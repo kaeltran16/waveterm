@@ -24,7 +24,7 @@ function b(id: string, keys = "j"): Binding {
 const SURFACES: SurfaceKey[] = [
     "cockpit",
     "agent",
-    "channels",
+    "jarvis",
     "radar",
     "sessions",
     "files",
@@ -98,7 +98,7 @@ describe("keybinding conflict invariant", () => {
 
     it("global + list-nav (controller active on a plain surface) has no key conflicts", () => {
         const model = {} as any;
-        globalStore.set(listNavAtom, { surface: "channels", navigableIds: [], cursorId: undefined, setCursor() {} });
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings()])).not.toThrow();
         globalStore.set(listNavAtom, null);
     });

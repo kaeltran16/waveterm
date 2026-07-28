@@ -59,8 +59,8 @@ describe("surface switch [ / ]", () => {
         next.run(ctx()); // cockpit -> jarvis
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
 
-        globalStore.set(model.surfaceAtom, "channels");
-        next.run(ctx()); // channels -> radar (radar is in SURFACE_ORDER)
+        globalStore.set(model.surfaceAtom, "agent");
+        next.run(ctx()); // agent -> radar (radar is in SURFACE_ORDER)
         expect(globalStore.get(model.surfaceAtom)).toBe("radar");
 
         globalStore.set(model.surfaceAtom, SURFACE_ORDER[SURFACE_ORDER.length - 1]);
@@ -96,7 +96,7 @@ describe("surface switch [ / ]", () => {
 });
 
 describe("list-nav bindings", () => {
-    const chanCtx: KeyContext = { surface: "channels", editable: false, modalOpen: false, leader: null };
+    const chanCtx: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
 
     it("is inactive with no controller, when editable/modal, or on a mismatched surface", () => {
         globalStore.set(listNavAtom, null);
@@ -104,18 +104,18 @@ describe("list-nav bindings", () => {
         expect(j.keys).toBe("j");
         expect(j.when!(chanCtx)).toBe(false); // no controller
 
-        globalStore.set(listNavAtom, { surface: "channels", navigableIds: ["a", "b"], cursorId: "a", setCursor() {} });
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: ["a", "b"], cursorId: "a", setCursor() {} });
         expect(j.when!(chanCtx)).toBe(true);
         expect(j.when!({ ...chanCtx, editable: true })).toBe(false);
         expect(j.when!({ ...chanCtx, modalOpen: true })).toBe(false);
-        expect(j.when!({ ...chanCtx, surface: "memory" })).toBe(false); // controller is for channels
+        expect(j.when!({ ...chanCtx, surface: "memory" })).toBe(false); // controller is for jarvis
         globalStore.set(listNavAtom, null);
     });
 
     it("j/ArrowDown move forward and k/ArrowUp back via moveCursor (clamped, no wrap)", () => {
         const seen: string[] = [];
         globalStore.set(listNavAtom, {
-            surface: "channels",
+            surface: "jarvis",
             navigableIds: ["a", "b", "c"],
             cursorId: "b",
             setCursor: (id) => seen.push(id),
@@ -131,7 +131,7 @@ describe("list-nav bindings", () => {
 
     it("first press from an empty/absent cursor lands on the first id", () => {
         const seen: string[] = [];
-        globalStore.set(listNavAtom, { surface: "channels", navigableIds: ["a", "b"], cursorId: undefined, setCursor: (id) => seen.push(id) });
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: ["a", "b"], cursorId: undefined, setCursor: (id) => seen.push(id) });
         buildListNavBindings().find((b) => b.id === "list:next-j")!.run(chanCtx);
         expect(seen).toEqual(["a"]);
         globalStore.set(listNavAtom, null);

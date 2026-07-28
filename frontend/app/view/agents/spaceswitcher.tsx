@@ -6,12 +6,13 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
+import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
 import type { AgentsViewModel } from "./agents";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "./spacestore";
 
 // App-bar Space (Presence C) switcher: "◇ <objective> ▾" (or "Global"). Mirrors ProjectSwitcher's
 // bar trigger + PopoverReveal dropdown. Selecting a task focuses it; "Global" returns to no-focus;
-// "Open dossier" navigates to the Tasks surface (U2) for the active Space.
+// "Open dossier" puts the active Space's record on the Jarvis Stage as a subject.
 export function SpaceSwitcher({ model }: { model: AgentsViewModel }) {
     const active = useAtomValue(activeSpaceAtom);
     const spaces = useAtomValue(spacesAtom);
@@ -64,7 +65,8 @@ export function SpaceSwitcher({ model }: { model: AgentsViewModel }) {
                         <button
                             type="button"
                             onClick={() => {
-                                globalStore.set(model.surfaceAtom, "tasks");
+                                selectSubject({ kind: "dossier", id: active.id });
+                                globalStore.set(model.surfaceAtom, "jarvis");
                                 close();
                             }}
                             className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2 py-2 text-left text-accent hover:bg-surface-hover"

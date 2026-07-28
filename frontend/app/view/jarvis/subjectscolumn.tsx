@@ -4,6 +4,7 @@
 // The Subjects column: channels, records and threads in one grouped list. Replaces ChannelRail,
 // HistoryRail and the Tasks list — one column, three kinds.
 
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { channelHasAsk } from "@/app/view/agents/channelderive";
 import { activeChannelRunsAtom, channelsAtom, createChannel } from "@/app/view/agents/channelsstore";
@@ -16,7 +17,7 @@ import { spaceBannerText } from "@/app/view/agents/spacescope";
 import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
@@ -25,7 +26,7 @@ import {
     subjectFilterAtom,
 } from "./jarvissubjectstore";
 import { conversationsAtom, loadJarvisConversations, startConversation } from "./jarvisstore";
-import { buildSubjectGroups, subjectMark, type Subject } from "./subjects";
+import { buildSubjectGroups, subjectMark, type Subject, type SubjectKind } from "./subjects";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
 const RUN_DOT: Record<RunStatusTone, string> = {
@@ -93,6 +94,23 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
             : groups
                   .map((g) => ({ ...g, items: g.items.filter((s) => s.label.toLowerCase().includes(q)) }))
                   .filter((g) => g.items.length > 0);
+
+    // j/k over the whole column, all three kinds in render order — the Channels rail published the same
+    // cursor for its channel list, and the merged column is the only list left to move through.
+    const navIds = useMemo(() => shown.flatMap((g) => g.items.map((s) => `${s.kind}:${s.id}`)), [shown]);
+    const listNav = useMemo<ListNavController>(
+        () => ({
+            surface: "jarvis",
+            navigableIds: navIds,
+            cursorId: active != null ? `${active.kind}:${active.id}` : undefined,
+            setCursor: (key) => {
+                const i = key.indexOf(":");
+                selectSubject({ kind: key.slice(0, i) as SubjectKind, id: key.slice(i + 1) });
+            },
+        }),
+        [navIds, active]
+    );
+    useSurfaceListNav(listNav);
 
     const isActive = (s: Subject) => active?.kind === s.kind && active?.id === s.id;
     // the same resolution the Stage does, so the highlighted row is the run the Stage is showing

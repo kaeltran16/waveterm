@@ -63,7 +63,7 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
 
     const startInvestigation = () => {
         globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, finding));
-        globalStore.set(model.surfaceAtom, "channels");
+        globalStore.set(model.surfaceAtom, "jarvis");
     };
 
     const inv = finding.investigation;
@@ -72,7 +72,7 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
             return;
         }
         globalStore.set(pendingRunFocusAtom, { channelId: inv.channelid, runId: inv.runid });
-        globalStore.set(model.surfaceAtom, "channels");
+        globalStore.set(model.surfaceAtom, "jarvis");
     };
     const stillDetected = finding.group === "new" || finding.group === "recurring";
 

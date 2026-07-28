@@ -3,20 +3,7 @@
 
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import {
-    Bot,
-    Brain,
-    Gauge,
-    GitCompare,
-    LayoutDashboard,
-    ListTodo,
-    MessagesSquare,
-    Network,
-    Radar,
-    Settings,
-    SquareStack,
-    Waypoints,
-} from "lucide-react";
+import { Bot, Brain, Gauge, GitCompare, LayoutDashboard, Network, Radar, Settings, SquareStack } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import { channelPendingAskCount, standalonePendingAskCount } from "./channelderive";
@@ -29,13 +16,10 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: <LayoutDashboard {...iconProps} />,
     jarvis: <Brain {...iconProps} />,
     agent: <Bot {...iconProps} />,
-    channels: <MessagesSquare {...iconProps} />,
     radar: <Radar {...iconProps} />,
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
     memory: <Network {...iconProps} />,
-    graph: <Waypoints {...iconProps} />,
-    tasks: <ListTodo {...iconProps} />,
     usage: <Gauge {...iconProps} />,
     settings: <Settings {...iconProps} />,
 };
@@ -44,13 +28,10 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
     { key: "jarvis", label: "Jarvis" },
     { key: "agent", label: "Agent" },
-    { key: "channels", label: "Channels" },
     { key: "radar", label: "Radar" },
     { key: "sessions", label: "Sessions" },
     { key: "files", label: "Diff" },
     { key: "memory", label: "Memory" },
-    { key: "graph", label: "Graph" },
-    { key: "tasks", label: "Tasks" },
     { key: "usage", label: "Usage" },
 ];
 
@@ -58,12 +39,13 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
     const channels = useAtomValue(channelsAtom);
     const agents = useAtomValue(model.agentsAtom);
-    // Two disjoint "needs you" badges: Channels counts asks a channel dispatched/steered; Cockpit counts
-    // standalone asks (launched from the cockpit/Agent tab, no channel) so they signal from every surface.
+    // Two disjoint "needs you" badges: Jarvis counts asks a channel dispatched/steered; Cockpit counts
+    // standalone asks (launched from the cockpit/Agent tab, no channel). Disjoint by construction — an ask
+    // is channel-attributed or not, never both — so no ask is counted twice.
     const chanList = channels ?? [];
     const badges: Partial<Record<SurfaceKey, number>> = {
         cockpit: standalonePendingAskCount(chanList, agents),
-        channels: channelPendingAskCount(chanList, agents),
+        jarvis: channelPendingAskCount(chanList, agents),
     };
     const renderItem = (key: SurfaceKey, label: string, badge = 0) => {
         const isActive = active === key;

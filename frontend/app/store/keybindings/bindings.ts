@@ -19,6 +19,7 @@ import {
     undoLast,
 } from "@/app/view/agents/reviewstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { listNavAtom } from "./listnav";
 import type { Binding, KeyContext } from "./types";
 
@@ -28,7 +29,7 @@ const DOUBLE_CTRL_C_MS = 500;
 const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
     { letter: "a", surface: "agent", label: "Agent" },
-    { letter: "c", surface: "channels", label: "Channels" },
+    { letter: "c", surface: "jarvis", label: "Jarvis (channels, records, recall)" },
     { letter: "r", surface: "radar", label: "Radar" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Files" },
@@ -41,7 +42,7 @@ const navigate = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
-const ESC_HOME_SURFACES = new Set<SurfaceKey>(["channels", "radar", "sessions", "files", "memory", "usage"]);
+const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "memory", "usage"]);
 
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
@@ -168,7 +169,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Escape",
             group: "Navigation",
             label: "Back to Cockpit",
-            when: (ctx) => navigate(ctx) && ESC_HOME_SURFACES.has(ctx.surface),
+            // the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
+            // by Escape there, and navigating home instead would leave the peek open behind the Cockpit.
+            when: (ctx) =>
+                navigate(ctx) && ESC_HOME_SURFACES.has(ctx.surface) && !globalStore.get(graphPeekOpenAtom),
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -271,16 +275,16 @@ export function buildReviewBindings(): Binding[] {
     ];
 }
 
-// Channels ask keys: the run body's ask card renders numbered (1-9) answer badges (channelsprimitives
-// AskRow), but the digit handler used to be cockpit-only. These bindings make the badges functional on
-// the Channels surface, targeting the selected run's asking worker (published live via askAgentRef by
-// ChannelsSurface). Reuses answerDigitTarget + model.toggleAnswer/submitAnswer — no duplicated logic.
+// Run-body ask keys: the ask card renders numbered (1-9) answer badges (channelsprimitives AskRow), but
+// the digit handler used to be cockpit-only. These bindings make the badges functional wherever the run
+// body lives — now the merged Jarvis Stage — targeting the selected run's asking worker (published live
+// via askAgentRef). Reuses answerDigitTarget + model.toggleAnswer/submitAnswer — no duplicated logic.
 export function buildChannelsAskBindings(
     model: AgentsViewModel,
     askAgentRef: MutableRefObject<AgentVM | undefined>
 ): Binding[] {
     const ready = (ctx: KeyContext): boolean =>
-        ctx.surface === "channels" && !ctx.editable && !ctx.modalOpen && askAgentRef.current != null;
+        ctx.surface === "jarvis" && !ctx.editable && !ctx.modalOpen && askAgentRef.current != null;
     const toggleDigit = (n: number): boolean | void => {
         const agent = askAgentRef.current;
         if (agent == null) {

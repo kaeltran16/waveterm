@@ -14,12 +14,16 @@ import {
     channelDismissedRunsAtom,
     channelsAtom,
 } from "@/app/view/agents/channelsstore";
-import { getJarvisProfile, pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import { resolveTargetChannel } from "@/app/view/agents/channelderive";
+import { getJarvisProfile, pendingRunDraftAtom, pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
-import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { liveWorkers, resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
+import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
+import { useKeybindings } from "@/app/store/keybindings/store";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ConversationView } from "./conversationview";
 import { GraphPeek } from "./graphpeek";
 import { activeConversationAtom, graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
@@ -57,6 +61,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
     const pendingFocus = useAtomValue(pendingRunFocusAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
+    const pendingDraft = useAtomValue(pendingRunDraftAtom);
+    const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const graphOpen = useAtomValue(graphPeekOpenAtom);
     const setGraphOpen = useSetAtom(graphPeekOpenAtom);
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
@@ -101,6 +107,19 @@ export function Stage({ model }: { model: AgentsViewModel }) {
         }
     }, [pendingFocus, subject, allRuns, setPendingFocus]);
 
+    // land a Radar "Start investigation" draft: put its project's channel on the Stage so the composer
+    // opens on the right one. `landed` is the one-shot guard, so re-navigating never re-routes the user.
+    useEffect(() => {
+        if (pendingDraft == null || pendingDraft.landed) {
+            return;
+        }
+        const target = resolveTargetChannel(channels ?? [], pendingDraft.projectPath);
+        if (target != null) {
+            selectSubject({ kind: "channel", id: target.oid });
+        }
+        setPendingDraft({ ...pendingDraft, landed: true });
+    }, [pendingDraft, channels, setPendingDraft]);
+
     const open = subject != null ? (bandOpen[subject.id] ?? false) : false;
     const tags =
         subject?.kind === "channel" && subject.id === channel?.oid
@@ -116,6 +135,12 @@ export function Stage({ model }: { model: AgentsViewModel }) {
             loadRecordDetail(bandRecordId);
         }
     }, [open, bandRecordId]);
+
+    // the ask card's numbered (1-9) badges + Enter, targeting the shown run's asking worker. A ref keeps the
+    // binding array stable while reading the live worker each render; moved here with the run body it serves.
+    const askAgentRef = useRef<AgentVM | undefined>(undefined);
+    const askBindings = useMemo(() => buildChannelsAskBindings(model, askAgentRef), [model]);
+    useKeybindings(askBindings);
 
     if (subject == null) {
         return (
@@ -142,6 +167,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const runs = allRuns.filter((r) => !dismissed.has(r.id));
     const run = runs.find((r) => r.id === resolveActiveRunId(runs, runIds[subject.id]));
     const bandDetail = subject.kind === "dossier" ? detail : bandRecordId != null ? (bandDetails[bandRecordId] ?? null) : null;
+    askAgentRef.current = run ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
 
     return (
         <div className="relative flex min-w-0 flex-1 flex-col bg-background">

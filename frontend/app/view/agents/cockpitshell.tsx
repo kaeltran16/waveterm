@@ -8,13 +8,10 @@ import { useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
-import { ChannelsSurface } from "./channelssurface";
 import { primeChannels } from "./channelsstore";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
-import { JarvisGraphSurface } from "@/app/view/jarvis/jarvisgraphsurface";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
-import { TasksSurface } from "@/app/view/jarvis/taskssurface";
 import { MemorySurface } from "./memorysurface";
 import { NavRail } from "./navrail";
 import { RadarSurface } from "./radarsurface";
@@ -104,8 +101,6 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <CockpitSurface model={model} />
                         ) : surface === "jarvis" ? (
                             <JarvisSurface model={model} />
-                        ) : surface === "channels" ? (
-                            <ChannelsSurface model={model} />
                         ) : surface === "radar" ? (
                             <RadarSurface model={model} />
                         ) : surface === "files" ? (
@@ -116,10 +111,6 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <UsageSurface model={model} />
                         ) : surface === "memory" ? (
                             <MemorySurface model={model} />
-                        ) : surface === "graph" ? (
-                            <JarvisGraphSurface />
-                        ) : surface === "tasks" ? (
-                            <TasksSurface />
                         ) : surface === "settings" ? (
                             <SettingsSurface model={model} />
                         ) : null}

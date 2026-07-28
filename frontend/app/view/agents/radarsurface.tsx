@@ -179,7 +179,7 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
             return;
         }
         globalStore.set(pendingRunDraftAtom, toPendingRunDraft(report, selectedFinding));
-        globalStore.set(model.surfaceAtom, "channels");
+        globalStore.set(model.surfaceAtom, "jarvis");
     }, [report, selectedFinding, model]);
 
     return (

@@ -7,14 +7,14 @@ import { ITEMS } from "./navrail";
 
 describe("radar navigation", () => {
     it("adds radar without dropping any existing surface", () => {
-        for (const key of ["cockpit", "agent", "channels", "sessions", "files", "memory", "usage"]) {
+        for (const key of ["cockpit", "agent", "jarvis", "sessions", "files", "memory", "usage"]) {
             expect(SURFACE_ORDER).toContain(key);
         }
         expect(SURFACE_ORDER).toContain("radar");
     });
 
-    it("places radar immediately after channels", () => {
-        expect(SURFACE_ORDER.indexOf("radar")).toBe(SURFACE_ORDER.indexOf("channels") + 1);
+    it("places radar immediately after the merged Jarvis surface", () => {
+        expect(SURFACE_ORDER.indexOf("radar")).toBe(SURFACE_ORDER.indexOf("agent") + 1);
     });
 
     it("exposes a radar nav item with a label", () => {

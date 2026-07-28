@@ -1,29 +1,20 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The channel context panel: the right rail with Needs you / Consults / Fleet here. Extracted from
-// channelssurface.tsx. Presentational + light derivation; the needs assembly is the pure buildNeeds.
+// The channel context sections: the Needs-you row, the fleet roster and the Consults body. Once the whole
+// right rail of the Channels surface; now the section bodies the merged Jarvis rail composes, so there is
+// one treatment for each rather than a second copy.
 
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { fireAndForget } from "@/util/util";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { type AgentVM } from "./agentsviewmodel";
 import { dismissWorker } from "./channelactions";
-import { buildNeeds } from "./channelneeds";
 import { WorkerRow } from "./channelsprimitives";
 import { type ConsultStream } from "./channelsstore";
-import { fleetCounts } from "./jarviscards";
-import { buildFleetSnapshot, fleetCostUsd, type WorkerState } from "./jarvisderive";
-import { RAIL_ICON } from "./railicons";
-import { channelRailOpenAtom } from "./railstore";
+import { type WorkerState } from "./jarvisderive";
 
 function consultIdOf(refORef?: string): string | undefined {
     return refORef?.startsWith("consult:") ? refORef.slice("consult:".length) : undefined;
-}
-
-function formatUsd(n: number): string {
-    return `$${n.toFixed(2)}`;
 }
 
 // One compact attention card for the Needs-you list. Clicking it selects the owning run so the full
@@ -227,98 +218,5 @@ export function ConsultsSection({
                 );
             })}
         </div>
-    );
-}
-
-export function ContextPanel({
-    model,
-    channel,
-    agents,
-    runs,
-    consultStreams,
-    onSelectRun,
-    onDispatchConsult,
-}: {
-    model: AgentsViewModel;
-    channel: Channel | null;
-    agents: AgentVM[];
-    runs: Run[];
-    consultStreams: Record<string, ConsultStream>;
-    onSelectRun: (runId: string) => void;
-    onDispatchConsult: (question: string) => void;
-}) {
-    const snapshot = channel ? buildFleetSnapshot(channel, agents) : [];
-    const messages = channel?.messages ?? [];
-    const counts = fleetCounts(snapshot);
-    const costUsd = fleetCostUsd(snapshot);
-
-    const needs = buildNeeds({ runs, messages, agents, snapshot });
-
-    const label = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
-
-    const sections: RailSection[] = [
-        {
-            id: "needs-you",
-            label: needs.length > 0 ? `Needs you · ${needs.length}` : "Needs you",
-            icon: RAIL_ICON.bell,
-            content: (
-                <div>
-                    <div className={label}>Needs you{needs.length > 0 ? ` · ${needs.length}` : ""}</div>
-                    {needs.length === 0 ? (
-                        <div className="flex items-center gap-2 rounded-[10px] border border-border bg-background px-3 py-2.5">
-                            <span className="h-[7px] w-[7px] flex-none rounded-full bg-success" />
-                            <span className="text-[12px] leading-[1.4] text-secondary">All clear — Jarvis is handling routine asks.</span>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col gap-2">
-                            {needs.map((n) => (
-                                <NeedsRow
-                                    key={n.key}
-                                    kind={n.kind}
-                                    source={n.source}
-                                    text={n.text}
-                                    action={n.action}
-                                    onGo={n.runId ? () => onSelectRun(n.runId!) : undefined}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            ),
-        },
-        {
-            id: "consults",
-            label: "Consults",
-            icon: RAIL_ICON.info,
-            content: (
-                <div>
-                    <div className={label}>Consults · Ask-mode results</div>
-                    <ConsultsSection
-                        channelId={channel?.oid}
-                        messages={messages}
-                        streams={consultStreams}
-                        onDispatch={onDispatchConsult}
-                    />
-                </div>
-            ),
-        },
-        {
-            id: "fleet",
-            label: "Fleet here",
-            icon: RAIL_ICON.fleet,
-            content: (
-                <div>
-                    <div className={label}>
-                        Fleet here · {counts.working} working · {counts.waiting} waiting
-                        {costUsd > 0 ? ` · ${formatUsd(costUsd)}` : ""}
-                    </div>
-                    <FleetRoster model={model} snapshot={snapshot} channelId={channel?.oid} />
-                </div>
-            ),
-        },
-    ];
-
-    return (
-        <CollapsibleRail openAtom={channelRailOpenAtom} ariaLabel="Channel context" sections={sections} />
     );
 }

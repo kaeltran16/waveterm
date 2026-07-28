@@ -11,7 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
-import { activeChannelAtom, channelsAtom, selectChannel } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
 import { ITEMS as SURFACE_ITEMS } from "@/app/view/agents/navrail";
 import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
@@ -215,7 +215,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         const ch = targetChannel;
         const fireLaunch = (action: () => Promise<unknown>) => {
             fireAndForget(action);
-            globalStore.set(model.surfaceAtom, "channels"); // surface the result, then close
+            globalStore.set(model.surfaceAtom, "jarvis"); // surface the result, then close
             close();
         };
         const sendText = (text: string) =>
@@ -284,8 +284,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 title: `#${c.name}`,
                 subtitle: c.projectpath ? c.projectpath.split(/[\\/]/).pop() : undefined,
                 run: () => {
-                    fireAndForget(() => selectChannel(c.oid));
-                    globalStore.set(model.surfaceAtom, "channels");
+                    selectSubject({ kind: "channel", id: c.oid });
+                    globalStore.set(model.surfaceAtom, "jarvis");
                     close();
                 },
             })),
