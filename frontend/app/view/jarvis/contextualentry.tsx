@@ -11,7 +11,8 @@ import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
 import type { MemNote } from "../agents/memtypes";
 import type { JarvisScope, SourceRef, SourceType } from "./jarviscontract";
-import { jarvisDraftAtom, jarvisModeAtom, startConversation } from "./jarvisstore";
+import { jarvisDraftAtom, startConversation } from "./jarvisstore";
+import { selectSubject } from "./jarvissubjectstore";
 
 export function sourceRefForRun(run: Run): SourceRef {
     return { oref: WOS.makeORef("run", run.id) ?? `run:${run.id}`, sourceType: "run", title: run.goal };
@@ -51,9 +52,10 @@ export function suggestedPrompt(t: SourceType): string {
 }
 
 export function openJarvisWithSource(model: AgentsViewModel, ref: SourceRef): void {
-    startConversation(attachedScope(ref)); // creates + activates the conversation (jarvisstore)
+    const id = startConversation(attachedScope(ref)); // creates + activates the conversation (jarvisstore)
     globalStore.set(jarvisDraftAtom, suggestedPrompt(ref.sourceType));
-    globalStore.set(jarvisModeAtom, "recall");
+    // the merged surface shows whatever the active *subject* is, so the new thread has to become one
+    selectSubject({ kind: "conversation", id });
     globalStore.set(model.surfaceAtom, "jarvis");
 }
 

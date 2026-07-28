@@ -26,11 +26,6 @@ import type {
 import { FIXTURES, FIXTURE_STATES, type FixtureState } from "./jarvisfixtures";
 import { mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
-export type JarvisMode = "recall" | "fleet";
-
-// session-scoped: which mode the surface shows. Fleet mode is a placeholder in Plan 1 (migrated in Plan 3).
-export const jarvisModeAtom = atom<JarvisMode>("recall");
-
 // which fixture the surface renders. In Plan 2+ this is superseded by a real active-conversation id;
 // kept in Plan 1 as the single source that the dev fixture bar and CDP drive.
 export const activeFixtureAtom = atom<FixtureState>("empty");

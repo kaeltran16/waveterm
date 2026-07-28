@@ -9,6 +9,7 @@ import { cn } from "@/util/util";
 import { useAtom, useSetAtom } from "jotai";
 import { activeFixtureAtom, groundingRailOpenAtom } from "./jarvisstore";
 import { FIXTURE_STATES } from "./jarvisfixtures";
+import { selectSubject } from "./jarvissubjectstore";
 
 export function JarvisFixtureBar() {
     if (!import.meta.env.DEV) return null;
@@ -28,6 +29,9 @@ export function JarvisFixtureBar() {
                     onClick={() => {
                         setActive(s);
                         setRailOpen(s !== "narrow"); // narrow == rail collapsed
+                        // the Stage draws a thread only for a conversation subject, so selecting the
+                        // fixture as one is what makes the state visible at all.
+                        selectSubject({ kind: "conversation", id: s });
                     }}
                     className={cn(
                         "cursor-pointer rounded-[6px] px-2 py-0.5 text-[11px]",

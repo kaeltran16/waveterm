@@ -20,12 +20,8 @@ import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-    activeConversationIdAtom,
-    jarvisModeAtom,
-    startConversation,
-    submitJarvisQuery,
-} from "@/app/view/jarvis/jarvisstore";
+import { startConversation, submitJarvisQuery } from "@/app/view/jarvis/jarvisstore";
+import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
 import { buildAskItems } from "./palette-ask";
 import { buildFocusItems } from "./palette-focus";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
@@ -270,8 +266,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             };
             const id = startConversation(scope);
             submitJarvisQuery(id, question);
-            globalStore.set(activeConversationIdAtom, id);
-            globalStore.set(jarvisModeAtom, "recall");
+            // the merged surface renders the active subject, so the new thread has to become one
+            selectSubject({ kind: "conversation", id });
             globalStore.set(model.surfaceAtom, "jarvis");
             close();
         },
