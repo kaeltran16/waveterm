@@ -33,6 +33,7 @@ import { activeConversationAtom, graphPeekOpenAtom, profileRailOpenAtom } from "
 import {
     activeRunIdAtom,
     activeSubjectAtom,
+    composingRunAtom,
     loadRecordDetail,
     recordBandOpenAtom,
     recordDetailAtom,
@@ -60,6 +61,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const allRuns = useAtomValue(activeChannelRunsAtom);
     const bandOpen = useAtomValue(recordBandOpenAtom);
     const runIds = useAtomValue(activeRunIdAtom);
+    const composingRun = useAtomValue(composingRunAtom);
     const bandDetails = useAtomValue(recordDetailAtom);
     const channels = useAtomValue(channelsAtom);
     const pendingFocus = useAtomValue(pendingRunFocusAtom);
@@ -121,9 +123,13 @@ export function Stage({ model }: { model: AgentsViewModel }) {
         setPendingDraft({ ...pendingDraft, landed: true });
     }, [pendingDraft, channels, setPendingDraft]);
 
+    // a draft run is selected in the Subjects column. It is not a Run yet (the server requires a goal), so
+    // the Stage shows its "start a run" state rather than the run that would otherwise auto-resolve
+    // underneath it — the column highlights the draft, and both must name the same thing.
+    const composing = subject?.kind === "channel" && (composingRun[subject.id] ?? false);
     const open = subject != null ? (bandOpen[subject.id] ?? false) : false;
     const tags =
-        subject?.kind === "channel" && subject.id === channel?.oid
+        subject?.kind === "channel" && subject.id === channel?.oid && !composing
             ? ambient.tagsFor({ oref: "run:" + (resolveActiveRunId(allRuns, runIds[subject.id]) ?? "") })
             : [];
     const band = recordBandCase({ kind: subject?.kind ?? "channel", tags, mentionedIds: [] });
@@ -174,7 +180,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               : conversation.title;
     const subtitle = subject.kind === "channel" ? (channel?.projectpath ?? "") : "";
 
-    const run = allRuns.find((r) => r.id === resolveActiveRunId(allRuns, runIds[subject.id]));
+    const run = composing ? undefined : allRuns.find((r) => r.id === resolveActiveRunId(allRuns, runIds[subject.id]));
     const bandDetail = subject.kind === "dossier" ? detail : bandRecordId != null ? (bandDetails[bandRecordId] ?? null) : null;
     askAgentRef.current = run ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
 
@@ -190,14 +196,17 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 onOpenProfile={() => setProfileOpen((o) => !o)}
                 onOpenGraph={() => setGraphOpen(true)}
             />
-            <RecordBand
-                kind={subject.kind}
-                tags={tags}
-                mentionedIds={comp.recordBand === "mentions" ? mentionedDossierIds(conversation) : []}
-                detail={bandDetail}
-                open={open}
-                onToggle={() => toggleRecordBand(subject.id)}
-            />
+            {/* absent rather than empty: the band speaks about "this run", and a draft has none yet */}
+            {composing ? null : (
+                <RecordBand
+                    kind={subject.kind}
+                    tags={tags}
+                    mentionedIds={comp.recordBand === "mentions" ? mentionedDossierIds(conversation) : []}
+                    detail={bandDetail}
+                    open={open}
+                    onToggle={() => toggleRecordBand(subject.id)}
+                />
+            )}
             {/* one thread slot, three renderers — a sibling of the band above and the overlay below */}
             <div className="flex min-h-0 flex-1 flex-col">
                 {comp.thread === "run" ? (

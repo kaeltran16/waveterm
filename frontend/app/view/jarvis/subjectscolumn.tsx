@@ -39,6 +39,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
+    composingRunAtom,
     persistedSubjectAtom,
     selectSubject,
     setActiveRunId,
@@ -149,6 +150,7 @@ export function SubjectsColumn({
     const agents = useAtomValue(model.agentsAtom);
     const runs = useAtomValue(activeChannelRunsAtom);
     const runIds = useAtomValue(activeRunIdAtom);
+    const composing = useAtomValue(composingRunAtom);
     const active = useAtomValue(activeSubjectAtom);
     const activeSpace = useAtomValue(activeSpaceAtom);
     const spaceScope = useAtomValue(spaceScopeAtom);
@@ -253,8 +255,12 @@ export function SubjectsColumn({
     useSurfaceListNav(listNav);
 
     const isActive = (s: Subject) => (cursorKey ?? activeKey) === `${s.kind}:${s.id}`;
-    // the same resolution the Stage does, so the highlighted row is the run the Stage is showing
-    const activeRunId = active?.kind === "channel" ? resolveActiveRunId(runs, runIds[active.id]) : undefined;
+    // the same resolution the Stage does, so the highlighted row is the run the Stage is showing. A draft
+    // run selected: no real run is highlighted, because the Stage is not showing one either.
+    const activeRunId =
+        active?.kind === "channel" && !composing[active.id]
+            ? resolveActiveRunId(runs, runIds[active.id])
+            : undefined;
 
     const pickProject = (name: string, path: string) => {
         setPicking(false);
@@ -556,6 +562,7 @@ export function SubjectsColumn({
                             // the selected channel shows the live run list; any other channel shows only the
                             // runs the filter matched (nothing when the filter is empty).
                             const rowRuns = selected ? runs : channel != null ? runGoalMatches(channel, filter) : [];
+                            const draft = s.kind === "channel" && selected && (composing[s.id] ?? false);
                             if (channel != null && renamingId === channel.oid) {
                                 return (
                                     <div
@@ -641,8 +648,37 @@ export function SubjectsColumn({
                                     {/* the selected channel expands to its runs — this list is the run switcher.
                                         While filtering, an unselected channel expands to its matching runs
                                         instead, so a run can be found by what it was about. */}
-                                    {s.kind === "channel" && rowRuns.length > 0 ? (
+                                    {s.kind === "channel" && (rowRuns.length > 0 || draft) ? (
                                         <div className="mb-1 ml-[18px] mt-0.5 flex flex-col gap-px border-l border-border pl-2.5">
+                                            {/* the draft run: a row that exists before the Run does. It sits
+                                                selected at the top until a goal is dispatched (which replaces it
+                                                with the real run) or it is discarded. */}
+                                            {draft ? (
+                                                <div className="flex items-center gap-[7px] rounded-[7px] bg-surface-selected px-2 py-[5px]">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => newRun(s.id)}
+                                                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-[7px] text-left"
+                                                    >
+                                                        <span className="h-1.5 w-1.5 flex-none rounded-full border border-muted" />
+                                                        <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-primary">
+                                                            New run
+                                                        </span>
+                                                    </button>
+                                                    <span className="flex-none font-mono text-[9.5px] text-muted">
+                                                        draft
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Discard draft run"
+                                                        title="Discard draft run"
+                                                        onClick={() => setComposingRun(s.id, false)}
+                                                        className="flex-none cursor-pointer font-mono text-[12px] leading-none text-muted hover:text-secondary"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            ) : null}
                                             {rowRuns.map((r) => {
                                                 const view = runStatusView(r.status);
                                                 return (
@@ -653,6 +689,10 @@ export function SubjectsColumn({
                                                             if (!selected) {
                                                                 selectSubject({ kind: "channel", id: s.id });
                                                             }
+                                                            // picking a real run abandons the draft — two
+                                                            // selected rows would be two answers to "what is
+                                                            // the Stage showing"
+                                                            setComposingRun(s.id, false);
                                                             setActiveRunId(s.id, r.id);
                                                         }}
                                                         onContextMenu={(ev) =>

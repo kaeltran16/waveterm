@@ -249,6 +249,9 @@ export function StageComposer({
             }
             attach.clear();
             setRadarDraft(null);
+            // this dispatch also ends any draft run open on the channel — otherwise its row stays in the
+            // Subjects column, selected, holding the Stage off the run this just created.
+            setComposingRun(channel.oid, false);
             fireAndForget(async () => {
                 const created = await createRun(channel.oid, goal, { radarOrigin: radarDraft.radarOrigin });
                 setActiveRunId(channel.oid, created.id);
