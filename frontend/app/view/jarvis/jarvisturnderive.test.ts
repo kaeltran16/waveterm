@@ -13,4 +13,9 @@ describe("terminalBadge", () => {
     it("labels not-found with a muted tone — an absence is not a warning", () => {
         expect(terminalBadge("notfound")).toEqual({ label: "Not found", tone: "muted" });
     });
+
+    it("labels a failed query with an error tone, distinct from weak grounding", () => {
+        expect(terminalBadge("error")).toEqual({ label: "Couldn't reach Jarvis", tone: "error" });
+        expect(terminalBadge("error")).not.toEqual(terminalBadge("weak"));
+    });
 });

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -890,6 +891,41 @@ func SetConnectionsConfigValue(connName string, toMerge waveobj.MetaMapType) err
 	}
 	m[connName] = connData
 	return WriteWaveHomeConfigFile(ConnectionsFile, m)
+}
+
+// samePath compares two registered paths. A project stores its path verbatim and a caller passes whatever
+// the user typed, so the same directory arrives with either slash direction and with or without a trailing
+// one. Case is folded only on Windows: elsewhere two paths differing in case are two directories, and
+// folding would reject a legitimate registration.
+func samePath(a, b string) bool {
+	norm := func(p string) string {
+		return strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(p), `\`, "/"), "/")
+	}
+	a, b = norm(a), norm(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// ProjectNameAtPath reports the project already registered at path, if any. Two projects at one path make
+// the frontend's path->name resolution pick an arbitrary winner, so registration refuses the second rather
+// than the resolver learning a tie-break for data that should not exist.
+func ProjectNameAtPath(path string) (string, bool) {
+	if strings.TrimSpace(path) == "" {
+		return "", false
+	}
+	m, cerrs := ReadWaveHomeConfigFile(ProjectsFile)
+	if len(cerrs) > 0 || m == nil {
+		return "", false
+	}
+	for name := range m {
+		proj := m.GetMap(name)
+		if proj != nil && samePath(proj.GetString("path", ""), path) {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func SetProjectConfigValue(projName string, toMerge waveobj.MetaMapType) error {

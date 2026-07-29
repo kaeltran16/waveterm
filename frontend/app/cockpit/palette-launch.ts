@@ -17,13 +17,13 @@ export interface LaunchItem {
 }
 
 export interface LaunchDeps {
-    dispatch: (runtime: string, goal: string) => void; // Quick: one worker
+    quick: (goal: string) => void; // Quick: a single-phase run, one worker
     run: (goal: string) => void; // managed run, channel strategy
     consult: (runtime: string, goal: string) => void; // Ask: one-shot, no worker
 }
 
 // runStrategy is the channel's resolved Jarvis defaultmode ("pipeline"|"orchestrator"), or
-// undefined before the profile loads — the Run row then labels plain "Run" and resolves at click.
+// undefined before the profile loads — the Run row then labels plain "Run" and the server resolves it.
 // Empty goal or no channel -> []. Otherwise the 4 launch rows, Quick first (preselected by the caller).
 export function buildLaunchItems(
     query: string,
@@ -45,7 +45,7 @@ export function buildLaunchItems(
             suffix: "",
             desc: "one worker · no phases",
             footer: `Spawns a Quick worker on “${goal}” in #${channelName}`,
-            run: () => deps.dispatch("claude", goal),
+            run: () => deps.quick(goal),
         },
         {
             key: "launch:run",

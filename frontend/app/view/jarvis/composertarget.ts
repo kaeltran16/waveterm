@@ -33,7 +33,11 @@ export function resolveComposerTarget(input: TargetInput): ComposerTarget {
     if (input.composerTarget === "worker-or-jarvis") {
         // an explicit @ask beats the live worker: typing it is the user asking Jarvis, not the worker.
         if (cmd.mode === "ask" || input.workerName == null) {
-            return { audience: "jarvis", label: "Jarvis", needsChannelPicker: false };
+            // both reach Jarvis, but Enter does very different things: on a channel with no live worker it
+            // spawns workers and spends money, while @ask is a one-shot consult. A bare "Jarvis" was the
+            // same chip for both, and this line is the only thing telling the user where a keystroke goes.
+            const label = cmd.mode === "ask" ? "Jarvis · consult" : "Jarvis · dispatch";
+            return { audience: "jarvis", label, needsChannelPicker: false };
         }
         return {
             audience: "worker",

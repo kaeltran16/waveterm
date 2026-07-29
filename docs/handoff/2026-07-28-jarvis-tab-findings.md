@@ -4,14 +4,21 @@ Driven against the live dev app over CDP at 1600×1000 on 2026-07-28 (commit `94
 reference for the surface is [`docs/jarvis-tab.md`](../jarvis-tab.md); this is the dated record of one
 verification pass, kept because the reproductions are worth more than the summary.
 
-Findings 1–6 and 11 have been fixed; each carries its resolution inline. The rest are open.
-`docs/jarvis-tab.md` holds the live status table — trust that over this file for what is still true.
+Findings 1–10, 12 and 13 have been fixed; each carries its resolution inline. Only 11's second half remains
+open. `docs/jarvis-tab.md` holds the live status table — trust that over this file for what is still true.
 
 The fixes for findings 3, 4 and 5 were re-verified against the running app the same day by the new
 `jarvis-drawer` scenario — 6/6, plus `jarvis-states` 10/10, `jarvis-fleet` 1/1, `surface-smoke` 7/7. That
 scenario was itself checked by reverting the rail's mount guard, which turns its steps 1–2 red and leaves
 the other four green. Findings 1 and 2 remain covered by reasoning and the unit suite only; neither has a
 CDP scenario, because both need a live worker to reproduce.
+
+**Second pass, same day** — findings 7, 8, 9, 10, 12 and 13 closed. 18 new unit tests, and a new
+`jarvis-subject-state` scenario (8 steps) plus a second step on `jarvis-contextual`; 34/34 across the six
+jarvis scenarios, `npx vitest run` 1370 passed, tsc exit 0, `go test ./pkg/wconfig/ ./pkg/wshrpc/wshserver/`
+ok. Every new step was checked by breaking its fix and confirming only that step reddens — the table in
+`docs/jarvis-tab.md § Verifying` records which revert reddens which step. Still unreachable from CDP: the
+peek focusing a channel or a thread, which needs a run carrying a real attribution edge.
 
 ## Verification table
 
@@ -201,7 +208,26 @@ the trap is for anyone carrying the habit over from the old Channels surface.
 
 ### 7. The graph peek only self-focuses for a record — medium
 
-**OPEN.** The peek's stated contract is that it "opens from an object … rather than on the whole vault", but
+**FIXED.** `peekFocus` (`graphfocus.ts`, pure) resolves what the peek opens on for every subject kind, and
+the Stage passes it in — the Stage already holds the run, the attribution and the thread's attachments, so
+the peek re-deriving any of them would have been a second source of truth. A channel focuses the record its
+active run is attributed to and then the run node itself; a thread focuses its attached run or record, else
+the first record its answers cited. Because `VaultGraph` emits no run nodes, focusing a run means blooming
+its record first and then selecting the run — `selectBloomedRun` does that only if the bloom returned it,
+so the header can never name a node the canvas cannot draw. The record chosen for a channel comes from
+`recordBandCase`, i.e. the one the band already calls primary, rather than a second ranking rule.
+
+Where nothing resolves — an unattributed run, a radar or memory thread, no subject — the overlay now carries
+a **node filter** instead of pretending: radar is not a vault collection and a note's graph id is its vault
+path rather than its oref, so guessing an id would select the wrong node. Selecting a match is enough to see
+it; the canvas already recenters an off-screen selection.
+
+Coverage limit worth stating: the channel and thread paths cannot be reached from a CDP scenario, which
+would need a run carrying a real attribution edge in the vault. They are unit-covered (10 tests over
+`peekFocus`, 3 over `selectBloomedRun`), and `jarvis-subject-state` step 6 guards the record path that
+shares the same effect.
+
+The original reproduction follows. The peek's stated contract is that it "opens from an object … rather than on the whole vault", but
 the focusing effect only fires for `subject?.kind === "dossier"`. Opened from a channel or a thread it shows
 the entire vault — 432 nodes here — with nothing selected and the detail panel reading "Click a node to
 open it." There is no search or filter in the overlay, so finding the node you came from means hunting
@@ -214,14 +240,30 @@ attached source; failing that, add a node filter to the overlay.
 
 ### 8. Two legends in the graph peek — medium
 
-**OPEN.** `GraphPeek`'s header draws a legend (`task run decision memory`, lowercase, dot + label) and the
-embedded `JarvisGraph` draws its own in the bottom-left (`Task Decision Memory Run`, title case, different
-order). Same information, twice, inconsistently. Visible in `03-graph-peek.png`. Drop one — the header's,
-since the canvas legend sits with the thing it labels.
+**FIXED.** The header's legend is gone, along with its `LEGEND` and `KIND_DOT` tables; the canvas keeps its
+own, which sits with the nodes it labels. `jarvis-subject-state` step 4 counts legends structurally (an
+element whose children are exactly the four kind names) and reads 1 — restoring the header's makes it 2.
+
+`GraphPeek`'s header drew a legend (`task run decision memory`, lowercase, dot + label) and the
+embedded `JarvisGraph` drew its own in the bottom-left (`Task Decision Memory Run`, title case, different
+order). Same information, twice, inconsistently. Visible in `03-graph-peek.png`.
 
 ### 9. Composer draft and channel picker are global, not per-subject — medium
 
-**OPEN.** `recordBandOpenAtom` and `activeRunIdAtom` are keyed by subject id precisely so "switching subjects
+**FIXED.** `jarvisDraftAtom` moved to `jarvissubjectstore.ts` beside its keyed siblings as
+`Record<subjectId, string>`, and the picker's flag became `channelPickingAtom` on the same key — component
+state on a component that never unmounts cannot express "belongs to this subject". One draft store now
+serves all three composer faces, which also retired `channelDraft`: the channel's own launch/talk draft was
+`useState` and leaked between channels too, where an Enter would have dispatched a run into the wrong one.
+The orphaned `channelDraftAtom` in `channelsstore.ts` — the pre-consolidation version of exactly this rule,
+zero callers since the Channels surface went — was deleted rather than rewired, as `@jarvis` was.
+
+`contextualentry` primes the suggested prompt under the *new thread's* key rather than a shared one.
+
+Covered by `jarvis-subject-state` steps 1–3. Step 2 (returning restores the draft) exists because clearing
+the box on every switch would satisfy step 1 alone.
+
+`recordBandOpenAtom` and `activeRunIdAtom` are keyed by subject id precisely so "switching subjects
 returns each one to the state it was in". `jarvisDraftAtom` is a single string, and the channel picker's
 `picking` flag is `useState` on a component that never unmounts. Switching threads therefore carries a
 half-typed question — and an open "Dispatch into which channel?" prompt — into the next subject.
@@ -233,7 +275,16 @@ Fix: key `jarvisDraftAtom` by subject id like its siblings, and clear `picking` 
 
 ### 10. The record fleet line overflows the rail — medium
 
-**OPEN.** `countsLine` for a record subject is `"N working · across M channels"` inside a `whitespace-nowrap`
+**FIXED**, both halves. The text: `countsLine` became `fleetCountsLine` in `fleetscope.ts` (pure, unit-tested
+against a documented ~24-character budget derived from the 264px content box minus the title), and the record
+variant reads `N working · M channels`. The layout: the title takes `min-w-0 truncate` and the counts
+`flex-none`, so the title yields and the counts hold their line at any count — a clipped count reads as a
+smaller fleet than the real one, which is the one thing this row must not do.
+
+`jarvis-subject-state` step 7 measures the span's right edge against the rail's on a record subject: −18px
+inside after the fix, +77px past it with the old line restored.
+
+`countsLine` for a record subject was `"N working · across M channels"` inside a `whitespace-nowrap`
 span that also shares its row with the `Fleet · on this record` title. At the rail's fixed 300px it runs off
 the edge.
 
@@ -260,18 +311,59 @@ narrow window lands in.
 
 ### 12. The Subjects column is unbounded — low
 
-**OPEN.** 18 records and 20 threads render as one flat scroll with no cap, no "show more", no recency
-grouping and no delete or archive. Every ask that starts a new conversation adds a permanent row: four
-distinct questions occupied 12 rows because each was asked 2–3 times. (8 of the 20 threads were fixtures —
-finding 2 — so the real count is lower, but the unbounded growth is real.)
+**FIXED at the cause; the delete/archive half deliberately not built** (gaps 12b/12c in
+`docs/jarvis-tab.md`). The reported symptom was *duplicate* rows, not too many distinct ones, and it had a
+specific cause: `askAboutRecord` already kept one thread per record via `recordConversationAtom`, while
+`openJarvisWithSource` — the Run / Radar / Memory entry — minted a new conversation on every click. Two
+changes, both frontend-only:
 
-Fix: at minimum a delete/archive action per thread; ideally collapse the older tail behind a count the
-way the run list does.
+- **One thread per source.** That atom generalised to `sourceConversationAtom`, keyed by the source's oref,
+  with `conversationForSource` serving every "ask about this object" entry — `askAboutRecord`,
+  `openJarvisWithSource`, and the graph peek's *Ask Jarvis about this node*, which was minting per click for
+  the same reason. Asking about the same Run twice continues one thread. A mapping can outlive its thread, so
+  a dead id mints a fresh one rather than submitting into a conversation nothing holds any more — which would
+  have been a silent no-op.
+- **Unasked threads are dropped.** `+ Thread` and every contextual entry create the conversation up front,
+  so an unasked one is a false start titled "New conversation". `selectSubject` prunes it on the way out,
+  with its draft and its source mapping. Safe because `CreateJarvisConversation` fires on the *first* turn
+  (`wshserver_jarvis.go:215-218`) — a turnless conversation has never reached the store, so there is nothing
+  to delete server-side and no RPC to add. The prune is narrow by design: an id the live map does not hold
+  is left alone, since a persisted thread clicked before its WOS load lands is *absent*, not empty (and a
+  persisted one always has turns).
+
+Deliberately **not** done: a delete/archive control and a collapsed older tail. Both were on the table; both
+were declined for now on the same reasoning — what remains after deduping is one row per genuinely distinct
+question, which is real history, and an explicit delete needs a new wshrpc command plus a wstore delete
+(`ListJarvisConversations` exists; nothing removes one). Revisit on evidence that the column still grows past
+comfort. The dedup is also session-scoped (12c): the map is not persisted and the summary carries no attached
+orefs, so the same Run asked about after a restart starts a second thread.
+
+`jarvis-contextual` covers the reuse (two Ask-Jarvis clicks, one row; minting per click makes the count
+climb) and `jarvis-subject-state` step 8 the prune (three `+ Thread` clicks, one row).
+
+Original reproduction: 18 records and 20 threads rendered as one flat scroll with no cap, no "show more", no
+recency grouping and no delete or archive. Four distinct questions occupied 12 rows because each was asked
+2–3 times. (8 of the 20 threads were fixtures — finding 2 — so the real count was lower, but the unbounded
+growth was real.)
 
 ### 13. `projectNameFor` picks an arbitrary winner on a path collision — low
 
-**OPEN — bad data, not a defect.** `Object.entries(projects).find(...)` returns the first project whose path
-matches, with no tie-break. The dev config registers two projects at the same path:
+**FIXED at the boundary; the resolver untouched.** `CreateProjectCommand` now refuses a path already
+registered under a different name, and says which project holds it — otherwise the user cannot tell what to
+delete. The lookup is `wconfig.ProjectNameAtPath`, comparing separator- and trailing-slash-insensitively, and
+case-insensitively **only** on Windows: elsewhere two paths differing in case are two directories, and
+folding would refuse a legitimate registration. Re-registering the same project at its own path stays an
+update, because the launcher persists a live-derived project on first launch and must not start failing once
+it is registered (`TestCreateProjectCommandAllowsReregisteringItself` pins that).
+
+`projectNameFor` was left alone on purpose: a tie-break there would teach the resolver to cope with data that
+should not exist. Two notes — the guard needs `task build:backend` to take effect in a running dev app, and it
+does not clean an existing duplicate. The dev config's `rw-test-checkpoint` still shadows `waveterm` until
+removed by hand (Cockpit → project switcher → remove); channels store `projectpath` rather than the project
+name, so removing it just moves the group header to `WAVETERM`.
+
+`Object.entries(projects).find(...)` returns the first project whose path
+matches, with no tie-break. The dev config registered two projects at the same path:
 
 ```json
 { "rw-test-checkpoint": { "path": "C:/Users/kael02/IdeaProjects/waveterm" },
@@ -283,3 +375,15 @@ screenshot from this pass). The resolution is silent and non-deterministic in or
 
 The suggested fix in the original write-up — prefer an exact name match — is worse than the disease: it
 adds a special case to paper over duplicate registration. Validate at registration or dedupe the config.
+
+### Verification table, second pass
+
+| Check | Result |
+|---|---|
+| `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit` | exit 0 |
+| `npx vitest run` (whole frontend) | 1370 passed, 2 skipped, 0 failed |
+| `npx vitest run frontend/app/view/jarvis/` | 20 files, 153 tests, all pass |
+| `go test ./pkg/wconfig/ ./pkg/wshrpc/wshserver/` | ok, ok |
+| `npx eslint frontend/app/view/jarvis/ scripts/cdp/scenarios.mjs` | 2 pre-existing hits, none new |
+| `task verify:ui -- surface-smoke jarvis-states jarvis-fleet jarvis-contextual jarvis-drawer jarvis-subject-state` | 34/34 |
+| every new CDP step reddens when its own fix is broken | confirmed, step by step |

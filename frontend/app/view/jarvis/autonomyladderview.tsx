@@ -31,7 +31,11 @@ export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; t
                                 state === "off" && "border-transparent bg-transparent text-muted"
                             )}
                         >
-                            <span className="text-[10.5px] font-bold">{rung.label}</span>
+                            {/* the ladder yields before the subject's name does (JC12): under pressure the
+                                rungs drop to their bars — each keeps its title tooltip — and the dispatch
+                                strip below goes next. Container-relative, so it tracks the header's real
+                                width rather than a window breakpoint. */}
+                            <span className="text-[10.5px] font-bold @max-[820px]:hidden">{rung.label}</span>
                             {/* the bar grows with the rung so the ladder reads as accumulation, not as a picker */}
                             <span
                                 className={cn("w-full rounded-[2px]", state === "off" ? "bg-edge-mid" : "bg-accent")}
@@ -42,7 +46,7 @@ export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; t
                 })}
             </div>
             {showsDispatchMode(tier) ? (
-                <div className="ml-1 flex items-center gap-0.5 border-l border-border pl-1.5">
+                <div className="ml-1 flex items-center gap-0.5 border-l border-border pl-1.5 @max-[640px]:hidden">
                     {DISPATCH_MODES.map((m) => (
                         <button
                             key={m}

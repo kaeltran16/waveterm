@@ -8,6 +8,7 @@
 import { cardVariants } from "@/app/element/motiontokens";
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
+import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
 import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -76,6 +77,10 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                     <div className="mt-0.5 truncate text-[16px] font-bold tracking-[-.01em] text-primary">{run.goal}</div>
                 </div>
                 <div className="flex-1" />
+                {/* the only Ask Jarvis for a sealed run: this surface replaces RunBody's header, which is
+                    where the button otherwise lives — so without it the Run -> Jarvis entry existed only
+                    while a run was still unsealed, i.e. never for a run worth asking about. */}
+                <AskJarvisButton model={model} sourceRef={sourceRefForRun(run)} label="Ask Jarvis" />
                 <div className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-3 py-[5px]">
                     <span className="text-[12px] text-success">✓</span>
                     <span className="font-mono text-[11px] font-bold uppercase tracking-[.02em] text-success">Done</span>

@@ -9,7 +9,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import type { JarvisAnswerTurn } from "./jarviscontract";
 import { isCitation } from "./jarviscontract";
-import { terminalBadge } from "./jarvisturnderive";
+import { terminalBadge, type TerminalBadge } from "./jarvisturnderive";
 import { openORef } from "./openref";
 import { groundingByN } from "./recallderive";
 
@@ -42,20 +42,45 @@ export function JarvisUserTurn({ text }: { text: string }) {
     );
 }
 
-export function JarvisAnswer({ turn, model }: { turn: JarvisAnswerTurn; model: AgentsViewModel }) {
+const BADGE_TONE: Record<TerminalBadge["tone"], string> = {
+    warning: "border-warning/40 bg-warning/10 text-warning",
+    error: "border-error/40 bg-error/10 text-error",
+    muted: "border-border text-muted",
+};
+
+export function JarvisAnswer({
+    turn,
+    model,
+    onRetry,
+}: {
+    turn: JarvisAnswerTurn;
+    model: AgentsViewModel;
+    onRetry?: () => void;
+}) {
     const byN = groundingByN(turn.grounding);
     const badge = terminalBadge(turn.terminal);
     return (
         <div className="max-w-[720px]">
             <JarvisWorkingSteps turn={turn} />
             {badge != null ? (
-                <div
-                    className={cn(
-                        "mb-2 inline-flex items-center gap-2 rounded-[7px] border px-2.5 py-1 text-[11.5px] font-semibold",
-                        badge.tone === "warning" ? "border-warning/40 bg-warning/10 text-warning" : "border-border text-muted"
-                    )}
-                >
-                    {badge.label}
+                <div className="mb-2 flex items-center gap-2">
+                    <span
+                        className={cn(
+                            "inline-flex items-center gap-2 rounded-[7px] border px-2.5 py-1 text-[11.5px] font-semibold",
+                            BADGE_TONE[badge.tone]
+                        )}
+                    >
+                        {badge.label}
+                    </span>
+                    {turn.terminal === "error" && onRetry != null ? (
+                        <button
+                            type="button"
+                            onClick={onRetry}
+                            className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11px] text-muted hover:border-edge-strong hover:text-secondary"
+                        >
+                            Retry
+                        </button>
+                    ) : null}
                 </div>
             ) : null}
             <p className="text-[14.5px] leading-[1.65] text-secondary">

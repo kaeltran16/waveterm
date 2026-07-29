@@ -21,15 +21,15 @@ import { createRun, pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import { spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { fleetForRecord } from "./fleetscope";
+import { fleetCountsLine, fleetForRecord } from "./fleetscope";
 import { groundingSection, hasGroundingAnswer } from "./groundingrail";
 import { activeConversationAtom, conversationsByIdAtom, profileRailOpenAtom, stageRailOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
-    recordConversationAtom,
     recordScopeAtom,
     selectSubject,
     setActiveRunId,
+    sourceConversationAtom,
 } from "./jarvissubjectstore";
 import { ProfilePanel } from "./profilepanel";
 import { buildRailNeeds } from "./railneeds";
@@ -37,10 +37,6 @@ import type { StageComposition } from "./stagecompose";
 import { useFleetSummary } from "./usefleetsummary";
 
 const LABEL = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
-
-function formatUsd(n: number): string {
-    return `$${n.toFixed(2)}`;
-}
 
 // comp is null when no subject is selected. The rail still mounts: Needs you is the surface's attention
 // channel and its contract is "always drawn, never filtered" — an ask that is only visible once the user
@@ -55,7 +51,7 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
     const consultStreams = useAtomValue(consultStreamsAtom);
     const spaceScope = useAtomValue(spaceScopeAtom);
     const conversation = useAtomValue(activeConversationAtom);
-    const convIdByRecord = useAtomValue(recordConversationAtom);
+    const convIdBySource = useAtomValue(sourceConversationAtom);
     const convsById = useAtomValue(conversationsByIdAtom);
     const recordScopes = useAtomValue(recordScopeAtom);
     const profileOpen = useAtomValue(profileRailOpenAtom);
@@ -90,16 +86,16 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
     const snapshot: WorkerState[] =
         recordFleet != null ? recordFleet.workers : channelForDerive != null ? buildFleetSnapshot(channelForDerive, agents) : [];
     const counts = fleetCounts(snapshot);
-    const costUsd = fleetCostUsd(snapshot);
-    const countsLine =
-        recordFleet != null
-            ? `${counts.working} working · across ${recordFleet.channelCount} channel${recordFleet.channelCount === 1 ? "" : "s"}`
-            : `${counts.working} working · ${counts.waiting} waiting${costUsd > 0 ? ` · ${formatUsd(costUsd)}` : ""}`;
+    const countsLine = fleetCountsLine(counts, fleetCostUsd(snapshot), recordFleet);
 
     // grounding follows the Stage's thread: a conversation subject shows its own answers, a record shows
     // the answers to what was asked about it. A channel has no Jarvis thread of its own.
     const stageConversation =
-        recordId != null ? convsById[convIdByRecord[recordId] ?? ""] : comp?.thread === "turns" ? conversation : undefined;
+        recordId != null
+            ? convsById[convIdBySource["task:" + recordId] ?? ""]
+            : comp?.thread === "turns"
+              ? conversation
+              : undefined;
 
     const sections: RailSection[] = [
         {
@@ -180,12 +176,13 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
             icon: RAIL_ICON.fleet,
             content: (
                 <div>
+                    {/* the counts hold their line and the title yields: at 300px the two together can
+                        exceed the row, and a clipped count ("…across 0 ch") misreads as a smaller fleet. */}
                     <div className="mb-2 flex items-center gap-2">
-                        <span className="whitespace-nowrap font-mono text-[9px] uppercase tracking-[.09em] text-muted">
+                        <span className="min-w-0 truncate font-mono text-[9px] uppercase tracking-[.09em] text-muted">
                             {comp.fleetTitle}
                         </span>
-                        <div className="flex-1" />
-                        <span className="whitespace-nowrap font-mono text-[9.5px] font-semibold text-success">
+                        <span className="ml-auto flex-none whitespace-nowrap font-mono text-[9.5px] font-semibold text-success">
                             {countsLine}
                         </span>
                     </div>

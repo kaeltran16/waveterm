@@ -43,6 +43,18 @@ export function selectNode(id: string | null): void {
     globalStore.set(graphSelectedIdAtom, id);
 }
 
+// Select a run node, but only if the bloom that would carry it actually returned it. VaultGraph emits no
+// run nodes, so a run is selectable only through its record's bloom — selecting an id with no node behind
+// it would leave the overlay claiming a selection the canvas cannot draw.
+export function selectBloomedRun(dossierId: string, runORef: string): boolean {
+    const bloom = globalStore.get(graphBloomAtom).get(dossierId);
+    if (!bloom?.runs?.some((r) => r.id === runORef)) {
+        return false;
+    }
+    selectNode(runORef);
+    return true;
+}
+
 export async function focusDossier(dossierId: string): Promise<void> {
     globalStore.set(graphSelectedIdAtom, dossierId);
     const bloom = globalStore.get(graphBloomAtom);

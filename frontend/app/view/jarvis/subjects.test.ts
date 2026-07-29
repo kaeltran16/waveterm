@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { GroundingCard, JarvisConversation } from "./jarviscontract";
-import { buildSubjectGroups, subjectMark, type SubjectInput } from "./subjects";
+import {
+    buildSubjectGroups,
+    filterSubjectGroups,
+    runGoalMatches,
+    subjectMark,
+    type SubjectInput,
+} from "./subjects";
 
-function ch(oid: string, name: string, project: string): Channel {
-    return { oid, name, projectpath: "/p/" + project } as unknown as Channel;
+function ch(oid: string, name: string, project: string, archived = false, goals: string[] = []): Channel {
+    return {
+        oid,
+        name,
+        projectpath: "/p/" + project,
+        meta: archived ? { archived: true } : {},
+        runs: goals.map((goal, i) => ({ id: `${oid}-r${i}`, goal })),
+    } as unknown as Channel;
 }
 
 function dos(id: string, objective: string, status: string): SpaceSummary {
@@ -43,6 +55,17 @@ describe("subjectMark", () => {
         expect(subjectMark("channel")).toBe("#");
         expect(subjectMark("dossier")).toBe("▤");
         expect(subjectMark("conversation")).toBe("~");
+    });
+});
+
+describe("runGoalMatches", () => {
+    it("matches a run by its goal, case-insensitively", () => {
+        const c = ch("c1", "checkout", "payments", false, ["Fix the coupon rounding", "bump deps"]);
+        expect(runGoalMatches(c, "COUPON").map((r) => r.goal)).toEqual(["Fix the coupon rounding"]);
+    });
+
+    it("matches nothing for an empty query — an empty filter is not a match-all run list", () => {
+        expect(runGoalMatches(ch("c1", "checkout", "payments", false, ["anything"]), "  ")).toEqual([]);
     });
 });
 
@@ -93,6 +116,44 @@ describe("buildSubjectGroups", () => {
             spaceDossierId: null,
         });
         expect(groups.map((g) => g.key)).toEqual(["project:payments"]);
+    });
+
+    it("moves archived channels out of their project group into one trailing Archived group", () => {
+        const groups = buildSubjectGroups({
+            ...BASE,
+            channels: [ch("c1", "checkout-revamp", "payments"), ch("c2", "rate-limits", "platform", true)],
+        });
+        expect(groups.map((g) => g.key)).toEqual(["project:payments", "dossiers", "threads", "archived"]);
+        expect(groups.at(-1)!.items.map((i) => i.id)).toEqual(["c2"]);
+        expect(groups.at(-1)!.label).toBe("Archived · 1");
+    });
+
+    it("omits the Archived group when nothing is archived", () => {
+        expect(buildSubjectGroups(BASE).map((g) => g.key)).not.toContain("archived");
+    });
+
+    it("keeps a channel whose run goal matches, even when its own label does not", () => {
+        const channels = [
+            ch("c1", "checkout-revamp", "payments", false, ["fix the coupon rounding"]),
+            ch("c2", "rate-limits", "platform"),
+        ];
+        const groups = buildSubjectGroups({ ...BASE, channels });
+        const shown = filterSubjectGroups(groups, "coupon rounding", channels);
+        expect(shown.flatMap((g) => g.items.map((i) => i.id))).toEqual(["c1"]);
+    });
+
+    it("still matches subject labels, and drops a channel matching neither", () => {
+        const channels = [ch("c1", "checkout-revamp", "payments", false, ["fix the coupon rounding"])];
+        const groups = buildSubjectGroups({ ...BASE, channels });
+        expect(filterSubjectGroups(groups, "checkout", channels).flatMap((g) => g.items.map((i) => i.id))).toContain(
+            "c1"
+        );
+        expect(filterSubjectGroups(groups, "zzz", channels)).toEqual([]);
+    });
+
+    it("returns the groups untouched for an empty query", () => {
+        const groups = buildSubjectGroups(BASE);
+        expect(filterSubjectGroups(groups, "   ", BASE.channels)).toBe(groups);
     });
 
     it("passes everything through when the Space is revealed — the show-all escape hatch", () => {

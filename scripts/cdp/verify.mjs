@@ -16,6 +16,14 @@ if (!chosen.length) {
 const h = await attach();
 console.log(`attached to ${h.url}`);
 
+// Pin the viewport so a scenario's result does not depend on how wide the developer left the dev window.
+// The Jarvis surface is width-responsive (jarvislayout.ts): below ~1290px its context rail closes and
+// below ~1034px the Subjects column drops to status dots, so a run in a 1000px window was asserting
+// against a different layout than a run in a 1920px one. Scenarios that drive width themselves override
+// this and restore it in teardown.
+const VERIFY_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_VIEWPORT);
+
 const results = [];
 for (const scenario of chosen) {
     let ctx;
@@ -33,8 +41,11 @@ for (const scenario of chosen) {
         } catch (e) {
             console.error(`teardown failed for ${scenario.name}: ${e?.message ?? e}`);
         }
+        // a scenario that drove width leaves the override where it put it; restore the pin for the next one
+        await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_VIEWPORT).catch(() => {});
     }
 }
+await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
 h.close();
 
 console.log(formatResults(results));

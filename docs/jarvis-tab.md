@@ -74,7 +74,17 @@ list.
   ![Filtering subjects](images/jarvis-tab/12-subject-filter.png)
 - **`+ Channel`** — pick a registered project, then name the channel (Enter creates, Esc backs out).
   ![New channel picker](images/jarvis-tab/13-new-channel-picker.png)
-- **`+ Thread`** — creates an empty `all`-scope conversation and selects it.
+  A channel's group header comes from `projectNameFor`, which resolves by path — so two projects registered
+  at one path used to file a channel under an arbitrary one of them. `CreateProjectCommand` now refuses a
+  path already registered under another name, naming the project that holds it; the resolver stayed
+  tie-break-free, because the fix for data that should not exist belongs at the boundary that admits it.
+- **`+ Thread`** — creates an empty `all`-scope conversation and selects it. A thread nobody asked anything
+  in is a false start and is dropped when you leave it (`pruneEmptyConversation`), so clicking `+ Thread`
+  three times leaves one row, not three. Nothing durable is lost: the backend record is created by the
+  *first* turn, so a turnless conversation has never reached the store.
+- **One thread per source** — asking about the same Run, finding, note, record or graph node twice continues
+  the same thread (`conversationForSource`, keyed by the source's oref) instead of minting a second identical
+  row. Every "ask about this object" entry goes through it. Session-scoped; see gap 12c.
 - **Row signals** — an `asking` dot and a `N▶` working count per channel, both from the same fleet
   snapshot the rail and the nav badge use, so a lit dot and a counted ask never disagree.
 - **Run switcher** — the selected channel expands inline to its runs, each with a status dot and label.
@@ -201,6 +211,11 @@ right on a channel but would make every plain sentence demand a channel elsewher
 
 ![Channel picker for an off-channel @run](images/jarvis-tab/10-composer-channel-picker.png)
 
+The draft and that picker are both **keyed by subject id** (`jarvisDraftAtom`, `channelPickingAtom`), so
+neither follows the user off the subject it belongs to. The box is one box that retargets, but what is
+half-typed in it belongs to the subject it was typed on — and an Enter on a carried-over `@run` would have
+dispatched against the wrong subject.
+
 Attachments go through `useComposerAttachments`; scope chips above the box show what a contextual entry
 attached.
 
@@ -217,10 +232,14 @@ absent, but Needs you must not wait on the user selecting something.
 2. **Consults** — channel only. Ask-mode results, with a "dispatch this" action per consult.
 3. **Sources** — when the Stage's thread has answered. Grounding cards with source type, title, project,
    age and freshness; clicking one opens the source in its native surface.
-4. **Fleet** — channel: `N working · M waiting · $cost`. Record: rolled up across every channel owning an
-   attributed run (`fleetscope.ts`), deduped by worker oref. `Summarize the fleet` streams a Jarvis
-   summary **into the rail**, so the user never leaves the subject they are on. It is the only way to ask
-   for one: the `@jarvis` handle the consolidation orphaned was deleted rather than rewired.
+4. **Fleet** — channel: `N working · M waiting · $cost`. Record: `N working · M channels`, rolled up across
+   every channel owning an attributed run (`fleetscope.ts`), deduped by worker oref. Both come from
+   `fleetCountsLine`, which keeps the record variant inside a ~24-character budget because the line shares
+   its row with the section title in a 264px content box; the title truncates and the counts hold their
+   line, since a clipped count (`…across 0 ch`) reads as a smaller fleet than the real one.
+   `Summarize the fleet` streams a Jarvis summary **into the rail**, so the user never leaves the subject
+   they are on. It is the only way to ask for one: the `@jarvis` handle the consolidation orphaned was
+   deleted rather than rewired.
 
 ## 8. Autonomy ladder
 
@@ -267,7 +286,25 @@ rail. You enter it from an object and leave it by opening one; every action clos
 something.
 
 - Force-directed vault graph (`jarvisgraph.tsx`, lazy `react-force-graph-2d`), node kinds task / run /
-  decision / memory.
+  decision / memory. **One** legend, drawn by the canvas in its bottom-left, sitting with the nodes it
+  labels — the header used to draw a second one in a different case and order.
+- **What it opens on** is `peekFocus` (`graphfocus.ts`, pure), resolved by the Stage because the Stage
+  already holds the run, the attribution and the thread's attachments:
+
+  | Subject | Focus |
+  |---|---|
+  | `dossier` | that record |
+  | `channel` | the record its active run is attributed to, then the run node itself |
+  | `conversation` | its attached run or record, else the first record its answers cited |
+
+  A run node exists only inside its record's attribution bloom — `VaultGraph` emits no runs — so focusing
+  a run means blooming that record first and then selecting the run, which `selectBloomedRun` does only if
+  the bloom actually returned it. The record it blooms for a channel is the one the record band already
+  calls primary (`peekFocus` reuses `recordBandCase`, so the two cannot disagree about the same run).
+- **Nothing to focus** is a real state: an unattributed run, a radar or memory thread (radar is not a vault
+  collection, and a note's graph id is its vault path, not its oref), or no subject at all. The overlay says
+  so and offers a **node filter** rather than guessing at an id — 400+ nodes with nothing selected was the
+  reported defect. Selecting a match is enough to see it: the canvas recenters an off-screen selection.
 - Selecting a node shows its kind, label, status and **edges**, each drawn with its attribution style
   (dashed/width/opacity) or marked `wikilink`.
 - Actions: *Open run on the Stage*, *Open record*, *Ask Jarvis about this node* (starts an
@@ -296,8 +333,10 @@ arrived and marks the turn `weak`.
 
 ## 12. Entry points from other surfaces
 
-`contextualentry.ts` builds a `SourceRef`, starts an `attached`-scope conversation with a suggested
-prompt pre-filled, makes it the active subject, and flips to Jarvis.
+`contextualentry.ts` builds a `SourceRef`, opens the `attached`-scope conversation **for that source** with
+a suggested prompt pre-filled, makes it the active subject, and flips to Jarvis. Opened, not created: the
+thread is keyed by the source's oref, so asking about the same Run twice continues one thread instead of
+leaving two identical rows, neither carrying the other's answers.
 
 | From | Chip | Suggested prompt |
 |---|---|---|
@@ -332,15 +371,20 @@ value is a module atom, never component state.
 | `activeSubjectAtom` | `{kind, id}` | no |
 | `recordBandOpenAtom` | keyed **by subject id** | no |
 | `activeRunIdAtom` | keyed **by subject id** | no |
+| `jarvisDraftAtom` | keyed **by subject id** | no |
+| `channelPickingAtom` | keyed **by subject id** | no |
 | `composingRunAtom` | keyed **by channel id** | no |
 | `recordScopeAtom` / `recordRunsAtom` / `recordDetailAtom` | keyed by dossier id | no |
-| `recordConversationAtom` | dossier id → conversation id | no |
-| `subjectFilterAtom`, `jarvisDraftAtom` | single value | no |
+| `sourceConversationAtom` | source oref → conversation id | no |
+| `subjectFilterAtom` | single value | no |
 | `stageRailOpenAtom` | bool, default **open** | localStorage |
 | `graphPeekOpenAtom`, `profileRailOpenAtom` | bool | no |
 | `conversationsByIdAtom` / `persistedSummariesAtom` | conversations | backend |
 
-Keying by subject id is deliberate: switching subjects must return each one to the state it was in.
+Keying by subject id is deliberate: switching subjects must return each one to the state it was in. The
+draft and the channel picker are in that list because they were not — a half-typed question followed the
+user to the next subject, where one Enter would have dispatched it against the wrong one. One draft store
+serves all three composer faces: on a channel the subject id *is* the channel oid.
 
 ## 15. Dev fixtures
 
@@ -358,33 +402,44 @@ is what used to leak fixture scope chips onto records nobody had asked anything 
 
 ## Known gaps
 
-Open items only. Full reproductions, and the seven findings closed on 2026-07-28, are in the dated record at
+Open items only. Full reproductions, and the twelve findings closed on 2026-07-28, are in the dated record at
 [`docs/handoff/2026-07-28-jarvis-tab-findings.md`](handoff/2026-07-28-jarvis-tab-findings.md).
 
 | # | Gap | Severity |
 |---|---|---|
-| 7 | The graph peek only self-focuses for a record. From a channel or thread it opens on the whole vault with nothing selected and no filter. | medium |
-| 8 | Two legends in the graph peek — one in `GraphPeek`'s header, one in `JarvisGraph`'s canvas, differing in case and order. | medium |
-| 9 | `jarvisDraftAtom` and the channel picker's `picking` flag are global, not keyed by subject, so a half-typed draft and an open picker follow you to the next subject. | medium |
-| 10 | The record variant of the rail's fleet line (`N working · across M channels`) is `whitespace-nowrap` and overflows the 300px rail. | medium |
-| 11b | There is still no genuine narrow-window rule. The `narrow` fixture now collapses the rail, but a genuinely narrow window does not. | low |
-| 12 | The Subjects column is unbounded — no cap, no recency grouping, no delete or archive. | low |
-| 13 | `projectNameFor` picks an arbitrary winner when two projects register the same path. Bad data rather than a defect; fix by validating at registration, not by special-casing the resolver. | low |
+| 11b | There is still no genuine narrow-window rule. The `narrow` fixture now collapses the rail, but a genuinely narrow window does not. At ~1000px the peek's canvas is squeezed to roughly 140px beside its 288px panel and the 300px rail. | low |
+| 12b | A thread is deduped per source and pruned when unasked, but there is still no delete or archive, and no recency grouping: one genuinely distinct question is one permanent row. Revisit if the column still grows past comfort — deleting needs a wshrpc command and a wstore delete, neither of which exists. | low |
+| 12c | The per-source dedup is session-scoped. `sourceConversationAtom` is not persisted and `ListJarvisConversations` returns no attached orefs, so asking about the same Run after a restart starts a second thread. Cross-session dedup needs the summary to carry its attachments. | low |
 | — | The last subject is not persisted, so a launch always lands on the empty Stage. Restoring one needs validation against subject lists that load asynchronously — a deliberate piece of work, not a bolt-on. | low |
 
 ### Verifying
 
 Unit tests cover the pure seams (`npx vitest run frontend/app/view/jarvis/`). They cannot see this surface's
-most common defect class — a bad hop *between* atoms, which is what findings 1, 3, 4 and 5 all were, live
-while 1353 tests were green. For those, drive the running app:
+most common defect class — a bad hop *between* atoms, which is what findings 1, 3, 4, 5 and 9 all were, live
+while the unit suite was green. For those, drive the running app:
 
 ```
-task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet
+task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet jarvis-subject-state jarvis-contextual
 ```
 
-`jarvis-drawer` is the regression net for the drawer's scope and dismissal and for Needs-you-without-a-subject.
-It was checked against the pre-fix code: reverting the rail's mount guard turns steps 1–2 red and nothing else,
-so the scenario fails for the reason it claims to.
+Three scenarios are the regression nets for that class, and each was checked by breaking the fix and watching
+the right steps go red — a green scenario that cannot fail is not a net:
+
+| Scenario | Covers | Checked against |
+|---|---|---|
+| `jarvis-drawer` | drawer scope + dismissal, Needs you with no subject | reverting the rail's mount guard turns steps 1–2 red, nothing else |
+| `jarvis-subject-state` | draft + picker per subject, one legend, peek focus, fleet line, unasked threads | a global draft/picker reddens 1 and 3; restoring the header legend reddens 4; the old `across M channels` line reddens 7 at 77px past the rail; skipping the prune reddens 8 |
+| `jarvis-contextual` | one thread per source | minting per click makes the thread count climb |
+
+What CDP does **not** cover here: the peek focusing a *channel* or a *thread* needs a run with a real
+attribution edge in the vault, which cannot be arranged from a scenario — `peekFocus` and `selectBloomedRun`
+carry that in unit tests, and step 6 guards the record path they share. Findings 1 and 2 are likewise
+reasoning + unit only; both need a live worker to reproduce.
+
+The Go side of finding 13 lives in `pkg/wconfig` (`ProjectNameAtPath`) and `pkg/wshrpc/wshserver`
+(`CreateProjectCommand`); run `go test ./pkg/wconfig/ ./pkg/wshrpc/wshserver/` with the CGO flags the
+Taskfile sets. A registration guard needs a **backend rebuild** (`task build:backend`) to take effect in a
+running dev app.
 
 One gotcha when writing assertions here: rail and section headings are Tailwind `uppercase`, and `innerText`
 applies `text-transform`, so the DOM reads `NEEDS YOU`. Match case-insensitively. The rail's `aria-label` is on

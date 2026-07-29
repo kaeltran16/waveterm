@@ -8,7 +8,8 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { PeekFocus } from "./graphfocus";
 import type { SourceType } from "./jarviscontract";
 import { JarvisGraph } from "./jarvisgraph";
 import { attributionStyle, mergeGraph } from "./jarvisgraphderive";
@@ -20,9 +21,10 @@ import {
     graphLoadedAtom,
     graphSelectedIdAtom,
     loadGraph,
+    selectBloomedRun,
+    selectNode,
 } from "./jarvisgraphstore";
-import { startConversation } from "./jarvisstore";
-import { activeSubjectAtom, type ActiveSubject } from "./jarvissubjectstore";
+import { conversationForSource, type ActiveSubject } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 
 const KIND_TONE: Record<string, string> = {
@@ -32,14 +34,9 @@ const KIND_TONE: Record<string, string> = {
     memory: "text-muted",
 };
 
-const LEGEND = ["task", "run", "decision", "memory"] as const;
-
-const KIND_DOT: Record<string, string> = {
-    task: "bg-graph-task",
-    run: "bg-graph-run",
-    decision: "bg-graph-decision",
-    memory: "bg-ink-mid",
-};
+// enough matches to choose from without the panel becoming its own scrolling list; the overflow is
+// reported rather than dropped silently.
+const MAX_MATCHES = 12;
 
 // a run node's id is already its oref (ResolveDossierEdges emits RunORef); vault nodes carry a bare id.
 function nodeORef(node: GraphNode): string {
@@ -73,10 +70,12 @@ function ActionButton({
 
 export function GraphPeek({
     model,
+    focus,
     onClose,
     onOpenSubject,
 }: {
     model: AgentsViewModel;
+    focus: PeekFocus;
     onClose: () => void;
     onOpenSubject: (subject: ActiveSubject) => void;
 }) {
@@ -85,7 +84,7 @@ export function GraphPeek({
     const loaded = useAtomValue(graphLoadedAtom);
     const error = useAtomValue(graphErrorAtom);
     const selectedId = useAtomValue(graphSelectedIdAtom);
-    const subject = useAtomValue(activeSubjectAtom);
+    const [query, setQuery] = useState("");
 
     useEffect(() => {
         if (!loaded) {
@@ -93,13 +92,25 @@ export function GraphPeek({
         }
     }, [loaded]);
 
-    // the peek opens *from* an object: a record subject blooms and selects itself, so the overlay arrives
-    // already centred on what the user was looking at rather than on the whole vault.
+    // the peek opens *from* an object, whatever the subject kind: bloom the record the subject resolves to
+    // and then select the run node itself if that bloom brought it in, so the overlay arrives centred on
+    // what the user was looking at rather than on the whole vault with nothing selected. Primitive deps —
+    // `focus` is rebuilt on every render of the Stage.
+    const { dossierId, runORef } = focus;
     useEffect(() => {
-        if (subject?.kind === "dossier") {
-            fireAndForget(() => focusDossier(subject.id));
+        if (dossierId == null) {
+            // nothing to focus — the selection is module-scope, so leaving the previous one in place made
+            // the peek claim a SELECTED NODE this open never resolved, and hid the honest empty state.
+            selectNode(null);
+            return;
         }
-    }, [subject?.kind, subject?.id]);
+        fireAndForget(async () => {
+            await focusDossier(dossierId);
+            if (runORef != null) {
+                selectBloomedRun(dossierId, runORef);
+            }
+        });
+    }, [dossierId, runORef]);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -115,16 +126,24 @@ export function GraphPeek({
     const node = selectedId != null ? merged.nodes.find((n) => n.id === selectedId) : undefined;
     const edges = selectedId != null ? merged.links.filter((l) => l.from === selectedId || l.to === selectedId) : [];
 
+    // the way in when the subject resolves to no node — an unattributed run, a radar or memory thread, or
+    // no subject at all. Selecting a match is enough: the canvas recenters on an off-screen selection.
+    const q = query.trim().toLowerCase();
+    const matches = q === "" ? [] : merged.nodes.filter((n) => n.label.toLowerCase().includes(q));
+
     const openRun = (runORef: string) => {
         fireAndForget(() => openORef(model, runORef));
         onClose();
     };
 
+    // one thread per node, like every other "ask about this object" entry — asking about the same node
+    // twice continues its thread instead of leaving a second identical row in the Threads group.
     const askAbout = (n: GraphNode) => {
-        const id = startConversation({
+        const oref = nodeORef(n);
+        const id = conversationForSource(oref, {
             mode: "object",
             chips: [{ label: n.label, active: true }],
-            attached: [{ oref: nodeORef(n), sourceType: n.kind as SourceType, title: n.label }],
+            attached: [{ oref, sourceType: n.kind as SourceType, title: n.label }],
         });
         onOpenSubject({ kind: "conversation", id });
         onClose();
@@ -139,14 +158,8 @@ export function GraphPeek({
                     {merged.nodes.length} nodes{node != null ? ` · ${node.kind} · ${node.label}` : ""}
                 </span>
                 <div className="flex-1" />
-                <div className="flex items-center gap-3">
-                    {LEGEND.map((k) => (
-                        <span key={k} className="flex items-center gap-1.5">
-                            <span className={cn("h-2 w-2 rounded-full", KIND_DOT[k])} />
-                            <span className="font-mono text-[10px] text-muted">{k}</span>
-                        </span>
-                    ))}
-                </div>
+                {/* no legend here: the canvas draws one in its bottom-left, sitting with the nodes it
+                    labels. Two legends disagreed on case and order for the same four kinds. */}
                 <button
                     type="button"
                     onClick={onClose}
@@ -177,9 +190,52 @@ export function GraphPeek({
                     )}
                 </div>
                 <div className="flex w-[288px] flex-none flex-col gap-3 border-l border-border bg-surface p-3.5">
-                    {node == null ? (
+                    <input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Find a node…"
+                        aria-label="Find a node"
+                        className="flex-none rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12px] text-primary placeholder:text-muted focus:border-accent focus:outline-none"
+                    />
+                    {q !== "" ? (
+                        <div className="flex min-h-0 flex-col gap-1 overflow-y-auto">
+                            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
+                                {matches.length === 0
+                                    ? "No node matches"
+                                    : `${matches.length} match${matches.length === 1 ? "" : "es"}`}
+                            </span>
+                            {matches.slice(0, MAX_MATCHES).map((n) => (
+                                <button
+                                    key={n.id}
+                                    type="button"
+                                    onClick={() => selectNode(n.id)}
+                                    className={cn(
+                                        "flex cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-surface-hover",
+                                        n.id === selectedId && "bg-accentbg"
+                                    )}
+                                >
+                                    <span
+                                        className={cn(
+                                            "flex-none font-mono text-[9.5px]",
+                                            KIND_TONE[n.kind] ?? "text-muted"
+                                        )}
+                                    >
+                                        {n.kind}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
+                                        {n.label}
+                                    </span>
+                                </button>
+                            ))}
+                            {matches.length > MAX_MATCHES ? (
+                                <span className="px-2 font-mono text-[10px] text-muted">
+                                    +{matches.length - MAX_MATCHES} more — narrow the filter
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : node == null ? (
                         <span className="text-[12px] leading-[1.5] text-muted">
-                            Click a node to open it. The peek closes into whatever you open.
+                            Click a node to open it, or find one above. The peek closes into whatever you open.
                         </span>
                     ) : (
                         <>

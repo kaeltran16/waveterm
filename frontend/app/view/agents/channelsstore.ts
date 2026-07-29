@@ -20,12 +20,6 @@ export const activeChannelAtom: Atom<Channel | null> = atom((get) => {
     return get(WOS.getWaveObjectAtom<Channel>(WOS.makeORef("channel", id))) ?? null;
 });
 
-// composer draft + run-strip dismissals, kept per channel (keyed by channel oid) in module atoms rather
-// than ChannelsSurface-local state, so they survive both the surface unmount on nav-rail switch and the
-// channel switch: a dismissed run stays gone and typed text stays put when you leave and come back.
-export const channelDraftAtom = atom<Record<string, string>>({});
-export const channelDismissedRunsAtom = atom<Record<string, string[]>>({});
-
 // Phase-2 row-backed streams for the ACTIVE channel: seeded from the per-channel row RPCs and refetched on
 // every channel: object bump (the blob still dual-writes, so channel: is the "list membership changed"
 // signal). The active-channel surface reads these instead of the embedded Channel.runs/messages arrays.

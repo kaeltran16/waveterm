@@ -4,10 +4,20 @@
 // The Subjects column: channels, records and threads in one grouped list. Replaces ChannelRail,
 // HistoryRail and the Tasks list — one column, three kinds.
 
+import { ContextMenuModel } from "@/app/store/contextmenu";
+import { globalStore } from "@/app/store/jotaiStore";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { channelHasAsk } from "@/app/view/agents/channelderive";
-import { activeChannelRunsAtom, channelsAtom, createChannel } from "@/app/view/agents/channelsstore";
+import {
+    activeChannelRunsAtom,
+    archiveChannel,
+    channelsAtom,
+    createChannel,
+    deleteChannel,
+    renameChannel,
+} from "@/app/view/agents/channelsstore";
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot } from "@/app/view/agents/jarvisderive";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -17,6 +27,7 @@ import { spaceBannerText } from "@/app/view/agents/spacescope";
 import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { Archive, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
     activeRunIdAtom,
@@ -26,7 +37,15 @@ import {
     subjectFilterAtom,
 } from "./jarvissubjectstore";
 import { conversationsAtom, loadJarvisConversations, startConversation } from "./jarvisstore";
-import { buildSubjectGroups, subjectMark, type Subject, type SubjectKind } from "./subjects";
+import {
+    buildSubjectGroups,
+    filterSubjectGroups,
+    runGoalMatches,
+    subjectMark,
+    type Subject,
+    type SubjectGroup,
+    type SubjectKind,
+} from "./subjects";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
 const RUN_DOT: Record<RunStatusTone, string> = {
@@ -45,7 +64,53 @@ function normPath(path: string | undefined): string {
     return (path ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
-export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
+// The column's narrow form (jarvislayout step 2): one status dot per subject, in the same order, still
+// clickable and still carrying the asking signal. It is a *narrower* list, not a hidden one — the design's
+// order gives up labels before it gives up the list, and the thread never gives up anything.
+function CollapsedSubjects({
+    groups,
+    isActive,
+    signalsFor,
+}: {
+    groups: SubjectGroup[];
+    isActive: (s: Subject) => boolean;
+    signalsFor: (s: Subject) => { asking: boolean; working: number } | null;
+}) {
+    return (
+        <div
+            data-jarvis-region="subjects"
+            className="flex w-[56px] flex-none flex-col items-center gap-1 overflow-y-auto border-r border-border bg-background py-2"
+        >
+            {groups.flatMap((g) =>
+                g.items.map((s) => {
+                    const signals = signalsFor(s);
+                    return (
+                        <button
+                            key={s.kind + ":" + s.id}
+                            type="button"
+                            title={s.label}
+                            aria-label={s.label}
+                            onClick={() => selectSubject({ kind: s.kind, id: s.id })}
+                            className={cn(
+                                "relative flex h-8 w-8 flex-none cursor-pointer items-center justify-center rounded-[8px] font-mono text-[12px] hover:bg-surface-hover",
+                                isActive(s) ? "bg-accentbg text-accent-soft" : "text-muted"
+                            )}
+                        >
+                            {subjectMark(s.kind)}
+                            {signals?.asking ? (
+                                <span className="absolute right-0.5 top-0.5 h-[6px] w-[6px] rounded-full bg-asking" />
+                            ) : signals != null && signals.working > 0 ? (
+                                <span className="absolute right-0.5 top-0.5 h-[6px] w-[6px] rounded-full bg-success" />
+                            ) : null}
+                        </button>
+                    );
+                })
+            )}
+        </div>
+    );
+}
+
+export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; collapsed: boolean }) {
     const channels = useAtomValue(channelsAtom);
     const dossiers = useAtomValue(taskListAtom);
     const conversations = useAtomValue(conversationsAtom);
@@ -61,6 +126,8 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
     const [picking, setPicking] = useState(false);
     const [pending, setPending] = useState<{ name: string; path: string } | null>(null);
     const [newName, setNewName] = useState("");
+    const [renamingId, setRenamingId] = useState<string | null>(null);
+    const [renameDraft, setRenameDraft] = useState("");
 
     useEffect(() => {
         loadTaskList();
@@ -87,13 +154,7 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
     const totalBefore = (channels?.length ?? 0) + dossiers.length + conversations.length;
     const totalAfter = groups.reduce((n, g) => n + g.items.length, 0);
 
-    const q = filter.trim().toLowerCase();
-    const shown =
-        q === ""
-            ? groups
-            : groups
-                  .map((g) => ({ ...g, items: g.items.filter((s) => s.label.toLowerCase().includes(q)) }))
-                  .filter((g) => g.items.length > 0);
+    const shown = filterSubjectGroups(groups, filter, channels);
 
     // j/k over the whole column, all three kinds in render order — the Channels rail published the same
     // cursor for its channel list, and the merged column is the only list left to move through.
@@ -137,8 +198,72 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
         return { asking: channelHasAsk(channel, agents), working: counts.working };
     };
 
+    const commitRename = (channel: Channel) => {
+        const next = renameDraft.trim();
+        setRenamingId(null);
+        if (next && next !== channel.name) {
+            fireAndForget(() => renameChannel(channel.oid, next));
+        }
+    };
+
+    // Channel lifecycle. It lived on the deleted ChannelRail's per-row menu and came back here rather than
+    // into the header: the header acts on the channel you are *on*, and renaming or deleting one you are
+    // not is the whole point. Autonomy deliberately did not come back — the header ladder owns it, and a
+    // second control would be a second source of truth.
+    const channelMenu = (channel: Channel, ev: React.MouseEvent) => {
+        const archived = (channel.meta as Record<string, unknown> | undefined)?.["archived"] === true;
+        ContextMenuModel.getInstance().showContextMenu(
+            [
+                {
+                    label: "Rename channel",
+                    icon: <Pencil size={15} />,
+                    click: () => {
+                        setRenameDraft(channel.name ?? "");
+                        setRenamingId(channel.oid);
+                    },
+                },
+                {
+                    label: archived ? "Unarchive channel" : "Archive channel",
+                    icon: <Archive size={15} />,
+                    click: () => fireAndForget(() => archiveChannel(channel.oid, !archived)),
+                },
+                { type: "separator" },
+                {
+                    label: "Delete channel",
+                    icon: <Trash2 size={15} />,
+                    danger: true,
+                    click: () =>
+                        modalsModel.pushModal("ConfirmModal", {
+                            title: "Delete channel",
+                            message: `Delete #${channel.name}? This can't be undone.`,
+                            confirmLabel: "Delete channel",
+                            destructive: true,
+                            onConfirm: () => fireAndForget(() => deleteChannel(channel.oid)),
+                        }),
+                },
+            ],
+            ev
+        );
+    };
+
+    if (collapsed) {
+        return (
+            <CollapsedSubjects
+                groups={shown}
+                isActive={isActive}
+                signalsFor={(s) => {
+                    const ch = s.kind === "channel" ? channels?.find((c) => c.oid === s.id) : undefined;
+                    return ch != null ? channelSignals(ch) : null;
+                }}
+            />
+        );
+    }
+
     return (
-        <div className="flex w-[272px] flex-none flex-col border-r border-border bg-background">
+        <div
+            data-jarvis-region="subjects"
+            className="flex w-[272px] flex-none flex-col border-r border-border bg-background"
+        >
             <div className="flex flex-col gap-2 border-b border-edge-faint px-3 py-3">
                 <div className="flex items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-2.5 py-1.5 focus-within:border-accent">
                     <span className="font-mono text-[11px] font-semibold text-muted">⌕</span>
@@ -208,9 +333,18 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
                                 </div>
                             </div>
                         ) : Object.keys(projects ?? {}).length === 0 ? (
-                            <span className="px-1 text-[11px] text-muted">
-                                No projects — add one from the Cockpit “+ New project”.
-                            </span>
+                            // the first thing a new user clicks used to point them somewhere else; the
+                            // palette's New-project modal opens from anywhere, so open it from here.
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPicking(false);
+                                    globalStore.set(model.newProjectOpenAtom, true);
+                                }}
+                                className="cursor-pointer rounded-[7px] border border-accent/30 bg-accentbg px-2.5 py-1.5 text-left text-[11.5px] font-semibold text-accent-soft hover:bg-accent/20"
+                            >
+                                No projects yet — register one
+                            </button>
                         ) : (
                             Object.entries(projects ?? {}).map(([name, p]) => (
                                 <button
@@ -251,11 +385,44 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
                             const channel = s.kind === "channel" ? channels?.find((c) => c.oid === s.id) : undefined;
                             const signals = channel != null ? channelSignals(channel) : null;
                             const selected = isActive(s);
+                            // the selected channel shows the live run list; any other channel shows only the
+                            // runs the filter matched (nothing when the filter is empty).
+                            const rowRuns = selected ? runs : channel != null ? runGoalMatches(channel, filter) : [];
+                            if (channel != null && renamingId === channel.oid) {
+                                return (
+                                    <div
+                                        key={s.kind + ":" + s.id}
+                                        className="flex items-center gap-2 rounded-[8px] bg-accentbg px-2.5 py-[7px]"
+                                    >
+                                        <span className="w-[9px] flex-none font-mono text-[12px] text-accent-soft">
+                                            #
+                                        </span>
+                                        <input
+                                            autoFocus
+                                            value={renameDraft}
+                                            onChange={(e) => setRenameDraft(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    commitRename(channel);
+                                                }
+                                                if (e.key === "Escape") {
+                                                    e.preventDefault();
+                                                    setRenamingId(null);
+                                                }
+                                            }}
+                                            onBlur={() => commitRename(channel)}
+                                            className="min-w-0 flex-1 rounded-[5px] border border-accent bg-surface px-1 text-[12.5px] text-primary focus:outline-none"
+                                        />
+                                    </div>
+                                );
+                            }
                             return (
                                 <div key={s.kind + ":" + s.id}>
                                     <button
                                         type="button"
                                         onClick={() => selectSubject({ kind: s.kind, id: s.id })}
+                                        onContextMenu={channel != null ? (ev) => channelMenu(channel, ev) : undefined}
                                         className={cn(
                                             "flex w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-[7px] text-left hover:bg-surface-hover",
                                             selected && "bg-accentbg"
@@ -289,16 +456,23 @@ export function SubjectsColumn({ model }: { model: AgentsViewModel }) {
                                             </span>
                                         ) : null}
                                     </button>
-                                    {/* the selected channel expands to its runs — this list is the run switcher */}
-                                    {selected && s.kind === "channel" && runs.length > 0 ? (
+                                    {/* the selected channel expands to its runs — this list is the run switcher.
+                                        While filtering, an unselected channel expands to its matching runs
+                                        instead, so a run can be found by what it was about. */}
+                                    {s.kind === "channel" && rowRuns.length > 0 ? (
                                         <div className="mb-1 ml-[18px] mt-0.5 flex flex-col gap-px border-l border-border pl-2.5">
-                                            {runs.map((r) => {
+                                            {rowRuns.map((r) => {
                                                 const view = runStatusView(r.status);
                                                 return (
                                                     <button
                                                         key={r.id}
                                                         type="button"
-                                                        onClick={() => setActiveRunId(s.id, r.id)}
+                                                        onClick={() => {
+                                                            if (!selected) {
+                                                                selectSubject({ kind: "channel", id: s.id });
+                                                            }
+                                                            setActiveRunId(s.id, r.id);
+                                                        }}
                                                         className={cn(
                                                             "flex cursor-pointer items-center gap-[7px] rounded-[7px] px-2 py-[5px] text-left hover:bg-surface-hover",
                                                             r.id === activeRunId && "bg-surface-selected"

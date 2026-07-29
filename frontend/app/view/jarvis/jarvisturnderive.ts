@@ -8,17 +8,20 @@ import type { Terminal } from "./jarviscontract";
 
 export interface TerminalBadge {
     label: string;
-    tone: "muted" | "warning";
+    tone: "muted" | "warning" | "error";
 }
 
 // A normal answer wears no badge. "weak" warns because acting on it is a risk; "notfound" is merely a
-// stated absence, so it stays muted.
+// stated absence, so it stays muted. "error" is not a verdict on the corpus at all — the request died —
+// so it takes the error tone and is the only state that offers a retry.
 export function terminalBadge(terminal: Terminal): TerminalBadge | null {
     switch (terminal) {
         case "weak":
             return { label: "Weak grounding", tone: "warning" };
         case "notfound":
             return { label: "Not found", tone: "muted" };
+        case "error":
+            return { label: "Couldn't reach Jarvis", tone: "error" };
         default:
             return null;
     }

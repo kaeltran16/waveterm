@@ -39,6 +39,13 @@ func (ws *WshServer) CreateProjectCommand(ctx context.Context, data wshrpc.Comma
 	if !info.IsDir() {
 		return fmt.Errorf("path is not a directory: %s", path)
 	}
+	// two names at one path leave the frontend's path->project resolution picking an arbitrary winner, so a
+	// channel files under whichever registration happens to come first. Refuse the duplicate here rather
+	// than teaching the resolver a tie-break for data that should not exist. Re-registering the same
+	// project at its own path stays an update — the launcher does that on first launch.
+	if other, ok := wconfig.ProjectNameAtPath(path); ok && other != name {
+		return fmt.Errorf("path is already registered as project %q: %s", other, path)
+	}
 	return wconfig.SetProjectConfigValue(name, waveobj.MetaMapType{"path": path})
 }
 

@@ -46,12 +46,16 @@ export function parseComposerCommand(text: string): ComposerCommand {
 }
 
 // One-line description of what an `@run` will do, given the channel's resolved Jarvis profile (set in ⚙).
-// The strategy (pipeline|orchestrator + plan gate) is the channel's setting, never chosen per-dispatch.
+// The strategy (pipeline|orchestrator + plan gate) is the channel's setting, never chosen per-dispatch —
+// so an unresolved profile says so rather than naming a default the server may not agree with.
 export function runFooterFor(profile: JarvisProfile | undefined): string {
-    if (profile?.defaultmode === "orchestrator") {
+    if (profile == null) {
+        return "→ resolving channel strategy…";
+    }
+    if (profile.defaultmode === "orchestrator") {
         return "→ adaptive lead · splits the work · set in ⚙";
     }
-    const gate = profile?.defaultplangate ?? true;
+    const gate = profile.defaultplangate ?? true;
     return gate ? "→ pipeline run · stops at a review gate · set in ⚙" : "→ pipeline run · no gate · set in ⚙";
 }
 

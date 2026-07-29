@@ -406,6 +406,37 @@ const jarvisContextual = {
             detail: JSON.stringify({ selected, asked, activeLabel, ...landed }),
         });
         await h.shot("cdp-shots/jarvis-contextual.png");
+
+        // Asking about the same object twice must land in the same thread. It used to mint a new one per
+        // click, which is what filled the Threads group with duplicate rows — four distinct questions
+        // occupying twelve rows, each copy carrying none of the others' answers.
+        const countThreads = () =>
+            h.ev(`(() => {
+                const group = [...document.querySelectorAll('div')].find(
+                    (d) => /^threads/i.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
+                );
+                return group ? group.querySelectorAll('button').length : -1;
+            })()`);
+        const before = await countThreads();
+        await h.goto("memory");
+        await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('button')].filter((b) => (b.className || '').includes('rounded-[11px]'));
+            if (rows[0]) rows[0].click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Ask Jarvis');
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        const after = await countThreads();
+        steps.push({
+            step: "Ask Jarvis twice on the same note -> one thread, not two",
+            ok: before > 0 && after === before,
+            detail: `threadRowsBefore=${before} after=${after}`,
+        });
         return steps;
     },
     async teardown(h) {
@@ -993,6 +1024,332 @@ const jarvisDrawer = {
     },
 };
 
+// --- jarvis subject state: what must NOT follow you between subjects, and what the peek opens on -----
+// The regression net for findings 7-10 of the 2026-07-28 pass. All four are cross-atom or layout defects
+// that a green unit suite could not see:
+//   - the composer draft and the channel picker were global, so a half-typed question (and an open
+//     "Dispatch into which channel?" prompt) followed the user to the next subject;
+//   - the graph peek only self-focused for a record, opening on the whole vault from anything else;
+//   - two legends inside the peek disagreed on case and order;
+//   - the record variant of the rail's fleet line overflowed the 300px rail, clipped mid-word.
+// The dev fixture bar is the subject source here: each button selects a *conversation* subject whose id is
+// the fixture name, so two clicks give two genuinely different subjects with no backend involved.
+// Steps 5-6 need one record in the vault (any record — the row is found structurally, never by name); with
+// an empty vault they report that rather than passing quietly.
+const KINDS_JSON = JSON.stringify(["task", "run", "decision", "memory"]);
+const jarvisSubjectState = {
+    name: "jarvis-subject-state",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.goto("jarvis");
+        await settle(400);
+
+        const pickFixture = (name) =>
+            h.ev(`(() => {
+                const b = [...document.querySelectorAll('[data-fixture]')]
+                    .find((x) => x.getAttribute('data-fixture') === ${JSON.stringify(name)});
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+        // the Jarvis ask box: the one composer input off a channel.
+        const typeDraft = (text) =>
+            h.ev(`(() => {
+                const i = document.querySelector('input[placeholder^="Ask Jarvis"]');
+                if (!i) return false;
+                const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                setter.call(i, ${JSON.stringify(text)});
+                i.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            })()`);
+        const readDraft = () =>
+            h.ev(`(() => {
+                const i = document.querySelector('input[placeholder^="Ask Jarvis"]');
+                return i ? i.value : null;
+            })()`);
+        const submitDraft = () =>
+            h.ev(`(() => {
+                const i = document.querySelector('input[placeholder^="Ask Jarvis"]');
+                if (!i) return false;
+                i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                return true;
+            })()`);
+        const pickerOpen = () => h.ev(`/dispatch into which channel/i.test(document.body.innerText || '')`);
+
+        // 1-2. a draft belongs to the subject it was typed on: gone on the next subject, still there on
+        // return. Two assertions, because clearing the box on every switch would satisfy the first alone.
+        await pickFixture("grounded");
+        await settle(300);
+        const typed = await typeDraft("tighten the record band copy");
+        await settle(150);
+        await pickFixture("active");
+        await settle(300);
+        const onOther = await readDraft();
+        rec(
+            "1. a draft typed on one thread does not follow to the next subject",
+            typed === true && onOther === "",
+            `typed=${typed} draftOnOtherSubject=${JSON.stringify(onOther)}`
+        );
+        await pickFixture("grounded");
+        await settle(300);
+        const back = await readDraft();
+        rec(
+            "2. returning to that thread restores its own draft",
+            back === "tighten the record band copy",
+            JSON.stringify(back)
+        );
+        await h.shot("cdp-shots/jarvis-subject-draft.png");
+
+        // 3. the picker's twin defect. An @run off a channel has to ask which channel to dispatch into;
+        // that prompt was component state on a component that never unmounts, so it followed too.
+        await typeDraft("@run tighten the record band copy");
+        await settle(150);
+        await submitDraft();
+        await settle(400);
+        const raised = await pickerOpen();
+        await pickFixture("active");
+        await settle(400);
+        const followed = await pickerOpen();
+        rec(
+            "3. an open channel picker does not follow to the next subject",
+            raised === true && followed === false,
+            `raisedOnThread=${raised} stillOpenOnNextSubject=${followed}`
+        );
+
+        // 4. one legend in the peek. The header drew "task run decision memory" (lowercase) while the
+        // canvas drew "Task Decision Memory Run" — same four kinds, twice, in two orders.
+        const openPeek = () =>
+            h.ev(`(() => {
+                const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Graph');
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+        const closePeek = () =>
+            h.ev(`(() => {
+                const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim().startsWith('Close'));
+                if (b) b.click();
+                return b != null;
+            })()`);
+        const peeked = await openPeek();
+        await settle(1200); // the force graph is lazy-loaded
+        // a legend is any element whose children are exactly the four node kinds — precise enough not to
+        // count the detail panel's single "task" read-out of a selected node.
+        const legends = await h.ev(`(() => {
+            const kinds = ${KINDS_JSON};
+            return [...document.querySelectorAll('div')].filter((d) => {
+                const kids = [...d.children].map((c) => (c.textContent || '').trim().toLowerCase());
+                return kids.length === kinds.length && kinds.every((k) => kids.includes(k));
+            }).length;
+        })()`);
+        rec("4. the graph peek draws exactly one node-kind legend", peeked === true && legends === 1, `legends=${legends}`);
+
+        // 5. the node filter: the way in when the subject resolves to no node (an unattributed run, a
+        // radar or memory thread). Assert it answers, not what this vault happens to contain.
+        const filtered = await h.ev(`(() => {
+            const i = document.querySelector('input[aria-label="Find a node"]');
+            if (!i) return null;
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            setter.call(i, 'e');
+            i.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        await settle(300);
+        const answered = await h.ev(`/(\\d+ match(es)?|No node matches)/i.test(document.body.innerText || '')`);
+        rec("5. the peek's node filter answers a query", filtered === true && answered === true, `answered=${answered}`);
+        await h.shot("cdp-shots/jarvis-subject-peek-filter.png");
+        await closePeek();
+        await settle(300);
+
+        // 6. the peek opens *on* something. A record subject blooms and selects itself, so the detail
+        // panel reads out a node instead of "Click a node to open it".
+        const record = await h.ev(`(() => {
+            const group = [...document.querySelectorAll('div')].find(
+                (d) => /^records/i.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
+            );
+            if (!group) return null;
+            const b = group.querySelector('button');
+            const label = (b.textContent || '').trim();
+            b.click();
+            return label;
+        })()`);
+        await settle(1200); // selectSubject -> selectDossier + ResolveSpaceScope
+        if (record == null) {
+            rec("6. the peek self-focuses from a record subject", false, "no record in this vault — nothing to select");
+            rec("7. the rail's fleet line stays inside the rail", false, "no record subject reachable");
+            return steps;
+        }
+        await openPeek();
+        await settle(1500); // graph load + the record's attribution bloom
+        const focused = await h.ev(`(() => {
+            const t = document.body.innerText || '';
+            return { selected: /selected node/i.test(t), hint: /click a node to open it/i.test(t) };
+        })()`);
+        rec(
+            "6. the peek self-focuses from a record subject",
+            focused.selected === true && focused.hint === false,
+            `${JSON.stringify(focused)} record=${JSON.stringify(record)}`
+        );
+        await h.shot("cdp-shots/jarvis-subject-peek-focus.png");
+        await closePeek();
+        await settle(400);
+
+        // 7. the fleet line's own row. It used to read "N working · across M channels" under
+        // whitespace-nowrap beside the "Fleet · on this record" title and ran 37px past the rail, clipped
+        // to "…across 0 ch" — a clipped count reads as a smaller fleet than the real one.
+        await h.ev(`(() => {
+            const b = document.querySelector('button[aria-label="Stage context"]');
+            if (b) b.click();
+            return true;
+        })()`);
+        await settle(500);
+        const fleet = await h.ev(`(() => {
+            const rail = document.querySelector('aside[aria-label="Stage context"]');
+            if (!rail) return { rail: false };
+            const span = [...rail.querySelectorAll('span')].find((s) => /\\d+ working ·/.test(s.textContent || ''));
+            if (!span) return { rail: true, counts: null };
+            const r = span.getBoundingClientRect();
+            const rr = rail.getBoundingClientRect();
+            return {
+                rail: true,
+                counts: (span.textContent || '').trim(),
+                overflowPx: Math.round(r.right - rr.right),
+                clipped: span.scrollWidth > span.clientWidth + 1,
+            };
+        })()`);
+        rec(
+            "7. the rail's fleet line stays inside the rail",
+            fleet.counts != null && fleet.overflowPx <= 0 && fleet.clipped === false,
+            JSON.stringify(fleet)
+        );
+        await h.shot("cdp-shots/jarvis-subject-fleet-line.png");
+
+        // 8. a thread nobody asked anything in is a false start: "+ Thread" creates the conversation up
+        // front, so clicking it repeatedly used to leave a permanent "New conversation" row behind each
+        // time. Nothing durable is lost by dropping them — the backend record is created by the first turn.
+        const countThreads = () =>
+            h.ev(`(() => {
+                const group = [...document.querySelectorAll('div')].find(
+                    (d) => /^threads/i.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
+                );
+                return group ? group.querySelectorAll('button').length : -1;
+            })()`);
+        const newThread = () =>
+            h.ev(`(() => {
+                const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === '+ Thread');
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+        await newThread();
+        await settle(500);
+        const oneEmpty = await countThreads();
+        await newThread();
+        await settle(500);
+        await newThread();
+        await settle(500);
+        const stillOne = await countThreads();
+        rec(
+            "8. repeated + Thread does not pile up unasked threads",
+            oneEmpty > 0 && stillOne === oneEmpty,
+            `afterFirst=${oneEmpty} afterThree=${stillOne}`
+        );
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+// The design's narrow-window collapse order (JC16). This is the check the previous conformance pass
+// could not make: "the thread is still mounted" passed on the broken layout, where the chrome held a
+// constant 572px and the Stage went 1270 -> 70px. So rule 5 is asserted as a *width* — the Stage never
+// drops below its floor while the order still has a region left to yield — plus the order itself, which
+// must run rail-then-Subjects and never the other way round.
+const STAGE_MIN_PX = 640; // mirrors frontend/app/view/jarvis/jarvislayout.ts
+const jarvisCollapseOrder = {
+    name: "jarvis-collapse-order",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.goto("jarvis");
+        await settle(400);
+
+        const probe = () =>
+            h.ev(`(() => {
+                const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : null);
+                const region = (n) => document.querySelector('[data-jarvis-region="' + n + '"]');
+                const surface = region('surface');
+                const rail = surface
+                    ? [...surface.children].find((c) => c.tagName === 'ASIDE' && c.getBoundingClientRect().width > 0)
+                    : null;
+                return {
+                    surface: w(surface),
+                    subjects: w(region('subjects')),
+                    stage: w(region('stage')),
+                    rail: w(rail),
+                    docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                };
+            })()`);
+
+        const at = {};
+        for (const width of [1920, 1440, 1100, 900, 720]) {
+            await h.cdp("Emulation.setDeviceMetricsOverride", {
+                width,
+                height: 900,
+                deviceScaleFactor: 1,
+                mobile: false,
+            });
+            await settle(500);
+            at[width] = await probe();
+        }
+        await h.shot("cdp-shots/jarvis-collapse-720.png");
+        await settle(300);
+
+        // 1. rule 5, as a width. 720 is narrower than this surface's own regions can rescue (step 4 of the
+        //    design's order is the global nav rail, which is not this surface's to collapse), so the floor
+        //    is asserted over the widths where the order can still hold it.
+        const held = [1920, 1440, 1100, 900].filter((wd) => at[wd].stage >= STAGE_MIN_PX);
+        rec(
+            `1. the Stage holds >= ${STAGE_MIN_PX}px at 1920/1440/1100/900`,
+            held.length === 4,
+            [1920, 1440, 1100, 900].map((wd) => `${wd}:${at[wd].stage}`).join(" ")
+        );
+
+        // 2. the order: the context rail yields before the Subjects column ever does.
+        const inverted = [1920, 1440, 1100, 900, 720].filter((wd) => at[wd].subjects <= 56 && at[wd].rail > 44);
+        rec("2. Subjects never collapses while the rail is still wide", inverted.length === 0, inverted.join(","));
+
+        // 3. the rail does collapse, and Subjects does too — an order nothing ever triggers is not an order.
+        rec(
+            "3. both regions actually yield on the way down",
+            at[1920].rail > 44 && at[1100].rail <= 44 && at[1920].subjects > 56 && at[900].subjects <= 56,
+            `rail 1920:${at[1920].rail} 1100:${at[1100].rail} · subjects 1920:${at[1920].subjects} 900:${at[900].subjects}`
+        );
+
+        // 4. nothing escapes horizontally at any width — the band's chips used to draw over the rail.
+        const overflowing = [1920, 1440, 1100, 900, 720].filter((wd) => at[wd].docOverflow > 0);
+        rec("4. no horizontal document overflow at any width", overflowing.length === 0, overflowing.join(","));
+        return steps;
+    },
+    async teardown(h) {
+        // the runner restores its pinned viewport after every scenario, so this only has to leave the
+        // surface where the others expect it.
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -1006,4 +1363,6 @@ export const SCENARIOS = [
     jarvisContinuityResume,
     jarvisProactive,
     jarvisDrawer,
+    jarvisSubjectState,
+    jarvisCollapseOrder,
 ];

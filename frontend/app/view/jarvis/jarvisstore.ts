@@ -68,9 +68,6 @@ export const persistedSummariesAtom = atom<JarvisConversationSummary[]>([]);
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
 export const activeConversationIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-// ephemeral composer draft; a module atom (not useState) so a nav-switch away and back keeps the draft.
-export const jarvisDraftAtom = atom<string>("");
-
 // read-only: the conversation currently shown. Real conversation wins; else a dev fixture if the fixture
 // bar has explicitly selected one; else the empty conversation.
 export const activeConversationAtom = atom<JarvisConversation>((get) => {
@@ -122,6 +119,24 @@ export function getConversation(id: string): JarvisConversation | undefined {
 
 export function setConversation(conv: JarvisConversation): void {
     globalStore.set(conversationsByIdAtom, { ...globalStore.get(conversationsByIdAtom), [conv.id]: conv });
+}
+
+// Drop a thread that was never asked in. Both "+ Thread" and every contextual entry create the
+// conversation up front, so an unasked one is a false start titled "New conversation" — it used to sit in
+// the Threads group for the rest of the session. Nothing durable is lost: the backend record is created by
+// the *first* turn (wshserver_jarvis.go), so a turnless conversation has never reached the store.
+// Deliberately narrow — an id this map does not hold is left alone, because a persisted thread the user
+// clicked before its load landed is absent, not empty (and a persisted one always has turns).
+export function pruneEmptyConversation(id: string): boolean {
+    const byId = globalStore.get(conversationsByIdAtom);
+    const conv = byId[id];
+    if (conv == null || conv.turns.length > 0) {
+        return false;
+    }
+    const next = { ...byId };
+    delete next[id];
+    globalStore.set(conversationsByIdAtom, next);
+    return true;
 }
 
 // startConversation creates an empty real conversation, makes it active, and returns its id.
@@ -229,8 +244,27 @@ export function submitJarvisQuery(convId: string, text: string): void {
                 }
             }
         } catch {
-            // preserve whatever streamed; mark the turn weak (mirrors usefleetsummary's error path).
-            patchAnswer(convId, answerIdx, { terminal: "weak" });
+            // preserve whatever streamed, but say what actually happened: the request died. Marking it
+            // "weak" drew the amber grounding badge, so a dead backend and a thin corpus were the same
+            // turn. "error" is the only terminal that offers a retry.
+            patchAnswer(convId, answerIdx, { terminal: "error" });
         }
     });
+}
+
+// Re-run a failed turn: drop it and the question it answered, then submit the same prompt into the same
+// conversation. Re-submitting rather than resuming in place keeps one streaming path — the failed turn
+// has no stream left to attach to.
+export function retryJarvisQuery(convId: string, answerIdx: number): void {
+    const conv = getConversation(convId);
+    if (!conv) {
+        return;
+    }
+    const answer = conv.turns[answerIdx];
+    const question = conv.turns[answerIdx - 1];
+    if (answer?.role !== "jarvis" || question?.role !== "user") {
+        return;
+    }
+    setConversation({ ...conv, turns: conv.turns.slice(0, answerIdx - 1) });
+    submitJarvisQuery(convId, question.text);
 }

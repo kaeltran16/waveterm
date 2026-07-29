@@ -8,6 +8,7 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage, steerWorker } from "@/app/view/agents/channelactions";
+import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { LaunchComposer, TalkComposer } from "@/app/view/agents/channelcomposers";
 import { type RosterEntry } from "@/app/view/agents/channelmessages";
 import { LAUNCH_COMMANDS, composerFace, parseComposerCommand } from "@/app/view/agents/composercommand";
@@ -15,12 +16,20 @@ import { appendAttachments, useComposerAttachments } from "@/app/view/agents/com
 import { createRun, pendingRunDraftAtom } from "@/app/view/agents/runactions";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
+import { useAtomValue, useSetAtom } from "jotai";
 import { resolveComposerTarget } from "./composertarget";
 import type { ScopeChip } from "./jarviscontract";
-import { activeConversationAtom, activeConversationIdAtom, jarvisDraftAtom, submitJarvisQuery } from "./jarvisstore";
-import { askAboutRecord, composingRunAtom, setActiveRunId, setComposingRun } from "./jarvissubjectstore";
+import { activeConversationAtom, activeConversationIdAtom, submitJarvisQuery } from "./jarvisstore";
+import {
+    askAboutRecord,
+    channelPickingAtom,
+    composingRunAtom,
+    jarvisDraftAtom,
+    setActiveRunId,
+    setChannelPicking,
+    setComposingRun,
+    setJarvisDraft,
+} from "./jarvissubjectstore";
 import type { StageComposition } from "./stagecompose";
 
 function TalkingTo({ label, audience }: { label: string; audience: "worker" | "jarvis" }) {
@@ -147,6 +156,7 @@ function JarvisAsk({
 export function StageComposer({
     model,
     comp,
+    subjectId,
     channel,
     channels,
     agents,
@@ -157,6 +167,7 @@ export function StageComposer({
 }: {
     model: AgentsViewModel;
     comp: StageComposition;
+    subjectId: string;
     channel: Channel | null;
     channels: Channel[];
     agents: AgentVM[];
@@ -165,14 +176,30 @@ export function StageComposer({
     recordObjective: string;
     profile: JarvisProfile | undefined;
 }) {
-    const [draft, setDraft] = useAtom(jarvisDraftAtom);
-    const [channelDraft, setChannelDraft] = useState("");
-    const [picking, setPicking] = useState(false);
+    // one draft store keyed by subject, serving all three faces: on a channel the key *is* the channel oid.
+    // The box is the same box, but what is half-typed in it belongs to the subject it was typed on.
+    const draft = useAtomValue(jarvisDraftAtom)[subjectId] ?? "";
+    const setDraft = (next: string) => setJarvisDraft(subjectId, next);
+    const picking = useAtomValue(channelPickingAtom)[subjectId] ?? false;
+    const setPicking = (next: boolean) => setChannelPicking(subjectId, next);
     const activeConvId = useAtomValue(activeConversationIdAtom);
     const conversation = useAtomValue(activeConversationAtom);
-    const radarDraft = useAtomValue(pendingRunDraftAtom);
+    const pendingDraft = useAtomValue(pendingRunDraftAtom);
     const setRadarDraft = useSetAtom(pendingRunDraftAtom);
     const attach = useComposerAttachments();
+
+    // The Radar draft is one global value (one investigation at a time), but it belongs to the channel its
+    // finding's project resolves to. Ungated it followed the user onto every other channel: the banner and
+    // the goal showed there, `Run ⏎` dispatched the investigation into the wrong project carrying
+    // radarOrigin — so the finding's outcome was written back against a run in a project it never touched —
+    // and the Launch face hid whatever that channel's own draft or live worker held.
+    const draftTarget = pendingDraft != null ? resolveTargetChannel(channels, pendingDraft.projectPath) : undefined;
+    // no channel for the finding's project: there is nowhere correct to dispatch it. Rather than vanish
+    // (Start investigation would look like a dead button) it stays visible and discardable wherever the
+    // user is, with the send blocked and the banner saying why.
+    const draftOrphaned = pendingDraft != null && draftTarget == null;
+    const radarDraft =
+        pendingDraft != null && (draftOrphaned || draftTarget?.oid === channel?.oid) ? pendingDraft : null;
 
     const composing = useAtomValue(composingRunAtom)[channel?.oid ?? ""] ?? false;
 
@@ -181,7 +208,7 @@ export function StageComposer({
     // review, so nothing dispatches until the user presses Start. "＋ New run" forces it the same way —
     // only the Launch face can create a run, and the live worker that renders the button is also what
     // would drag the face straight back to Talk.
-    const value = onChannel ? (radarDraft != null ? radarDraft.goal : channelDraft) : draft;
+    const value = onChannel && radarDraft != null ? radarDraft.goal : draft;
     // the face the channel would show on its own, before either override.
     const naturalFace = onChannel && channel != null ? composerFace(run, agents) : { face: "launch" as const };
     const face = radarDraft == null && !composing ? naturalFace : { face: "launch" as const };
@@ -195,14 +222,13 @@ export function StageComposer({
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const phaseLabel = run ? run.phases?.[currentPhaseIndex(run)]?.kind : undefined;
 
-    // every @run / dispatch shares the channel profile's mode + plan gate, exactly as the Channels
-    // launch composer did — the strategy is the channel's setting, never chosen per dispatch.
+    // A plain @run sends no strategy: the channel's setting is the server's to resolve, and CreateRun
+    // reads any non-empty mode as a per-dispatch override — so echoing back the profile we were last
+    // handed is exactly how a just-saved ⚙ change got overridden by the value it replaced. `quick` is the
+    // one real override, chosen per dispatch by design.
     const launchInto = (channelId: string, goal: string, mode?: string) =>
         fireAndForget(async () => {
-            const created = await createRun(channelId, goal, {
-                mode: mode ?? profile?.defaultmode,
-                planGate: profile?.defaultplangate,
-            });
+            const created = await createRun(channelId, goal, { mode });
             setActiveRunId(channelId, created.id);
         });
 
@@ -213,6 +239,9 @@ export function StageComposer({
         // the Radar path keeps radarOrigin on the created run — that origin is what lets the finding's
         // outcome be written back when the run finishes.
         if (radarDraft != null) {
+            if (draftOrphaned) {
+                return; // no channel for the finding's project — dispatching here is the wrong project
+            }
             const goal = appendAttachments(radarDraft.goal.trim(), attach.attachments);
             if (!goal) {
                 return;
@@ -220,32 +249,28 @@ export function StageComposer({
             attach.clear();
             setRadarDraft(null);
             fireAndForget(async () => {
-                const created = await createRun(channel.oid, goal, {
-                    mode: profile?.defaultmode,
-                    planGate: profile?.defaultplangate,
-                    radarOrigin: radarDraft.radarOrigin,
-                });
+                const created = await createRun(channel.oid, goal, { radarOrigin: radarDraft.radarOrigin });
                 setActiveRunId(channel.oid, created.id);
             });
             return;
         }
         if (face.face === "talk") {
-            const text = appendAttachments(channelDraft.trim(), attach.attachments);
+            const text = appendAttachments(draft.trim(), attach.attachments);
             if (!text.trim()) {
                 return;
             }
-            setChannelDraft("");
+            setDraft("");
             attach.clear();
             fireAndForget(() =>
                 steerWorker({ channelId: channel.oid, workerORef: `tab:${face.worker.id}`, agents, text })
             );
             return;
         }
-        const text = appendAttachments(channelDraft.trim(), attach.attachments);
+        const text = appendAttachments(draft.trim(), attach.attachments);
         if (!text.trim()) {
             return;
         }
-        setChannelDraft("");
+        setDraft("");
         attach.clear();
         // whatever this dispatches, the Launch face has done its job — release the face back to the run.
         setComposingRun(channel.oid, false);
@@ -308,8 +333,8 @@ export function StageComposer({
                     <TalkComposer
                         worker={face.worker}
                         phaseLabel={phaseLabel}
-                        value={channelDraft}
-                        onChange={setChannelDraft}
+                        value={draft}
+                        onChange={setDraft}
                         onSubmit={sendOnChannel}
                         onNewRun={() => setComposingRun(channel.oid, true)}
                         attach={attach}
@@ -322,7 +347,9 @@ export function StageComposer({
                                     From Radar
                                 </span>
                                 <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
-                                    Review the goal, then start it — nothing dispatches until you do.
+                                    {draftOrphaned
+                                        ? "No channel for this finding's project — create one to investigate it."
+                                        : "Review the goal, then start it — nothing dispatches until you do."}
                                 </span>
                                 <button
                                     type="button"
@@ -353,9 +380,7 @@ export function StageComposer({
                         <LaunchComposer
                             value={value}
                             onChange={
-                                radarDraft != null
-                                    ? (next) => setRadarDraft({ ...radarDraft, goal: next })
-                                    : setChannelDraft
+                                radarDraft != null ? (next) => setRadarDraft({ ...radarDraft, goal: next }) : setDraft
                             }
                             onSubmit={sendOnChannel}
                             profile={profile}

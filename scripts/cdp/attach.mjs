@@ -138,6 +138,9 @@ export async function attach(port = 9222) {
         url: target.url,
         shots,
         ev,
+        // raw CDP passthrough: Runtime.evaluate covers most driving, but Emulation (deterministic shot
+        // size) and Input.dispatchKeyEvent (real key events, not synthetic DOM ones) have no wrapper.
+        cdp: (method, params) => client.send(method, params),
         rpc: (command, data) =>
             ev(`window.TabRpcClient.wshRpcCall(${JSON.stringify(command)}, ${JSON.stringify(data ?? null)}, {})`),
         async goto(surface) {

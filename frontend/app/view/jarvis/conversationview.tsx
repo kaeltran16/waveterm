@@ -9,6 +9,7 @@ import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { Brain } from "lucide-react";
 import type { JarvisConversation, JarvisTurn } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
+import { retryJarvisQuery } from "./jarvisstore";
 import { JarvisAnswer, JarvisUserTurn } from "./jarvisturn";
 
 export function ConversationView({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
@@ -27,7 +28,11 @@ export function ConversationView({ conversation, model }: { conversation: Jarvis
                 isAnswerTurn(turn) ? (
                     <div key={i} className="flex gap-3">
                         <Brain size={18} strokeWidth={1.8} className="mt-1 shrink-0 text-accent" />
-                        <JarvisAnswer turn={turn} model={model} />
+                        <JarvisAnswer
+                            turn={turn}
+                            model={model}
+                            onRetry={() => retryJarvisQuery(conversation.id, i)}
+                        />
                     </div>
                 ) : (
                     <JarvisUserTurn key={i} text={turn.text} />

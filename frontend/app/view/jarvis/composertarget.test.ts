@@ -23,6 +23,14 @@ describe("resolveComposerTarget", () => {
         expect(t.needsChannelPicker).toBe(false);
     });
 
+    it("separates dispatch from consult — Enter on a channel spends money, on a thread it asks", () => {
+        const launch = resolveComposerTarget({ composerTarget: "worker-or-jarvis", draft: "add the counter" });
+        const consult = resolveComposerTarget({ composerTarget: "worker-or-jarvis", draft: "@ask what changed" });
+        expect(launch.label).toBe("Jarvis · dispatch");
+        expect(consult.label).toBe("Jarvis · consult");
+        expect(launch.label).not.toBe(resolveComposerTarget({ composerTarget: "jarvis-thread", draft: "" }).label);
+    });
+
     it("targets Jarvis on a channel with no live worker", () => {
         const t = resolveComposerTarget({
             composerTarget: "worker-or-jarvis",

@@ -14,7 +14,14 @@ import { fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { getGlobalProfile, getJarvisProfile, setChannelProfile, setGlobalProfile } from "../agents/runactions";
+import {
+    clearResolvedProfiles,
+    getGlobalProfile,
+    getJarvisProfile,
+    refreshResolvedProfile,
+    setChannelProfile,
+    setGlobalProfile,
+} from "../agents/runactions";
 import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
 import { PrinciplesEditor } from "./principleseditor";
 import { graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
@@ -466,6 +473,8 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
         return () => window.removeEventListener("keydown", onKey);
     }, [open, peekOpen, setOpen]);
 
+    // Saving has to invalidate the resolved-profile cache the composer labels itself from, or the footer
+    // goes on describing the strategy this write just replaced until the user switches subjects.
     const save = () => {
         setSaving(true);
         fireAndForget(async () => {
@@ -476,12 +485,16 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
                     }
                     await setGlobalProfile(globalDraft);
                     setGlobalLoaded(globalDraft);
+                    clearResolvedProfiles();
                 } else {
                     if (!loaded) {
                         return;
                     }
                     await setChannelProfile(channelId, draft);
                     setLoaded((l) => (l ? { ...l, override: overrideIsEmpty(draft) ? {} : draft } : l));
+                }
+                if (channelId) {
+                    await refreshResolvedProfile(channelId);
                 }
             } finally {
                 setSaving(false);

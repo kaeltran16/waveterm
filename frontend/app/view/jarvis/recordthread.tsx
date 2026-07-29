@@ -11,8 +11,8 @@ import { useAtomValue } from "jotai";
 import { Brain } from "lucide-react";
 import { DecisionLog } from "./decisionlog";
 import { isAnswerTurn } from "./jarviscontract";
-import { conversationsByIdAtom } from "./jarvisstore";
-import { recordConversationAtom, recordRunsAtom } from "./jarvissubjectstore";
+import { conversationsByIdAtom, retryJarvisQuery } from "./jarvisstore";
+import { recordRunsAtom, sourceConversationAtom } from "./jarvissubjectstore";
 import { JarvisAnswer, JarvisUserTurn } from "./jarvisturn";
 
 const RUN_TONE: Record<string, string> = {
@@ -25,10 +25,11 @@ const RUN_TONE: Record<string, string> = {
 
 export function RecordThread({ detail, model }: { detail: DossierDetail | null; model: AgentsViewModel }) {
     const byRecord = useAtomValue(recordRunsAtom);
-    const convIds = useAtomValue(recordConversationAtom);
+    const convIdBySource = useAtomValue(sourceConversationAtom);
     const convsById = useAtomValue(conversationsByIdAtom);
     const runs = detail != null ? (byRecord[detail.id] ?? []) : [];
-    const conversation = detail != null ? convsById[convIds[detail.id] ?? ""] : undefined;
+    // a record's thread is the one attached to its own oref — the same key askAboutRecord writes.
+    const conversation = detail != null ? convsById[convIdBySource["task:" + detail.id] ?? ""] : undefined;
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-5 pb-2.5 pt-4">
             <div className="flex items-center gap-2.5">
@@ -92,7 +93,11 @@ export function RecordThread({ detail, model }: { detail: DossierDetail | null; 
                                 isAnswerTurn(turn) ? (
                                     <div key={i} className="flex gap-3">
                                         <Brain size={18} strokeWidth={1.8} className="mt-1 shrink-0 text-accent" />
-                                        <JarvisAnswer turn={turn} model={model} />
+                                        <JarvisAnswer
+                                            turn={turn}
+                                            model={model}
+                                            onRetry={() => retryJarvisQuery(conversation.id, i)}
+                                        />
                                     </div>
                                 ) : (
                                     <JarvisUserTurn key={i} text={turn.text} />

@@ -17,7 +17,9 @@ export type SourceType =
     | "task";
 
 export type Freshness = "fresh" | "stale" | "unavailable";
-export type Terminal = "answered" | "weak" | "notfound";
+// "weak" and "notfound" are statements about the corpus; "error" is a statement about the request — it
+// never reached an answer. Collapsing the two made a dead backend read as "I looked and found little".
+export type Terminal = "answered" | "weak" | "notfound" | "error";
 export type StepStatus = "done" | "active" | "pending";
 export type ScopeMode = "object" | "project" | "all" | "attached";
 

@@ -5,11 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 
 function mkDeps(): LaunchDeps & {
-    dispatch: ReturnType<typeof vi.fn>;
+    quick: ReturnType<typeof vi.fn>;
     run: ReturnType<typeof vi.fn>;
     consult: ReturnType<typeof vi.fn>;
 } {
-    return { dispatch: vi.fn(), run: vi.fn(), consult: vi.fn() } as any;
+    return { quick: vi.fn(), run: vi.fn(), consult: vi.fn() } as any;
 }
 
 describe("buildLaunchItems", () => {
@@ -29,11 +29,11 @@ describe("buildLaunchItems", () => {
         ]);
     });
 
-    it("dispatches Quick to claude with the trimmed goal", () => {
+    it("starts a quick run with the trimmed goal", () => {
         const deps = mkDeps();
         const items = buildLaunchItems("  fix auth  ", "ch", "pipeline", deps);
         items.find((i) => i.key === "launch:quick")!.run();
-        expect(deps.dispatch).toHaveBeenCalledWith("claude", "fix auth");
+        expect(deps.quick).toHaveBeenCalledWith("fix auth");
     });
     it("runs a managed run with the trimmed goal", () => {
         const deps = mkDeps();

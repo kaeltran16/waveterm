@@ -11,8 +11,7 @@ import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
 import type { MemNote } from "../agents/memtypes";
 import type { JarvisScope, SourceRef, SourceType } from "./jarviscontract";
-import { jarvisDraftAtom, startConversation } from "./jarvisstore";
-import { selectSubject } from "./jarvissubjectstore";
+import { conversationForSource, selectSubject, setJarvisDraft } from "./jarvissubjectstore";
 
 export function sourceRefForRun(run: Run): SourceRef {
     return { oref: WOS.makeORef("run", run.id) ?? `run:${run.id}`, sourceType: "run", title: run.goal };
@@ -52,8 +51,12 @@ export function suggestedPrompt(t: SourceType): string {
 }
 
 export function openJarvisWithSource(model: AgentsViewModel, ref: SourceRef): void {
-    const id = startConversation(attachedScope(ref)); // creates + activates the conversation (jarvisstore)
-    globalStore.set(jarvisDraftAtom, suggestedPrompt(ref.sourceType));
+    // one thread per source object, reused rather than re-created: asking about the same Run twice used to
+    // leave two identical rows in the Threads group, and the second one carried none of the first's answers.
+    const id = conversationForSource(ref.oref, attachedScope(ref));
+    // the suggested prompt belongs to *this* thread: drafts are keyed by subject, so priming the box means
+    // priming that key, not a shared one another subject would inherit.
+    setJarvisDraft(id, suggestedPrompt(ref.sourceType));
     // the merged surface shows whatever the active *subject* is, so the new thread has to become one
     selectSubject({ kind: "conversation", id });
     globalStore.set(model.surfaceAtom, "jarvis");

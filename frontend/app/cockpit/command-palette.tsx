@@ -67,7 +67,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const activeSpace = useAtomValue(activeSpaceAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
-    const [runProfile, setRunProfile] = useState<{ mode?: string; planGate?: boolean } | null>(null);
+    const [runStrategy, setRunStrategy] = useState<string | undefined>(undefined);
     const inputRef = useRef<HTMLInputElement>(null);
     const loadedRef = useRef(false);
 
@@ -106,18 +106,18 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     }, [open]);
 
     // Pre-fetch the active channel's Jarvis strategy so the Run row can label itself
-    // (Run · pipeline / Run · orchestrator). Before it loads the row reads plain "Run" and
-    // resolves the strategy at click time (see launch deps below).
+    // (Run · pipeline / Run · orchestrator). Labelling only — the dispatch sends no mode, so an
+    // unresolved profile costs a suffix, never the wrong strategy.
     useEffect(() => {
         if (!open || !targetChannel) {
-            setRunProfile(null);
+            setRunStrategy(undefined);
             return;
         }
         let cancelled = false;
         fireAndForget(async () => {
             const p = await getJarvisProfile(targetChannel.oid);
             if (!cancelled) {
-                setRunProfile({ mode: p.resolved?.defaultmode, planGate: p.resolved?.defaultplangate });
+                setRunStrategy(p.resolved?.defaultmode);
             }
         });
         return () => {
@@ -227,18 +227,16 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 roster: agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId })),
                 text,
             });
+        // Quick and Run both go through createRun: that is the only path that captures a dossier, so a
+        // goal dispatched from here lands in the record system like one dispatched from the composer.
+        // Run sends no mode — the channel's profile is the server's to resolve (resolveRunPlan takes any
+        // non-empty mode as an override, so a stale prefetch here would beat the channel's own setting).
         const deps: LaunchDeps = {
-            dispatch: (runtime, goal) => fireLaunch(() => sendText(`@${runtime} ${goal}`)),
-            run: (goal) =>
-                fireLaunch(() =>
-                    createRun(ch.oid, goal, {
-                        mode: runProfile?.mode ?? "pipeline",
-                        planGate: runProfile?.planGate ?? true,
-                    })
-                ),
+            quick: (goal) => fireLaunch(() => createRun(ch.oid, goal, { mode: "quick" })),
+            run: (goal) => fireLaunch(() => createRun(ch.oid, goal)),
             consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
         };
-        return buildLaunchItems(launchGoal, ch.name, runProfile?.mode, deps).map((li) => ({
+        return buildLaunchItems(launchGoal, ch.name, runStrategy, deps).map((li) => ({
             key: li.key,
             kind: "launch" as const,
             search: "",
@@ -250,7 +248,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             desc: li.desc,
             footer: li.footer,
         }));
-    }, [showLaunch, targetChannel, launchGoal, runProfile, agents, model]);
+    }, [showLaunch, targetChannel, launchGoal, runStrategy, agents, model]);
 
     // "Ask Jarvis" lead group: turn the typed goal into a recall conversation and open the Jarvis surface.
     // Reuses jarvisstore's module-scope streaming so the answer keeps arriving after the palette closes.

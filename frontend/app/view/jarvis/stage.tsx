@@ -8,14 +8,14 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { tierFromMeta } from "@/app/view/agents/channelmessages";
-import {
-    activeChannelAtom,
-    activeChannelRunsAtom,
-    channelDismissedRunsAtom,
-    channelsAtom,
-} from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, activeChannelRunsAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
-import { getJarvisProfile, pendingRunDraftAtom, pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import {
+    loadResolvedProfile,
+    pendingRunDraftAtom,
+    pendingRunFocusAtom,
+    resolvedProfileAtom,
+} from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
 import { liveWorkers, resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
@@ -23,8 +23,9 @@ import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ConversationView } from "./conversationview";
+import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { activeConversationAtom, graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
 import {
@@ -54,7 +55,6 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const ambient = useAtomValue(ambientProviderAtom);
     const agents = useAtomValue(model.agentsAtom);
     const allRuns = useAtomValue(activeChannelRunsAtom);
-    const dismissedMap = useAtomValue(channelDismissedRunsAtom);
     const bandOpen = useAtomValue(recordBandOpenAtom);
     const runIds = useAtomValue(activeRunIdAtom);
     const bandDetails = useAtomValue(recordDetailAtom);
@@ -66,39 +66,37 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const graphOpen = useAtomValue(graphPeekOpenAtom);
     const setGraphOpen = useSetAtom(graphPeekOpenAtom);
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
-    const [profile, setProfile] = useState<JarvisProfile | undefined>(undefined);
+    const profiles = useAtomValue(resolvedProfileAtom);
+    const profileChannelId = subject?.kind === "channel" ? subject.id : null;
+    const profile = profileChannelId != null ? profiles[profileChannelId] : undefined;
 
     useEffect(() => ensureAmbient(), []);
 
-    // the channel's resolved profile drives the composer's run footer and every createRun default; the ⚙
-    // drawer edits it. Refetched when the channel on the Stage changes.
+    // the channel's resolved profile labels the composer's run footer. It does *not* feed the dispatch —
+    // the server resolves the strategy — so a slow load costs a label, never the wrong run. The cache is
+    // shared with ⚙, which refreshes it on Save.
     useEffect(() => {
-        const channelId = subject?.kind === "channel" ? subject.id : null;
-        if (channelId == null) {
-            setProfile(undefined);
-            return;
+        if (profileChannelId != null) {
+            loadResolvedProfile(profileChannelId);
         }
-        let live = true;
-        getJarvisProfile(channelId)
-            .then((r) => {
-                if (live) {
-                    setProfile(r.resolved);
-                }
-            })
-            .catch(() => {});
-        return () => {
-            live = false;
-        };
-    }, [subject?.kind, subject?.id]);
+    }, [profileChannelId]);
 
     // land a "Open run" focus request (Radar, the graph peek): put its channel on the Stage, then select
-    // the run once that channel's runs have loaded. Clearing the atom is the one-shot guard.
+    // the run once that channel's runs have loaded. `landed` bounds the navigation to one attempt — a run
+    // that never appears (channel load failed, run gone) used to re-fire this on every subject change and
+    // yank the user back to it, with no way out but a reload. Landing on the channel is the useful part;
+    // silently giving up on the run is the right degradation.
     useEffect(() => {
         if (pendingFocus == null) {
             return;
         }
         if (subject?.kind !== "channel" || subject.id !== pendingFocus.channelId) {
+            if (pendingFocus.landed) {
+                setPendingFocus(null);
+                return;
+            }
             selectSubject({ kind: "channel", id: pendingFocus.channelId });
+            setPendingFocus({ ...pendingFocus, landed: true });
             return;
         }
         if (allRuns.some((r) => r.id === pendingFocus.runId)) {
@@ -143,11 +141,15 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     useKeybindings(askBindings);
 
     if (subject == null) {
+        // the region marker is on both branches: the collapse order's floor is a claim about the Stage's
+        // width, and a check that only holds once a subject is selected is not a check on the layout.
         return (
-            <SurfaceEmptyState
-                title="Point me at some work."
-                body="I dispatch runs, keep the record of what they did, and remember it afterwards. Start a channel and I'll drive it — or just ask me something and I'll tell you what I can and can't ground."
-            />
+            <div data-jarvis-region="stage" className="flex min-w-0 flex-1 flex-col bg-background">
+                <SurfaceEmptyState
+                    title="Point me at some work."
+                    body="I dispatch runs, keep the record of what they did, and remember it afterwards. Start a channel and I'll drive it — or just ask me something and I'll tell you what I can and can't ground."
+                />
+            </div>
         );
     }
 
@@ -163,14 +165,12 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               : conversation.title;
     const subtitle = subject.kind === "channel" ? (channel?.projectpath ?? "") : "";
 
-    const dismissed = new Set(dismissedMap[subject.id] ?? []);
-    const runs = allRuns.filter((r) => !dismissed.has(r.id));
-    const run = runs.find((r) => r.id === resolveActiveRunId(runs, runIds[subject.id]));
+    const run = allRuns.find((r) => r.id === resolveActiveRunId(allRuns, runIds[subject.id]));
     const bandDetail = subject.kind === "dossier" ? detail : bandRecordId != null ? (bandDetails[bandRecordId] ?? null) : null;
     askAgentRef.current = run ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
 
     return (
-        <div className="relative flex min-w-0 flex-1 flex-col bg-background">
+        <div data-jarvis-region="stage" className="relative flex min-w-0 flex-1 flex-col bg-background">
             <StageHeader
                 comp={comp}
                 title={title}
@@ -211,6 +211,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
             <StageComposer
                 model={model}
                 comp={comp}
+                subjectId={subject.id}
                 channel={channel}
                 channels={channels ?? []}
                 agents={agents}
@@ -219,10 +220,19 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 recordObjective={detail?.objective ?? ""}
                 profile={profile}
             />
-            {/* last child, so the overlay layers above the whole Stage while containing none of it */}
+            {/* last child, so the overlay layers above the whole Stage while containing none of it. The
+                Stage resolves what the peek opens on: it already holds the run, the attribution and the
+                thread's attachments, and the peek must not re-derive any of them. */}
             {graphOpen ? (
                 <GraphPeek
                     model={model}
+                    focus={peekFocus({
+                        subject,
+                        runORef: run != null ? "run:" + run.id : null,
+                        attachedORefs: conversation.scope.attached.map((a) => a.oref),
+                        mentionedDossierIds: mentionedDossierIds(conversation),
+                        tagsFor: (oref) => ambient.tagsFor({ oref }),
+                    })}
                     onClose={() => setGraphOpen(false)}
                     onOpenSubject={(next) => selectSubject(next)}
                 />

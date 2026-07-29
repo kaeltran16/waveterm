@@ -38,8 +38,8 @@ describe("runFooterFor", () => {
     it("pipeline no gate", () => {
         expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: false })).toBe("→ pipeline run · no gate · set in ⚙");
     });
-    it("undefined profile defaults to pipeline + gate", () => {
-        expect(runFooterFor(undefined)).toBe("→ pipeline run · stops at a review gate · set in ⚙");
+    it("says the strategy is unresolved rather than asserting a default", () => {
+        expect(runFooterFor(undefined)).toBe("→ resolving channel strategy…");
     });
 });
 

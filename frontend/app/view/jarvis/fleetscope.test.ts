@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { fleetForRecord } from "./fleetscope";
+import { fleetCountsLine, RAIL_COUNTS_MAX_CHARS, fleetForRecord } from "./fleetscope";
 
 function agent(id: string, state: AgentVM["state"]): AgentVM {
     return { id, name: id, state } as unknown as AgentVM;
@@ -68,5 +68,42 @@ describe("fleetForRecord", () => {
             attributedRunORefs: ["run:r1"],
         });
         expect(out).toEqual({ workers: [], channelCount: 0 });
+    });
+});
+
+describe("fleetCountsLine", () => {
+    it("states working, waiting and cost for a channel", () => {
+        expect(fleetCountsLine({ working: 2, waiting: 1 }, 1.2, null)).toBe("2 working · 1 waiting · $1.20");
+    });
+
+    it("drops the cost when nothing has been spent", () => {
+        expect(fleetCountsLine({ working: 0, waiting: 0 }, 0, null)).toBe("0 working · 0 waiting");
+    });
+
+    it("counts channels instead of waiting workers for a record", () => {
+        expect(fleetCountsLine({ working: 3, waiting: 2 }, 4, { workers: [], channelCount: 2 })).toBe(
+            "3 working · 2 channels"
+        );
+    });
+
+    it("singularizes one channel", () => {
+        expect(fleetCountsLine({ working: 1, waiting: 0 }, 0, { workers: [], channelCount: 1 })).toBe(
+            "1 working · 1 channel"
+        );
+    });
+
+    // the rail is 300px with 18px of padding a side, and the row shares those 264px with the
+    // "Fleet · on this record" title (~123px at 9px mono). The record variant used to read
+    // "N working · across M channels" under whitespace-nowrap and ran off the edge, clipped
+    // mid-word to "…across 0 ch".
+    it("keeps the record variant inside the rail's character budget", () => {
+        for (const [working, channels] of [
+            [0, 0],
+            [9, 9],
+            [99, 99],
+        ]) {
+            const line = fleetCountsLine({ working, waiting: 0 }, 0, { workers: [], channelCount: channels });
+            expect(line.length).toBeLessThanOrEqual(RAIL_COUNTS_MAX_CHARS);
+        }
     });
 });

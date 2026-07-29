@@ -18,12 +18,17 @@ import type { PendingRunDraft } from "./radarmodel";
 // (lost on reload, which is fine for a review step); cleared on explicit Start or Discard.
 export const pendingRunDraftAtom = atom<PendingRunDraft | null>(null) as PrimitiveAtom<PendingRunDraft | null>;
 
-// A one-shot request to focus a specific run (e.g. from Radar's "Open run"). The Channels surface consumes it
-// on landing: select the channel, then select the run once its strip is populated, then clear. Mirrors
-// pendingRunDraftAtom (the guard is clearing the atom, so it survives ChannelsSurface remount on navigation).
-export const pendingRunFocusAtom = atom<{ channelId: string; runId: string } | null>(
-    null
-) as PrimitiveAtom<{ channelId: string; runId: string } | null>;
+// A one-shot request to focus a specific run (e.g. from Radar's "Open run"). The Stage consumes it on
+// landing: select the channel, then select the run once its strip is populated, then clear. `landed`
+// mirrors pendingRunDraftAtom's guard and bounds the navigation to one attempt — a run that never shows up
+// in the channel's list (channel load failed, run gone) must not keep pulling the user back.
+export interface PendingRunFocus {
+    channelId: string;
+    runId: string;
+    landed?: boolean;
+}
+
+export const pendingRunFocusAtom = atom<PendingRunFocus | null>(null) as PrimitiveAtom<PendingRunFocus | null>;
 
 // Run ids whose Cancel RPC is in flight. CancelRunCommand is synchronous — it returns only after each
 // worker's graceful stop completes — so this real interval drives the transient "Cancelling…" button
@@ -124,6 +129,33 @@ export function confirmCancelRun(channelId: string, runId: string, liveCount: nu
 
 export async function getJarvisProfile(channelId: string): Promise<CommandGetJarvisProfileRtnData> {
     return RpcApi.GetJarvisProfileCommand(TabRpcClient, { channelid: channelId });
+}
+
+// The resolved (global + channel override) Jarvis profile, keyed by channel id. Module scope so ⚙'s Save
+// refreshes every reader at once: a Stage-local copy went stale the moment the drawer wrote, and the
+// composer went on labelling the run strategy the user had just replaced.
+export const resolvedProfileAtom = atom<Record<string, JarvisProfile>>({}) as PrimitiveAtom<
+    Record<string, JarvisProfile>
+>;
+
+export function loadResolvedProfile(channelId: string): void {
+    if (globalStore.get(resolvedProfileAtom)[channelId] != null) {
+        return;
+    }
+    fireAndForget(() => refreshResolvedProfile(channelId));
+}
+
+export async function refreshResolvedProfile(channelId: string): Promise<void> {
+    const r = await getJarvisProfile(channelId);
+    if (r?.resolved == null) {
+        return;
+    }
+    globalStore.set(resolvedProfileAtom, { ...globalStore.get(resolvedProfileAtom), [channelId]: r.resolved });
+}
+
+// A global-profile write re-resolves every channel, not just the one the drawer was opened on.
+export function clearResolvedProfiles(): void {
+    globalStore.set(resolvedProfileAtom, {});
 }
 
 export async function setChannelProfile(channelId: string, override: ProfileOverride): Promise<void> {

@@ -11,7 +11,15 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { selectChannel } from "@/app/view/agents/channelsstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import { profileRailOpenAtom, selectConversation, startConversation, submitJarvisQuery } from "./jarvisstore";
+import type { JarvisScope } from "./jarviscontract";
+import {
+    getConversation,
+    profileRailOpenAtom,
+    pruneEmptyConversation,
+    selectConversation,
+    startConversation,
+    submitJarvisQuery,
+} from "./jarvisstore";
 import type { SubjectKind } from "./subjects";
 import { selectDossier } from "./tasksstore";
 
@@ -34,7 +42,33 @@ export const recordScopeAtom = atom<Record<string, SpaceScope>>({}) as Primitive
 // not a live subscription: a record's attributed runs are history by the time they are attributed.
 export const recordRunsAtom = atom<Record<string, Run[]>>({}) as PrimitiveAtom<Record<string, Run[]>>;
 
+// Leaving a thread nobody asked anything in discards it, along with the draft and source mapping that
+// pointed at it. Re-selecting the same subject is not leaving it — asking about one source twice in a row
+// lands back on the thread already showing, and pruning there would delete what the click is opening.
+function pruneOnLeave(next: ActiveSubject): void {
+    const prev = globalStore.get(activeSubjectAtom);
+    if (prev == null || prev.kind !== "conversation" || (prev.kind === next.kind && prev.id === next.id)) {
+        return;
+    }
+    if (!pruneEmptyConversation(prev.id)) {
+        return;
+    }
+    const drafts = { ...globalStore.get(jarvisDraftAtom) };
+    delete drafts[prev.id];
+    globalStore.set(jarvisDraftAtom, drafts);
+    const sources = globalStore.get(sourceConversationAtom);
+    const stale = Object.entries(sources).filter(([, id]) => id === prev.id);
+    if (stale.length > 0) {
+        const kept = { ...sources };
+        for (const [oref] of stale) {
+            delete kept[oref];
+        }
+        globalStore.set(sourceConversationAtom, kept);
+    }
+}
+
 export function selectSubject(subject: ActiveSubject): void {
+    pruneOnLeave(subject);
     globalStore.set(activeSubjectAtom, subject);
     if (subject.kind === "channel") {
         fireAndForget(() => selectChannel(subject.id));
@@ -96,6 +130,26 @@ export function setActiveRunId(channelId: string, runId: string | undefined): vo
     globalStore.set(activeRunIdAtom, { ...prev, [channelId]: runId });
 }
 
+// The composer's draft, keyed by subject id like the atoms above — one box serves every face, so one
+// keyed store does too (a channel subject's id *is* its channel oid). A single string carried a
+// half-typed question onto the next subject, where one Enter would have dispatched it against that
+// subject instead of the one it was written for.
+export const jarvisDraftAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+export function setJarvisDraft(subjectId: string, text: string): void {
+    const prev = globalStore.get(jarvisDraftAtom);
+    globalStore.set(jarvisDraftAtom, { ...prev, [subjectId]: text });
+}
+
+// "this subject is asking which channel to dispatch into". Keyed for the same reason and by the same key:
+// the prompt only means anything beside the draft that raised it, so the two travel together.
+export const channelPickingAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
+
+export function setChannelPicking(subjectId: string, picking: boolean): void {
+    const prev = globalStore.get(channelPickingAtom);
+    globalStore.set(channelPickingAtom, { ...prev, [subjectId]: picking });
+}
+
 // "the user is composing a new run in this channel", keyed by channel id. Sticky, because clearing the
 // active run id cannot express it: resolveActiveRunId reads undefined as "pick one for me" and lands back
 // on the most-recent non-terminal run — the very run the Talk face was steering. So while any run in a
@@ -107,21 +161,32 @@ export function setComposingRun(channelId: string, composing: boolean): void {
     globalStore.set(composingRunAtom, { ...prev, [channelId]: composing });
 }
 
-// A record's own Jarvis thread. Asking about a record has to land somewhere, and a record has no turn
-// list: this starts one conversation per record, attached to it. That attachment is also what makes the
-// thread discoverable later — a conversation's only link to a record is what it cited.
-export const recordConversationAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+// One thread per source object, keyed by that object's oref. Asking about a record or a Run has to land
+// somewhere and neither has a turn list of its own; the attachment is also what makes the thread
+// discoverable later, since a conversation's only link back to an object is what it cited. Asking twice
+// about the same object continues the same thread rather than minting a second one — a new thread per
+// click is what filled the Threads group with duplicate rows (four questions, twelve rows).
+export const sourceConversationAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+export function conversationForSource(oref: string, scope: JarvisScope): string {
+    const existing = globalStore.get(sourceConversationAtom)[oref];
+    // a mapping can outlive its thread (an unasked one is pruned on the way out). Submitting into an id
+    // nothing holds any more is a silent no-op, so a dead mapping mints a fresh thread.
+    if (existing != null && getConversation(existing) != null) {
+        return existing;
+    }
+    const id = startConversation(scope);
+    globalStore.set(sourceConversationAtom, { ...globalStore.get(sourceConversationAtom), [oref]: id });
+    return id;
+}
 
 export function askAboutRecord(dossierId: string, objective: string, text: string): void {
-    let convId = globalStore.get(recordConversationAtom)[dossierId];
-    if (convId == null) {
-        convId = startConversation({
-            mode: "object",
-            chips: [{ label: dossierId, active: true }],
-            attached: [{ oref: "task:" + dossierId, sourceType: "task", title: objective }],
-        });
-        globalStore.set(recordConversationAtom, { ...globalStore.get(recordConversationAtom), [dossierId]: convId });
-    }
+    const oref = "task:" + dossierId;
+    const convId = conversationForSource(oref, {
+        mode: "object",
+        chips: [{ label: dossierId, active: true }],
+        attached: [{ oref, sourceType: "task", title: objective }],
+    });
     submitJarvisQuery(convId, text);
 }
 

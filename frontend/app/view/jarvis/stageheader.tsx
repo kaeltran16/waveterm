@@ -28,10 +28,21 @@ export function StageHeader({
     onOpenGraph: () => void;
 }) {
     return (
-        <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border bg-surface px-4">
+        // @container: the ladder's rungs and its dispatch strip yield to the header's own width, not the
+        // window's. The title was the only shrinkable item in this row, so it truncated to 0px whenever the
+        // ladder grew — the subject you are looking at lost its name. It now has a floor and the ladder
+        // gives up its labels first (see autonomyladderview).
+        <div className="@container flex h-11 flex-none items-center gap-2.5 border-b border-border bg-surface px-4">
             <span className="flex-none font-mono text-[13px] font-semibold text-accent-soft">{comp.mark}</span>
-            <span className="min-w-0 truncate text-[14px] font-bold tracking-[-.01em] text-primary">{title}</span>
-            <span className="flex-none font-mono text-[11px] text-muted">{subtitle}</span>
+            <span title={title} className="min-w-[10ch] truncate text-[14px] font-bold tracking-[-.01em] text-primary">
+                {title}
+            </span>
+            {/* the project path is the row's least load-bearing item and was its widest fixed one (244px
+                of a 706px header). It shrinks before the title's floor is touched, and leaves entirely
+                once the header is too narrow to seat the ladder beside it. */}
+            <span title={subtitle} className="min-w-0 truncate font-mono text-[11px] text-muted @max-[640px]:hidden">
+                {subtitle}
+            </span>
             <div className="flex-1" />
             {/* a statement of reach, not a scope picker — Spaces own scoping, and two controls for one
                 thing would be two sources of truth. */}
