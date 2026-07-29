@@ -69,6 +69,38 @@ describe("runGoalMatches", () => {
     });
 });
 
+describe("buildSubjectGroups archived threads", () => {
+    it("files an archived thread under Archived, not Threads", () => {
+        const groups = buildSubjectGroups({
+            channels: [],
+            dossiers: [],
+            conversations: [convo("t1", "live question", []), { ...convo("t2", "put away", []), archived: true }],
+            projectNameFor: () => "proj",
+            spaceScope: null,
+            spaceDossierId: null,
+            revealed: false,
+        } as SubjectInput);
+        expect(groups.find((g) => g.key === "threads")?.items.map((i) => i.id)).toEqual(["t1"]);
+        expect(groups.find((g) => g.key === "archived")?.items.map((i) => i.id)).toEqual(["t2"]);
+    });
+
+    it("counts archived channels and archived threads in one group", () => {
+        // two "Archived" headers for two kinds would read as two different states
+        const groups = buildSubjectGroups({
+            channels: [ch("c1", "old", "proj", true)],
+            dossiers: [],
+            conversations: [{ ...convo("t2", "put away", []), archived: true }],
+            projectNameFor: () => "proj",
+            spaceScope: null,
+            spaceDossierId: null,
+            revealed: false,
+        } as SubjectInput);
+        const archived = groups.find((g) => g.key === "archived");
+        expect(archived?.label).toBe("Archived · 2");
+        expect(archived?.items.map((i) => i.kind)).toEqual(["channel", "conversation"]);
+    });
+});
+
 describe("buildSubjectGroups", () => {
     it("groups channels by project, then records, then threads", () => {
         const groups = buildSubjectGroups(BASE);

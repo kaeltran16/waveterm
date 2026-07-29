@@ -4,10 +4,11 @@
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Bot, Brain, Gauge, GitCompare, LayoutDashboard, Network, Radar, Settings, SquareStack } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import { channelPendingAskCount, standalonePendingAskCount } from "./channelderive";
 import { channelsAtom } from "./channelsstore";
+import { navRailCollapsed } from "./navrailwidth";
 
 const iconProps = { size: 20, strokeWidth: 1.8 } as const;
 
@@ -47,6 +48,12 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
         cockpit: standalonePendingAskCount(chanList, agents),
         jarvis: channelPendingAskCount(chanList, agents),
     };
+    const [narrow, setNarrow] = useState(() => navRailCollapsed(window.innerWidth));
+    useEffect(() => {
+        const onResize = () => setNarrow(navRailCollapsed(window.innerWidth));
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, []);
     const renderItem = (key: SurfaceKey, label: string, badge = 0) => {
         const isActive = active === key;
         return (
@@ -54,6 +61,9 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
                 key={key}
                 type="button"
                 onClick={() => setActive(key)}
+                // the label carries the item's name, so a 56px rail needs the accessible name here
+                aria-label={label}
+                title={label}
                 className={cn(
                     "relative mx-2 flex cursor-pointer flex-col items-center gap-[5px] rounded-[10px] border-0 bg-transparent py-[11px] text-muted hover:text-muted-foreground",
                     isActive && "text-accent-soft"
@@ -73,12 +83,17 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
                         </span>
                     ) : null}
                 </span>
-                <span className="relative z-[1] text-[10px] font-semibold">{label}</span>
+                {narrow ? null : <span className="relative z-[1] text-[10px] font-semibold">{label}</span>}
             </button>
         );
     };
     return (
-        <nav className="flex w-[78px] shrink-0 flex-col gap-[3px] border-r border-border bg-surface py-2.5">
+        <nav
+            className={cn(
+                "flex shrink-0 flex-col gap-[3px] border-r border-border bg-surface py-2.5",
+                narrow ? "w-[56px]" : "w-[78px]"
+            )}
+        >
             {ITEMS.map(({ key, label }) => renderItem(key, label, badges[key] ?? 0))}
             <div className="flex-1" />
             {renderItem("settings", "Settings")}

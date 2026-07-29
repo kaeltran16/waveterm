@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { JarvisConversation, JarvisUserTurn } from "./jarviscontract";
-import { conversationsByIdAtom, pruneEmptyConversation, setConversation, summaryToRailConversation } from "./jarvisstore";
+import {
+    conversationsByIdAtom,
+    pruneEmptyConversation,
+    rehydrateSourceMap,
+    setConversation,
+    summaryToRailConversation,
+} from "./jarvisstore";
 import { globalStore } from "@/app/store/global";
 
 const convo = (id: string, turns: JarvisConversation["turns"]): JarvisConversation => ({
@@ -54,5 +60,45 @@ describe("pruneEmptyConversation", () => {
         setConversation(convo("v1", [userTurn]));
         expect(pruneEmptyConversation("not-loaded-yet")).toBe(false);
         expect(Object.keys(globalStore.get(conversationsByIdAtom))).toEqual(["v1"]);
+    });
+});
+
+describe("rehydrateSourceMap", () => {
+    it("maps each attached oref to its persisted thread", () => {
+        const map = rehydrateSourceMap(
+            [
+                { id: "t1", title: "a", scopemode: "attached", updatedts: 2, attachedorefs: ["run:r1"] },
+                { id: "t2", title: "b", scopemode: "attached", updatedts: 1, attachedorefs: ["task:d1"] },
+            ] as any,
+            {}
+        );
+        expect(map).toEqual({ "run:r1": "t1", "task:d1": "t2" });
+    });
+
+    it("keeps a live in-session mapping over a persisted one", () => {
+        // the session's own thread is the one holding unsent state; a restart-time rebuild must not steal
+        // the oref out from under it.
+        const map = rehydrateSourceMap(
+            [{ id: "old", title: "a", scopemode: "attached", updatedts: 1, attachedorefs: ["run:r1"] }] as any,
+            { "run:r1": "live" }
+        );
+        expect(map["run:r1"]).toBe("live");
+    });
+
+    it("ignores summaries with no attachments", () => {
+        const map = rehydrateSourceMap([{ id: "t1", title: "a", scopemode: "all", updatedts: 1 }] as any, {});
+        expect(map).toEqual({});
+    });
+
+    it("lets the newest thread win when two claim the same oref", () => {
+        // GetJarvisConversations returns newest-first, so the first summary to claim an oref is the newest
+        const map = rehydrateSourceMap(
+            [
+                { id: "new", title: "a", scopemode: "attached", updatedts: 2, attachedorefs: ["run:r1"] },
+                { id: "old", title: "b", scopemode: "attached", updatedts: 1, attachedorefs: ["run:r1"] },
+            ] as any,
+            {}
+        );
+        expect(map["run:r1"]).toBe("new");
     });
 });

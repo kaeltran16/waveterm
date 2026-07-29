@@ -34,8 +34,35 @@ Entry point: `JarvisSurface` (`jarvissurface.tsx`), nav rail item **Jarvis** (`B
 
 ## 1. The shell
 
-Three columns: **Subjects** (272px, fixed) · **Stage** (flex) · **context rail** (300px, collapsible to a
+Three columns: **Subjects** (272px) · **Stage** (flex) · **context rail** (300px, collapsible to a
 44px strip). The rail is always mounted; what it *contains* depends on the subject.
+
+Width is not shared evenly. One `ResizeObserver` at the surface root feeds `collapseFor`
+(`jarvislayout.ts`, pure) which yields chrome in the design's order, to protect the one thing the design
+calls a hard constraint rather than a preference — the thread and the composer never give up space:
+
+1. the context rail drops to its 44px strip;
+2. the Subjects column drops to a 56px strip of status dots;
+3. the context rail leaves the flow entirely and floats over the Stage's right edge (`railOverlay`), costing
+   no inline width at all — worth 44px of surface floor, 740 → 696.
+
+Each step stops as soon as the Stage clears its **640px floor** (`STAGE_MIN_PX` — derived, not picked: the
+560px user bubble plus the conversation column's padding), so a wide window collapses nothing and the order
+can never run backwards. Before this nothing was width-responsive and the order effectively inverted, with
+chrome holding a constant 572px while the Stage absorbed every pixel of loss.
+
+Step 4 of the design's order is the **nav rail**, which collapses itself: 78px → 56px below a 900px window,
+dropping its labels and keeping each button operable through an `aria-label`. It lives in
+`view/agents/navrailwidth.ts`, not here, because the nav rail is global chrome shared by every surface —
+driving it from inside one surface would be the wrong layer. Jarvis needs no wiring for it: its own
+`ResizeObserver` simply measures a wider surface once it fires.
+
+Below a **696px surface** width (~752px window) the order runs out of regions and the Stage goes under the
+floor anyway — rule 5 forbids taking it from the thread or the composer, so that residual stands. See gap 11b.
+
+Narrowing writes the rail's open atom on the transition rather than overriding it while narrow, so a user
+who reopens the rail on a narrow window can push the Stage under the floor themselves. That is deliberate:
+overriding also disabled the collapsed strip's expand button, trading a broken layout for a dead control.
 
 ![The Jarvis surface on a channel subject](images/jarvis-tab/01-surface-channel.png)
 
@@ -70,9 +97,14 @@ list.
 - **Grouping** — channels group by project name in first-seen order, then `Records · dossiers`, then
   `Threads`. A channel's project name is the registered project whose path matches `channel.projectpath`
   (separator-insensitive), else the path tail.
-- **Filter** — free-text over subject labels, across all three kinds; groups that empty out disappear.
+- **Filter** — free-text over subject labels across all three kinds, **and over run goals**
+  (`runGoalMatches`): a channel whose run goal matches expands to those runs even while it is not selected,
+  so a run can be found by what it was about. A run is not a subject and the switcher below is the only run
+  list, so without this, finding one meant selecting every channel in turn. Groups that empty out disappear.
   ![Filtering subjects](images/jarvis-tab/12-subject-filter.png)
-- **`+ Channel`** — pick a registered project, then name the channel (Enter creates, Esc backs out).
+- **`+ Channel`** — pick a registered project, then name the channel (Enter creates, Esc backs out). With no
+  project registered the picker offers **No projects yet — register one**, which opens the New-project modal
+  in place; the first thing a new user clicks used to be prose pointing them at another surface.
   ![New channel picker](images/jarvis-tab/13-new-channel-picker.png)
   A channel's group header comes from `projectNameFor`, which resolves by path — so two projects registered
   at one path used to file a channel under an arbitrary one of them. `CreateProjectCommand` now refuses a
@@ -84,7 +116,21 @@ list.
   *first* turn, so a turnless conversation has never reached the store.
 - **One thread per source** — asking about the same Run, finding, note, record or graph node twice continues
   the same thread (`conversationForSource`, keyed by the source's oref) instead of minting a second identical
-  row. Every "ask about this object" entry goes through it. Session-scoped; see gap 12c.
+  row. Every "ask about this object" entry goes through it. The map is rebuilt from the persisted summaries'
+  `attachedorefs` on load (`rehydrateSourceMap`), so it survives a restart; an in-session mapping always wins
+  over a persisted one, because the session's thread is the one holding unsent state.
+- **Channel lifecycle** — right-click a channel row for Rename (edits in place), Archive / Unarchive and
+  Delete (behind `ConfirmModal`). The affordances lived on the deleted ChannelRail and came back here rather
+  than into the header, because the header acts on the channel you are *on* and renaming one you are not is
+  the point. Archiving moves the channel to a trailing `Archived · N` group — without somewhere to go, the
+  menu item would have had no visible effect. Autonomy deliberately did not come back: the header ladder
+  owns it, and a second control would be a second source of truth.
+- **Thread lifecycle** — right-click a thread row for Archive / Unarchive and Delete (behind `ConfirmModal`),
+  mirroring the channel menu: a row you cannot remove is a permanent one. No Rename — a thread's title comes
+  from its first turn. Archived threads join the **same** trailing `Archived · N` group as archived channels,
+  which therefore holds both kinds: two "Archived" headers for two kinds would read as two different states.
+  Archiving also patches the live in-session copy, which otherwise shadows its own summary and would leave the
+  row in `Threads` until the next launch.
 - **Row signals** — an `asking` dot and a `N▶` working count per channel, both from the same fleet
   snapshot the rail and the nav badge use, so a lit dot and a counted ask never disagree.
 - **Run switcher** — the selected channel expands inline to its runs, each with a status dot and label.
@@ -108,9 +154,17 @@ statement (a statement, not a picker — Spaces own scoping), the absence chip, 
 Two one-shot landings are consumed here:
 
 - `pendingRunFocusAtom` — "open this run" from Radar or the graph peek: select the channel, then select
-  the run once that channel's runs load.
+  the run once that channel's runs load. Bounded to **one** navigation by a `landed` flag: a run that never
+  appears (channel load failed, run gone) otherwise re-fires on every subject change and yanks the user back
+  with no way out but a reload. Landing on the channel is the useful half; silently giving up on the run is
+  the right degradation.
 - `pendingRunDraftAtom` — a Radar "start investigation" draft: move the Stage to the project's channel and
   hand the goal to the composer, which holds it under a `From Radar` banner until the user presses Start.
+  The draft is a single value (one investigation at a time) but belongs to the channel its finding's project
+  resolves to, so the composer renders and dispatches it only there — ungated, `Run ⏎` on any other channel
+  dispatched the investigation into the wrong project while still carrying `radarOrigin`, writing the
+  finding's outcome back against a run in a project it never touched. A finding whose project has no channel
+  has nowhere correct to go: it stays visible and discardable wherever the user is, with the send blocked.
 
 ## 4. Record band
 
@@ -122,9 +176,9 @@ Five cases:
 
 | Case | When | Collapsed line |
 |---|---|---|
-| `none` | channel, no attributed record | "No record attributed to this run" + attach / create |
+| `none` | channel, no attributed record | "No record attributed to this run" + "attribution is machine-maintained" |
 | `one` | channel, one edge | 🔒 task id + edge chip + "Expand the record" |
-| `several` | channel, many edges | 🔒 primary chip + the others, ranked confirmed-first then strong>medium>weak |
+| `several` | channel, many edges | 🔒 primary chip + `+N more`, ranked confirmed-first then strong>medium>weak |
 | `subject` | dossier | 🔒 "Selected directly from Records — no run beneath it" |
 | `mentions` | conversation | the dossier ids this thread cited (`mentions.ts`) |
 
@@ -132,8 +186,17 @@ Each edge chip draws its own line style — solid 2.5px (strong), dashed 1.5px (
 — and labels `state · bucket`. Unknown buckets rank below weak so an unrecognised value never presents as
 stronger than it is.
 
+The collapsed `several` row carries the primary edge and a count, never a chip per record: one chip each put
+826px of content in a 790px box at 1440px and drew the trailing label over the rail. Deliberately **not**
+`flex-wrap` — a band that changes height on selection pushes the thread. The `none` case states who maintains
+attribution rather than offering *attach a record* / *create one from this run*; those were accent-styled
+spans that did nothing, because `pkg/jarvisattrib`'s lifecycle (`Accept`, `Detach`, `Backfill`, `Harden`) is
+not exposed over wshrpc. Real controls belong to the cycle that ships the commands.
+
 Expanding renders `TaskDetail` in a 420px scroll region; extra edges become one-line rows beneath, each
-opening that record as a subject. Expanding never produces a tab strip.
+opening that record as a subject. Expanding never produces a tab strip. The expandable row is a `<button>`
+carrying `aria-expanded`, so the band's one control is keyboard-reachable; the per-record rows are siblings
+below it, not nested inside it, so the outer control cannot swallow them.
 
 ![Record band expanded over a live run](images/jarvis-tab/02-record-band-expanded.png)
 
@@ -158,6 +221,23 @@ terminal badge, and prose with inline citation buttons.
 | `answered` | none |
 | `weak` | "Weak grounding", warning tone |
 | `notfound` | "Not found", muted — an absence is not a warning |
+| `error` | "Couldn't reach Jarvis", **error** tone, plus a `Retry` on the turn |
+| `cancelled` | "Cancelled", muted, plus a `Retry` — the user stopped it, so neither amber nor red |
+
+`weak` and `notfound` are statements about the corpus; `error` is a statement about the request; `cancelled`
+is a statement about the user. Every failure on the converse stream used to land as `weak`, so "I looked and
+found little" and "the request died" drew the same amber badge, and a partly-streamed answer sat under a
+warning that misdescribed it. `Retry` re-submits the same prompt into the same conversation, and only `error`
+and `cancelled` offer it.
+
+While the converse stream is open the turn carries `streaming: true` and draws a **`Cancel`** control above
+the badge row (a streaming turn has no badge yet, so it cannot live inside it). Cancelling calls
+`gen.return()` on the RPC generator, which sends the wire cancel and unwinds the server's streaming goroutine
+through `ctx.Done()` — there is no separate abort protocol. Whatever already streamed is kept. The cancel flag
+is set *before* `gen.return()`, because that call can surface in the stream's own `catch`, which would
+otherwise overwrite `cancelled` with `error` and report a break to the person who chose it
+(`terminalAfterStreamFailure`). `streaming` is cleared on every exit — completion, error and cancel alike —
+so the control disappears exactly when the stream closes.
 
 ![Working steps streaming](images/jarvis-tab/08-fixture-working.png)
 ![Weak-grounding verdict](images/jarvis-tab/08-fixture-weak.png)
@@ -187,24 +267,40 @@ visible. A Radar draft forces the face the same way.
 
 | Where | Input | Result |
 |---|---|---|
-| channel, Launch face | bare goal | managed run using the channel's `defaultmode` + `defaultplangate` |
+| channel, Launch face | bare goal | managed run; the dispatch names no strategy and the server resolves it |
 | channel, Launch face | `@quick <goal>` | one worker, no phases |
 | channel, Launch face | `@run <goal>` | explicit managed run |
 | channel, Launch face | `@ask <goal>` | one-shot consult — **no** run, lands in the rail's Consults |
 | dossier / conversation | `@run …` / `@quick …` | asks which channel to dispatch into, then creates it |
 | anywhere | `^P` + goal → `▸▸ Run` / `↯ Quick` | calls `createRun` directly, ignoring the composer face |
 
-The run strategy is the channel's setting, never chosen per dispatch.
+The run strategy is the channel's setting, never chosen per dispatch — and the frontend enforces that by
+**sending no `mode`/`planGate` at all** for a plain run. `resolveRunPlan` falls back to the channel's
+resolved profile only when the request's mode is empty, so any value the frontend echoes back *wins* over
+the channel; a stale fetch was therefore how a just-saved ⚙ change got overridden by the value it replaced,
+and the palette's Run row hard-coded `pipeline` + gate over a channel set to orchestrator. `@quick` stays
+explicit: it is a per-dispatch override by design. The composer's footer still *labels* itself from the
+resolved profile (`resolvedProfileAtom`, keyed by channel and refreshed by ⚙ Save, so the label flips
+without a subject switch) — it just no longer feeds the dispatch, which makes a slow load cost a label
+rather than the wrong run.
+
+The palette's `↯ Quick` goes through `createRun` too. It used to post a channel mention instead, spawning a
+bare agent tab with no Run object — so no `CaptureRunDispatch`, no dossier, no evidence seal: work
+dispatched from the palette escaped the record system entirely.
 
 Who a keystroke reaches:
 
 | Subject | Draft | Chip |
 |---|---|---|
 | channel, live worker | anything | `<worker> · run <id>` (green) — steers the worker |
-| channel, live worker | `@ask …` | `Jarvis` — an explicit `@ask` beats the worker |
-| channel, no worker | anything | `Jarvis` |
+| channel, live worker | `@ask …` | `Jarvis · consult` — an explicit `@ask` beats the worker |
+| channel, no worker | anything | `Jarvis · dispatch` — Enter spawns workers and spends money |
 | dossier | anything | `Jarvis · scoped to this record` — `askAboutRecord`, one thread per record |
 | conversation | anything | `Jarvis · this thread` — `submitJarvisQuery`, streamed |
+
+Both Jarvis cases on a channel used to read a bare `Jarvis`, which put the composer's two loudest outcomes
+— *spend money* and *ask a question* — behind one label, on the line the surface relies on to say where a
+keystroke goes.
 
 Off-channel a dispatch must be **typed**: `parseComposerCommand` defaults a bare goal to `@run`, which is
 right on a channel but would make every plain sentence demand a channel elsewhere.
@@ -270,6 +366,11 @@ nothing to act on.
 Each section badges `GLOBAL` or `PROJECT` with **customize** (copy the inherited section into the
 editable override) and **reset to global** (drop it). Save is disabled until dirty.
 
+Save also refreshes the shared `resolvedProfileAtom` so every reader flips at once — a project save
+re-resolves that channel, a global save clears the whole cache because it re-resolves every channel. A
+Stage-local copy went stale the moment the drawer wrote, and the composer went on labelling the run strategy
+the user had just replaced.
+
 The drawer shares the right-edge slot with the context rail: it has no collapsed strip of its own, and
 the rail force-collapses while it is open, so the two never stack. Because of that force-collapse the
 drawer must never outlive its trigger — selecting a non-channel subject closes it, and `Esc` dismisses it
@@ -329,7 +430,8 @@ something.
 
 Streaming (`submitJarvisQuery`) runs at module scope under `fireAndForget` with a 130s RPC budget, so a
 turn keeps accumulating even if the surface unmounts on a nav switch. A failed stream preserves what
-arrived and marks the turn `weak`.
+arrived and marks the turn `error` (§5), not `weak`. Cancelling one **in flight** is still not possible —
+it needs an abort path through the converse stream, which is its own piece of work.
 
 ## 12. Entry points from other surfaces
 
@@ -340,11 +442,16 @@ leaving two identical rows, neither carrying the other's answers.
 
 | From | Chip | Suggested prompt |
 |---|---|---|
-| a Run | This Run | "What changed in this Run and why?" |
+| a Run | This Run | "What changed in this Run and why?" (`RunHeader`, **and** the completion report's header) |
 | a Radar finding | This finding | "Explain this Radar finding." |
 | a Memory note | This memory | "Recall decisions related to this." |
 
 ![Contextual entry from a Run](images/jarvis-tab/09-fixture-contextual.png)
+
+`AskJarvisButton` has to be in both Run places because `RunBody` early-returns the completion report once a
+run is `done` with evidence, and that report draws its own header. With the button only in `RunHeader`, the
+Run → Jarvis entry existed exclusively while a run was still unsealed — that is, never for the runs you
+would actually want to ask about.
 
 `openORef` is the reverse direction — a `task:` oref now has a surface for the first time, as a subject
 on this Stage rather than a separate tab. The command palette also routes results here.
@@ -356,10 +463,22 @@ on this Stage rather than a separate tab. The command palette also routes result
 | `g` `c` | go to Jarvis |
 | `Ctrl:2` | go to Jarvis (`SURFACE_ORDER` index 2 of 8; `Ctrl:1`–`Ctrl:8` cover every rail entry) |
 | `[` / `]` | cycle the rail order |
-| `j` / `k` | move the Subjects cursor |
+| `j` / `k` | move the Subjects cursor (the *commit* is idle-debounced — see below) |
 | `1`–`9`, `Enter` | answer the shown run's asking worker (channel subjects) |
 | `Esc` | close the graph peek; otherwise leave the surface for the Cockpit |
 | `^P` | command palette |
+
+`listnav.ts`'s `cursor == selection` contract is **unchanged** — five surfaces share it, and the same keys
+meaning different things per surface is a worse cost than the one below. What changed is *when* the cursor
+commits: moving it is now just a highlight, and `selectSubject` runs 150ms after you stop
+(`subjectcursor.ts`, `CURSOR_COMMIT_MS`). Committing per keypress fired a `selectChannel` RPC, resolved a
+record scope and pruned any unasked thread passed over, so holding `j` through thirty subjects cost thirty
+round trips. A click cancels a still-pending commit, which would otherwise land afterwards and move you off
+the row you clicked.
+
+The controller deliberately does **not** register `activate`: `bindings.ts` only lets `Enter` pass through
+while that is unset, so claiming it would swallow Enter across the whole surface — the composer's submit
+included — to save the 150ms the pending commit was going to take anyway.
 
 ## 14. State and persistence
 
@@ -369,13 +488,14 @@ value is a module atom, never component state.
 | Atom | Shape | Persisted |
 |---|---|---|
 | `activeSubjectAtom` | `{kind, id}` | no |
+| `persistedSubjectAtom` | `{kind, id}` — the last subject | localStorage |
 | `recordBandOpenAtom` | keyed **by subject id** | no |
 | `activeRunIdAtom` | keyed **by subject id** | no |
 | `jarvisDraftAtom` | keyed **by subject id** | no |
 | `channelPickingAtom` | keyed **by subject id** | no |
 | `composingRunAtom` | keyed **by channel id** | no |
 | `recordScopeAtom` / `recordRunsAtom` / `recordDetailAtom` | keyed by dossier id | no |
-| `sourceConversationAtom` | source oref → conversation id | no |
+| `sourceConversationAtom` | source oref → conversation id | rebuilt from summaries on load |
 | `subjectFilterAtom` | single value | no |
 | `stageRailOpenAtom` | bool, default **open** | localStorage |
 | `graphPeekOpenAtom`, `profileRailOpenAtom` | bool | no |
@@ -385,6 +505,18 @@ Keying by subject id is deliberate: switching subjects must return each one to t
 draft and the channel picker are in that list because they were not — a half-typed question followed the
 user to the next subject, where one Enter would have dispatched it against the wrong one. One draft store
 serves all three composer faces: on a channel the subject id *is* the channel oid.
+
+**Restoring the last subject.** The hard part is not persistence but validation: a stored id can name a
+channel, record or thread that has since been deleted, and the three lists load asynchronously. So each
+kind's list is `null` until it has loaded (`channelsAtom` already was; `taskListAtom` and
+`persistedSummariesAtom` became so), and `restoreDecision` (`subjectrestore.ts`, pure) waits on **only the one
+list** the stored subject needs — a stored channel must not be held up by a thread list that has not landed.
+It then selects, or clears and degrades silently to the empty Stage: the surface's rule is absent rather than
+empty. One attempt only, so an id that never resolves cannot retry forever.
+
+`persistedSubjectAtom` passes `getOnInit: true`, and that is load-bearing rather than a tuning flag: without
+it the stored value arrives one render *after* the first read, so the restore would see `null`, read it as
+"nothing was stored", and latch its one-attempt guard before the real value ever landed.
 
 ## 15. Dev fixtures
 
@@ -407,10 +539,8 @@ Open items only. Full reproductions, and the twelve findings closed on 2026-07-2
 
 | # | Gap | Severity |
 |---|---|---|
-| 11b | There is still no genuine narrow-window rule. The `narrow` fixture now collapses the rail, but a genuinely narrow window does not. At ~1000px the peek's canvas is squeezed to roughly 140px beside its 288px panel and the 300px rail. | low |
-| 12b | A thread is deduped per source and pruned when unasked, but there is still no delete or archive, and no recency grouping: one genuinely distinct question is one permanent row. Revisit if the column still grows past comfort — deleting needs a wshrpc command and a wstore delete, neither of which exists. | low |
-| 12c | The per-source dedup is session-scoped. `sourceConversationAtom` is not persisted and `ListJarvisConversations` returns no attached orefs, so asking about the same Run after a restart starts a second thread. Cross-session dedup needs the summary to carry its attachments. | low |
-| — | The last subject is not persisted, so a launch always lands on the empty Stage. Restoring one needs validation against subject lists that load asynchronously — a deliberate piece of work, not a bolt-on. | low |
+| 11b | The collapse order (§1) now runs all four steps, but below a **696px surface** width (~752px window) it has nothing left to yield and the Stage drops under its 640px floor. Rule 5 forbids taking that from the thread or the composer, so the residual stands. The graph peek feels it first: its detail panel is a fixed 288px, so the canvas takes the whole loss. | low |
+| 12b | Threads have Archive / Unarchive and Delete (§2), but still no **recency grouping**: a long-lived `Threads` group is one flat list. Revisit if the column grows past comfort. | low |
 
 ### Verifying
 
@@ -419,17 +549,37 @@ most common defect class — a bad hop *between* atoms, which is what findings 1
 while the unit suite was green. For those, drive the running app:
 
 ```
-task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet jarvis-subject-state jarvis-contextual
+task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet jarvis-subject-state jarvis-contextual \
+                  jarvis-collapse-order jarvis-narrow
 ```
 
-Three scenarios are the regression nets for that class, and each was checked by breaking the fix and watching
+Five scenarios are the regression nets for that class, and each was checked by breaking the fix and watching
 the right steps go red — a green scenario that cannot fail is not a net:
 
 | Scenario | Covers | Checked against |
 |---|---|---|
 | `jarvis-drawer` | drawer scope + dismissal, Needs you with no subject | reverting the rail's mount guard turns steps 1–2 red, nothing else |
-| `jarvis-subject-state` | draft + picker per subject, one legend, peek focus, fleet line, unasked threads | a global draft/picker reddens 1 and 3; restoring the header legend reddens 4; the old `across M channels` line reddens 7 at 77px past the rail; skipping the prune reddens 8 |
+| `jarvis-subject-state` | draft + picker per subject, one legend, peek focus, fleet line, unasked threads, last-subject restore, thread archive | a global draft/picker reddens 1 and 3; restoring the header legend reddens 4; the old `across M channels` line reddens 7 at 77px past the rail; skipping the prune reddens 8; dropping `getOnInit` reddens 9; removing `restoreDecision`'s list check reddens 10; not splitting archived threads out of `Threads` reddens 11 |
 | `jarvis-contextual` | one thread per source | minting per click makes the thread count climb |
+| `jarvis-collapse-order` | the *order* — rail before Subjects, never inverted, no document overflow | the order itself; unchanged by this pass beyond a rail probe that no longer assumes the `<aside>` is a direct child of the surface row |
+| `jarvis-narrow` | the two new steps' own widths: the overlay, and the nav rail collapsing itself | disabling `railOverlay` reddens both overlay steps; forcing `navRailCollapsed` false reddens the nav step **and** the overlaid-floor step — a true dependency, since 760px only clears the floor with both layers (the nav rail's 22px plus the rail's 44px) |
+
+Both layout scenarios reset `jarvis.stagerail.open` in `arrange` and reload. That is not incidental: the
+surface persists `railOpen=false` the first time it collapses, so a run that drove a narrow width leaves the
+rail already collapsed at 1920px, where `jarvis-collapse-order` step 3 can no longer observe it yield. Without
+the reset the pair passes once and then fails on every subsequent run.
+
+`jarvis-subject-state` creates its **own** channel in `arrange` for the restore step rather than borrowing a
+rendered row: the other scenarios delete their channels in teardown while the local list still shows them, so
+borrowing one stores a doomed id and the restore correctly clears it — a false failure. Its step 9 also reloads
+*first*, because step 6 selects a record, which leaves a Space active whose scope filters that channel out of
+the column entirely.
+
+Neither JC17 (the debounced cursor commit) nor JC8 (cancel) has a live step: both are unit-covered only
+(`subjectcursor.test.ts`, `jarvisturnderive.test.ts`). Cancel needs an in-flight converse stream, and a real
+turn runs a headless CLI up to 120s — too slow to arrange here. The same limit is why the archive step takes an
+already-persisted thread and unarchives it afterwards rather than creating one; it runs against the user's real
+workspace, so leaving a row archived would be a side effect, not a test.
 
 What CDP does **not** cover here: the peek focusing a *channel* or a *thread* needs a run with a real
 attribution edge in the vault, which cannot be arranged from a scenario — `peekFocus` and `selectBloomedRun`

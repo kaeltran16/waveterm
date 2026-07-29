@@ -14,6 +14,8 @@ type JarvisCommands interface {
 	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                           // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
 	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]   // recall shim: streams working-steps + grounding + prose + terminal
 	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                     // list persisted recall conversations, newest-first
+	DeleteJarvisConversationCommand(ctx context.Context, data CommandDeleteJarvisConversationData) error                    // delete one recall conversation
+	ArchiveJarvisConversationCommand(ctx context.Context, data CommandArchiveJarvisConversationData) error                  // hide a conversation from the active Threads list; reversible
 	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                          // list focusable task dossiers (active|paused), newest-updated first
 	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
 	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                             // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
@@ -111,10 +113,24 @@ type JarvisConversationSummary struct {
 	Title     string `json:"title"`
 	ScopeMode string `json:"scopemode"`
 	UpdatedTs int64  `json:"updatedts"`
+	// the frontend only ever sees summaries, so a field the summary omits is unreachable: without
+	// AttachedORefs the per-source dedup cannot survive a restart, and without Archived the flag is
+	// write-only.
+	AttachedORefs []string `json:"attachedorefs,omitempty"`
+	Archived      bool     `json:"archived,omitempty"`
 }
 
 type CommandListJarvisConversationsRtnData struct {
 	Conversations []JarvisConversationSummary `json:"conversations"`
+}
+
+type CommandDeleteJarvisConversationData struct {
+	ConversationId string `json:"conversationid"`
+}
+
+type CommandArchiveJarvisConversationData struct {
+	ConversationId string `json:"conversationid"`
+	Archived       bool   `json:"archived"`
 }
 type CommandListConsultRuntimesRtnData struct {
 	Runtimes []ConsultRuntimeInfo `json:"runtimes"`

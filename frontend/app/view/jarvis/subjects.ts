@@ -127,23 +127,31 @@ export function buildSubjectGroups(input: SubjectInput): SubjectGroup[] {
             items: dossiers.map((d) => ({ kind: "dossier", id: d.id, label: d.objective })),
         });
     }
-    if (conversations.length > 0) {
+    // archived threads join the channels' trailing group rather than getting one of their own: two
+    // "Archived" headers for two kinds would read as two different states.
+    const liveConversations = conversations.filter((v) => v.archived !== true);
+    const archivedConversations = conversations.filter((v) => v.archived === true);
+    if (liveConversations.length > 0) {
         groups.push({
             key: "threads",
             label: "Threads",
-            items: conversations.map((v) => ({ kind: "conversation", id: v.id, label: v.title })),
+            items: liveConversations.map((v) => ({ kind: "conversation", id: v.id, label: v.title })),
         });
     }
-    if (archived.length > 0) {
+    const archivedItems: Subject[] = [
+        ...archived.map((c) => ({
+            kind: "channel" as const,
+            id: c.oid,
+            label: c.name ?? c.oid,
+            projectName: input.projectNameFor(c),
+        })),
+        ...archivedConversations.map((v) => ({ kind: "conversation" as const, id: v.id, label: v.title })),
+    ];
+    if (archivedItems.length > 0) {
         groups.push({
             key: "archived",
-            label: `Archived · ${archived.length}`,
-            items: archived.map((c) => ({
-                kind: "channel",
-                id: c.oid,
-                label: c.name ?? c.oid,
-                projectName: input.projectNameFor(c),
-            })),
+            label: `Archived · ${archivedItems.length}`,
+            items: archivedItems,
         });
     }
     return groups;

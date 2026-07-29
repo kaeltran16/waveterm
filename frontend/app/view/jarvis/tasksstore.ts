@@ -10,7 +10,9 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 
-export const taskListAtom = atom<SpaceSummary[]>([]) as PrimitiveAtom<SpaceSummary[]>;
+// null until the first load lands: "no records yet" and "the list has not arrived" are different states,
+// and the boot-time subject restore has to tell them apart. Matches channelsAtom.
+export const taskListAtom = atom<SpaceSummary[] | null>(null) as PrimitiveAtom<SpaceSummary[] | null>;
 export const selectedDossierIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const dossierDetailAtom = atom<DossierDetail | null>(null) as PrimitiveAtom<DossierDetail | null>;
 export const tasksErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;

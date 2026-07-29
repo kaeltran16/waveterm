@@ -146,9 +146,12 @@ export async function attach(port = 9222) {
         async goto(surface) {
             const label = SURFACE_LABEL[surface];
             if (!label) throw new Error(`unknown surface "${surface}"`);
+            // aria-label first: the nav rail drops its visible labels below a narrow window
+            // (view/agents/navrailwidth.ts), so matching on text alone cannot navigate a narrow app.
             const clicked = await ev(`(() => {
+                const want = ${JSON.stringify(label)};
                 const b = [...document.querySelectorAll('nav button')]
-                    .find((x) => (x.textContent || '').trim() === ${JSON.stringify(label)});
+                    .find((x) => x.getAttribute('aria-label') === want || (x.textContent || '').trim() === want);
                 if (!b) return false;
                 b.click();
                 return true;
@@ -160,7 +163,9 @@ export async function attach(port = 9222) {
             ev(`(() => {
                 const b = [...document.querySelectorAll('nav button')]
                     .find((x) => (x.className || '').includes('text-accent-soft'));
-                return b ? (b.textContent || '').trim() : null;
+                if (!b) return null;
+                // same reason as goto: the visible label is absent on a narrow rail
+                return b.getAttribute('aria-label') || (b.textContent || '').trim();
             })()`),
         async shot(outPath) {
             const { data } = await client.send("Page.captureScreenshot", { format: "png" });

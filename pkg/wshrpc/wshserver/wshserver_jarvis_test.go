@@ -74,3 +74,83 @@ func TestJarvisConverseRejectsInvalidConversationID(t *testing.T) {
 		t.Fatal("expected invalid conversation id to be rejected")
 	}
 }
+
+// newTestConvo creates a conversation with a deterministic UUID and removes it when the test ends.
+func newTestConvo(t *testing.T, ctx context.Context, oid, title string, orefs []string) *waveobj.JarvisConvo {
+	t.Helper()
+	convo, err := wstore.CreateJarvisConversation(ctx, oid, title, "all", "", orefs)
+	if err != nil {
+		t.Fatalf("creating conversation: %v", err)
+	}
+	t.Cleanup(func() {
+		// already-deleted is fine: the delete test removes it itself
+		_ = wstore.DBDelete(ctx, waveobj.OType_JarvisConversation, oid)
+	})
+	return convo
+}
+
+func TestDeleteJarvisConversationCommandRemovesIt(t *testing.T) {
+	ctx := context.Background()
+	convo := newTestConvo(t, ctx, "dddddddd-0000-0000-0000-0000000000d1", "throwaway", nil)
+	ws := &WshServer{}
+	if err := ws.DeleteJarvisConversationCommand(ctx, wshrpc.CommandDeleteJarvisConversationData{ConversationId: convo.OID}); err != nil {
+		t.Fatalf("deleting: %v", err)
+	}
+	if _, err := wstore.GetJarvisConversation(ctx, convo.OID); err == nil {
+		t.Fatal("expected the conversation to be gone")
+	}
+}
+
+func TestDeleteJarvisConversationCommandRequiresAnId(t *testing.T) {
+	err := (&WshServer{}).DeleteJarvisConversationCommand(context.Background(), wshrpc.CommandDeleteJarvisConversationData{})
+	if err == nil {
+		t.Fatal("expected an error for an empty conversationid")
+	}
+}
+
+func TestArchiveJarvisConversationCommandRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	convo := newTestConvo(t, ctx, "dddddddd-0000-0000-0000-0000000000d2", "keep me", nil)
+	ws := &WshServer{}
+	data := wshrpc.CommandArchiveJarvisConversationData{ConversationId: convo.OID, Archived: true}
+	if err := ws.ArchiveJarvisConversationCommand(ctx, data); err != nil {
+		t.Fatalf("archiving: %v", err)
+	}
+	// the summary is the only shape the frontend sees, so a flag it does not carry is write-only
+	summary := findSummary(t, ws, ctx, convo.OID)
+	if !summary.Archived {
+		t.Fatal("expected the summary to report archived")
+	}
+	data.Archived = false
+	if err := ws.ArchiveJarvisConversationCommand(ctx, data); err != nil {
+		t.Fatalf("unarchiving: %v", err)
+	}
+	if findSummary(t, ws, ctx, convo.OID).Archived {
+		t.Fatal("expected unarchive to clear the flag")
+	}
+}
+
+func TestListJarvisConversationsCarriesAttachedORefs(t *testing.T) {
+	ctx := context.Background()
+	orefs := []string{"run:dddddddd-0000-0000-0000-0000000000f1"}
+	convo := newTestConvo(t, ctx, "dddddddd-0000-0000-0000-0000000000d3", "about a run", orefs)
+	got := findSummary(t, &WshServer{}, ctx, convo.OID).AttachedORefs
+	if len(got) != 1 || got[0] != orefs[0] {
+		t.Fatalf("expected the summary to carry %v, got %v", orefs, got)
+	}
+}
+
+func findSummary(t *testing.T, ws *WshServer, ctx context.Context, oid string) wshrpc.JarvisConversationSummary {
+	t.Helper()
+	rtn, err := ws.ListJarvisConversationsCommand(ctx)
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	for _, s := range rtn.Conversations {
+		if s.Id == oid {
+			return s
+		}
+	}
+	t.Fatalf("conversation %s missing from the list", oid)
+	return wshrpc.JarvisConversationSummary{}
+}

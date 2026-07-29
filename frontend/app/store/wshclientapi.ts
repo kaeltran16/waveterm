@@ -48,6 +48,12 @@ export class RpcApiType {
         return client.wshRpcCall("archivechannel", data, opts);
     }
 
+    // command "archivejarvisconversation" [call]
+    ArchiveJarvisConversationCommand(client: WshClient, data: CommandArchiveJarvisConversationData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "archivejarvisconversation", data, opts);
+        return client.wshRpcCall("archivejarvisconversation", data, opts);
+    }
+
     // command "ask" [call]
     AskCommand(client: WshClient, data: CommandAskData, opts?: RpcOpts): Promise<AskRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "ask", data, opts);
@@ -274,6 +280,12 @@ export class RpcApiType {
     DeleteChannelCommand(client: WshClient, data: CommandDeleteChannelData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletechannel", data, opts);
         return client.wshRpcCall("deletechannel", data, opts);
+    }
+
+    // command "deletejarvisconversation" [call]
+    DeleteJarvisConversationCommand(client: WshClient, data: CommandDeleteJarvisConversationData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletejarvisconversation", data, opts);
+        return client.wshRpcCall("deletejarvisconversation", data, opts);
     }
 
     // command "deleteproject" [call]

@@ -42,7 +42,15 @@ const LABEL = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
 // channel and its contract is "always drawn, never filtered" — an ask that is only visible once the user
 // happens to click a subject is not an attention channel. Every other section is subject-derived and
 // stays absent, per the surface's absent-rather-than-empty rule.
-export function StageRail({ model, comp }: { model: AgentsViewModel; comp: StageComposition | null }) {
+export function StageRail({
+    model,
+    comp,
+    overlay,
+}: {
+    model: AgentsViewModel;
+    comp: StageComposition | null;
+    overlay?: boolean;
+}) {
     const subject = useAtomValue(activeSubjectAtom);
     const channels = useAtomValue(channelsAtom);
     const channel = useAtomValue(activeChannelAtom);
@@ -215,12 +223,17 @@ export function StageRail({ model, comp }: { model: AgentsViewModel; comp: Stage
 
     return (
         <>
-            <CollapsibleRail
-                openAtom={stageRailOpenAtom}
-                ariaLabel="Stage context"
-                sections={sections}
-                forceCollapsed={profileOpen}
-            />
+            {/* below the width where collapsing to strips is still enough, the rail leaves the flow rather
+                than take the Stage under its floor. Absolute, not fixed: it must clip to the surface.
+                `contents` keeps the ordinary case a direct flex child of the surface row. */}
+            <div className={overlay ? "absolute bottom-0 right-0 top-0 z-10 flex" : "contents"}>
+                <CollapsibleRail
+                    openAtom={stageRailOpenAtom}
+                    ariaLabel="Stage context"
+                    sections={sections}
+                    forceCollapsed={profileOpen}
+                />
+            </div>
             {/* the ⚙ drawer shares the right-edge slot: it has no strip of its own and the rail above
                 force-collapses while it is open, so the two never stack. */}
             <ProfilePanel channelId={comp?.showProfile && subject?.kind === "channel" ? subject.id : ""} />

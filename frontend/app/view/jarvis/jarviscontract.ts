@@ -19,7 +19,8 @@ export type SourceType =
 export type Freshness = "fresh" | "stale" | "unavailable";
 // "weak" and "notfound" are statements about the corpus; "error" is a statement about the request — it
 // never reached an answer. Collapsing the two made a dead backend read as "I looked and found little".
-export type Terminal = "answered" | "weak" | "notfound" | "error";
+// "cancelled" is a statement about the user: they stopped it, so it is neither.
+export type Terminal = "answered" | "weak" | "notfound" | "error" | "cancelled";
 export type StepStatus = "done" | "active" | "pending";
 export type ScopeMode = "object" | "project" | "all" | "attached";
 
@@ -73,6 +74,9 @@ export interface JarvisAnswerTurn {
     segments: AnswerSegment[];
     grounding: GroundingCard[];
     terminal: Terminal;
+    // true only while the converse stream is open. `terminal` cannot express this: it starts at "answered"
+    // and is only meaningful once the stream ends, so the Cancel control needs its own signal.
+    streaming?: boolean;
 }
 
 export type JarvisTurn = JarvisUserTurn | JarvisAnswerTurn;
@@ -82,6 +86,8 @@ export interface JarvisConversation {
     title: string;
     turns: JarvisTurn[];
     scope: JarvisScope;
+    // set from the persisted summary; a locally-created thread is never archived
+    archived?: boolean;
 }
 
 export function isAnswerTurn(t: JarvisTurn): t is JarvisAnswerTurn {

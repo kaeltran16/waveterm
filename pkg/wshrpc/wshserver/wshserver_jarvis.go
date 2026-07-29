@@ -291,14 +291,43 @@ func (ws *WshServer) ListJarvisConversationsCommand(ctx context.Context) (*wshrp
 	}
 	out := make([]wshrpc.JarvisConversationSummary, 0, len(conversations))
 	for _, conversation := range conversations {
+		archived, _ := conversation.Meta[wstore.MetaKey_Archived].(bool)
 		out = append(out, wshrpc.JarvisConversationSummary{
-			Id:        conversation.OID,
-			Title:     conversation.Title,
-			ScopeMode: conversation.ScopeMode,
-			UpdatedTs: conversation.UpdatedTs,
+			Id:            conversation.OID,
+			Title:         conversation.Title,
+			ScopeMode:     conversation.ScopeMode,
+			UpdatedTs:     conversation.UpdatedTs,
+			AttachedORefs: conversation.AttachedORefs,
+			Archived:      archived,
 		})
 	}
 	return &wshrpc.CommandListJarvisConversationsRtnData{Conversations: out}, nil
+}
+
+func (ws *WshServer) DeleteJarvisConversationCommand(ctx context.Context, data wshrpc.CommandDeleteJarvisConversationData) error {
+	if data.ConversationId == "" {
+		return fmt.Errorf("conversationid is required")
+	}
+	if err := wstore.DeleteJarvisConversation(ctx, data.ConversationId); err != nil {
+		return fmt.Errorf("deleting conversation: %w", err)
+	}
+	return nil
+}
+
+func (ws *WshServer) ArchiveJarvisConversationCommand(ctx context.Context, data wshrpc.CommandArchiveJarvisConversationData) error {
+	if data.ConversationId == "" {
+		return fmt.Errorf("conversationid is required")
+	}
+	err := wstore.DBUpdateFn(ctx, data.ConversationId, func(c *waveobj.JarvisConvo) {
+		if c.Meta == nil {
+			c.Meta = make(waveobj.MetaMapType)
+		}
+		c.Meta[wstore.MetaKey_Archived] = data.Archived
+	})
+	if err != nil {
+		return fmt.Errorf("updating conversation archived flag: %w", err)
+	}
+	return nil
 }
 func (ws *WshServer) ListConsultRuntimesCommand(ctx context.Context) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
 	var infos []wshrpc.ConsultRuntimeInfo

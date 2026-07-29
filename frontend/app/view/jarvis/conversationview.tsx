@@ -9,7 +9,7 @@ import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { Brain } from "lucide-react";
 import type { JarvisConversation, JarvisTurn } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
-import { retryJarvisQuery } from "./jarvisstore";
+import { cancelJarvisQuery, retryJarvisQuery } from "./jarvisstore";
 import { JarvisAnswer, JarvisUserTurn } from "./jarvisturn";
 
 export function ConversationView({ conversation, model }: { conversation: JarvisConversation; model: AgentsViewModel }) {
@@ -32,6 +32,7 @@ export function ConversationView({ conversation, model }: { conversation: Jarvis
                             turn={turn}
                             model={model}
                             onRetry={() => retryJarvisQuery(conversation.id, i)}
+                            onCancel={() => cancelJarvisQuery(conversation.id, i)}
                         />
                     </div>
                 ) : (

@@ -1040,8 +1040,14 @@ const KINDS_JSON = JSON.stringify(["task", "run", "decision", "memory"]);
 const jarvisSubjectState = {
     name: "jarvis-subject-state",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    // step 9 restores a subject across a reload, so it needs one that still exists on the other side. It
+    // creates its own rather than borrowing a rendered row: the other scenarios' channels are deleted in
+    // their teardown while the local list still shows them, so borrowing one stores a doomed id and the
+    // restore correctly clears it - a false failure. Mirrors jarvis-fleet/jarvis-drawer's own setup.
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-subject-"));
+        const ch = await h.rpc("createchannel", { name: "verify-subject", projectpath: cwd });
+        return { cwd, channelId: ch.oid };
     },
     async assert(h) {
         const steps = [];
@@ -1260,10 +1266,174 @@ const jarvisSubjectState = {
             oneEmpty > 0 && stillOne === oneEmpty,
             `afterFirst=${oneEmpty} afterThree=${stillOne}`
         );
+
+        // 9-11. the last subject survives a launch. Persisting the pair is the easy half; the point is the
+        // validation - a stored id can name something since deleted, and each kind's list lands
+        // asynchronously, so the restore must wait on its own list and then degrade silently.
+        // A reload is the real boot path: the surface remounts with an empty activeSubjectAtom.
+        // a row is identified by its subject mark, not by colour alone: the column's header carries
+        // accent-tinted buttons too ("+ Channel"), and those would match a bg-accentbg test.
+        const SUBJECT_ROW = "/^[#\\u25a4~]/";
+        const activeSubjectLabel = () =>
+            h.ev(`(() => {
+                const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] button')]
+                    .filter((b) => ${SUBJECT_ROW}.test((b.textContent || '').trim()));
+                const on = rows.find((b) => /bg-accentbg/.test(b.className || ''));
+                return on ? (on.textContent || '').trim() : null;
+            })()`);
+        const reload = async () => {
+            await h.ev("location.reload()");
+            await settle(2500);
+            await h.goto("jarvis");
+            await settle(1200);
+        };
+        // start from a clean surface: step 6 selected a record, which leaves a Space active whose scope
+        // filters the Subjects column - and this scenario's own channel is not in that scope, so the row
+        // would be genuinely absent rather than the restore being broken.
+        await reload();
+        // this scenario's own channel: a channel is the one kind whose list is a live subscription, so it is
+        // the strictest of the three for the wait-on-my-own-list rule.
+        const picked = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] button')];
+            const b = rows.find((x) => (x.textContent || '').trim().replace(/^[#\\u25a4~]/, '') === 'verify-subject');
+            if (!b) return null;
+            const label = (b.textContent || '').trim();
+            b.click();
+            return label;
+        })()`);
+        if (picked == null) {
+            rec("9. the last subject is restored after a reload", false, "the scenario's own channel row is missing");
+        } else {
+            await settle(600);
+            const beforeReload = await activeSubjectLabel();
+            await reload();
+            const afterReload = await activeSubjectLabel();
+            rec(
+                "9. the last subject is restored after a reload",
+                afterReload != null && afterReload === beforeReload,
+                `before=${JSON.stringify(beforeReload)} after=${JSON.stringify(afterReload)}`
+            );
+        }
+
+        // 10. a stored id nothing holds any more must land on the empty Stage, not on a wrong row and not
+        // stuck waiting. Written straight into storage so the case does not need a real deletion.
+        await h.ev(
+            `localStorage.setItem('jarvis.subject.last', JSON.stringify({ kind: 'channel', id: 'does-not-exist' }))`
+        );
+        await reload();
+        const afterStale = await activeSubjectLabel();
+        const cleared = await h.ev(`localStorage.getItem('jarvis.subject.last')`);
+        rec(
+            "10. a stored subject that no longer exists degrades to the empty Stage and is cleared",
+            afterStale == null && (cleared === null || cleared === "null"),
+            `active=${JSON.stringify(afterStale)} stored=${JSON.stringify(cleared)}`
+        );
+
+        // 11. archiving a thread moves it out of Threads and into the shared trailing Archived group -
+        // channels and threads share one header, because two "Archived" headers would read as two states.
+        // group headers are Tailwind `uppercase` and innerText/textContent applies text-transform, so the
+        // match has to be case-insensitive.
+        const groupItems = (name) =>
+            h.ev(`(() => {
+                const want = new RegExp('^' + ${JSON.stringify(name)}, 'i');
+                const group = [...document.querySelectorAll('div')].find(
+                    (d) => want.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
+                );
+                if (!group) return null;
+                return [...group.querySelectorAll('button')].map((b) => (b.textContent || '').trim());
+            })()`);
+        // Archive needs a thread the BACKEND holds: the flag lives on the persisted record, so archiving a
+        // local unasked thread ("New conversation", created up front by + Thread) has nothing to update.
+        // A real converse turn runs a headless CLI up to 120s, far too slow to create one here, so this
+        // takes an already-persisted row and puts it back afterwards - the workspace is the user's.
+        // scoped to a group, because several threads here share a title: an unscoped match would right-click
+        // one of the identically-titled rows still in Threads and then look for an Unarchive item that row's
+        // menu does not have.
+        const rightClickRow = (group, title) =>
+            h.ev(`(() => {
+                const want = new RegExp('^' + ${JSON.stringify(group)}, 'i');
+                const box = [...document.querySelectorAll('div')].find(
+                    (d) => want.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
+                );
+                if (!box) return false;
+                const row = [...box.querySelectorAll('button')]
+                    .find((b) => (b.textContent || '').trim() === ${JSON.stringify(title)});
+                if (!row) return false;
+                row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 200 }));
+                return true;
+            })()`);
+        const clickMenuItem = (label) =>
+            h.ev(`(() => {
+                const want = new RegExp('^' + ${JSON.stringify(label)} + '$', 'i');
+                const item = [...document.querySelectorAll('*')].find(
+                    (e) => e.children.length === 0 && want.test((e.textContent || '').trim())
+                );
+                if (!item) return false;
+                item.click();
+                return true;
+            })()`);
+
+        // counted, not membership-tested: this workspace holds several identically-titled threads (the very
+        // duplication gap 12c fixes), so "is it still in Threads" would read false for a row that moved.
+        const countOf = (arr, t) => (arr ?? []).filter((x) => x === t).length;
+
+        const threadsBefore = await groupItems("threads");
+        const archivedBefore = await groupItems("archived");
+        // a persisted thread got its title from a real first turn, so never "New conversation". Dev fixture
+        // threads also carry real titles but have no backend record - they sort last, so take the first.
+        const target = (threadsBefore ?? []).find((t) => !/New conversation$/.test(t));
+        if (target == null) {
+            rec(
+                "11. archiving a thread moves it into the shared Archived group",
+                false,
+                `no persisted thread to archive: ${JSON.stringify(threadsBefore)}`
+            );
+        } else {
+            const opened = await rightClickRow("threads", target);
+            await settle(400);
+            const clickedArchive = await clickMenuItem("archive thread");
+            await settle(1500); // the RPC plus the re-list the Threads group is rebuilt from
+            const threadsAfter = await groupItems("threads");
+            const archivedAfter = await groupItems("archived");
+            const leftThreads = countOf(threadsAfter, target) === countOf(threadsBefore, target) - 1;
+            const joinedArchived = countOf(archivedAfter, target) === countOf(archivedBefore, target) + 1;
+            rec(
+                "11. archiving a thread moves it into the shared Archived group",
+                opened === true && clickedArchive === true && leftThreads && joinedArchived,
+                `row=${JSON.stringify(target)} menu=${opened}/${clickedArchive} threads=${countOf(threadsBefore, target)}->${countOf(threadsAfter, target)} archived=${countOf(archivedBefore, target)}->${countOf(archivedAfter, target)}`
+            );
+            await h.shot("cdp-shots/jarvis-subject-archived-thread.png");
+            // put it back: this scenario runs against the user's real workspace.
+            if (joinedArchived) {
+                await rightClickRow("archived", target);
+                await settle(400);
+                await clickMenuItem("unarchive thread");
+                await settle(1500);
+                const restored = await groupItems("threads");
+                rec(
+                    "12. unarchiving puts the thread back in Threads",
+                    countOf(restored, target) === countOf(threadsBefore, target),
+                    `threads=${countOf(threadsBefore, target)}->${countOf(restored, target)}`
+                );
+            }
+        }
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit");
+        // the persisted subject points at the channel about to go; step 10 already proves a stale one
+        // degrades, but leaving one behind would make the NEXT run's step 9 start from a cleared restore.
+        await h.ev(`localStorage.removeItem('jarvis.subject.last')`).catch(() => {});
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
     },
 };
 
@@ -1273,12 +1443,22 @@ const jarvisSubjectState = {
 // drops below its floor while the order still has a region left to yield — plus the order itself, which
 // must run rail-then-Subjects and never the other way round.
 const STAGE_MIN_PX = 640; // mirrors frontend/app/view/jarvis/jarvislayout.ts
+
+// stageRailOpenAtom is persisted, and the surface writes it false the first time it collapses. So any run
+// that drove a narrow width - including a previous run of one of these two scenarios - leaves the rail
+// already collapsed at 1920, where step 3 then cannot observe it yield. Pin the flag and reload so the
+// width scan starts from a known rail, rather than inheriting a preference formed at some other width.
+const resetRail = async (h) => {
+    await h.ev(`localStorage.setItem('jarvis.stagerail.open', 'true')`);
+    await h.ev("location.reload()");
+    await h.ev("new Promise((r) => setTimeout(r, 2500))");
+    return {};
+};
+
 const jarvisCollapseOrder = {
     name: "jarvis-collapse-order",
     surface: "jarvis",
-    async arrange() {
-        return {};
-    },
+    arrange: resetRail,
     async assert(h) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
@@ -1291,9 +1471,9 @@ const jarvisCollapseOrder = {
                 const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : null);
                 const region = (n) => document.querySelector('[data-jarvis-region="' + n + '"]');
                 const surface = region('surface');
-                const rail = surface
-                    ? [...surface.children].find((c) => c.tagName === 'ASIDE' && c.getBoundingClientRect().width > 0)
-                    : null;
+                // by aria-label, not by child position: once the rail can overlay it sits inside a
+                // display:contents wrapper, so it is no longer a direct child of the surface row.
+                const rail = surface ? surface.querySelector('aside[aria-label="Stage context"]') : null;
                 return {
                     surface: w(surface),
                     subjects: w(region('subjects')),
@@ -1317,9 +1497,9 @@ const jarvisCollapseOrder = {
         await h.shot("cdp-shots/jarvis-collapse-720.png");
         await settle(300);
 
-        // 1. rule 5, as a width. 720 is narrower than this surface's own regions can rescue (step 4 of the
-        //    design's order is the global nav rail, which is not this surface's to collapse), so the floor
-        //    is asserted over the widths where the order can still hold it.
+        // 1. rule 5, as a width. 720 is narrower than the whole order can rescue even with the nav rail
+        //    collapsed and the context rail overlaid (608px there), so the floor is asserted over the widths
+        //    where the order can still hold it. jarvis-narrow owns the two new steps' own widths.
         const held = [1920, 1440, 1100, 900].filter((wd) => at[wd].stage >= STAGE_MIN_PX);
         rec(
             `1. the Stage holds >= ${STAGE_MIN_PX}px at 1920/1440/1100/900`,
@@ -1350,6 +1530,100 @@ const jarvisCollapseOrder = {
     },
 };
 
+// The two layers added on top of the collapse order: the nav rail collapsing itself below a narrow window
+// (navrailwidth.ts, the design's step 4) and the context rail leaving the flow entirely once collapsing
+// both regions to strips is still not enough (jarvislayout.ts's railOverlay). jarvis-collapse-order owns
+// the *order*; this owns the two widths where the new steps fire.
+const jarvisNarrow = {
+    name: "jarvis-narrow",
+    surface: "jarvis",
+    arrange: resetRail,
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.goto("jarvis");
+        await settle(400);
+
+        // measured, not computed: the point of this scenario is that the live layout agrees with
+        // jarvislayout.ts's arithmetic. STAGE_MIN_PX is mirrored above - if they drift, this fails.
+        const boxes = () =>
+            h.ev(`(() => {
+                const q = (sel) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return null;
+                    const r = el.getBoundingClientRect();
+                    return { left: r.left, right: r.right, width: r.width };
+                };
+                return JSON.stringify({
+                    surface: q('[data-jarvis-region="surface"]'),
+                    stage: q('[data-jarvis-region="stage"]'),
+                    subjects: q('[data-jarvis-region="subjects"]'),
+                    rail: q('aside[aria-label="Stage context"]'),
+                });
+            })()`);
+
+        // raw CDP passthrough - the harness exposes h.cdp for exactly this (attach.mjs:143). verify.mjs
+        // re-applies VERIFY_VIEWPORT after every scenario, so no teardown is needed here.
+        const atWidth = async (width) => {
+            await h.cdp("Emulation.setDeviceMetricsOverride", {
+                width,
+                height: 1000,
+                deviceScaleFactor: 1,
+                mobile: false,
+            });
+            await settle(350);
+            return JSON.parse(await boxes());
+        };
+
+        for (const width of [1600, 1200, 1000, 900]) {
+            const b = await atWidth(width);
+            const ok = b.stage != null && b.stage.width >= STAGE_MIN_PX;
+            rec(`stage holds its floor at ${width}px`, ok, `stage=${Math.round(b.stage?.width ?? 0)}px`);
+        }
+
+        // below the point where strips are still enough, the rail must stop taking inline width: its box
+        // overlaps the Stage's rather than sitting beside it. 760, not 800: the nav rail's own collapse
+        // frees 22px, so at 800 the two strips already clear the floor (644px) and the overlay is correctly
+        // NOT engaged. The overlay's first width is 796 and below.
+        const narrow = await atWidth(760);
+        const overlapping = narrow.rail != null && narrow.stage != null && narrow.rail.left < narrow.stage.right;
+        rec(
+            "rail overlays the Stage once collapsing is not enough",
+            overlapping,
+            `rail.left=${Math.round(narrow.rail?.left ?? 0)} stage.right=${Math.round(narrow.stage?.right ?? 0)}`
+        );
+        rec(
+            "stage still holds its floor with the rail overlaid",
+            narrow.stage != null && narrow.stage.width >= STAGE_MIN_PX,
+            `stage=${Math.round(narrow.stage?.width ?? 0)}px`
+        );
+
+        // the nav rail is global chrome, so its collapse is asserted on the nav itself rather than inferred
+        // from the surface getting wider.
+        const navWidth = () =>
+            h.ev(`(() => {
+                const nav = document.querySelector('nav');
+                return nav ? Math.round(nav.getBoundingClientRect().width) : null;
+            })()`);
+        const navNarrow = await navWidth();
+        await atWidth(1200);
+        const navWide = await navWidth();
+        rec(
+            "the nav rail collapses itself below 900px and reopens above it",
+            navNarrow === 56 && navWide === 78,
+            `at760=${navNarrow} at1200=${navWide}`
+        );
+
+        await atWidth(760);
+        await h.shot("cdp-shots/jarvis-narrow.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -1365,4 +1639,5 @@ export const SCENARIOS = [
     jarvisDrawer,
     jarvisSubjectState,
     jarvisCollapseOrder,
+    jarvisNarrow,
 ];

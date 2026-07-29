@@ -59,12 +59,13 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
         <div className="absolute inset-0 flex flex-col bg-background">
             {/* dev-only, compiled out of production: the fixture states the CDP harness renders */}
             <JarvisFixtureBar />
-            <div ref={rowRef} data-jarvis-region="surface" className="flex min-h-0 flex-1">
+            {/* relative so an overlaid rail positions against the surface row, not an ancestor */}
+            <div ref={rowRef} data-jarvis-region="surface" className="relative flex min-h-0 flex-1">
                 <SubjectsColumn model={model} collapsed={collapse.subjectsCollapsed} />
                 <Stage model={model} />
                 {/* always mounted, comp or not: the rail carries Needs you, which must not wait on the
                     user selecting a subject. Its other sections are subject-derived and stay absent. */}
-                <StageRail model={model} comp={comp} />
+                <StageRail model={model} comp={comp} overlay={collapse.railOverlay} />
             </div>
         </div>
     );

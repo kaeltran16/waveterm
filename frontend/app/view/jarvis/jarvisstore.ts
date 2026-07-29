@@ -24,6 +24,8 @@ import type {
     WorkingStep,
 } from "./jarviscontract";
 import { FIXTURES, FIXTURE_STATES, type FixtureState } from "./jarvisfixtures";
+import { sourceConversationAtom } from "./jarvissubjectstore";
+import { terminalAfterStreamFailure } from "./jarvisturnderive";
 import { mapConvoRecord, mapWireCard, parseCitations } from "./recallderive";
 
 // DEV-ONLY fixtures. A fabricated thread carrying fabricated citations and freshness badges is
@@ -62,7 +64,11 @@ export const graphPeekOpenAtom = atom(false);
 // Record<string,…> primitive-atom + module-setter pattern so an in-flight stream keeps writing after the
 // surface unmounts (writes go through globalStore.set at module scope, never component useState).
 export const conversationsByIdAtom = atom<Record<string, JarvisConversation>>({});
-export const persistedSummariesAtom = atom<JarvisConversationSummary[]>([]);
+// null until the first list lands, so the boot-time subject restore can tell "no threads" from "not yet".
+// Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
+export const persistedSummariesAtom = atom<JarvisConversationSummary[] | null>(
+    null
+) as PrimitiveAtom<JarvisConversationSummary[] | null>;
 
 // null => show the dev/CDP fixture selected by activeFixtureAtom; a string => show that real conversation.
 // Cast per this repo's convention: atom<T | null>(null) infers a read-only Atom under the pinned jotai.
@@ -86,7 +92,7 @@ export const conversationsAtom = atom<JarvisConversation[]>((get) => {
     const byId = get(conversationsByIdAtom);
     const real = Object.values(byId).reverse();
     const liveIds = new Set(Object.keys(byId));
-    const persisted = get(persistedSummariesAtom)
+    const persisted = (get(persistedSummariesAtom) ?? [])
         .filter((summary) => !liveIds.has(summary.id))
         .map(summaryToRailConversation);
     if (!DEV_FIXTURES) {
@@ -103,14 +109,63 @@ export function summaryToRailConversation(summary: JarvisConversationSummary): J
         title: summary.title,
         turns: [],
         scope: { mode: summary.scopemode as JarvisScope["mode"], chips: [], attached: [] },
+        archived: summary.archived === true,
     };
+}
+
+// Rebuild the oref -> conversation map from persisted summaries, so asking about the same Run after a
+// restart continues its thread instead of minting an identical second one. Summaries arrive newest-first,
+// so the first claim on an oref wins; an in-session mapping always beats a persisted one.
+export function rehydrateSourceMap(
+    summaries: JarvisConversationSummary[],
+    existing: Record<string, string>
+): Record<string, string> {
+    const next: Record<string, string> = {};
+    for (const summary of summaries) {
+        for (const oref of summary.attachedorefs ?? []) {
+            if (next[oref] == null) {
+                next[oref] = summary.id;
+            }
+        }
+    }
+    return { ...next, ...existing };
 }
 
 export function loadJarvisConversations(): void {
     fireAndForget(async () => {
         const result = await RpcApi.ListJarvisConversationsCommand(TabRpcClient);
-        globalStore.set(persistedSummariesAtom, result?.conversations ?? []);
+        const summaries = result?.conversations ?? [];
+        globalStore.set(persistedSummariesAtom, summaries);
+        globalStore.set(
+            sourceConversationAtom,
+            rehydrateSourceMap(summaries, globalStore.get(sourceConversationAtom))
+        );
     });
+}
+
+// Thread lifecycle. Mirrors channelsstore's delete/archive: mutate, then re-list, because the Threads group
+// is built from the summary snapshot rather than from a live subscription.
+export async function deleteJarvisConversation(id: string): Promise<void> {
+    await RpcApi.DeleteJarvisConversationCommand(TabRpcClient, { conversationid: id });
+    // drop the live copy too, else the deleted thread survives in conversationsByIdAtom for the session
+    const byId = { ...globalStore.get(conversationsByIdAtom) };
+    delete byId[id];
+    globalStore.set(conversationsByIdAtom, byId);
+    if (globalStore.get(activeConversationIdAtom) === id) {
+        globalStore.set(activeConversationIdAtom, null);
+    }
+    loadJarvisConversations();
+}
+
+export async function archiveJarvisConversation(id: string, archived: boolean): Promise<void> {
+    await RpcApi.ArchiveJarvisConversationCommand(TabRpcClient, { conversationid: id, archived });
+    // the live copy shadows its own summary in conversationsAtom, so re-listing alone would leave a thread
+    // you had opened this session sitting in Threads until the next launch. Mirrors the delete path.
+    const conv = getConversation(id);
+    if (conv != null) {
+        setConversation({ ...conv, archived });
+    }
+    loadJarvisConversations();
 }
 
 export function getConversation(id: string): JarvisConversation | undefined {
@@ -195,6 +250,26 @@ function upsertStep(steps: WorkingStep[], step: WorkingStep): WorkingStep[] {
     return [...steps, step];
 }
 
+// Live converse streams, keyed conversation:answerIdx. The generator is the cancel handle: calling
+// gen.return() sends the wire cancel (wshrpcutil-base.ts), which unwinds the server's streaming goroutine
+// through ctx.Done() - so there is no separate abort protocol to build.
+const liveStreams = new Map<string, { gen: AsyncGenerator<unknown, void, boolean>; cancelled: boolean }>();
+
+const streamKey = (convId: string, answerIdx: number) => `${convId}:${answerIdx}`;
+
+export function cancelJarvisQuery(convId: string, answerIdx: number): void {
+    const key = streamKey(convId, answerIdx);
+    const live = liveStreams.get(key);
+    if (live == null || live.cancelled) {
+        return;
+    }
+    // mark first: gen.return() can surface in the stream's catch, which would otherwise overwrite this
+    // with "error" and tell the user something broke when they are the one who stopped it.
+    live.cancelled = true;
+    patchAnswer(convId, answerIdx, { terminal: "cancelled", streaming: false });
+    void live.gen.return(undefined);
+}
+
 // submitJarvisQuery appends the user's turn + a live jarvis turn, then streams JarvisConverseCommand into
 // that jarvis turn. Runs under fireAndForget at module scope so the turn keeps accumulating even if the
 // surface unmounts on a nav-switch. Grounding cards + working-steps arrive as typed chunks; prose arrives as
@@ -205,7 +280,14 @@ export function submitJarvisQuery(convId: string, text: string): void {
     if (!conv || trimmed === "") return;
 
     const userTurn: JarvisUserTurn = { role: "user", text: trimmed, attachments: conv.scope.attached };
-    const answerTurn: JarvisAnswerTurn = { role: "jarvis", workingSteps: [], segments: [], grounding: [], terminal: "answered" };
+    const answerTurn: JarvisAnswerTurn = {
+        role: "jarvis",
+        workingSteps: [],
+        segments: [],
+        grounding: [],
+        terminal: "answered",
+        streaming: true,
+    };
     const title = conv.turns.length === 0 ? trimmed : conv.title;
     setConversation({ ...conv, title, turns: [...conv.turns, userTurn, answerTurn] });
     const answerIdx = conv.turns.length + 1;
@@ -214,6 +296,7 @@ export function submitJarvisQuery(convId: string, text: string): void {
         let raw = "";
         let steps: WorkingStep[] = [];
         const cards: GroundingCard[] = [];
+        const key = streamKey(convId, answerIdx);
         try {
             const gen = RpcApi.JarvisConverseCommand(
                 TabRpcClient,
@@ -227,6 +310,7 @@ export function submitJarvisQuery(convId: string, text: string): void {
                 },
                 { timeout: JARVIS_RPC_TIMEOUT_MS }
             );
+            liveStreams.set(key, { gen, cancelled: false });
             for await (const chunk of gen) {
                 if (chunk == null) continue;
                 if (chunk.kind === "step" && chunk.step) {
@@ -247,7 +331,15 @@ export function submitJarvisQuery(convId: string, text: string): void {
             // preserve whatever streamed, but say what actually happened: the request died. Marking it
             // "weak" drew the amber grounding badge, so a dead backend and a thin corpus were the same
             // turn. "error" is the only terminal that offers a retry.
-            patchAnswer(convId, answerIdx, { terminal: "error" });
+            const terminal = terminalAfterStreamFailure(liveStreams.get(key)?.cancelled === true);
+            if (terminal != null) {
+                patchAnswer(convId, answerIdx, { terminal });
+            }
+        } finally {
+            // every exit clears streaming — natural completion, error and cancel alike — so the Cancel
+            // control disappears exactly when the stream closes.
+            liveStreams.delete(key);
+            patchAnswer(convId, answerIdx, { streaming: false });
         }
     });
 }

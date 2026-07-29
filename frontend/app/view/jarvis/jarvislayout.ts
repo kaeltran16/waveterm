@@ -27,12 +27,14 @@ export const STAGE_MIN_PX = 640;
 export interface LayoutCollapse {
     railCollapsed: boolean; // 1. context rail -> its 44px strip
     subjectsCollapsed: boolean; // 2. Subjects column -> status dots
+    railOverlay: boolean; // 3. context rail leaves the flow entirely and floats over the Stage
 }
 
 export function chromeWidth(collapse: LayoutCollapse): number {
     return (
         (collapse.subjectsCollapsed ? SUBJECTS_NARROW_PX : SUBJECTS_WIDE_PX) +
-        (collapse.railCollapsed ? RAIL_NARROW_PX : RAIL_WIDE_PX)
+        // an overlaid rail costs no inline width at all - that is the point of the step
+        (collapse.railOverlay ? 0 : collapse.railCollapsed ? RAIL_NARROW_PX : RAIL_WIDE_PX)
     );
 }
 
@@ -40,14 +42,14 @@ export function stageWidth(surfaceWidth: number, collapse: LayoutCollapse): numb
     return surfaceWidth - chromeWidth(collapse);
 }
 
-// surfaceWidth is the Jarvis surface's own width — the window minus the nav rail, which is global chrome
-// shared by every surface and therefore not this surface's to collapse (step 4 of the design's order is
-// not implemented here; see docs/jarvis-consolidation-open-issues.md JC16).
+// surfaceWidth is the Jarvis surface's own width — the window minus the nav rail. The nav rail collapses
+// itself (view/agents/navrailwidth.ts, the design's step 4); this module never sees it, it just measures a
+// wider surface when that happens.
 //
 // A width of 0 (the first frame, before the observer has measured) must not read as "narrowest" and slam
 // every region shut, so it collapses nothing.
 export function collapseFor(surfaceWidth: number): LayoutCollapse {
-    const collapse: LayoutCollapse = { railCollapsed: false, subjectsCollapsed: false };
+    const collapse: LayoutCollapse = { railCollapsed: false, subjectsCollapsed: false, railOverlay: false };
     if (surfaceWidth <= 0) {
         return collapse;
     }
@@ -60,5 +62,11 @@ export function collapseFor(surfaceWidth: number): LayoutCollapse {
         return collapse;
     }
     collapse.subjectsCollapsed = true;
+    if (stageWidth(surfaceWidth, collapse) >= STAGE_MIN_PX) {
+        return collapse;
+    }
+    // last resort: the rail leaves the flow. Below this the order has nothing left and the Stage goes under
+    // its floor — rule 5 forbids taking it from the thread or the composer, so that residual stands.
+    collapse.railOverlay = true;
     return collapse;
 }

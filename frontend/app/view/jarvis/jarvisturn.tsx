@@ -52,16 +52,30 @@ export function JarvisAnswer({
     turn,
     model,
     onRetry,
+    onCancel,
 }: {
     turn: JarvisAnswerTurn;
     model: AgentsViewModel;
     onRetry?: () => void;
+    onCancel?: () => void;
 }) {
     const byN = groundingByN(turn.grounding);
     const badge = terminalBadge(turn.terminal);
     return (
         <div className="max-w-[720px]">
             <JarvisWorkingSteps turn={turn} />
+            {/* a streaming turn has no badge yet, so Cancel cannot live in the badge row below */}
+            {turn.streaming && onCancel != null ? (
+                <div className="mb-2">
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="cursor-pointer rounded-[7px] border border-edge-mid px-2.5 py-1 font-mono text-[11px] text-muted hover:border-edge-strong hover:text-secondary"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            ) : null}
             {badge != null ? (
                 <div className="mb-2 flex items-center gap-2">
                     <span
@@ -72,7 +86,7 @@ export function JarvisAnswer({
                     >
                         {badge.label}
                     </span>
-                    {turn.terminal === "error" && onRetry != null ? (
+                    {(turn.terminal === "error" || turn.terminal === "cancelled") && onRetry != null ? (
                         <button
                             type="button"
                             onClick={onRetry}

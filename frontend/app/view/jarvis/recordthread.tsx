@@ -11,7 +11,7 @@ import { useAtomValue } from "jotai";
 import { Brain } from "lucide-react";
 import { DecisionLog } from "./decisionlog";
 import { isAnswerTurn } from "./jarviscontract";
-import { conversationsByIdAtom, retryJarvisQuery } from "./jarvisstore";
+import { cancelJarvisQuery, conversationsByIdAtom, retryJarvisQuery } from "./jarvisstore";
 import { recordRunsAtom, sourceConversationAtom } from "./jarvissubjectstore";
 import { JarvisAnswer, JarvisUserTurn } from "./jarvisturn";
 
@@ -97,6 +97,7 @@ export function RecordThread({ detail, model }: { detail: DossierDetail | null; 
                                             turn={turn}
                                             model={model}
                                             onRetry={() => retryJarvisQuery(conversation.id, i)}
+                                            onCancel={() => cancelJarvisQuery(conversation.id, i)}
                                         />
                                     </div>
                                 ) : (

@@ -22,7 +22,15 @@ export function terminalBadge(terminal: Terminal): TerminalBadge | null {
             return { label: "Not found", tone: "muted" };
         case "error":
             return { label: "Couldn't reach Jarvis", tone: "error" };
+        case "cancelled":
+            return { label: "Cancelled", tone: "muted" };
         default:
             return null;
     }
+}
+
+// What a failed converse stream should become. Null means "leave the turn alone": a user cancel has
+// already set its own terminal, and gen.return() can surface here as a throw.
+export function terminalAfterStreamFailure(cancelled: boolean): Terminal | null {
+    return cancelled ? null : "error";
 }

@@ -32,7 +32,7 @@ fixed, that section of the tour gets cut rather than edited (JC18).
 | JC6 | Graph peek keeps the previous selection, masking "nothing to focus" **[tour #4]** | correctness | S | ✅ Fixed |
 | **C** | **Capability gaps** | | | |
 | JC7 | Channel rename / archive / delete and dismiss-run lost their only caller in the merge | regression | M | ✅ Fixed |
-| JC8 | A failed Jarvis query renders as "Weak grounding" — no error state, no retry, no cancel | correctness / trust | S–M | ✅ Fixed (cancel still open) |
+| JC8 | A failed Jarvis query renders as "Weak grounding" — no error state, no retry, no cancel | correctness / trust | S–M | ✅ Fixed |
 | JC9 | A finished run has no `Ask Jarvis` button **[tour #1]** | legibility | S | ✅ Fixed |
 | **D** | **Legibility & layout** | | | |
 | JC10 | "Talking to Jarvis" means both *dispatch workers* and *answer a question* | legibility | S | ✅ Fixed |
@@ -41,31 +41,40 @@ fixed, that section of the tour gets cut rather than edited (JC18).
 | JC13 | `Attach a record` / `Create one from this run` are unclickable spans **[tour, still open]** | legibility | S | ✅ Fixed |
 | JC14 | `+ Channel` dead-ends with prose when no project is registered | legibility | S | ✅ Fixed |
 | JC15 | The subject filter cannot match a run goal, and the run switcher is the only run list | legibility | S | ✅ Fixed |
-| JC16 | The design's narrow-window collapse order was never built — the Stage absorbs every pixel of loss | layout / spec gap | M | ✅ Fixed (steps 1–3; step 4 declined) |
-| JC17 | `j`/`k` selects as it moves: one `selectChannel` + one thread prune per keypress | perf / polish | S | 🔲 Open — won't-fix for now |
+| JC16 | The design's narrow-window collapse order was never built — the Stage absorbs every pixel of loss | layout / spec gap | M | ✅ Fixed (all four steps) |
+| JC17 | `j`/`k` selects as it moves: one `selectChannel` + one thread prune per keypress | perf / polish | S | ✅ Fixed |
 | JC19 | The record band's expand control is a `div` with `onClick` — mouse-only | a11y | S | ✅ Fixed |
 | **E** | **The tour itself** | | | |
 | JC18 | Three inaccuracies, a missing teardown flow, an unjustified claim | docs | S | ✅ Fixed |
 
 ## What landed (2026-07-29)
 
-Everything except JC17. Notes on the three that did not land exactly as written:
+Everything except JC17, JC8's cancel half and JC16's step 4 — **all three of which landed on 2026-07-29 in a
+follow-up pass**; see "The remaining three (2026-07-29, follow-up)" below. Notes on the three that did not land
+exactly as written:
 
 - **JC7 — dismissed runs.** Decided by deletion: `channelDismissedRunsAtom` and the Stage's filter over it
   are gone. Cancel already stops a run and the switcher lists everything, so a filter no input could reach
   was only a trap for the next reader. Rename / archive / delete came back as a per-row context menu on the
   Subjects column, and archiving now moves the channel to a trailing `Archived · N` group — without that,
   the menu item would have had no visible effect. Autonomy deliberately did **not** come back.
-- **JC8 — cancel.** The `"error"` terminal, its tone/copy and per-turn `Retry` all landed. Cancelling an
-  in-flight query is still not possible; it needs an abort path through the converse stream and is its own
-  piece of work.
+- **JC8 — cancel.** The `"error"` terminal, its tone/copy and per-turn `Retry` all landed in this pass;
+  cancelling an in-flight query followed in the 2026-07-29 follow-up below.
 - **JC16 — step 4.** Steps 1 (context rail → 44px), 2 (Subjects → status dots) and 3 (record band → one
   chip + `+N`, now unconditional via JC11) are driven from one `ResizeObserver` at the surface root through
-  the pure `jarvislayout.collapseFor`. Step 4, the nav rail → 56px, was **not** built: the nav rail is
-  global chrome shared by every surface, so collapsing it from inside the Jarvis surface would be the wrong
-  layer, and it is worth 22px. Rule 5 is encoded as a width assertion in two places — `jarvislayout.test.ts`
-  (the arithmetic) and the `jarvis-collapse-order` CDP scenario (the live layout).
-  
+  the pure `jarvislayout.collapseFor`. Step 4, the nav rail → 56px, was deferred in *this* pass on the
+  grounds that the nav rail is global chrome shared by every surface, so collapsing it from inside the Jarvis
+  surface would be the wrong layer. The follow-up below built it at the right layer instead
+  (`view/agents/navrailwidth.ts`), which is why the objection was about *where*, not *whether*. Rule 5 is
+  encoded as a width assertion in two places — `jarvislayout.test.ts` (the arithmetic) and the
+  `jarvis-collapse-order` CDP scenario (the live layout).
+
+  Two limits worth stating rather than leaving to the next reader to measure. Below a **~740px surface
+  width** (the 640px floor plus both collapsed strips — roughly an 818px window) the order has nothing left
+  to yield and the Stage goes under its floor regardless; step 4 would have bought 22px of that. That is now
+  gap 11b in `docs/jarvis-tab.md`, which previously read "there is still no genuine narrow-window rule" and
+  was stale the moment this landed.
+
   One deliberate weakening: the width picks the rail's *default* by writing its open atom on the transition
   into narrow, rather than overriding it while narrow. Overriding also disabled the collapsed strip's expand
   button, which traded a broken layout for a dead control. A user who opens the rail on a narrow window can
@@ -74,6 +83,54 @@ Everything except JC17. Notes on the three that did not land exactly as written:
 Measured over CDP at 1920/1440/1100/900/720 (window → Stage px), before → after:
 `1100: 372 → 706`, `900: 172 → 722`. Header title span: `0px at Delegator → 78px at every rung and width`.
 Record band and document horizontal overflow: `0` at every width.
+
+## The remaining three (2026-07-29, follow-up)
+
+JC17, JC8's cancel half and JC16's step 4 all landed, alongside three gaps carried in `docs/jarvis-tab.md`
+(12b, 12c and last-subject persistence). Six independent changes, not one system.
+
+- **JC17 — the cursor commits on idle.** `listnav.ts`'s `cursor == selection` contract is untouched: five
+  surfaces share it, and the same keys meaning different things per surface is a worse cost than the one
+  removed. Only the *timing* changed — `selectSubject` runs 150ms after you stop moving
+  (`subjectcursor.ts`). A click cancels a pending commit, which would otherwise land afterwards and move the
+  user off the row they clicked. **The controller must not register `activate`**: `bindings.ts` only lets
+  `Enter` pass through while it is unset, so claiming it swallowed Enter across the surface including the
+  composer's submit. That regression was caught by `jarvis-subject-state` step 3 going red, not by the unit
+  suite — the flush-on-Enter it would have bought was worth 150ms.
+- **JC8 — cancel.** No new abort protocol: the RPC generator *is* the handle, so `gen.return()` sends the wire
+  cancel and the server's streaming goroutine unwinds through `ctx.Done()`. A `liveStreams` registry keyed
+  `conversation:answerIdx` holds it, `streaming` gates the `Cancel` control, and a new `cancelled` terminal
+  reads muted — the user stopped it, so it is neither a verdict on the corpus nor a failed request. The flag
+  is set *before* `gen.return()` because that call surfaces in the stream's own `catch`, which would
+  otherwise report a break to the person who chose it.
+- **JC16 — step 4, plus an overlay step nobody had specified.** The nav rail collapses *itself*
+  (`view/agents/navrailwidth.ts`, 78 → 56px below a 900px window) — the right layer, which was the original
+  objection. Jarvis needs no wiring: its `ResizeObserver` just measures a wider surface. A third step was
+  added to `collapseFor`: once both strips are still not enough the context rail leaves the flow entirely and
+  floats over the Stage (`railOverlay`), worth another 44px. The floor now holds down to a **696px surface**
+  (~752px window) rather than ~740px; below that the residual stands, since rule 5 forbids taking it from the
+  thread or the composer. Measured live at 760px: `stage=648px`, `rail.left=716 < stage.right=760`.
+- **12b — thread lifecycle.** Two wshrpc commands (`DeleteJarvisConversationCommand`,
+  `ArchiveJarvisConversationCommand`) wrapping store functions that already existed, and a thread row menu
+  mirroring the channel one. Archived threads join the **same** `Archived · N` group as archived channels.
+  One non-obvious half: archiving must also patch the **live in-session copy**, which shadows its own summary
+  in `conversationsAtom` and would otherwise leave the row in `Threads` until the next launch. That was found
+  by the CDP step reporting an empty Archived group while the backend held two archived records.
+- **12c — dedup survives a restart.** `JarvisConversationSummary` now carries `AttachedORefs`, so
+  `rehydrateSourceMap` rebuilds `sourceConversationAtom` on load. The frontend only ever sees summaries, so a
+  field the summary omitted was unreachable. An in-session mapping always beats a persisted one.
+- **Last-subject persistence.** The work is the *validation*, not the storage: a stored id can name something
+  deleted, and the three lists load asynchronously, so `taskListAtom` and `persistedSummariesAtom` became
+  nullable to distinguish "empty" from "not yet", and `restoreDecision` waits on only the one list its stored
+  kind needs. `persistedSubjectAtom` needs `getOnInit: true` — without it the stored value lands one render
+  after the first read, so the restore saw `null`, read it as "nothing stored", and latched its one-attempt
+  guard forever. Also caught live, not by tsc.
+
+Two things worth carrying forward. `tsconfig.json` sets `"strict": false`, so making an atom nullable produces
+**no** tsc errors at its read sites — `dossiers.length` on a `null` typechecks and crashes the first frame.
+Read sites have to be found by grep, not by the typechecker. And `jarvis-collapse-order` was latently
+order-dependent: the surface persists `railOpen=false` the first time it collapses, so the scenario poisoned
+its own next run. Both layout scenarios now pin `jarvis.stagerail.open` in `arrange`.
 
 **Fix order** (followed as written; kept for the record). JC1–JC3 share one root cause and should land as one change (see A's preamble) — they are also
 the only items on this list that can put a run into a state the user did not ask for. Then JC4/JC5 (both

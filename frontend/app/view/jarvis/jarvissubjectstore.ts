@@ -11,6 +11,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { selectChannel } from "@/app/view/agents/channelsstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import type { JarvisScope } from "./jarviscontract";
 import {
     getConversation,
@@ -29,6 +30,16 @@ export interface ActiveSubject {
 }
 
 export const activeSubjectAtom = atom<ActiveSubject | null>(null) as PrimitiveAtom<ActiveSubject | null>;
+
+// the last subject, persisted across launches. Only the id pair is stored — the subject itself is
+// re-resolved on boot, because a stored id can name something that has since been deleted.
+//
+// getOnInit is load-bearing, not a tuning flag: without it the stored value arrives one render AFTER the
+// first read, so the boot restore would see null, read that as "nothing was stored", and latch its
+// one-attempt guard before the real value ever landed. null has to mean empty, not "not yet".
+export const persistedSubjectAtom = atomWithStorage<ActiveSubject | null>("jarvis.subject.last", null, undefined, {
+    getOnInit: true,
+});
 
 // the Subjects column's filter text. A module atom, not useState: the column unmounts with the surface.
 export const subjectFilterAtom = atom<string>("");
@@ -70,6 +81,7 @@ function pruneOnLeave(next: ActiveSubject): void {
 export function selectSubject(subject: ActiveSubject): void {
     pruneOnLeave(subject);
     globalStore.set(activeSubjectAtom, subject);
+    globalStore.set(persistedSubjectAtom, subject);
     if (subject.kind === "channel") {
         fireAndForget(() => selectChannel(subject.id));
         return;

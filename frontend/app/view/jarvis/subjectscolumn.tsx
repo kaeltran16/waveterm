@@ -28,15 +28,25 @@ import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "@/app/view/age
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Archive, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
+    persistedSubjectAtom,
     selectSubject,
     setActiveRunId,
     subjectFilterAtom,
 } from "./jarvissubjectstore";
-import { conversationsAtom, loadJarvisConversations, startConversation } from "./jarvisstore";
+import {
+    archiveJarvisConversation,
+    conversationsAtom,
+    deleteJarvisConversation,
+    loadJarvisConversations,
+    persistedSummariesAtom,
+    startConversation,
+} from "./jarvisstore";
+import { createCommitScheduler, type CommitScheduler } from "./subjectcursor";
+import { restoreDecision } from "./subjectrestore";
 import {
     buildSubjectGroups,
     filterSubjectGroups,
@@ -134,6 +144,33 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
         loadJarvisConversations();
     }, []);
 
+    // restore the last subject once — and only once its own kind's list has loaded. One attempt, like
+    // pendingRunFocusAtom's `landed` guard: a stored id that never resolves must not retry forever.
+    const [stored, setStored] = useAtom(persistedSubjectAtom);
+    // the derived conversationsAtom coalesces a null summary list to [], so it cannot say "not loaded".
+    // Read the raw summaries for that signal and keep conversationsAtom for the ids themselves.
+    const summaries = useAtomValue(persistedSummariesAtom);
+    const restoredRef = useRef(false);
+    useEffect(() => {
+        if (restoredRef.current || active != null) {
+            return;
+        }
+        const decision = restoreDecision(stored, {
+            channels: channels?.map((c) => c.oid) ?? null,
+            dossiers: dossiers?.map((d) => d.id) ?? null,
+            conversations: summaries == null ? null : conversations.map((v) => v.id),
+        });
+        if (decision.action === "wait") {
+            return;
+        }
+        restoredRef.current = true;
+        if (decision.action === "select") {
+            selectSubject(decision.subject);
+            return;
+        }
+        setStored(null);
+    }, [stored, channels, dossiers, conversations, summaries, active, setStored]);
+
     // a channel's project name: the registered project bound to its path, else the path's own tail.
     const projectNameFor = (channel: Channel) => {
         const want = normPath(channel.projectpath);
@@ -143,7 +180,9 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
 
     const groups = buildSubjectGroups({
         channels,
-        dossiers,
+        // the column collapses "not loaded" to empty here; the pure module keeps one meaning of empty, and
+        // the only consumer that needs the distinction is the boot restore below.
+        dossiers: dossiers ?? [],
         conversations,
         projectNameFor,
         spaceScope,
@@ -151,10 +190,26 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
         revealed,
     });
 
-    const totalBefore = (channels?.length ?? 0) + dossiers.length + conversations.length;
+    const totalBefore = (channels?.length ?? 0) + (dossiers?.length ?? 0) + conversations.length;
     const totalAfter = groups.reduce((n, g) => n + g.items.length, 0);
 
     const shown = filterSubjectGroups(groups, filter, channels);
+
+    // the cursor moves on every keypress; committing it waits for the user to stop. See subjectcursor.ts.
+    const [cursorKey, setCursorKey] = useState<string | undefined>(undefined);
+    const commitRef = useRef<CommitScheduler | null>(null);
+    if (commitRef.current == null) {
+        commitRef.current = createCommitScheduler((key) => {
+            const i = key.indexOf(":");
+            selectSubject({ kind: key.slice(0, i) as SubjectKind, id: key.slice(i + 1) });
+        });
+    }
+    useEffect(() => () => commitRef.current?.cancel(), []);
+
+    const activeKey = active != null ? `${active.kind}:${active.id}` : undefined;
+    // a selection made anywhere else (a click, the palette, a Radar landing, a boot restore) moves the
+    // cursor to match. During a j/k burst activeKey does not change, so this cannot fight the cursor.
+    useEffect(() => setCursorKey(activeKey), [activeKey]);
 
     // j/k over the whole column, all three kinds in render order — the Channels rail published the same
     // cursor for its channel list, and the merged column is the only list left to move through.
@@ -163,17 +218,20 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
         () => ({
             surface: "jarvis",
             navigableIds: navIds,
-            cursorId: active != null ? `${active.kind}:${active.id}` : undefined,
+            cursorId: cursorKey ?? activeKey,
             setCursor: (key) => {
-                const i = key.indexOf(":");
-                selectSubject({ kind: key.slice(0, i) as SubjectKind, id: key.slice(i + 1) });
+                setCursorKey(key);
+                commitRef.current?.schedule(key);
             },
+            // deliberately no `activate`: bindings.ts only lets Enter pass through while the controller
+            // leaves it unset, so claiming it would swallow Enter across the whole surface (the composer's
+            // submit included) to save the 150ms the pending commit was going to take anyway.
         }),
-        [navIds, active]
+        [navIds, cursorKey, activeKey]
     );
     useSurfaceListNav(listNav);
 
-    const isActive = (s: Subject) => active?.kind === s.kind && active?.id === s.id;
+    const isActive = (s: Subject) => (cursorKey ?? activeKey) === `${s.kind}:${s.id}`;
     // the same resolution the Stage does, so the highlighted row is the run the Stage is showing
     const activeRunId = active?.kind === "channel" ? resolveActiveRunId(runs, runIds[active.id]) : undefined;
 
@@ -239,6 +297,35 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                             confirmLabel: "Delete channel",
                             destructive: true,
                             onConfirm: () => fireAndForget(() => deleteChannel(channel.oid)),
+                        }),
+                },
+            ],
+            ev
+        );
+    };
+
+    // threads get the same right-click affordances channels got, for the same reason: a row you cannot
+    // remove is a permanent one. No rename — a thread's title comes from its first turn.
+    const threadMenu = (id: string, title: string, archived: boolean, ev: React.MouseEvent) => {
+        ContextMenuModel.getInstance().showContextMenu(
+            [
+                {
+                    label: archived ? "Unarchive thread" : "Archive thread",
+                    icon: <Archive size={15} />,
+                    click: () => fireAndForget(() => archiveJarvisConversation(id, !archived)),
+                },
+                { type: "separator" },
+                {
+                    label: "Delete thread",
+                    icon: <Trash2 size={15} />,
+                    danger: true,
+                    click: () =>
+                        modalsModel.pushModal("ConfirmModal", {
+                            title: "Delete thread",
+                            message: `Delete "${title}"? This can't be undone.`,
+                            confirmLabel: "Delete thread",
+                            destructive: true,
+                            onConfirm: () => fireAndForget(() => deleteJarvisConversation(id)),
                         }),
                 },
             ],
@@ -421,8 +508,22 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                                 <div key={s.kind + ":" + s.id}>
                                     <button
                                         type="button"
-                                        onClick={() => selectSubject({ kind: s.kind, id: s.id })}
-                                        onContextMenu={channel != null ? (ev) => channelMenu(channel, ev) : undefined}
+                                        onClick={() => {
+                                            // a commit still queued from j/k would land after this and move
+                                            // the user off the row they clicked
+                                            commitRef.current?.cancel();
+                                            selectSubject({ kind: s.kind, id: s.id });
+                                        }}
+                                        onContextMenu={(ev) => {
+                                            if (channel != null) {
+                                                channelMenu(channel, ev);
+                                                return;
+                                            }
+                                            if (s.kind === "conversation") {
+                                                const conv = conversations.find((v) => v.id === s.id);
+                                                threadMenu(s.id, s.label, conv?.archived === true, ev);
+                                            }
+                                        }}
                                         className={cn(
                                             "flex w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-[7px] text-left hover:bg-surface-hover",
                                             selected && "bg-accentbg"
