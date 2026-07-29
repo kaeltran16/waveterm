@@ -6,7 +6,9 @@
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
+import { cn } from "@/util/util";
 import { Brain } from "lucide-react";
+import { STAGE_GUTTER } from "./stagemeasure";
 import type { JarvisConversation, JarvisTurn } from "./jarviscontract";
 import { isAnswerTurn } from "./jarviscontract";
 import { cancelJarvisQuery, retryJarvisQuery } from "./jarvisstore";
@@ -23,7 +25,7 @@ export function ConversationView({ conversation, model }: { conversation: Jarvis
         );
     }
     return (
-        <div className="mx-auto flex max-w-[900px] flex-col gap-6 px-8 py-8">
+        <div className={cn(STAGE_GUTTER, "flex flex-col gap-6 py-8")}>
             {conversation.turns.map((turn: JarvisTurn, i) =>
                 isAnswerTurn(turn) ? (
                     <div key={i} className="flex gap-3">

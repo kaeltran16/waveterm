@@ -28,8 +28,9 @@ describe("buildThemeVars — Midnight parity", () => {
         "--color-primary": "#e6e9ed",
         "--color-white": "#e6e9ed",
         "--color-secondary": "#cfd5db",
-        "--color-muted": "#6b7178",
-        "--color-ink-faint": "#3a424c",
+        // lifted for contrast — see the note in tailwindsetup.css; these two must move together with it
+        "--color-muted": "#7f858b",
+        "--color-ink-faint": "#646a72",
         "--color-border": "#1c2128",
         "--color-edge-mid": "#20262e",
         "--color-edge-strong": "#2a313a",

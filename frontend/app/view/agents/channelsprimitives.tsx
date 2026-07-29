@@ -17,10 +17,10 @@ import type { WorkerState } from "./jarvisderive";
 import { runtimeLogo } from "./runtimelogo";
 import { StatusDot } from "./statusdot";
 
-// One centered content measure shared by the entire channel center column — header, strips, run body,
-// empty/draft states, completion, and composer all wrap their content in this so every row lines up on
-// the same edges (mx-auto centers at wide widths; the row's own px-6 governs when the column is narrower).
-export const CHANNEL_COL = "mx-auto w-full max-w-[760px]";
+// CHANNEL_COL lived here — one centered measure for the channel centre column, at 760px. It had the right
+// idea and the wrong scope: once Channels merged into the Jarvis surface, the Stage's own header and
+// composer sat outside it and the run thread was the only thing lined up. It is now jarvis/stagemeasure's
+// STAGE_GUTTER, which every band on the Stage shares.
 
 // resolve a dispatch/directive RefORef ("tab:<id>") to the live roster row, if still present
 export function workerFor(agents: AgentVM[], refORef: string): AgentVM | undefined {

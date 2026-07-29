@@ -22,6 +22,7 @@ import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { buildChannelsAskBindings, buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { cn } from "@/util/util";
 import { AnimatePresence } from "motion/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef } from "react";
@@ -46,6 +47,7 @@ import { RecordThread } from "./recordthread";
 import { StageComposer } from "./stagecomposer";
 import { composeStage } from "./stagecompose";
 import { StageHeader } from "./stageheader";
+import { STAGE_SCROLLER } from "./stagemeasure";
 import { dossierDetailAtom } from "./tasksstore";
 
 export function Stage({ model }: { model: AgentsViewModel }) {
@@ -210,7 +212,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 ) : comp.thread === "record" ? (
                     <RecordThread detail={detail} model={model} />
                 ) : (
-                    <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div className={cn(STAGE_SCROLLER, "min-h-0 flex-1")}>
                         <ConversationView conversation={conversation} model={model} />
                     </div>
                 )}

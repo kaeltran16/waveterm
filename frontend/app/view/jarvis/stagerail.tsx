@@ -230,6 +230,9 @@ export function StageRail({
                 <CollapsibleRail
                     openAtom={stageRailOpenAtom}
                     ariaLabel="Stage context"
+                    // the third column's header band — same height and rule as the Stage's header and the
+                    // Subjects column's, so one line runs across the whole surface
+                    title="Context"
                     sections={sections}
                     forceCollapsed={profileOpen}
                 />

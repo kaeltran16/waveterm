@@ -5,11 +5,11 @@
 // live here — the graph as an overlay, a record as a band, never as separate destinations.
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { JarvisFixtureBar } from "./jarvisfixturebar";
-import { collapseFor } from "./jarvislayout";
-import { stageRailOpenAtom } from "./jarvisstore";
+import { layoutFor, RAIL_NARROW_PX, RAIL_WIDE_PX } from "./jarvislayout";
+import { profileRailOpenAtom, stageRailOpenAtom } from "./jarvisstore";
 import { activeSubjectAtom } from "./jarvissubjectstore";
 import { Stage } from "./stage";
 import { composeStage } from "./stagecompose";
@@ -20,9 +20,9 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
     const subject = useAtomValue(activeSubjectAtom);
     const comp = subject != null ? composeStage(subject.kind) : null;
 
-    // the one width observer for the surface. Every region that yields on a narrow window is driven from
-    // here in the design's order (jarvislayout.collapseFor) — before this nothing was width-responsive, so
-    // the Stage was the only region that ever lost space.
+    // the one width observer for the surface. The Subjects column's width is driven from here through the
+    // pure jarvislayout.layoutFor — before this nothing was width-responsive, so the Stage was the only
+    // region that ever lost space.
     const rowRef = useRef<HTMLDivElement>(null);
     const [surfaceWidth, setSurfaceWidth] = useState(0);
     useEffect(() => {
@@ -34,26 +34,18 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
         ro.observe(el);
         return () => ro.disconnect();
     }, []);
-    const collapse = collapseFor(surfaceWidth);
-
-    // Step 1 of the order closes the rail by *writing* its open atom on the transition into narrow, rather
-    // than overriding it while narrow. Overriding also killed the collapsed strip's expand button — the
-    // rail became unopenable below ~1290px, which trades one broken layout for a dead control. This way
-    // the width picks the default and the user still gets the last word (at the cost of the Stage's floor,
-    // which is their call to make).
+    // The rail's width is an *input* to the layout, never an output: it is whatever the user last chose.
+    // This used to write the rail's open atom shut on every transition into narrow, which — because the
+    // first measurement counts as a transition and this surface unmounts on every nav switch — left the
+    // rail a 44px strip at every width until the user clicked it open again, measured all the way out to a
+    // 1600px window. The width has no business voting on it; it just routes around whatever the rail is.
     //
-    // The first measurement counts as a transition, so entering the surface on a narrow window reasserts
-    // the default — and this surface unmounts on every nav switch, so that is every time you come back.
-    // Deliberate: the persisted flag records a preference formed at some other width, and the point of the
-    // order is that the Stage is usable on arrival. Re-opening it sticks for as long as you stay here.
-    const setRailOpen = useSetAtom(stageRailOpenAtom);
-    const wasCollapsed = useRef(collapse.railCollapsed);
-    useEffect(() => {
-        if (collapse.railCollapsed && !wasCollapsed.current) {
-            setRailOpen(false);
-        }
-        wasCollapsed.current = collapse.railCollapsed;
-    }, [collapse.railCollapsed, setRailOpen]);
+    // The ⚙ profile drawer shares the right-edge slot and force-collapses the rail while it is open
+    // (see StageRail / ProfilePanel), so either panel being open costs the same 300px.
+    const railOpen = useAtomValue(stageRailOpenAtom);
+    const profileOpen = useAtomValue(profileRailOpenAtom);
+    const railPx = railOpen || profileOpen ? RAIL_WIDE_PX : RAIL_NARROW_PX;
+    const layout = layoutFor(surfaceWidth, railPx);
 
     return (
         <div className="absolute inset-0 flex flex-col bg-background">
@@ -61,11 +53,11 @@ export function JarvisSurface({ model }: { model: AgentsViewModel }) {
             <JarvisFixtureBar />
             {/* relative so an overlaid rail positions against the surface row, not an ancestor */}
             <div ref={rowRef} data-jarvis-region="surface" className="relative flex min-h-0 flex-1">
-                <SubjectsColumn model={model} collapsed={collapse.subjectsCollapsed} />
+                <SubjectsColumn model={model} widthPx={layout.subjectsPx} icons={layout.subjectsIcons} />
                 <Stage model={model} />
                 {/* always mounted, comp or not: the rail carries Needs you, which must not wait on the
                     user selecting a subject. Its other sections are subject-derived and stay absent. */}
-                <StageRail model={model} comp={comp} overlay={collapse.railOverlay} />
+                <StageRail model={model} comp={comp} overlay={layout.railOverlay} />
             </div>
         </div>
     );

@@ -21,13 +21,20 @@ import {
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot } from "@/app/view/agents/jarvisderive";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
-import { resolveActiveRunId, runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
+import { confirmCancelRun } from "@/app/view/agents/runactions";
+import {
+    isTerminal,
+    liveWorkers,
+    resolveActiveRunId,
+    runStatusView,
+    type RunStatusTone,
+} from "@/app/view/agents/runmodel";
 import { SpaceBanner } from "@/app/view/agents/spacebanner";
 import { spaceBannerText } from "@/app/view/agents/spacescope";
 import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { Archive, Pencil, Trash2 } from "lucide-react";
+import { Archive, Ban, Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     activeRunIdAtom,
@@ -35,6 +42,7 @@ import {
     persistedSubjectAtom,
     selectSubject,
     setActiveRunId,
+    setComposingRun,
     startJarvisThread,
     subjectFilterAtom,
 } from "./jarvissubjectstore";
@@ -45,6 +53,7 @@ import {
     loadJarvisConversations,
     persistedSummariesAtom,
 } from "./jarvisstore";
+import { STAGE_HEADER_BAND } from "./stagemeasure";
 import { createCommitScheduler, type CommitScheduler } from "./subjectcursor";
 import { restoreDecision } from "./subjectrestore";
 import {
@@ -74,14 +83,17 @@ function normPath(path: string | undefined): string {
     return (path ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
-// The column's narrow form (jarvislayout step 2): one status dot per subject, in the same order, still
-// clickable and still carrying the asking signal. It is a *narrower* list, not a hidden one — the design's
-// order gives up labels before it gives up the list, and the thread never gives up anything.
+// The column's narrow form (jarvislayout's SUBJECTS_ICON_PX): one status dot per subject, in the same
+// order, still clickable and still carrying the asking signal. It is a *narrower* list, not a hidden one —
+// labels go before the list does, and the thread never gives up anything. The width is the layout's, not a
+// class literal: the column is continuous and this form just draws whatever it was given.
 function CollapsedSubjects({
+    widthPx,
     groups,
     isActive,
     signalsFor,
 }: {
+    widthPx: number;
     groups: SubjectGroup[];
     isActive: (s: Subject) => boolean;
     signalsFor: (s: Subject) => { asking: boolean; working: number } | null;
@@ -89,7 +101,8 @@ function CollapsedSubjects({
     return (
         <div
             data-jarvis-region="subjects"
-            className="flex w-[56px] flex-none flex-col items-center gap-1 overflow-y-auto border-r border-border bg-background py-2"
+            style={{ width: widthPx }}
+            className="flex flex-none flex-col items-center gap-1 overflow-y-auto border-r border-border bg-background py-2"
         >
             {groups.flatMap((g) =>
                 g.items.map((s) => {
@@ -120,7 +133,15 @@ function CollapsedSubjects({
     );
 }
 
-export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; collapsed: boolean }) {
+export function SubjectsColumn({
+    model,
+    widthPx,
+    icons,
+}: {
+    model: AgentsViewModel;
+    widthPx: number;
+    icons: boolean;
+}) {
     const channels = useAtomValue(channelsAtom);
     const dossiers = useAtomValue(taskListAtom);
     const conversations = useAtomValue(conversationsAtom);
@@ -263,10 +284,65 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
     // into the header: the header acts on the channel you are *on*, and renaming or deleting one you are
     // not is the whole point. Autonomy deliberately did not come back — the header ladder owns it, and a
     // second control would be a second source of truth.
+    // "New run" from the column: put the Stage on the channel and force the composer's Launch face — the
+    // same flag "＋ New run" sets, so a channel with a live worker stops offering to message it. It does
+    // not dispatch: a run needs a goal, and the goal is typed.
+    const newRun = (channelId: string) => {
+        selectSubject({ kind: "channel", id: channelId });
+        setComposingRun(channelId, true);
+        // the Launch face autofocuses on mount, but a channel already showing it does not remount
+        requestAnimationFrame(() =>
+            document
+                .querySelector<HTMLElement>("[data-jarvis-composer] input, [data-jarvis-composer] textarea")
+                ?.focus()
+        );
+    };
+
+    // Runs get their own right-click for the acts the row cannot offer by clicking: starting another run
+    // beside this one, and cancelling it. Cancel routes through confirmCancelRun, so a run with live
+    // workers still asks before stopping them.
+    const runMenu = (channelId: string, channelName: string, run: Run, ev: React.MouseEvent) => {
+        ContextMenuModel.getInstance().showContextMenu(
+            [
+                {
+                    label: `New run in #${channelName}`,
+                    icon: <Plus size={15} />,
+                    click: () => newRun(channelId),
+                },
+                { type: "separator" },
+                {
+                    label: "Copy goal",
+                    icon: <Copy size={15} />,
+                    click: () => fireAndForget(() => navigator.clipboard.writeText(run.goal ?? "")),
+                },
+                {
+                    label: "Copy run id",
+                    icon: <Copy size={15} />,
+                    click: () => fireAndForget(() => navigator.clipboard.writeText(run.id)),
+                },
+                { type: "separator" },
+                {
+                    label: "Cancel run",
+                    icon: <Ban size={15} />,
+                    danger: true,
+                    enabled: !isTerminal(run.status),
+                    click: () => confirmCancelRun(channelId, run.id, liveWorkers(run, agents).length),
+                },
+            ],
+            ev
+        );
+    };
+
     const channelMenu = (channel: Channel, ev: React.MouseEvent) => {
         const archived = (channel.meta as Record<string, unknown> | undefined)?.["archived"] === true;
         ContextMenuModel.getInstance().showContextMenu(
             [
+                {
+                    label: "New run",
+                    icon: <Plus size={15} />,
+                    click: () => newRun(channel.oid),
+                },
+                { type: "separator" },
                 {
                     label: "Rename channel",
                     icon: <Pencil size={15} />,
@@ -328,9 +404,10 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
         );
     };
 
-    if (collapsed) {
+    if (icons) {
         return (
             <CollapsedSubjects
+                widthPx={widthPx}
                 groups={shown}
                 isActive={isActive}
                 signalsFor={(s) => {
@@ -344,10 +421,14 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
     return (
         <div
             data-jarvis-region="subjects"
-            className="flex w-[272px] flex-none flex-col border-r border-border bg-background"
+            style={{ width: widthPx }}
+            className="flex flex-none flex-col border-r border-border bg-background"
         >
-            <div className="flex flex-col gap-2 border-b border-edge-faint px-3 py-3">
-                <div className="flex items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-2.5 py-1.5 focus-within:border-accent">
+            {/* STAGE_HEADER_BAND, same as the Stage's header and the rail's: one rule across all three
+                columns at one height, in one tone. This was py-3 with the two buttons inside it and an
+                edge-faint rule, which put the column's first rule 52px below the Stage's. */}
+            <div className={cn(STAGE_HEADER_BAND, "px-3")}>
+                <div className="flex w-full items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised px-2.5 py-1 focus-within:border-accent">
                     <span className="font-mono text-[11px] font-semibold text-muted">⌕</span>
                     <input
                         type="text"
@@ -357,6 +438,8 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                         className="w-full bg-transparent text-[12px] text-primary placeholder:text-muted focus:outline-none"
                     />
                 </div>
+            </div>
+            <div className="flex flex-none flex-col gap-2 px-3 py-2.5">
                 <div className="flex gap-1.5">
                     {/* data-jarvis-new-channel: the `c` key presses this rather than owning a second copy of
                         the picker's open state (buildJarvisBindings). */}
@@ -572,6 +655,9 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                                                             }
                                                             setActiveRunId(s.id, r.id);
                                                         }}
+                                                        onContextMenu={(ev) =>
+                                                            runMenu(s.id, channel?.name ?? "channel", r, ev)
+                                                        }
                                                         className={cn(
                                                             "flex cursor-pointer items-center gap-[7px] rounded-[7px] px-2 py-[5px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
                                                             r.id === activeRunId && "bg-surface-selected"

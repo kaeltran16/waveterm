@@ -23,7 +23,8 @@ import {
     verifCounts,
     verifTone,
 } from "./runcompletion";
-import { CHANNEL_COL } from "./channelsprimitives";
+import { STAGE_GUTTER, STAGE_PROSE, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
+import { cn } from "@/util/util";
 
 function openPath(projectPath: string, rel: string) {
     const sep = projectPath.includes("\\") ? "\\" : "/";
@@ -65,30 +66,39 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
     const nodes = phaseHistory(run);
     return (
         <MotionConfig reducedMotion="user">
-        <div className="sc min-h-0 flex-1 overflow-y-auto">
-            {/* header */}
-            <div className="flex items-center gap-3 border-b border-border bg-surface px-6 py-[13px]">
-                <div className="min-w-0">
-                    <div className="flex items-center gap-2 font-mono text-[11px] text-muted">
-                        <span className="text-ink-mid">#{channel.name}</span>
-                        <span>/</span>
-                        <span>run {runShortId(run.id)}</span>
+        <div className={cn(STAGE_SCROLLER, "sc min-h-0 flex-1")}>
+            {/* header. The rule stays full-bleed and the content sits in the shared gutter — as its own band
+                with px-6 it put the largest text on the Stage 20px left of the record's title, the evidence
+                card beneath it and the composer, so switching a record for a run jogged the whole page. */}
+            <div className="border-b border-border bg-surface">
+                <div className={cn(STAGE_GUTTER, "flex items-center gap-3 py-[13px]")}>
+                    {/* uncapped: the goal here is a single truncated heading line, not prose */}
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2 font-mono text-[11px] text-muted">
+                            <span className="text-ink-mid">#{channel.name}</span>
+                            <span>/</span>
+                            <span>run {runShortId(run.id)}</span>
+                        </div>
+                        <div className="mt-0.5 truncate text-[16px] font-bold tracking-[-.01em] text-primary">
+                            {run.goal}
+                        </div>
                     </div>
-                    <div className="mt-0.5 truncate text-[16px] font-bold tracking-[-.01em] text-primary">{run.goal}</div>
-                </div>
-                <div className="flex-1" />
-                {/* the only Ask Jarvis for a sealed run: this surface replaces RunBody's header, which is
-                    where the button otherwise lives — so without it the Run -> Jarvis entry existed only
-                    while a run was still unsealed, i.e. never for a run worth asking about. */}
-                <AskJarvisButton model={model} sourceRef={sourceRefForRun(run)} label="Ask Jarvis" />
-                <div className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-3 py-[5px]">
-                    <span className="text-[12px] text-success">✓</span>
-                    <span className="font-mono text-[11px] font-bold uppercase tracking-[.02em] text-success">Done</span>
+                    <div className="flex-1" />
+                    {/* the only Ask Jarvis for a sealed run: this surface replaces RunBody's header, which is
+                        where the button otherwise lives — so without it the Run -> Jarvis entry existed only
+                        while a run was still unsealed, i.e. never for a run worth asking about. */}
+                    <AskJarvisButton model={model} sourceRef={sourceRefForRun(run)} label="Ask Jarvis" />
+                    <div className="flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-3 py-[5px]">
+                        <span className="text-[12px] text-success">✓</span>
+                        <span className="font-mono text-[11px] font-bold uppercase tracking-[.02em] text-success">
+                            Done
+                        </span>
+                    </div>
                 </div>
             </div>
 
-            <div className="px-6 pb-10 pt-[22px]">
-                <div className={CHANNEL_COL}>
+            <div className="pb-10 pt-[22px]">
+                <div className={STAGE_GUTTER}>
                     {/* evidence snapshot card */}
                     <motion.div
                         variants={cardVariants}
@@ -122,7 +132,10 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     <div className="mb-1.5 flex items-center gap-2">
                                         <span className="rounded border border-edge-mid bg-background px-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.07em] text-ink-mid">final response</span>
                                     </div>
-                                    <p className="text-[13.5px] leading-[1.62] text-secondary">{ev.summary}</p>
+                                    {/* the one paragraph of real prose on this surface; the tables around it fill */}
+                                    <p className={cn(STAGE_PROSE, "text-[13.5px] leading-[1.62] text-secondary")}>
+                                        {ev.summary}
+                                    </p>
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-edge-mid bg-background px-3.5 py-3">

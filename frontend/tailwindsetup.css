@@ -25,8 +25,15 @@
     --color-muted-foreground: #c3cad1;
     --color-ink-hi: #dfe4ea; /* high-emphasis body/content text (handoff memory surface content) */
     --color-ink-mid: #9aa3ad; /* mid grey — handoff tool badges + secondary button text */
-    --color-muted: #6b7178;
-    --color-ink-faint: #3a424c;
+    /* The two lowest text tiers were below the contrast they need to be read, and they carry almost all of
+       the app's data presentation — ids, status labels, counts, section headings, usually at 9.5-11px.
+       Measured against --color-background: muted was 3.92:1 (WCAG AA for text is 4.5:1) and, on a hovered
+       row, 3.47:1; ink-faint was 1.90:1. Lifted so muted clears AA on both the background and a hovered row,
+       and ink-faint clears the 3:1 non-text minimum for the separators and gutters it draws. The ramp still
+       steps cleanly: ink-faint 3.54 < muted 5.18 < ink-mid 7.56 < secondary 13.06.
+       Mirrored per theme in view/agents/themes.ts, which overrides both at runtime. */
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
 
     /* Borders (handoff edge) */
     --color-border: #1c2128;

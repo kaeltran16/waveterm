@@ -12,6 +12,7 @@ import { Lock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { selectSubject } from "./jarvissubjectstore";
 import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
+import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 import type { SubjectKind } from "./subjects";
 import { TaskDetail } from "./taskdetail";
 
@@ -60,7 +61,9 @@ export function RecordBand({
     const expandable = band.case === "one" || band.case === "several";
     const showPanel = band.case === "subject" || (expandable && open);
 
-    const rowClass = cn("flex items-center gap-2.5 px-4 py-2.5", expandable && "w-full cursor-pointer text-left");
+    // the row's content sits in the shared gutter; the button around it stays full-bleed so its hover tint
+    // covers the whole band rather than stopping at the gutter's edges.
+    const rowClass = cn(STAGE_GUTTER, "flex items-center gap-2.5 py-2.5");
     // the collapsed row carries no nested interactive element, so the whole row can be the control — the
     // expanded per-record rows below are siblings and stay individually reachable. As a div + onClick it was
     // mouse-only, on a surface whose thesis is keyboard operability.
@@ -140,6 +143,8 @@ export function RecordBand({
     );
 
     return (
+        // the inset goes on the rows, not on this wrapper: the expanded panel below is a scroller and
+        // reserves the same 10px itself, so insetting both would end its content 10px short of the rows'.
         <div className="flex-none border-b border-border bg-surface">
             {expandable ? (
                 // data-jarvis-band-toggle: the `e` key presses this button rather than re-deriving whether the
@@ -149,12 +154,17 @@ export function RecordBand({
                     data-jarvis-band-toggle
                     onClick={onToggle}
                     aria-expanded={open}
-                    className={cn(rowClass, "transition-colors duration-[140ms] hover:bg-surface-hover")}
+                    className={cn(
+                        STAGE_BAND_INSET,
+                        "w-full cursor-pointer text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                    )}
                 >
-                    {row}
+                    <div className={rowClass}>{row}</div>
                 </button>
             ) : (
-                <div className={rowClass}>{row}</div>
+                <div className={STAGE_BAND_INSET}>
+                    <div className={rowClass}>{row}</div>
+                </div>
             )}
             {/* the disclosure animates its own height: the band sits above the thread, so an instant 420px
                 panel shoved the thread down a screenful with nothing to follow. initial={false} so a subject
@@ -169,7 +179,7 @@ export function RecordBand({
                         exit="exit"
                         className="overflow-hidden"
                     >
-                        <div className="max-h-[420px] overflow-y-auto border-t border-border bg-background">
+                        <div className={cn(STAGE_SCROLLER, "max-h-[420px] border-t border-border bg-background")}>
                             <TaskDetail detail={detail} showDecisions={band.case !== "subject"} />
                         </div>
                     </motion.div>
@@ -184,18 +194,20 @@ export function RecordBand({
                         exit="exit"
                         className="overflow-hidden"
                     >
-                        <div className="flex flex-col gap-px border-t border-border px-4 py-2">
-                            {band.others.map((o) => (
-                                <button
-                                    key={o.taskId}
-                                    type="button"
-                                    onClick={() => selectSubject({ kind: "dossier", id: o.taskId })}
-                                    className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
-                                >
-                                    <EdgeChip tag={o} />
-                                    <span className="font-mono text-[10.5px] text-muted">open this record</span>
-                                </button>
-                            ))}
+                        <div className={cn(STAGE_BAND_INSET, "border-t border-border")}>
+                            <div className={cn(STAGE_GUTTER, "flex flex-col gap-px py-2")}>
+                                {band.others.map((o) => (
+                                    <button
+                                        key={o.taskId}
+                                        type="button"
+                                        onClick={() => selectSubject({ kind: "dossier", id: o.taskId })}
+                                        className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                                    >
+                                        <EdgeChip tag={o} />
+                                        <span className="font-mono text-[10.5px] text-muted">open this record</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </motion.div>
                 ) : null}

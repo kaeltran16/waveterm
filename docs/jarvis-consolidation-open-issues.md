@@ -41,9 +41,13 @@ fixed, that section of the tour gets cut rather than edited (JC18).
 | JC13 | `Attach a record` / `Create one from this run` are unclickable spans **[tour, still open]** | legibility | S | ✅ Fixed |
 | JC14 | `+ Channel` dead-ends with prose when no project is registered | legibility | S | ✅ Fixed |
 | JC15 | The subject filter cannot match a run goal, and the run switcher is the only run list | legibility | S | ✅ Fixed |
-| JC16 | The design's narrow-window collapse order was never built — the Stage absorbs every pixel of loss | layout / spec gap | M | ✅ Fixed (all four steps) |
+| JC16 | The design's narrow-window collapse order was never built — the Stage absorbs every pixel of loss | layout / spec gap | M | ✅ Fixed (all four steps) — then **superseded by JC20**, which replaced the staircase |
 | JC17 | `j`/`k` selects as it moves: one `selectChannel` + one thread prune per keypress | perf / polish | S | ✅ Fixed |
 | JC19 | The record band's expand control is a `div` with `onClick` — mouse-only | a11y | S | ✅ Fixed |
+| JC20 | Every band on the Stage owns its own measure, and the collapse staircase makes the thread *narrower* on a wider window | layout | M | ✅ Fixed (the measure part **revised by JC21**) |
+| JC21 | The shared measure missed the band that did not opt in, and centring it left ~175px of dead gutter a side | layout | S | ✅ Fixed |
+| JC22 | The two lowest text tiers are below readable contrast, and the record view puts five roles on two of them | legibility | S | ✅ Fixed |
+| JC23 | A record's run list repeats the record's own objective on every row — the widest column carries no information | legibility / content | S | ⬜ Open |
 | **E** | **The tour itself** | | | |
 | JC18 | Three inaccuracies, a missing teardown flow, an unjustified claim | docs | S | ✅ Fixed |
 
@@ -506,6 +510,148 @@ mounted" — the existing check passes on the broken layout, which is how this s
 
 **Verify.** `Emulation.setDeviceMetricsOverride` across 1920/1440/1100/900/720 and re-measure the four
 regions; the Stage must stay above its floor at every width.
+
+**Superseded by JC20.** The fix held the floor at all five sampled widths and was still wrong between them —
+see below.
+
+### JC20 — Every band owns its own measure, and the collapse staircase inverts on a wider window
+
+**Kind:** layout · **Effort:** M
+
+**Problem.** Two things, one origin: the surface was assembled by merging Channels, Graph and Tasks into one
+Jarvis surface, and each region kept the horizontal metrics it had when it was its own screen.
+
+1. **Seven measures.** Measured at a 1500px window, the bands the Stage stacks *directly on top of each
+   other* started their content at four different x — header 366 (`px-4`), record band 366 (`px-4`), thread
+   382 (`max-w-[900px] px-8`), composer 370 (`px-5`) — plus `CHANNEL_COL`'s 760px centred column for a run
+   thread, and for a record subject a 720px centred block over a full-bleed `px-5` activity list, a **414px
+   jog** at one divider. Above a 900px Stage the thread detached and floated to the middle while the chrome
+   stayed pinned to the edges (a 137px disagreement at 1800px).
+2. **A staircase that inverts.** `collapseFor` collapsed the least it could until the Stage cleared its floor.
+   The Subjects column's only lever was 272 → 56, a 216px step used to fund a 34px deficit, so the Stage
+   overshot on one side of each threshold and sat on the floor on the other. Measured: a **1000px window gave
+   the Stage 822px and a 1050px window gave it 656px** — widening the window narrowed the thread and flipped
+   the column between labelled rows and anonymous glyphs. The rail's 300↔44 snap did the same at ~1212px.
+3. **A rail that never came back.** Step 1 wrote the rail's open atom shut on each transition into narrow.
+   The first measurement counts as a transition and the surface unmounts on every nav switch, so the rail was
+   a 44px strip at every width — measured still 44 at a 1600px window — until clicked open again.
+
+**Evidence.** CDP measurement of the band edges, the column rules (y=44 / 81 / 96 in two different border
+tokens) and a 50px sweep of the Stage's width; `jarvislayout.test.ts`'s old monotonicity test asserted
+monotonicity of the collapse *flags*, which held the whole way through the sawtooth.
+
+**Fix.**
+- `frontend/app/view/jarvis/stagemeasure.ts` — one shared horizontal metric for every band, and
+  `STAGE_HEADER_BAND` (one header height and rule for all three columns). This first landed as a centred
+  `max-w-[900px]` column; **JC21 replaced it with a gutter** for the reasons recorded there.
+- `collapseFor` → `layoutFor(surfaceWidth, railPx)`, returning a **continuous** `subjectsPx` that gives up
+  exactly the deficit. The Stage now pins at exactly its floor across the narrow band instead of overshooting,
+  and its width is monotone non-decreasing in the surface's. `subjectsIcons` is a content threshold at 140px,
+  crossed without a width step.
+- The rail's width is an **input** to the layout, never an output. `railOverlay` still substitutes for the
+  44px strip (and now crosses its boundary with no step at all, both sides sitting on the floor), but a rail
+  the user opened is never overlaid and never force-closed.
+
+**One accepted cost.** Between a 56px and a 140px column the status-dot strip is drawn in a box wider than
+its glyphs need (a 130px column at an ~870px window looks loose). Snapping back to 56 in icon mode would put
+an 84px step back into the Stage's width, and showing labels down to 56px gives two ellipsised characters and
+a `+ Channel` button narrower than its own text. Recorded in `jarvislayout.ts` beside the constant.
+
+**Verify.** `jarvislayout.test.ts` asserts the Stage's width is monotone at **1px** steps for both rail widths
+— the dip was invisible at the five widths the scenario sampled. Live: `jarvis-collapse-order` now sweeps
+900→1600 in 50px steps and asserts the Stage never shrinks, the column takes intermediate widths, and
+narrowing leaves an opened rail open; the new `jarvis-measure` scenario asserts one left edge across every
+band and one header-rule y across all three columns, at 1500 and 1920.
+
+### JC21 — The shared measure missed the band that did not opt in, and centring it left dead gutters
+
+**Kind:** layout · **Effort:** S
+
+**Problem.** JC20's measure was reported as landed on the strength of a probe that collected every element
+carrying the measure's own class and checked they shared a left edge. That is circular, and it hid two things.
+
+1. **The band that did not opt in.** `RunCompletion` — the view for *every finished run* — keeps its own
+   header band, and only its inner content had been moved onto the measure. The band kept `px-6` full-bleed,
+   so at a 950px Stage its content started at **x=24 while every other band started at x=44**: the largest
+   text on the Stage, 20px out, and the page title visibly jogged when you switched a record for a run. Two
+   smaller members of the same family: `OrchestratorBody` reserved no scrollbar (its measure centred 5px
+   right of every scrolling band) and `RunCompletion` used `overflow-y-auto`, so its content left moved by
+   5px depending on whether that particular run's evidence overflowed.
+2. **Dead gutters.** A 900px column inside a 1250px Stage leaves ~175px empty on each side (~360px at 1920).
+   A record's objective wrapped to three lines with 350px unused beside it, while the evidence table, the
+   file list and the activity rows were all squeezed to 852px to pay for the symmetry.
+
+**Evidence.** CDP audit of every band by geometry rather than by class, per subject kind: the sealed run
+reported content-lefts of `[0, 24, 44]` against `[0, 44]` for the record and conversation views. Screenshots
+of the record view at a 1250px Stage for the gutters.
+
+**Fix.** `STAGE_MEASURE` (`mx-auto w-full max-w-[900px] px-6`) → **`STAGE_GUTTER`** (`w-full px-6`). Bands
+share a left edge because they carry the same padding, not because each is centred in a box of the same
+width — which also removes the whole class of bug where a left edge moves by half a scrollbar. Content then
+decides its own width: tables, field cards, file lists and activity rows fill the Stage, and prose caps
+itself with **`STAGE_PROSE`** (`max-w-[72ch]`, in `ch` so one token holds for a 19px title and 14px body
+alike) on the record objective, the run goal and the completion summary. The thread's turns already carried
+their own caps (560px user bubble, 720px answer), so they need nothing new. `RunCompletion`'s header moved
+into the gutter with its rule left full-bleed; `OrchestratorBody` took `STAGE_BAND_INSET`.
+
+**Verify.** `jarvis-measure`'s probe now finds bands by geometry — anything as wide as the Stage, keyed on
+where its own padding starts — and walks **every subject kind** (fixture conversation, channel, record)
+rather than only the fixture conversation, since the regression lived in the run view. It adds a
+`no dead gutter` assert: some band's content box must come within 80px of the Stage's width, which the
+centred column fails by construction.
+
+### JC22 — The badges and data labels are below readable contrast
+
+**Kind:** legibility · **Effort:** S
+
+**Problem.** Reported as "the badge and other data presentation are too muted, they are hard to scan", and it
+measures out. `--color-muted` carries almost every id, status label, count and section heading on the Stage,
+usually at 9.5–11px, and against `--color-background` it was **3.92:1** — under the 4.5:1 WCAG AA needs for
+text that size — dropping to **3.47:1** on a hovered row. `--color-ink-faint` was **1.90:1**, and it was not
+purely decorative: a cancelled run's status label was set in it. Every one of the seven theme presets was in
+the same state or worse (One Dark's muted measured **2.60:1** on its background, **1.95:1** on a hovered row).
+
+**Evidence.** WCAG relative-luminance ratios computed for every text token against all four surface levels,
+and for each preset against its own palette.
+
+**Fix.** Both tiers lifted so `muted` clears AA on the background *and* on a hovered row, and `ink-faint`
+clears the 3:1 non-text minimum for the separators and gutter numerals it draws — in `tailwindsetup.css` and
+in all seven `themes.ts` palettes, since `buildThemeVars` overrides both at runtime and the CSS default alone
+would not reach the active theme. Midnight: muted `#6b7178 → #7f858b` (3.92 → **5.18**, hover **4.59**),
+ink-faint `#3a424c → #646a72` (1.90 → **3.54**). The ramp still steps cleanly rather than flattening:
+ink-faint 3.54 < muted 5.18 < ink-mid 7.56 < secondary 13.06. Two badges also stopped inheriting the quietest
+tone: the record's status chip set a fill but no text colour, so it rendered `muted` on `surface-hover` — the
+one background muted has least contrast against — and `RUN_TONE.cancelled` moved off `ink-faint`.
+
+**A raised floor is not a hierarchy.** Lifting the token fixed readability and did nothing for scanning: the
+record view then rendered its section headings, field labels, run ids and statuses in the same two greys — five
+roles sharing two tones, reported as "they all have the same color". Contrast is a floor per element; scanning
+needs the *differences between* elements. So the record view now assigns tone by role rather than by emphasis:
+
+| Role | Tone | Examples |
+|---|---|---|
+| Subject | `primary` w700 | the record's objective |
+| Identity — what tells one row from the next | `accent-soft` w600 | run ids, the record slug |
+| Outcome | tonal | `done` green, `blocked` warning, `failed` error |
+| Value — what you actually read | `secondary` | field values, run goals |
+| Structure and hints | `muted` | section headings, field labels, `@quick · @run · @ask` |
+
+Measured as a census of distinct colour+weight groups in that view: **2 doing real work → 9, one per role.**
+
+**Verify.** `themes.test.ts` pins the Midnight palette to the `tailwindsetup.css` values and failed on both
+tokens the moment they drifted, which is how the presets were caught; it now pins the lifted pair. The per-
+element contrast and the colour census were both measured over CDP against the live view, compositing each
+element's real background (a probe that reads the token alone proves nothing about what rendered).
+
+**Not done.** 47 `text-ink-faint` call sites were not audited individually. Lifting the token raised them all
+to 3.54:1, but any that are genuinely body text (the diff gutter's line numbers, a few 9.5px section labels)
+still sit below AA and should move to `muted`. Not swept here — it reaches well past this surface.
+
+**Still open, and no tone fixes it (JC23).** A record's run list repeats the same string on every row: a run's
+goal *is* the record's objective, so "runs attributed to this record" renders as N identical lines whose only
+distinguishing datum is an 8-character id. The widest column in the row carries no information. What a reader
+wants there is when it ran, how long it took and what changed — the goal belongs in the row only when it
+differs from the record's. That is a content decision, not a colour one, and is not made here.
 
 ### JC19 — The record band's expand control is not keyboard-operable
 

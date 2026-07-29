@@ -6,11 +6,15 @@ import { cn } from "@/util/util";
 import { Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { DecisionLog } from "./decisionlog";
+import { STAGE_GUTTER } from "./stagemeasure";
 import { allowedTransitions, isTerminalTransition } from "./tasksderive";
 import { setDossierStatus } from "./tasksstore";
 
 // A machine-maintained region: muted panel + a lock glyph, non-editable. The visible expression of
 // the write-ownership model's inside-Wave tier (spec §4).
+//
+// The label names the field and stays on the quiet tier; its value is what gets read, on `secondary`. Putting
+// both on the same tone is what made this panel one flat colour.
 function MachineField({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="mb-3">
@@ -22,6 +26,14 @@ function MachineField({ label, children }: { label: string; children: ReactNode 
         </div>
     );
 }
+
+// A dossier's status is the one field scanned before anything else is read, so it is the one chip on this
+// surface that carries colour. Grey-on-grey put it at the same weight as the transition buttons beside it.
+const STATUS_TONE: Record<string, string> = {
+    active: "bg-success/12 text-success",
+    completed: "bg-accent/12 text-accent-soft",
+    archived: "bg-surface-hover text-muted",
+};
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
     return (
@@ -87,12 +99,15 @@ export function TaskDetail({ detail, showDecisions = true }: { detail: DossierDe
     const refs = detail.refs ?? [];
     const decisions = detail.decisions ?? [];
     return (
-        <div className="mx-auto max-w-[720px] px-8 py-6">
+        <div className={cn(STAGE_GUTTER, "py-6")}>
             <div className="mb-5">
                 <div className="flex items-center gap-2.5">
+                    {/* not capped: a heading is scanned, not read line by line, so the reading measure buys
+                        nothing here and costs a wrap — an objective that fits on one line was being broken
+                        into two with half the Stage empty beside it. */}
                     <h1 className="text-[22px] font-bold tracking-[-0.02em] text-primary">{detail.objective}</h1>
                     {detail.ticket ? (
-                        <span className="rounded bg-surface-hover px-2 py-0.5 font-mono text-[11px] text-muted">
+                        <span className="flex-none rounded bg-surface-hover px-2 py-0.5 font-mono text-[11px] text-ink-mid">
                             {detail.ticket}
                         </span>
                     ) : null}
@@ -100,13 +115,17 @@ export function TaskDetail({ detail, showDecisions = true }: { detail: DossierDe
                 <div className="mt-1.5 flex items-center gap-3 text-[12px] text-muted">
                     <span
                         className={cn(
-                            "rounded px-1.5 py-0.5 font-mono",
-                            detail.status === "active" ? "bg-success/12 text-success" : "bg-surface-hover"
+                            "rounded px-1.5 py-0.5 font-mono font-semibold",
+                            STATUS_TONE[detail.status] ?? "bg-surface-hover text-ink-mid"
                         )}
                     >
                         {detail.status}
                     </span>
-                    {detail.confidence ? <span>confidence: {detail.confidence}</span> : null}
+                    {detail.confidence ? (
+                        <span>
+                            confidence: <span className="text-ink-mid">{detail.confidence}</span>
+                        </span>
+                    ) : null}
                     <StatusControl dossierId={detail.id} status={detail.status} />
                 </div>
             </div>

@@ -30,6 +30,7 @@ import {
     setComposingRun,
     setJarvisDraft,
 } from "./jarvissubjectstore";
+import { STAGE_BAND_INSET, STAGE_GUTTER } from "./stagemeasure";
 import type { StageComposition } from "./stagecompose";
 
 function TalkingTo({ label, audience }: { label: string; audience: "worker" | "jarvis" }) {
@@ -325,7 +326,8 @@ export function StageComposer({
     // data-jarvis-composer is the handle `i` focuses and Escape leaves (buildJarvisBindings). One marker on
     // the wrapper serves all three faces, so neither the shared composers nor this file grow a per-face hook.
     return (
-        <div data-jarvis-composer className="flex-none border-t border-border bg-background px-5 pb-4 pt-2.5">
+        <div data-jarvis-composer className={cn(STAGE_BAND_INSET, "flex-none border-t border-border bg-background")}>
+            <div className={cn(STAGE_GUTTER, "pb-4 pt-2.5")}>
             <TalkingTo label={target.label} audience={target.audience} />
             {picking ? (
                 <ChannelPicker channels={channels} onPick={dispatchFromPicker} onCancel={() => setPicking(false)} />
@@ -405,6 +407,7 @@ export function StageComposer({
                     chips={conversation.scope.chips}
                 />
             )}
+            </div>
         </div>
     );
 }

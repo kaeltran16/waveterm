@@ -16,7 +16,8 @@ import { cardVariants, computeEntrances, initialEntranceState } from "@/app/elem
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { fireAndForget } from "@/util/util";
+import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_PROSE, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -24,7 +25,7 @@ import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { steerWorker } from "./channelactions";
 import { runAtom } from "./channelsstore";
-import { CHANNEL_COL, jumpToAgent } from "./channelsprimitives";
+import { jumpToAgent } from "./channelsprimitives";
 import { ComposerShell } from "./composer-shell";
 import { InlineMarkdown } from "./inlinemarkdown";
 import { MarkdownMessage } from "./markdownmessage";
@@ -151,13 +152,18 @@ export function RunHeader({
                         <StatusPill status={run.status} survivorCount={cancelSurvivors(run, agents).length} />
                         <AmbientTags oref={sourceRefForRun(run).oref} />
                     </div>
+                    {/* the collapsed goal is a two-line heading and takes the width; expanded it becomes real
+                        prose (markdown, paragraphs) and caps at a reading measure */}
                     <div
                         onClick={() => setGoalExpanded((v) => !v)}
                         title={goalExpanded ? "Collapse" : "Expand"}
                         className="w-full cursor-pointer text-[19px] font-bold leading-tight tracking-[-0.01em] text-primary hover:opacity-90"
                     >
                         {goalExpanded ? (
-                            <MarkdownMessage text={run.goal} className="text-[15px] font-semibold leading-snug text-primary" />
+                            <MarkdownMessage
+                                text={run.goal}
+                                className={cn(STAGE_PROSE, "text-[15px] font-semibold leading-snug text-primary")}
+                            />
                         ) : (
                             <div className="line-clamp-2">
                                 <InlineMarkdown text={run.goal} />
@@ -324,42 +330,47 @@ export function OrchestratorBody({
     // populate subagentsByIdAtom[lead] for DispatchedAgents (as PhaseRail does for pipeline)
     useSubagentTracking(lead ? [lead] : []);
     return (
-        <div className="flex min-h-0 flex-1 flex-col px-6 pb-3 pt-5">
-            <div className={CHANNEL_COL + " flex min-h-0 flex-1 flex-col"}>
-            <RunHeader
-                run={run}
-                model={model}
-                agents={agents}
-                channel={channel}
-                steering={steering}
-                steerDraft={steerDraft}
-                setSteerDraft={setSteerDraft}
-                onSteerToggle={onSteerToggle}
-                onSteerClose={onSteerClose}
-                hideSteer={hideSteer}
-            />
-            <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
-            {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
-            {thread.showAsk && thread.askAgent && thread.askKind ? (
-                <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
-            ) : null}
-            {thread.showWorkers && lead ? (
-                <div className="mt-3 flex min-h-0 flex-1 flex-col">
-                    <RunWorkerCard model={model} agent={lead} now={now} fill />
-                    <DispatchedAgents model={model} leadId={lead.id} />
-                </div>
-            ) : null}
-            {thread.showStarting ? <StartingCard /> : null}
-            {thread.showBlocked ? <BlockedCard model={model} channelId={channel.oid} run={run} worker={lead} agents={agents} /> : null}
-            {thread.showShip ? <ShipMarker /> : null}
-            {!isTerminal(run.status) ? (
-                <CancelRunButton
-                    channelId={channel.oid}
+        // the lead's transcript scrolls inside RunWorkerCard, so this column never carries a scrollbar of
+        // its own — it reserves the same 10px the scrolling bodies lose to theirs, or its measure centres
+        // 5px right of every other band on the Stage.
+        <div className={cn(STAGE_BAND_INSET, "flex min-h-0 flex-1 flex-col")}>
+            <div className={cn(STAGE_GUTTER, "flex min-h-0 flex-1 flex-col pb-3 pt-5")}>
+                <RunHeader
                     run={run}
+                    model={model}
                     agents={agents}
-                    className="mt-4 flex-none self-start rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                    channel={channel}
+                    steering={steering}
+                    steerDraft={steerDraft}
+                    setSteerDraft={setSteerDraft}
+                    onSteerToggle={onSteerToggle}
+                    onSteerClose={onSteerClose}
+                    hideSteer={hideSteer}
                 />
-            ) : null}
+                <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
+                {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
+                {thread.showAsk && thread.askAgent && thread.askKind ? (
+                    <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
+                ) : null}
+                {thread.showWorkers && lead ? (
+                    <div className="mt-3 flex min-h-0 flex-1 flex-col">
+                        <RunWorkerCard model={model} agent={lead} now={now} fill />
+                        <DispatchedAgents model={model} leadId={lead.id} />
+                    </div>
+                ) : null}
+                {thread.showStarting ? <StartingCard /> : null}
+                {thread.showBlocked ? (
+                    <BlockedCard model={model} channelId={channel.oid} run={run} worker={lead} agents={agents} />
+                ) : null}
+                {thread.showShip ? <ShipMarker /> : null}
+                {!isTerminal(run.status) ? (
+                    <CancelRunButton
+                        channelId={channel.oid}
+                        run={run}
+                        agents={agents}
+                        className="mt-4 flex-none self-start rounded border border-edge-mid px-3 py-1.5 text-[11.5px] font-semibold text-muted hover:border-error hover:text-error"
+                    />
+                ) : null}
             </div>
         </div>
     );
@@ -545,8 +556,8 @@ export function RunBody({ model, channel, agents, run: runProp }: {
     }
     return (
         <div className="relative flex min-h-0 flex-1 flex-col">
-            <div ref={stick.scrollRef} onScroll={stick.onScroll} className="sc min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-5">
-                <div className={CHANNEL_COL}>
+            <div ref={stick.scrollRef} onScroll={stick.onScroll} className={cn(STAGE_SCROLLER, "sc min-h-0 flex-1")}>
+                <div className={cn(STAGE_GUTTER, "pb-3 pt-5")}>
                     <RunHeader
                         run={run}
                         model={model}

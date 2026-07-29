@@ -1455,10 +1455,20 @@ const resetRail = async (h) => {
     return {};
 };
 
+// The width no longer has a vote on the rail (jarvissurface.tsx), so a scenario about the Stage's floor has
+// to pin the rail itself: with a 300px rail the user opened, the floor is legitimately unreachable below a
+// ~1074px window and that is the design's answer, not a regression.
+const setRail = (open) => async (h) => {
+    await h.ev(`localStorage.setItem('jarvis.stagerail.open', ${JSON.stringify(String(open))})`);
+    await h.ev("location.reload()");
+    await h.ev("new Promise((r) => setTimeout(r, 2500))");
+    return {};
+};
+
 const jarvisCollapseOrder = {
     name: "jarvis-collapse-order",
     surface: "jarvis",
-    arrange: resetRail,
+    arrange: setRail(false),
     async assert(h) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
@@ -1483,44 +1493,74 @@ const jarvisCollapseOrder = {
                 };
             })()`);
 
-        const at = {};
-        for (const width of [1920, 1440, 1100, 900, 720]) {
+        // 50px steps from 900 to 1600 rather than five spot widths. The dip this scenario missed lived
+        // between 1000 and 1050: the staircase gave the Stage 822px at a 1000px window and 656px at 1050,
+        // and the old sample grid (1920/1440/1100/900/720) straddled it. jarvislayout.test.ts owns the 1px
+        // proof; this owns "the live layout agrees".
+        const sweep = [];
+        for (let width = 900; width <= 1600; width += 50) {
             await h.cdp("Emulation.setDeviceMetricsOverride", {
                 width,
                 height: 900,
                 deviceScaleFactor: 1,
                 mobile: false,
             });
-            await settle(500);
-            at[width] = await probe();
+            await settle(320);
+            sweep.push({ width, ...(await probe()) });
         }
-        await h.shot("cdp-shots/jarvis-collapse-720.png");
+        const at = Object.fromEntries(sweep.map((s) => [s.width, s]));
+        await h.shot("cdp-shots/jarvis-collapse-1600.png");
         await settle(300);
 
-        // 1. rule 5, as a width. 720 is narrower than the whole order can rescue even with the nav rail
-        //    collapsed and the context rail overlaid (608px there), so the floor is asserted over the widths
-        //    where the order can still hold it. jarvis-narrow owns the two new steps' own widths.
-        const held = [1920, 1440, 1100, 900].filter((wd) => at[wd].stage >= STAGE_MIN_PX);
+        // 1. rule 5, as a width, with the rail closed — the widths where the column can fund the floor.
+        const floored = [1600, 1400, 1200, 1000, 900];
+        const held = floored.filter((wd) => at[wd].stage >= STAGE_MIN_PX);
         rec(
-            `1. the Stage holds >= ${STAGE_MIN_PX}px at 1920/1440/1100/900`,
-            held.length === 4,
-            [1920, 1440, 1100, 900].map((wd) => `${wd}:${at[wd].stage}`).join(" ")
+            `1. the Stage holds >= ${STAGE_MIN_PX}px at ${floored.join("/")}`,
+            held.length === floored.length,
+            floored.map((wd) => `${wd}:${at[wd].stage}`).join(" ")
         );
 
-        // 2. the order: the context rail yields before the Subjects column ever does.
-        const inverted = [1920, 1440, 1100, 900, 720].filter((wd) => at[wd].subjects <= 56 && at[wd].rail > 44);
-        rec("2. Subjects never collapses while the rail is still wide", inverted.length === 0, inverted.join(","));
-
-        // 3. the rail does collapse, and Subjects does too — an order nothing ever triggers is not an order.
+        // 2. THE regression. Widening the window must never narrow the thread. The old order was monotone in
+        //    its collapse *flags* and sawtoothed in the width that matters.
+        const shrank = sweep.filter((s, i) => i > 0 && s.stage < sweep[i - 1].stage);
         rec(
-            "3. both regions actually yield on the way down",
-            at[1920].rail > 44 && at[1100].rail <= 44 && at[1920].subjects > 56 && at[900].subjects <= 56,
-            `rail 1920:${at[1920].rail} 1100:${at[1100].rail} · subjects 1920:${at[1920].subjects} 900:${at[900].subjects}`
+            "2. the Stage never shrinks as the window widens",
+            shrank.length === 0,
+            shrank.length > 0
+                ? shrank.map((s) => `${s.width}:${s.stage}`).join(" ")
+                : `${sweep[0].stage}..${sweep[sweep.length - 1].stage}`
+        );
+
+        // 3. the column funds the floor continuously — it must actually take intermediate widths, not just
+        //    snap between 272 and 56. A continuous lever nothing ever lands mid-range is a staircase.
+        const between = sweep.filter((s) => s.subjects > 56 && s.subjects < 272);
+        rec(
+            "3. the Subjects column takes intermediate widths",
+            between.length > 0,
+            between.map((s) => `${s.width}:${s.subjects}`).join(" ") || "always 272 or 56"
         );
 
         // 4. nothing escapes horizontally at any width — the band's chips used to draw over the rail.
-        const overflowing = [1920, 1440, 1100, 900, 720].filter((wd) => at[wd].docOverflow > 0);
-        rec("4. no horizontal document overflow at any width", overflowing.length === 0, overflowing.join(","));
+        const overflowing = sweep.filter((s) => s.docOverflow > 0);
+        rec("4. no horizontal document overflow at any width", overflowing.length === 0, overflowing.map((s) => s.width).join(","));
+
+        // 5. the width does not close a rail the user opened. This used to write the open atom shut on every
+        //    transition into narrow — and since the first measurement counts as one and the surface unmounts
+        //    on each nav switch, the rail was a 44px strip at every width until clicked open again.
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
+        await settle(320);
+        await h.ev(`document.querySelector('aside[aria-label="Stage context"] button')?.click()`);
+        await settle(450);
+        const railOpened = (await probe()).rail;
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false });
+        await settle(450);
+        const railAfterNarrow = (await probe()).rail;
+        rec(
+            "5. narrowing the window leaves an opened rail open",
+            railOpened > 44 && railAfterNarrow === railOpened,
+            `opened=${railOpened} after-narrow=${railAfterNarrow}`
+        );
         return steps;
     },
     async teardown(h) {
@@ -1537,7 +1577,9 @@ const jarvisCollapseOrder = {
 const jarvisNarrow = {
     name: "jarvis-narrow",
     surface: "jarvis",
-    arrange: resetRail,
+    // closed: the overlay substitutes for the 44px strip. A rail the user opened is never overlaid
+    // (jarvislayout.layoutFor), so with it open this scenario's subject does not exist.
+    arrange: setRail(false),
     async assert(h) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
@@ -1624,6 +1666,130 @@ const jarvisNarrow = {
     },
 };
 
+// One gutter, one header band (jarvis/stagemeasure.ts). The surface was assembled by merging three
+// destinations, and each region kept the padding, header height and divider tone it had as its own screen:
+// measured at 1500px, the Stage's stacked bands started their content at 366 (header, px-4), 382 (thread,
+// max-w-[900px] px-8) and 370 (composer, px-5), the record subject added 432 (max-w-[720px] centred) over a
+// full-bleed 18, and the three columns' header rules landed at y=44, 81 and 96 in two tones. Nothing here is
+// derivable from a unit test — it is where the boxes actually are.
+//
+// The first version of this asserted one left edge across the elements carrying the shared measure's class,
+// which is circular: a sealed run's header band did not carry it, kept its own px-6, and put the largest
+// text on the Stage 20px left of everything else while this scenario stayed green. So the probe below finds
+// bands by geometry, and the loop walks every subject kind rather than only the fixture conversation.
+const jarvisMeasure = {
+    name: "jarvis-measure",
+    surface: "jarvis",
+    arrange: setRail(true),
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.goto("jarvis");
+        await settle(400);
+
+        // A band is anything as wide as the Stage (allowing for a scrollbar). Its content-left is where its
+        // own padding starts; 0 means a bare rule/background wrapper that pads nothing, and every other
+        // value has to be the one gutter. `reach` is the widest content box any gutter band gets — the check
+        // that the Stage is actually being used, which a centred column fails by design.
+        const probe = () =>
+            h.ev(`(() => {
+                const stage = document.querySelector('[data-jarvis-region="stage"]');
+                const r0 = stage.getBoundingClientRect();
+                const surfaceTop = document.querySelector('[data-jarvis-region="surface"]')?.getBoundingClientRect().top ?? 0;
+                const lefts = [];
+                let reach = 0;
+                for (const el of stage.querySelectorAll('div,button,section,header,aside')) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width < r0.width - 12 || r.height < 10) continue;
+                    const cs = getComputedStyle(el);
+                    const padL = parseFloat(cs.paddingLeft) || 0;
+                    if (padL <= 0) continue;
+                    lefts.push(Math.round(r.left - r0.left + padL));
+                    reach = Math.max(reach, Math.round(r.width - padL - (parseFloat(cs.paddingRight) || 0)));
+                }
+                // each column's first horizontal rule, as a y relative to the surface
+                const ruleY = (sel) => {
+                    const col = document.querySelector(sel);
+                    if (col == null) return null;
+                    for (const el of [col, ...col.querySelectorAll('*')]) {
+                        const cs = getComputedStyle(el);
+                        if ((parseFloat(cs.borderBottomWidth) || 0) > 0) {
+                            const r = el.getBoundingClientRect();
+                            if (r.width > 40) return Math.round(r.bottom - surfaceTop);
+                        }
+                    }
+                    return null;
+                };
+                return JSON.stringify({
+                    stage: Math.round(r0.width),
+                    lefts: [...new Set(lefts)],
+                    reach,
+                    rules: {
+                        subjects: ruleY('[data-jarvis-region="subjects"]'),
+                        stage: ruleY('[data-jarvis-region="stage"]'),
+                        rail: ruleY('aside[aria-label="Stage context"]'),
+                    },
+                });
+            })()`);
+
+        // the conversation comes from the dev-only fixture bar; the channel and record rows come from
+        // whatever the dev DB holds, matched on the subject mark the column prefixes each row with.
+        const selectKind = (mark) =>
+            mark == null
+                ? h.ev(`(() => { const b = document.querySelector('[data-fixture="active"]'); if (b == null) return "none"; b.click(); return "ok"; })()`)
+                : h.ev(`(() => {
+                      const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] button')];
+                      const row = rows.find((b) => (b.textContent || "").trim().startsWith("${mark}"));
+                      if (row == null) return "none";
+                      row.click();
+                      return "ok";
+                  })()`);
+
+        for (const width of [1500, 1920]) {
+            await h.cdp("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+            await settle(450);
+
+            const seen = [];
+            for (const [label, mark] of [
+                ["conversation", null],
+                ["channel", "#"],
+                ["record", "▤"],
+            ]) {
+                if ((await selectKind(mark)) !== "ok") continue;
+                await settle(800);
+                seen.push([label, JSON.parse(await probe())]);
+            }
+            const kinds = seen.map(([k]) => k).join("+") || "none";
+            const lefts = [...new Set(seen.flatMap(([, m]) => m.lefts))];
+
+            rec(`at least two subject kinds reachable at ${width}px`, seen.length >= 2, kinds);
+            rec(
+                `every band on the Stage shares one left edge at ${width}px`,
+                lefts.length === 1,
+                `kinds=${kinds} lefts=${lefts.join(",")}`
+            );
+            rec(
+                `content reaches the Stage's width at ${width}px — no dead gutter`,
+                seen.length > 0 && seen.every(([, m]) => m.reach >= m.stage - 80),
+                seen.map(([k, m]) => `${k} ${m.reach}/${m.stage}`).join("  ")
+            );
+            const ys = Object.values(seen[seen.length - 1]?.[1].rules ?? {});
+            rec(
+                `the three columns' header rules share one y at ${width}px`,
+                ys.length === 3 && ys.every((y) => y != null) && new Set(ys).size === 1,
+                JSON.stringify(seen[seen.length - 1]?.[1].rules ?? {})
+            );
+        }
+
+        await h.shot("cdp-shots/jarvis-measure.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -1640,4 +1806,5 @@ export const SCENARIOS = [
     jarvisSubjectState,
     jarvisCollapseOrder,
     jarvisNarrow,
+    jarvisMeasure,
 ];

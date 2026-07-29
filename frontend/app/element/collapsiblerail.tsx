@@ -40,6 +40,7 @@ export function CollapsibleRail({
     sections,
     footer,
     ariaLabel,
+    title,
     extraIcons,
     hideWhenCollapsed,
     forceCollapsed,
@@ -48,6 +49,10 @@ export function CollapsibleRail({
     sections: RailSection[];
     footer?: ReactNode;
     ariaLabel?: string;
+    // when given, the collapse control sits in a titled header band of the same height and rule as the
+    // calling surface's other column headers, instead of a bare chevron row of its own height. Opt-in per
+    // caller: the surfaces that have not had their header bands measured keep today's look.
+    title?: string;
     extraIcons?: RailExtraIcon[];
     // when true, the rail shows no collapsed strip (it animates to zero width): its glyph lives in a
     // sibling rail's extraIcons, so this drawer only takes space while open. Preserves the slide.
@@ -75,7 +80,19 @@ export function CollapsibleRail({
             >
                 {forceCollapsed ? null : open ? (
                     <>
-                        <div className="flex shrink-0 items-center justify-end px-2 pt-2">
+                        <div
+                            className={cn(
+                                "flex shrink-0 items-center",
+                                title != null
+                                    ? "h-11 justify-between border-b border-border bg-surface px-[18px]"
+                                    : "justify-end px-2 pt-2"
+                            )}
+                        >
+                            {title != null ? (
+                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
+                                    {title}
+                                </span>
+                            ) : null}
                             <button
                                 type="button"
                                 onClick={() => setOpen(false)}
