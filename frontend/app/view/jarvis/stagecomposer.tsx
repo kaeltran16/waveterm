@@ -322,8 +322,10 @@ export function StageComposer({
         launchInto(channelId, cmd.body, cmd.mode === "quick" ? "quick" : undefined);
     };
 
+    // data-jarvis-composer is the handle `i` focuses and Escape leaves (buildJarvisBindings). One marker on
+    // the wrapper serves all three faces, so neither the shared composers nor this file grow a per-face hook.
     return (
-        <div className="flex-none border-t border-border bg-background px-5 pb-4 pt-2.5">
+        <div data-jarvis-composer className="flex-none border-t border-border bg-background px-5 pb-4 pt-2.5">
             <TalkingTo label={target.label} audience={target.audience} />
             {picking ? (
                 <ChannelPicker channels={channels} onPick={dispatchFromPicker} onCancel={() => setPicking(false)} />

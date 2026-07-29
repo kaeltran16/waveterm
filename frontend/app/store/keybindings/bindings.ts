@@ -19,7 +19,10 @@ import {
     undoLast,
 } from "@/app/view/agents/reviewstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
-import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { activeRunIdAtom, activeSubjectAtom, setActiveRunId, startJarvisThread } from "@/app/view/jarvis/jarvissubjectstore";
 import { listNavAtom } from "./listnav";
 import type { Binding, KeyContext } from "./types";
 
@@ -320,6 +323,144 @@ export function buildChannelsAskBindings(
     return [
         ...digits,
         { id: "channels:submit", keys: "Enter", group: "Jarvis", label: "Submit answer", when: ready, run: submit },
+    ];
+}
+
+// Jarvis surface keys — the surface's own controls, reachable without the mouse. Two shapes:
+//   * state the registry owns outright (the context rail, the graph peek, the run switcher)
+//   * a click on a control the surface already draws (+ Channel, the record band's expand)
+// The second shape is deliberate. Whether a band is *expandable* is the band's own derivation from the
+// run's attribution (recordbandview) and re-deriving it here would be a second source of truth that
+// drifts; the button only exists when the band can open, so clicking it is exactly the mouse's contract.
+// Every DOM-reaching run() returns false when its control is absent, so the key passes through rather
+// than pretending to have acted.
+export function buildJarvisBindings(): Binding[] {
+    const on = (ctx: KeyContext) => ctx.surface === "jarvis" && !ctx.editable && !ctx.modalOpen;
+    // the peek is an overlay over the whole Stage: acting behind it would change a surface the user cannot
+    // see. Only its own toggle stays live (the peek also closes on Escape, which it owns while open).
+    const onStage = (ctx: KeyContext) => on(ctx) && !globalStore.get(graphPeekOpenAtom);
+
+    const clickThrough = (selector: string): boolean | void => {
+        const el = document.querySelector<HTMLElement>(selector);
+        if (el == null) {
+            return false;
+        }
+        el.click();
+    };
+
+    // the run switcher, keyboard-side: the same list the Subjects column expands under the selected
+    // channel, in the same order, moved with the same clamped cursor the lists use.
+    const stepRun = (delta: number): boolean | void => {
+        const subject = globalStore.get(activeSubjectAtom);
+        if (subject?.kind !== "channel") {
+            return false; // only a channel has runs to switch between
+        }
+        const runs = globalStore.get(activeChannelRunsAtom);
+        if (runs.length < 2) {
+            return false;
+        }
+        const cur = resolveActiveRunId(runs, globalStore.get(activeRunIdAtom)[subject.id]);
+        const next = moveCursor(
+            runs.map((r) => r.id),
+            cur,
+            delta
+        );
+        if (next == null || next === cur) {
+            return false;
+        }
+        setActiveRunId(subject.id, next);
+    };
+
+    return [
+        {
+            id: "jarvis:toggle-rail",
+            keys: "d",
+            group: "Jarvis",
+            label: "Toggle the context rail",
+            when: onStage,
+            run: () => globalStore.set(stageRailOpenAtom, (v) => !v),
+        },
+        {
+            id: "jarvis:graph-peek",
+            keys: "Shift:g",
+            group: "Jarvis",
+            label: "Graph peek (Esc closes)",
+            when: on,
+            run: () => globalStore.set(graphPeekOpenAtom, (v) => !v),
+        },
+        {
+            id: "jarvis:new-thread",
+            keys: "n",
+            group: "Jarvis",
+            label: "New thread",
+            when: onStage,
+            run: () => void startJarvisThread(),
+        },
+        {
+            id: "jarvis:new-channel",
+            keys: "c",
+            group: "Jarvis",
+            label: "New channel",
+            when: onStage,
+            run: () => clickThrough("[data-jarvis-new-channel]"),
+        },
+        {
+            id: "jarvis:record-band",
+            keys: "e",
+            group: "Jarvis",
+            label: "Expand / collapse the record band",
+            when: onStage,
+            run: () => clickThrough("[data-jarvis-band-toggle]"),
+        },
+        {
+            id: "jarvis:next-run",
+            keys: "Shift:j",
+            group: "Jarvis",
+            label: "Next run in this channel",
+            when: onStage,
+            run: () => stepRun(1),
+        },
+        {
+            id: "jarvis:prev-run",
+            keys: "Shift:k",
+            group: "Jarvis",
+            label: "Previous run in this channel",
+            when: onStage,
+            run: () => stepRun(-1),
+        },
+        {
+            id: "jarvis:focus-composer",
+            keys: "i",
+            group: "Jarvis",
+            label: "Focus the composer",
+            when: onStage,
+            run: () => {
+                const el = document.querySelector<HTMLElement>(
+                    "[data-jarvis-composer] input, [data-jarvis-composer] textarea"
+                );
+                if (el == null) {
+                    return false;
+                }
+                el.focus();
+            },
+        },
+        {
+            id: "jarvis:blur-composer",
+            keys: "Escape",
+            group: "Jarvis",
+            label: "Leave the composer",
+            // the counterpart to `i`. Guarded on editable only, so `when` stays pure; run() checks *which*
+            // field has focus, because the rename box and the subject filter own their own Escape — and
+            // blurring the rename box would commit the rename instead of cancelling it.
+            when: (ctx) => ctx.surface === "jarvis" && ctx.editable && !ctx.modalOpen,
+            run: () => {
+                const el = document.activeElement as HTMLElement | null;
+                if (el?.closest?.("[data-jarvis-composer]") == null) {
+                    return false;
+                }
+                el.blur();
+            },
+        },
     ];
 }
 

@@ -8,10 +8,12 @@ import {
     buildChannelsAskBindings,
     buildCockpitBindings,
     buildGlobalBindings,
+    buildJarvisBindings,
     buildListNavBindings,
     buildReviewBindings,
 } from "./bindings";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
 import type { Binding, KeyContext, SurfaceKey } from "./types";
@@ -130,6 +132,50 @@ describe("keybinding conflict invariant", () => {
         expect(() =>
             assertNoConflicts([...buildGlobalBindings(model), ...buildChannelsAskBindings(model, askRef)])
         ).not.toThrow();
+    });
+
+    it("global + list-nav + jarvis-surface bindings do not conflict (the Subjects cursor published)", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
+        globalStore.set(graphPeekOpenAtom, false);
+        expect(() =>
+            assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildJarvisBindings()])
+        ).not.toThrow();
+        globalStore.set(listNavAtom, null);
+    });
+
+    it("global + ask + jarvis-surface bindings do not conflict (a worker asking, no list cursor)", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        globalStore.set(graphPeekOpenAtom, false);
+        const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
+        expect(() =>
+            assertNoConflicts([
+                ...buildGlobalBindings(model),
+                ...buildChannelsAskBindings(model, askRef),
+                ...buildJarvisBindings(),
+            ])
+        ).not.toThrow();
+    });
+
+    // KNOWN DEFECT, pinned rather than hidden: with the Subjects cursor published *and* a worker asking —
+    // the ordinary state of the Jarvis surface — list:activate and channels:submit both claim Enter.
+    // matchBinding returns the first match only and the dispatcher does not fall through on `run() === false`
+    // (dispatcher.ts runBinding), so the ask's documented Enter never reaches submitAnswer. Predates the
+    // Jarvis keys added here; fixing it means either dispatcher fall-through (a global semantic change) or a
+    // precedence rule between the two. When it is fixed, this expectation flips to .not.toThrow.
+    it("documents the Enter overlap between the list cursor and an ask (pre-existing)", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
+        const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
+        expect(() =>
+            assertNoConflicts([
+                ...buildGlobalBindings(model),
+                ...buildListNavBindings(),
+                ...buildChannelsAskBindings(model, askRef),
+            ])
+        ).toThrow(/key conflict "Enter" between "list:activate" and "channels:submit"/);
+        globalStore.set(listNavAtom, null);
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {

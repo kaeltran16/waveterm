@@ -35,6 +35,7 @@ import {
     persistedSubjectAtom,
     selectSubject,
     setActiveRunId,
+    startJarvisThread,
     subjectFilterAtom,
 } from "./jarvissubjectstore";
 import {
@@ -43,7 +44,6 @@ import {
     deleteJarvisConversation,
     loadJarvisConversations,
     persistedSummariesAtom,
-    startConversation,
 } from "./jarvisstore";
 import { createCommitScheduler, type CommitScheduler } from "./subjectcursor";
 import { restoreDecision } from "./subjectrestore";
@@ -102,7 +102,7 @@ function CollapsedSubjects({
                             aria-label={s.label}
                             onClick={() => selectSubject({ kind: s.kind, id: s.id })}
                             className={cn(
-                                "relative flex h-8 w-8 flex-none cursor-pointer items-center justify-center rounded-[8px] font-mono text-[12px] hover:bg-surface-hover",
+                                "relative flex h-8 w-8 flex-none cursor-pointer items-center justify-center rounded-[8px] font-mono text-[12px] transition-colors duration-[140ms] hover:bg-surface-hover",
                                 isActive(s) ? "bg-accentbg text-accent-soft" : "text-muted"
                             )}
                         >
@@ -235,11 +235,6 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
     // the same resolution the Stage does, so the highlighted row is the run the Stage is showing
     const activeRunId = active?.kind === "channel" ? resolveActiveRunId(runs, runIds[active.id]) : undefined;
 
-    const newThread = () => {
-        const id = startConversation({ mode: "all", chips: [], attached: [] });
-        selectSubject({ kind: "conversation", id });
-    };
-
     const pickProject = (name: string, path: string) => {
         setPicking(false);
         setPending(null);
@@ -363,17 +358,20 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                     />
                 </div>
                 <div className="flex gap-1.5">
+                    {/* data-jarvis-new-channel: the `c` key presses this rather than owning a second copy of
+                        the picker's open state (buildJarvisBindings). */}
                     <button
                         type="button"
+                        data-jarvis-new-channel
                         onClick={() => setPicking((p) => !p)}
-                        className="flex-1 cursor-pointer rounded-[8px] border border-accent/30 bg-accentbg px-2 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/20"
+                        className="flex-1 cursor-pointer rounded-[8px] border border-accent/30 bg-accentbg px-2 py-1.5 text-[11.5px] font-semibold text-accent-soft transition-colors duration-[140ms] hover:bg-accent/20"
                     >
                         + Channel
                     </button>
                     <button
                         type="button"
-                        onClick={newThread}
-                        className="flex-1 cursor-pointer rounded-[8px] border border-border bg-surface px-2 py-1.5 text-[11.5px] font-semibold text-secondary hover:text-primary"
+                        onClick={startJarvisThread}
+                        className="flex-1 cursor-pointer rounded-[8px] border border-border bg-surface px-2 py-1.5 text-[11.5px] font-semibold text-secondary transition-colors duration-[140ms] hover:text-primary"
                     >
                         + Thread
                     </button>
@@ -525,7 +523,7 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                                             }
                                         }}
                                         className={cn(
-                                            "flex w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-[7px] text-left hover:bg-surface-hover",
+                                            "flex w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
                                             selected && "bg-accentbg"
                                         )}
                                     >
@@ -575,7 +573,7 @@ export function SubjectsColumn({ model, collapsed }: { model: AgentsViewModel; c
                                                             setActiveRunId(s.id, r.id);
                                                         }}
                                                         className={cn(
-                                                            "flex cursor-pointer items-center gap-[7px] rounded-[7px] px-2 py-[5px] text-left hover:bg-surface-hover",
+                                                            "flex cursor-pointer items-center gap-[7px] rounded-[7px] px-2 py-[5px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
                                                             r.id === activeRunId && "bg-surface-selected"
                                                         )}
                                                     >

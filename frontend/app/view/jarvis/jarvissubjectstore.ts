@@ -97,6 +97,14 @@ export function selectSubject(subject: ActiveSubject): void {
     selectConversation(subject.id);
 }
 
+// "an empty thread, on the Stage, now" — the Subjects column's + Thread button and the keyboard's `n` are
+// the same action, so they share one definition rather than each spelling out the empty scope.
+export function startJarvisThread(): string {
+    const id = startConversation({ mode: "all", chips: [], attached: [] });
+    selectSubject({ kind: "conversation", id });
+    return id;
+}
+
 export function loadRecordScope(dossierId: string): void {
     if (globalStore.get(recordScopeAtom)[dossierId] != null) {
         return;

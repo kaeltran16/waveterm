@@ -26,6 +26,7 @@ Entry point: `JarvisSurface` (`jarvissurface.tsx`), nav rail item **Jarvis** (`B
 - [11. Grounding, citations, freshness](#11-grounding-citations-freshness)
 - [12. Entry points from other surfaces](#12-entry-points-from-other-surfaces)
 - [13. Keyboard](#13-keyboard)
+- [13a. Motion](#13a-motion)
 - [14. State and persistence](#14-state-and-persistence)
 - [15. Dev fixtures](#15-dev-fixtures)
 - [Known gaps](#known-gaps)
@@ -458,6 +459,8 @@ on this Stage rather than a separate tab. The command palette also routes result
 
 ## 13. Keyboard
 
+Getting here and moving around (global registry, `buildGlobalBindings` / `buildListNavBindings`):
+
 | Key | Action |
 |---|---|
 | `g` `c` | go to Jarvis |
@@ -479,6 +482,51 @@ the row you clicked.
 The controller deliberately does **not** register `activate`: `bindings.ts` only lets `Enter` pass through
 while that is unset, so claiming it would swallow Enter across the whole surface — the composer's submit
 included — to save the 150ms the pending commit was going to take anyway.
+
+The surface's own controls (`buildJarvisBindings`, registered by `stage.tsx` so they exist before a subject
+is selected). All are suppressed while the graph peek is open — acting behind an overlay changes a surface
+the user cannot see — except the peek's own toggle:
+
+| Key | Action |
+|---|---|
+| `d` | toggle the context rail (same letter the Agent surface uses for its rail) |
+| `Shift:g` | toggle the graph peek — distinct from the `g` leader, which needs shift absent |
+| `c` / `n` | new channel / new thread |
+| `e` | expand or collapse the record band |
+| `Shift:j` / `Shift:k` | next / previous run in the selected channel (the run switcher, keyboard-side) |
+| `i` | focus the composer; `Esc` from inside it returns to the keys |
+
+Two of these act by *pressing the control the surface already draws* (`[data-jarvis-new-channel]`,
+`[data-jarvis-band-toggle]`) rather than holding their own copy of its state. Whether a band is expandable
+is the band's derivation from the run's attribution; the button exists only when it can open, so clicking it
+is exactly the mouse's contract and there is no second source of truth to drift. Each returns `false` when
+its control is absent, so the key passes through instead of pretending to have acted.
+
+**Known gap — the ask's `Enter`.** Leaving `activate` unset (above) buys pass-through for handlers that live
+on the DOM, which is why the composer's submit still works. It does *not* help a handler that lives only in
+the registry: with the Subjects cursor published and a worker asking, `list:activate` and `channels:submit`
+both claim `Enter`, `matchBinding` returns only the first match, and the dispatcher does not fall through on
+`run() === false` — so `channels:submit` is never reached and the ask card's `Enter` does nothing. Its `1`–`9`
+badges still work, and the card's own button still submits. Pinned by a test in `store.test.ts` so it cannot
+rot silently. Fixing it means either dispatcher fall-through (a global semantic change that also alters
+`review:apply`) or an explicit precedence rule between the two — neither belongs in a keyboard-coverage
+change.
+
+## 13a. Motion
+
+The surface follows the cockpit motion system (`motiontokens.ts`) — no local durations or easings:
+
+| Moment | Treatment |
+|---|---|
+| Subjects rows, run rows, the band's own row, `+ Channel` / `+ Thread` | `transition-colors duration-[140ms]` (= `MOTION.durMicro`), matching the Agent tree and Files list |
+| Context rail and ⚙ drawer width | already animated by `CollapsibleRail` (`motion.aside`, `durMacro` + `easeFluid`, `reducedMotion="user"`) — including inside the narrow-window overlay wrapper |
+| Record band expand | `composerReveal` (height + fade) under `AnimatePresence initial={false}`, so a subject left expanded is simply open on return rather than replaying the reveal |
+| Graph peek | `modalBackdrop` fade in *and out*, via `AnimatePresence` in `stage.tsx` — dropping it from the tree made the whole Stage snap back, which read as navigation rather than a peek closing |
+| Graph canvas | its own eased node/link alpha + settle (`jarvisgraph.tsx`), `prefers-reduced-motion` honoured |
+
+Still static, deliberately: the Stage's swap between subjects (a fade there delays the content the user just
+asked for) and subject-list entrance (`computeEntrances` exists, but a rail whose rows arrive from a backend
+load would cascade on first paint).
 
 ## 14. State and persistence
 

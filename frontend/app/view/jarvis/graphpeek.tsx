@@ -5,9 +5,11 @@
 // by opening one — every action here closes the overlay onto something. It layers over the thread as a
 // sibling, never wrapping it, so peeking cannot remount live worker output.
 
+import { modalBackdrop } from "@/app/element/motiontokens";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { PeekFocus } from "./graphfocus";
 import type { SourceType } from "./jarviscontract";
@@ -150,7 +152,13 @@ export function GraphPeek({
     };
 
     return (
-        <div className="absolute inset-0 z-20 flex flex-col bg-background/95 backdrop-blur-[3px]">
+        <motion.div
+            variants={modalBackdrop}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="absolute inset-0 z-20 flex flex-col bg-background/95 backdrop-blur-[3px]"
+        >
             <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border bg-surface px-4">
                 <span className="font-mono text-[13px] font-semibold text-accent-soft">◇</span>
                 <span className="text-[13px] font-bold text-primary">Graph peek</span>
@@ -314,6 +322,6 @@ export function GraphPeek({
                     </p>
                 </div>
             </div>
-        </div>
+        </motion.div>
     );
 }

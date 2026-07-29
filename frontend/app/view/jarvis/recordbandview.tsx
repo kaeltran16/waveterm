@@ -5,9 +5,11 @@
 // legible at a glance — a weak inferred link must not read like a confirmed one — so the collapsed line
 // carries each edge's state, confidence and line style.
 
+import { composerReveal } from "@/app/element/motiontokens";
 import type { AmbientTag } from "@/app/view/agents/ambient";
 import { cn } from "@/util/util";
 import { Lock } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { selectSubject } from "./jarvissubjectstore";
 import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
 import type { SubjectKind } from "./subjects";
@@ -140,33 +142,64 @@ export function RecordBand({
     return (
         <div className="flex-none border-b border-border bg-surface">
             {expandable ? (
-                <button type="button" onClick={onToggle} aria-expanded={open} className={rowClass}>
+                // data-jarvis-band-toggle: the `e` key presses this button rather than re-deriving whether the
+                // band can open — the button exists only when it can (buildJarvisBindings).
+                <button
+                    type="button"
+                    data-jarvis-band-toggle
+                    onClick={onToggle}
+                    aria-expanded={open}
+                    className={cn(rowClass, "transition-colors duration-[140ms] hover:bg-surface-hover")}
+                >
                     {row}
                 </button>
             ) : (
                 <div className={rowClass}>{row}</div>
             )}
-            {showPanel && detail != null ? (
-                <div className="max-h-[420px] overflow-y-auto border-t border-border bg-background">
-                    <TaskDetail detail={detail} showDecisions={band.case !== "subject"} />
-                </div>
-            ) : null}
-            {/* the others are one-line rows under the primary — expanding must never produce a tab strip */}
-            {expandable && open && band.case === "several" ? (
-                <div className="flex flex-col gap-px border-t border-border px-4 py-2">
-                    {band.others.map((o) => (
-                        <button
-                            key={o.taskId}
-                            type="button"
-                            onClick={() => selectSubject({ kind: "dossier", id: o.taskId })}
-                            className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1 py-1 text-left hover:bg-surface-hover"
-                        >
-                            <EdgeChip tag={o} />
-                            <span className="font-mono text-[10.5px] text-muted">open this record</span>
-                        </button>
-                    ))}
-                </div>
-            ) : null}
+            {/* the disclosure animates its own height: the band sits above the thread, so an instant 420px
+                panel shoved the thread down a screenful with nothing to follow. initial={false} so a subject
+                you left expanded is already open when you come back rather than replaying the reveal. */}
+            <AnimatePresence initial={false}>
+                {showPanel && detail != null ? (
+                    <motion.div
+                        key="panel"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="overflow-hidden"
+                    >
+                        <div className="max-h-[420px] overflow-y-auto border-t border-border bg-background">
+                            <TaskDetail detail={detail} showDecisions={band.case !== "subject"} />
+                        </div>
+                    </motion.div>
+                ) : null}
+                {/* the others are one-line rows under the primary — expanding must never produce a tab strip */}
+                {expandable && open && band.case === "several" ? (
+                    <motion.div
+                        key="others"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="overflow-hidden"
+                    >
+                        <div className="flex flex-col gap-px border-t border-border px-4 py-2">
+                            {band.others.map((o) => (
+                                <button
+                                    key={o.taskId}
+                                    type="button"
+                                    onClick={() => selectSubject({ kind: "dossier", id: o.taskId })}
+                                    className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                                >
+                                    <EdgeChip tag={o} />
+                                    <span className="font-mono text-[10.5px] text-muted">open this record</span>
+                                </button>
+                            ))}
+                        </div>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

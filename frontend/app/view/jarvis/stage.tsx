@@ -19,9 +19,10 @@ import {
 import { RunBody } from "@/app/view/agents/runbody";
 import { liveWorkers, resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
-import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
+import { buildChannelsAskBindings, buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { AnimatePresence } from "motion/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef } from "react";
 import { ConversationView } from "./conversationview";
@@ -140,6 +141,12 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const askBindings = useMemo(() => buildChannelsAskBindings(model, askAgentRef), [model]);
     useKeybindings(askBindings);
 
+    // the surface's own keys (rail, graph peek, run switcher, + Channel / + Thread, band, composer). Here
+    // rather than in JarvisSurface because the Stage is mounted for the whole surface either way, and these
+    // register above the early return so they work before a subject is selected.
+    const jarvisBindings = useMemo(() => buildJarvisBindings(), []);
+    useKeybindings(jarvisBindings);
+
     if (subject == null) {
         // the region marker is on both branches: the collapse order's floor is a claim about the Stage's
         // width, and a check that only holds once a subject is selected is not a check on the layout.
@@ -223,20 +230,25 @@ export function Stage({ model }: { model: AgentsViewModel }) {
             {/* last child, so the overlay layers above the whole Stage while containing none of it. The
                 Stage resolves what the peek opens on: it already holds the run, the attribution and the
                 thread's attachments, and the peek must not re-derive any of them. */}
-            {graphOpen ? (
-                <GraphPeek
-                    model={model}
-                    focus={peekFocus({
-                        subject,
-                        runORef: run != null ? "run:" + run.id : null,
-                        attachedORefs: conversation.scope.attached.map((a) => a.oref),
-                        mentionedDossierIds: mentionedDossierIds(conversation),
-                        tagsFor: (oref) => ambient.tagsFor({ oref }),
-                    })}
-                    onClose={() => setGraphOpen(false)}
-                    onOpenSubject={(next) => selectSubject(next)}
-                />
-            ) : null}
+            {/* AnimatePresence so the overlay fades out too — dropping it from the tree on close made the
+                whole Stage snap back into view, which reads as a navigation rather than a peek closing. */}
+            <AnimatePresence>
+                {graphOpen ? (
+                    <GraphPeek
+                        key="graph-peek"
+                        model={model}
+                        focus={peekFocus({
+                            subject,
+                            runORef: run != null ? "run:" + run.id : null,
+                            attachedORefs: conversation.scope.attached.map((a) => a.oref),
+                            mentionedDossierIds: mentionedDossierIds(conversation),
+                            tagsFor: (oref) => ambient.tagsFor({ oref }),
+                        })}
+                        onClose={() => setGraphOpen(false)}
+                        onOpenSubject={(next) => selectSubject(next)}
+                    />
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

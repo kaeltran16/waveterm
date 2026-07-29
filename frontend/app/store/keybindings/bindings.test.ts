@@ -7,9 +7,13 @@ import { atom } from "jotai";
 import { describe, expect, it } from "vitest";
 import { appliedAtom, decisionsAtom, reviewModelAtom, reviewSelectedAtom } from "@/app/view/agents/reviewstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import {
     buildAgentBindings,
     buildGlobalBindings,
+    buildJarvisBindings,
     buildListNavBindings,
     buildReviewBindings,
     closeTargetForDoubleCtrlC,
@@ -135,6 +139,100 @@ describe("list-nav bindings", () => {
         buildListNavBindings().find((b) => b.id === "list:next-j")!.run(chanCtx);
         expect(seen).toEqual(["a"]);
         globalStore.set(listNavAtom, null);
+    });
+});
+
+describe("jarvis surface bindings", () => {
+    const jarvisCtx: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
+    const byId = (id: string) => buildJarvisBindings().find((b) => b.id === id)!;
+
+    // the click-through bindings (+ Channel, the record band) and composer focus act on rendered DOM, so
+    // only their guards are asserted here — this suite runs in node, and the surface has no render harness
+    // (see docs: surface behaviour is checked over CDP, not jsdom).
+
+    it("toggles the context rail with d", () => {
+        globalStore.set(stageRailOpenAtom, true);
+        const d = byId("jarvis:toggle-rail");
+        expect(d.keys).toBe("d");
+        d.run(jarvisCtx);
+        expect(globalStore.get(stageRailOpenAtom)).toBe(false);
+        d.run(jarvisCtx);
+        expect(globalStore.get(stageRailOpenAtom)).toBe(true);
+    });
+
+    it("toggles the graph peek with Shift:g — distinct from the g leader, and live while the peek is open", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        const g = byId("jarvis:graph-peek");
+        expect(g.keys).toBe("Shift:g");
+        g.run(jarvisCtx);
+        expect(globalStore.get(graphPeekOpenAtom)).toBe(true);
+        expect(g.when!(jarvisCtx)).toBe(true); // its own toggle stays reachable behind the overlay
+        g.run(jarvisCtx);
+        expect(globalStore.get(graphPeekOpenAtom)).toBe(false);
+    });
+
+    it("suppresses the Stage keys while the graph peek owns the surface", () => {
+        globalStore.set(graphPeekOpenAtom, true);
+        for (const id of ["jarvis:toggle-rail", "jarvis:new-thread", "jarvis:record-band", "jarvis:next-run"]) {
+            expect(byId(id).when!(jarvisCtx)).toBe(false);
+        }
+        globalStore.set(graphPeekOpenAtom, false);
+        expect(byId("jarvis:toggle-rail").when!(jarvisCtx)).toBe(true);
+    });
+
+    it("guards every key on the surface, the typing state and modals", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        for (const b of buildJarvisBindings()) {
+            expect(b.when!({ ...jarvisCtx, surface: "cockpit" })).toBe(false);
+            expect(b.when!({ ...jarvisCtx, modalOpen: true })).toBe(false);
+        }
+        // ...except the composer's own Escape, which exists *because* focus is in a field
+        expect(byId("jarvis:blur-composer").when!({ ...jarvisCtx, editable: true })).toBe(true);
+        for (const b of buildJarvisBindings().filter((x) => x.id !== "jarvis:blur-composer")) {
+            expect(b.when!({ ...jarvisCtx, editable: true })).toBe(false);
+        }
+    });
+
+    it("opens a new thread with n and puts it on the Stage", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(activeSubjectAtom, null);
+        byId("jarvis:new-thread").run(jarvisCtx);
+        const subject = globalStore.get(activeSubjectAtom);
+        expect(subject?.kind).toBe("conversation");
+        expect(subject?.id).toBeTruthy();
+    });
+
+    it("steps the selected channel's runs with Shift:j / Shift:k, clamped at both ends", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(activeSubjectAtom, { kind: "channel", id: "ch1" });
+        globalStore.set(activeChannelRunsAtom, [
+            { id: "r1", status: "running" },
+            { id: "r2", status: "running" },
+        ] as any);
+        globalStore.set(activeRunIdAtom, { ch1: "r1" });
+        const next = byId("jarvis:next-run");
+        const prev = byId("jarvis:prev-run");
+        expect(next.keys).toBe("Shift:j");
+        expect(prev.keys).toBe("Shift:k");
+
+        next.run(jarvisCtx);
+        expect(globalStore.get(activeRunIdAtom)["ch1"]).toBe("r2");
+        next.run(jarvisCtx); // clamped at the end
+        expect(globalStore.get(activeRunIdAtom)["ch1"]).toBe("r2");
+        prev.run(jarvisCtx);
+        expect(globalStore.get(activeRunIdAtom)["ch1"]).toBe("r1");
+    });
+
+    it("passes the run keys through when the subject is not a channel, or has nothing to switch", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(activeSubjectAtom, { kind: "conversation", id: "c1" });
+        expect(byId("jarvis:next-run").run(jarvisCtx)).toBe(false);
+
+        globalStore.set(activeSubjectAtom, { kind: "channel", id: "ch1" });
+        globalStore.set(activeChannelRunsAtom, [{ id: "r1", status: "running" }] as any);
+        expect(byId("jarvis:next-run").run(jarvisCtx)).toBe(false); // a single run is not a switch
+        globalStore.set(activeChannelRunsAtom, []);
+        globalStore.set(activeSubjectAtom, null);
     });
 });
 
