@@ -344,7 +344,12 @@ export function summarizeActions(actions: AgentActionEntry[]): ActionsSummary {
     return { total: actions.length, byVerb, outcome };
 }
 
-/** Pure: a millisecond duration -> short age label ("just now" / "4m" / "2h"). */
+/**
+ * Pure: a millisecond duration -> short age label ("just now" / "4m" / "2h" / "8d").
+ *
+ * The days tier exists because this is also the age on a record row, and a dossier last touched a week ago
+ * read as "192h". Agents and sessions gain it too — an hour count past a day is no easier to read there.
+ */
 export function formatAge(ms?: number): string {
     if (ms == null || ms < 60_000) {
         return "just now";
@@ -353,7 +358,11 @@ export function formatAge(ms?: number): string {
     if (mins < 60) {
         return `${mins}m`;
     }
-    return `${Math.floor(mins / 60)}h`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) {
+        return `${hours}h`;
+    }
+    return `${Math.floor(hours / 24)}d`;
 }
 
 /** Pure: usage percentage -> threshold band for color (shared by the plan strip and context bars). */

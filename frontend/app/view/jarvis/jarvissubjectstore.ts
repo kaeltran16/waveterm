@@ -145,6 +145,18 @@ export function toggleRecordBand(subjectId: string): void {
     globalStore.set(recordBandOpenAtom, { ...prev, [subjectId]: !prev[subjectId] });
 }
 
+// Which Subjects groups the user has collapsed, keyed by group key. Holds only *explicit* choices — an
+// absent key falls back to subjects.ts's default, so "Records starts shut" needs no seeding here and a new
+// project group is open the first time it appears. A module atom for the same reason as subjectFilterAtom:
+// the column unmounts with the surface on every nav switch. Deliberately not persisted across launches —
+// the default is already the useful state, and one more storage key would need its own getOnInit dance.
+export const collapsedSubjectGroupsAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
+
+export function toggleSubjectGroup(groupKey: string, collapsed: boolean): void {
+    const prev = globalStore.get(collapsedSubjectGroupsAtom);
+    globalStore.set(collapsedSubjectGroupsAtom, { ...prev, [groupKey]: collapsed });
+}
+
 export function setActiveRunId(channelId: string, runId: string | undefined): void {
     const prev = globalStore.get(activeRunIdAtom);
     globalStore.set(activeRunIdAtom, { ...prev, [channelId]: runId });

@@ -521,12 +521,12 @@ const jarvisContextual = {
         // Asking about the same object twice must land in the same thread. It used to mint a new one per
         // click, which is what filled the Threads group with duplicate rows — four distinct questions
         // occupying twelve rows, each copy carrying none of the others' answers.
+        // counts subject rows, not buttons: a group's first button is its disclosure header now, which would
+        // make every count one too many.
         const countThreads = () =>
             h.ev(`(() => {
-                const group = [...document.querySelectorAll('div')].find(
-                    (d) => /^threads/i.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
-                );
-                return group ? group.querySelectorAll('button').length : -1;
+                const group = document.querySelector('[data-jarvis-group="threads"]');
+                return group ? group.querySelectorAll('[data-jarvis-subject-kind]').length : -1;
             })()`);
         const before = await countThreads();
         await h.goto("memory");
@@ -1286,15 +1286,20 @@ const jarvisSubjectState = {
 
         // 6. the peek opens *on* something. A record subject blooms and selects itself, so the detail
         // panel reads out a node instead of "Click a node to open it".
+        // Records defaults collapsed, so open it before looking for a row. Keyed off data-jarvis-group
+        // rather than a /^records/i test on the group's first child: that child is the disclosure header now,
+        // and its text reads "▸RECORDS17".
+        await h.ev(`(() => {
+            if (document.querySelector('[data-jarvis-subject-kind="dossier"]') == null) {
+                document.querySelector('[data-jarvis-group-toggle="dossiers"]')?.click();
+            }
+        })()`);
+        await settle(300);
         const record = await h.ev(`(() => {
-            const group = [...document.querySelectorAll('div')].find(
-                (d) => /^records/i.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
-            );
-            if (!group) return null;
-            const b = group.querySelector('button');
-            const label = (b.textContent || '').trim();
+            const b = document.querySelector('[data-jarvis-group="dossiers"] [data-jarvis-subject-kind="dossier"]');
+            if (!b) return null;
             b.click();
-            return label;
+            return (b.getAttribute('aria-label') || '').trim();
         })()`);
         await settle(1200); // selectSubject -> selectDossier + ResolveSpaceScope
         if (record == null) {
@@ -1350,12 +1355,12 @@ const jarvisSubjectState = {
         // 8. a thread nobody asked anything in is a false start: "+ Thread" creates the conversation up
         // front, so clicking it repeatedly used to leave a permanent "New conversation" row behind each
         // time. Nothing durable is lost by dropping them — the backend record is created by the first turn.
+        // counts subject rows, not buttons: a group's first button is its disclosure header now, which would
+        // make every count one too many.
         const countThreads = () =>
             h.ev(`(() => {
-                const group = [...document.querySelectorAll('div')].find(
-                    (d) => /^threads/i.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
-                );
-                return group ? group.querySelectorAll('button').length : -1;
+                const group = document.querySelector('[data-jarvis-group="threads"]');
+                return group ? group.querySelectorAll('[data-jarvis-subject-kind]').length : -1;
             })()`);
         const newThread = () =>
             h.ev(`(() => {
@@ -1382,15 +1387,16 @@ const jarvisSubjectState = {
         // validation - a stored id can name something since deleted, and each kind's list lands
         // asynchronously, so the restore must wait on its own list and then degrade silently.
         // A reload is the real boot path: the surface remounts with an empty activeSubjectAtom.
-        // a row is identified by its subject mark, not by colour alone: the column's header carries
-        // accent-tinted buttons too ("+ Channel"), and those would match a bg-accentbg test.
-        const SUBJECT_ROW = "/^[#\\u25a4~]/";
+        // a row is identified by data-jarvis-subject-kind, not by colour alone: the column's header carries
+        // accent-tinted buttons too ("+ Channel"), and those would match a bg-accentbg test. This was a test
+        // on the row's leading subject mark, which stopped identifying a record once record rows started
+        // drawing a status-toned bar in place of the glyph. The label comes off aria-label rather than
+        // textContent for the same reason — a record row's text also carries its status chip and age.
         const activeSubjectLabel = () =>
             h.ev(`(() => {
-                const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] button')]
-                    .filter((b) => ${SUBJECT_ROW}.test((b.textContent || '').trim()));
+                const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] [data-jarvis-subject-kind]')];
                 const on = rows.find((b) => /bg-accentbg/.test(b.className || ''));
-                return on ? (on.textContent || '').trim() : null;
+                return on ? (on.getAttribute('aria-label') || '').trim() : null;
             })()`);
         const reload = async () => {
             await h.ev("location.reload()");
@@ -1404,13 +1410,14 @@ const jarvisSubjectState = {
         await reload();
         // this scenario's own channel: a channel is the one kind whose list is a live subscription, so it is
         // the strictest of the three for the wait-on-my-own-list rule.
+        // aria-label, matching activeSubjectLabel above: both sides of the before/after comparison have to
+        // read the row's name the same way, and a mark-prefixed textContent would never equal a bare label.
         const picked = await h.ev(`(() => {
-            const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] button')];
-            const b = rows.find((x) => (x.textContent || '').trim().replace(/^[#\\u25a4~]/, '') === 'verify-subject');
+            const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] [data-jarvis-subject-kind]')];
+            const b = rows.find((x) => (x.getAttribute('aria-label') || '').trim() === 'verify-subject');
             if (!b) return null;
-            const label = (b.textContent || '').trim();
             b.click();
-            return label;
+            return 'verify-subject';
         })()`);
         if (picked == null) {
             rec("9. the last subject is restored after a reload", false, "the scenario's own channel row is missing");
@@ -1444,15 +1451,31 @@ const jarvisSubjectState = {
         // channels and threads share one header, because two "Archived" headers would read as two states.
         // group headers are Tailwind `uppercase` and innerText/textContent applies text-transform, so the
         // match has to be case-insensitive.
-        const groupItems = (name) =>
-            h.ev(`(() => {
-                const want = new RegExp('^' + ${JSON.stringify(name)}, 'i');
-                const group = [...document.querySelectorAll('div')].find(
-                    (d) => want.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
-                );
-                if (!group) return null;
-                return [...group.querySelectorAll('button')].map((b) => (b.textContent || '').trim());
+        // Groups are addressed by data-jarvis-group (their key), not by a regex on the group's first child:
+        // that child is the disclosure header now and reads "▸ARCHIVED3". Archived and Records both default
+        // collapsed, so a lookup has to open the group first or it reads back an empty list and the archive
+        // assertions fail for the wrong reason. Rows are read by aria-label, and counted as
+        // [data-jarvis-subject-kind] rather than as buttons, so the header is never mistaken for a row.
+        const expandGroup = async (key) => {
+            const r = await h.ev(`(() => {
+                const g = document.querySelector('[data-jarvis-group="${key}"]');
+                if (g == null) return 'no-group';
+                if (g.querySelector('[data-jarvis-subject-kind]') != null) return 'open';
+                g.querySelector('[data-jarvis-group-toggle]')?.click();
+                return 'clicked';
             })()`);
+            if (r === "clicked") await settle(300);
+            return r;
+        };
+        const groupItems = async (key) => {
+            await expandGroup(key);
+            return h.ev(`(() => {
+                const group = document.querySelector('[data-jarvis-group="${key}"]');
+                if (!group) return null;
+                return [...group.querySelectorAll('[data-jarvis-subject-kind]')]
+                    .map((b) => (b.getAttribute('aria-label') || '').trim());
+            })()`);
+        };
         // Archive needs a thread the BACKEND holds: the flag lives on the persisted record, so archiving a
         // local unasked thread ("New conversation", created up front by + Thread) has nothing to update.
         // A real converse turn runs a headless CLI up to 120s, far too slow to create one here, so this
@@ -1460,19 +1483,18 @@ const jarvisSubjectState = {
         // scoped to a group, because several threads here share a title: an unscoped match would right-click
         // one of the identically-titled rows still in Threads and then look for an Unarchive item that row's
         // menu does not have.
-        const rightClickRow = (group, title) =>
-            h.ev(`(() => {
-                const want = new RegExp('^' + ${JSON.stringify(group)}, 'i');
-                const box = [...document.querySelectorAll('div')].find(
-                    (d) => want.test((d.firstElementChild?.textContent || '').trim()) && d.querySelector('button')
-                );
+        const rightClickRow = async (group, title) => {
+            await expandGroup(group);
+            return h.ev(`(() => {
+                const box = document.querySelector('[data-jarvis-group="${group}"]');
                 if (!box) return false;
-                const row = [...box.querySelectorAll('button')]
-                    .find((b) => (b.textContent || '').trim() === ${JSON.stringify(title)});
+                const row = [...box.querySelectorAll('[data-jarvis-subject-kind]')]
+                    .find((b) => (b.getAttribute('aria-label') || '').trim() === ${JSON.stringify(title)});
                 if (!row) return false;
                 row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 200 }));
                 return true;
             })()`);
+        };
         const clickMenuItem = (label) =>
             h.ev(`(() => {
                 const want = new RegExp('^' + ${JSON.stringify(label)} + '$', 'i');
@@ -1845,29 +1867,49 @@ const jarvisMeasure = {
             })()`);
 
         // the conversation comes from the dev-only fixture bar; the channel and record rows come from
-        // whatever the dev DB holds, matched on the subject mark the column prefixes each row with.
-        const selectKind = (mark) =>
-            mark == null
+        // whatever the dev DB holds, matched on data-jarvis-subject-kind. Matching on the row's leading
+        // subject mark used to work, but a record row draws a status-toned bar instead of a glyph now, and a
+        // mark-based lookup would silently find nothing and drop the record kind while still reporting green.
+        const selectKind = (kind) =>
+            kind == null
                 ? h.ev(`(() => { const b = document.querySelector('[data-fixture="active"]'); if (b == null) return "none"; b.click(); return "ok"; })()`)
                 : h.ev(`(() => {
-                      const rows = [...document.querySelectorAll('[data-jarvis-region="subjects"] button')];
-                      const row = rows.find((b) => (b.textContent || "").trim().startsWith("${mark}"));
+                      const row = document.querySelector('[data-jarvis-subject-kind="${kind}"]');
                       if (row == null) return "none";
                       row.click();
                       return "ok";
                   })()`);
+
+        // Records defaults collapsed, so its rows are absent from the DOM until the group is opened — and the
+        // open has to settle before the row can be queried, which is why this is its own step rather than a
+        // branch inside selectKind.
+        const expandRecords = async () => {
+            const r = await h.ev(`(() => {
+                if (document.querySelector('[data-jarvis-subject-kind="dossier"]') != null) return "open";
+                const hdr = document.querySelector('[data-jarvis-group-toggle="dossiers"]');
+                if (hdr == null) return "no-group";
+                hdr.click();
+                return "clicked";
+            })()`);
+            if (r === "clicked") await settle(300);
+            return r;
+        };
 
         for (const width of [1500, 1920]) {
             await h.cdp("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
             await settle(450);
 
             const seen = [];
-            for (const [label, mark] of [
+            let recordsGroup = "n/a";
+            for (const [label, kind] of [
                 ["conversation", null],
-                ["channel", "#"],
-                ["record", "▤"],
+                ["channel", "channel"],
+                ["record", "dossier"],
             ]) {
-                if ((await selectKind(mark)) !== "ok") continue;
+                if (kind === "dossier") {
+                    recordsGroup = await expandRecords();
+                }
+                if ((await selectKind(kind)) !== "ok") continue;
                 await settle(800);
                 seen.push([label, JSON.parse(await probe())]);
             }
@@ -1875,6 +1917,13 @@ const jarvisMeasure = {
             const lefts = [...new Set(seen.flatMap(([, m]) => m.lefts))];
 
             rec(`at least two subject kinds reachable at ${width}px`, seen.length >= 2, kinds);
+            // asserted on its own so a record row that has stopped being findable fails here instead of
+            // quietly dropping out of the loop and leaving the measurements below looking green
+            rec(
+                `the collapsed Records group opens and yields a record row at ${width}px`,
+                kinds.includes("record"),
+                `group=${recordsGroup} kinds=${kinds}`
+            );
             rec(
                 `every band on the Stage shares one left edge at ${width}px`,
                 lefts.length === 1,

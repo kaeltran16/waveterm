@@ -29,8 +29,16 @@ function MachineField({ label, children }: { label: string; children: ReactNode 
 
 // A dossier's status is the one field scanned before anything else is read, so it is the one chip on this
 // surface that carries colour. Grey-on-grey put it at the same weight as the transition buttons beside it.
+// `paused` was missing, so a paused dossier fell through to the default grey and read as archived — the one
+// status whose whole point is "still live, just not now". The four keys here are the full vocabulary
+// (jarvisdossier.SetStatus).
+//
+// Deliberately not shared with the Subjects column's row chip: this is the only status indicator on a record
+// you have opened, so it stays legible, while a row in a list of seventeen needs `completed` to recede.
+// Same vocabulary, opposite emphasis.
 const STATUS_TONE: Record<string, string> = {
     active: "bg-success/12 text-success",
+    paused: "bg-warning/12 text-warning",
     completed: "bg-accent/12 text-accent-soft",
     archived: "bg-surface-hover text-muted",
 };

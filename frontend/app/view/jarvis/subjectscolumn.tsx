@@ -18,6 +18,7 @@ import {
     deleteChannel,
     renameChannel,
 } from "@/app/view/agents/channelsstore";
+import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot } from "@/app/view/agents/jarvisderive";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -39,6 +40,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
+    collapsedSubjectGroupsAtom,
     composingRunAtom,
     persistedSubjectAtom,
     selectSubject,
@@ -46,6 +48,7 @@ import {
     setComposingRun,
     startJarvisThread,
     subjectFilterAtom,
+    toggleSubjectGroup,
 } from "./jarvissubjectstore";
 import {
     archiveJarvisConversation,
@@ -60,13 +63,31 @@ import { restoreDecision } from "./subjectrestore";
 import {
     buildSubjectGroups,
     filterSubjectGroups,
+    recordStatusBucket,
     runGoalMatches,
     subjectMark,
+    visibleSubjectGroups,
+    type RecordBucket,
     type Subject,
-    type SubjectGroup,
     type SubjectKind,
+    type VisibleGroup,
 } from "./subjects";
 import { loadTaskList, taskListAtom } from "./tasksstore";
+
+// A record row's three tones. Deliberately not shared with taskdetail's STATUS_TONE — there the chip is the
+// only status marker on a record you have opened, so it stays prominent; here `done` has to recede behind the
+// live ones or fourteen finished records shout as loudly as the two you are working on. `text-muted` rather
+// than ink-faint for the same reason recordthread.tsx moved off it: ink-faint measures ~1.9:1 on background.
+const RECORD_BAR: Record<RecordBucket, string> = {
+    active: "bg-success",
+    paused: "bg-warning",
+    done: "bg-border",
+};
+const RECORD_CHIP: Record<RecordBucket, string> = {
+    active: "bg-success/12 text-success",
+    paused: "bg-warning/12 text-warning",
+    done: "bg-surface text-muted",
+};
 
 const RUN_DOT: Record<RunStatusTone, string> = {
     planning: "bg-accent",
@@ -88,6 +109,11 @@ function normPath(path: string | undefined): string {
 // order, still clickable and still carrying the asking signal. It is a *narrower* list, not a hidden one —
 // labels go before the list does, and the thread never gives up anything. The width is the layout's, not a
 // class literal: the column is continuous and this form just draws whatever it was given.
+//
+// It draws visible items only, so a collapsed group has no dots here and no header to reopen it from. That
+// is deliberate: the strip, the wide rows and the j/k cursor all read one derivation, and letting the strip
+// disagree would put the cursor on a dot that is not drawn. Nothing is stranded — the column is continuous,
+// so widening past SUBJECTS_ICON_PX brings the headers back.
 function CollapsedSubjects({
     widthPx,
     groups,
@@ -95,7 +121,7 @@ function CollapsedSubjects({
     signalsFor,
 }: {
     widthPx: number;
-    groups: SubjectGroup[];
+    groups: VisibleGroup[];
     isActive: (s: Subject) => boolean;
     signalsFor: (s: Subject) => { asking: boolean; working: number } | null;
 }) {
@@ -156,6 +182,7 @@ export function SubjectsColumn({
     const spaceScope = useAtomValue(spaceScopeAtom);
     const revealed = useAtomValue(spaceRevealAtom).has("jarvis");
     const [filter, setFilter] = useAtom(subjectFilterAtom);
+    const collapsedGroups = useAtomValue(collapsedSubjectGroupsAtom);
     const [picking, setPicking] = useState(false);
     const [pending, setPending] = useState<{ name: string; path: string } | null>(null);
     const [newName, setNewName] = useState("");
@@ -216,7 +243,13 @@ export function SubjectsColumn({
     const totalBefore = (channels?.length ?? 0) + (dossiers?.length ?? 0) + conversations.length;
     const totalAfter = groups.reduce((n, g) => n + g.items.length, 0);
 
-    const shown = filterSubjectGroups(groups, filter, channels);
+    // filter first, then apply collapse: a non-empty filter forces every group open, so a query can reach a
+    // record inside the collapsed Records group instead of silently matching nothing.
+    const filtering = filter.trim() !== "";
+    const shown = visibleSubjectGroups(filterSubjectGroups(groups, filter, channels), collapsedGroups, filtering);
+    // relative ages on record rows. Read once per render rather than ticked — an age in days does not need to
+    // animate, and a timer here would re-render the whole column every second.
+    const now = Date.now();
 
     // the cursor moves on every keypress; committing it waits for the user to stop. See subjectcursor.ts.
     const [cursorKey, setCursorKey] = useState<string | undefined>(undefined);
@@ -548,13 +581,31 @@ export function SubjectsColumn({
             ) : null}
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-2">
                 {shown.map((g) => (
-                    <div key={g.key} className="mb-2">
-                        <div className="flex items-center gap-2 px-2 py-1.5">
+                    // data-jarvis-group on the wrapper, data-jarvis-group-toggle on its header: the group's
+                    // rows are "inside the wrapper", and its disclosure is one specific button among them.
+                    // One attribute for both would make `[data-jarvis-group] button` ambiguous.
+                    <div key={g.key} data-jarvis-group={g.key} className="mb-2">
+                        {/* the header is the disclosure. A button, not a div+onClick: this column's thesis is
+                            keyboard operability, and the count has to stay readable while the group is shut —
+                            a collapsed section that hides its own size reads as an empty one. */}
+                        <button
+                            type="button"
+                            data-jarvis-group-toggle={g.key}
+                            onClick={() => toggleSubjectGroup(g.key, !g.collapsed)}
+                            aria-expanded={!g.collapsed}
+                            className="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-2 py-1.5 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                        >
+                            <span className="w-2 flex-none font-mono text-[9px] leading-none text-muted">
+                                {g.collapsed ? "▸" : "▾"}
+                            </span>
                             <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
                                 {g.label}
                             </span>
                             <div className="h-px flex-1 bg-border" />
-                        </div>
+                            <span className="flex-none rounded-[9px] bg-surface px-1.5 font-mono text-[9.5px] font-semibold text-muted">
+                                {g.count}
+                            </span>
+                        </button>
                         {g.items.map((s) => {
                             const channel = s.kind === "channel" ? channels?.find((c) => c.oid === s.id) : undefined;
                             const signals = channel != null ? channelSignals(channel) : null;
@@ -592,10 +643,68 @@ export function SubjectsColumn({
                                     </div>
                                 );
                             }
+                            // A record row is two-line, where a channel or thread row stays one. Objectives are
+                            // arbitrary-length prose — 39 to 202 characters in the vault this was built
+                            // against — and one truncated line of that at ~150px cut before anything
+                            // distinguishing: "execute plan docs/ai/planning/2026-07-22-netcompl…" and
+                            // "execute this plan docs/superpowers/plan…" were the same row. The second line
+                            // carries the status and age the one-liner had no room for, and the bar makes the
+                            // group scannable by tone instead of read top to bottom. A channel name needs
+                            // none of this, and spending the height there would undo what collapsing bought.
+                            if (s.kind === "dossier") {
+                                const bucket = recordStatusBucket(s.status);
+                                return (
+                                    <button
+                                        key={s.kind + ":" + s.id}
+                                        type="button"
+                                        data-jarvis-subject-kind={s.kind}
+                                        // the visible text is fragmented across the title, the status chip and
+                                        // the age, so the row needs one accessible name of its own
+                                        aria-label={s.label}
+                                        onClick={() => {
+                                            commitRef.current?.cancel();
+                                            selectSubject({ kind: s.kind, id: s.id });
+                                        }}
+                                        className={cn(
+                                            "flex w-full cursor-pointer items-stretch gap-2.5 rounded-[8px] px-2.5 py-1.5 text-left transition-colors duration-[140ms] hover:bg-surface-hover",
+                                            selected && "bg-accentbg"
+                                        )}
+                                    >
+                                        <span className={cn("w-[2px] flex-none rounded-full", RECORD_BAR[bucket])} />
+                                        <span className="flex min-w-0 flex-1 flex-col">
+                                            <span
+                                                className={cn(
+                                                    "line-clamp-2 text-[12.5px] leading-[1.35]",
+                                                    selected
+                                                        ? "font-semibold text-primary"
+                                                        : "font-medium text-secondary"
+                                                )}
+                                            >
+                                                {s.label}
+                                            </span>
+                                            <span className="mt-[3px] flex items-center gap-1.5 font-mono text-[9.5px] text-muted">
+                                                <span
+                                                    className={cn(
+                                                        "rounded-[3px] px-1 font-semibold uppercase",
+                                                        RECORD_CHIP[bucket]
+                                                    )}
+                                                >
+                                                    {bucket}
+                                                </span>
+                                                {/* a backfilled record can carry no stamp; an age of "56y"
+                                                    would be worse than none */}
+                                                {s.updated > 0 ? formatAge(now - s.updated) : null}
+                                            </span>
+                                        </span>
+                                    </button>
+                                );
+                            }
                             return (
                                 <div key={s.kind + ":" + s.id}>
                                     <button
                                         type="button"
+                                        data-jarvis-subject-kind={s.kind}
+                                        aria-label={s.label}
                                         onClick={() => {
                                             // a commit still queued from j/k would land after this and move
                                             // the user off the row they clicked

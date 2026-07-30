@@ -3,8 +3,10 @@ import type { GroundingCard, JarvisConversation } from "./jarviscontract";
 import {
     buildSubjectGroups,
     filterSubjectGroups,
+    recordStatusBucket,
     runGoalMatches,
     subjectMark,
+    visibleSubjectGroups,
     type SubjectInput,
 } from "./subjects";
 
@@ -18,8 +20,8 @@ function ch(oid: string, name: string, project: string, archived = false, goals:
     } as unknown as Channel;
 }
 
-function dos(id: string, objective: string, status: string): SpaceSummary {
-    return { id, objective, status } as unknown as SpaceSummary;
+function dos(id: string, objective: string, status: string, updated = 0): SpaceSummary {
+    return { id, objective, status, updated } as unknown as SpaceSummary;
 }
 
 function convo(id: string, title: string, taskIds: string[]): JarvisConversation {
@@ -69,6 +71,70 @@ describe("runGoalMatches", () => {
     });
 });
 
+describe("recordStatusBucket", () => {
+    it("keeps active and paused apart, and folds both terminal statuses into one", () => {
+        // a row in a long list needs three tones, not four: completed and archived both mean "not now".
+        expect(recordStatusBucket("active")).toBe("active");
+        expect(recordStatusBucket("paused")).toBe("paused");
+        expect(recordStatusBucket("completed")).toBe("done");
+        expect(recordStatusBucket("archived")).toBe("done");
+    });
+
+    it("treats an unknown status as done rather than shouting about it", () => {
+        // a status this build has not heard of must not render as live work
+        expect(recordStatusBucket("")).toBe("done");
+        expect(recordStatusBucket("wedged")).toBe("done");
+    });
+});
+
+describe("visibleSubjectGroups", () => {
+    const groups = buildSubjectGroups(BASE); // payments, platform, threads, dossiers
+
+    it("keeps the items of an expanded group", () => {
+        const shown = visibleSubjectGroups(groups, { threads: false }, false);
+        expect(shown.find((g) => g.key === "threads")!.items.map((i) => i.id)).toEqual(["v1", "v2"]);
+    });
+
+    it("renders no items for a collapsed group but still reports its true count", () => {
+        // the header has to say "17" while showing none of them, or collapsing hides the fact that
+        // there is anything there at all.
+        const shown = visibleSubjectGroups(groups, { threads: true }, false);
+        const threads = shown.find((g) => g.key === "threads")!;
+        expect(threads.items).toEqual([]);
+        expect(threads.count).toBe(2);
+        expect(threads.collapsed).toBe(true);
+    });
+
+    it("defaults records and archived to collapsed, and everything else to open", () => {
+        const shown = visibleSubjectGroups(groups, {}, false);
+        expect(shown.find((g) => g.key === "dossiers")!.collapsed).toBe(true);
+        expect(shown.find((g) => g.key === "threads")!.collapsed).toBe(false);
+        expect(shown.find((g) => g.key === "project:payments")!.collapsed).toBe(false);
+    });
+
+    it("lets an explicit choice beat the default in both directions", () => {
+        const shown = visibleSubjectGroups(groups, { dossiers: false, threads: true }, false);
+        expect(shown.find((g) => g.key === "dossiers")!.collapsed).toBe(false);
+        expect(shown.find((g) => g.key === "threads")!.collapsed).toBe(true);
+    });
+
+    it("overrides collapse while filtering, so a query can reach a collapsed group", () => {
+        // without this, typing a record's name returns visibly nothing and the search looks broken
+        const shown = visibleSubjectGroups(groups, { dossiers: true }, true);
+        const records = shown.find((g) => g.key === "dossiers")!;
+        expect(records.collapsed).toBe(false);
+        expect(records.items).toHaveLength(2);
+    });
+
+    it("contributes no items from a collapsed group, so keyboard nav cannot land on a hidden row", () => {
+        // j/k walks the flattened item list; a hidden row in it would move the cursor somewhere invisible
+        // and the debounced commit would then select it.
+        const navIds = visibleSubjectGroups(groups, {}, false).flatMap((g) => g.items.map((i) => i.id));
+        expect(navIds).not.toContain("task-418");
+        expect(navIds).toEqual(["c1", "c2", "v1", "v2"]);
+    });
+});
+
 describe("buildSubjectGroups archived threads", () => {
     it("files an archived thread under Archived, not Threads", () => {
         const groups = buildSubjectGroups({
@@ -96,15 +162,23 @@ describe("buildSubjectGroups archived threads", () => {
             revealed: false,
         } as SubjectInput);
         const archived = groups.find((g) => g.key === "archived");
-        expect(archived?.label).toBe("Archived · 2");
+        // the count lives in the header's badge now, so the label stops carrying its own copy
+        expect(archived?.label).toBe("Archived");
         expect(archived?.items.map((i) => i.kind)).toEqual(["channel", "conversation"]);
     });
 });
 
 describe("buildSubjectGroups", () => {
-    it("groups channels by project, then records, then threads", () => {
+    it("groups channels by project, then threads, then records", () => {
         const groups = buildSubjectGroups(BASE);
-        expect(groups.map((g) => g.label)).toEqual(["payments", "platform", "Records · dossiers", "Threads"]);
+        expect(groups.map((g) => g.label)).toEqual(["payments", "platform", "Threads", "Records"]);
+    });
+
+    it("keeps records after threads however many there are — the corpus must not push a fixed list down", () => {
+        // the ordering *is* the fix: threads was last, so the one unbounded group sat above it and buried it.
+        const many = Array.from({ length: 40 }, (_, i) => dos(`task-${i}`, `objective ${i}`, "completed"));
+        const keys = buildSubjectGroups({ ...BASE, dossiers: many }).map((g) => g.key);
+        expect(keys.indexOf("threads")).toBeLessThan(keys.indexOf("dossiers"));
     });
 
     it("tags every item with its kind and a stable id", () => {
@@ -112,6 +186,20 @@ describe("buildSubjectGroups", () => {
         const records = groups.find((g) => g.key === "dossiers")!;
         expect(records.items.map((i) => i.kind)).toEqual(["dossier", "dossier"]);
         expect(records.items.map((i) => i.id)).toEqual(["task-418", "task-402"]);
+    });
+
+    it("carries a record's status and updated stamp onto its subject", () => {
+        // the row draws a status chip and an age from these; the column used to read only .objective and
+        // drop both, so a completed record was indistinguishable from an active one.
+        const groups = buildSubjectGroups({
+            ...BASE,
+            dossiers: [dos("task-9", "Ship it", "completed", 1784695815473)],
+        });
+        expect(groups.find((g) => g.key === "dossiers")!.items[0]).toMatchObject({
+            kind: "dossier",
+            status: "completed",
+            updated: 1784695815473,
+        });
     });
 
     it("labels a dossier by its objective and a conversation by its title", () => {
@@ -127,7 +215,7 @@ describe("buildSubjectGroups", () => {
 
     it("treats a null channel list as no channels, not a crash", () => {
         const groups = buildSubjectGroups({ ...BASE, channels: null });
-        expect(groups.map((g) => g.key)).toEqual(["dossiers", "threads"]);
+        expect(groups.map((g) => g.key)).toEqual(["threads", "dossiers"]);
     });
 
     it("scopes all three kinds to an active Space", () => {
@@ -155,9 +243,9 @@ describe("buildSubjectGroups", () => {
             ...BASE,
             channels: [ch("c1", "checkout-revamp", "payments"), ch("c2", "rate-limits", "platform", true)],
         });
-        expect(groups.map((g) => g.key)).toEqual(["project:payments", "dossiers", "threads", "archived"]);
+        expect(groups.map((g) => g.key)).toEqual(["project:payments", "threads", "dossiers", "archived"]);
         expect(groups.at(-1)!.items.map((i) => i.id)).toEqual(["c2"]);
-        expect(groups.at(-1)!.label).toBe("Archived · 1");
+        expect(groups.at(-1)!.label).toBe("Archived");
     });
 
     it("omits the Archived group when nothing is archived", () => {

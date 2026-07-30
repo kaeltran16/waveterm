@@ -123,6 +123,14 @@ describe("formatAge", () => {
         expect(formatAge(240_000)).toBe("4m");
         expect(formatAge(7_200_000)).toBe("2h");
     });
+    it("rolls over to days past 24h rather than counting hours forever", () => {
+        // a record last touched 8 days ago read as "192h"
+        expect(formatAge(86_400_000)).toBe("1d");
+        expect(formatAge(8 * 86_400_000)).toBe("8d");
+    });
+    it("keeps hours right up to the boundary", () => {
+        expect(formatAge(23 * 3_600_000)).toBe("23h");
+    });
 });
 
 describe("agentVMFromInput", () => {
