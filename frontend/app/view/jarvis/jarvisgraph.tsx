@@ -41,6 +41,7 @@ const PARTICLE_COUNT = 2; // flowing dots per hovered link
 const PARTICLE_SPEED = 0.007; // fraction of link length per frame — a calm drift, not a race
 const PARTICLE_WIDTH = 3;
 const PULSE_PERIOD = 1500; // ms for one breath of the hover/selection halo
+const TRANSITION_TAIL = 450; // ms of repaint kept alive past a focus change so the eased dim/undim lands
 const RUN_SQUARE_SCALE = 1.6; // a run's half-extent relative to a same-degree circle's radius
 const DASH_INFORMING = [3, 3]; // dash pattern for a provisional (informing) attribution edge
 const nodeRadius = (deg: number) => 3 + Math.min(Math.sqrt(deg) * 2.2, 12);
@@ -124,10 +125,8 @@ export function JarvisGraph() {
     const labelBoxes = useRef<{ x: number; y: number; w: number; h: number }[]>([]); // per-frame de-collision
     const nodeAlpha = useRef(new Map<string, number>()); // eased per-node alpha (smooth dim/undim)
     const linkAlpha = useRef(new WeakMap<object, number>()); // eased per-link alpha
-    const pumpUntil = useRef(0);
-    const pumpRaf = useRef(0);
-    const activeRef = useRef(false); // keep repainting while a hover/selection animation is live
     const frameTime = useRef(0); // performance.now() sampled once per frame -> shared pulse phase
+    const [repaint, setRepaint] = useState(false); // un-pauses the canvas redraw loop (see the effect below)
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [fgApi, setFgApi] = useState<any>(null); // set when the lazy graph mounts (ref callback)
     const [ready, setReady] = useState(false); // forces configured -> real data may flow to the sim
@@ -438,28 +437,16 @@ export function JarvisGraph() {
     );
     const particleColor = useCallback(() => colors.edgeHot, [colors]);
 
-    // The sim is usually idle when selection/hover change, so nothing would repaint the canvas while
-    // the alpha easings play out — or while a hover/selection halo breathes. Pump refresh() for at
-    // least a short window per change, and keep pumping as long as `activeRef` is set (a live
-    // hover/selection), so the pulse and particles animate instead of freezing.
-    const startPump = useCallback(() => {
-        pumpUntil.current = performance.now() + 400;
-        if (pumpRaf.current) return; // already pumping — just extended the window
-        const step = () => {
-            fgRef.current?.refresh?.();
-            if (performance.now() < pumpUntil.current || activeRef.current) {
-                pumpRaf.current = requestAnimationFrame(step);
-            } else {
-                pumpRaf.current = 0;
-            }
-        };
-        pumpRaf.current = requestAnimationFrame(step);
-    }, []);
-    useEffect(() => () => cancelAnimationFrame(pumpRaf.current), []);
+    // force-graph pauses its redraw loop once the sim cools (autoPauseRedraw), and a prop change buys
+    // only ONE frame — not the ~20 the eased dim/undim and the breathing halo need. So keep redraw
+    // running for a tail past every focus change, and hold it on for as long as a hover/selection is
+    // live, so the pulse and particles animate instead of freezing mid-transition.
     useEffect(() => {
-        activeRef.current = !reducedMotion && (hover.nodes.size > 0 || selectedId != null);
-        startPump();
-    }, [selectedId, hover, colors, reducedMotion, startPump]);
+        setRepaint(true);
+        if (!reducedMotion && (hover.nodes.size > 0 || selectedId != null)) return; // stays on while focused
+        const t = setTimeout(() => setRepaint(false), TRANSITION_TAIL);
+        return () => clearTimeout(t);
+    }, [selectedId, hover, colors, reducedMotion]);
 
     const zoomBy = (f: number) => {
         const fg = fgRef.current;
@@ -484,6 +471,7 @@ export function JarvisGraph() {
                         height={size.h}
                         graphData={ready ? data : EMPTY_DATA}
                         backgroundColor={colors.bg}
+                        autoPauseRedraw={!repaint}
                         nodeRelSize={1}
                         minZoom={0.05}
                         maxZoom={8}
