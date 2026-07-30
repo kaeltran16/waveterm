@@ -67,8 +67,7 @@ export interface UsageStats {
         busiestTokens: number;
     };
     split: ClassUsage[]; // all providers, the window, fixed order [cacheRead, output, cacheWrite, input]
-    daily: DailyUsage[]; // ascending; zero-filled idle days; capped to last 30 in range
-    dailyTruncated: boolean; // true when the day range exceeded the cap
+    daily: DailyUsage[]; // ascending; zero-filled idle days; every day in range (the chart brushes it)
     providers: ProviderUsage[]; // window-scoped by-model, claude-first
 }
 
@@ -78,13 +77,23 @@ const PROVIDER_RANK: Record<string, number> = { claude: 0, codex: 1 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const MAX_DAILY_DAYS = 30;
 export const CLASS_ORDER: TokenClass[] = ["cacheRead", "output", "cacheWrite", "input"];
 export const CLASS_LABEL: Record<TokenClass, string> = {
     cacheRead: "Cache read",
     output: "Output",
     cacheWrite: "Cache write",
     input: "Input",
+};
+
+// Tailwind fill utility per token class. Single source of truth — this was previously duplicated
+// verbatim in usagesurface.tsx and tokenusagesection.tsx as inline var(--color-*) strings. Same
+// existing design-system tokens as before, just named once: --color-cacheread carries the grey
+// "low-value, high-volume" read of cache reads, and the other three keep their long-standing pairing.
+export const CLASS_FILL: Record<TokenClass, string> = {
+    cacheRead: "bg-cacheread",
+    output: "bg-accent",
+    cacheWrite: "bg-warning",
+    input: "bg-success",
 };
 
 function localDayKey(ms: number): string {
@@ -229,15 +238,9 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStat
     }));
 
     let daily: DailyUsage[] = [];
-    let dailyTruncated = false;
     if (minDay != null) {
         const endKey = maxDay != null && maxDay > today ? maxDay : today;
-        let dayKeys = enumerateDays(minDay, endKey);
-        if (dayKeys.length > MAX_DAILY_DAYS) {
-            dailyTruncated = true;
-            dayKeys = dayKeys.slice(-MAX_DAILY_DAYS);
-        }
-        daily = dayKeys.map((day) => {
+        daily = enumerateDays(minDay, endKey).map((day) => {
             const e = byDay.get(day) ?? { ct: 0, xt: 0, cs: 0, xs: 0 };
             return { day, claudeTokens: e.ct, codexTokens: e.xt, claudeSpendUsd: e.cs, codexSpendUsd: e.xs };
         });
@@ -274,9 +277,42 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number): UsageStat
         },
         split,
         daily,
-        dailyTruncated,
         providers,
     };
+}
+
+// Keep the top (max-1) models and sum the rest into one "Other" row. The by-model bars use a fixed
+// ordinal ramp, so a 5th model must never mint a new hue — it folds.
+export function foldModels(models: ModelUsage[], max: number): ModelUsage[] {
+    if (models.length <= max) return models;
+    const head = models.slice(0, max - 1);
+    const tail = models.slice(max - 1);
+    return [
+        ...head,
+        {
+            model: "Other",
+            tokens: tail.reduce((s, x) => s + x.tokens, 0),
+            spendUsd: tail.reduce((s, x) => s + x.spendUsd, 0),
+            pct: tail.reduce((s, x) => s + x.pct, 0),
+        },
+    ];
+}
+
+// Compact token/dollar formatters for the usage cards and the Daily chart's axis + tooltip. Denser than
+// viewmodel.formatTokens (adds B, rounds large M) to match the redesign's compact cards. They live here
+// rather than in usagesurface.tsx so dailychart.tsx can reuse the EXACT same formatters without importing
+// the surface — which would be a cycle, and would drag the RPC-backed usagestore into unit tests.
+export function fmt(n: number): string {
+    if (n >= 1e9) return +(n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return +(n / 1e6).toFixed(n >= 1e8 ? 0 : 1) + "M";
+    if (n >= 1e3) return Math.round(n / 1e3) + "K";
+    return String(Math.round(n));
+}
+
+export function usd(n: number): string {
+    if (n >= 1000) return "$" + +(n / 1000).toFixed(1) + "K";
+    if (n >= 100) return "$" + Math.round(n);
+    return "$" + n.toFixed(2);
 }
 
 // Pure: the model-usage grid class. A single provider fills the full row (dropping lg:grid-cols-2, which

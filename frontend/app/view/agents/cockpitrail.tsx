@@ -5,6 +5,7 @@
 // list. Extracted from cockpitsurface.tsx; presentational + the UsageBar it renders.
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { Meter } from "@/app/element/meter";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -46,12 +47,7 @@ export function UsageBar({
                 <span className="text-[12.5px] font-medium text-secondary">{label}</span>
                 <span className={cn("font-mono text-[12px] font-semibold", PLAN_TXT[lvl])}>{Math.round(pct)}%</span>
             </div>
-            <div className="h-[7px] overflow-hidden rounded-[4px] bg-surface-raised">
-                <div
-                    className={cn("h-full rounded-[4px]", PLAN_BAR[lvl])}
-                    style={{ width: `${Math.min(100, pct)}%` }}
-                />
-            </div>
+            <Meter pct={pct} fill={PLAN_BAR[lvl]} height={7} radius={4} track="bg-surface-raised" />
             {usageBarShowsMeta(used, reset) ? (
                 <div className="mt-[6px] flex justify-between font-mono text-[10.5px] text-muted">
                     <span>{used != null ? `${formatTokens(used)} tok` : ""}</span>

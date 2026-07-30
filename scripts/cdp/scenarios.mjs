@@ -1901,6 +1901,142 @@ const jarvisMeasure = {
     },
 };
 
+// --- usage charts: the meter primitives + the visx DailyChart actually render -------------------
+// Class names asserted below were read off the installed packages, not guessed: @visx/axis puts
+// `visx-axis visx-axis-left` on the axis group and `visx-axis-tick` on each tick, and @visx/tooltip
+// puts `visx-tooltip` on the portal. Step 5 is scoped to the chart's own <svg> — a page-wide title
+// query would trip over icon <title> elements that have nothing to do with the chart.
+const usageCharts = {
+    name: "usage-charts",
+    surface: "usage",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+
+        // The surface fetches its stats over RPC and shows a skeleton until they land, so the chart is
+        // NOT in the DOM the instant goto returns. Poll for it instead of sleeping a fixed amount —
+        // the all-time scan's duration depends on how many transcripts exist.
+        let ready = false;
+        for (let waited = 0; waited <= 10000 && !ready; waited += 250) {
+            ready = (await h.ev(`document.querySelectorAll(".visx-axis-left .visx-axis-tick").length`)) > 0;
+            if (!ready) await settle(250);
+        }
+        rec("0. usage surface loaded and the chart mounted", ready, ready ? "chart present" : "timed out after 10s");
+
+        // the visx chart renders an <svg> with axis ticks and at least one bar rect
+        const chart = await h.ev(`(() => {
+            const svgs = [...document.querySelectorAll("svg")];
+            const withTicks = svgs.filter((s) => s.querySelectorAll(".visx-axis-left .visx-axis-tick").length > 0);
+            const s = withTicks[0];
+            if (!s) return { found: false };
+            return {
+                found: true,
+                leftTicks: s.querySelectorAll(".visx-axis-left .visx-axis-tick").length,
+                bottomTicks: s.querySelectorAll(".visx-axis-bottom .visx-axis-tick").length,
+                bars: s.querySelectorAll("path[fill^='var(--color-']").length,
+            };
+        })()`);
+        rec(
+            "1. DailyChart renders a visx svg with axes and bars",
+            chart.found && chart.leftTicks >= 2 && chart.bars >= 1,
+            JSON.stringify(chart)
+        );
+
+        // the tokens the chart and the class bars paint with all resolve (no invented chart palette —
+        // these are the pre-existing design-system tokens, so a rename would break the fills silently)
+        const palette = await h.ev(`(() => {
+            const cs = getComputedStyle(document.documentElement);
+            const names = ["--color-cacheread","--color-accent","--color-warning","--color-success","--color-accent-200","--color-accent-800"];
+            return Object.fromEntries(names.map((n) => [n, cs.getPropertyValue(n).trim()]));
+        })()`);
+        rec(
+            "2. the design-system tokens the chart paints with all resolve",
+            Object.values(palette).every((v) => /^#[0-9a-f]{6}$/i.test(v)),
+            JSON.stringify(palette)
+        );
+
+        // ArcMeter sweep: --usage-arc is set per element, so several rings coexist
+        const arcs = await h.ev(`(() => {
+            const els = [...document.querySelectorAll("*")].filter((e) => e.style && e.style.getPropertyValue("--usage-arc"));
+            return { count: els.length, values: els.slice(0, 6).map((e) => e.style.getPropertyValue("--usage-arc")) };
+        })()`);
+        rec("3. ArcMeter rings scope --usage-arc per element", arcs.count >= 1, JSON.stringify(arcs));
+
+        // hovering a column opens the visx tooltip (replacing the old native title attribute). React
+        // delegates pointer events from a child rect, so dispatch there rather than on the <g>.
+        const tip = await h.ev(`(() => {
+            const svg = [...document.querySelectorAll("svg")].find((s) => s.querySelector(".visx-axis-left"));
+            const r = svg && svg.querySelector("path[fill^='var(--color-']");
+            if (!r) return { hovered: false };
+            for (const type of ["pointerover", "mouseover", "mouseenter"]) {
+                r.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+            }
+            return { hovered: true };
+        })()`);
+        await settle(250);
+        const tipText = await h.ev(
+            `(() => { const t = document.querySelector("[class*='visx-tooltip']"); return t ? t.textContent : ""; })()`
+        );
+        rec("4. hover opens a styled tooltip", tip.hovered && tipText.length > 0, JSON.stringify({ tipText }));
+
+        // no native title tooltips left on the chart itself
+        const titles = await h.ev(`(() => {
+            const svg = [...document.querySelectorAll("svg")].find((s) => s.querySelector(".visx-axis-left"));
+            if (!svg) return -1;
+            return svg.querySelectorAll("[title], title").length;
+        })()`);
+        rec("5. no native title tooltips on the chart", titles === 0, String(titles));
+
+        // verify.mjs shoots before assert, which catches the skeleton; take our own once loaded.
+        await h.shot("cdp-shots/usage-charts-loaded.png");
+
+        // The brush only exists on All-time with >14 days, so the default 7d window never renders it.
+        const clicked = await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "All time");
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        let brush = { skipped: true };
+        if (clicked) {
+            for (let waited = 0; waited <= 20000; waited += 500) {
+                brush = await h.ev(`(() => {
+                    const svgs = [...document.querySelectorAll("svg")];
+                    const chart = svgs.find((s) => s.querySelector(".visx-axis-left"));
+                    if (!chart) return { loaded: false };
+                    const strip = svgs.find((s) => s.querySelector(".visx-brush"));
+                    // the chart card's own label, NOT the first "Daily" on the page (the "Daily avg" stat card)
+                    const h3 = [...document.querySelectorAll("h3")].find((x) => x.textContent.trim() === "Daily");
+                    return {
+                        loaded: true,
+                        bars: chart.querySelectorAll("path[fill^='var(--color-']").length,
+                        brushStrip: !!strip,
+                        brushOverlay: !!document.querySelector(".visx-brush-overlay"),
+                        label: h3 && h3.nextElementSibling ? h3.nextElementSibling.textContent.trim() : "",
+                    };
+                })()`);
+                if (brush.loaded && brush.brushStrip) break;
+                await settle(500);
+            }
+            await h.shot("cdp-shots/usage-charts-alltime.png");
+        }
+        rec("6. All-time renders the brush strip under the chart", !!brush.brushStrip, JSON.stringify(brush));
+
+        return steps;
+    },
+    // leave the surface on the 7-day window the rest of the suite (and the developer) expects
+    async teardown(h) {
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "7 days");
+            if (b) b.click();
+        })()`);
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -1918,4 +2054,5 @@ export const SCENARIOS = [
     jarvisCollapseOrder,
     jarvisNarrow,
     jarvisMeasure,
+    usageCharts,
 ];

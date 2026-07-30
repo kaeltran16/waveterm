@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateBuckets, modelGridClass } from "./usagestats";
+import { aggregateBuckets, foldModels, modelGridClass, type ModelUsage } from "./usagestats";
 
 describe("modelGridClass", () => {
     it("fills the full width when there is a single provider (or none)", () => {
@@ -101,17 +101,23 @@ describe("aggregateBuckets", () => {
         expect(stats.daily[0].claudeTokens).toBe(10);
         expect(stats.daily[1].claudeTokens + stats.daily[1].codexTokens).toBe(0); // idle day
         expect(stats.daily[2].codexTokens).toBe(20);
-        expect(stats.dailyTruncated).toBe(false);
     });
 
-    it("caps the daily series to the last 30 days and flags truncation", () => {
-        const stats = aggregateBuckets(
-            [bkt({ day: "2026-04-01", input: 1 }), bkt({ day: today, input: 1 })], // ~86-day span
-            now
-        );
-        expect(stats.daily.length).toBe(30);
-        expect(stats.daily[stats.daily.length - 1].day).toBe(today);
-        expect(stats.dailyTruncated).toBe(true);
+    // The 30-day cap used to truncate the all-time series silently; the brush replaces it, so the
+    // aggregation must now return every day in range.
+    it("returns every day in range without a 30-day cap", () => {
+        const day = (n: number) => {
+            const d = new Date(2026, 0, 1);
+            d.setDate(d.getDate() + n);
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            return `${d.getFullYear()}-${m}-${String(d.getDate()).padStart(2, "0")}`;
+        };
+        const buckets = [0, 44].map((n) => bkt({ day: day(n), input: 10, output: 5 }));
+        const stats = aggregateBuckets(buckets, new Date(2026, 1, 14).getTime());
+        expect(stats.daily.length).toBe(45);
+        expect(stats.daily[0].day).toBe(day(0));
+        expect(stats.daily[44].day).toBe(day(44));
+        expect("dailyTruncated" in stats).toBe(false);
     });
 
     it("returns empty shapes for no buckets", () => {
@@ -136,8 +142,28 @@ describe("aggregateBuckets", () => {
                 { cls: "input", label: "Input", tokens: 0, spendUsd: 0 },
             ],
             daily: [],
-            dailyTruncated: false,
             providers: [],
         });
+    });
+});
+
+describe("foldModels", () => {
+    const m = (model: string, tokens: number, pct: number): ModelUsage => ({ model, tokens, pct, spendUsd: 0 });
+
+    it("passes through when at or under the cap", () => {
+        const out = foldModels([m("a", 3, 60), m("b", 2, 40)], 4);
+        expect(out.map((x) => x.model)).toEqual(["a", "b"]);
+    });
+
+    // The ordinal ramp has a fixed number of steps; a 5th hue is never generated.
+    it("folds the tail into a single Other row", () => {
+        const out = foldModels([m("a", 5, 50), m("b", 2, 20), m("c", 1, 10), m("d", 1, 10), m("e", 1, 10)], 4);
+        expect(out.map((x) => x.model)).toEqual(["a", "b", "c", "Other"]);
+        expect(out[3].tokens).toBe(2);
+        expect(out[3].pct).toBe(20);
+    });
+
+    it("returns an empty list unchanged", () => {
+        expect(foldModels([], 4)).toEqual([]);
     });
 });

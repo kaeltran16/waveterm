@@ -7,21 +7,24 @@
 // folded from the backend usage scan (usagestore/usagestats), scoped by a 7-day / All-time toggle.
 // Loads on mount + a 60s refresh for the current window; a 1s tick keeps reset countdowns current.
 
+import { ArcMeter, Meter, StackedMeter } from "@/app/element/meter";
 import { useDidBecomeTrue } from "@/app/element/motionhooks";
+import { Segmented } from "@/app/element/segmented";
 import { SkeletonLine } from "@/app/element/skeleton";
-import { MOTION, cardVariants, easeFluidCss } from "@/app/element/motiontokens";
+import { cardVariants } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { MotionConfig, motion, useReducedMotion } from "motion/react";
-import { type CSSProperties, useEffect } from "react";
+import { MotionConfig, motion } from "motion/react";
+import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
+import { DailyChart } from "./dailychart";
 import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
 import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
-import { modelGridClass } from "./usagestats";
-import type { ClassUsage, DailyUsage, ProviderUsage, TokenClass, UsageStats } from "./usagestats";
+import { CLASS_FILL, fmt, foldModels, modelGridClass, usd } from "./usagestats";
+import type { ClassUsage, ProviderUsage, UsageStats } from "./usagestats";
 import { loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageStatsAtom, usageWindowAtom } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
@@ -31,33 +34,15 @@ const RING: Record<"ok" | "warn" | "hot", string> = {
     warn: "var(--color-warning)",
     hot: "var(--color-error)",
 };
-const CLASS_COLOR: Record<TokenClass, string> = {
-    cacheRead: "var(--color-cacheread)",
-    output: "var(--color-accent)",
-    cacheWrite: "var(--color-warning)",
-    input: "var(--color-success)",
-};
-const MODEL_COLORS = [
-    "var(--color-accent)",
-    "var(--color-success)",
-    "var(--color-warning)",
-    "var(--color-accent-300)",
-    "var(--color-muted-foreground)",
-];
-const DAILY_CHART_H = 156;
+// Ranked magnitude within one provider is an ORDINAL job, not categorical: one hue, monotone
+// lightness, indexed by rank. Four stops off the existing accent scale — no new colors. The previous
+// set mixed accent/success/warning/accent-300/muted-foreground, cycled with `i % len` AND keyed on
+// rank, so one model overtaking another repainted both bars; an ordinal ramp is meant to follow rank.
+// It also put --color-accent next to --color-accent-300, which are too close to tell apart (the two
+// are one step off the same ramp), so models 1 and 4 read as the same color. These stops are 2 apart.
+const MODEL_SEQ = ["bg-accent-200", "bg-accent-400", "bg-accent-600", "bg-accent-800"];
+const MAX_MODEL_ROWS = MODEL_SEQ.length;
 
-// Denser than viewmodel.formatTokens (adds B, rounds large M) to match the redesign's compact cards.
-function fmt(n: number): string {
-    if (n >= 1e9) return +(n / 1e9).toFixed(2) + "B";
-    if (n >= 1e6) return +(n / 1e6).toFixed(n >= 1e8 ? 0 : 1) + "M";
-    if (n >= 1e3) return Math.round(n / 1e3) + "K";
-    return String(Math.round(n));
-}
-function usd(n: number): string {
-    if (n >= 1000) return "$" + +(n / 1000).toFixed(1) + "K";
-    if (n >= 100) return "$" + Math.round(n);
-    return "$" + n.toFixed(2);
-}
 function pctStr(n: number): string {
     if (n >= 10) return Math.round(n) + "%";
     if (n < 0.1) return n <= 0 ? "0%" : "<0.1%";
@@ -77,39 +62,6 @@ function ageStr(ms: number): string {
     const h = Math.floor(m / 60);
     if (h < 24) return h + "h";
     return Math.floor(h / 24) + "d";
-}
-
-// Files-precedent value transition (moment 7): tween a bar's width/height on recompute. Returns
-// undefined under reduced motion so the value snaps. Token-sourced duration + ease.
-function barTransition(reduce: boolean, prop: "width" | "height"): string | undefined {
-    return reduce ? undefined : `${prop} ${MOTION.durMacro}s ${easeFluidCss}`;
-}
-
-function Segmented<T extends string>({
-    value,
-    options,
-    onChange,
-}: {
-    value: T;
-    options: { key: T; label: string }[];
-    onChange: (v: T) => void;
-}) {
-    return (
-        <div className="flex flex-none rounded border border-border bg-surface-raised p-[3px]">
-            {options.map((o) => (
-                <button
-                    key={o.key}
-                    onClick={() => onChange(o.key)}
-                    className={cn(
-                        "cursor-pointer rounded-sm border-0 px-[12px] py-[5px] font-mono text-[11px] font-semibold",
-                        value === o.key ? "bg-accentbg text-primary" : "bg-transparent text-muted"
-                    )}
-                >
-                    {o.label}
-                </button>
-            ))}
-        </div>
-    );
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -135,22 +87,14 @@ function MiniDonut({
     now: number;
     projectedExhaustion?: number | null;
 }) {
-    const reduce = useReducedMotion();
     const has = pct != null;
-    const arc = has ? Math.min(100, pct) : 0;
-    const color = has ? RING[usageLevel(pct)] : "var(--color-edge-strong)";
-    const ringStyle = {
-        background: `conic-gradient(${color} 0 var(--usage-arc), var(--color-edge-strong) 0)`,
-        "--usage-arc": `${arc}%`,
-        transition: reduce ? undefined : `--usage-arc ${MOTION.durMacro}s ${easeFluidCss}`,
-    } as CSSProperties;
     return (
         <div className="flex items-center gap-[7px]">
-            <div className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full" style={ringStyle}>
-                <div className="flex h-[29px] w-[29px] items-center justify-center rounded-full bg-background">
-                    <span className="font-mono text-[10px] font-bold text-primary">{has ? Math.round(pct) + "%" : "—"}</span>
-                </div>
-            </div>
+            <ArcMeter pct={pct} size={40} thickness={5.5} color={RING[usageLevel(pct ?? 0)]}>
+                <span className="font-mono text-[10px] font-bold text-primary">
+                    {pct != null ? Math.round(pct) + "%" : "—"}
+                </span>
+            </ArcMeter>
             <div>
                 <div className="font-mono text-[10px] font-semibold text-secondary">{title}</div>
                 <div className="whitespace-nowrap font-mono text-[9px] text-muted">
@@ -212,25 +156,6 @@ function LiveLimitCard({
     );
 }
 
-function SplitBar({ items, totalOf }: { items: ClassUsage[]; totalOf: (c: ClassUsage) => number }) {
-    const reduce = useReducedMotion();
-    const total = items.reduce((s, c) => s + totalOf(c), 0) || 1;
-    return (
-        <div className="mb-[18px] flex h-[30px] overflow-hidden rounded-[7px] bg-background">
-            {items.map((c) => (
-                <div
-                    key={c.cls}
-                    style={{
-                        width: `${(totalOf(c) / total) * 100}%`,
-                        background: CLASS_COLOR[c.cls],
-                        transition: barTransition(reduce, "width"),
-                    }}
-                />
-            ))}
-        </div>
-    );
-}
-
 function SplitCard({ split }: { split: ClassUsage[] }) {
     const tokTotal = split.reduce((s, c) => s + c.tokens, 0);
     const spdTotal = split.reduce((s, c) => s + c.spendUsd, 0);
@@ -251,7 +176,13 @@ function SplitCard({ split }: { split: ClassUsage[] }) {
                 <span className="font-mono text-[11px] font-semibold text-secondary">Tokens</span>
                 <span className="font-mono text-[13px] font-bold text-primary">{fmt(tokTotal)}</span>
             </div>
-            <SplitBar items={split} totalOf={(c) => c.tokens} />
+            <StackedMeter
+                className="mb-[18px]"
+                height={30}
+                radius={7}
+                track="bg-background"
+                segs={split.map((c) => ({ key: c.cls, value: c.tokens, fill: CLASS_FILL[c.cls] }))}
+            />
 
             <div className="mb-[7px] flex items-baseline justify-between">
                 <span className="font-mono text-[11px] font-semibold text-secondary">
@@ -259,13 +190,19 @@ function SplitCard({ split }: { split: ClassUsage[] }) {
                 </span>
                 <span className="font-mono text-[13px] font-bold text-primary">{usd(spdTotal)}</span>
             </div>
-            <SplitBar items={split} totalOf={(c) => c.spendUsd} />
+            <StackedMeter
+                className="mb-[18px]"
+                height={30}
+                radius={7}
+                track="bg-background"
+                segs={split.map((c) => ({ key: c.cls, value: c.spendUsd, fill: CLASS_FILL[c.cls] }))}
+            />
 
             <div className="grid grid-cols-2 gap-x-[12px] gap-y-[14px] border-t border-border pt-4 sm:grid-cols-4">
                 {split.map((c) => (
                     <div key={c.cls}>
                         <div className="mb-2 flex items-center gap-[7px]">
-                            <span className="h-[10px] w-[10px] flex-none rounded-[3px]" style={{ background: CLASS_COLOR[c.cls] }} />
+                            <span className={cn("h-[10px] w-[10px] flex-none rounded-[3px]", CLASS_FILL[c.cls])} />
                             <span className="text-[11.5px] font-semibold text-secondary">{c.label}</span>
                         </div>
                         <div className="mb-[3px] flex justify-between font-mono text-[10.5px] text-muted">
@@ -287,107 +224,7 @@ function SplitCard({ split }: { split: ClassUsage[] }) {
     );
 }
 
-function DailyChart({
-    daily,
-    truncated,
-    window,
-    metric,
-    onMetric,
-}: {
-    daily: DailyUsage[];
-    truncated: boolean;
-    window: "7d" | "all";
-    metric: "tokens" | "spend";
-    onMetric: (m: "tokens" | "spend") => void;
-}) {
-    const reduce = useReducedMotion();
-    const rows = daily.map((d) => {
-        const a = metric === "tokens" ? d.claudeTokens : d.claudeSpendUsd;
-        const b = metric === "tokens" ? d.codexTokens : d.codexSpendUsd;
-        return { day: d.day.slice(5), a, b, total: a + b };
-    });
-    const dmax = Math.max(1, ...rows.map((r) => r.total));
-    const axis = (v: number) => (metric === "tokens" ? fmt(v) : usd(v));
-    const label = window === "7d" ? "last 7 days" : truncated ? "last 30 days" : "all time";
-    return (
-        <div className="mb-4 rounded-[14px] border border-border bg-surface-raised px-[22px] pb-5 pt-[18px]">
-            <div className="mb-5 flex flex-wrap items-center gap-3">
-                <h3 className="text-[15px] font-bold tracking-[-0.01em] text-primary">Daily</h3>
-                <span className="font-mono text-[11px] text-muted">{label}</span>
-                <div className="flex-1" />
-                <div className="flex items-center gap-[14px]">
-                    <span className="flex items-center gap-[5px] font-mono text-[10.5px] text-secondary">
-                        <span className="h-[9px] w-[9px] rounded-[2px] bg-accent" />
-                        claude
-                    </span>
-                    <span className="flex items-center gap-[5px] font-mono text-[10.5px] text-secondary">
-                        <span className="h-[9px] w-[9px] rounded-[2px] bg-success" />
-                        codex
-                    </span>
-                </div>
-                <Segmented
-                    value={metric}
-                    onChange={onMetric}
-                    options={[
-                        { key: "tokens", label: "Tokens" },
-                        { key: "spend", label: "Spend" },
-                    ]}
-                />
-            </div>
-            {rows.length === 0 ? (
-                <div className="py-8 text-center font-mono text-[12px] text-muted">No activity in range.</div>
-            ) : (
-                <div className="flex gap-2">
-                    <div className="flex h-[156px] w-[42px] flex-none flex-col items-end justify-between pb-5">
-                        <span className="font-mono text-[9.5px] text-muted">{axis(dmax)}</span>
-                        <span className="font-mono text-[9.5px] text-muted">{axis(dmax / 2)}</span>
-                        <span className="font-mono text-[9.5px] text-muted">0</span>
-                    </div>
-                    <div className="flex flex-1 items-end gap-[7px] border-b border-l border-border px-1">
-                        {rows.map((r, ri) => {
-                            const aH = Math.round((r.a / dmax) * DAILY_CHART_H);
-                            const bH = Math.round((r.b / dmax) * DAILY_CHART_H);
-                            const idle = r.total === 0;
-                            const tip = `${r.day} · ${metric === "tokens" ? fmt(r.total) + " tok" : usd(r.total) + " ≈"}`;
-                            // grow each column up from the baseline on mount, left-to-right stagger (scaleY,
-                            // not height, so it's GPU-composited and never fights the height recompute tween)
-                            const grow = reduce
-                                ? {}
-                                : {
-                                      initial: { scaleY: 0 },
-                                      animate: { scaleY: 1 },
-                                      transition: { delay: ri * 0.025, duration: MOTION.durMacro, ease: MOTION.easeFluid },
-                                  };
-                            return (
-                                <div key={r.day} title={tip} className="flex flex-1 cursor-default flex-col items-center gap-[7px]">
-                                    <div className="flex h-[156px] w-full flex-col items-center justify-end gap-[2px]">
-                                        {r.b > 0 ? (
-                                            <motion.div
-                                                {...grow}
-                                                className="w-[64%] max-w-[30px] rounded-t-[3px] bg-success"
-                                                style={{ height: bH, transformOrigin: "bottom", transition: barTransition(reduce, "height") }}
-                                            />
-                                        ) : null}
-                                        <motion.div
-                                            {...grow}
-                                            className={cn("w-[64%] max-w-[30px] bg-accent", r.b > 0 ? "" : "rounded-t-[3px]")}
-                                            style={{ height: aH, transformOrigin: "bottom", transition: barTransition(reduce, "height") }}
-                                        />
-                                        {idle ? <div className="h-[2px] w-[64%] max-w-[30px] rounded-[2px] bg-edge-strong" /> : null}
-                                    </div>
-                                    <span className="font-mono text-[9.5px] text-muted">{r.day}</span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
 function ModelGroup({ p }: { p: ProviderUsage }) {
-    const reduce = useReducedMotion();
     return (
         <div className="rounded-[14px] border border-border bg-surface-raised px-[20px] py-[18px]">
             <div className="mb-4 flex items-baseline justify-between">
@@ -397,7 +234,7 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
                 </div>
                 <span className="font-mono text-[12px] font-bold text-secondary">{fmt(p.tokens)}</span>
             </div>
-            {p.models.map((m, i) => (
+            {foldModels(p.models, MAX_MODEL_ROWS).map((m, i) => (
                 <div key={m.model} className="mb-[13px]">
                     <div className="mb-[6px] flex items-baseline justify-between">
                         <span className="font-mono text-[12px] text-secondary" title={m.model}>{prettyModel(m.model)}</span>
@@ -405,20 +242,7 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
                             {fmt(m.tokens)} · <span className="font-semibold text-secondary">{pctStr(m.pct)}</span>
                         </span>
                     </div>
-                    <div className="h-[7px] overflow-hidden rounded-[4px] bg-edge-strong">
-                        <motion.div
-                            className="h-full rounded-[4px]"
-                            style={{
-                                width: `${m.pct}%`,
-                                transformOrigin: "left",
-                                background: MODEL_COLORS[i % MODEL_COLORS.length],
-                                transition: barTransition(reduce, "width"),
-                            }}
-                            initial={reduce ? false : { scaleX: 0 }}
-                            animate={{ scaleX: 1 }}
-                            transition={reduce ? { duration: 0 } : { delay: i * 0.04, duration: MOTION.durMacro, ease: MOTION.easeFluid }}
-                        />
-                    </div>
+                    <Meter pct={m.pct} fill={MODEL_SEQ[i]} height={7} radius={4} track="bg-edge-strong" />
                 </div>
             ))}
         </div>
@@ -625,7 +449,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
                             <DailyChart
                                 daily={stats.daily}
-                                truncated={stats.dailyTruncated}
                                 window={usageWindow}
                                 metric={usageMetric}
                                 onMetric={setUsageMetric}

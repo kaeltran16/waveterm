@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { Meter } from "@/app/element/meter";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -145,12 +146,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                       {Math.round(ctxPct)}%
                                   </span>
                               </div>
-                              <div className="h-[7px] overflow-hidden rounded-[4px] bg-surface-hover">
-                                  <span
-                                      className={cn("block h-full rounded-[4px]", GAUGE_FILL[usageLevel(ctxPct)])}
-                                      style={{ width: `${Math.min(100, ctxPct)}%` }}
-                                  />
-                              </div>
+                              <Meter pct={ctxPct} fill={GAUGE_FILL[usageLevel(ctxPct)]} height={7} radius={4} />
                           </div>
                       ),
                   } as RailSection,

@@ -35,7 +35,6 @@ const EMPTY: UsageStats = {
         { cls: "input", label: "Input", tokens: 0, spendUsd: 0 },
     ],
     daily: [],
-    dailyTruncated: false,
     providers: [],
 };
 

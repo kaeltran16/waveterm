@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ArcMeter } from "@/app/element/meter";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { liveWindowAgents, providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
@@ -14,7 +15,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAtomValue } from "jotai";
 
 // donut foreground tracks the usage band — the SAME rings the Usage tab uses (success/warn/error), so
-// a given percentage reads the same color in the app bar and on the tab
+// a given percentage reads the same color in the app bar and on the tab. Both are now literally the
+// same ArcMeter, which is what finally makes that true: this ring previously had no --usage-arc (so it
+// never animated) and a different track color.
 const DONUT_COLOR: Record<"ok" | "warn" | "hot", string> = {
     ok: "var(--color-success)",
     warn: "var(--color-warning)",
@@ -39,7 +42,6 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 provider: d.provider,
                 pct,
                 rt: runtimeMeta(d.provider),
-                donut: `conic-gradient(${DONUT_COLOR[usageLevel(pct)]} 0 ${pct}%, var(--color-edge-mid) ${pct}% 100%)`,
             };
         });
     return (
@@ -96,12 +98,13 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                         <span className="flex items-center gap-3">
                             {gauges.map((g) => (
                                 <span key={g.provider} className="flex items-center gap-1.5">
-                                    <span
-                                        className="flex h-[18px] w-[18px] items-center justify-center rounded-full"
-                                        style={{ background: g.donut }}
-                                    >
-                                        <span className="h-[11px] w-[11px] rounded-full bg-surface" />
-                                    </span>
+                                    <ArcMeter
+                                        pct={g.pct}
+                                        size={18}
+                                        thickness={3.5}
+                                        color={DONUT_COLOR[usageLevel(g.pct)]}
+                                        center="bg-surface"
+                                    />
                                     <span className="flex items-center gap-1 font-mono text-[11px] text-secondary">
                                         <span className={cn("leading-none", g.rt.text)}>{g.rt.glyph}</span>
                                         {`${Math.round(g.pct)}%`}

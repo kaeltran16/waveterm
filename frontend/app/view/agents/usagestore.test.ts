@@ -29,7 +29,6 @@ afterEach(() => {
         totals: { ...zeroTotals },
         split: [],
         daily: [],
-        dailyTruncated: false,
         providers: [],
     });
     globalStore.set(usageErrorAtom, false);
@@ -42,7 +41,6 @@ describe("loadUsage", () => {
             totals: { ...zeroTotals, tokensToday: -1, tokensWeek: -1 },
             split: [],
             daily: [],
-            dailyTruncated: false,
             providers: [],
         };
         globalStore.set(usageStatsAtom, sentinel);
@@ -60,7 +58,6 @@ describe("loadUsage", () => {
             totals: { ...zeroTotals, tokensToday: 5, tokensWeek: 5 },
             split: [],
             daily: [],
-            dailyTruncated: false,
             providers: [],
         };
         globalStore.set(usageStatsAtom, good);

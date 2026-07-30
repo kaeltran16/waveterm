@@ -3,32 +3,17 @@
 //
 // "Token usage" rail section for the focused agent: per-class split (tokens + ≈ spend) and a
 // per-model breakdown, from the session's own transcript (transcriptusagestore/sessionusage).
-// Class colors mirror usagesurface.tsx's CLASS_COLOR (theme tokens only). Spend is an estimate.
+// Class fills come from usagestats.ts's CLASS_FILL (theme tokens only). Spend is an estimate.
 
+import { StackedMeter } from "@/app/element/meter";
 import { SkeletonLine } from "@/app/element/skeleton";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { prettyModel } from "./modellabel";
 import { sessionUsageAtom } from "./transcriptusagestore";
+import { CLASS_FILL, fmt, usd } from "./usagestats";
 import type { TokenClass } from "./usagestats";
 
-const CLASS_COLOR: Record<TokenClass, string> = {
-    cacheRead: "var(--color-cacheread)",
-    output: "var(--color-accent)",
-    cacheWrite: "var(--color-warning)",
-    input: "var(--color-success)",
-};
-
-function fmt(n: number): string {
-    if (n >= 1e9) return +(n / 1e9).toFixed(2) + "B";
-    if (n >= 1e6) return +(n / 1e6).toFixed(n >= 1e8 ? 0 : 1) + "M";
-    if (n >= 1e3) return Math.round(n / 1e3) + "K";
-    return String(Math.round(n));
-}
-function usd(n: number): string {
-    if (n >= 1000) return "$" + +(n / 1000).toFixed(1) + "K";
-    if (n >= 100) return "$" + Math.round(n);
-    return "$" + n.toFixed(2);
-}
 function pctStr(n: number): string {
     if (n >= 10) return Math.round(n) + "%";
     if (n <= 0) return "0%";
@@ -38,19 +23,6 @@ function pctStr(n: number): string {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
     return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
-}
-
-function StackedBar({ segs, total }: { segs: { cls: TokenClass; value: number }[]; total: number }) {
-    const denom = total || 1;
-    return (
-        <div className="flex h-[11px] overflow-hidden rounded-[5px] bg-surface-hover">
-            {segs.map((s) =>
-                s.value > 0 ? (
-                    <span key={s.cls} style={{ width: `${(s.value / denom) * 100}%`, background: CLASS_COLOR[s.cls] }} />
-                ) : null
-            )}
-        </div>
-    );
 }
 
 export function TokenUsageSection() {
@@ -103,14 +75,24 @@ export function TokenUsageSection() {
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">Tokens</span>
                 <span className="font-mono text-[11px] text-secondary">{fmt(totalTokens)}</span>
             </div>
-            <StackedBar segs={classes.map((c) => ({ cls: c.cls, value: c.tokens }))} total={totalTokens} />
+            <StackedMeter
+                height={11}
+                radius={5}
+                segs={classes.map((c) => ({ key: c.cls, value: c.tokens, fill: CLASS_FILL[c.cls] }))}
+                total={totalTokens}
+            />
 
             {/* spend bar */}
             <div className="mb-[6px] mt-[13px] flex items-baseline justify-between">
                 <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.09em] text-muted">≈ Spend</span>
                 <span className="font-mono text-[11px] text-secondary">{usd(totalSpendUsd)}</span>
             </div>
-            <StackedBar segs={classes.map((c) => ({ cls: c.cls, value: c.spendUsd }))} total={totalSpendUsd} />
+            <StackedMeter
+                height={11}
+                radius={5}
+                segs={classes.map((c) => ({ key: c.cls, value: c.spendUsd, fill: CLASS_FILL[c.cls] }))}
+                total={totalSpendUsd}
+            />
 
             {/* insight */}
             {insight ? (
@@ -130,7 +112,7 @@ export function TokenUsageSection() {
                         key={c.cls}
                         className="flex items-center gap-[9px] border-b border-edge-faint py-[7px] last:border-b-0"
                     >
-                        <span className="h-[9px] w-[9px] flex-none rounded-[3px]" style={{ background: CLASS_COLOR[c.cls] }} />
+                        <span className={cn("h-[9px] w-[9px] flex-none rounded-[3px]", CLASS_FILL[c.cls])} />
                         <span className="min-w-0 flex-1 text-[12px] text-secondary">{c.label}</span>
                         <span className="w-[52px] text-right font-mono text-[11.5px] text-secondary">{fmt(c.tokens)}</span>
                         <span className="w-[34px] text-right font-mono text-[9.5px] text-muted">
@@ -158,8 +140,14 @@ export function TokenUsageSection() {
                             <span className="w-[48px] text-right font-mono text-[11px] text-muted">{usd(m.spendUsd)}</span>
                         </div>
                         {single ? null : (
-                            <StackedBar
-                                segs={(Object.keys(m.classes) as TokenClass[]).map((cls) => ({ cls, value: m.classes[cls] }))}
+                            <StackedMeter
+                                height={11}
+                                radius={5}
+                                segs={(Object.keys(m.classes) as TokenClass[]).map((cls) => ({
+                                    key: cls,
+                                    value: m.classes[cls],
+                                    fill: CLASS_FILL[cls],
+                                }))}
                                 total={m.tokens}
                             />
                         )}

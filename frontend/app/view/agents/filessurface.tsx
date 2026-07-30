@@ -14,7 +14,8 @@ import { Copy, Pencil } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MOTION, cardVariants, computeEntrances, easeFluidCss, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
+import { StackedMeter } from "@/app/element/meter";
+import { MOTION, cardVariants, computeEntrances, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "./agents";
@@ -431,10 +432,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 <span className="text-ink-faint">{reviewModel!.files.length} files</span>
                                 <span className="text-ink-mid">{rprog.reviewed}/{rprog.total} reviewed</span>
                             </div>
-                            <div className="flex h-[6px] overflow-hidden rounded-[4px] bg-surface-hover">
-                                <div className="h-full bg-success" style={{ width: `${rprog.total ? (rprog.accepted / rprog.total) * 100 : 0}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
-                                <div className="h-full bg-error" style={{ width: `${rprog.total ? (rprog.rejected / rprog.total) * 100 : 0}%`, transition: `width ${MOTION.durMacro}s ${easeFluidCss}` }} />
-                            </div>
+                            <StackedMeter
+                                height={6}
+                                radius={4}
+                                total={rprog.total}
+                                segs={[
+                                    { key: "accepted", value: rprog.accepted, fill: "bg-success" },
+                                    { key: "rejected", value: rprog.rejected, fill: "bg-error" },
+                                ]}
+                            />
                         </div>
                     )}
                 </div>

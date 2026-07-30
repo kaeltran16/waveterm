@@ -6,6 +6,7 @@ import { cn } from "@/util/util";
 import { useAtomValue, type Atom } from "jotai";
 import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
 import { Copy, GitCompare, Minimize2, PanelRight, Scaling, SquareTerminal, X } from "lucide-react";
+import { Meter } from "@/app/element/meter";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -99,9 +100,7 @@ function TaskPopover({
                     ✕
                 </button>
             </div>
-            <div className="mb-3 h-[5px] overflow-hidden rounded-[3px] bg-edge-faint">
-                <div className="h-full rounded-[3px] bg-success" style={{ width: `${pct}%` }} />
-            </div>
+            <Meter pct={pct} fill="bg-success" height={5} radius={3} track="bg-edge-faint" className="mb-3" />
             <div className="flex flex-col gap-px">
                 {tasks.map((t, i) => (
                     <div key={i} className="flex items-start gap-2.5 py-1">

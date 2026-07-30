@@ -8,6 +8,7 @@
 // that runbody.tsx streams for the active run's workers. Adapts Wave-runs.dc.html Turn 3 (3a + C)
 // to our @theme tokens — no raw hex; working = accent (StatusDot is the source of truth).
 
+import { Meter } from "@/app/element/meter";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
@@ -131,9 +132,7 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                                 </span>
                                 <span className="font-mono text-[10px] font-bold text-success">{prog.pct}%</span>
                             </div>
-                            <div className="h-[5px] overflow-hidden rounded-[3px] bg-edge-faint">
-                                <div className="h-full rounded-[3px] bg-success" style={{ width: `${prog.pct}%` }} />
-                            </div>
+                            <Meter pct={prog.pct} fill="bg-success" height={5} radius={3} track="bg-edge-faint" />
                         </div>
                     ) : null}
                 </>
