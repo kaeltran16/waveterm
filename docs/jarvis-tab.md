@@ -20,7 +20,7 @@ Entry point: `JarvisSurface` (`jarvissurface.tsx`), nav rail item **Jarvis** (`B
 - [5. Thread renderers](#5-thread-renderers)
 - [6. The composer](#6-the-composer)
 - [7. Context rail](#7-context-rail)
-- [8. Autonomy ladder](#8-autonomy-ladder)
+- [8. Autonomy control](#8-autonomy-control)
 - [9. Profile drawer](#9-profile-drawer)
 - [10. Graph peek](#10-graph-peek)
 - [11. Grounding, citations, freshness](#11-grounding-citations-freshness)
@@ -72,7 +72,7 @@ A **subject** is one of three kinds, and the kind decides everything the Stage d
 
 | | `channel` `#` | `dossier` `▤` | `conversation` `~` |
 |---|---|---|---|
-| Autonomy ladder | yes | — | — |
+| Autonomy chip | yes | — | — |
 | Profile ⚙ | yes | — | — |
 | "Grounded in" chip | — | this record + its runs | all projects |
 | Absence chip | — | `Record · not a run` | `No channel · no fleet · no profile` |
@@ -124,7 +124,7 @@ list.
   Delete (behind `ConfirmModal`). The affordances lived on the deleted ChannelRail and came back here rather
   than into the header, because the header acts on the channel you are *on* and renaming one you are not is
   the point. Archiving moves the channel to a trailing `Archived · N` group — without somewhere to go, the
-  menu item would have had no visible effect. Autonomy deliberately did not come back: the header ladder
+  menu item would have had no visible effect. Autonomy deliberately did not come back: the header chip
   owns it, and a second control would be a second source of truth.
 - **Thread lifecycle** — right-click a thread row for Archive / Unarchive and Delete (behind `ConfirmModal`),
   mirroring the channel menu: a row you cannot remove is a permanent one. No Rename — a thread's title comes
@@ -149,8 +149,9 @@ list.
 worker output.
 
 The header (`stageheader.tsx`) carries the subject mark, title, subtitle, the `Grounded in:` reach
-statement (a statement, not a picker — Spaces own scoping), the absence chip, the autonomy ladder, ⚙ and
-**Graph**.
+statement (a statement, not a picker — Spaces own scoping), the absence chip, the autonomy chip (§8) and
+**Graph**. The ⚙ is not here: it triggers a right-edge drawer, so it sits in the context rail's icon slot
+beside the edge that drawer opens from (§9).
 
 Two one-shot landings are consumed here:
 
@@ -338,11 +339,22 @@ absent, but Needs you must not wait on the user selecting something.
    they are on. It is the only way to ask for one: the `@jarvis` handle the consolidation orphaned was
    deleted rather than rewired.
 
-## 8. Autonomy ladder
+## 8. Autonomy control
 
-`autonomyladder.ts` + `autonomyladderview.tsx`. Channel only. Three **nested** rungs, not alternatives —
-delegator implies gatekeeper implies concierge (`pkg/jarvis/resolve.go`). Rendered as accumulating fill
-with a growing bar so it reads as accumulation; three separate buttons would misrepresent the backend.
+`autonomyladder.ts` + `autonomyladderview.tsx`. Channel only. A fixed-width chip in the Stage header names
+the current tier (`▮▮▮ Delegator · fanout`), and opens a popover holding the ladder itself. The tiers are
+three **nested** rungs, not alternatives — delegator implies gatekeeper implies concierge
+(`pkg/jarvis/resolve.go`) — drawn as accumulating fill so they read as accumulation; three separate buttons
+would misrepresent the backend. The chip's glyph is the current tier's rung fill at 3px, so the header
+states the tier without opening anything.
+
+The chip's box is identical at every tier and every mode. That is deliberate: the dispatch strip used to
+render inline at Delegator only, which grew the control ~140px and slid the rungs out from under the cursor
+that had just clicked one (JC12's cause). The floor is a measurement, not arithmetic — 164px, the widest
+natural state (`Delegator · fanout`) measured over CDP against 107px at Concierge — and the mode is capped
+at its measured 52px so a non-canonical value clips instead of growing the box. It is also what brings the
+control to the header's scale: 27px tall, like the `Graph` button beside it, where the old group was 41px in
+a 43px band.
 
 | Rung | Behaviour |
 |---|---|
@@ -350,12 +362,22 @@ with a growing bar so it reads as accumulation; three separate buttons would mis
 | Gatekeeper | + answers routine asks itself; real forks still escalate |
 | Delegator | + dispatches follow-up work without asking first |
 
-The dispatch mode (`report` / `manage` / `fanout`) appears at Delegator only — below that tier it has
-nothing to act on.
+The dispatch mode (`report` / `manage` / `fanout`) appears in the popover at Delegator only — below that
+tier it has nothing to act on. Picking a tier or a mode leaves the panel open, since setting the mode is the
+obvious next click after landing on Delegator; Escape, an outside click, or the chip closes it.
+
+Escape closes *only* the panel. On a deep surface Escape is also bound to "back to Cockpit"
+(`bindings.ts` `surface:back-home`) and the app's dispatcher runs on **window capture**, ahead of any handler
+the panel could register — so the panel publishes `autonomyPanelOpenAtom` and that binding stands down while
+it is open, the same arrangement the graph peek uses. One caveat: picking a tier hands focus back to the
+composer, and Escape with a field focused belongs to `jarvis:blur-composer` — so from there it takes a second
+press to close the panel.
 
 ## 9. Profile drawer
 
-`profilepanel.tsx`, opened by ⚙ in the channel header. Edits the Jarvis profile at two scopes:
+`profilepanel.tsx`, opened by the ⚙ in the context rail's icon slot — stacked under the rail's own glyph
+while it is collapsed, beside the collapse control in its header band while it is expanded (`extraIcons`
+on `CollapsibleRail`), and shown only on a channel. Edits the Jarvis profile at two scopes:
 **Global defaults** and **This project** (a per-channel override merged over global).
 
 - **Playbook** — ordered run phases (`brainstorm` / `plan` / `execute` / `custom`), each with an optional
@@ -468,7 +490,7 @@ Getting here and moving around (global registry, `buildGlobalBindings` / `buildL
 | `[` / `]` | cycle the rail order |
 | `j` / `k` | move the Subjects cursor (the *commit* is idle-debounced — see below) |
 | `1`–`9`, `Enter` | answer the shown run's asking worker (channel subjects) |
-| `Esc` | close the graph peek; otherwise leave the surface for the Cockpit |
+| `Esc` | close the graph peek or the autonomy panel (§8); otherwise leave the surface for the Cockpit |
 | `^P` | command palette |
 
 `listnav.ts`'s `cursor == selection` contract is **unchanged** — five surfaces share it, and the same keys

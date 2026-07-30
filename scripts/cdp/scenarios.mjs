@@ -225,10 +225,11 @@ const jarvisStates = {
 };
 
 // --- jarvis fleet: the fleet manager on the merged surface -------------------------------------
-// Create a channel, select it in the Subjects column, and assert the Stage header's autonomy ladder plus
+// Create a channel, select it in the Subjects column, and assert the Stage header's autonomy chip plus
 // the context rail's Fleet section render. No worker is dispatched — the roster's empty-state is a valid
 // render assertion and keeps the run light. Channel + temp dir are cleaned up in teardown (mirrors
-// runs-lifecycle).
+// runs-lifecycle). The autonomy half also carries this control's own regression check: the chip's left edge
+// must not move when Delegator is selected, and Escape must dismiss the panel without leaving the surface.
 //
 // This also covers where the @jarvis summary handoff lands: pendingFleetSummaryAtom drives runSummary into
 // the same Fleet section as its own "Summarize the fleet" button, so asserting that button is present is
@@ -268,27 +269,137 @@ const jarvisFleet = {
             return true;
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 900))"); // settle selectSubject + roster derive
-        // innerText reflects CSS text-transform and the ladder's eyebrow is uppercased, so compare the
-        // header case-insensitively (same caveat as jarvis-proactive).
+        // The autonomy control is a fixed-width chip now, so the header carries only the current tier; the
+        // three rungs live in its popover. Assert the chip, then open it and assert the ladder.
         const rendered = await h.ev(`(() => {
             const t = document.body.innerText || '';
-            const upper = t.toUpperCase();
+            const chip = document.querySelector('[data-jarvis-autonomy="chip"]');
             return {
-                autonomy: upper.includes('AUTONOMY') && upper.includes('CONCIERGE') && upper.includes('DELEGATOR'),
+                chip: chip ? chip.innerText.replace(/\\n/g, ' ').trim() : null,
+                panelClosed: document.querySelector('[data-jarvis-autonomy="panel"]') == null,
                 roster: t.includes('No workers dispatched') && t.includes('working'),
                 summarize: t.includes('Summarize the fleet'),
             };
         })()`);
         steps.push({
-            step: `select the channel subject -> autonomy ladder + Fleet roster + summary button render`,
+            step: `select the channel subject -> autonomy chip + Fleet roster + summary button render`,
             ok:
                 selected === true &&
-                rendered.autonomy === true &&
+                /Concierge/.test(rendered.chip ?? "") &&
+                rendered.panelClosed === true &&
                 rendered.roster === true &&
                 rendered.summarize === true,
             detail: `clicked=${selected} ${JSON.stringify(rendered)}`,
         });
         await h.shot("cdp-shots/jarvis-fleet.png");
+
+        // open the chip: the ladder, its blurbs and (at Delegator) the dispatch mode are all in the panel
+        const opened = await h.ev(`(() => {
+            const chip = document.querySelector('[data-jarvis-autonomy="chip"]');
+            if (!chip) return null;
+            chip.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 450))"); // PopoverReveal enter
+        const panel = await h.ev(`(() => {
+            const p = document.querySelector('[data-jarvis-autonomy="panel"]');
+            if (!p) return null;
+            const t = p.innerText || '';
+            const upper = t.toUpperCase();
+            return {
+                caption: upper.includes('AUTONOMY'),
+                rungs: t.includes('Concierge') && t.includes('Gatekeeper') && t.includes('Delegator'),
+                blurb: t.includes('watches and narrates'),
+                modesHidden: !t.includes('fanout'),
+            };
+        })()`);
+        steps.push({
+            step: `chip opens -> three rungs with blurbs, dispatch mode absent below Delegator`,
+            ok:
+                opened === true &&
+                panel != null &&
+                panel.caption === true &&
+                panel.rungs === true &&
+                panel.blurb === true &&
+                panel.modesHidden === true,
+            detail: JSON.stringify(panel),
+        });
+        await h.shot("cdp-shots/jarvis-fleet-autonomy.png");
+
+        // The regression this control was rebuilt for: selecting Delegator used to grow the header group
+        // ~140px and slide it left, out from under the cursor. The chip's left edge must not move.
+        const beforeLeft = await h.ev(
+            `Math.round(document.querySelector('[data-jarvis-autonomy="chip"]').getBoundingClientRect().left)`
+        );
+        const picked = await h.ev(`(() => {
+            const p = document.querySelector('[data-jarvis-autonomy="panel"]');
+            if (!p) return false;
+            const row = [...p.querySelectorAll('button')].find((b) => (b.innerText || '').trim().startsWith('Delegator'));
+            if (!row) return false;
+            row.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 1400))"); // SetChannelTier RPC + loadChannels refetch
+        const after = await h.ev(`(() => {
+            const chip = document.querySelector('[data-jarvis-autonomy="chip"]');
+            const p = document.querySelector('[data-jarvis-autonomy="panel"]');
+            return {
+                left: chip ? Math.round(chip.getBoundingClientRect().left) : null,
+                width: chip ? Math.round(chip.getBoundingClientRect().width) : null,
+                text: chip ? chip.innerText.replace(/\\n/g, ' ').trim() : null,
+                stillOpen: p != null,
+                modes: p ? /report/.test(p.innerText || '') && /fanout/.test(p.innerText || '') : false,
+            };
+        })()`);
+        steps.push({
+            step: `pick Delegator -> chip does not move, panel stays open, dispatch mode appears`,
+            ok:
+                picked === true &&
+                after.left === beforeLeft &&
+                /Delegator/.test(after.text ?? "") &&
+                after.stillOpen === true &&
+                after.modes === true,
+            detail: `left ${beforeLeft} -> ${after.left} ${JSON.stringify(after)}`,
+        });
+
+        // Escape dismisses, and must dismiss ONLY the panel: Escape on a deep surface is also bound to
+        // "back to Cockpit" (bindings.ts surface:back-home), which the panel suppresses while it is open.
+        // A real key event, not a synthetic KeyboardEvent — floating-ui's dismissal never sees a dispatched
+        // one, so a synthetic Escape asserts nothing here.
+        const realEscape = async () => {
+            for (const type of ["keyDown", "keyUp"]) {
+                await h.cdp("Input.dispatchKeyEvent", {
+                    type,
+                    key: "Escape",
+                    code: "Escape",
+                    windowsVirtualKeyCode: 27,
+                });
+            }
+            await h.ev("new Promise((r) => setTimeout(r, 700))"); // PopoverReveal exit
+        };
+        // focus the chip first: picking a tier lets the Stage composer take focus back, and Escape with a
+        // field focused belongs to jarvis:blur-composer (it leaves the field, panel untouched). Focusing
+        // the chip is the keyboard-driven path this step is about.
+        await h.ev(`(() => { document.querySelector('[data-jarvis-autonomy="chip"]').focus(); return true; })()`);
+        await realEscape();
+        const dismissed = await h.ev(`(() => ({
+            panelGone: document.querySelector('[data-jarvis-autonomy="panel"]') == null,
+            chipStillThere: document.querySelector('[data-jarvis-autonomy="chip"]') != null,
+        }))()`);
+        const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.jarvis;
+        steps.push({
+            step: `Escape closes the autonomy panel without leaving the surface`,
+            ok: dismissed.panelGone === true && dismissed.chipStillThere === true && stayed === true,
+            detail: `${JSON.stringify(dismissed)} surfaceStillJarvis=${stayed}`,
+        });
+        // and with the panel closed, Escape must still do its surface-level job
+        await realEscape();
+        const wentHome = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
+        steps.push({
+            step: `Escape with the panel closed still returns to the Cockpit`,
+            ok: wentHome === true,
+            detail: `surface=${await h.activeSurfaceLabel()}`,
+        });
         return steps;
     },
     async teardown(h, ctx) {

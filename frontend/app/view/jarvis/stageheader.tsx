@@ -33,11 +33,11 @@ export function StageHeader({
         // the rule spans the Stage; the row inside it sits in the shared gutter, so the title starts on the
         // same x as the thread and the composer below it.
         <div className={cn(STAGE_HEADER_BAND, STAGE_BAND_INSET)}>
-            {/* @container: the ladder's rungs and its dispatch strip yield to the header's own width, not
-                the window's. The title was the only shrinkable item in this row, so it truncated to 0px
-                whenever the ladder grew — the subject you are looking at lost its name. It now has a floor
-                and the ladder gives up its labels first (see autonomyladderview). The query container is
-                the gutter row, which is the box its children actually get. */}
+            {/* @container: the subtitle yields to the header's own width, not the window's. The title was
+                the only shrinkable item in this row, so it truncated to 0px whenever the autonomy control
+                grew — the subject you are looking at lost its name. The control is now a fixed-width chip
+                that cannot grow, and the title keeps its floor. The query container is the gutter row,
+                which is the box its children actually get. */}
             <div className={cn(STAGE_GUTTER, "@container flex h-full items-center gap-2.5")}>
                 <span className="flex-none font-mono text-[13px] font-semibold text-accent-soft">{comp.mark}</span>
                 <span

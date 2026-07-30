@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { appliedAtom, decisionsAtom, reviewModelAtom, reviewSelectedAtom } from "@/app/view/agents/reviewstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import {
@@ -96,6 +97,36 @@ describe("surface switch [ / ]", () => {
         expect(b.keys).toBe("g r");
         b.run(ctx());
         expect(globalStore.get(model.surfaceAtom)).toBe("radar");
+    });
+});
+
+describe("Escape back to the Cockpit", () => {
+    const backHome = () =>
+        buildGlobalBindings({ surfaceAtom: atom<SurfaceKey>("jarvis") } as any).find(
+            (b) => b.id === "surface:back-home"
+        )!;
+
+    it("leaves a deep surface, but is not bound on the Cockpit itself", () => {
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(autonomyPanelOpenAtom, false);
+        const b = backHome();
+        expect(b.keys).toBe("Escape");
+        expect(b.when!(ctx("jarvis"))).toBe(true);
+        expect(b.when!(ctx("cockpit"))).toBe(false);
+    });
+
+    // an overlay that dismisses on Escape must also suppress this, or one press does both: closes the
+    // overlay AND leaves the surface. The dispatcher runs on window capture, so the overlay cannot win
+    // the key by registering its own handler — it has to be declared here.
+    it("yields to whichever Jarvis overlay owns Escape", () => {
+        const b = backHome();
+        globalStore.set(graphPeekOpenAtom, true);
+        expect(b.when!(ctx("jarvis"))).toBe(false);
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(autonomyPanelOpenAtom, true);
+        expect(b.when!(ctx("jarvis"))).toBe(false);
+        globalStore.set(autonomyPanelOpenAtom, false);
+        expect(b.when!(ctx("jarvis"))).toBe(true);
     });
 });
 

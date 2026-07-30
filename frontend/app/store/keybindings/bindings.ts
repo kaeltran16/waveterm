@@ -21,6 +21,7 @@ import {
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId, startJarvisThread } from "@/app/view/jarvis/jarvissubjectstore";
 import { listNavAtom } from "./listnav";
@@ -174,8 +175,13 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             label: "Back to Cockpit",
             // the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
             // by Escape there, and navigating home instead would leave the peek open behind the Cockpit.
+            // The autonomy panel owns it for the same reason — and it cannot claim the key itself, since
+            // this dispatcher runs on window capture, ahead of any handler the panel could register.
             when: (ctx) =>
-                navigate(ctx) && ESC_HOME_SURFACES.has(ctx.surface) && !globalStore.get(graphPeekOpenAtom),
+                navigate(ctx) &&
+                ESC_HOME_SURFACES.has(ctx.surface) &&
+                !globalStore.get(graphPeekOpenAtom) &&
+                !globalStore.get(autonomyPanelOpenAtom),
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];

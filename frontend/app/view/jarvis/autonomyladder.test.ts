@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DISPATCH_MODES, LADDER, rungState, showsDispatchMode } from "./autonomyladder";
+import { chipParts, DISPATCH_MODES, LADDER, RUNG_BAR_PX, rungState, showsDispatchMode } from "./autonomyladder";
 
 describe("LADDER", () => {
     it("orders the rungs from least to most autonomy", () => {
@@ -39,5 +39,34 @@ describe("showsDispatchMode", () => {
 
     it("offers exactly the three backend modes", () => {
         expect(DISPATCH_MODES).toEqual(["report", "manage", "fanout"]);
+    });
+});
+
+describe("RUNG_BAR_PX", () => {
+    it("gives every rung a height, index-aligned to the ladder", () => {
+        expect(RUNG_BAR_PX).toHaveLength(LADDER.length);
+    });
+
+    it("grows with the rung, so the bars read as accumulation", () => {
+        const rising = RUNG_BAR_PX.every((h, i) => i === 0 || h > RUNG_BAR_PX[i - 1]);
+        expect(rising).toBe(true);
+    });
+});
+
+describe("chipParts", () => {
+    it("names the current tier", () => {
+        expect(chipParts("gatekeeper", "report").label).toBe("Gatekeeper");
+        expect(chipParts("concierge", "report").label).toBe("Concierge");
+    });
+
+    it("carries the dispatch mode at delegator only", () => {
+        expect(chipParts("delegator", "fanout").mode).toBe("fanout");
+        expect(chipParts("gatekeeper", "fanout").mode).toBeNull();
+        expect(chipParts("concierge", "fanout").mode).toBeNull();
+    });
+
+    it("drops an unset mode rather than rendering a bare separator", () => {
+        expect(chipParts("delegator", "").mode).toBeNull();
+        expect(chipParts("delegator", undefined).mode).toBeNull();
     });
 });

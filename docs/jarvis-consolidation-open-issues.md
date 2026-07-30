@@ -440,6 +440,13 @@ to their bars, then the dispatch strip, before the subject's name gives up a pix
 
 **Verify.** CDP measure of the title span at all three rungs, at 1440 and 1000; shot 09.
 
+**Superseded 2026-07-30.** The cause is gone, not mitigated: the dispatch strip no longer renders in the
+header at all (`docs/superpowers/specs/2026-07-30-jarvis-autonomy-chip-design.md`). The autonomy control is
+a fixed-width chip whose box cannot change with the tier, so the title has nothing to lose space to —
+measured 164px at every tier and every mode, with the title holding 99px at 1440/1000/860 and no overflow.
+The `min-w-[10ch]` floor stays as belt-and-braces, and `jarvis-fleet` now asserts the chip's left edge is
+identical before and after selecting Delegator.
+
 ### JC13 — `Attach a record` / `Create one from this run` are unclickable spans **[tour, still open]**
 
 **Kind:** legibility · **Effort:** S
