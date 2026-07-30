@@ -588,9 +588,9 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
     const sections: RailSection[] = [
         { id: "profile", icon: <span className="text-[16px]">⚙</span>, label: "Profile", content: body },
     ];
-    // no collapsed strip of its own (hideWhenCollapsed): the ⚙ trigger lives in the Stage header, and while
-    // this drawer is open the sibling context rail force-collapses to 0 (see StageRail's forceCollapsed), so
-    // the two share the single right-edge slot instead of doubling up.
+    // no collapsed strip of its own (hideWhenCollapsed): the ⚙ trigger is the sibling context rail's extra
+    // icon, and while this drawer is open that rail force-collapses to 0 (see StageRail's forceCollapsed),
+    // so the two share the single right-edge slot instead of doubling up.
     return (
         <CollapsibleRail
             openAtom={profileRailOpenAtom}

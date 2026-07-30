@@ -48,7 +48,8 @@ const NO_CONVERSATION: JarvisConversation = {
     scope: { mode: "all", chips: [], attached: [] },
 };
 
-// The channel profile drawer (the ⚙), opened from the Stage header. Session-scoped, not persisted.
+// The channel profile drawer (the ⚙), opened from the context rail's icon slot. Session-scoped, not
+// persisted.
 export const profileRailOpenAtom = atom(false);
 
 // The merged surface's one context rail. Open by default, unlike the two rails it replaces: it now carries

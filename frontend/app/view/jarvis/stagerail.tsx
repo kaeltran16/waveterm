@@ -5,7 +5,7 @@
 // absent rather than empty. Needs you is the exception that is always drawn and never Space-filtered:
 // attention beats focus, so an ask in a hidden channel still reaches the user, labelled "outside focus".
 
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { CollapsibleRail, type RailExtraIcon, type RailSection } from "@/app/element/collapsiblerail";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ConsultsSection, FleetRoster, NeedsRow } from "@/app/view/agents/channelcontextpanel";
 import {
@@ -63,6 +63,7 @@ export function StageRail({
     const convsById = useAtomValue(conversationsByIdAtom);
     const recordScopes = useAtomValue(recordScopeAtom);
     const profileOpen = useAtomValue(profileRailOpenAtom);
+    const setProfileOpen = useSetAtom(profileRailOpenAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
     const { summary, runSummary } = useFleetSummary();
 
@@ -221,6 +222,24 @@ export function StageRail({
         });
     }
 
+    // one gate for the trigger and the drawer it opens, so the ⚙ cannot appear on a subject that has no
+    // profile to edit — or go missing on one that does.
+    const profileChannelId = comp?.showProfile && subject?.kind === "channel" ? subject.id : "";
+    // the ⚙ rides this rail's icon slot rather than the Stage header: the drawer it opens slides out of
+    // this edge, and a trigger three regions away from its own panel read as one more header control for
+    // the subject. Sharing the slot also keeps the right edge one column wide (see RailExtraIcon).
+    const extraIcons: RailExtraIcon[] | undefined =
+        profileChannelId !== ""
+            ? [
+                  {
+                      key: "profile",
+                      icon: RAIL_ICON.gear,
+                      ariaLabel: "Channel profile",
+                      onClick: () => setProfileOpen((o) => !o),
+                  },
+              ]
+            : undefined;
+
     return (
         <>
             {/* below the width where collapsing to strips is still enough, the rail leaves the flow rather
@@ -234,12 +253,14 @@ export function StageRail({
                     // Subjects column's, so one line runs across the whole surface
                     title="Context"
                     sections={sections}
+                    extraIcons={extraIcons}
                     forceCollapsed={profileOpen}
                 />
             </div>
-            {/* the ⚙ drawer shares the right-edge slot: it has no strip of its own and the rail above
-                force-collapses while it is open, so the two never stack. */}
-            <ProfilePanel channelId={comp?.showProfile && subject?.kind === "channel" ? subject.id : ""} />
+            {/* the ⚙ drawer shares the right-edge slot: it has no strip of its own — its trigger is this
+                rail's extra icon — and the rail above force-collapses while it is open, so the two never
+                stack. Closing is the drawer's own › or Esc, since the trigger goes with the rail. */}
+            <ProfilePanel channelId={profileChannelId} />
         </>
     );
 }

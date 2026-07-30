@@ -22,14 +22,34 @@ export interface RailSection {
     content: ReactNode;
 }
 
-// An extra glyph stacked under the rail's own icon in the collapsed strip — a trigger for a *sibling*
-// drawer (e.g. the Jarvis profile drawer under the channel context rail), so both live in one 44px
-// column instead of two side-by-side strips. The sibling stays a separate drawer; only the icon is here.
+// An extra glyph in the rail's icon slot — a trigger for a *sibling* drawer (e.g. the Jarvis profile
+// drawer under the channel context rail), so both live in one 44px column instead of two side-by-side
+// strips. The sibling stays a separate drawer; only the icon is here. Drawn in both rail states: stacked
+// under the rail's own icon while collapsed, and beside the collapse control in the header band while
+// expanded — a rail that opens by default would otherwise hide its sibling's only trigger.
 export interface RailExtraIcon {
     key: string;
     icon: ReactNode;
     ariaLabel: string;
     onClick: () => void;
+}
+
+// same glyph, same size, same tone in both rail states: it is one control, and collapsing the rail must
+// not read as swapping it for another.
+function ExtraIcon({ ei }: { ei: RailExtraIcon }) {
+    return (
+        <Tooltip content={ei.ariaLabel} placement="left">
+            <button
+                type="button"
+                onClick={ei.onClick}
+                aria-label={ei.ariaLabel}
+                title={ei.ariaLabel}
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
+            >
+                {ei.icon}
+            </button>
+        </Tooltip>
+    );
 }
 
 const RAIL_EXPANDED_PX = 300; // matches the app-bar usage column (app-bar.tsx) → continuous divider
@@ -93,15 +113,22 @@ export function CollapsibleRail({
                                     {title}
                                 </span>
                             ) : null}
-                            <button
-                                type="button"
-                                onClick={() => setOpen(false)}
-                                aria-label="Collapse panel"
-                                title="Collapse"
-                                className="cursor-pointer rounded-[7px] px-2 py-1 text-[14px] leading-none text-muted hover:bg-surface-hover hover:text-secondary"
-                            >
-                                ›
-                            </button>
+                            {/* the extra glyphs group with the collapse control rather than being spread by
+                                justify-between: they are this edge's controls, and the title is the label. */}
+                            <div className="flex items-center gap-0.5">
+                                {extraIcons?.map((ei) => (
+                                    <ExtraIcon key={ei.key} ei={ei} />
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => setOpen(false)}
+                                    aria-label="Collapse panel"
+                                    title="Collapse"
+                                    className="cursor-pointer rounded-[7px] px-2 py-1 text-[14px] leading-none text-muted hover:bg-surface-hover hover:text-secondary"
+                                >
+                                    ›
+                                </button>
+                            </div>
                         </div>
                         <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[18px] pb-[40px] pt-[8px]">
                             {sections.map((s) => (
@@ -123,16 +150,7 @@ export function CollapsibleRail({
                             </button>
                         </Tooltip>
                         {extraIcons?.map((ei) => (
-                            <Tooltip key={ei.key} content={ei.ariaLabel} placement="left">
-                                <button
-                                    type="button"
-                                    onClick={ei.onClick}
-                                    aria-label={ei.ariaLabel}
-                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] text-[18px] text-accent hover:bg-surface-hover hover:text-accent-soft"
-                                >
-                                    {ei.icon}
-                                </button>
-                            </Tooltip>
+                            <ExtraIcon key={ei.key} ei={ei} />
                         ))}
                     </div>
                 )}

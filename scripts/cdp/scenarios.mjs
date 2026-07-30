@@ -980,7 +980,7 @@ const jarvisProactive = {
 // in the hop between atoms rather than in any pure function:
 //   - the rail is mounted with no subject, so Needs you is drawn on a fresh boot (its stated contract is
 //     "always drawn, never filtered" — an ask that waits on a click is not an attention channel);
-//   - selecting a non-channel subject closes the drawer, which the header has no trigger to close there;
+//   - selecting a non-channel subject closes the drawer, which has no trigger on the rail to close there;
 //   - the scope toggle is re-derived per open instead of latching to global once a channel goes away,
 //     which used to make Save write global defaults for every project while reading as "This project".
 // Case-insensitive: the section heading is Tailwind `uppercase`, and innerText applies text-transform,
@@ -1080,7 +1080,7 @@ const jarvisDrawer = {
         await h.shot("cdp-shots/jarvis-drawer-channel.png");
 
         // 4. move to a non-channel subject. The dev fixture bar's buttons select a conversation subject,
-        // which is a kind with no ⚙ in the header — exactly the state the drawer used to be stranded in.
+        // which is a kind with no ⚙ on the rail — exactly the state the drawer used to be stranded in.
         await h.ev(`(() => {
             const b = [...document.querySelectorAll('[data-fixture]')].find((x) => x.getAttribute('data-fixture') === 'grounded');
             if (b) b.click();

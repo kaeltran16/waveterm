@@ -17,7 +17,6 @@ export function StageHeader({
     channelId,
     tier,
     mode,
-    onOpenProfile,
     onOpenGraph,
 }: {
     comp: StageComposition;
@@ -26,7 +25,6 @@ export function StageHeader({
     channelId: string | null;
     tier: JarvisTier;
     mode: string;
-    onOpenProfile: () => void;
     onOpenGraph: () => void;
 }) {
     return (
@@ -71,16 +69,8 @@ export function StageHeader({
                 {comp.showAutonomy && channelId != null ? (
                     <AutonomyLadder channelId={channelId} tier={tier} mode={mode} />
                 ) : null}
-                {comp.showProfile ? (
-                    <button
-                        type="button"
-                        onClick={onOpenProfile}
-                        title="Channel profile — playbook, principles, run engine, plan gate"
-                        className="h-[26px] w-7 flex-none cursor-pointer rounded-[7px] border border-border bg-surface text-[12px] text-secondary hover:text-primary"
-                    >
-                        ⚙
-                    </button>
-                ) : null}
+                {/* no ⚙ here: the channel profile's trigger sits in the context rail's icon slot, beside
+                    the edge its drawer actually opens from (see stagerail / RailExtraIcon). */}
                 <button
                     type="button"
                     onClick={onOpenGraph}

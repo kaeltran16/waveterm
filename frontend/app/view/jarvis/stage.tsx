@@ -29,7 +29,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { ConversationView } from "./conversationview";
 import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
-import { activeConversationAtom, graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
+import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
@@ -70,7 +70,6 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const setPendingDraft = useSetAtom(pendingRunDraftAtom);
     const graphOpen = useAtomValue(graphPeekOpenAtom);
     const setGraphOpen = useSetAtom(graphPeekOpenAtom);
-    const setProfileOpen = useSetAtom(profileRailOpenAtom);
     const profiles = useAtomValue(resolvedProfileAtom);
     const profileChannelId = subject?.kind === "channel" ? subject.id : null;
     const profile = profileChannelId != null ? profiles[profileChannelId] : undefined;
@@ -193,7 +192,6 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 channelId={subject.kind === "channel" ? subject.id : null}
                 tier={tier}
                 mode={mode}
-                onOpenProfile={() => setProfileOpen((o) => !o)}
                 onOpenGraph={() => setGraphOpen(true)}
             />
             {/* absent rather than empty: the band speaks about "this run", and a draft has none yet */}

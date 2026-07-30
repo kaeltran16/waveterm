@@ -184,8 +184,9 @@ below.
 
 ## 7. The profile drawer
 
-⚙ in the channel header. It shares the right-edge slot with the context rail, which force-collapses while
-the drawer is open so the two never stack. `Esc` closes it; selecting a non-channel subject closes it too.
+The ⚙ in the context rail's icon slot, on a channel. It shares the right-edge slot with that rail, which
+force-collapses while the drawer is open so the two never stack — so the trip back out is the drawer's own
+`›` or `Esc`, not the trigger. Selecting a non-channel subject closes it too.
 
 ![The profile drawer, scoped to this project](images/jarvis-tour/10-profile-drawer.png)
 
@@ -228,7 +229,8 @@ accumulate as you work (historical runs were backfilled by the separate `cmd/jar
 
 Reading it top to bottom:
 
-- header — `Grounded in: this record + its runs`, absence chip `Record · not a run`. No autonomy, no ⚙;
+- header — `Grounded in: this record + its runs`, absence chip `Record · not a run`. No autonomy, and no ⚙
+  on the rail — a record has no profile to edit;
 - the record's own fields: objective, status, `confidence: med`, and the **status transitions** it allows
   (`→ active`, `→ archived`). Terminal transitions route through a confirm dialog;
 - **MACHINE-MAINTAINED**, behind a 🔒 — `Acceptance`, `State`, `Blockers`, `Refs`. Agents write these; you
