@@ -51,3 +51,19 @@ func (ws *WshServer) GitCommitDiffCommand(ctx context.Context, data wshrpc.Comma
 	}
 	return &wshrpc.CommandGitCommitDiffRtnData{Diff: d.Diff}, nil
 }
+
+func (ws *WshServer) GitCompareChangesCommand(ctx context.Context, data wshrpc.CommandGitCompareChangesData) (*wshrpc.CommandGitCompareChangesRtnData, error) {
+	ch, err := gitinfo.CompareChanges(ctx, data.Cwd, data.Base, data.Head)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitCompareChangesRtnData{StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo}, nil
+}
+
+func (ws *WshServer) GitCompareDiffCommand(ctx context.Context, data wshrpc.CommandGitCompareDiffData) (*wshrpc.CommandGitCompareDiffRtnData, error) {
+	d, err := gitinfo.CompareDiff(ctx, data.Cwd, data.Base, data.Head, data.Path)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitCompareDiffRtnData{Diff: d.Diff}, nil
+}

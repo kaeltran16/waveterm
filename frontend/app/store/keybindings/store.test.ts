@@ -7,11 +7,13 @@ import {
     buildAgentBindings,
     buildChannelsAskBindings,
     buildCockpitBindings,
+    buildFilesBindings,
     buildGlobalBindings,
     buildJarvisBindings,
     buildListNavBindings,
 } from "./bindings";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
@@ -169,6 +171,25 @@ describe("keybinding conflict invariant", () => {
             ])
         ).toThrow(/key conflict "Enter" between "list:activate" and "channels:submit"/);
         globalStore.set(listNavAtom, null);
+    });
+
+    it("hands Escape to the files surface while compare is on, without conflicting", () => {
+        const model = {} as any;
+        const filesCtx = { surface: "files" as const, editable: false, modalOpen: false, leader: null };
+        const all = [...buildGlobalBindings(model), ...buildFilesBindings()];
+        const backHome = all.find((b) => b.id === "surface:back-home")!;
+        const exitCompare = all.find((b) => b.id === "files:exit-compare")!;
+
+        globalStore.set(compareOnAtom, false);
+        expect(backHome.when!(filesCtx)).toBe(true);
+        expect(exitCompare.when!(filesCtx)).toBe(false);
+
+        globalStore.set(compareOnAtom, true);
+        // compare owns Escape: exactly one of the two is live, so the key never means two things
+        expect(backHome.when!(filesCtx)).toBe(false);
+        expect(exitCompare.when!(filesCtx)).toBe(true);
+        expect(() => assertNoConflicts(all)).not.toThrow();
+        globalStore.set(compareOnAtom, false);
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {

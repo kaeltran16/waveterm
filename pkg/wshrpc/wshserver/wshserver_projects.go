@@ -74,6 +74,9 @@ func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.Comman
 	for _, b := range branches {
 		rtn.Branches = append(rtn.Branches, wshrpc.BranchInfo{Name: b.Name, Age: b.Age})
 	}
+	// A repo with no resolvable default is not an error here — DefaultBranch returns "" and the
+	// picker's base field just opens empty.
+	rtn.Default, _ = gitinfo.DefaultBranch(ctx, data.ProjectPath)
 	return rtn, nil
 }
 

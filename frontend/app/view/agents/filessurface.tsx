@@ -11,7 +11,9 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
+import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { useKeybindings } from "@/app/store/keybindings/store";
 import { useEffect, useMemo, useState } from "react";
 import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
@@ -32,6 +34,28 @@ import {
 import { runShortId } from "./runcompletion";
 import { projectsAtom } from "./projectsstore";
 import { CommitPane } from "./commitpane";
+import { AggregatePane } from "./aggregatepane";
+import { CompareColumn } from "./comparecolumn";
+import { AGGREGATE, buildCompareRows, compareNavIds, type CompareCommitRow } from "./comparerows";
+import {
+    compareActiveChangesAtom,
+    compareAggregateAtom,
+    compareAnchorAtom,
+    compareBranchesAtom,
+    compareDiffAtom,
+    compareErrorAtom,
+    compareOnAtom,
+    compareRefsAtom,
+    compareSelectedFileAtom,
+    compareSelectionAtom,
+    compareSidesAtom,
+    enterCompare,
+    exitCompare,
+    selectCompareFile,
+    selectCompareRow,
+    setCompareRefs,
+} from "./comparestore";
+import { RefPicker } from "./refpicker";
 import {
     activeChangesAtom,
     activeDiffAtom,
@@ -258,12 +282,41 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const graphOn = useAtomValue(graphOnAtom);
     const activeChanges = useAtomValue(activeChangesAtom);
     const activeDiff = useAtomValue(activeDiffAtom);
+    const compareOn = useAtomValue(compareOnAtom);
+    const compareRefs = useAtomValue(compareRefsAtom);
+    const compareSides = useAtomValue(compareSidesAtom);
+    const compareAggregate = useAtomValue(compareAggregateAtom);
+    const compareSelection = useAtomValue(compareSelectionAtom);
+    const compareFile = useAtomValue(compareSelectedFileAtom);
+    const compareError = useAtomValue(compareErrorAtom);
+    const compareBranches = useAtomValue(compareBranchesAtom);
+    const compareChanges = useAtomValue(compareActiveChangesAtom);
+    const compareDiff = useAtomValue(compareDiffAtom);
+    // the ref picker's own open/closed state: `c` and a click on the chip open it, Enter/Escape close it
+    const [pickerOpen, setPickerOpen] = useState(false);
 
     // registered projects (name -> path) as a sorted, path-bearing list for the picker
     const projects: FilesProject[] = Object.entries(registry ?? {})
         .filter(([, v]) => v?.path)
         .map(([name, v]) => ({ name, path: v.path }))
         .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Rebuilt from the raw divergence on every render: buildCompareRows is pure and the input is at
+    // most a few hundred commits, the same reasoning the history rows use.
+    const compareRows = useMemo(
+        () =>
+            compareRefs == null
+                ? []
+                : buildCompareRows({
+                      base: compareRefs.base,
+                      head: compareRefs.head,
+                      ahead: compareSides?.ahead ?? [],
+                      behind: compareSides?.behind ?? [],
+                      aggregate: compareAggregate,
+                      now: Date.now(),
+                  }),
+        [compareRefs, compareSides, compareAggregate]
+    );
 
     // A picked project overrides agent-focus scoping; null means "follow the focused agent".
     const projectSel = useAtomValue(filesProjectSelAtom);
@@ -277,13 +330,32 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
           : null;
 
     // The three scopes the surface already had, now named. Run wins, then a picked project, then the
-    // focused agent — the same precedence the load effect below uses.
-    const scope: "run" | "repo" | "agent" = runSource ? "run" : projectSel ? "repo" : "agent";
+    // focused agent — the same precedence the load effect below uses. Compare is a two-ref read of
+    // the repo, so it reads as repo scope for as long as it is on.
+    const scope: "run" | "repo" | "agent" = compareOn ? "repo" : runSource ? "run" : projectSel ? "repo" : "agent";
     const refExpr = runSource
         ? `${(runSource.baseCommit || "HEAD").slice(0, 7)} … HEAD`
         : scope === "agent" && state?.ref
           ? `session start ${state.ref.slice(0, 7)} … worktree`
           : `${state?.branch || "—"} · all refs`;
+
+    // Which repository+run the surface is currently showing. Compare is anchored to one of these, and
+    // leaves when it changes; comparing it to a stored anchor rather than keying an effect on cwd is
+    // what lets compare survive the surface unmounting on a nav switch.
+    const scopeAnchor = `${state?.cwd ?? ""}|${runSource?.runId ?? ""}`;
+
+    // Entering compare is a repo-scoped two-ref read, so it needs a cwd and a branch to start from.
+    const startCompare = () => {
+        if (!state?.cwd || !state.isRepo) {
+            return;
+        }
+        setPickerOpen(true);
+        fireAndForget(() => enterCompare(state.cwd!, state.branch ?? "", scopeAnchor));
+    };
+    const leaveCompare = () => {
+        setPickerOpen(false);
+        exitCompare();
+    };
 
     // Default to the first agent when nothing is scoped, so opening Files is immediately useful
     // instead of a dead "select a source" screen.
@@ -321,26 +393,47 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         );
     }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId]);
 
-    // publish the commit list for global j/k list-nav. cursor==selection: moving selects the commit,
-    // which loads its files and first diff. Must run before the early return (hooks rules).
-    const commitIds = (historyRows ?? []).map((r) => r.hash);
-    const historyNav = useMemo<ListNavController | null>(
+    // A different repository (or entering a run) means different refs: keep compare from showing one
+    // scope's divergence over another's. The guard is the anchor compare recorded when it was entered,
+    // NOT the bare cwd — this effect also runs on every remount, and the surface unmounts on a nav
+    // switch, so keying on cwd alone would tear down a compare the user is still using.
+    useEffect(() => {
+        const anchored = globalStore.get(compareAnchorAtom);
+        if (anchored != null && anchored !== scopeAnchor) {
+            exitCompare();
+            setPickerOpen(false);
+        }
+    }, [scopeAnchor]);
+
+    // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
+    // which loads that row's files and first diff. Must run before the early return (hooks rules).
+    const navIds = compareOn ? compareNavIds(compareRows) : (historyRows ?? []).map((r) => r.hash);
+    const navCursor = compareOn ? compareSelection : (selectedCommit ?? undefined);
+    const navFile = compareOn ? compareFile : selectedFile;
+    const listNav = useMemo<ListNavController | null>(
         () =>
-            state?.cwd && commitIds.length > 0
+            state?.cwd && navIds.length > 0
                 ? {
                       surface: "files",
-                      navigableIds: commitIds,
-                      cursorId: selectedCommit ?? undefined,
-                      setCursor: (hash) => fireAndForget(() => selectCommit(state.cwd!, hash)),
+                      navigableIds: navIds,
+                      cursorId: navCursor,
+                      setCursor: (id) =>
+                          fireAndForget(() =>
+                              compareOn ? selectCompareRow(state.cwd!, id) : selectCommit(state.cwd!, id)
+                          ),
                       activate:
-                          selectedFile && state.cwd
-                              ? () => getApi().openExternal(joinPath(state.cwd!, selectedFile))
-                              : undefined,
+                          navFile && state.cwd ? () => getApi().openExternal(joinPath(state.cwd!, navFile)) : undefined,
+                      // Tab needs to know which side a row belongs to, which an id list cannot say.
+                      rows: compareOn ? compareRows : undefined,
                   }
                 : null,
-        [state?.cwd, commitIds.join(" "), selectedCommit, selectedFile]
+        [state?.cwd, compareOn, navIds.join(" "), navCursor, navFile, compareRows]
     );
-    useSurfaceListNav(historyNav);
+    useSurfaceListNav(listNav);
+
+    // stable array: every run() reads live atoms, so it never needs rebuilding
+    const filesBindings = useMemo(() => buildFilesBindings(), []);
+    useKeybindings(filesBindings);
 
     if (agents.length === 0 && projects.length === 0) {
         return (
@@ -394,8 +487,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     ["run", "Run", runSource ? runShortId(runSource.runId) : ""],
                                 ] as const
                             ).map(([key, label, sub]) => (
-                                <div
+                                <button
                                     key={key}
+                                    // run scope and agent scope are single-ref reads by definition, so
+                                    // picking one of them is a way out of compare
+                                    onClick={() => {
+                                        if (compareOn && key !== "repo") {
+                                            leaveCompare();
+                                        }
+                                    }}
                                     className={cn(
                                         "flex items-center gap-[6px] border-r border-edge-faint px-[11px] py-[6px] text-[11.5px] font-semibold",
                                         scope === key ? "bg-surface-selected text-ink-hi" : "text-muted"
@@ -410,15 +510,37 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                     >
                                         {sub}
                                     </span>
-                                </div>
+                                </button>
                             ))}
                         </div>
-                        <div className="flex items-center gap-[8px] rounded-[9px] border border-edge-mid bg-surface px-[11px] py-[6px]">
-                            <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
-                                Reading
-                            </span>
-                            <span className="font-mono text-[12px] text-ink-mid">{refExpr}</span>
-                        </div>
+                        {compareOn ? (
+                            <RefPicker
+                                base={compareRefs?.base ?? ""}
+                                head={compareRefs?.head ?? ""}
+                                branches={compareBranches}
+                                editing={pickerOpen}
+                                onEdit={() => setPickerOpen(true)}
+                                onApply={(b, h) => {
+                                    setPickerOpen(false);
+                                    if (state?.cwd) {
+                                        fireAndForget(() => setCompareRefs(state.cwd!, b, h));
+                                    }
+                                }}
+                                onCancel={() => setPickerOpen(false)}
+                            />
+                        ) : (
+                            <button
+                                data-files-ref-expr
+                                onClick={startCompare}
+                                disabled={!state?.cwd || !state.isRepo}
+                                className="flex items-center gap-[8px] rounded-[9px] border border-edge-mid bg-surface px-[11px] py-[6px] hover:border-edge-strong disabled:cursor-default disabled:hover:border-edge-mid"
+                            >
+                                <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
+                                    Reading
+                                </span>
+                                <span className="font-mono text-[12px] text-ink-mid">{refExpr}</span>
+                            </button>
+                        )}
                         <div className="flex-1" />
                         <button
                             onClick={() => globalStore.set(graphOnAtom, !graphOn)}
@@ -438,6 +560,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
                         {state?.isRepo === false && state?.cwd ? (
                             <div className="px-[14px] py-[10px] text-[12px] text-ink-mid">Not a git repository</div>
+                        ) : compareOn ? (
+                            <CompareColumn
+                                rows={compareRows}
+                                selected={compareSelection}
+                                mergeBase={compareSides?.mergeBase ?? ""}
+                                error={compareError}
+                                loading={compareSides == null && compareError == null}
+                                onSelect={(id) => state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))}
+                            />
                         ) : (
                             <HistoryPane
                                 rows={historyRows ?? []}
@@ -449,22 +580,51 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                         )}
                     </div>
                     <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
-                        <CommitPane
-                            row={selectedRow}
-                            changes={activeChanges}
-                            selectedFile={selectedFile}
-                            onSelectFile={(path) =>
-                                state?.cwd &&
-                                selectedCommit != null &&
-                                fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
-                            }
-                        />
+                        {compareOn ? (
+                            compareSelection === AGGREGATE ? (
+                                <AggregatePane
+                                    base={compareRefs?.base ?? ""}
+                                    head={compareRefs?.head ?? ""}
+                                    changes={compareChanges}
+                                    selectedFile={compareFile}
+                                    onSelectFile={(path) =>
+                                        state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                                    }
+                                />
+                            ) : (
+                                // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly
+                                <CommitPane
+                                    row={
+                                        (compareRows.find(
+                                            (r) => r.kind === "commit" && r.id === compareSelection
+                                        ) as CompareCommitRow | undefined) ?? null
+                                    }
+                                    changes={compareChanges}
+                                    selectedFile={compareFile}
+                                    onSelectFile={(path) =>
+                                        state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                                    }
+                                />
+                            )
+                        ) : (
+                            <CommitPane
+                                row={selectedRow}
+                                changes={activeChanges}
+                                selectedFile={selectedFile}
+                                onSelectFile={(path) =>
+                                    state?.cwd &&
+                                    selectedCommit != null &&
+                                    fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
+                                }
+                            />
+                        )}
                     </div>
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                         <CenterPane
-                            path={selectedFile}
-                            view={activeDiff}
-                            cwd={selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
+                            path={compareOn ? compareFile : selectedFile}
+                            view={compareOn ? compareDiff : activeDiff}
+                            // "Open in editor" only makes sense for a path that exists in the working tree
+                            cwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
                         />
                     </div>
                 </div>

@@ -103,17 +103,27 @@ function ageLabel(ts: number, now: number): string {
     return ms < 60_000 ? "now" : formatAge(ms);
 }
 
-export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): HistoryRow[] {
-    const anchorIdx = opts.anchor ? commits.findIndex((c) => c.hash === opts.anchor) : -1;
-    const rows: HistoryRow[] = commits.map((c, i) => ({
+// One commit -> one row, with no scope-anchor decoration. buildRows layers divider/before on top;
+// comparerows.ts reuses it unchanged, so the history pane and the compare column classify refs and
+// format ages through exactly one code path.
+export function toRow(c: HistoryCommit, now: number): HistoryRow {
+    return {
         hash: c.hash,
         parents: c.parents ?? [],
         subject: c.subject,
         author: c.author,
         email: c.email,
         ts: c.ts,
-        when: ageLabel(c.ts, opts.now),
+        when: ageLabel(c.ts, now),
         refs: (c.refs ?? []).map(classifyRef).filter((r): r is RefChip => r != null),
+        before: false,
+    };
+}
+
+export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): HistoryRow[] {
+    const anchorIdx = opts.anchor ? commits.findIndex((c) => c.hash === opts.anchor) : -1;
+    const rows: HistoryRow[] = commits.map((c, i) => ({
+        ...toRow(c, opts.now),
         divider: anchorIdx >= 0 && i === anchorIdx ? opts.anchorLabel : undefined,
         before: anchorIdx >= 0 && i > anchorIdx,
     }));

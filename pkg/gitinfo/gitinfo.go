@@ -702,3 +702,65 @@ func CommitDiff(ctx context.Context, cwd, hash, path string) (*Diff, error) {
 	}
 	return &Diff{Diff: diff}, nil
 }
+
+// CompareChanges returns the per-file changes head introduces relative to base, anchored at their
+// merge base (three-dot). The two-dot form would fold in the base side's own commits inverted — their
+// additions appearing as deletions — so the file list would match neither side of the compare column.
+// Never consults the working tree. Paths are cwd-relative (--relative), matching the rest of the
+// package, so parseGitChanges on the frontend handles this shape unchanged. IsRepo=false when cwd is
+// not a repo; a git failure errors so the caller can name the ref that did not resolve.
+func CompareChanges(ctx context.Context, cwd, base, head string) (*Changes, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &Changes{IsRepo: false}, nil
+	}
+	spec := base + "..." + head
+	nameStatus, err := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", spec)
+	if err != nil {
+		return nil, err
+	}
+	numstat, err := run(ctx, cwd, "diff", "--numstat", "--relative", spec)
+	if err != nil {
+		return nil, err
+	}
+	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
+}
+
+// CompareDiff returns one file's unified diff between base and head, anchored at their merge base so
+// it agrees with CompareChanges. The Diff shape is shared with GetDiff and CommitDiff so the frontend
+// parses all three the same way; Untracked is never set, because a two-ref diff has no working tree.
+func CompareDiff(ctx context.Context, cwd, base, head, path string) (*Diff, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	diff, err := run(ctx, cwd, "diff", base+"..."+head, "--", path)
+	if err != nil {
+		return nil, err
+	}
+	return &Diff{Diff: diff}, nil
+}
+
+// DefaultBranch resolves the repo's default branch as a *local* branch name: origin/HEAD when the
+// remote publishes it, else a probe of main then master. Returns "" (not an error) when none resolve,
+// so the compare ref picker opens with an empty base field instead of an error the user cannot act on
+// — the same degrade-quietly contract ListBranches uses for a non-repo.
+//
+// Local-name-only is deliberate: the picker's suggestions come from ListBranches, which reads
+// refs/heads, so returning "origin/main" would offer a base the suggestion list cannot show. The cost
+// is that a stale local main overstates divergence; the deferred Fetch control is the answer to that.
+func DefaultBranch(ctx context.Context, cwd string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	if out, err := run(ctx, cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if name := strings.TrimSpace(out); name != "" {
+			return strings.TrimPrefix(name, "origin/"), nil
+		}
+	}
+	for _, probe := range []string{"main", "master"} {
+		if _, err := run(ctx, cwd, "rev-parse", "--verify", "--quiet", probe); err == nil {
+			return probe, nil
+		}
+	}
+	return "", nil
+}

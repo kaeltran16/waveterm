@@ -20,6 +20,11 @@ export interface ListNavController {
     // Enter on the focused row: fire the row's PRIMARY action (beyond mere selection) — e.g. Jump/Resume
     // a session, investigate a finding. Optional; when absent Enter passes through (bindings.ts).
     activate?: () => void;
+    // Optional richer row model, for a surface whose keys need more than an id list — the Diff
+    // surface's compare sides, where Tab must know which side a row belongs to. Typed as unknown[]
+    // so this module stays free of any surface's row types; the consumer casts. Every other surface
+    // leaves it undefined.
+    rows?: unknown[];
 }
 
 export const listNavAtom = atom<ListNavController | null>(null) as PrimitiveAtom<ListNavController | null>;

@@ -781,6 +781,33 @@ declare global {
         diff: string;
     };
 
+    // wshrpc.CommandGitCompareChangesData
+    type CommandGitCompareChangesData = {
+        cwd: string;
+        base: string;
+        head: string;
+    };
+
+    // wshrpc.CommandGitCompareChangesRtnData
+    type CommandGitCompareChangesRtnData = {
+        statusz: string;
+        numstat: string;
+        isrepo: boolean;
+    };
+
+    // wshrpc.CommandGitCompareDiffData
+    type CommandGitCompareDiffData = {
+        cwd: string;
+        base: string;
+        head: string;
+        path: string;
+    };
+
+    // wshrpc.CommandGitCompareDiffRtnData
+    type CommandGitCompareDiffRtnData = {
+        diff: string;
+    };
+
     // wshrpc.CommandGitDiffData
     type CommandGitDiffData = {
         cwd: string;
@@ -928,6 +955,7 @@ declare global {
     // wshrpc.CommandListBranchesRtnData
     type CommandListBranchesRtnData = {
         branches: BranchInfo[];
+        default?: string;
     };
 
     // wshrpc.CommandListConsultRuntimesRtnData

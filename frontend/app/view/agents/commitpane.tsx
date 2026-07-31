@@ -5,26 +5,13 @@
 // Pane 2 of the Diff surface (Wave-git-review.dc.html): who made the selected commit, when, and which
 // files it touched. Read-only — no stage control, no message box, nothing that authors a commit.
 
-import { SkeletonLine } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
-import { statusColor, type GitChanges } from "./gitstatus";
+import { ChangedFileList } from "./changedfilelist";
+import { type GitChanges } from "./gitstatus";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
 
 function initials(name: string): string {
     return name.slice(0, 2).toUpperCase();
-}
-
-function FileListSkeleton() {
-    return (
-        <div className="space-y-[7px] px-[8px] py-[6px]">
-            {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-[8px] px-[8px] py-[5px]">
-                    <SkeletonLine className="h-[12px] flex-1" />
-                    <SkeletonLine className="h-[10px] w-[22px]" />
-                </div>
-            ))}
-        </div>
-    );
 }
 
 export function CommitPane({
@@ -86,43 +73,7 @@ export function CommitPane({
                 <span className="font-mono text-[11px] font-semibold text-error">−{changes?.dels ?? 0}</span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-[8px] pb-[20px]">
-                {changes == null ? (
-                    <FileListSkeleton />
-                ) : count === 0 ? (
-                    <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No files changed</div>
-                ) : (
-                    changes.files.map((f) => (
-                        <button
-                            key={f.path}
-                            onClick={() => onSelectFile(f.path)}
-                            className={cn(
-                                "flex w-full items-center gap-[8px] rounded-[7px] px-[8px] py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-raised",
-                                f.path === selectedFile && "bg-surface-selected"
-                            )}
-                        >
-                            <span
-                                className={cn(
-                                    "w-[13px] flex-none text-center font-mono text-[10px] font-bold",
-                                    statusColor(f.status)
-                                )}
-                            >
-                                {f.status}
-                            </span>
-                            <span
-                                className={cn(
-                                    "min-w-0 flex-1 truncate font-mono text-[11.5px]",
-                                    f.path === selectedFile ? "text-ink-hi" : "text-ink-mid"
-                                )}
-                            >
-                                {f.path}
-                            </span>
-                            <span className="flex-none font-mono text-[10px] font-semibold text-success">
-                                +{f.adds}
-                            </span>
-                            <span className="flex-none font-mono text-[10px] font-semibold text-error">−{f.dels}</span>
-                        </button>
-                    ))
-                )}
+                <ChangedFileList changes={changes} selectedFile={selectedFile} onSelectFile={onSelectFile} />
             </div>
         </div>
     );

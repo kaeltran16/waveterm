@@ -39,6 +39,10 @@ type CommandListBranchesData struct {
 
 type CommandListBranchesRtnData struct {
 	Branches []BranchInfo `json:"branches"`
+	// The repo's default branch as a local name, for the compare ref picker's base field. Additive:
+	// the New Agent launcher calls this command for its worktree-branch suggestions and ignores it.
+	// "" when the repo publishes no origin/HEAD and has neither main nor master.
+	Default string `json:"default,omitempty"`
 }
 
 type CommandGitChangesData struct {

@@ -626,6 +626,18 @@ func GitCommitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCommitDiffDat
 	return resp, err
 }
 
+// command "gitcomparechanges", wshserver.GitCompareChangesCommand
+func GitCompareChangesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCompareChangesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitCompareChangesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitCompareChangesRtnData](w, "gitcomparechanges", data, opts)
+	return resp, err
+}
+
+// command "gitcomparediff", wshserver.GitCompareDiffCommand
+func GitCompareDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitCompareDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitCompareDiffRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitCompareDiffRtnData](w, "gitcomparediff", data, opts)
+	return resp, err
+}
+
 // command "gitdiff", wshserver.GitDiffCommand
 func GitDiffCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDiffData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitDiffRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitDiffRtnData](w, "gitdiff", data, opts)

@@ -630,6 +630,18 @@ export class RpcApiType {
         return client.wshRpcCall("gitcommitdiff", data, opts);
     }
 
+    // command "gitcomparechanges" [call]
+    GitCompareChangesCommand(client: WshClient, data: CommandGitCompareChangesData, opts?: RpcOpts): Promise<CommandGitCompareChangesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitcomparechanges", data, opts);
+        return client.wshRpcCall("gitcomparechanges", data, opts);
+    }
+
+    // command "gitcomparediff" [call]
+    GitCompareDiffCommand(client: WshClient, data: CommandGitCompareDiffData, opts?: RpcOpts): Promise<CommandGitCompareDiffRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitcomparediff", data, opts);
+        return client.wshRpcCall("gitcomparediff", data, opts);
+    }
+
     // command "gitdiff" [call]
     GitDiffCommand(client: WshClient, data: CommandGitDiffData, opts?: RpcOpts): Promise<CommandGitDiffRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitdiff", data, opts);

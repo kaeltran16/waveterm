@@ -10,6 +10,8 @@ import type { MutableRefObject } from "react";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
+import { compareOnAtom, compareSelectionAtom, exitCompare } from "@/app/view/agents/comparestore";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -171,7 +173,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 navigate(ctx) &&
                 ESC_HOME_SURFACES.has(ctx.surface) &&
                 !globalStore.get(graphPeekOpenAtom) &&
-                !globalStore.get(autonomyPanelOpenAtom),
+                !globalStore.get(autonomyPanelOpenAtom) &&
+                // the Diff surface's compare state owns Escape while it is on: leaving compare is what
+                // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
+                !globalStore.get(compareOnAtom),
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -495,6 +500,59 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 (document.activeElement as HTMLElement | null)?.blur?.();
                 // refocus the surface wrapper (tabIndex=0) so ↑↓/j/k/d/f resume
                 document.querySelector<HTMLElement>("[data-cockpit-surface-wrap]")?.focus();
+            },
+        },
+    ];
+}
+
+// Diff-surface keys. `c` is the entry gesture the mockup names; Escape is the single exit; Tab jumps
+// between the two compare sides. Entering compare needs a cwd and a branch, which only the surface
+// knows, so `c` clicks the control the surface already draws (the same clickThrough shape
+// buildJarvisBindings uses) rather than duplicating scope resolution here.
+export function buildFilesBindings(): Binding[] {
+    const on = (ctx: KeyContext) => ctx.surface === "files" && !ctx.editable && !ctx.modalOpen;
+    const inCompare = (ctx: KeyContext) => on(ctx) && globalStore.get(compareOnAtom);
+    return [
+        {
+            id: "files:compare",
+            keys: "c",
+            group: "Diff",
+            label: "Compare refs",
+            when: on,
+            run: () => {
+                const el = document.querySelector<HTMLElement>("[data-files-ref-expr]");
+                if (el == null) {
+                    return false; // no repo scoped -> nothing to compare; let the key pass
+                }
+                el.click();
+            },
+        },
+        {
+            id: "files:exit-compare",
+            keys: "Escape",
+            group: "Diff",
+            label: "Back to history",
+            when: inCompare,
+            run: () => exitCompare(),
+        },
+        {
+            id: "files:switch-side",
+            keys: "Tab",
+            group: "Diff",
+            label: "Switch compare side",
+            when: inCompare,
+            run: () => {
+                const c = globalStore.get(listNavAtom);
+                if (c == null || c.surface !== "files") {
+                    return false;
+                }
+                // the surface publishes its compare rows on the controller; the cast is the seam that
+                // keeps listnav.ts free of this surface's row types
+                const target = sideJumpTarget((c.rows ?? []) as CompareRow[], globalStore.get(compareSelectionAtom));
+                if (target == null) {
+                    return false; // the other side has no commits — let Tab do its normal thing
+                }
+                c.setCursor(target);
             },
         },
     ];

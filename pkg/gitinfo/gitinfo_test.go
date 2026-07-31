@@ -1051,3 +1051,130 @@ func TestCommitChangesNotARepo(t *testing.T) {
 		t.Error("IsRepo = true, want false outside a repository")
 	}
 }
+
+// The three-dot anchor is the whole point of CompareChanges: main's own m1.txt must not appear.
+// Under the two-dot form it would appear as a deletion, which is the regression this guards.
+func TestCompareChangesUsesMergeBaseAnchor(t *testing.T) {
+	dir := repoDiverged(t)
+	ch, err := CompareChanges(context.Background(), dir, "main", "feature")
+	if err != nil {
+		t.Fatalf("CompareChanges: %v", err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("IsRepo = false, want true")
+	}
+	if strings.Contains(ch.StatusZ, "m1.txt") {
+		t.Errorf("StatusZ mentions m1.txt (%q); three-dot must ignore the base side's own commits", ch.StatusZ)
+	}
+	for _, want := range []string{"f1.txt", "f2.txt"} {
+		if !strings.Contains(ch.StatusZ, want) {
+			t.Errorf("StatusZ missing %s: %q", want, ch.StatusZ)
+		}
+	}
+	if !strings.Contains(ch.Numstat, "f1.txt") {
+		t.Errorf("Numstat missing f1.txt: %q", ch.Numstat)
+	}
+}
+
+func TestCompareChangesEmptyWhenRefsAgree(t *testing.T) {
+	dir := repoDiverged(t)
+	ch, err := CompareChanges(context.Background(), dir, "main", "main")
+	if err != nil {
+		t.Fatalf("CompareChanges: %v", err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("IsRepo = false, want true")
+	}
+	if strings.TrimSpace(ch.StatusZ) != "" || strings.TrimSpace(ch.Numstat) != "" {
+		t.Errorf("want an empty change set, got statusz=%q numstat=%q", ch.StatusZ, ch.Numstat)
+	}
+}
+
+func TestCompareChangesNotARepo(t *testing.T) {
+	ch, err := CompareChanges(context.Background(), t.TempDir(), "main", "feature")
+	if err != nil {
+		t.Fatalf("CompareChanges on a non-repo should not error: %v", err)
+	}
+	if ch.IsRepo {
+		t.Fatal("IsRepo = true for a non-repo dir")
+	}
+}
+
+func TestCompareDiffOnePathBetweenRefs(t *testing.T) {
+	dir := repoDiverged(t)
+	d, err := CompareDiff(context.Background(), dir, "main", "feature", "f1.txt")
+	if err != nil {
+		t.Fatalf("CompareDiff: %v", err)
+	}
+	if !strings.Contains(d.Diff, "f1.txt") {
+		t.Errorf("diff does not name f1.txt: %q", d.Diff)
+	}
+	if !strings.Contains(d.Diff, "+f1.txt") {
+		t.Errorf("diff does not show f1.txt's added line: %q", d.Diff)
+	}
+	if d.Untracked {
+		t.Error("Untracked = true; a two-ref diff has no working tree to have untracked files in")
+	}
+}
+
+// An unresolvable ref must error rather than return an empty diff, so the surface can name the ref
+// that failed instead of showing a blank pane that reads as "no differences".
+func TestCompareDiffErrorsOnUnresolvableRef(t *testing.T) {
+	dir := repoDiverged(t)
+	if _, err := CompareDiff(context.Background(), dir, "main", "no-such-ref", "f1.txt"); err == nil {
+		t.Fatal("expected an error for an unresolvable ref")
+	}
+}
+
+func TestDefaultBranchFromOriginHead(t *testing.T) {
+	dir := repoDiverged(t)
+	// origin/HEAD is an ordinary symbolic ref under refs/remotes; writing it by hand needs no network.
+	gitAuthored(t, dir, "update-ref", "refs/remotes/origin/trunk", "main")
+	gitAuthored(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+	got, err := DefaultBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "trunk" {
+		t.Errorf("DefaultBranch = %q, want %q (the origin/ prefix stripped)", got, "trunk")
+	}
+}
+
+func TestDefaultBranchProbesMain(t *testing.T) {
+	dir := repoDiverged(t) // init -b main, no remote at all
+	got, err := DefaultBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "main" {
+		t.Errorf("DefaultBranch = %q, want %q", got, "main")
+	}
+}
+
+func TestDefaultBranchProbesMaster(t *testing.T) {
+	dir := t.TempDir()
+	gitAuthored(t, dir, "init", "--initial-branch=master")
+	commitAuthored(t, dir, "root.txt", "root.txt\n", "root commit")
+	got, err := DefaultBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "master" {
+		t.Errorf("DefaultBranch = %q, want %q", got, "master")
+	}
+}
+
+// No origin/HEAD, no main, no master -> "" and no error, so the ref picker opens with an empty base
+// field rather than surfacing an error the user cannot act on.
+func TestDefaultBranchNoneResolve(t *testing.T) {
+	dir := t.TempDir()
+	gitAuthored(t, dir, "init", "--initial-branch=dev")
+	commitAuthored(t, dir, "root.txt", "root.txt\n", "root commit")
+	got, err := DefaultBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if got != "" {
+		t.Errorf("DefaultBranch = %q, want \"\"", got)
+	}
+}

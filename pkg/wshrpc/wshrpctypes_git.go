@@ -17,6 +17,8 @@ type GitCommands interface {
 	GitDivergenceCommand(ctx context.Context, data CommandGitDivergenceData) (*CommandGitDivergenceRtnData, error)
 	GitCommitChangesCommand(ctx context.Context, data CommandGitCommitChangesData) (*CommandGitCommitChangesRtnData, error)
 	GitCommitDiffCommand(ctx context.Context, data CommandGitCommitDiffData) (*CommandGitCommitDiffRtnData, error)
+	GitCompareChangesCommand(ctx context.Context, data CommandGitCompareChangesData) (*CommandGitCompareChangesRtnData, error)
+	GitCompareDiffCommand(ctx context.Context, data CommandGitCompareDiffData) (*CommandGitCompareDiffRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -69,5 +71,30 @@ type CommandGitCommitDiffData struct {
 }
 
 type CommandGitCommitDiffRtnData struct {
+	Diff string `json:"diff"`
+}
+
+type CommandGitCompareChangesData struct {
+	Cwd  string `json:"cwd"`
+	Base string `json:"base"`
+	Head string `json:"head"`
+}
+
+// Mirrors CommandGitCommitChangesRtnData: an aggregate is a change set like any other, so one
+// frontend parser (parseGitChanges) serves the working tree, a single commit, and a two-ref range.
+type CommandGitCompareChangesRtnData struct {
+	StatusZ string `json:"statusz"`
+	Numstat string `json:"numstat"`
+	IsRepo  bool   `json:"isrepo"`
+}
+
+type CommandGitCompareDiffData struct {
+	Cwd  string `json:"cwd"`
+	Base string `json:"base"`
+	Head string `json:"head"`
+	Path string `json:"path"`
+}
+
+type CommandGitCompareDiffRtnData struct {
 	Diff string `json:"diff"`
 }

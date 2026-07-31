@@ -24,8 +24,8 @@ export const GLOBAL_HINTS: FooterHint[] = [
     { ids: ["help"], glyph: "?", label: "help" }, // Shift+?; drops in the terminal
 ];
 
-// Only the agent surface has surface-specific bindings today (see spec Finding). Other surfaces
-// fall back to GLOBAL_HINTS only.
+// The agent surface and the Diff surface have surface-specific bindings; the rest fall back to
+// GLOBAL_HINTS only.
 export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
     agent: [
         { ids: ["agent:prev-k", "agent:next-j", "agent:prev", "agent:next"], glyph: "↑↓", label: "move" },
@@ -34,5 +34,12 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["agent:back"], glyph: "esc", label: "back" },
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding
+    ],
+    files: [
+        { ids: ["list:prev-k", "list:next-j", "list:prev", "list:next"], glyph: "↑↓", label: "commit" },
+        { ids: ["list:activate"], glyph: "⏎", label: "open file" },
+        { ids: ["files:compare"], glyph: "c", label: "compare" },
+        { ids: ["files:switch-side"], glyph: "⇥", label: "side" }, // compare-only via its binding
+        { ids: ["files:exit-compare"], glyph: "esc", label: "history" }, // compare-only via its binding
     ],
 };
