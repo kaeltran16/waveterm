@@ -618,6 +618,18 @@ export class RpcApiType {
         return client.wshRpcCall("gitdiff", data, opts);
     }
 
+    // command "gitdivergence" [call]
+    GitDivergenceCommand(client: WshClient, data: CommandGitDivergenceData, opts?: RpcOpts): Promise<CommandGitDivergenceRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitdivergence", data, opts);
+        return client.wshRpcCall("gitdivergence", data, opts);
+    }
+
+    // command "githistory" [call]
+    GitHistoryCommand(client: WshClient, data: CommandGitHistoryData, opts?: RpcOpts): Promise<CommandGitHistoryRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "githistory", data, opts);
+        return client.wshRpcCall("githistory", data, opts);
+    }
+
     // command "gitrevert" [call]
     GitRevertCommand(client: WshClient, data: CommandGitRevertData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitrevert", data, opts);

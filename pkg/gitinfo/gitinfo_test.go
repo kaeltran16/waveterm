@@ -729,3 +729,223 @@ func TestRangeLog(t *testing.T) {
 		t.Fatalf("want 0 commits for end..end, got %d", len(empty))
 	}
 }
+
+// gitAuthored is git(t, ...) with a named author instead of the bare "t", so the history and
+// divergence tests can assert on the author field they carry.
+func gitAuthored(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=dana k", "GIT_AUTHOR_EMAIL=dana@example.com",
+		"GIT_COMMITTER_NAME=dana k", "GIT_COMMITTER_EMAIL=dana@example.com")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+// commitAuthored writes name=body, stages everything and commits as "dana k".
+func commitAuthored(t *testing.T, dir, name, body, msg string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAuthored(t, dir, "add", ".")
+	gitAuthored(t, dir, "commit", "-m", msg)
+}
+
+// repoBranchMerge builds: root -> a -> (feature: b) -> merge, so history has a real merge commit
+// with two parents and a branch ref to decorate.
+func repoBranchMerge(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitAuthored(t, dir, "init", "--initial-branch=main")
+	commitAuthored(t, dir, "root.txt", "root\n", "root commit")
+	commitAuthored(t, dir, "a.txt", "a\n", "second on main")
+	gitAuthored(t, dir, "checkout", "-b", "feature")
+	commitAuthored(t, dir, "b.txt", "b\n", "only on feature")
+	gitAuthored(t, dir, "checkout", "main")
+	gitAuthored(t, dir, "merge", "--no-ff", "feature", "-m", "merge feature into main")
+	return dir
+}
+
+func TestHistoryLogParentsAndOrder(t *testing.T) {
+	dir := repoBranchMerge(t)
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	if !h.IsRepo {
+		t.Fatal("IsRepo = false, want true")
+	}
+	if len(h.Commits) != 4 {
+		t.Fatalf("got %d commits, want 4", len(h.Commits))
+	}
+	tip := h.Commits[0]
+	if tip.Subject != "merge feature into main" {
+		t.Errorf("tip subject = %q, want the merge commit (newest first)", tip.Subject)
+	}
+	if len(tip.Parents) != 2 {
+		t.Errorf("merge commit has %d parents, want 2", len(tip.Parents))
+	}
+	if tip.Author != "dana k" {
+		t.Errorf("author = %q, want %q", tip.Author, "dana k")
+	}
+	if tip.Ts == 0 {
+		t.Error("Ts = 0, want a UnixMilli author time")
+	}
+	root := h.Commits[len(h.Commits)-1]
+	if len(root.Parents) != 0 {
+		t.Errorf("root commit has %d parents, want 0", len(root.Parents))
+	}
+}
+
+func TestHistoryLogDecoratesRefs(t *testing.T) {
+	dir := repoBranchMerge(t)
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	var tipRefs []string
+	for _, c := range h.Commits {
+		if c.Subject == "merge feature into main" {
+			tipRefs = c.Refs
+		}
+	}
+	joined := strings.Join(tipRefs, "|")
+	if !strings.Contains(joined, "main") {
+		t.Errorf("tip refs = %v, want one entry naming main", tipRefs)
+	}
+}
+
+func TestHistoryLogPaginates(t *testing.T) {
+	dir := repoBranchMerge(t)
+	first, err := HistoryLog(context.Background(), dir, HistoryOpts{Limit: 2})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	if len(first.Commits) != 2 {
+		t.Fatalf("Limit=2 returned %d commits", len(first.Commits))
+	}
+	next, err := HistoryLog(context.Background(), dir, HistoryOpts{Limit: 2, Skip: 2})
+	if err != nil {
+		t.Fatalf("HistoryLog skip: %v", err)
+	}
+	if len(next.Commits) != 2 {
+		t.Fatalf("Skip=2 returned %d commits", len(next.Commits))
+	}
+	if next.Commits[0].Hash == first.Commits[0].Hash {
+		t.Error("Skip=2 returned the same page as Skip=0")
+	}
+}
+
+func TestHistoryLogFiltersByAuthorAndPath(t *testing.T) {
+	dir := repoBranchMerge(t)
+	byAuthor, err := HistoryLog(context.Background(), dir, HistoryOpts{Author: "nobody@example.com"})
+	if err != nil {
+		t.Fatalf("HistoryLog author: %v", err)
+	}
+	if len(byAuthor.Commits) != 0 {
+		t.Errorf("author filter matched %d commits, want 0", len(byAuthor.Commits))
+	}
+	byPath, err := HistoryLog(context.Background(), dir, HistoryOpts{Path: "b.txt"})
+	if err != nil {
+		t.Fatalf("HistoryLog path: %v", err)
+	}
+	if len(byPath.Commits) != 1 {
+		t.Fatalf("path filter matched %d commits, want 1", len(byPath.Commits))
+	}
+	if byPath.Commits[0].Subject != "only on feature" {
+		t.Errorf("path filter returned %q", byPath.Commits[0].Subject)
+	}
+}
+
+func TestHistoryLogNotARepo(t *testing.T) {
+	h, err := HistoryLog(context.Background(), t.TempDir(), HistoryOpts{})
+	if err != nil {
+		t.Fatalf("HistoryLog on non-repo returned error %v, want IsRepo=false", err)
+	}
+	if h.IsRepo {
+		t.Error("IsRepo = true for a directory with no .git")
+	}
+}
+
+// repoDiverged builds root -> shared, then main gains one commit and feature gains two, so the two
+// branches have genuinely divergent commits and a merge base that is neither tip.
+func repoDiverged(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitAuthored(t, dir, "init", "--initial-branch=main")
+	commitAuthored(t, dir, "root.txt", "root.txt\n", "root commit")
+	gitAuthored(t, dir, "checkout", "-b", "feature")
+	commitAuthored(t, dir, "f1.txt", "f1.txt\n", "feature one")
+	commitAuthored(t, dir, "f2.txt", "f2.txt\n", "feature two")
+	gitAuthored(t, dir, "checkout", "main")
+	commitAuthored(t, dir, "m1.txt", "m1.txt\n", "main one")
+	return dir
+}
+
+func TestGetDivergenceSplitsBothSides(t *testing.T) {
+	dir := repoDiverged(t)
+	d, err := GetDivergence(context.Background(), dir, "main", "feature")
+	if err != nil {
+		t.Fatalf("GetDivergence: %v", err)
+	}
+	if !d.IsRepo {
+		t.Fatal("IsRepo = false, want true")
+	}
+	if len(d.Ahead) != 2 {
+		t.Errorf("Ahead has %d commits, want 2 (feature one, feature two)", len(d.Ahead))
+	}
+	if len(d.Behind) != 1 {
+		t.Errorf("Behind has %d commits, want 1 (main one)", len(d.Behind))
+	}
+	if d.Ahead[0].Subject != "feature two" {
+		t.Errorf("Ahead[0] = %q, want the newest feature commit", d.Ahead[0].Subject)
+	}
+	if d.Behind[0].Subject != "main one" {
+		t.Errorf("Behind[0] = %q, want %q", d.Behind[0].Subject, "main one")
+	}
+	if d.Ahead[0].Author != "dana k" {
+		t.Errorf("Ahead[0].Author = %q, want an author (this is why RangeLog was not reused)", d.Ahead[0].Author)
+	}
+}
+
+func TestGetDivergenceReportsMergeBase(t *testing.T) {
+	dir := repoDiverged(t)
+	d, err := GetDivergence(context.Background(), dir, "main", "feature")
+	if err != nil {
+		t.Fatalf("GetDivergence: %v", err)
+	}
+	if d.MergeBase == "" {
+		t.Fatal("MergeBase is empty")
+	}
+	root, err := HistoryLog(context.Background(), dir, HistoryOpts{Ref: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := root.Commits[len(root.Commits)-1].Hash
+	if d.MergeBase != want {
+		t.Errorf("MergeBase = %q, want the root commit %q", d.MergeBase, want)
+	}
+}
+
+func TestGetDivergenceIdenticalRefs(t *testing.T) {
+	dir := repoDiverged(t)
+	d, err := GetDivergence(context.Background(), dir, "main", "main")
+	if err != nil {
+		t.Fatalf("GetDivergence: %v", err)
+	}
+	if len(d.Ahead) != 0 || len(d.Behind) != 0 {
+		t.Errorf("comparing a ref to itself gave %d ahead / %d behind, want 0 / 0", len(d.Ahead), len(d.Behind))
+	}
+}
+
+func TestGetDivergenceNotARepo(t *testing.T) {
+	d, err := GetDivergence(context.Background(), t.TempDir(), "main", "feature")
+	if err != nil {
+		t.Fatalf("GetDivergence on non-repo returned error %v, want IsRepo=false", err)
+	}
+	if d.IsRepo {
+		t.Error("IsRepo = true for a directory with no .git")
+	}
+}

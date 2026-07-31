@@ -467,3 +467,171 @@ func CreateWorktree(ctx context.Context, repoPath, branch string) (string, error
 	}
 	return wt, nil
 }
+
+// defaultHistoryLimit bounds an unpaginated history read. A cockpit-sized page, not a whole repo:
+// the surface pages as the user scrolls, and an unbounded log on a large repo blocks the RPC.
+const defaultHistoryLimit = 200
+
+// fieldSep / recordSep are git's own unit and record separators (%x1f / %x1e). Using an explicit
+// record separator rather than relying on newlines keeps parsing correct even when a field's own
+// content contains a newline.
+const (
+	fieldSep  = "\x1f"
+	recordSep = "\x1e"
+)
+
+// HistoryCommit is one commit in a history walk. Parents are full SHAs in git's own order, so
+// Parents[0] is the first parent — the lane a graph continues down. Refs are decoration entries as
+// git prints them ("HEAD -> main", "origin/main", "tag: v0.9.4"), left unparsed for the frontend.
+type HistoryCommit struct {
+	Hash    string   `json:"hash"`
+	Parents []string `json:"parents"`
+	Author  string   `json:"author"`
+	Email   string   `json:"email"`
+	Ts      int64    `json:"ts"`
+	Subject string   `json:"subject"`
+	Refs    []string `json:"refs,omitempty"`
+}
+
+// HistoryOpts scopes a history walk. Zero value = the default-limit walk from HEAD across all refs.
+type HistoryOpts struct {
+	Ref    string // revision or range ("main", a SHA, "base..head"); "" = all refs
+	Skip   int
+	Limit  int // 0 => defaultHistoryLimit
+	Author string
+	Grep   string
+	Path   string
+}
+
+// History is a page of commits plus the current HEAD, which the surface needs to anchor a synthetic
+// working-tree row to the commit it sits on top of.
+type History struct {
+	Commits []HistoryCommit `json:"commits"`
+	Head    string          `json:"head"`
+	IsRepo  bool            `json:"isrepo"`
+}
+
+// HistoryLog walks commit history newest-first with parent links and ref decoration. Unlike RangeLog
+// (which answers "what commits are in this bounded base..end range") this is the paginated,
+// filterable walk a history view scrolls through. --date-order keeps sibling branches interleaved by
+// time rather than collapsing one branch at a time, which is what makes a lane graph readable.
+func HistoryLog(ctx context.Context, cwd string, opts HistoryOpts) (*History, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &History{IsRepo: false}, nil
+	}
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = defaultHistoryLimit
+	}
+	args := []string{"log", "--date-order", "--no-color", "--decorate=short",
+		"--pretty=format:%H" + fieldSep + "%P" + fieldSep + "%an" + fieldSep + "%ae" +
+			fieldSep + "%ct" + fieldSep + "%D" + fieldSep + "%s" + recordSep,
+		"--max-count=" + strconv.Itoa(limit)}
+	if opts.Skip > 0 {
+		args = append(args, "--skip="+strconv.Itoa(opts.Skip))
+	}
+	if opts.Author != "" {
+		args = append(args, "--author="+opts.Author)
+	}
+	if opts.Grep != "" {
+		args = append(args, "--grep="+opts.Grep, "--regexp-ignore-case")
+	}
+	if opts.Ref != "" {
+		args = append(args, opts.Ref)
+	} else {
+		args = append(args, "--all")
+	}
+	// a pathspec must come last, after the revision
+	if opts.Path != "" {
+		args = append(args, "--", opts.Path)
+	}
+	out, err := run(ctx, cwd, args...)
+	if err != nil {
+		return nil, err
+	}
+	head, _ := run(ctx, cwd, "rev-parse", "HEAD")
+	return &History{Commits: parseHistory(out), Head: strings.TrimSpace(head), IsRepo: true}, nil
+}
+
+func parseHistory(out string) []HistoryCommit {
+	var commits []HistoryCommit
+	for _, rec := range strings.Split(out, recordSep) {
+		rec = strings.TrimLeft(rec, "\r\n")
+		if strings.TrimSpace(rec) == "" {
+			continue
+		}
+		f := strings.Split(rec, fieldSep)
+		if len(f) < 7 {
+			continue
+		}
+		secs, _ := strconv.ParseInt(strings.TrimSpace(f[4]), 10, 64)
+		commits = append(commits, HistoryCommit{
+			Hash:    f[0],
+			Parents: strings.Fields(f[1]),
+			Author:  f[2],
+			Email:   f[3],
+			Ts:      secs * 1000,
+			Refs:    parseDecoration(f[5]),
+			Subject: f[6],
+		})
+	}
+	return commits
+}
+
+// parseDecoration splits git's %D decoration ("HEAD -> main, origin/main, tag: v0.9.4") into its
+// entries, left otherwise verbatim so the frontend decides how each kind is labelled.
+func parseDecoration(d string) []string {
+	d = strings.TrimSpace(d)
+	if d == "" {
+		return nil
+	}
+	parts := strings.Split(d, ",")
+	refs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			refs = append(refs, p)
+		}
+	}
+	return refs
+}
+
+// Divergence is the two-sided answer to "how do these refs differ": the commits reachable from head
+// but not base, the reverse, and the commit they share. Ahead/Behind are named from head's point of
+// view. Commit lists are newest-first, matching HistoryLog.
+type Divergence struct {
+	Ahead     []HistoryCommit `json:"ahead"`
+	Behind    []HistoryCommit `json:"behind"`
+	MergeBase string          `json:"mergebase"`
+	IsRepo    bool            `json:"isrepo"`
+}
+
+// GetDivergence compares two refs. The per-side commit lists come from HistoryLog over the symmetric
+// ranges, so each commit carries an author — the compare view shows one per row.
+func GetDivergence(ctx context.Context, cwd, base, head string) (*Divergence, error) {
+	ahead, err := HistoryLog(ctx, cwd, HistoryOpts{Ref: base + ".." + head})
+	if err != nil {
+		return nil, err
+	}
+	if !ahead.IsRepo {
+		return &Divergence{IsRepo: false}, nil
+	}
+	behind, err := HistoryLog(ctx, cwd, HistoryOpts{Ref: head + ".." + base})
+	if err != nil {
+		return nil, err
+	}
+	mbCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	mb, err := run(mbCtx, cwd, "merge-base", base, head)
+	if err != nil {
+		return nil, err
+	}
+	return &Divergence{
+		Ahead:     ahead.Commits,
+		Behind:    behind.Commits,
+		MergeBase: strings.TrimSpace(mb),
+		IsRepo:    true,
+	}, nil
+}

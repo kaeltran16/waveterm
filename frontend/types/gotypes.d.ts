@@ -752,6 +752,39 @@ declare global {
         untracked: boolean;
     };
 
+    // wshrpc.CommandGitDivergenceData
+    type CommandGitDivergenceData = {
+        cwd: string;
+        base: string;
+        head: string;
+    };
+
+    // wshrpc.CommandGitDivergenceRtnData
+    type CommandGitDivergenceRtnData = {
+        ahead: HistoryCommit[];
+        behind: HistoryCommit[];
+        mergebase: string;
+        isrepo: boolean;
+    };
+
+    // wshrpc.CommandGitHistoryData
+    type CommandGitHistoryData = {
+        cwd: string;
+        ref?: string;
+        skip?: number;
+        limit?: number;
+        author?: string;
+        grep?: string;
+        path?: string;
+    };
+
+    // wshrpc.CommandGitHistoryRtnData
+    type CommandGitHistoryRtnData = {
+        commits: HistoryCommit[];
+        head: string;
+        isrepo: boolean;
+    };
+
     // wshrpc.CommandGitRevertData
     type CommandGitRevertData = {
         cwd: string;
@@ -1636,6 +1669,17 @@ declare global {
         label: string;
         status?: string;
         updated?: number;
+    };
+
+    // gitinfo.HistoryCommit
+    type HistoryCommit = {
+        hash: string;
+        parents: string[];
+        author: string;
+        email: string;
+        ts: number;
+        subject: string;
+        refs?: string[];
     };
 
     // wshrpc.JarvisChunk
