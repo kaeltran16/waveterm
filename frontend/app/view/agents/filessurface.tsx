@@ -20,7 +20,15 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { StatusDot } from "./statusdot";
-import { filesErrorAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, loadFilesForRun } from "./filesstore";
+import {
+    filesErrorAtom,
+    filesProjectSelAtom,
+    filesStateAtom,
+    loadFilesForAgent,
+    loadFilesForProject,
+    loadFilesForRun,
+    type FilesProject,
+} from "./filesstore";
 import { runShortId } from "./runcompletion";
 import { projectsAtom } from "./projectsstore";
 import { CommitPane } from "./commitpane";
@@ -46,11 +54,6 @@ import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 // open::that (ShellExecute) resolves it and a copied absolute path is a valid native Windows path.
 function joinPath(cwd: string, rel: string): string {
     return `${cwd}/${rel}`.replace(/\//g, "\\");
-}
-
-export interface FilesProject {
-    name: string;
-    path: string;
 }
 
 // The Files surface can be scoped either to a running agent's worktree or to a registered project.
@@ -263,7 +266,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         .sort((a, b) => a.name.localeCompare(b.name));
 
     // A picked project overrides agent-focus scoping; null means "follow the focused agent".
-    const [projectSel, setProjectSel] = useState<FilesProject | null>(null);
+    const projectSel = useAtomValue(filesProjectSelAtom);
+    const setProjectSel = (p: FilesProject | null) => globalStore.set(filesProjectSelAtom, p);
     const runSource = useAtomValue(model.filesRunAtom);
     const agent = agents.find((a) => a.id === focusId);
     const source: FilesSource | null = projectSel

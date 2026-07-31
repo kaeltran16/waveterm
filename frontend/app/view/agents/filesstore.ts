@@ -23,7 +23,17 @@ export interface FilesState {
     ref: string; // base commit to diff against; "" = live working-tree-vs-HEAD
 }
 
+// A registered project the Diff surface can scope to, resolved from the config registry (name -> path).
+export interface FilesProject {
+    name: string;
+    path: string;
+}
+
 export const filesStateAtom = atom<FilesState | null>(null) as PrimitiveAtom<FilesState | null>;
+// Which project the surface is scoped to; null = follow the focused agent instead. Module scope for the
+// same reason as the rest of this file: the Diff surface unmounts on nav switch, so component state here
+// meant leaving and returning silently dropped the repository and emptied all three panes.
+export const filesProjectSelAtom = atom<FilesProject | null>(null) as PrimitiveAtom<FilesProject | null>;
 export const filesSelectedPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 // true = the git load failed (distinct from "not a repo" — a failed RPC used to masquerade as isRepo:false).
