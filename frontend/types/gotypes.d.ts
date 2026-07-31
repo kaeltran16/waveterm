@@ -756,6 +756,31 @@ declare global {
         ref?: string;
     };
 
+    // wshrpc.CommandGitCommitChangesData
+    type CommandGitCommitChangesData = {
+        cwd: string;
+        hash: string;
+    };
+
+    // wshrpc.CommandGitCommitChangesRtnData
+    type CommandGitCommitChangesRtnData = {
+        statusz: string;
+        numstat: string;
+        isrepo: boolean;
+    };
+
+    // wshrpc.CommandGitCommitDiffData
+    type CommandGitCommitDiffData = {
+        cwd: string;
+        hash: string;
+        path: string;
+    };
+
+    // wshrpc.CommandGitCommitDiffRtnData
+    type CommandGitCommitDiffRtnData = {
+        diff: string;
+    };
+
     // wshrpc.CommandGitDiffData
     type CommandGitDiffData = {
         cwd: string;

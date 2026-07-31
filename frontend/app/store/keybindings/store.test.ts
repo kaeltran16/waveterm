@@ -10,7 +10,6 @@ import {
     buildGlobalBindings,
     buildJarvisBindings,
     buildListNavBindings,
-    buildReviewBindings,
 } from "./bindings";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -111,12 +110,6 @@ describe("keybinding conflict invariant", () => {
         expect(() =>
             assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)])
         ).not.toThrow();
-    });
-
-    it("global + review bindings (files review mode) do not conflict", () => {
-        const model = {} as any;
-        globalStore.set(listNavAtom, null);
-        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildReviewBindings()])).not.toThrow();
     });
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {

@@ -526,7 +526,11 @@ func HistoryLog(ctx context.Context, cwd string, opts HistoryOpts) (*History, er
 	if limit <= 0 {
 		limit = defaultHistoryLimit
 	}
-	args := []string{"log", "--date-order", "--no-color", "--decorate=short",
+	// --decorate=full, not short: short prints a local branch "feature/x" and a remote branch
+	// "origin/main" identically, so nothing downstream can tell a slashed local branch from a remote.
+	// Full form carries the refs/heads/ | refs/remotes/ | refs/tags/ namespace, which classifyRef
+	// (frontend historyrows.ts) keys off. Labels are stripped back to the short name there.
+	args := []string{"log", "--date-order", "--no-color", "--decorate=full",
 		"--pretty=format:%H" + fieldSep + "%P" + fieldSep + "%an" + fieldSep + "%ae" +
 			fieldSep + "%ct" + fieldSep + "%D" + fieldSep + "%s" + recordSep,
 		"--max-count=" + strconv.Itoa(limit)}
@@ -581,8 +585,9 @@ func parseHistory(out string) []HistoryCommit {
 	return commits
 }
 
-// parseDecoration splits git's %D decoration ("HEAD -> main, origin/main, tag: v0.9.4") into its
-// entries, left otherwise verbatim so the frontend decides how each kind is labelled.
+// parseDecoration splits git's %D decoration ("HEAD -> refs/heads/main, refs/remotes/origin/main,
+// tag: refs/tags/v0.9.4") into its entries, left otherwise verbatim — including the refs/ namespace,
+// which is what lets the frontend tell a remote branch from a slashed local one.
 func parseDecoration(d string) []string {
 	d = strings.TrimSpace(d)
 	if d == "" {
@@ -634,4 +639,66 @@ func GetDivergence(ctx context.Context, cwd, base, head string) (*Divergence, er
 		MergeBase: strings.TrimSpace(mb),
 		IsRepo:    true,
 	}, nil
+}
+
+// git's well-known empty-tree object. Diffing a root commit against it is how you get "everything
+// this commit introduced" when there is no parent to measure against.
+const emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// commitBase returns the ref a commit's own change should be measured against: its first parent, or
+// the empty tree for a root commit. Merge commits deliberately use the first parent — "what did this
+// merge bring in" is the conventional presentation, and a combined diff is unreadable in a file list.
+func commitBase(ctx context.Context, cwd, hash string) (string, error) {
+	out, err := run(ctx, cwd, "rev-list", "--parents", "-n", "1", hash)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) < 2 {
+		return emptyTreeHash, nil
+	}
+	return fields[1], nil
+}
+
+// CommitChanges lists the per-file changes one commit introduced, as name-status + numstat in the
+// same shape GetChanges and GetRangeChanges produce. Unlike GetChanges it never consults the working
+// tree, so selecting a commit in the history shows that commit and not "everything since it".
+// Paths are cwd-relative (--relative), matching the rest of the package.
+func CommitChanges(ctx context.Context, cwd, hash string) (*Changes, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &Changes{IsRepo: false}, nil
+	}
+	base, err := commitBase(ctx, cwd, hash)
+	if err != nil {
+		return nil, err
+	}
+	nameStatus, err := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", base, hash)
+	if err != nil {
+		return nil, err
+	}
+	numstat, err := run(ctx, cwd, "diff", "--numstat", "--relative", base, hash)
+	if err != nil {
+		return nil, err
+	}
+	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
+}
+
+// CommitDiff returns one file's unified diff as introduced by one commit. The Diff shape is shared
+// with GetDiff so the frontend parses both the same way; Untracked is never set here, because a
+// committed file is by definition tracked.
+func CommitDiff(ctx context.Context, cwd, hash, path string) (*Diff, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	base, err := commitBase(ctx, cwd, hash)
+	if err != nil {
+		return nil, err
+	}
+	diff, err := run(ctx, cwd, "diff", base, hash, "--", path)
+	if err != nil {
+		return nil, err
+	}
+	return &Diff{Diff: diff}, nil
 }

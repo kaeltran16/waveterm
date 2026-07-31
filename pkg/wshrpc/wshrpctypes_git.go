@@ -15,6 +15,8 @@ import (
 type GitCommands interface {
 	GitHistoryCommand(ctx context.Context, data CommandGitHistoryData) (*CommandGitHistoryRtnData, error)
 	GitDivergenceCommand(ctx context.Context, data CommandGitDivergenceData) (*CommandGitDivergenceRtnData, error)
+	GitCommitChangesCommand(ctx context.Context, data CommandGitCommitChangesData) (*CommandGitCommitChangesRtnData, error)
+	GitCommitDiffCommand(ctx context.Context, data CommandGitCommitDiffData) (*CommandGitCommitDiffRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -45,4 +47,27 @@ type CommandGitDivergenceRtnData struct {
 	Behind    []gitinfo.HistoryCommit `json:"behind"`
 	MergeBase string                  `json:"mergebase"`
 	IsRepo    bool                    `json:"isrepo"`
+}
+
+type CommandGitCommitChangesData struct {
+	Cwd  string `json:"cwd"`
+	Hash string `json:"hash"`
+}
+
+// Mirrors CommandGitChangesRtnData minus Branch and Ref, which are properties of the working-tree
+// view and meaningless for a single commit.
+type CommandGitCommitChangesRtnData struct {
+	StatusZ string `json:"statusz"`
+	Numstat string `json:"numstat"`
+	IsRepo  bool   `json:"isrepo"`
+}
+
+type CommandGitCommitDiffData struct {
+	Cwd  string `json:"cwd"`
+	Hash string `json:"hash"`
+	Path string `json:"path"`
+}
+
+type CommandGitCommitDiffRtnData struct {
+	Diff string `json:"diff"`
 }

@@ -39,9 +39,11 @@ function claim(slots: Slots, hash: string): number {
     return slots.length - 1;
 }
 
-export function assignLanes(commits: GraphCommit[]): LanedRow[] {
+// Generic in the commit type so callers that carry display fields (subject, author, refs) get them
+// back on the laned rows instead of having them erased to GraphCommit.
+export function assignLanes<T extends GraphCommit>(commits: T[]): (T & { lane: number; merge: boolean })[] {
     const slots: Slots = [];
-    const rows: LanedRow[] = [];
+    const rows: (T & { lane: number; merge: boolean })[] = [];
     for (const commit of commits) {
         let lane = slots.indexOf(commit.hash);
         if (lane === -1) {

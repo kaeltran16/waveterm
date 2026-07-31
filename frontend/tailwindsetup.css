@@ -88,6 +88,17 @@
     --color-avatar-5: #c98fe6;
     --color-avatar-6: #9aa3ad;
 
+    /* Commit-graph lane palette (positional, never identity — see gitgraph.ts / graphgutter.tsx).
+       Distinct from --color-lane, which is the agent-card lane fill and means something else.
+       Literal hexes, matching how the avatar palette above is defined. */
+    --color-graphlane-1: #7c95ff;
+    --color-graphlane-2: #54c79a;
+    --color-graphlane-3: #e6b450;
+    --color-graphlane-4: #c9a4ff;
+    --color-graphlane-5: #e0726c;
+    --color-graphlane-6: #5cc8d8;
+    --color-graphlane-fold: #6b7178;
+
     /* Runtime accents — trademark colors: Claude coral (claude-color.svg #D97757); Codex is a
        monochrome mark (codex.svg #111), inverted to near-white for legibility on the dark cockpit. */
     --color-rt-claude: #d97757;

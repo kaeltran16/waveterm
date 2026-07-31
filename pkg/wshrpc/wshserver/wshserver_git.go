@@ -35,3 +35,19 @@ func (ws *WshServer) GitDivergenceCommand(ctx context.Context, data wshrpc.Comma
 		Ahead: d.Ahead, Behind: d.Behind, MergeBase: d.MergeBase, IsRepo: d.IsRepo,
 	}, nil
 }
+
+func (ws *WshServer) GitCommitChangesCommand(ctx context.Context, data wshrpc.CommandGitCommitChangesData) (*wshrpc.CommandGitCommitChangesRtnData, error) {
+	ch, err := gitinfo.CommitChanges(ctx, data.Cwd, data.Hash)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitCommitChangesRtnData{StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo}, nil
+}
+
+func (ws *WshServer) GitCommitDiffCommand(ctx context.Context, data wshrpc.CommandGitCommitDiffData) (*wshrpc.CommandGitCommitDiffRtnData, error) {
+	d, err := gitinfo.CommitDiff(ctx, data.Cwd, data.Hash, data.Path)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitCommitDiffRtnData{Diff: d.Diff}, nil
+}

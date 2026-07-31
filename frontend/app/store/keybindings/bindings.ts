@@ -8,16 +8,6 @@ import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agen
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { MutableRefObject } from "react";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
-import {
-    appliedAtom,
-    applyReview,
-    decide,
-    decisionsAtom,
-    hunkKey,
-    reviewModelAtom,
-    reviewSelectedAtom,
-    undoLast,
-} from "@/app/view/agents/reviewstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
@@ -220,67 +210,6 @@ export function buildListNavBindings(): Binding[] {
         { id: "list:next", keys: "ArrowDown", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
         { id: "list:prev", keys: "ArrowUp", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
         { id: "list:activate", keys: "Enter", group: "Navigation", label: "Open / activate item", when: active, run: activate },
-    ];
-}
-
-// Files "Review" mode triage keys. Registered by ReviewSurface via useKeybindings, so they exist
-// only while review mode is mounted; run() reads the review atoms live. Folds the former ad-hoc
-// window keydown listener into the registry (F7) — so it now respects the typing-guard.
-export function buildReviewBindings(): Binding[] {
-    const ready = (ctx: KeyContext): boolean =>
-        ctx.surface === "files" &&
-        !ctx.editable &&
-        !ctx.modalOpen &&
-        globalStore.get(reviewModelAtom) != null &&
-        globalStore.get(appliedAtom) == null;
-    const files = () => globalStore.get(reviewModelAtom)?.files ?? [];
-    const nextPending = (): string | undefined => {
-        const sel = globalStore.get(reviewSelectedAtom);
-        const d = globalStore.get(decisionsAtom);
-        const fs = files();
-        const f = fs.find((x) => x.path === sel) ?? fs[0];
-        return f?.hunks.map((h) => hunkKey(f.path, h.id)).find((k) => !d[k]);
-    };
-    const moveSel = (dir: number) => {
-        const fs = files();
-        if (fs.length === 0) {
-            return;
-        }
-        const sel = globalStore.get(reviewSelectedAtom);
-        const i = fs.findIndex((f) => f.path === sel);
-        const ni = Math.max(0, Math.min(fs.length - 1, (i < 0 ? 0 : i) + dir));
-        globalStore.set(reviewSelectedAtom, fs[ni].path);
-    };
-    const decideNext = (val: "accept" | "reject") => {
-        const k = nextPending();
-        if (k == null) {
-            return false; // nothing pending — pass the key through
-        }
-        decide(k, val);
-    };
-    return [
-        { id: "review:accept", keys: "a", group: "Review", label: "Accept next hunk", when: ready, run: () => decideNext("accept") },
-        { id: "review:reject", keys: "r", group: "Review", label: "Reject next hunk", when: ready, run: () => decideNext("reject") },
-        { id: "review:undo", keys: "u", group: "Review", label: "Undo last decision", when: ready, run: () => undoLast() },
-        { id: "review:next", keys: "ArrowDown", group: "Review", label: "Next file", when: ready, run: () => moveSel(1) },
-        { id: "review:next-j", keys: "j", group: "Review", label: "Next file", when: ready, run: () => moveSel(1) },
-        { id: "review:prev", keys: "ArrowUp", group: "Review", label: "Previous file", when: ready, run: () => moveSel(-1) },
-        { id: "review:prev-k", keys: "k", group: "Review", label: "Previous file", when: ready, run: () => moveSel(-1) },
-        {
-            id: "review:apply",
-            keys: "Enter",
-            group: "Review",
-            label: "Apply review",
-            when: ready,
-            run: () => {
-                const d = globalStore.get(decisionsAtom);
-                const pending = files().some((f) => f.hunks.some((h) => !d[hunkKey(f.path, h.id)]));
-                if (pending) {
-                    return false; // still hunks to decide — do not apply
-                }
-                void applyReview();
-            },
-        },
     ];
 }
 

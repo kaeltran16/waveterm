@@ -46,6 +46,8 @@ export interface GraphGeometry {
     edges: GraphEdge[];
     nodes: GraphNode[];
     foldedCount: number;
+    // x of the fold indicator, centred on the last drawable lane. Meaningful only when foldedCount > 0.
+    foldX: number;
 }
 
 function edgePath(x1: number, y1: number, x2: number, y2: number): string {
@@ -114,5 +116,13 @@ export function graphGeometry(rows: LanedRow[], opts: GeometryOpts): GraphGeomet
     });
 
     const gutter = PAD_L + maxLanes * LANE_W + 4;
-    return { width: gutter, height: rows.length === 0 ? 0 : acc + BOTTOM_PAD, gutter, edges, nodes, foldedCount };
+    return {
+        width: gutter,
+        height: rows.length === 0 ? 0 : acc + BOTTOM_PAD,
+        gutter,
+        edges,
+        nodes,
+        foldedCount,
+        foldX: x(lastLane) - 7,
+    };
 }

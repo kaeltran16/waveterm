@@ -815,6 +815,12 @@ func TestHistoryLogDecoratesRefs(t *testing.T) {
 	if !strings.Contains(joined, "main") {
 		t.Errorf("tip refs = %v, want one entry naming main", tipRefs)
 	}
+	// The frontend (historyrows.ts classifyRef) tells a remote branch from a slashed local branch by
+	// the refs/ namespace, which only --decorate=full emits. Short form ("HEAD -> main") is
+	// indistinguishable from a remote, so guard the full form here rather than downstream.
+	if !strings.Contains(joined, "refs/heads/main") {
+		t.Errorf("tip refs = %v, want the full refs/heads/main form (--decorate=full)", tipRefs)
+	}
 }
 
 func TestHistoryLogPaginates(t *testing.T) {
@@ -947,5 +953,101 @@ func TestGetDivergenceNotARepo(t *testing.T) {
 	}
 	if d.IsRepo {
 		t.Error("IsRepo = true for a directory with no .git")
+	}
+}
+
+// commitBySubject finds a commit hash in the repo's history by its subject line, so the tests below
+// do not depend on --date-order tie-breaking between commits made in the same second.
+func commitBySubject(t *testing.T, dir, subject string) string {
+	t.Helper()
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
+	if err != nil {
+		t.Fatalf("HistoryLog: %v", err)
+	}
+	for _, c := range h.Commits {
+		if c.Subject == subject {
+			return c.Hash
+		}
+	}
+	t.Fatalf("no commit with subject %q in %d commits", subject, len(h.Commits))
+	return ""
+}
+
+func TestCommitChangesIsolatesOneCommit(t *testing.T) {
+	dir := repoBranchMerge(t)
+	hash := commitBySubject(t, dir, "second on main")
+	ch, err := CommitChanges(context.Background(), dir, hash)
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+	if !ch.IsRepo {
+		t.Fatal("IsRepo = false, want true")
+	}
+	// that commit added a.txt and nothing else — root.txt already existed, b.txt did not yet
+	if !strings.Contains(ch.StatusZ, "a.txt") {
+		t.Errorf("StatusZ = %q, want it to mention a.txt", ch.StatusZ)
+	}
+	if strings.Contains(ch.StatusZ, "root.txt") {
+		t.Errorf("StatusZ = %q, want it NOT to mention root.txt", ch.StatusZ)
+	}
+	if !strings.Contains(ch.Numstat, "a.txt") {
+		t.Errorf("Numstat = %q, want it to mention a.txt", ch.Numstat)
+	}
+}
+
+func TestCommitChangesHandlesRootCommit(t *testing.T) {
+	dir := repoBranchMerge(t)
+	hash := commitBySubject(t, dir, "root commit")
+	ch, err := CommitChanges(context.Background(), dir, hash)
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+	// a root commit has no parent; every file in it reads as added against the empty tree
+	if !strings.Contains(ch.StatusZ, "root.txt") {
+		t.Errorf("StatusZ = %q, want it to mention root.txt", ch.StatusZ)
+	}
+	if !strings.Contains(ch.StatusZ, "A") {
+		t.Errorf("StatusZ = %q, want an A status", ch.StatusZ)
+	}
+}
+
+func TestCommitChangesOnMergeUsesFirstParent(t *testing.T) {
+	dir := repoBranchMerge(t)
+	hash := commitBySubject(t, dir, "merge feature into main")
+	ch, err := CommitChanges(context.Background(), dir, hash)
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+	// against its first parent (main's tip) the merge brings in exactly b.txt
+	if !strings.Contains(ch.StatusZ, "b.txt") {
+		t.Errorf("StatusZ = %q, want it to mention b.txt", ch.StatusZ)
+	}
+	if strings.Contains(ch.StatusZ, "a.txt") {
+		t.Errorf("StatusZ = %q, want it NOT to mention a.txt", ch.StatusZ)
+	}
+}
+
+func TestCommitDiffReturnsThatCommitsPatch(t *testing.T) {
+	dir := repoBranchMerge(t)
+	hash := commitBySubject(t, dir, "second on main")
+	d, err := CommitDiff(context.Background(), dir, hash, "a.txt")
+	if err != nil {
+		t.Fatalf("CommitDiff: %v", err)
+	}
+	if !strings.Contains(d.Diff, "+a") {
+		t.Errorf("Diff = %q, want it to contain the added line +a", d.Diff)
+	}
+	if d.Untracked {
+		t.Error("Untracked = true, want false for a committed file")
+	}
+}
+
+func TestCommitChangesNotARepo(t *testing.T) {
+	ch, err := CommitChanges(context.Background(), t.TempDir(), "HEAD")
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+	if ch.IsRepo {
+		t.Error("IsRepo = true, want false outside a repository")
 	}
 }

@@ -2,39 +2,44 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Files surface (Wave-cockpit-live.dc.html:733-804): left = changed-file list for the focused
-// agent's worktree; right = the selected file's diff (or plain view for untracked). Read-only.
+// Diff surface (Wave-git-review.dc.html): three panes on one time axis — commit history with a lane
+// gutter (historypane), the selected commit's metadata + files (commitpane), and that file's diff
+// (CenterPane, below). Uncommitted work is row zero of the history, not a separate mode. Read-only.
 
 import { getApi } from "@/app/store/global";
-import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Copy, Pencil } from "lucide-react";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { MotionConfig, motion } from "motion/react";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { StackedMeter } from "@/app/element/meter";
-import { MOTION, cardVariants, computeEntrances, initialEntranceState, type EntranceState } from "@/app/element/motiontokens";
+import { useEffect, useMemo, useState } from "react";
+import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
-import { statusColor, type GitChange } from "./gitstatus";
 import { StatusDot } from "./statusdot";
-import { filesDiffAtom, filesErrorAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, loadFilesForRun, selectFile } from "./filesstore";
+import { filesErrorAtom, filesStateAtom, loadFilesForAgent, loadFilesForProject, loadFilesForRun } from "./filesstore";
 import { runShortId } from "./runcompletion";
 import { projectsAtom } from "./projectsstore";
-import { ReviewSurface } from "./reviewsurface";
-import { decisionsAtom, fileDecision, hunkKey, loadReview, progressOf, reviewModelAtom, reviewSelectedAtom } from "./reviewstore";
-import { sourceKey } from "./filesmotion";
+import { CommitPane } from "./commitpane";
+import {
+    activeChangesAtom,
+    activeDiffAtom,
+    graphOnAtom,
+    historyErrorAtom,
+    historyRowsAtom,
+    loadHistory,
+    resetHistory,
+    selectCommit,
+    selectCommitFile,
+    selectedCommitAtom,
+    selectedFileAtom,
+} from "./githistorystore";
+import { HistoryPane } from "./historypane";
+import { WORKING_TREE } from "./historyrows";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
-
-function baseName(p: string): string {
-    const parts = p.split(/[/\\]/);
-    return parts[parts.length - 1] || p;
-}
 
 // Windows-only build: git reports repo-relative paths with forward slashes while cwd uses backslashes,
 // so a raw `${cwd}/${path}` join is mixed-separator. Normalize the whole join to backslashes so
@@ -145,19 +150,6 @@ function EmptyCenter({ msg }: { msg: string }) {
     return <div className="flex h-full items-center justify-center text-[13px] text-muted">{msg}</div>;
 }
 
-function FileListSkeleton() {
-    return (
-        <div className="space-y-[7px] px-[8px] py-[6px]">
-            {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-[7px] rounded-[7px] px-[8px] py-[5px]">
-                    <SkeletonLine className="h-[13px] flex-1" />
-                    <SkeletonLine className="h-[10px] w-[18px]" />
-                </div>
-            ))}
-        </div>
-    );
-}
-
 function DiffSkeleton() {
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -176,32 +168,6 @@ function DiffSkeleton() {
                 ))}
             </div>
         </div>
-    );
-}
-
-function FileRow({
-    change,
-    selected,
-    onSelect,
-    onContextMenu,
-}: {
-    change: GitChange;
-    selected: boolean;
-    onSelect: () => void;
-    onContextMenu?: (e: React.MouseEvent) => void;
-}) {
-    return (
-        <button
-            onClick={onSelect}
-            onContextMenu={onContextMenu}
-            className={cn(
-                "flex w-full items-center gap-[7px] rounded-[7px] px-[8px] py-[5px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
-                selected && "bg-surface-selected"
-            )}
-        >
-            <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink-mid">{change.path}</span>
-            <span className={cn("flex-none font-mono text-[10px] font-bold", statusColor(change.status))}>{change.status}</span>
-        </button>
     );
 }
 
@@ -282,11 +248,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const registry = useAtomValue(projectsAtom);
     const state = useAtomValue(filesStateAtom);
     const loadError = useAtomValue(filesErrorAtom);
-    const selected = useAtomValue(filesSelectedPathAtom);
-    const diff = useAtomValue(filesDiffAtom);
-    const reviewModel = useAtomValue(reviewModelAtom);
-    const decisions = useAtomValue(decisionsAtom);
-    const reviewSel = useAtomValue(reviewSelectedAtom);
+    const historyRows = useAtomValue(historyRowsAtom);
+    const historyError = useAtomValue(historyErrorAtom);
+    const selectedCommit = useAtomValue(selectedCommitAtom);
+    const selectedFile = useAtomValue(selectedFileAtom);
+    const graphOn = useAtomValue(graphOnAtom);
+    const activeChanges = useAtomValue(activeChangesAtom);
+    const activeDiff = useAtomValue(activeDiffAtom);
 
     // registered projects (name -> path) as a sorted, path-bearing list for the picker
     const projects: FilesProject[] = Object.entries(registry ?? {})
@@ -296,9 +264,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // A picked project overrides agent-focus scoping; null means "follow the focused agent".
     const [projectSel, setProjectSel] = useState<FilesProject | null>(null);
-    const [modeState, setMode] = useState<"browse" | "review">("browse");
     const runSource = useAtomValue(model.filesRunAtom);
-    const mode = runSource ? "browse" : modeState; // run view is read-only: no Review/revert
     const agent = agents.find((a) => a.id === focusId);
     const source: FilesSource | null = projectSel
         ? { kind: "project", name: projectSel.name }
@@ -306,15 +272,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
           ? { kind: "agent", id: focusId }
           : null;
 
-    // No-cascade entrance guard: switching source reseeds the file list silently; only files that
-    // arrive from a live git update within the held source animate in.
-    const filePaths = state?.changes?.files.map((f) => f.path) ?? [];
-    const guardKey = sourceKey(source);
-    const entranceRef = useRef<EntranceState>(initialEntranceState());
-    const { animate: entranceIds } = computeEntrances(entranceRef.current, guardKey, filePaths);
-    useEffect(() => {
-        entranceRef.current = computeEntrances(entranceRef.current, guardKey, filePaths).state;
-    }, [guardKey, filePaths.join(" ")]);
+    // The three scopes the surface already had, now named. Run wins, then a picked project, then the
+    // focused agent — the same precedence the load effect below uses.
+    const scope: "run" | "repo" | "agent" = runSource ? "run" : projectSel ? "repo" : "agent";
+    const refExpr = runSource
+        ? `${(runSource.baseCommit || "HEAD").slice(0, 7)} … HEAD`
+        : scope === "agent" && state?.ref
+          ? `session start ${state.ref.slice(0, 7)} … worktree`
+          : `${state?.branch || "—"} · all refs`;
 
     // Default to the first agent when nothing is scoped, so opening Files is immediately useful
     // instead of a dead "select a source" screen.
@@ -334,31 +299,44 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [runSource?.runId, runSource?.cwd, runSource?.baseCommit, projectSel?.name, projectSel?.path, focusId, agent?.transcriptPath, agent?.blockId]);
 
+    // History follows whatever cwd the change-list load resolved, and anchors on the scope's base so
+    // the session-start / run-base commit gets a labelled divider. rowLabel names what the synthetic
+    // top row is counting: only repo scope reads the bare working tree, so the other two must say so.
     useEffect(() => {
-        if (mode === "review" && state?.cwd) {
-            void loadReview(state.cwd);
+        if (!state?.cwd || !state.isRepo) {
+            resetHistory();
+            return;
         }
-    }, [mode, state?.cwd]);
+        const anchor = runSource ? runSource.baseCommit : state.ref;
+        fireAndForget(() =>
+            loadHistory(state.cwd, {
+                anchor: anchor || undefined,
+                anchorLabel: runSource ? "run base" : anchor ? "session start" : undefined,
+                rowLabel: runSource ? "Run changes" : anchor ? "Since session start" : undefined,
+            })
+        );
+    }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId]);
 
-    // publish the browse file list for global j/k list-nav; review mode has its own keys
-    // (buildReviewBindings), so withdraw the controller (null) there. cursor==selection: moving
-    // selects the file, which loads its diff. Must run before the early return (hooks rules).
-    const browseNav = useMemo<ListNavController | null>(
+    // publish the commit list for global j/k list-nav. cursor==selection: moving selects the commit,
+    // which loads its files and first diff. Must run before the early return (hooks rules).
+    const commitIds = (historyRows ?? []).map((r) => r.hash);
+    const historyNav = useMemo<ListNavController | null>(
         () =>
-            mode === "browse" && state?.cwd
+            state?.cwd && commitIds.length > 0
                 ? {
                       surface: "files",
-                      navigableIds: filePaths,
-                      cursorId: selected ?? undefined,
-                      setCursor: (path) => fireAndForget(() => selectFile(state.cwd!, path)),
-                      // moving already loads the diff; Enter opens the selected file in the editor (its
-                      // primary action button), mirroring the CenterPane "Open in editor" control.
-                      activate: selected ? () => getApi().openExternal(joinPath(state.cwd!, selected)) : undefined,
+                      navigableIds: commitIds,
+                      cursorId: selectedCommit ?? undefined,
+                      setCursor: (hash) => fireAndForget(() => selectCommit(state.cwd!, hash)),
+                      activate:
+                          selectedFile && state.cwd
+                              ? () => getApi().openExternal(joinPath(state.cwd!, selectedFile))
+                              : undefined,
                   }
                 : null,
-        [mode, state?.cwd, filePaths.join(" "), selected]
+        [state?.cwd, commitIds.join(" "), selectedCommit, selectedFile]
     );
-    useSurfaceListNav(browseNav);
+    useSurfaceListNav(historyNav);
 
     if (agents.length === 0 && projects.length === 0) {
         return (
@@ -369,161 +347,124 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             />
         );
     }
-    const dirLabel = state?.cwd ? baseName(state.cwd) : "—";
-    const changes = state?.changes;
-    // review mode reuses this one sidebar list: progress header + per-file verdict/counts,
-    // selection driven through reviewSelectedAtom (the hunk pane lives in ReviewSurface).
-    const rprog = reviewModel ? progressOf(reviewModel.files, decisions) : null;
-    const rSelPath = reviewModel
-        ? (reviewModel.files.find((f) => f.path === reviewSel)?.path ?? reviewModel.files[0]?.path ?? null)
-        : null;
+    const selectedRow = (historyRows ?? []).find((r) => r.hash === selectedCommit) ?? null;
 
     return (
         <MotionConfig reducedMotion="user">
-        <div className="absolute inset-0 flex min-h-0 flex-col">
-            {loadError ? <SurfaceError message="Couldn’t read this repository." /> : null}
-            <div className="flex min-h-0 flex-1">
-            <div className="flex w-[292px] flex-none flex-col border-r border-border bg-surface">
-                <div className="flex-none border-b border-edge-faint p-[15px]">
-                    <div className="mb-[11px] flex items-center gap-[9px]">
-                        <h1 className="text-[16px] font-bold">Diff</h1>
-                        {!runSource && (
-                            <div className="ml-auto flex gap-[2px] rounded-[7px] border border-border p-[2px]">
-                                <button onClick={() => setMode("browse")}
-                                    className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "browse" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Browse</button>
-                                <button onClick={() => setMode("review")}
-                                    className={cn("rounded-[5px] px-[9px] py-[3px] text-[11px] font-[600]", mode === "review" ? "bg-surface-selected text-foreground" : "text-ink-mid")}>Review</button>
+            <div className="absolute inset-0 flex min-h-0 flex-col">
+                {/* subject bar: what am I looking at, and against what */}
+                <div className="flex-none px-[18px] pt-[14px]">
+                    <div className="flex items-center gap-[14px] pb-[11px]">
+                        <h1 className="flex-none text-[16px] font-bold">Diff</h1>
+                        <div className="flex items-center overflow-hidden rounded-[9px] border border-edge-mid bg-surface">
+                            <div className="w-[210px] border-r border-edge-mid">
+                                {runSource ? (
+                                    <div className="flex items-center gap-[8px] px-[11px] py-[6px]">
+                                        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink-mid">
+                                            run {runShortId(runSource.runId)}
+                                        </span>
+                                        <button
+                                            onClick={() => globalStore.set(model.filesRunAtom, null)}
+                                            className="flex-none rounded border border-border px-[8px] py-[2px] text-[11px] text-ink-mid hover:text-foreground"
+                                        >
+                                            Exit
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <SourcePicker
+                                        agents={agents}
+                                        projects={projects}
+                                        source={source}
+                                        onPickAgent={(id) => {
+                                            setProjectSel(null);
+                                            globalStore.set(model.focusIdAtom, id);
+                                        }}
+                                        onPickProject={(p) => setProjectSel(p)}
+                                    />
+                                )}
                             </div>
-                        )}
-                    </div>
-                    {runSource ? (
-                        <div className="flex items-center gap-[8px] rounded border border-border px-[10px] py-[7px]">
-                            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-mid">run {runShortId(runSource.runId)} · read-only</span>
-                            <button
-                                onClick={() => globalStore.set(model.filesRunAtom, null)}
-                                className="flex-none rounded border border-border px-[8px] py-[3px] text-[11px] text-ink-mid hover:text-foreground"
-                            >
-                                Exit
-                            </button>
-                        </div>
-                    ) : (
-                        <SourcePicker
-                            agents={agents}
-                            projects={projects}
-                            source={source}
-                            onPickAgent={(id) => {
-                                setProjectSel(null);
-                                globalStore.set(model.focusIdAtom, id);
-                            }}
-                            onPickProject={(p) => setProjectSel(p)}
-                        />
-                    )}
-                    {state?.cwd && <div className="mt-[7px] truncate px-[2px] font-mono text-[11px] text-ink-faint">{dirLabel}</div>}
-                    {state?.isRepo && (
-                        <div className="mt-[10px] flex items-center gap-[13px] font-mono text-[11px] font-semibold">
-                            <span className="text-ink-mid">{state.branch || "—"}</span>
-                            <span className="text-success">+{changes?.adds ?? 0}</span>
-                            <span className="text-error">−{changes?.dels ?? 0}</span>
-                        </div>
-                    )}
-                    {mode === "review" && rprog && (
-                        <div className="mt-[11px]">
-                            <div className="mb-[6px] flex items-baseline justify-between font-mono text-[11px]">
-                                <span className="text-ink-faint">{reviewModel!.files.length} files</span>
-                                <span className="text-ink-mid">{rprog.reviewed}/{rprog.total} reviewed</span>
-                            </div>
-                            <StackedMeter
-                                height={6}
-                                radius={4}
-                                total={rprog.total}
-                                segs={[
-                                    { key: "accepted", value: rprog.accepted, fill: "bg-success" },
-                                    { key: "rejected", value: rprog.rejected, fill: "bg-error" },
-                                ]}
-                            />
-                        </div>
-                    )}
-                </div>
-                <div className="flex-1 overflow-y-auto p-[8px]">
-                    {mode === "review" ? (
-                        reviewModel == null ? (
-                            <FileListSkeleton />
-                        ) : reviewModel.files.length === 0 ? (
-                            <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No changes to review</div>
-                        ) : (
-                            reviewModel.files.map((f) => {
-                                const verdict = fileDecision(f, decisions);
-                                const dec = f.hunks.filter((h) => decisions[hunkKey(f.path, h.id)]).length;
-                                const ring =
-                                    verdict === "accept" ? "text-success"
-                                    : verdict === "reject" ? "text-error"
-                                    : verdict === "partial" ? "text-warning"
-                                    : "text-ink-faint";
-                                return (
-                                    <button
-                                        key={f.path}
-                                        onClick={() => globalStore.set(reviewSelectedAtom, f.path)}
+                            {(
+                                [
+                                    ["repo", "Repository", projectSel?.name ?? ""],
+                                    ["agent", "Agent", agent?.name ?? ""],
+                                    ["run", "Run", runSource ? runShortId(runSource.runId) : ""],
+                                ] as const
+                            ).map(([key, label, sub]) => (
+                                <div
+                                    key={key}
+                                    className={cn(
+                                        "flex items-center gap-[6px] border-r border-edge-faint px-[11px] py-[6px] text-[11.5px] font-semibold",
+                                        scope === key ? "bg-surface-selected text-ink-hi" : "text-muted"
+                                    )}
+                                >
+                                    {label}
+                                    <span
                                         className={cn(
-                                            "flex w-full items-center gap-[8px] rounded px-[9px] py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
-                                            f.path === rSelPath && "bg-surface-selected"
+                                            "max-w-[90px] truncate font-mono text-[10.5px]",
+                                            scope === key ? "text-accent-soft" : "text-edge-strong"
                                         )}
                                     >
-                                        <span className={cn("font-mono text-[11px]", ring)}>●</span>
-                                        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-mid">{f.path}</span>
-                                        <span className="flex-none font-mono text-[10px] text-ink-faint">{dec}/{f.hunks.length}</span>
-                                    </button>
-                                );
-                            })
-                        )
-                    ) : loadError ? (
-                        <div className="px-[8px] py-[6px] text-[12px] text-error">Couldn’t read changes</div>
-                    ) : state == null ? (
-                        <FileListSkeleton />
-                    ) : !state.isRepo ? (
-                        <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">Not a git repository</div>
-                    ) : (changes?.files.length ?? 0) === 0 ? (
-                        <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No changes</div>
-                    ) : (
-                        <AnimatePresence mode="popLayout" initial={false}>
-                            {changes!.files.map((c) => (
-                                <motion.div
-                                    key={c.path}
-                                    layout
-                                    variants={cardVariants}
-                                    initial={entranceIds.has(c.path) ? "initial" : false}
-                                    animate="animate"
-                                    exit="exit"
-                                >
-                                    <FileRow
-                                        change={c}
-                                        selected={c.path === selected}
-                                        onSelect={() => state.cwd && fireAndForget(() => selectFile(state.cwd!, c.path))}
-                                        onContextMenu={(ev) => {
-                                            const cwd = state.cwd;
-                                            if (!cwd) {
-                                                return;
-                                            }
-                                            ContextMenuModel.getInstance().showContextMenu(
-                                                [
-                                                    { label: "Open in editor", icon: <Pencil size={15} />, click: () => getApi().openExternal(joinPath(cwd, c.path)) },
-                                                    { label: "Copy path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(c.path) },
-                                                    { label: "Copy absolute path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(joinPath(cwd, c.path)) },
-                                                ],
-                                                ev
-                                            );
-                                        }}
-                                    />
-                                </motion.div>
+                                        {sub}
+                                    </span>
+                                </div>
                             ))}
-                        </AnimatePresence>
-                    )}
+                        </div>
+                        <div className="flex items-center gap-[8px] rounded-[9px] border border-edge-mid bg-surface px-[11px] py-[6px]">
+                            <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
+                                Reading
+                            </span>
+                            <span className="font-mono text-[12px] text-ink-mid">{refExpr}</span>
+                        </div>
+                        <div className="flex-1" />
+                        <button
+                            onClick={() => globalStore.set(graphOnAtom, !graphOn)}
+                            className={cn(
+                                "flex items-center gap-[7px] rounded-[7px] border px-[10px] py-[5px] text-[11.5px] font-semibold",
+                                graphOn ? "border-accent/30 bg-accentbg text-ink-hi" : "border-edge-mid bg-surface text-muted"
+                            )}
+                        >
+                            Graph
+                        </button>
+                    </div>
+                </div>
+
+                {loadError || historyError ? <SurfaceError message="Couldn’t read this repository." /> : null}
+
+                <div className="flex min-h-0 flex-1 border-t border-edge-faint">
+                    <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
+                        {state?.isRepo === false && state?.cwd ? (
+                            <div className="px-[14px] py-[10px] text-[12px] text-ink-mid">Not a git repository</div>
+                        ) : (
+                            <HistoryPane
+                                rows={historyRows ?? []}
+                                selected={selectedCommit}
+                                graphOn={graphOn}
+                                loading={historyRows == null}
+                                onSelect={(hash) => state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))}
+                            />
+                        )}
+                    </div>
+                    <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
+                        <CommitPane
+                            row={selectedRow}
+                            changes={activeChanges}
+                            selectedFile={selectedFile}
+                            onSelectFile={(path) =>
+                                state?.cwd &&
+                                selectedCommit != null &&
+                                fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
+                            }
+                        />
+                    </div>
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                        <CenterPane
+                            path={selectedFile}
+                            view={activeDiff}
+                            cwd={selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
+                        />
+                    </div>
                 </div>
             </div>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {mode === "review" ? <ReviewSurface /> : <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />}
-            </div>
-            </div>
-        </div>
         </MotionConfig>
     );
 }

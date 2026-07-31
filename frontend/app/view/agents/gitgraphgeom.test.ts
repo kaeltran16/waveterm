@@ -74,4 +74,14 @@ describe("graphGeometry", () => {
         expect(g.nodes).toEqual([]);
         expect(g.foldedCount).toBe(0);
     });
+
+    it("reports where to draw the fold indicator, just left of the last drawable lane", () => {
+        const rows = assignLanes([
+            { hash: "a", parents: ["b"] },
+            { hash: "b", parents: [] },
+        ]);
+        // lanes are 15px wide starting at a 13px left pad, and the indicator is centred on the last
+        // drawable lane: 13 + (3 - 1) * 15 - 7 = 36
+        expect(graphGeometry(rows, { rowH: 34, maxLanes: 3 }).foldX).toBe(36);
+    });
 });

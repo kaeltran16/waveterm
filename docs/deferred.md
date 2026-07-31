@@ -3,6 +3,18 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Diff surface — Review mode's backend orphaned by its deletion (2026-07-31)
+
+- **Git revert backend is orphaned.** Deleting Review mode from the Diff surface left `GitRevertCommand`
+  (`pkg/wshrpc/wshrpctypes_projects.go`, handler in `pkg/wshrpc/wshserver/wshserver_projects.go`) and
+  `gitinfo.RevertFile` / `gitinfo.RevertHunk` with no caller. Kept deliberately — tested Go code
+  (`TestRevertFileSubdir`, `TestRevertHunkSubdir`), zero runtime cost, and a cleanup candidate rather than a
+  defect. Same precedent as the orphaned standalone WaveAI chat block.
+- **`reloadChanges` is orphaned too** (`frontend/app/view/agents/filesstore.ts`). Its only caller was
+  `reviewstore.ts`'s apply path, which refreshed the Browse file list after a revert mutated the tree. Nothing
+  in the read-only surface mutates, so nothing needs to re-read. Kept for symmetry with the revert backend
+  above; delete both together or neither.
+
 ## Jarvis S2 — semantic consumers L3 + L4 (2026-07-24)
 
 Shipped L3 (semantic recall in `pkg/jarvisrecall`) and L4 (semantic attribution in `pkg/jarvisattrib`) over

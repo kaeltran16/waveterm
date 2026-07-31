@@ -25,7 +25,7 @@ export interface ListNavController {
 export const listNavAtom = atom<ListNavController | null>(null) as PrimitiveAtom<ListNavController | null>;
 
 // Register `controller` as the active list cursor for the caller's lifetime (or while its list view
-// is active). Pass null when the list is not the active view (e.g. memory graph, files review) to
+// is active). Pass null when the list is not the active view (e.g. the memory graph) to
 // withdraw. Memoize `controller` (useMemo) so registration only churns when the list/cursor changes.
 export function useSurfaceListNav(controller: ListNavController | null): void {
     useEffect(() => {

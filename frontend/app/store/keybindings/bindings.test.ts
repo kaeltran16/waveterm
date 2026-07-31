@@ -5,7 +5,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { atom } from "jotai";
 import { describe, expect, it } from "vitest";
-import { appliedAtom, decisionsAtom, reviewModelAtom, reviewSelectedAtom } from "@/app/view/agents/reviewstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -16,7 +15,6 @@ import {
     buildGlobalBindings,
     buildJarvisBindings,
     buildListNavBindings,
-    buildReviewBindings,
     closeTargetForDoubleCtrlC,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
@@ -284,42 +282,5 @@ describe("subagent vs agent Escape", () => {
         // now that no subagent is focused, Escape falls to agent-back
         expect(sub.when!(agentCtx)).toBe(false);
         expect(back.when!(agentCtx)).toBe(true);
-    });
-});
-
-describe("review bindings", () => {
-    const filesCtx: KeyContext = { surface: "files", editable: false, modalOpen: false, leader: null };
-
-    it("is active only on files with a loaded, un-applied review and respects the typing-guard", () => {
-        const a = buildReviewBindings().find((b) => b.id === "review:accept")!;
-        expect(a.keys).toBe("a");
-        globalStore.set(reviewModelAtom, null);
-        expect(a.when!(filesCtx)).toBe(false); // no model
-
-        globalStore.set(reviewModelAtom, { cwd: "/x", files: [] } as any);
-        globalStore.set(appliedAtom, null);
-        expect(a.when!(filesCtx)).toBe(true);
-        expect(a.when!({ ...filesCtx, editable: true })).toBe(false);
-        expect(a.when!({ ...filesCtx, surface: "memory" })).toBe(false);
-
-        globalStore.set(appliedAtom, { accepted: 1, rejected: 0, failures: [] });
-        expect(a.when!(filesCtx)).toBe(false); // already applied
-
-        globalStore.set(reviewModelAtom, null);
-        globalStore.set(appliedAtom, null);
-    });
-
-    it("j/k move the selected review file", () => {
-        globalStore.set(reviewModelAtom, {
-            cwd: "/x",
-            files: [{ path: "x", hunks: [] }, { path: "y", hunks: [] }],
-        } as any);
-        globalStore.set(appliedAtom, null);
-        globalStore.set(reviewSelectedAtom, "x");
-        globalStore.set(decisionsAtom, {});
-        buildReviewBindings().find((b) => b.id === "review:next-j")!.run(filesCtx);
-        expect(globalStore.get(reviewSelectedAtom)).toBe("y");
-        globalStore.set(reviewModelAtom, null);
-        globalStore.set(appliedAtom, null);
     });
 });
