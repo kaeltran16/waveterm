@@ -210,3 +210,11 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
 	return nil
 }
+
+func (ws *WshServer) GetAttentionCommand(ctx context.Context) (*wshrpc.CommandGetAttentionRtnData, error) {
+	items, err := jarvis.GatherAttention(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGetAttentionRtnData{Items: items}, nil
+}

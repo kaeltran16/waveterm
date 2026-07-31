@@ -38,7 +38,10 @@ Front-end (`frontend/app/view/agents/`) — the surface components moved into
 - `channelactions.ts` — `sendChannelMessage` (impure: RPC + record), worker follow-up.
 - `channelsstore.ts` — `createChannel`, `selectChannel`, `loadChannels`, `SetChannelReadCommand`, atoms.
 - `channelderive.ts` / `jarvisderive.ts` — fleet snapshot + Jarvis prompt building (pure).
-- `channelsprimitives.tsx`, `channelcomposers.tsx`, `channelcontextpanel.tsx`, `channelneeds.ts` — shared pieces.
+- `channelsprimitives.tsx`, `channelcomposers.tsx`, `channelcontextpanel.tsx` — shared pieces.
+- `attentionstore.ts` — the polled cockpit-wide "needs you" list + the nav-badge split. Replaced
+  `channelneeds.ts`, which composed the same list on the frontend from a stale channel snapshot; the rule now
+  lives in `pkg/jarvis/attention.go` (see `docs/jarvis-tab.md` §12).
 - `launch.ts` — `buildLaunchMeta`, `RUNTIME_CMD`, runtime flag catalog.
 
 Back-end:

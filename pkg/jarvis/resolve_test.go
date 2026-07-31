@@ -114,13 +114,13 @@ func TestTierMeta(t *testing.T) {
 	}
 }
 
-// A tab oref (what a dispatch records) and an unparseable oref pass through channelOwnerORef
+// A tab oref (what a dispatch records) and an unparseable oref pass through ChannelOwnerORef
 // unchanged — only a block oref triggers the DB block→tab walk (covered by the live E2E).
 func TestChannelOwnerORef_Passthrough(t *testing.T) {
-	if got := channelOwnerORef(context.Background(), "tab:t1"); got != "tab:t1" {
+	if got := ChannelOwnerORef(context.Background(), "tab:t1"); got != "tab:t1" {
 		t.Fatalf("tab oref should pass through, got %q", got)
 	}
-	if got := channelOwnerORef(context.Background(), "not-an-oref"); got != "not-an-oref" {
+	if got := ChannelOwnerORef(context.Background(), "not-an-oref"); got != "not-an-oref" {
 		t.Fatalf("unparseable oref should pass through, got %q", got)
 	}
 }

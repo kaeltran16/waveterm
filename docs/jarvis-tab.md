@@ -324,9 +324,10 @@ attached.
 absent, but Needs you must not wait on the user selecting something.
 
 1. **Needs you** — always drawn, **never Space-filtered**, including on a fresh boot with no subject.
-   Attention beats focus: an ask in a hidden channel still surfaces, labelled `outside focus`. Built across
-   every channel by `railneeds.ts`, keyed per channel so the same run id in two channels cannot collide.
-   Clicking a need moves the Stage there.
+   Attention beats focus: an ask in a hidden channel still surfaces, labelled `outside focus`. The list is
+   computed server-side and polled (§12); the rail only adds the `outside focus` label and the row markup.
+   Clicking a need moves the Stage there — except a standalone agent's ask, which has no channel and no run
+   to land on and so renders as static info.
 2. **Consults** — channel only. Ask-mode results, with a "dispatch this" action per consult.
 3. **Sources** — when the Stage's thread has answered. Grounding cards with source type, title, project,
    age and freshness; clicking one opens the source in its native surface.
@@ -478,6 +479,35 @@ would actually want to ask about.
 
 `openORef` is the reverse direction — a `task:` oref now has a surface for the first time, as a subject
 on this Stage rather than a separate tab. The command palette also routes results here.
+
+### The attention list is not rail-local
+
+`GetAttentionCommand` (`pkg/wshrpc/wshserver/wshserver_channels.go`) returns one list of everything waiting
+on the human across every channel — review gates, Gatekeeper escalations and blocked workers, gates first,
+oldest first within a kind. `pkg/jarvis/attention.go` holds the rule (`BuildAttention` is pure;
+`GatherAttention` fetches its inputs). `AttentionPoller`, mounted in `cockpit-root.tsx` and rendering
+nothing, refetches it every 10 seconds into `attentionAtom`. Two consumers read that one atom: the nav-rail
+badges (`splitAttention` sends items **with** a channel to the Jarvis badge and the rest to Cockpit, so the
+two are disjoint by construction) and this rail's Needs-you list.
+
+The point of moving it: **a run parked at a review gate in a non-active channel now lights a badge from
+every surface.** Before, the list was derived on the frontend from `channelsAtom` — a snapshot refetched
+only on channel create/delete/rename/archive — and rendered in exactly one place, so a gate outside the
+active channel was invisible everywhere. Three frontend modules were deleted rather than duplicated
+(`railneeds.ts`, `channelneeds.ts`, and the three counting functions in `channelderive.ts`), making Go the
+only definition. `runmodel.reviewGate` survives because the run-detail view needs the gate per-phase.
+
+Two limits, both by construction:
+
+- **Up to 10 seconds of staleness.** A missed poll self-heals on the next tick, which is why this polls
+  rather than listening for pushed events — a missed push goes stale while still looking live.
+- **The pending-ask registry is in-memory** (`pkg/agentask`), so the list is authoritative for the current
+  `wavesrv` lifetime, not absolutely: a restart empties it until agents re-raise their asks. It is also
+  cleared only by the ask-clear hook, where the frontend additionally expires an ask once a newer
+  working/idle status arrives — so an agent that resumes without its clear hook firing keeps counting.
+
+A blocked worker whose question Jarvis escalated counts **once**, as the escalation. The two rows describe
+one waiting thing, and a count that says two would be the same class of untruth this change removed.
 
 ## 13. Keyboard
 

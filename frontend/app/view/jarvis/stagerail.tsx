@@ -8,6 +8,7 @@
 import { CollapsibleRail, type RailExtraIcon, type RailSection } from "@/app/element/collapsiblerail";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ConsultsSection, FleetRoster, NeedsRow } from "@/app/view/agents/channelcontextpanel";
+import { attentionAtom } from "@/app/view/agents/attentionstore";
 import {
     activeChannelAtom,
     activeChannelMessagesAtom,
@@ -32,11 +33,18 @@ import {
     sourceConversationAtom,
 } from "./jarvissubjectstore";
 import { ProfilePanel } from "./profilepanel";
-import { buildRailNeeds } from "./railneeds";
 import type { StageComposition } from "./stagecompose";
 import { useFleetSummary } from "./usefleetsummary";
 
 const LABEL = "mb-2 font-mono text-[9px] uppercase tracking-[.09em] text-muted";
+
+// The server's Kind vocabulary is terse ("gate", "ask"); the row renders it as its own eyebrow label, so
+// spell it out here rather than shipping a bare "GATE". Falls through for an unknown future kind.
+const NEED_KIND_LABEL: Record<string, string> = {
+    gate: "review gate",
+    escalation: "escalation",
+    ask: "worker ask",
+};
 
 // comp is null when no subject is selected. The rail still mounts: Needs you is the surface's attention
 // channel and its contract is "always drawn, never filtered" — an ask that is only visible once the user
@@ -71,7 +79,16 @@ export function StageRail({
     // surface did — the roster and the summary must derive from the same source the thread renders.
     const channelForDerive = channel != null ? { ...channel, messages } : null;
 
-    const needs = buildRailNeeds({ channels, agents, scope: spaceScope });
+    // Attention beats focus: a Space scopes the Subjects column and the Stage, never this list — an item
+    // in a channel outside focus still surfaces, labelled as such. The label describes membership, not
+    // filtering, so it stands whether or not "Show all" is on.
+    const attention = useAtomValue(attentionAtom);
+    const focused = spaceScope != null ? new Set(spaceScope.channeloids ?? []) : null;
+    const needs = attention.map((n) => ({
+        ...n,
+        // a standalone item (no channel) is in no Space, so it can never be "outside" one
+        outsideFocus: focused != null && !!n.channelid && !focused.has(n.channelid),
+    }));
 
     // a need in another channel has to move the Stage there first; pendingRunFocus is the existing
     // one-shot the Stage already consumes to land on a run once that channel's runs have loaded.
@@ -135,12 +152,16 @@ export function StageRail({
                             {needs.map((n) => (
                                 <NeedsRow
                                     key={n.key}
-                                    kind={n.kind}
-                                    source={`${n.source} · #${n.channelName}`}
+                                    kind={NEED_KIND_LABEL[n.kind] ?? n.kind}
+                                    // a standalone agent has no channel, so there is no "#name" to append
+                                    source={n.channelname ? `${n.source} · #${n.channelname}` : n.source}
                                     text={n.text}
                                     action={n.action}
                                     note={n.outsideFocus ? "outside focus" : undefined}
-                                    onGo={() => goToNeed(n.channelId, n.runId)}
+                                    // a standalone agent's ask has no channel and no run to land on, so
+                                    // it renders as static info per NeedsRow's own contract rather than
+                                    // as a control that would navigate nowhere
+                                    onGo={n.channelid ? () => goToNeed(n.channelid, n.runid) : undefined}
                                 />
                             ))}
                         </div>

@@ -452,6 +452,12 @@ func GetAllVarsCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshr
 	return resp, err
 }
 
+// command "getattention", wshserver.GetAttentionCommand
+func GetAttentionCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetAttentionRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetAttentionRtnData](w, "getattention", nil, opts)
+	return resp, err
+}
+
 // command "getbackgroundagents", wshserver.GetBackgroundAgentsCommand
 func GetBackgroundAgentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetBackgroundAgentsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetBackgroundAgentsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetBackgroundAgentsRtnData](w, "getbackgroundagents", data, opts)

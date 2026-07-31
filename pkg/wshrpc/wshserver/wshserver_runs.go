@@ -66,6 +66,23 @@ var proactiveAsync = func(fn func()) { go fn() }
 // proactiveDispatchTimeout bounds the detached dispatch evaluation (PLACEHOLDER; see docs/deferred.md).
 const proactiveDispatchTimeout = 90 * time.Second
 
+// writeProactive stamps a proactive record onto a run's metadata. The pending marker and the final
+// verdict share this one path so they cannot drift; a write failure is logged and swallowed, because a
+// non-essential feature's bookkeeping must never fail the run it is describing.
+func writeProactive(ctx context.Context, channelId, runId string, sug jarvisproactive.ProactiveSuggestion) {
+	if err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
+		if r.Meta == nil {
+			r.Meta = waveobj.MetaMapType{}
+		}
+		r.Meta[jarvisproactive.MetaKeyProactive] = sug
+		return nil
+	}); err != nil {
+		log.Printf("CreateRun: persisting proactive %q failed (non-fatal): %v", sug.Status, err)
+		return
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
+}
+
 // sealDoneRunEvidence seals a done run's immutable evidence snapshot (a git diff + transcript reads that can
 // take many seconds) detached from any RPC budget. Self-contained and idempotent: it re-loads the run, and
 // SealEvidence refuses to seal on a git failure/timeout — leaving the run unsealed for the backfill
@@ -265,25 +282,24 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	proactiveAsync(func() {
 		pctx, cancel := context.WithTimeout(context.Background(), proactiveDispatchTimeout)
 		defer cancel()
+		// Marker first: a run left holding "pending" is a timeout or a crash, and is visible. Without
+		// it, "never ran" and "ran and found nothing" are the same absence. Deliberately breaks the
+		// package's invariant 10 ("embeddings off is a total no-op"); one metadata field on a non-fatal
+		// path keeps the run protected while removing the blindness.
+		writeProactive(pctx, data.ChannelId, run.ID, jarvisproactive.ProactiveSuggestion{
+			Status: jarvisproactive.StatusPending,
+		})
 		sug, perr := jarvisproactive.EvaluateDispatch(pctx, &run)
 		if perr != nil {
 			log.Printf("CreateRun: proactive dispatch eval failed (non-fatal): %v", perr)
-			return
 		}
 		if sug == nil {
-			return // embeddings off / degraded — leave run.Meta untouched
-		}
-		if uerr := wstore.UpdateRun(pctx, data.ChannelId, run.ID, func(r *waveobj.Run) error {
-			if r.Meta == nil {
-				r.Meta = waveobj.MetaMapType{}
+			sug = &jarvisproactive.ProactiveSuggestion{
+				Status: jarvisproactive.StatusNone,
+				Reason: jarvisproactive.ReasonQueryError,
 			}
-			r.Meta[jarvisproactive.MetaKeyProactive] = *sug
-			return nil
-		}); uerr != nil {
-			log.Printf("CreateRun: persisting proactive suggestion failed (non-fatal): %v", uerr)
-			return
 		}
-		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+		writeProactive(pctx, data.ChannelId, run.ID, *sug)
 	})
 	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
 		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry

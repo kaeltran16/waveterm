@@ -18,6 +18,9 @@ type PendingAsk struct {
 	AskId     string
 	BlockId   string
 	Questions []baseds.AgentAskQuestion
+	// Ts is the UnixMilli the ask was raised, copied from AgentAskData.Ts. Drives the "waiting 41m"
+	// age in the attention list; without it the list can say what is waiting but not for how long.
+	Ts int64
 }
 
 type Registry struct {
@@ -43,6 +46,18 @@ func (r *Registry) Get(oref string) (PendingAsk, bool) {
 	defer r.lock.Unlock()
 	p, ok := r.pending[oref]
 	return p, ok
+}
+
+// List returns every pending ask, keyed by the block ORef it is registered under. The returned map is a
+// copy, so a caller may hold it after the lock is released.
+func (r *Registry) List() map[string]PendingAsk {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	out := make(map[string]PendingAsk, len(r.pending))
+	for k, v := range r.pending {
+		out[k] = v
+	}
+	return out
 }
 
 func (r *Registry) Drop(oref string) {

@@ -41,57 +41,61 @@ func SetJudgeForTest(fn func(ctx context.Context, cwd, prompt string) (string, e
 	return func() { judge = old }
 }
 
-// EvaluateDispatch is the off-band, non-fatal dispatch entry. It opens the real
-// index + vault and delegates to evaluate. Returns nil when embeddings are off or
-// the query fails (a total no-op — run.Meta is left untouched by the caller);
-// otherwise a *ProactiveSuggestion (hit or none sentinel). Contract: the caller
-// dispatches this in a detached goroutine, persists a non-nil result to run.Meta,
-// and logs errors.
+// EvaluateDispatch is the off-band, non-fatal dispatch entry. It opens the real index + vault and
+// delegates to evaluate. It ALWAYS returns something to persist — a hit, or a "none" naming the reason
+// — even alongside a non-nil error, because a caller that persisted nothing on failure is what made six
+// distinct failures indistinguishable from never having run. Contract: the caller dispatches this in a
+// detached goroutine, persists the result to run.Meta regardless of the error, and logs the error.
 func EvaluateDispatch(ctx context.Context, run *waveobj.Run) (*ProactiveSuggestion, error) {
 	ix, err := jarvisembed.OpenIndex(ctx)
 	if err != nil {
-		return nil, err
+		return &ProactiveSuggestion{Status: StatusNone, Reason: ReasonIndexError}, err
 	}
 	defer ix.Close()
 	v, err := wavevault.OpenVault(ctx)
 	if err != nil {
-		return nil, err
+		return &ProactiveSuggestion{Status: StatusNone, Reason: ReasonVaultError}, err
 	}
 	return evaluate(ctx, ix, v, run)
 }
 
-// evaluate takes an explicit index + vault so tests exercise it against a fixture
-// vault + mock embedder + mock judge. Returns nil for a total no-op (index
-// unavailable / query error), else a hit or a "none" sentinel.
+// evaluate takes an explicit index + vault so tests exercise it against a fixture vault + mock embedder
+// + mock judge. Never returns nil: every terminal path yields a hit or a reasoned "none" sentinel. The
+// embeddings-off path deliberately breaks invariant 10 (see the package's spec) — writing one metadata
+// field on a non-fatal path keeps the run protected while removing the blindness.
 func evaluate(ctx context.Context, ix *jarvisembed.Index, v *wavevault.Vault, run *waveobj.Run) (*ProactiveSuggestion, error) {
+	noneBecause := func(reason string) *ProactiveSuggestion {
+		return &ProactiveSuggestion{Status: StatusNone, Reason: reason}
+	}
 	if !ix.Available() {
-		return nil, nil // embeddings off → total no-op (invariant 10)
+		return noneBecause(ReasonEmbeddingsOff), nil
 	}
 	chunks, err := ix.Query(ctx, v, run.Goal, queryK, wavevault.AllScope())
 	if err != nil {
 		if errors.Is(err, jarvisembed.ErrEmbeddingsDisabled) {
-			return nil, nil
+			return noneBecause(ReasonEmbeddingsOff), nil
 		}
-		return nil, nil // a provider error degrades to no card, never fails the run (invariant 11)
+		// a provider error degrades to no card, never fails the run (invariant 11)
+		return noneBecause(ReasonQueryError), nil
 	}
 
 	cands := prefilter(chunks, ownDossierID(v, run))
-	none := &ProactiveSuggestion{Status: "none"}
 	if len(cands) == 0 {
-		return none, nil // below the bar → sentinel, no model call
+		return noneBecause(ReasonNoCandidates), nil // below the bar → sentinel, no model call
 	}
 
 	reply, err := judge(ctx, run.ProjectPath, buildJudgePrompt(run.Goal, cands))
 	if err != nil {
-		return none, nil // model unavailable/failed → no card, sentinel prevents recompute
+		// model unavailable/failed → no card, sentinel prevents recompute
+		return noneBecause(ReasonJudgeError), nil
 	}
 	pick := parseJudgeReply(reply, len(cands))
 	if pick < 0 {
-		return none, nil
+		return noneBecause(ReasonJudgeDeclined), nil
 	}
 	c := cands[pick]
 	return &ProactiveSuggestion{
-		Status:     "hit",
+		Status:     StatusHit,
 		NodeID:     c.NodeID,
 		SourceType: c.SourceType,
 		Title:      titleForNode(v, c),

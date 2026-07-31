@@ -6,8 +6,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { Bot, Brain, Gauge, GitCompare, LayoutDashboard, Network, Radar, Settings, SquareStack } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { channelPendingAskCount, standalonePendingAskCount } from "./channelderive";
-import { channelsAtom } from "./channelsstore";
+import { attentionAtom, splitAttention } from "./attentionstore";
 import { navRailCollapsed } from "./navrailwidth";
 
 const iconProps = { size: 20, strokeWidth: 1.8 } as const;
@@ -38,15 +37,14 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
 
 export function NavRail({ model }: { model: AgentsViewModel }) {
     const [active, setActive] = useAtom(model.surfaceAtom);
-    const channels = useAtomValue(channelsAtom);
-    const agents = useAtomValue(model.agentsAtom);
-    // Two disjoint "needs you" badges: Jarvis counts asks a channel dispatched/steered; Cockpit counts
-    // standalone asks (launched from the cockpit/Agent tab, no channel). Disjoint by construction — an ask
-    // is channel-attributed or not, never both — so no ask is counted twice.
-    const chanList = channels ?? [];
+    // Two disjoint "needs you" badges from one server-computed list: Jarvis counts everything a channel
+    // owns (review gates, Gatekeeper escalations, dispatched workers), Cockpit counts standalone agents
+    // no channel dispatched. Disjoint by construction — an item either names a channel or it does not.
+    const attention = useAtomValue(attentionAtom);
+    const split = splitAttention(attention);
     const badges: Partial<Record<SurfaceKey, number>> = {
-        cockpit: standalonePendingAskCount(chanList, agents),
-        jarvis: channelPendingAskCount(chanList, agents),
+        cockpit: split.standalone.length,
+        jarvis: split.channel.length,
     };
     const [narrow, setNarrow] = useState(() => navRailCollapsed(window.innerWidth));
     useEffect(() => {

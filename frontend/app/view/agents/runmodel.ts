@@ -51,6 +51,11 @@ export function phaseStateView(state: string): { icon: string; label: string; to
 
 // The gated phase awaiting approval — non-null only when the run is paused at a review gate. The engine
 // halts after a gated phase completes (that phase is `done`, its successor still `pending`).
+//
+// The attention list's copy of this rule moved server-side (pkg/jarvis/attention.go reviewGateIdx). This
+// one stays because the run-detail view needs it per-phase, not per-list: currentPhaseIndex focuses the
+// gated phase and phaseThread draws that phase's gate card. Both take a Run and return view state, so
+// neither can read the polled attention atom.
 export function reviewGate(run: Run): { phaseIdx: number } | null {
     if (run.status !== "awaiting-review") {
         return null;

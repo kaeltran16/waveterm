@@ -23,6 +23,7 @@ type ChannelCommands interface {
 	ArchiveChannelCommand(ctx context.Context, data CommandArchiveChannelData) error               // archives/unarchives a channel (hides it from the active rail list; kept, not deleted)
 	SetChannelMessagePickCommand(ctx context.Context, data CommandSetChannelMessagePickData) error // records the human's chosen option index on a Jarvis card message (escalation answer / answered-override) so it survives a remount
 	SetChannelProfileCommand(ctx context.Context, data CommandSetChannelProfileData) error         // write a channel's per-project profile override (empty clears it)
+	GetAttentionCommand(ctx context.Context) (*CommandGetAttentionRtnData, error)                  // everything waiting on the human across every channel: review gates, Gatekeeper escalations, blocked workers
 }
 
 type CommandCreateChannelData struct {
@@ -99,4 +100,24 @@ type CommandSetChannelMessagePickData struct {
 type CommandSetChannelProfileData struct {
 	ChannelId string                   `json:"channelid"`
 	Override  *waveobj.ProfileOverride `json:"override"`
+}
+
+// AttentionItem is one thing waiting on the human, anywhere in the cockpit. Kind is "gate" |
+// "escalation" | "ask". ChannelId/ChannelName are EMPTY for a standalone agent (one launched from the
+// cockpit or Agent surface with no channel) — that is how the two nav-rail badges stay disjoint while
+// coming from one source.
+type AttentionItem struct {
+	Kind         string `json:"kind"`
+	Key          string `json:"key"` // stable across polls for the same waiting thing
+	ChannelId    string `json:"channelid,omitempty"`
+	ChannelName  string `json:"channelname,omitempty"`
+	RunId        string `json:"runid,omitempty"`
+	Source       string `json:"source"` // the run's goal, or the worker's name
+	Text         string `json:"text"`
+	Action       string `json:"action"` // Review | Decide | Answer
+	WaitingSince int64  `json:"waitingsince"`
+}
+
+type CommandGetAttentionRtnData struct {
+	Items []AttentionItem `json:"items"`
 }

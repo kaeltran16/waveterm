@@ -26,16 +26,21 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 		return wshrpc.AskRtnData{}, fmt.Errorf("invalid oref %q: %w", data.ORef, err)
 	}
 	askId := uuid.New().String()
+	// one raise time for both the registry entry and the published event: the attention list ages an ask
+	// off its registry Ts while the frontend ages it off the event's, and two time.Now() calls would let
+	// those two disagree by the width of this function.
+	ts := time.Now().UnixMilli()
 	agentask.GlobalRegistry.Set(data.ORef, agentask.PendingAsk{
 		AskId:     askId,
 		BlockId:   oref.OID,
 		Questions: data.Questions,
+		Ts:        ts,
 	})
 	publishAgentAsk(baseds.AgentAskData{
 		ORef:      data.ORef,
 		AskId:     askId,
 		Questions: data.Questions,
-		Ts:        time.Now().UnixMilli(),
+		Ts:        ts,
 	})
 	return wshrpc.AskRtnData{AskId: askId}, nil
 }

@@ -128,6 +128,19 @@ declare global {
         askid: string;
     };
 
+    // wshrpc.AttentionItem
+    type AttentionItem = {
+        kind: string;
+        key: string;
+        channelid?: string;
+        channelname?: string;
+        runid?: string;
+        source: string;
+        text: string;
+        action: string;
+        waitingsince: number;
+    };
+
     // wshrpc.BackgroundAgentData
     type BackgroundAgentData = {
         sessionid: string;
@@ -561,6 +574,11 @@ declare global {
     // wshrpc.CommandGetAgentTranscriptRtnData
     type CommandGetAgentTranscriptRtnData = {
         lines: string[];
+    };
+
+    // wshrpc.CommandGetAttentionRtnData
+    type CommandGetAttentionRtnData = {
+        items: AttentionItem[];
     };
 
     // wshrpc.CommandGetBackgroundAgentsData

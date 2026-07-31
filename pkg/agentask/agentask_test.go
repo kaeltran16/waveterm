@@ -98,6 +98,38 @@ func TestClaim_MismatchedAskidRetains(t *testing.T) {
 	}
 }
 
+func TestRegistryListReturnsPendingAsksWithTimestamps(t *testing.T) {
+	r := MakeRegistry()
+	r.Set("block:a", PendingAsk{AskId: "1", BlockId: "a", Ts: 1000})
+	r.Set("block:b", PendingAsk{AskId: "2", BlockId: "b", Ts: 2000})
+
+	all := r.List()
+	if len(all) != 2 {
+		t.Fatalf("want 2 pending, got %d", len(all))
+	}
+	if all["block:a"].Ts != 1000 {
+		t.Fatalf("timestamp not stored: %+v", all["block:a"])
+	}
+
+	// a claimed ask is no longer waiting on anyone
+	if _, ok := r.Claim("block:a", "1"); !ok {
+		t.Fatal("claim should succeed")
+	}
+	if len(r.List()) != 1 {
+		t.Fatalf("claimed ask still listed: %+v", r.List())
+	}
+}
+
+func TestRegistryListIsACopy(t *testing.T) {
+	r := MakeRegistry()
+	r.Set("block:a", PendingAsk{AskId: "1", Ts: 1})
+	snapshot := r.List()
+	r.Drop("block:a")
+	if len(snapshot) != 1 {
+		t.Fatal("List must return a copy the caller can hold past the lock")
+	}
+}
+
 func TestClaim_ConcurrentExactlyOneWinner(t *testing.T) {
 	r := MakeRegistry()
 	r.Set("block:b1", mkPending("ask-1", "b1"))

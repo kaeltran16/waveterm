@@ -456,6 +456,12 @@ export class RpcApiType {
         return client.wshRpcCall("getallvars", data, opts);
     }
 
+    // command "getattention" [call]
+    GetAttentionCommand(client: WshClient, opts?: RpcOpts): Promise<CommandGetAttentionRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getattention", null, opts);
+        return client.wshRpcCall("getattention", null, opts);
+    }
+
     // command "getbackgroundagents" [call]
     GetBackgroundAgentsCommand(client: WshClient, data: CommandGetBackgroundAgentsData, opts?: RpcOpts): Promise<CommandGetBackgroundAgentsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getbackgroundagents", data, opts);

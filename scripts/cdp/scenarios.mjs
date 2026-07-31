@@ -2086,6 +2086,150 @@ const usageCharts = {
     },
 };
 
+// --- the review-gate blind spot ----------------------------------------------------------------
+// The whole defect in three steps: park a run at its review gate in one channel, make a DIFFERENT channel
+// the active subject, then walk away to Usage and read the Jarvis nav badge. Before the attention list
+// moved server-side this read zero — the badge counted only live `asking` workers, and a gated run has
+// none (its phase completed and it is waiting on a human), while the frontend's cross-channel list came
+// from a channel snapshot refetched only on create/delete/rename/archive.
+//
+// It parks the run by completing two phases over the real RPC rather than driving an agent to a gate,
+// which would take up to two minutes. `wsh jarvis hold` is the other route but needs the phase running AND
+// gated (jarvis/run.go HoldPhase) — in a pipeline the gate is phase 1, so it needs phase 0 completed
+// first either way, for the same two spawned workers. Both are killed in teardown, as runs-lifecycle does.
+//
+// The poll wait is a 500ms loop rather than a flat 10s sleep so the step is not flaky at the interval
+// boundary, and so a stalled poller fails HERE — distinguishable from the badge assertion failing, which
+// means detection broke. The two halves of this change fail differently and must stay tellable apart.
+const attentionCrossChannel = {
+    name: "attention-cross-channel",
+    surface: "usage",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-attn-"));
+        const wslist = await h.rpc("workspacelist", null);
+        const workspaceId = wslist[0].workspacedata.oid;
+        const probe = await h.rpc("createchannel", { name: "attn-probe", projectpath: cwd });
+        const other = await h.rpc("createchannel", { name: "attn-other", projectpath: cwd });
+        return { cwd, workspaceId, probeId: probe.oid, otherId: other.oid, workers: [] };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const track = (oref) => {
+            if (oref) ctx.workers.push(oref);
+        };
+        const getRun = async (runId) => {
+            const res = await h.rpc("getchannels", null);
+            const cc = (res.channels || []).find((x) => x.oid === ctx.probeId) || {};
+            return (cc.runs || []).find((x) => x.id === runId);
+        };
+
+        // 1. park a run at its review gate in the probe channel
+        const created = await h.rpc("createrun", {
+            channelid: ctx.probeId,
+            workspaceid: ctx.workspaceId,
+            goal: "spawn-test only: do nothing, make no file changes, stop immediately",
+        });
+        const runId = created.run.id;
+        track(workerOf(created.run.phases[0]));
+        await h.rpc("advancerun", { channelid: ctx.probeId, runid: runId, phaseidx: 0, action: "complete" });
+        const mid = await getRun(runId);
+        track(workerOf(mid.phases[1]));
+        await h.rpc("advancerun", { channelid: ctx.probeId, runid: runId, phaseidx: 1, action: "complete" });
+        const gated = await getRun(runId);
+        rec(
+            "1. the probe channel's run is parked at its review gate",
+            gated.status === "awaiting-review" && gated.phases[2].state === "pending",
+            JSON.stringify({ status: gated.status, states: gated.phases.map((p) => p.state) })
+        );
+
+        // 2. the server reports it as a gate item — the backend half, asserted before any DOM reading so a
+        // failure here is never mistaken for a delivery problem
+        const attention = await h.rpc("getattention", null);
+        const item = (attention.items || []).find((x) => x.runid === runId);
+        rec(
+            "2. GetAttention reports the gate with its channel and wait time",
+            item != null && item.kind === "gate" && item.channelid === ctx.probeId && item.waitingsince > 0,
+            JSON.stringify(item ?? { items: (attention.items || []).length })
+        );
+
+        // 3. make a DIFFERENT channel the active subject, so the gate is in a non-active channel.
+        // channelsAtom is a load-once snapshot, so channels created over RPC need a reload to appear in the
+        // Subjects column at all (same pattern as jarvis-drawer / jarvis-fleet) — which is itself the
+        // staleness that made this defect possible. Selecting by the row's visible name, stripping the
+        // subject-kind glyph, is jarvis-drawer's proven selector.
+        await h.ev("location.reload()");
+        await settle(2500);
+        await h.goto("jarvis");
+        await settle(600);
+        const selectedOther = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')]
+                .find((x) => (x.textContent || '').trim().replace(/^[#▤~]/, '').startsWith('attn-other'));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        rec("3. a different channel is the active subject", selectedOther === true, `clicked=${selectedOther}`);
+
+        // 4. leave for a surface nowhere near Jarvis, then wait for one poll tick
+        await h.goto("usage");
+        await settle(400);
+        const jarvisBadge = () =>
+            h.ev(`(() => {
+                const b = document.querySelector('nav button[aria-label="Jarvis"]');
+                if (!b) return null;
+                const s = [...b.querySelectorAll('span')].find((x) => /^\\d+$/.test((x.textContent || '').trim()));
+                return s ? Number(s.textContent.trim()) : 0;
+            })()`);
+        let badge = await jarvisBadge();
+        for (let i = 0; i < 30 && !(badge >= 1); i++) {
+            await settle(500);
+            badge = await jarvisBadge();
+        }
+        rec(
+            "4. a poll delivered a non-empty attention list to the nav rail",
+            typeof badge === "number" && badge >= 1,
+            `badge=${JSON.stringify(badge)} (waited up to 15s for a 10s poll)`
+        );
+
+        // 5. the assertion the defect failed: the badge is lit from a surface that is not Jarvis, for a
+        // gate in a channel that is not active
+        const onUsage = await h.activeSurfaceLabel();
+        rec(
+            "5. the Jarvis badge counts a review gate in a non-active channel, read from Usage",
+            onUsage === "Usage" && badge >= 1,
+            `surface=${onUsage} badge=${badge}`
+        );
+        await h.shot("cdp-shots/attention-cross-channel.png");
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        for (const oref of ctx.workers) {
+            try {
+                const tab = await h.rpc("gettab", oref.slice(4));
+                const bid = tab && tab.blockids && tab.blockids[0];
+                if (bid) await h.rpc("deleteblock", { blockid: bid });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        for (const id of [ctx.probeId, ctx.otherId]) {
+            try {
+                await h.rpc("deletechannel", { channelid: id });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     surfaceSmoke,
@@ -2104,4 +2248,5 @@ export const SCENARIOS = [
     jarvisNarrow,
     jarvisMeasure,
     usageCharts,
+    attentionCrossChannel,
 ];

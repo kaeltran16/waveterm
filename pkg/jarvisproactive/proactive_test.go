@@ -72,11 +72,15 @@ func TestEvaluateHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
-	if sug == nil || sug.Status != "hit" {
+	if sug == nil || sug.Status != StatusHit {
 		t.Fatalf("want a hit suggestion, got %+v", sug)
 	}
 	if !strings.Contains(strings.ToLower(sug.Title+" "+sug.Snippet), "rate limit") {
 		t.Fatalf("suggestion should describe the matched node, got %+v", sug)
+	}
+	// Reason explains a none; a hit is the product answer and carries none
+	if sug.Reason != "" {
+		t.Fatalf("a hit must not carry a reason, got %q", sug.Reason)
 	}
 }
 
@@ -99,8 +103,8 @@ func TestEvaluateJudgeSaysNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
-	if sug == nil || sug.Status != "none" {
-		t.Fatalf("want a none sentinel, got %+v", sug)
+	if sug == nil || sug.Status != StatusNone || sug.Reason != ReasonJudgeDeclined {
+		t.Fatalf("want none/%s, got %+v", ReasonJudgeDeclined, sug)
 	}
 }
 
@@ -127,8 +131,8 @@ func TestEvaluateBelowThresholdSkipsModel(t *testing.T) {
 	if called {
 		t.Fatal("model judge must not run when the pre-filter is empty")
 	}
-	if sug == nil || sug.Status != "none" {
-		t.Fatalf("empty shortlist should yield a none sentinel, got %+v", sug)
+	if sug == nil || sug.Status != StatusNone || sug.Reason != ReasonNoCandidates {
+		t.Fatalf("empty shortlist should yield none/%s, got %+v", ReasonNoCandidates, sug)
 	}
 }
 
@@ -157,12 +161,16 @@ func TestEvaluateSelfExclusion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
-	if sug == nil || sug.Status != "none" {
-		t.Fatalf("the run's own dossier must be excluded → none, got %+v", sug)
+	if sug == nil || sug.Status != StatusNone || sug.Reason != ReasonNoCandidates {
+		t.Fatalf("the run's own dossier must be excluded → none/%s, got %+v", ReasonNoCandidates, sug)
 	}
 }
 
-func TestEvaluateDisabledIndexIsNoop(t *testing.T) {
+// Was TestEvaluateDisabledIndexIsNoop, which asserted nil. Embeddings-off now produces a persistable
+// record — the deliberate break of invariant 10 — because a nil left "never ran" and "ran and found
+// nothing" as the same absence, which is the state 18 of 19 measured dispatches were in. The judge
+// still must not run.
+func TestEvaluateDisabledIndexRecordsEmbeddingsOff(t *testing.T) {
 	ctx := context.Background()
 	v := newTestVault(t)
 	called := false
@@ -172,12 +180,34 @@ func TestEvaluateDisabledIndexIsNoop(t *testing.T) {
 	run := &waveobj.Run{OID: "run-off", Goal: "fix the rate limit bug", ProjectPath: t.TempDir()}
 	sug, err := evaluate(ctx, newTestIndex(t, nil), v, run) // nil embedder → unavailable
 	if err != nil {
-		t.Fatalf("evaluate: %v", err)
+		t.Fatalf("must not error: %v", err)
 	}
-	if sug != nil {
-		t.Fatalf("disabled index must be a total no-op (nil), got %+v", sug)
+	if sug == nil {
+		t.Fatal("embeddings-off must produce a record, not a nil no-op")
+	}
+	if sug.Status != StatusNone || sug.Reason != ReasonEmbeddingsOff {
+		t.Fatalf("want none/%s, got %+v", ReasonEmbeddingsOff, *sug)
 	}
 	if called {
 		t.Fatal("model judge must not run when embeddings are off")
+	}
+}
+
+// The reason vocabulary is a closed set: a status of none always says why, so no terminal path can
+// silently rejoin the six-ways-to-vanish problem this change exists to remove.
+func TestEveryNoneReasonIsDistinctAndNonEmpty(t *testing.T) {
+	reasons := []string{
+		ReasonNoCandidates, ReasonJudgeDeclined, ReasonJudgeError,
+		ReasonEmbeddingsOff, ReasonIndexError, ReasonVaultError, ReasonQueryError,
+	}
+	seen := map[string]bool{}
+	for _, r := range reasons {
+		if r == "" {
+			t.Fatal("a reason constant must not be empty — an empty reason reads as a hit")
+		}
+		if seen[r] {
+			t.Fatalf("duplicate reason %q: two failure paths would be indistinguishable", r)
+		}
+		seen[r] = true
 	}
 }

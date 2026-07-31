@@ -60,12 +60,14 @@ func cancelInflight(askId string) {
 	}
 }
 
-// channelOwnerORef maps an asking oref to the oref a channel dispatch would reference for that
+// ChannelOwnerORef maps an asking oref to the oref a channel dispatch would reference for that
 // worker. Asks fire from the worker's terminal block ("block:<id>"), but a channel dispatch records
 // the worker's TAB oref ("tab:<id>"), so a block-scoped ask must be walked up to its tab before
 // ownership resolution. Non-block orefs (or any lookup failure) pass through unchanged — fail-safe:
 // a bad mapping just means no channel matches, never a wrong one.
-func channelOwnerORef(ctx context.Context, askingORef string) string {
+//
+// Exported so the attention builder resolves a pending ask the same way the watcher does.
+func ChannelOwnerORef(ctx context.Context, askingORef string) string {
 	oref, err := waveobj.ParseORef(askingORef)
 	if err != nil || oref.OType != waveobj.OType_Block {
 		return askingORef
@@ -90,13 +92,14 @@ func optionIndexInRange(idx int, q baseds.AgentAskQuestion) bool {
 	return idx >= 0 && idx < len(q.Options)
 }
 
-// resolveAskOwner resolves the channel + classifier task that owns an ask's worker oref, via the Phase-2
+// ResolveAskOwner resolves the channel + classifier task that owns an ask's worker oref, via the Phase-2
 // owner-stamp meta (each helper falls back to the old scan on a stamp miss). Run workers carry
 // jarvis:runoref (+channeloref); we check the run path FIRST so a run worker takes the run path, not the
 // concierge path (it also has channeloref). Concierge workers carry channeloref only. This flips the old
 // gatekeeper-then-run precedence, but is equivalent: run workers never appear in dispatch messages and
-// concierge workers have no run, so neither can match the other's path (Design Note 2).
-func resolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, string) {
+// concierge workers have no run, so neither can match the other's path (Design Note 2). Returns
+// (nil, "") for a standalone agent no channel dispatched. Exported for the attention builder.
+func ResolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, string) {
 	if m := ResolveRunWorkerFromMeta(ctx, ownerORef); m != nil {
 		return m.Channel, runWorkerTask(m.Run, m.PhaseIdx)
 	}
@@ -104,8 +107,8 @@ func resolveAskOwner(ctx context.Context, ownerORef string) (*waveobj.Channel, s
 }
 
 func handleAsk(ctx context.Context, data baseds.AgentAskData) {
-	ownerORef := channelOwnerORef(ctx, data.ORef)
-	ch, task := resolveAskOwner(ctx, ownerORef)
+	ownerORef := ChannelOwnerORef(ctx, data.ORef)
+	ch, task := ResolveAskOwner(ctx, ownerORef)
 	if ch == nil {
 		return // not owned by any gatekeeper-enabled channel or run
 	}
