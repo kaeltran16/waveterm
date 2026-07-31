@@ -3,7 +3,7 @@
 **Date:** 2026-07-08
 **Status:** Design — awaiting user review
 **Surface:** `pkg/blockcontroller` + `pkg/jarvis` + `cmd/wsh` + `src-tauri`
-**Parent:** `docs/agents/runs-pipeline-known-issues.md` (residual A + open B)
+**Parent:** the pipeline known-issues doc, residual A + open B (that doc has since been removed)
 
 ## Problem
 
@@ -206,7 +206,7 @@ other's config on every launch.
   hook disabled/absent (proves the backend backstop).
 - The 2b cross-install reproduction, using the hook debug log as the evidence artifact. Record the
   outcome (routing confirmed working, or the specific break fixed) in
-  `docs/agents/runs-pipeline-known-issues.md`.
+  the pipeline known-issues doc (since removed).
 
 ## Files touched (indicative)
 
@@ -217,5 +217,5 @@ other's config on every launch.
   (placement decided by import graph in the plan).
 - `cmd/wsh/cmd/wshcmd-agenthook.go` — opt-in diagnostic logging.
 - `cmd/wsh/cmd/wshcmd-installhooks.go` — exe-exists guard so a healthy config is not rewritten.
-- `docs/agents/runs-pipeline-known-issues.md` — update residual A (fixed) and record the 2b
+- the pipeline known-issues doc (since removed) — update residual A (fixed) and record the 2b
   finding.

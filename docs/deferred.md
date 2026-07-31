@@ -311,8 +311,8 @@ plugin were built (all out of scope per the spec's non-goals).
 
 ## Channel notes (merged surface) (2026-07-13)
 
-> **Resolved 2026-07-16.** Both follow-ups shipped (plan
-> `docs/superpowers/plans/2026-07-14-channel-notes-quick-run.md`, refreshed against the post-decompose tree):
+> **Resolved 2026-07-16.** Both follow-ups shipped (design
+> `docs/superpowers/specs/2026-07-14-channel-notes-quick-run-design.md`):
 > - **Channel notes** — real persisted field at `Channel.Meta["channel:notes"]` via a new
 >   `SetChannelNotesCommand` (clone of `SetChannelTierCommand`; empty notes delete the key). The
 >   `OverviewStrip` (`channelchrome.tsx`) now renders a controlled, debounced textarea (600ms) seeded per
@@ -324,7 +324,7 @@ plugin were built (all out of scope per the spec's non-goals).
 >   now calls `launchRun(body, {mode:"quick"})` (mirrors `@run`) instead of the ad-hoc dispatch transport,
 >   so it gets its own run-strip tab + `Q` badge + Done lifecycle. TDD'd in `pkg/jarvis/run_test.go`.
 
-The merged Channels surface (`docs/superpowers/plans/2026-07-13-channels-runs-merged-surface.md`) shows a
+The merged Channels surface (`docs/superpowers/specs/2026-07-13-channels-runs-merged-surface-design.md`) shows a
 "Channel notes" area in its collapsible overview strip, but `waveobj.Channel` has no notes field and no
 set-notes RPC exists (backend out of scope for that plan). v1 renders it as a **disabled placeholder**
 ("Channel notes — coming soon") so the UI is honest.
@@ -341,7 +341,7 @@ one-phase Run object (which would give Quick its own run-strip tab + `Q` badge) 
 ## Backend legacy cleanup — deferred removals (2026-07-13) — RESOLVED 2026-07-17
 
 All three held-back targets were retired by the builder/tsunami retirement (`e568a2b3` +
-`53acb8a5` on `main`; plan `docs/superpowers/plans/2026-07-16-tsunami-builder-retirement.md`):
+`53acb8a5` on `main`; design `docs/superpowers/specs/2026-07-16-tsunami-builder-retirement-design.md`):
 
 1. **Tsunami block controller** + `buildercontroller`/`waveapp`/`waveapputil`/`tsunamiutil`/
    `waveappstore` + the aiusechat builder mode + the builder wshrpc surface + `OType_Builder` +
@@ -535,7 +535,7 @@ fan-out (`f43768d9`), the memory force-graph (`bb4da8a1`), the Agents cursor-row
 Usage token-type (cache-read) split (`usagesurface.tsx`).
 
 **Obsolete (not deferred — un-executable as written):** the Agents-tab motion Phase 2 plan
-(`docs/plans/2026-06-19-agents-tab-motion.md`) targets `askcard.tsx`/`outputpanel.tsx`/
+(`docs/superpowers/plans/2026-06-19-agents-tab-motion.md`) targets `askcard.tsx`/`outputpanel.tsx`/
 `sessionsidebar.tsx`/`sessionrow.tsx`/`frontend/app/tab/vtab.tsx`, all removed in the cockpit rebuild
 + Phase-5b teardown. The `motion` dep and animations landed via later work (`agentrow.tsx` uses
 Reorder/AnimatePresence/layout springs); this specific plan cannot be applied.

@@ -742,7 +742,7 @@ Expected: popover scales/fades from the top-right; closes (✕ or reopening) wit
 ### Task 9: Tracker update + single approval-gated commit
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md`
+- Modify: `docs/superpowers/motion-system.md`
 
 - [ ] **Step 1: Add the Settings surface row**
 
@@ -787,7 +787,7 @@ feat(motion): settings surface motion + shared popover reveal primitive
 On approval, run:
 
 ```bash
-git add frontend/app/element/motiontokens.ts frontend/app/element/motiontokens.test.ts frontend/app/element/popoverreveal.tsx frontend/app/view/agents/settingssurface.tsx frontend/app/view/agents/projectswitcher.tsx frontend/app/view/agents/filessurface.tsx frontend/app/view/agents/newagentmodal.tsx frontend/app/view/agents/agentrow.tsx docs/superpowers/animation-revamp-tracker.md docs/superpowers/specs/2026-07-04-settings-motion-design.md docs/superpowers/plans/2026-07-04-settings-motion-system.md
+git add frontend/app/element/motiontokens.ts frontend/app/element/motiontokens.test.ts frontend/app/element/popoverreveal.tsx frontend/app/view/agents/settingssurface.tsx frontend/app/view/agents/projectswitcher.tsx frontend/app/view/agents/filessurface.tsx frontend/app/view/agents/newagentmodal.tsx frontend/app/view/agents/agentrow.tsx docs/superpowers/motion-system.md docs/superpowers/specs/2026-07-04-settings-motion-design.md docs/superpowers/plans/2026-07-04-settings-motion-system.md
 git commit -m "feat(motion): settings surface motion + shared popover reveal primitive"
 ```
 

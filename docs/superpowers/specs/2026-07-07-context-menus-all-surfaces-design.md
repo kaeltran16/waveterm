@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-07
 **Status:** Approved (design), pending plan
-**Builds on:** `docs/superpowers/specs/2026-07-07-right-click-context-menu-design.md` (the themed menu infrastructure) and its plan `docs/superpowers/plans/2026-07-07-right-click-context-menu.md` (shipped, uncommitted).
+**Builds on:** `docs/superpowers/specs/2026-07-07-right-click-context-menu-design.md` (the themed menu infrastructure, shipped).
 
 ## Goal
 

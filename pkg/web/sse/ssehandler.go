@@ -15,8 +15,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/utilds"
 )
 
-// see /aiprompts/usechat-streamingproto.md for protocol
-
 const (
 	SSEContentType       = "text/event-stream"
 	SSECacheControl      = "no-cache"

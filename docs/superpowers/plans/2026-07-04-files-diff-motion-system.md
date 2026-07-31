@@ -666,7 +666,7 @@ Await explicit approval before committing.
 ### Task 6: Flip the tracker row + correct the stale Agent note
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md`
+- Modify: `docs/superpowers/motion-system.md`
 
 - [ ] **Step 1: Update the Files / Diff row** — change its status cell from `☐ Not started` to `✅ Shipped (2026-07-04)` with a note summarizing the moments (browse list entrance/reflow + no-cascade guard, diff crossfade, review settle/progress/crossfade/applied-reveal; guard extracted to `motiontokens.ts`). Fill the commit SHA(s) once the Task 4/5 commits land.
 
@@ -682,7 +682,7 @@ Await explicit approval before committing.
 - [ ] **Step 4: Stage + request commit approval**
 
 ```bash
-git add docs/superpowers/animation-revamp-tracker.md \
+git add docs/superpowers/motion-system.md \
         docs/superpowers/specs/2026-07-04-files-diff-motion-design.md \
         docs/superpowers/plans/2026-07-04-files-diff-motion-system.md
 ```

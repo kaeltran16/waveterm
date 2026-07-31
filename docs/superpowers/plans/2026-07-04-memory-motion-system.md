@@ -454,7 +454,7 @@ Expected (by inspection): switching List↔Graph crossfades the pane (no hard cu
 ### Task 5: Reduced-motion check, tracker update, single commit
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md`
+- Modify: `docs/superpowers/motion-system.md`
 
 - [ ] **Step 1: Reduced-motion verification**
 
@@ -469,7 +469,7 @@ Expected: exit 0.
 
 - [ ] **Step 3: Flip the Memory row in the tracker**
 
-In `docs/superpowers/animation-revamp-tracker.md`, change the Memory row (line 72) from `☐ Not started` to shipped, and add the design/plan references at the bottom. Example row:
+In `docs/superpowers/motion-system.md`, change the Memory row (line 72) from `☐ Not started` to shipped, and add the design/plan references at the bottom. Example row:
 
 ```markdown
 | Memory | ✅ Shipped (2026-07-04) | List: load reveal + reflow flag (silent search / animated mutations, Sessions idiom) + selection micro. DetailRail: content + edit crossfades (m5). Graph: one-shot settle cue (m4) on cooldown; physics untouched. List↔Graph toggle crossfade. `<MotionConfig reducedMotion="user">` at root. No new tokens/module. SHA `<fill-after-commit>`. |
@@ -491,7 +491,7 @@ Run: `git diff --stat` then review each hunk. Confirm: no per-task commits were 
 Present the file list and message, ask "Awaiting approval. Proceed? (yes/no)", and only on `yes`:
 
 ```bash
-git add frontend/app/view/agents/memorysurface.tsx frontend/app/view/agents/memgraph.tsx frontend/app/view/agents/memstore.ts docs/superpowers/specs/2026-07-04-memory-motion-design.md docs/superpowers/plans/2026-07-04-memory-motion-system.md docs/superpowers/animation-revamp-tracker.md
+git add frontend/app/view/agents/memorysurface.tsx frontend/app/view/agents/memgraph.tsx frontend/app/view/agents/memstore.ts docs/superpowers/specs/2026-07-04-memory-motion-design.md docs/superpowers/plans/2026-07-04-memory-motion-system.md docs/superpowers/motion-system.md
 git commit -m "feat(memory): motion system for list, detail rail, and graph"
 ```
 

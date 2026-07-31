@@ -2,7 +2,7 @@
 
 Date: 2026-07-03
 Surface: **Shared modals** (the app's overlay dialogs), the second surface of the app-wide animation
-revamp (`docs/superpowers/animation-revamp-tracker.md`). Reuses the cockpit motion tokens
+revamp (`docs/superpowers/motion-system.md`). Reuses the cockpit motion tokens
 (`frontend/app/element/motiontokens.ts`); adds one new backdrop token and one shared shell.
 
 ## Problem

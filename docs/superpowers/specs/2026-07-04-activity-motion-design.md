@@ -2,7 +2,7 @@
 
 Date: 2026-07-04
 Surface: **Activity** (`frontend/app/view/agents/activitysurface.tsx`), a surface in the app-wide
-animation revamp (`docs/superpowers/animation-revamp-tracker.md`). Reuses the cockpit motion tokens
+animation revamp (`docs/superpowers/motion-system.md`). Reuses the cockpit motion tokens
 (`frontend/app/element/motiontokens.ts`) — no new durations/eases/keyframes. Promotes one existing pure
 helper (`reflowProps`) from `sessionsmotion.ts` into the shared token module so a second surface can use it.
 
@@ -164,5 +164,5 @@ The per-second `nowAtom` re-render (relative-time labels) does not move layout, 
 
 ## Tracker update
 
-On landing, flip the **Activity** row in `docs/superpowers/animation-revamp-tracker.md` to ✅ with the commit
+On landing, flip the **Activity** row in `docs/superpowers/motion-system.md` to ✅ with the commit
 SHA and a one-line note (load reveal + two-level filter reflow via `reflowProps` promoted to `motiontokens`).

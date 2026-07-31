@@ -4,7 +4,7 @@
 **Status:** approved (brainstorm), pending implementation plan
 
 Two backend follow-ups deferred out of the 2026-07-13 channels/runs merged-surface plan
-(`docs/superpowers/plans/2026-07-13-channels-runs-merged-surface.md`). Both were logged in
+(`docs/superpowers/specs/2026-07-13-channels-runs-merged-surface-design.md`). Both were logged in
 `docs/deferred.md` as backend-gated; this spec unblocks them.
 
 ## Goal

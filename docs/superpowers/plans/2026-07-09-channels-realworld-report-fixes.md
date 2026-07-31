@@ -1025,7 +1025,7 @@ With the dev app running: click "+ New channel" → pick a project → confirm t
 - [ ] `npx vitest run frontend/app/view/agents/` → all PASS (new: `filterChannels`, `answeredAskORefs`, `pendingAsks`, snapshot `askORef`).
 - [ ] `task build:backend` → exit 0.
 - [ ] Re-read the 10 findings against the running dev app; note any that remain visually unverified (and why) rather than claiming them fixed.
-- [ ] Update `docs/agents/channels-improvements.md` status lines for #1, #2, #3, #4, #6, #9 to reflect what shipped (and what's still deferred), so the backlog stays the single source of truth.
+- [ ] Update the Channels improvement backlog status lines for #1, #2, #3, #4, #6, #9 to reflect what shipped (and what's still deferred), so the backlog stays the single source of truth. (That backlog has since been removed as fully shipped.)
 
 ## Deferred (out of scope for this plan — rationale)
 

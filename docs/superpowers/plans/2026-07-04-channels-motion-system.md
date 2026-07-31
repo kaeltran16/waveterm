@@ -31,7 +31,7 @@ Reference spec: `docs/superpowers/specs/2026-07-04-channels-motion-design.md`.
 | `frontend/app/view/agents/channelsmotion.test.ts` | **new.** Unit test for `computeEntrances`. |
 | `frontend/app/view/agents/channelssurface.tsx` | **modify.** `MotionConfig` wrap; `AnimatePresence` + per-row `motion.div`; wire the guard; `useSettle` hook + m4 on `ConsultRow`/`JarvisRow`; m3 `breatheGlow` on `EscalationRow`. |
 | `frontend/app/view/agents/channelrail.tsx` | **modify.** m7 `transition-colors` on the channel button; `pulseDot` on the attention dot. |
-| `docs/superpowers/animation-revamp-tracker.md` | **modify.** Flip Channels row to ✅. |
+| `docs/superpowers/motion-system.md` | **modify.** Flip Channels row to ✅. |
 
 ---
 
@@ -487,7 +487,7 @@ In the live app: click between channels → the active highlight (bg + `#` + lab
 ## Task 6: Tracker update + commit (requires approval)
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md`
+- Modify: `docs/superpowers/motion-system.md`
 
 - [ ] **Step 1: Flip the Channels row to shipped**
 

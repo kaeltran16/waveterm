@@ -24,7 +24,7 @@ Separately, the Cockpit motion pass (`b3ccce07`) was card-centric — the chrome
 
 ## North star
 
-Unchanged from the app-wide revamp (`docs/superpowers/animation-revamp-tracker.md`): **motion is functional-first — it must make a state change more legible.** This pass adds no new motion vocabulary; it *reuses* `motiontokens.ts` and folds the "rail reveal" moment into a shared component. The rail work is a **consistency + reuse** play (one component, one width, one border, one collapse affordance) whose animation happens to be the rail-reveal moment.
+Unchanged from the app-wide revamp (`docs/superpowers/motion-system.md`): **motion is functional-first — it must make a state change more legible.** This pass adds no new motion vocabulary; it *reuses* `motiontokens.ts` and folds the "rail reveal" moment into a shared component. The rail work is a **consistency + reuse** play (one component, one width, one border, one collapse affordance) whose animation happens to be the rail-reveal moment.
 
 ## Locked decisions (from the brainstorm)
 
@@ -120,4 +120,4 @@ All reuse `motiontokens.ts` + the surface's existing `<MotionConfig reducedMotio
 
 ## Commit note
 
-Per repo convention this spec + its plan fold into the feature commit, not a separate docs-only commit. Nothing is committed without explicit approval. This pass advances the Cockpit row (chrome gaps) and partially the Agent + Channels rows (shared rail) in `docs/superpowers/animation-revamp-tracker.md`; flip/annotate those rows when it lands.
+Per repo convention this spec + its plan fold into the feature commit, not a separate docs-only commit. Nothing is committed without explicit approval. This pass advances the Cockpit row (chrome gaps) and partially the Agent + Channels rows (shared rail) in `docs/superpowers/motion-system.md`; flip/annotate those rows when it lands.

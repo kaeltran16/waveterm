@@ -1,5 +1,25 @@
 # Cockpit Coherence Audit
 
+> **Status (re-checked 2026-07-31): a decaying snapshot. Read the findings below with this in mind.**
+>
+> - **Keyboard cluster (F1, F2, F7) — resolved by relocation.** The audit's premise was that the keyboard
+>   contract lived only in `useCockpitKeyboard`, mounted only on the Cockpit surface. That hook still
+>   exists (`frontend/app/view/agents/usecockpitkeyboard.ts`) but now handles only cockpit-local cursor
+>   and answer actions; the contract itself moved to a central registry
+>   (`frontend/app/store/keybindings/` — `bindings.ts`, `listnav.ts`, `dispatcher.ts`) with g-leader
+>   surface teleports and shared list-nav. F2 specifically: the hook no longer owns a surface order at
+>   all, and the one that replaced it (`SURFACE_ORDER` in `view/agents/agents.tsx`) includes Radar —
+>   `bindings.test.ts` asserts it. F7's two cited ad-hoc `window` keydown listeners
+>   (`subagentinterior.tsx`, `reviewsurface.tsx`) are gone.
+> - **Token cluster (F3) — still live, and larger.** The audit counted ~130 `ink-hi`/`ink-mid`/`ink-faint`
+>   uses of the minority color scale. As of 2026-07-31 there are **196**. This is the one finding that has
+>   grown rather than closed.
+> - **F14 — done.** `PlaceholderSurface` no longer exists.
+> - Surface names throughout predate the Jarvis consolidation, which merged Channels, Graph and Tasks into
+>   one surface; `channelchrome.tsx` and `channelrail.tsx` are among the cited files that are now gone.
+>
+> Findings not listed above were not re-verified in the 2026-07-31 docs pass.
+
 > Generated per `docs/superpowers/specs/2026-07-16-cockpit-coherence-audit-design.md`.
 > Read-only conformance audit of the navigable cockpit surfaces on five coherence dimensions.
 > Every score cites `file:line` evidence. `N/A` = the dimension does not structurally apply to the

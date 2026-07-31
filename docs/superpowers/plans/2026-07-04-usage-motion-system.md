@@ -434,7 +434,7 @@ git commit -m "feat(usage): live-card entrance + one-shot Historical load reveal
 ### Task 6: Update the animation revamp tracker
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md`
+- Modify: `docs/superpowers/motion-system.md`
 
 **Interfaces:**
 - Consumes: the final commit SHA of Task 5 (the last usage-surface commit).
@@ -468,7 +468,7 @@ Also bump the `Last updated:` line near the top to today's date.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/superpowers/animation-revamp-tracker.md docs/superpowers/specs/2026-07-04-usage-motion-design.md docs/superpowers/plans/2026-07-04-usage-motion-system.md
+git add docs/superpowers/motion-system.md docs/superpowers/specs/2026-07-04-usage-motion-design.md docs/superpowers/plans/2026-07-04-usage-motion-system.md
 git commit -m "docs(motion): ship usage-surface motion; update tracker"
 ```
 

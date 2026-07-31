@@ -379,13 +379,13 @@ git commit -m "feat(activity): load reveal + two-level filter reflow motion"
 Mark Activity shipped in the revamp tracker with the commit SHA, matching how Channels/Files/Sessions rows were closed out.
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md`
+- Modify: `docs/superpowers/motion-system.md`
 
 **Interfaces:** none.
 
 - [ ] **Step 1: Update the Activity row**
 
-In `docs/superpowers/animation-revamp-tracker.md`, replace the Activity table row:
+In `docs/superpowers/motion-system.md`, replace the Activity table row:
 
 ```markdown
 | Activity | ☐ Not started | Cross-project feed. Candidates: line entrance (m1/m5), no-cascade guard. |
@@ -399,7 +399,7 @@ with (fill `<SHA>` with Task 2's commit hash — `git rev-parse --short HEAD` af
 
 - [ ] **Step 2: Add the plan/spec to the References list**
 
-In the `## References` section of `docs/superpowers/animation-revamp-tracker.md`, append:
+In the `## References` section of `docs/superpowers/motion-system.md`, append:
 
 ```markdown
 - Activity motion design spec: `docs/superpowers/specs/2026-07-04-activity-motion-design.md`
@@ -413,7 +413,7 @@ Ensure the top-of-file `Last updated:` line reads `2026-07-04`.
 - [ ] **Step 4: Commit** (get approval per Global Constraints)
 
 ```bash
-git add docs/superpowers/animation-revamp-tracker.md docs/superpowers/specs/2026-07-04-activity-motion-design.md docs/superpowers/plans/2026-07-04-activity-motion-system.md
+git add docs/superpowers/motion-system.md docs/superpowers/specs/2026-07-04-activity-motion-design.md docs/superpowers/plans/2026-07-04-activity-motion-system.md
 git commit -m "docs(activity): flip tracker row, add motion spec + plan"
 ```
 

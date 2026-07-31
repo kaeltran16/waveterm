@@ -2,13 +2,13 @@
 
 Date: 2026-07-10
 Scope: feature batch (four independent deferred usability items on the mature Channels surface). Spec only — hands off to writing-plans.
-Related: `docs/agents/channels-improvements.md` (the backlog this closes out), `docs/superpowers/plans/2026-07-09-channels-realworld-report-fixes.md` (the prior batch that deferred these four), `docs/agents/channels-flows.md`.
+Related: the Channels improvement backlog this closes out (since removed as fully shipped), `docs/superpowers/plans/2026-07-09-channels-realworld-report-fixes.md` (the prior batch that deferred these four), `docs/agents/channels-reference.md`.
 
 ## Problem
 
 The Channels tab has been through ten specs and ~30 commits; the real-world-report fix batch (2026-07-09) shipped almost the whole backlog but explicitly deferred four items, each for a concrete reason (needs a cross-surface aggregate, needs persistence, needs an external-CLI change, or was unconfirmed). This spec finishes those four as one coherent batch. None are correctness bugs in the classic sense — they are legibility/hygiene/consistency gaps that grow with fleet size.
 
-The four (from `channels-improvements.md` + the prior plan's "Deferred" section), confirmed feasible by a code scan on 2026-07-10:
+The four (from that backlog + the prior plan's "Deferred" section), confirmed feasible by a code scan on 2026-07-10:
 
 - **A — Ambient "needs you" attention + Cockpit dedup** (backlog #8, report §G22). Today the per-channel rail dot and "Needs you · N" panel dedupe via `pendingAsks`, but the **Cockpit header's "N need you" counter uses raw `state === "asking"` and never dedupes** — so it over-counts asks Jarvis already auto-answered, and the three surfaces can disagree. There is also no ambient, always-visible signal of "which of my workers is waiting on me?" outside the Channels tab.
 - **B — Channel archive** (backlog #3 remainder). Delete + rename shipped; there is no archive, so channels you want to keep-but-hide still clutter the rail.

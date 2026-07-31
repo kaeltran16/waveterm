@@ -160,8 +160,8 @@ Phase 0 is **done** when, observed on the Windows dev machine:
 
 ## 11. Next step
 
-`writing-plans` → [`../plans/2026-06-24-tauri-phase0-spike.md`](../plans/2026-06-24-tauri-phase0-spike.md),
-then `executing-plans` on the Windows dev app.
+`writing-plans` → the Phase 0 spike plan (since shipped and removed), then `executing-plans` on the
+Windows dev app.
 
 ## 12. Phase 0 result (2026-06-24 — PASSED)
 

@@ -2,7 +2,7 @@
 
 Date: 2026-07-12
 Scope: single feature (backend trigger + resolution + post, plus FE rendering). Spec only — hands off to writing-plans.
-Related: `docs/superpowers/specs/2026-07-10-channels-deferred-backlog-design.md` (where B was deferred), `docs/superpowers/specs/2026-07-12-channels-fleet-legibility-design.md` (the A/F/G batch, being implemented separately), `docs/agents/channels-flows.md`, `docs/superpowers/specs/2026-07-10-sessions-activity-merge-design.md` (`pkg/agentsessions`, whose extractor this reuses).
+Related: `docs/superpowers/specs/2026-07-10-channels-deferred-backlog-design.md` (where B was deferred), `docs/agents/channels-reference.md`, `docs/superpowers/specs/2026-07-10-sessions-activity-merge-design.md` (`pkg/agentsessions`, whose extractor this reuses).
 
 ## Problem
 

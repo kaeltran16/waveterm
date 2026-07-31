@@ -2,7 +2,7 @@
 
 Date: 2026-07-04
 Surface: **Channels** (`frontend/app/view/agents/channelssurface.tsx` + `channelrail.tsx`), a surface in
-the app-wide animation revamp (`docs/superpowers/animation-revamp-tracker.md`). Reuses the cockpit motion
+the app-wide animation revamp (`docs/superpowers/motion-system.md`). Reuses the cockpit motion
 tokens (`frontend/app/element/motiontokens.ts`) and the existing CSS keyframes (`pulseDot`, `breatheGlow`,
 `settle` in `frontend/tailwindsetup.css`) — no new tokens, one new pure helper file.
 
@@ -209,6 +209,6 @@ of snapping. Pure CSS — the sanctioned fallback for pre-existing hover/press m
 
 ## Tracker update
 
-On landing, flip the **Channels** row in `docs/superpowers/animation-revamp-tracker.md` to ✅ with the commit
+On landing, flip the **Channels** row in `docs/superpowers/motion-system.md` to ✅ with the commit
 SHA and a one-line note (message entrance + no-cascade guard, streaming settle, escalation glow, rail
 selection micro + attention-dot pulse).

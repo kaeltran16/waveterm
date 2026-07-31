@@ -2,7 +2,7 @@
 
 Date: 2026-07-16
 Scope: single cross-surface feature (close the Radar-finding → Run → outcome loop). Spec only — hands off to writing-plans.
-Related: `docs/superpowers/specs/2026-07-10-repo-radar-design.md` (Radar), `docs/superpowers/plans/2026-07-11-radar-start-investigation-composer.md` (the finding → Run handoff this builds on), `docs/deferred.md` ("Repo Radar — Start investigation handoff", verified shipped 2026-07-14), `docs/orchestrator-roadmap.md`.
+Related: `docs/superpowers/specs/2026-07-10-repo-radar-design.md` (Radar), `docs/superpowers/specs/2026-07-11-radar-start-investigation-composer-design.md` (the finding → Run handoff this builds on), `docs/deferred.md` ("Repo Radar — Start investigation handoff", verified shipped 2026-07-14), `docs/orchestrator-roadmap.md`.
 
 ## Problem
 

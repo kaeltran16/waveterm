@@ -13,7 +13,7 @@ Settings was deliberately excluded from the original revamp as a config surface.
 that decision: Settings gets the standard load reveal plus the two functional in-surface moments it
 actually has, and the popover work it motivates is generalized rather than one-off.
 
-All motion follows the north star in `docs/superpowers/animation-revamp-tracker.md`: functional-first
+All motion follows the north star in `docs/superpowers/motion-system.md`: functional-first
 (a moment ships only if it makes a state change more legible), fluid/calm feel, reduced-motion always
 honored, no entrance cascade.
 

@@ -102,7 +102,7 @@ If reverted (no net code change), skip this commit and note the gate outcome in 
 Confirm the no-code decisions hold in the running app (swap = none / no double animation; palette dissolves into the arriving surface; typing is an instant snap), then flip the tracker row to shipped. If any acceptance check fails, stop and revisit the spec rather than adding motion to compensate.
 
 **Files:**
-- Modify: `docs/superpowers/animation-revamp-tracker.md` (the "Cross-surface tab transitions" row + the References section)
+- Modify: `docs/superpowers/motion-system.md` (the "Cross-surface tab transitions" row + the References section)
 
 **Interfaces:**
 - Consumes: the Task 1 ship/revert outcome (to state accurately what shipped).
@@ -135,7 +135,7 @@ Expected: results re-rank/re-group instantly with no reflow tween and no per-ite
 
 - [ ] **Step 4: Flip the tracker row**
 
-In `docs/superpowers/animation-revamp-tracker.md`, replace the "Cross-surface tab transitions" row:
+In `docs/superpowers/motion-system.md`, replace the "Cross-surface tab transitions" row:
 
 ```markdown
 | **Cross-surface tab transitions** | ☐ Not started | Switching surfaces (`[`/`]`, rail). Design decision pending: crossfade vs. none. Must not fight per-surface entrances. |
@@ -159,7 +159,7 @@ Also update the `Last updated:` line to `2026-07-04` (already that date — conf
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/superpowers/animation-revamp-tracker.md
+git add docs/superpowers/motion-system.md
 git commit -m "docs(motion): ship cross-surface + Ctrl+P palette motion; update tracker"
 ```
 If the Task 1 tint was reverted, note that in this commit body (e.g. "selection tint dropped on legibility gate; swap decision = none").

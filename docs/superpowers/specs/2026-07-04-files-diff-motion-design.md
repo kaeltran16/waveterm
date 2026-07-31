@@ -2,7 +2,7 @@
 
 Date: 2026-07-04
 Surface: **Files / Diff** (`filessurface.tsx` + `reviewsurface.tsx`)
-Tracker row: `docs/superpowers/animation-revamp-tracker.md` → "Files / Diff"
+Tracker row: `docs/superpowers/motion-system.md` → "Files / Diff"
 
 ## Goal
 
@@ -119,7 +119,7 @@ surface needs a new primitive, add it to the token module first"):
 
 ## References
 
-- Tracker: `docs/superpowers/animation-revamp-tracker.md`
+- Tracker: `docs/superpowers/motion-system.md`
 - Cockpit motion system: `docs/superpowers/specs/2026-07-03-cockpit-motion-system-design.md`
 - Channels motion (source of the no-cascade + settle patterns): `docs/superpowers/specs/2026-07-04-channels-motion-design.md`
 - Sessions motion (list reflow reference): `docs/superpowers/specs/2026-07-03-sessions-motion-design.md`

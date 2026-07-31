@@ -742,7 +742,7 @@ git commit -m "feat(cockpit): single-tree spring geometry — animated full-widt
 
 ## Self-Review
 
-**1. Spec coverage** (against `docs/superpowers/specs/2026-07-03-cockpit-grid-spring-geometry-design.md`):
+**1. Spec coverage** (against this plan's Goal + Architecture — no separate design doc was written):
 - §1 geometry model → Task 1 (`computeGridLayout`, pure, unit-tested). ✓
 - §2 one presence tree / drop LayoutGroup/renderColumn/popLayout → Task 2 Steps 11. ✓
 - §3 AgentRow absolute + 4 springs, drop layout/layoutId, variants for add/remove only → Task 2 Steps 2–4. ✓

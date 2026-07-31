@@ -2,7 +2,7 @@
 
 Date: 2026-07-03
 Surface: **Sessions** (`frontend/app/view/agents/sessionssurface.tsx`), a surface in the app-wide
-animation revamp (`docs/superpowers/animation-revamp-tracker.md`). Reuses the cockpit motion tokens
+animation revamp (`docs/superpowers/motion-system.md`). Reuses the cockpit motion tokens
 (`frontend/app/element/motiontokens.ts`) — no new tokens, no new files.
 
 ## Problem
@@ -161,5 +161,5 @@ stays a plain node.
 
 ## Tracker update
 
-On landing, flip the **Sessions** row in `docs/superpowers/animation-revamp-tracker.md` to ✅ with the
+On landing, flip the **Sessions** row in `docs/superpowers/motion-system.md` to ✅ with the
 commit SHA and a one-line note (reflow on chip filter, instant search, load reveal, empty-state fade).

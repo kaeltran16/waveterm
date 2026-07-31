@@ -2,7 +2,7 @@
 
 Date: 2026-07-04
 Surface: **Memory** (`frontend/app/view/agents/memorysurface.tsx`, `memgraph.tsx`)
-Part of: app-wide animation revamp (`docs/superpowers/animation-revamp-tracker.md`)
+Part of: app-wide animation revamp (`docs/superpowers/motion-system.md`)
 
 ## Context
 
@@ -147,7 +147,7 @@ The rail is always mounted; its contents change on selection (async body load:
 
 ## References
 
-- Tracker: `docs/superpowers/animation-revamp-tracker.md`
+- Tracker: `docs/superpowers/motion-system.md`
 - Files/Diff motion design (nearest structural precedent): `docs/superpowers/specs/2026-07-04-files-diff-motion-design.md`
 - Activity motion design (two-level grouped reflow, load reveal): `docs/superpowers/specs/2026-07-04-activity-motion-design.md`
 - Usage motion design (`useDidBecomeTrue` load reveal): `docs/superpowers/specs/2026-07-04-usage-motion-design.md`

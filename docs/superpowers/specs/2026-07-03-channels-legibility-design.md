@@ -1,9 +1,9 @@
 # Channels legibility — pre-send chip + real-task subline
 
 **Date:** 2026-07-03
-**Scope:** Batch A of the Channels-tab improvement backlog (`docs/agents/channels-improvements.md`
-items #5 and #7). Trivial scope — this document is both the design and the plan.
-**Companion:** `docs/agents/channels-flows.md` (flow reference).
+**Scope:** Batch A of the Channels-tab improvement backlog (items #5 and #7; that backlog has since
+been removed as fully shipped). Trivial scope — this document is both the design and the plan.
+**Companion:** `docs/agents/channels-reference.md` (flow reference).
 
 ## Problem
 

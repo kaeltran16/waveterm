@@ -2,7 +2,7 @@
 
 Date: 2026-07-04
 Surface: **Cross-surface tab transitions** + the Ctrl+P command palette (`command-palette.tsx`)
-Tracker row: `docs/superpowers/animation-revamp-tracker.md` → "Cross-surface tab transitions"
+Tracker row: `docs/superpowers/motion-system.md` → "Cross-surface tab transitions"
 
 ## Summary
 

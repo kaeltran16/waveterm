@@ -1,9 +1,10 @@
 # Keyboard Shortcuts
 
-The cockpit is designed to be operated entirely from the keyboard. This is the reference for
-every binding. It should stay in sync with the keybinding registry
-(`frontend/app/store/keybindings/`) — the registry is the source of truth; this file is the
-human-readable mirror.
+The cockpit is designed to be operated entirely from the keyboard. This is the human-readable mirror
+of the keybinding registry (`frontend/app/store/keybindings/`) — **the registry is the source of
+truth**; when they disagree, the registry is right and this file is stale.
+
+Verified against `bindings.ts` on 2026-07-31.
 
 Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`](superpowers/specs/2026-07-03-keyboard-operability-design.md).
 
@@ -23,11 +24,14 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`8` | Jump to surface by position (Cockpit, Agent, Activity, Channels, Sessions, Files, Memory, Usage) |
+| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Radar, Sessions, Files, Memory, Usage |
 | `Ctrl`+`P` | Command palette |
 | `Ctrl`+`N` | New agent |
-| `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Cycle agents (Agent surface) |
-| `Ctrl`+`C` `Ctrl`+`C` (double) | Close the focused agent |
+| `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
+| `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent |
+
+Settings has no `Ctrl`+number slot — the eight positions are bound to `SURFACE_ORDER`
+(`frontend/app/view/agents/agents.tsx`), which excludes it. Reach Settings with `g` `,`.
 
 ## Go-to surface — leader `g` (Navigate posture)
 
@@ -35,8 +39,8 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 |---|---|
 | `g` `h` | Cockpit (home) |
 | `g` `a` | Agent |
-| `g` `v` | Activity |
-| `g` `c` | Channels |
+| `g` `c` | Jarvis — channels, records, recall |
+| `g` `r` | Radar |
 | `g` `s` | Sessions |
 | `g` `f` | Files |
 | `g` `m` | Memory |
@@ -48,33 +52,66 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Tab` / `Shift`+`Tab` | Cycle between regions (e.g. list → transcript → composer) |
+| `[` / `]` | Previous / next surface (cycles `SURFACE_ORDER`, wraps) |
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
-| `Enter` | Activate the item under the cursor |
-| `Esc` | Leave Type posture, return the cursor to the active region |
+| `Enter` | Open / activate the item under the cursor |
+| `Esc` | On a deep surface (Jarvis, Radar, Sessions, Files, Memory, Usage), return to the Cockpit. In a composer or text field, leave Type posture first. |
 
 ## Per-surface actions (Navigate posture)
 
-### Agents
-| Keys | Action |
-|---|---|
-| `r` | Reply — focus the composer for the cursor agent |
-| `t` | Open the agent's terminal |
-| `/` | Filter the agent list |
+### Cockpit
 
-### Files
 | Keys | Action |
 |---|---|
-| `Enter` | Open the diff for the cursor file |
-| `a` | Accept (Review mode) |
-| `r` | Reject (Review mode) |
-| `/` | Filter the file list |
+| `j` / `k` | Next / previous agent |
+| `n` | Jump to the next ask |
+| `h` / `l` (or `←` / `→`) | Switch question on a multi-question ask |
+| `1`…`9` | Select an answer option |
+| `Enter` | Confirm the answer, else open focus |
+| `r` | Reply inline to the agent |
+| `t` | Open the agent's terminal |
+| `b` | Background the agent (keeps it running) |
+
+### Agent
+
+| Keys | Action |
+|---|---|
+| `j` / `k` (or `←` / `→`) | Previous / next agent |
+| `d` | Toggle the agent rail |
+| `f` | Toggle terminal fullscreen |
+| `Esc` | Back to Cockpit, or exit fullscreen first |
+| `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
+
+### Jarvis
+
+| Keys | Action |
+|---|---|
+| `i` | Focus the composer |
+| `d` | Toggle the context rail |
+| `e` | Expand / collapse the record band |
+| `n` | New thread |
+| `c` | New channel |
+| `Shift`+`G` | Graph peek (`Esc` closes) |
+| `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
+| `1`…`9` | Answer an ask option on a run body |
+| `Enter` | Submit the answer |
+| `Esc` | Leave the composer |
+
+### Files — Review mode
+
+| Keys | Action |
+|---|---|
+| `a` | Accept the next hunk |
+| `r` | Reject the next hunk |
+| `u` | Undo the last decision |
+| `j` / `k` (or `↓` / `↑`) | Next / previous file |
+| `Enter` | Apply the review |
 
 ## Help
 
 | Keys | Action |
 |---|---|
-| `?` | Open the shortcut cheat sheet (Navigate posture) |
+| `?` (`Shift`+`/`) | Open the shortcut cheat sheet (Navigate posture) |
 | Command palette → "Keyboard shortcuts" | Open the cheat sheet while typing |
 
 ---

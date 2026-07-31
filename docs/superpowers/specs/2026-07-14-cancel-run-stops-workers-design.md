@@ -14,7 +14,7 @@ It never touches the spawned workers. Each phase carries `WorkerOrefs` (`tab:<id
 consuming API quota and mutating the working tree — while the UI reports the run as cancelled. The
 status is a lie.
 
-(The known-issues doc `docs/agents/runs-pipeline-known-issues.md` line ~91 already *assumes* Cancel
+(The pipeline known-issues doc — since removed — at line ~91 already *assumes* Cancel
 "deletes the worker tab, in which case the roster row is removed." It doesn't. This spec closes that
 gap between stated behavior and actual behavior.)
 
@@ -175,7 +175,7 @@ the repo's visual/behavioral verification norm.
   state write.
 - No new wshrpc command, no type/schema change, no generated-code regen. (Frontend changes arrive in
   the Addendum below.)
-- Docs: correct the stale line in `docs/agents/runs-pipeline-known-issues.md` (Cancel now stops the
+- Docs: correct the stale line in the pipeline known-issues doc (since removed) (Cancel now stops the
   process and keeps the tab, rather than the assumed tab-delete).
 
 ---
