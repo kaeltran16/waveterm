@@ -7,6 +7,7 @@ import {
     buildAgentBindings,
     buildChannelsAskBindings,
     buildCockpitBindings,
+    buildCodeBindings,
     buildFilesBindings,
     buildGlobalBindings,
     buildJarvisBindings,
@@ -35,6 +36,7 @@ const SURFACES: SurfaceKey[] = [
     "files",
     "memory",
     "usage",
+    "code",
     "settings",
 ];
 function contexts(): KeyContext[] {
@@ -123,6 +125,15 @@ describe("keybinding conflict invariant", () => {
         globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildFilesBindings()])).not.toThrow();
         globalStore.set(historyFiltersAtom, NO_FILTERS);
+    });
+
+    // The Code surface holds the two bindings that deliberately survive `editable` (Ctrl+P find,
+    // Ctrl+S save), so it is the surface most likely to collide with a global chord. It went
+    // uncovered when the surface landed; this is the guard.
+    it("global + code-surface bindings do not conflict, editable or not", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings()])).not.toThrow();
     });
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {

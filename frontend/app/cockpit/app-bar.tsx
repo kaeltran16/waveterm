@@ -71,7 +71,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 </svg>
                 <span className="flex-1 text-left text-[13px]">Search agents, sessions, commands…</span>
                 <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
-                    {formatChordString("Ctrl:p")}
+                    {formatChordString("Ctrl:Shift:p")}
                 </span>
             </button>
 

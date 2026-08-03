@@ -104,8 +104,12 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
         { id: "surface:next", keys: "]", group: "Navigation", label: "Next surface", when: navigate, run: () => cycleSurface(1) },
         { id: "surface:prev", keys: "[", group: "Navigation", label: "Previous surface", when: navigate, run: () => cycleSurface(-1) },
         {
+            // VS Code's split: Ctrl+P goes to a file, Ctrl+Shift+P runs a command. The Code surface
+            // claims the plain Ctrl+P for its file finder, so the palette takes the Shift form — here
+            // and on every other surface, because one palette key that changes meaning per surface is
+            // worse than one that never does. `g p` still opens it too.
             id: "palette",
-            keys: "Ctrl:p",
+            keys: "Ctrl:Shift:p",
             group: "Global",
             label: "Command palette",
             run: () => globalStore.set(model.paletteOpenAtom, (v) => !v),
@@ -639,11 +643,14 @@ export function buildCodeBindings(): Binding[] {
     return [
         {
             id: "code:find",
-            keys: "f",
+            keys: "Ctrl:p",
             group: "Code",
             label: "Find a file by name",
-            when: on,
-            // Ctrl:p is the command palette, so the finder takes a bare letter like the Diff surface's `c`
+            // A bare letter used to be right here, because Ctrl+P was the palette. Two things changed:
+            // the palette moved to Ctrl+Shift+P, and the editor became writable — so the caret now sits
+            // in Monaco's textarea most of the time and a letter gated on !editable would be unreachable
+            // exactly when you want it. Yields to an open modal, and to nothing else.
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => globalStore.set(codeFinderOpenAtom, true),
         },
         {

@@ -13,8 +13,10 @@ import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
+import { codeFinderOpenAtom } from "@/app/view/code/codestore";
 import {
     buildAgentBindings,
+    buildCodeBindings,
     buildFilesBindings,
     buildGlobalBindings,
     buildJarvisBindings,
@@ -337,5 +339,56 @@ describe("diff-surface history bindings", () => {
         b.run(ctx);
         expect(globalStore.get(historyScrollAtom)).toBe(0);
         expect(container.scrollTop).toBe(0);
+    });
+});
+
+describe("command palette chord", () => {
+    it("is Ctrl+Shift+P, leaving plain Ctrl+P to the Code surface's file finder", () => {
+        const model = { surfaceAtom: atom<SurfaceKey>("cockpit"), paletteOpenAtom: atom(false) } as any;
+        const b = buildGlobalBindings(model).find((x) => x.id === "palette")!;
+        expect(b.keys).toBe("Ctrl:Shift:p");
+        // no `when` at all: the palette has to be reachable from inside a text field
+        expect(b.when).toBeUndefined();
+        b.run(ctx("code"));
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
+    });
+});
+
+describe("code surface bindings", () => {
+    const find = (id: string) => {
+        const b = buildCodeBindings().find((x) => x.id === id);
+        if (b == null) {
+            throw new Error(`no binding ${id}`);
+        }
+        return b;
+    };
+    const code = ctx("code");
+
+    beforeEach(() => globalStore.set(codeFinderOpenAtom, false));
+
+    it("puts the file finder on Ctrl+P, matching VS Code's go-to-file", () => {
+        const b = find("code:find");
+        expect(b.keys).toBe("Ctrl:p");
+        b.run(code);
+        expect(globalStore.get(codeFinderOpenAtom)).toBe(true);
+    });
+
+    it("opens the finder even while the caret is in the editor", () => {
+        // the editor is writable now, so focus-in-Monaco is the normal case rather than the exotic one
+        expect(find("code:find").when?.({ ...code, editable: true })).toBe(true);
+    });
+
+    it("yields the finder to an open modal", () => {
+        expect(find("code:find").when?.({ ...code, modalOpen: true })).toBe(false);
+    });
+
+    it("does not offer the finder on another surface", () => {
+        expect(find("code:find").when?.(ctx("files"))).toBe(false);
+    });
+
+    it("keeps bare-letter refresh out of the editor, while find and save survive it", () => {
+        expect(find("code:refresh").when?.({ ...code, editable: true })).toBe(false);
+        expect(find("code:find").when?.({ ...code, editable: true })).toBe(true);
+        expect(find("code:save").when?.({ ...code, editable: true })).toBe(true);
     });
 });

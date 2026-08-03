@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command palette overlay (Ctrl+P). Fuzzy-searches live agents, resumable sessions,
+// Command palette overlay (Ctrl+Shift+P). Fuzzy-searches live agents, resumable sessions,
 // and cockpit commands, and dispatches the selected item's action. Hand-rolled to match
 // the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
 

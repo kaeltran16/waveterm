@@ -67,7 +67,7 @@ export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
                 <div className="mt-[18px] text-[12.5px] text-muted">
                     or press{" "}
                     <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
-                        {formatChordString("Ctrl:p")}
+                        {formatChordString("Ctrl:Shift:p")}
                     </span>{" "}
                     to run a saved command
                 </div>

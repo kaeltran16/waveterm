@@ -19,7 +19,7 @@ export interface FooterHint {
 export const GLOBAL_HINTS: FooterHint[] = [
     { ids: ["go:cockpit"], glyph: "g", label: "go" }, // g-leader nav; drops in the terminal
     { ids: ["surface:back-home"], glyph: "esc", label: "home" }, // deep surfaces only (via its when)
-    { ids: ["palette"], keys: "Ctrl:p", label: "palette" },
+    { ids: ["palette"], keys: "Ctrl:Shift:p", label: "palette" },
     { ids: ["new-agent"], keys: "Ctrl:n", label: "new" },
     { ids: ["help"], glyph: "?", label: "help" }, // Shift+?; drops in the terminal
 ];
