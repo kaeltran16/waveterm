@@ -22,6 +22,7 @@ how to verify. Resolved issues keep only their summary-table row.
 | 6b  | ↳ "Files touched" row-click opens the OS editor instead of the in-app Diff tab                             | UX / consistency                 | S      | ✅ Resolved 2026-08-03                                    |
 | 6c  | ↳ "Verification" detail shows a meaningless first-line (tail-piped output) + command label front-truncated | correctness / evidence integrity | S      | ✅ Resolved 2026-08-03                                    |
 | 7   | Unhandled promise rejection on every Monaco model disposal (`monaco-yaml` schema reset)                    | reliability / noise              | S      | ✅ Resolved 2026-08-03                                    |
+| 8   | Agent-rail "open this file's diff" lands on the first changed file, not the clicked one                     | UX / consistency                 | S      | 🔲 Open 2026-08-03 (code-level; not reproduced live yet)  |
 
 ---
 
@@ -31,8 +32,8 @@ Issues 1–4 were all resolved on 2026-07-20. Their full problem/evidence/fix wr
 the 2026-07-31 docs cleanup — the summary table above records each outcome, and the detail is in git.
 One decision from issue 3 is worth keeping out of the archive; it is restated under "Not in scope".
 
-**Nothing in this file is actionable today.** Issue 6 closed completely on 2026-08-03 (6b + 6c); issue 5
-is blocked on work that does not exist yet; issue 7 was found and fixed the same day. The 6b/6c and 7
+**Issue 8 is the only actionable item.** Issue 6 closed completely on 2026-08-03 (6b + 6c); issue 5 is
+blocked on work that does not exist yet; issue 7 was found and fixed the same day. The 6b/6c and 7
 write-ups are kept for their rationale, not as pending work.
 
 The repo-wide backlog that remains lives elsewhere: **Phase 3 (Contract) of the channel data-model
@@ -201,12 +202,40 @@ returns where an evidence click lands (`surface: "files"`, the run source `{runI
 the file to select or null), unit-tested in `runcompletion.test.ts`. `runcompletionsurface.tsx` gained one
 `openRunDiff(model, run, path?)` helper that requests the selection, sets `filesRunAtom`, then switches
 `surfaceAtom` — and **both** the file rows and the "Open repository diff" button now go through it, so the
-inline atom-setting the button used to do is gone and the two cannot drift apart. Selection is requested
-via a new `requestRunFileSelection(runId, path)` in `filesstore.ts`, the `run:`-scoped sibling of
-`requestAgentFileSelection`; both now build their token from shared `agentToken`/`runToken` helpers so a
-request can't silently name a token no load will match. Artifact chips still call `openPath` (external),
-which is correct for a rendered doc/image. Deleted files now show their deletion diff rather than
-no-opping, because the Diff surface asks git rather than the filesystem.
+inline atom-setting the button used to do is gone and the two cannot drift apart. Artifact chips still
+call `openPath` (external), which is correct for a rendered doc/image. Deleted files now show their
+deletion diff rather than no-opping, because the Diff surface asks git rather than the filesystem.
+
+**The selection mechanism this issue's own text prescribed no longer works — see below.** The advice above
+("add a `run:`-scoped variant of `requestAgentFileSelection`") was written 2026-07-20 and predates the
+Diff surface rewrite (`git-review-surface` 2026-07-31, `git-review-history-reads` 2026-08-03). Since that
+rewrite the surface's visible middle and right panes render whatever the **history pane's** selected row
+is, from `githistorystore.ts` (`selectedCommitAtom` / `selectedFileAtom`), and `filesstore.ts`'s
+`filesSelectedPathAtom` is read by **no component at all**. Following the doc produced a link that
+switched surface and scoped it to the run correctly but silently landed on the run's *first* changed file.
+Caught only by driving the live app over CDP; every unit test passed.
+
+What actually lands the selection:
+
+- `filesstore.ts` holds the pending link in `pendingRunFile`, set by `requestRunFileSelection(runId, path)`
+  and taken by `consumeRunFileSelection(runId, available)`.
+- `loadHistory(cwd, opts, runId)` (`githistorystore.ts`) passes the run id through to `settleSelection`,
+  which claims the link and selects the synthetic top row (`WORKING_TREE`) plus that file. Under run scope
+  that row's file list **is** the run diff, so the pane shows exactly the clicked file's change.
+- `runId` is a third argument rather than part of `LoadHistoryOpts` on purpose: `opts` feeds the load
+  token and is stored for the debounced filter reload to reissue, and a one-shot link must do neither.
+- The link is consumed **only when the scope's change set actually contains the path**. The surface fires
+  one history read per mount against the state captured in that render, which on a remount is still the
+  outgoing scope's — a link eaten by that read never reaches the load that can honour it. This was the
+  live failure: it worked from a cold page and failed on the second navigation.
+- It beats both the default row pick and the *remembered* row. The pane deliberately remembers where you
+  were (`c328ee36`), and a deep link has to outrank that once, then stop — otherwise every later return
+  to the surface would drag you back to the linked file.
+
+Guarded by `githistorystore.test.ts` (new, 7 cases: the deep link wins over a remembered commit row and
+over a remembered working-tree row already showing another file; a deleted path selects the same way; the
+remount-with-no-change-set load does not eat the link; no link leaves the remembered row alone; an absent
+path falls back rather than blanking the pane) plus 5 cases in `filesstore.test.ts` for the one-shot.
 
 **Problem.** Clicking a changed-file row in the sealed Evidence card opens the _current_ file in the OS
 default editor — it shows file **content**, not the **change**, which is the entire point of an
@@ -413,6 +442,44 @@ was about.
   2026-08-03. Every other check in that pass was clean.
 - `frontend/app/view/code/codeviewer.tsx` — the per-file `key` that makes disposal frequent.
 - CLAUDE.md → "Visual verification (dev)" for the CDP attach pattern used to reproduce this.
+
+---
+
+## 8 — Agent-rail "open this file's diff" lands on the first changed file
+
+**Status:** 🔲 Open 2026-08-03 · **Effort:** S · **Kind:** UX / consistency · **Found while fixing 6b.**
+
+**Confidence: code-level only — not reproduced against the running app.** The reasoning below traces the
+call path but no live check was run, because it needs a focused agent with a dirty worktree. Confirm
+before fixing; the fix is small enough that reproducing it first is cheap.
+
+**Problem.** The agent details rail's changed-file rows call `requestAgentFileSelection(agent.id, path)`
+then switch to the Diff surface (`agentdetailsrail.tsx:82-89`, via `diffNavIntent`). That is the same
+shape as the sealed-run link 6b fixed, and it looks like it should land on the clicked file — but the
+agent-scoped request only reaches `filesstore.ts`'s `filesSelectedPathAtom` (read by nothing since the
+Diff surface rewrite) and `filesDiffAtom`. The **visible** selection is `githistorystore.ts`'s
+`selectedFileAtom`, which `settleSelection` → `selectCommit(cwd, WORKING_TREE)` sets to
+`changes.files[0].path` — the scope's first changed file. `selectCommit` also re-issues
+`selectFile(cwd, files[0])`, overwriting the `filesDiffAtom` the request had loaded, so pane 3 should end
+up showing the first file too, not the requested one.
+
+**Evidence.**
+
+- `frontend/app/view/agents/agentdetailsrail.tsx:82-89` — `openDiff(path)`: `requestAgentFileSelection`
+  then `focusIdAtom` + `surfaceAtom`.
+- `frontend/app/view/agents/filesstore.ts` — `requestAgentFileSelection` writes `requestedSelection`,
+  consumed in `loadChangesForCwd` into `filesSelectedPathAtom` (**no reader**) and `selectFile`.
+- `frontend/app/view/agents/githistorystore.ts` — `selectCommit`'s `WORKING_TREE` branch picks
+  `files[0]`; `filessurface.tsx:689,700` pass `selectedFileAtom` to both the file list and the centre pane.
+
+**Fix.** Reuse exactly what 6b now uses, generalized from run id to the scope's load token: hold the
+pending path, pass the scope through `loadHistory` so `settleSelection` can claim it, and consume it only
+when the loaded change set contains it. If that generalization lands, `filesSelectedPathAtom` and the
+`requestedSelection` path in `loadChangesForCwd` become dead and should go with it.
+
+**Verify.** With a focused agent that has uncommitted changes: clicking the third file in its rail opens
+the Diff surface with that file's diff, not the first file's. Returning to the surface afterwards still
+keeps whatever you last selected (the `c328ee36` behavior).
 
 ---
 

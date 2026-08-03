@@ -15,7 +15,15 @@ vi.mock("./agentcwdresolve", () => ({ resolveCwd: (...a: any[]) => resolveCwd(..
 const ensureSessionStart = vi.fn();
 vi.mock("./agentsessionstore", () => ({ ensureSessionStart: (...a: any[]) => ensureSessionStart(...a) }));
 
-import { filesDiffAtom, filesSelectedPathAtom, filesStateAtom, loadFilesForAgent, loadFilesForRun } from "./filesstore";
+import {
+    consumeRunFileSelection,
+    filesDiffAtom,
+    filesSelectedPathAtom,
+    filesStateAtom,
+    loadFilesForAgent,
+    loadFilesForRun,
+    requestRunFileSelection,
+} from "./filesstore";
 
 afterEach(() => {
     gitChanges.mockReset();
@@ -70,5 +78,40 @@ describe("loadFilesForAgent", () => {
 
         expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
         expect(globalStore.get(filesStateAtom)?.ref).toBe("");
+    });
+});
+
+describe("run-scoped file deep link", () => {
+    const AVAILABLE = ["docs/open-issues.md", "pkg/jarvis/evidence.go"];
+
+    it("hands the requested path to the run that asked for it", () => {
+        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
+        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    it("is one-shot, so returning to the Diff surface keeps the user's later selection", () => {
+        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
+        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+        expect(consumeRunFileSelection("r1", AVAILABLE)).toBeUndefined();
+    });
+
+    it("does not leak one run's request into another run's load", () => {
+        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
+        expect(consumeRunFileSelection("r2", AVAILABLE)).toBeUndefined();
+        // still pending for the run that asked
+        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    it("survives a load whose change set is not in yet, so the next load can honour it", () => {
+        // the Diff surface fires one history read per mount against the state captured in that render,
+        // which on a remount is still the outgoing scope's — an empty/foreign set must not eat the link
+        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
+        expect(consumeRunFileSelection("r1", [])).toBeUndefined();
+        expect(consumeRunFileSelection("r1", ["some/other/file.ts"])).toBeUndefined();
+        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    it("has nothing pending when no link was followed", () => {
+        expect(consumeRunFileSelection("r-none", AVAILABLE)).toBeUndefined();
     });
 });

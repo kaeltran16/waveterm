@@ -424,11 +424,16 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         }
         const anchor = runSource ? runSource.baseCommit : state.ref;
         fireAndForget(() =>
-            loadHistory(state.cwd, {
-                anchor: anchor || undefined,
-                anchorLabel: runSource ? "run base" : anchor ? "session start" : undefined,
-                rowLabel: runSource ? "Run changes" : anchor ? "Since session start" : undefined,
-            })
+            loadHistory(
+                state.cwd,
+                {
+                    anchor: anchor || undefined,
+                    anchorLabel: runSource ? "run base" : anchor ? "session start" : undefined,
+                    rowLabel: runSource ? "Run changes" : anchor ? "Since session start" : undefined,
+                },
+                // lets the load claim a file the evidence card asked for, once its change set is in
+                runSource?.runId
+            )
         );
     }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId, loadError]);
 

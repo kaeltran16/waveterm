@@ -44,7 +44,8 @@ export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 const current = { token: "" };
 const requestedSelection = { token: "", path: "" };
 
-// token builders: a selection request has to name the exact token its load will run under, since
+// Token builders, so the format lives in one place. It matters for `agent:` in particular:
+// requestAgentFileSelection has to name the exact token its load will run under, because
 // loadChangesForCwd only honours requestedSelection when the two match.
 const agentToken = (id: string) => `agent:${id}`;
 const runToken = (runId: string) => `run:${runId}`;
@@ -164,11 +165,36 @@ export function requestAgentFileSelection(id: string, path: string): void {
     requestedSelection.path = path;
 }
 
-// Same deal for a sealed run's evidence card: request the file, then point the surface at the run so the
-// load that follows selects it instead of defaulting to the first changed file.
+// A sealed run's evidence card names the file it wants before the Diff surface has mounted. Held here
+// rather than in an atom, and read by the history store, which owns the *visible* selection: writing
+// filesSelectedPathAtom would not move the pane, because since the git-review rewrite panes 2 and 3
+// render whatever the history pane's selected row is.
+//
+// One-shot on purpose. The history pane deliberately remembers where you were so a nav switch does not
+// throw you back to row zero; a deep link has to beat that once, then stop, or every return to the
+// surface would drag you back to the linked file.
+const pendingRunFile = { runId: "", path: "" };
+
 export function requestRunFileSelection(runId: string, path: string): void {
-    requestedSelection.token = runToken(runId);
-    requestedSelection.path = path;
+    pendingRunFile.runId = runId;
+    pendingRunFile.path = path;
+}
+
+// Consumed only when `available` (the scope's loaded change set) actually holds the path. The Diff
+// surface fires one history read per mount against the state captured in that render, which on a
+// remount is still the outgoing scope's — a request eaten by that read would never reach the load that
+// can honour it, and selecting a file the pane does not list would leave it blank.
+export function consumeRunFileSelection(runId: string, available: string[]): string | undefined {
+    if (pendingRunFile.runId !== runId || !pendingRunFile.path) {
+        return undefined;
+    }
+    if (!available.includes(pendingRunFile.path)) {
+        return undefined;
+    }
+    const path = pendingRunFile.path;
+    pendingRunFile.runId = "";
+    pendingRunFile.path = "";
+    return path;
 }
 
 export async function selectFile(cwd: string, path: string): Promise<void> {
