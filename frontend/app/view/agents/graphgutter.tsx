@@ -29,6 +29,7 @@ export function GraphGutter({ geom }: { geom: GraphGeometry }) {
     }
     return (
         <svg
+            data-graph-gutter
             width={geom.width}
             height={geom.height}
             className="pointer-events-none absolute left-0 top-0"

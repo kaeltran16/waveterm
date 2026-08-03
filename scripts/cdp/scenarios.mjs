@@ -2,7 +2,8 @@
 // teardown(h,ctx) }. arrange/assert/teardown run in Node and drive the browser via h (see attach.mjs).
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
@@ -2407,8 +2408,176 @@ const attentionCrossChannel = {
     },
 };
 
+// --- git history: filters, paging, the two repository-failure panels, persistence ----------------
+// Every state is arranged for real — globalStore is not on window, so nothing can be injected. The
+// broken repo is a genuine failure: its ref file resolves but the object it names is gone, so
+// `git log` fails while the directory is still a work tree.
+const git = (dir, ...args) =>
+    execFileSync("git", ["-C", dir, ...args], {
+        stdio: "pipe",
+        env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "dana k",
+            GIT_AUTHOR_EMAIL: "dana@example.com",
+            GIT_COMMITTER_NAME: "dana k",
+            GIT_COMMITTER_EMAIL: "dana@example.com",
+        },
+    });
+
+const gitHistory = {
+    name: "git-history",
+    surface: "files",
+    async arrange(h) {
+        const good = mkdtempSync(join(tmpdir(), "verify-git-good-"));
+        git(good, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(good, "refunds.txt"), "refunds\n");
+        git(good, "add", ".");
+        git(good, "commit", "-q", "-m", "split refund path from capture path");
+        // 60 empty commits so the second page has something in it (page size is 50)
+        for (let i = 0; i < 60; i++) {
+            git(good, "commit", "-q", "--allow-empty", "-m", `filler commit ${i}`);
+        }
+
+        const broken = mkdtempSync(join(tmpdir(), "verify-git-broken-"));
+        git(broken, "init", "-q", "--initial-branch=main");
+        git(broken, "commit", "-q", "--allow-empty", "-m", "only commit");
+        rmSync(join(broken, ".git", "objects"), { recursive: true, force: true });
+
+        const notRepo = mkdtempSync(join(tmpdir(), "verify-git-plain-"));
+
+        const names = { good: "verify-git-good", broken: "verify-git-broken", notRepo: "verify-git-plain" };
+        await h.rpc("createproject", { name: names.good, path: good });
+        await h.rpc("createproject", { name: names.broken, path: broken });
+        await h.rpc("createproject", { name: names.notRepo, path: notRepo });
+        return { dirs: [good, broken, notRepo], names };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const pick = async (name) => {
+            await h.ev(`document.querySelector('[data-files-source-picker]').click()`);
+            await sleep(150);
+            const ok = await h.ev(
+                `(() => { const b = document.querySelector('[data-files-source-option=${JSON.stringify(name)}]');
+                  if (!b) return false; b.click(); return true; })()`
+            );
+            if (!ok) throw new Error(`source option "${name}" not in the picker`);
+            await sleep(1200); // change list + history page
+        };
+        const rowCount = () => h.ev(`document.querySelectorAll('[data-history-row]').length`);
+        const text = (sel) => h.ev(`(document.querySelector(${JSON.stringify(sel)})?.textContent || '').trim()`);
+        const present = (sel) => h.ev(`!!document.querySelector(${JSON.stringify(sel)})`);
+
+        await pick(ctx.names.good);
+        const first = await rowCount();
+        const gutter = await present("[data-graph-gutter]");
+        rec(
+            "1. history populated: a full page of rows, graph gutter drawn",
+            first === 50 && gutter,
+            `rows=${first} gutter=${gutter}`
+        );
+        await h.shot("cdp-shots/git-history-populated.png");
+
+        // paging: scrolling to the bottom appends the next page
+        await h.ev(
+            `(() => { const el = document.querySelector('[data-history-scroll]'); el.scrollTop = el.scrollHeight; })()`
+        );
+        await sleep(1500);
+        const paged = await rowCount();
+        rec("2. scrolling to the bottom appends a second page", paged > first, `rows=${first} -> ${paged}`);
+
+        // filtering: real text into the real field, via a real input event
+        await h.ev(`document.querySelector('[data-history-filter]').focus()`);
+        await h.cdp("Input.insertText", { text: "refund" });
+        await sleep(1200);
+        const filtered = await rowCount();
+        const countChip = await text("[data-filter-count]");
+        const gutterStillThere = await present("[data-graph-gutter]");
+        rec(
+            "3. filter narrows the list, states the count, and hides the graph",
+            filtered > 0 && filtered < first && countChip.includes("1 filter") && !gutterStillThere,
+            `rows=${filtered} chip="${countChip}" gutterStillThere=${gutterStillThere}`
+        );
+        await h.shot("cdp-shots/git-history-filtered.png");
+
+        // Escape clears the filters (the row says "Clear all · esc"), not navigate home
+        await h.ev(`document.querySelector('[data-history-filter]').blur()`);
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            key: "Escape",
+            code: "Escape",
+            windowsVirtualKeyCode: 27,
+        });
+        await h.cdp("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: "Escape",
+            code: "Escape",
+            windowsVirtualKeyCode: 27,
+        });
+        await sleep(1200);
+        const cleared = await rowCount();
+        const stillHere = (await h.activeSurfaceLabel()) === SURFACE_LABEL.files;
+        rec(
+            "4. Escape clears the filters and stays on the surface",
+            cleared === 50 && stillHere,
+            `rows=${cleared} onSurface=${stillHere}`
+        );
+
+        // persistence: leave the surface and come back
+        await h.ev(`(() => { const el = document.querySelector('[data-history-scroll]'); el.scrollTop = 300; })()`);
+        await sleep(400);
+        const before = await text("[data-history-scroll] [data-history-row]:nth-child(1)");
+        await h.goto("cockpit");
+        await h.goto("files");
+        await sleep(1200);
+        const scrollBack = await h.ev(`document.querySelector('[data-history-scroll]').scrollTop`);
+        const after = await text("[data-history-scroll] [data-history-row]:nth-child(1)");
+        rec(
+            "5. returning restores the scroll offset and the same top row",
+            scrollBack > 0 && after === before,
+            `scrollTop=${scrollBack}`
+        );
+
+        await pick(ctx.names.notRepo);
+        const calm = await present("[data-not-a-repo]");
+        const noFailure = await present("[data-git-failure]");
+        rec(
+            "6. a plain directory reads as not-a-repository, not a failure",
+            calm && !noFailure,
+            `notRepo=${calm} failure=${noFailure}`
+        );
+        await h.shot("cdp-shots/git-history-notrepo.png");
+
+        await pick(ctx.names.broken);
+        const failed = await present("[data-git-failure]");
+        const evidence = await text("[data-git-failure]");
+        rec(
+            "7. an unreadable repository reads as a failure, with git's own message",
+            failed && evidence.includes("git log") && evidence.length > 40,
+            `failure=${failed} evidence="${evidence.slice(0, 120)}"`
+        );
+        await h.shot("cdp-shots/git-history-failed.png");
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        for (const name of Object.values(ctx.names)) {
+            try {
+                await h.rpc("deleteproject", { name });
+            } catch {
+                /* leave a stale registry entry rather than failing teardown */
+            }
+        }
+        for (const dir of ctx.dirs) {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
+    gitHistory,
     surfaceSmoke,
     jarvisStates,
     jarvisFleet,

@@ -36,6 +36,9 @@ type CommandGitHistoryRtnData struct {
 	Commits []gitinfo.HistoryCommit `json:"commits"`
 	Head    string                  `json:"head"`
 	IsRepo  bool                    `json:"isrepo"`
+	// Set when the directory is a work tree but the log read failed. IsRepo:false and a populated
+	// Failure are different states and the surface draws a different panel for each.
+	Failure *gitinfo.GitFailure `json:"failure,omitempty"`
 }
 
 type CommandGitDivergenceData struct {

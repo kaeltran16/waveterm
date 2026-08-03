@@ -14,6 +14,8 @@ import {
 } from "./bindings";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { compareOnAtom } from "@/app/view/agents/comparestore";
+import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
+import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
@@ -112,6 +114,15 @@ describe("keybinding conflict invariant", () => {
         expect(() =>
             assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildAgentBindings(model)])
         ).not.toThrow();
+    });
+
+    it("Escape stays unambiguous on the Diff surface with filters active", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, null);
+        globalStore.set(compareOnAtom, false);
+        globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+        expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildFilesBindings()])).not.toThrow();
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
     });
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {

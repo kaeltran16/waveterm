@@ -23,7 +23,7 @@ func (ws *WshServer) GitHistoryCommand(ctx context.Context, data wshrpc.CommandG
 	if err != nil {
 		return nil, err
 	}
-	return &wshrpc.CommandGitHistoryRtnData{Commits: h.Commits, Head: h.Head, IsRepo: h.IsRepo}, nil
+	return &wshrpc.CommandGitHistoryRtnData{Commits: h.Commits, Head: h.Head, IsRepo: h.IsRepo, Failure: h.Failure}, nil
 }
 
 func (ws *WshServer) GitDivergenceCommand(ctx context.Context, data wshrpc.CommandGitDivergenceData) (*wshrpc.CommandGitDivergenceRtnData, error) {

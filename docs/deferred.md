@@ -786,3 +786,7 @@ Deferred out of the S3 first cycle:
 - An "Ask Jarvis about this" card action.
 - Model tiering (interim capable model, shared deferred lever).
 - Auto-promotion of a surfaced insight into `memory/**` (v3; stays human-gated).
+
+## Diff surface — narrow-window folding and row density (2026-08-03)
+
+- **Diff surface narrow-window folding and row density declined** (2026-08-03). The Git-review mockup folds the commit pane to a chip below ~1100px, drops the author column, folds the graph to three lanes and turns history into a drawer below 900px, and exposes comfortable 34px / compact 28px rows. Both declined in `docs/superpowers/specs/2026-08-03-git-review-history-reads-design.md` decision 2: the cockpit runs at roughly 1600×950, so every breakpoint would be an untested path, and `historypane.tsx` keeps its single `ROW_H = 34`. Revive only on evidence of a narrow-window user.

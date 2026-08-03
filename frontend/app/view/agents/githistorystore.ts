@@ -5,7 +5,9 @@
 // Commit-history state for the Diff surface. Mirrors filesstore.ts: module-level atoms written by
 // async loaders via globalStore, with a guard token so a stale load cannot clobber a newer one.
 // Module scope is deliberate — the surface unmounts on nav switch, so anything held in component
-// state would be lost; the selected commit and open file survive here.
+// state would be lost; the selected commit, the open file, the filters and the scroll offset all
+// survive here. Derivation is pure and lives elsewhere: rows in historyrows.ts, the query and its
+// labels in historyquery.ts.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -14,11 +16,30 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
 import { parseUnifiedDiff, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
-import { WORKING_TREE, buildRows, defaultSelection, type HistoryRow } from "./historyrows";
+import {
+    FILTER_DEBOUNCE_MS,
+    HISTORY_PAGE_SIZE,
+    NO_FILTERS,
+    anyFilterActive,
+    hasMorePages,
+    restoreNotice,
+    toHistoryQuery,
+    type HistoryFilters,
+} from "./historyquery";
+import { WORKING_TREE, buildRows, keepSelection, type HistoryRow } from "./historyrows";
 
-export const historyRowsAtom = atom<HistoryRow[] | null>(null) as PrimitiveAtom<HistoryRow[] | null>;
-// true = the history read failed, which is deliberately distinct from "this is not a repository"
-export const historyErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// Raw commits, accumulated across loaded pages. null = nothing read yet (the pane shows a skeleton).
+export const historyCommitsAtom = atom<HistoryCommit[] | null>(null) as PrimitiveAtom<HistoryCommit[] | null>;
+export const historyHeadAtom = atom<string>("") as PrimitiveAtom<string>;
+// A described git failure, deliberately distinct from "this is not a repository" (isrepo:false).
+export const historyFailureAtom = atom<GitFailure | null>(null) as PrimitiveAtom<GitFailure | null>;
+export const historyFiltersAtom = atom<HistoryFilters>(NO_FILTERS) as PrimitiveAtom<HistoryFilters>;
+export const historyHasMoreAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+export const historyAppendAtom = atom<"idle" | "loading" | "failed">("idle") as PrimitiveAtom<
+    "idle" | "loading" | "failed"
+>;
+export const historyScrollAtom = atom<number>(0) as PrimitiveAtom<number>;
+export const restoreNoticeAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 // null = nothing selected yet; WORKING_TREE ("") = the uncommitted row; otherwise a commit hash
 export const selectedCommitAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const selectedFileAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
@@ -26,6 +47,37 @@ export const graphOnAtom = atom<boolean>(true) as PrimitiveAtom<boolean>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
 const commitDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
+// The scope's anchor/labels, held so the debounced filter reload can reissue the same scoped read.
+const historyOptsAtom = atom<LoadHistoryOpts>({}) as PrimitiveAtom<LoadHistoryOpts>;
+// When the current page was read. Relative ages are computed against this rather than a live clock,
+// so the derived rows below are stable between reads instead of changing on every unrelated render.
+const historyNowAtom = atom<number>(0) as PrimitiveAtom<number>;
+// Stamped when the surface unmounts; read once by the next load to decide whether to announce a
+// restore. null = we are not returning from anywhere.
+const historyLeftAtAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+
+export const historyFilteredAtom = atom((get) => anyFilterActive(get(historyFiltersAtom)));
+
+// Derived, not stored: appending a page must not duplicate the divider / uncommitted-row logic that
+// buildRows already owns, so every page lands in historyCommitsAtom and the rows fall out of it.
+export const historyRowsAtom = atom<HistoryRow[] | null>((get) => {
+    const commits = get(historyCommitsAtom);
+    if (commits == null) {
+        return null;
+    }
+    const opts = get(historyOptsAtom);
+    return buildRows(commits, {
+        head: get(historyHeadAtom),
+        // A filter suppresses the synthetic uncommitted row: it is not a commit, so it cannot satisfy
+        // an author, path or text filter, and pinning it atop a filtered list would misreport the
+        // result. buildRows already omits the row when the count is 0, so nothing else changes.
+        dirtyFileCount: get(historyFilteredAtom) ? 0 : (get(filesStateAtom)?.changes?.files.length ?? 0),
+        rowLabel: opts.rowLabel,
+        anchor: opts.anchor,
+        anchorLabel: opts.anchorLabel,
+        now: get(historyNowAtom),
+    });
+});
 
 // Panes 2 and 3 read one source regardless of what is selected: the working-tree row reuses the
 // scope's already-loaded change set from filesstore, a commit uses its own.
@@ -37,6 +89,7 @@ export const activeDiffAtom = atom<FileView | null>((get) =>
 );
 
 const current = { token: "" };
+let filterTimer: ReturnType<typeof setTimeout> | null = null;
 
 export interface LoadHistoryOpts {
     // scope anchor: an agent's session-start commit or a run's base commit
@@ -47,53 +100,208 @@ export interface LoadHistoryOpts {
     rowLabel?: string;
 }
 
+// A different repository (or run) is a different subject: filters and scroll offset from the old one
+// are meaningless here and a stale path filter would silently produce an empty history that looks
+// broken. Surviving a *nav switch* is a different thing, and that still works — nothing calls this
+// on remount.
 export function resetHistory(): void {
     current.token = "";
-    globalStore.set(historyRowsAtom, null);
-    globalStore.set(historyErrorAtom, false);
+    if (filterTimer != null) {
+        clearTimeout(filterTimer);
+        filterTimer = null;
+    }
+    globalStore.set(historyCommitsAtom, null);
+    globalStore.set(historyHeadAtom, "");
+    globalStore.set(historyFailureAtom, null);
+    globalStore.set(historyFiltersAtom, NO_FILTERS);
+    globalStore.set(historyHasMoreAtom, false);
+    globalStore.set(historyAppendAtom, "idle");
+    globalStore.set(historyScrollAtom, 0);
+    globalStore.set(restoreNoticeAtom, null);
     globalStore.set(selectedCommitAtom, null);
     globalStore.set(selectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
     globalStore.set(commitDiffAtom, null);
 }
 
+// The guard token covers scope AND filters: a page that arrives after either changed is stale and
+// must be dropped rather than merged into a list it does not belong to.
+function loadToken(cwd: string, opts: LoadHistoryOpts, filters: HistoryFilters): string {
+    return `${cwd}|${opts.anchor ?? ""}|${filters.author}|${filters.path}|${filters.text}`;
+}
+
+function synthFailure(command: string, e: unknown): GitFailure {
+    // Not an exit status at all (websocket down, timeout, handler panic). -1 renders as "no exit
+    // code" rather than a fabricated number the panel would then display as fact.
+    return { command, exitcode: -1, stderr: String((e as Error)?.message ?? e) };
+}
+
 export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}): Promise<void> {
-    const token = `${cwd ?? ""}|${opts.anchor ?? ""}`;
     if (!cwd) {
         resetHistory();
         return;
     }
+    const filters = globalStore.get(historyFiltersAtom);
+    const token = loadToken(cwd, opts, filters);
     current.token = token;
-    globalStore.set(historyRowsAtom, null);
-    globalStore.set(historyErrorAtom, false);
+    globalStore.set(historyOptsAtom, opts);
+    globalStore.set(historyCommitsAtom, null);
+    globalStore.set(historyFailureAtom, null);
+    globalStore.set(historyAppendAtom, "idle");
     try {
-        const h = await RpcApi.GitHistoryCommand(TabRpcClient, { cwd });
+        const h = await RpcApi.GitHistoryCommand(TabRpcClient, {
+            cwd,
+            limit: HISTORY_PAGE_SIZE,
+            ...toHistoryQuery(filters),
+        });
         if (current.token !== token) {
             return;
         }
         if (!h.isrepo) {
-            globalStore.set(historyRowsAtom, []);
+            globalStore.set(historyCommitsAtom, []);
+            globalStore.set(historyHasMoreAtom, false);
             return;
         }
-        const rows = buildRows(h.commits ?? [], {
-            head: h.head,
-            dirtyFileCount: globalStore.get(filesStateAtom)?.changes?.files.length ?? 0,
-            rowLabel: opts.rowLabel,
-            anchor: opts.anchor,
-            anchorLabel: opts.anchorLabel,
-            now: Date.now(),
-        });
-        globalStore.set(historyRowsAtom, rows);
-        const pick = defaultSelection(rows);
-        if (pick != null) {
-            void selectCommit(cwd, pick);
+        if (h.failure) {
+            globalStore.set(historyFailureAtom, h.failure);
+            globalStore.set(historyCommitsAtom, []);
+            globalStore.set(historyHasMoreAtom, false);
+            return;
         }
-    } catch {
+        const page = h.commits ?? [];
+        globalStore.set(historyNowAtom, Date.now());
+        globalStore.set(historyHeadAtom, h.head);
+        globalStore.set(historyCommitsAtom, page);
+        globalStore.set(historyHasMoreAtom, hasMorePages(page.length));
+        settleSelection(cwd);
+        announceRestore();
+    } catch (e) {
         if (current.token === token) {
-            globalStore.set(historyErrorAtom, true);
-            globalStore.set(historyRowsAtom, []);
+            globalStore.set(historyFailureAtom, synthFailure("githistory", e));
+            globalStore.set(historyCommitsAtom, []);
+            globalStore.set(historyHasMoreAtom, false);
         }
     }
+}
+
+// Keep the user's place. The surface's load effect re-runs on every mount, so the unconditional
+// re-select this replaced is what threw the selection back to row zero (and reopened its first file)
+// every time you came back to the Diff surface.
+function settleSelection(cwd: string): void {
+    const rows = globalStore.get(historyRowsAtom) ?? [];
+    const prev = globalStore.get(selectedCommitAtom);
+    const pick = keepSelection(rows, prev);
+    if (pick == null) {
+        return;
+    }
+    // Re-read only when the selection actually moved, or when there is nothing loaded to show for it
+    // (first load, or a scope whose panes were cleared).
+    if (pick !== prev || globalStore.get(selectedFileAtom) == null) {
+        void selectCommit(cwd, pick);
+    }
+}
+
+function announceRestore(): void {
+    const leftAt = globalStore.get(historyLeftAtAtom);
+    globalStore.set(historyLeftAtAtom, null);
+    if (leftAt == null) {
+        return;
+    }
+    const rows = globalStore.get(historyRowsAtom) ?? [];
+    globalStore.set(
+        restoreNoticeAtom,
+        restoreNotice({
+            awayMs: Date.now() - leftAt,
+            commit: globalStore.get(selectedCommitAtom),
+            scroll: globalStore.get(historyScrollAtom),
+            filters: globalStore.get(historyFiltersAtom),
+            topRowHash: rows[0]?.hash ?? null,
+        })
+    );
+}
+
+// Called from the surface's unmount cleanup. Stamping the time is all the surface has to do; the
+// next load decides whether anything is worth announcing.
+export function noteSurfaceLeft(): void {
+    globalStore.set(historyLeftAtAtom, Date.now());
+}
+
+export function dismissRestoreNotice(): void {
+    globalStore.set(restoreNoticeAtom, null);
+}
+
+// Appends the next page. Reads cwd from the store rather than taking it as an argument, so the pane
+// can call it from a scroll handler without threading scope through the component tree.
+export async function loadMoreHistory(): Promise<void> {
+    const cwd = globalStore.get(filesStateAtom)?.cwd;
+    const commits = globalStore.get(historyCommitsAtom);
+    if (
+        !cwd ||
+        commits == null ||
+        !globalStore.get(historyHasMoreAtom) ||
+        globalStore.get(historyAppendAtom) === "loading"
+    ) {
+        return;
+    }
+    const token = current.token;
+    globalStore.set(historyAppendAtom, "loading");
+    try {
+        const h = await RpcApi.GitHistoryCommand(TabRpcClient, {
+            cwd,
+            limit: HISTORY_PAGE_SIZE,
+            skip: commits.length,
+            ...toHistoryQuery(globalStore.get(historyFiltersAtom)),
+        });
+        if (current.token !== token) {
+            return; // scope or filters moved on: this page belongs to a list that no longer exists
+        }
+        if (h.failure) {
+            globalStore.set(historyAppendAtom, "failed");
+            return;
+        }
+        const page = h.commits ?? [];
+        // A failed append must never destroy the page being read, which is why this is the one
+        // failure that does not take over the surface — it only marks the footer.
+        globalStore.set(historyCommitsAtom, [...commits, ...page]);
+        globalStore.set(historyHasMoreAtom, hasMorePages(page.length));
+        globalStore.set(historyAppendAtom, "idle");
+    } catch {
+        if (current.token === token) {
+            globalStore.set(historyAppendAtom, "failed");
+        }
+    }
+}
+
+function reloadFirstPage(): void {
+    const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+    globalStore.set(historyScrollAtom, 0);
+    void loadHistory(cwd, globalStore.get(historyOptsAtom));
+}
+
+// Debounced: one git invocation per settled keystroke, not per keystroke.
+export function setHistoryFilter(patch: Partial<HistoryFilters>): void {
+    globalStore.set(historyFiltersAtom, { ...globalStore.get(historyFiltersAtom), ...patch });
+    if (filterTimer != null) {
+        clearTimeout(filterTimer);
+    }
+    filterTimer = setTimeout(() => {
+        filterTimer = null;
+        reloadFirstPage();
+    }, FILTER_DEBOUNCE_MS);
+}
+
+export function clearHistoryFilters(): void {
+    if (filterTimer != null) {
+        clearTimeout(filterTimer);
+        filterTimer = null;
+    }
+    globalStore.set(historyFiltersAtom, NO_FILTERS);
+    reloadFirstPage(); // immediate: clearing is a decision, not typing
+}
+
+export function retryHistory(): void {
+    globalStore.set(historyFailureAtom, null); // show the skeleton, not stale evidence, while retrying
+    reloadFirstPage();
 }
 
 export async function selectCommit(cwd: string, hash: string): Promise<void> {

@@ -859,6 +859,7 @@ declare global {
         commits: HistoryCommit[];
         head: string;
         isrepo: boolean;
+        failure?: GitFailure;
     };
 
     // wshrpc.CommandGitRevertData
@@ -1739,6 +1740,13 @@ declare global {
         configerrors: ConfigError[];
         version: string;
         buildtime: string;
+    };
+
+    // gitinfo.GitFailure
+    type GitFailure = {
+        command: string;
+        exitcode: number;
+        stderr: string;
     };
 
     // wshrpc.GraphLink

@@ -155,3 +155,15 @@ export function defaultSelection(rows: HistoryRow[]): string | null {
     }
     return rows[0].workingTree ? WORKING_TREE : rows[0].hash;
 }
+
+// Selection across a reload: keep where the user was if that row is still present, else fall back to
+// the default. Used both when a filter narrows the list and on the reload that runs when the surface
+// remounts — an unconditional default there is what used to throw you back to row zero on every
+// return to the surface. `selected` may legitimately be "" (the uncommitted row), so the guard is an
+// explicit null check, never a truthiness test.
+export function keepSelection(rows: HistoryRow[], selected: string | null): string | null {
+    if (selected != null && rows.some((r) => r.hash === selected)) {
+        return selected;
+    }
+    return defaultSelection(rows);
+}

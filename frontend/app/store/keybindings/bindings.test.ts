@@ -4,14 +4,18 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { atom } from "jotai";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { compareOnAtom } from "@/app/view/agents/comparestore";
+import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
+import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import {
     buildAgentBindings,
+    buildFilesBindings,
     buildGlobalBindings,
     buildJarvisBindings,
     buildListNavBindings,
@@ -282,5 +286,56 @@ describe("subagent vs agent Escape", () => {
         // now that no subagent is focused, Escape falls to agent-back
         expect(sub.when!(agentCtx)).toBe(false);
         expect(back.when!(agentCtx)).toBe(true);
+    });
+});
+
+describe("diff-surface history bindings", () => {
+    const ctx = { surface: "files", editable: false, modalOpen: false } as KeyContext;
+    const find = (id: string) => buildFilesBindings().find((b) => b.id === id)!;
+
+    beforeEach(() => {
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
+        globalStore.set(compareOnAtom, false);
+        globalStore.set(graphOnAtom, true);
+    });
+
+    it("toggles the graph on Shift+g — bare 'g' is the leader key", () => {
+        const b = find("files:toggle-graph");
+        expect(b.keys).toBe("Shift:g");
+        expect(b.when?.(ctx)).toBe(true);
+        b.run(ctx);
+        expect(globalStore.get(graphOnAtom)).toBe(false);
+    });
+
+    it("does not claim the graph or filter keys while compare is on", () => {
+        globalStore.set(compareOnAtom, true);
+        expect(find("files:toggle-graph").when?.(ctx)).toBe(false);
+        expect(find("files:filter").when?.(ctx)).toBe(false);
+    });
+
+    it("offers clear-filters only when a filter is actually active", () => {
+        expect(find("files:clear-filters").when?.(ctx)).toBe(false);
+        globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+        expect(find("files:clear-filters").when?.(ctx)).toBe(true);
+    });
+
+    // These two bindings reach for a real element. The suite runs in node with no DOM, so `document`
+    // is stubbed per case rather than switching the whole file to jsdom for two lookups.
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("passes the filter key through when the field is not on screen", () => {
+        vi.stubGlobal("document", { querySelector: () => null });
+        expect(find("files:filter").run(ctx)).toBe(false);
+    });
+
+    it("scrolls history to the top on the g g chord", () => {
+        const container = { scrollTop: 800 };
+        vi.stubGlobal("document", { querySelector: () => container });
+        globalStore.set(historyScrollAtom, 800);
+        const b = find("files:top");
+        expect(b.keys).toBe("g g");
+        b.run(ctx);
+        expect(globalStore.get(historyScrollAtom)).toBe(0);
+        expect(container.scrollTop).toBe(0);
     });
 });

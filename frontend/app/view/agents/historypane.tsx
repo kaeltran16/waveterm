@@ -8,9 +8,11 @@
 
 import { SkeletonLine } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
+import { useEffect, useRef } from "react";
 import { assignLanes, laneCount } from "./gitgraph";
 import { graphGeometry } from "./gitgraphgeom";
 import { GraphGutter } from "./graphgutter";
+import { HISTORY_PAGE_SIZE, NEAR_BOTTOM_PX, SCROLL_THROTTLE_MS } from "./historyquery";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
 
 const ROW_H = 34;
@@ -128,18 +130,64 @@ export function HistoryPane({
     selected,
     graphOn,
     loading,
+    countLabel,
+    filtered,
+    initialScroll,
+    hasMore,
+    appendState,
     onSelect,
+    onScroll,
+    onLoadMore,
 }: {
     rows: HistoryRow[];
     selected: string | null;
     graphOn: boolean;
     loading: boolean;
+    countLabel: string;
+    // only for the empty state's wording — the graph is suppressed by the surface passing graphOn=false
+    filtered: boolean;
+    initialScroll: number;
+    hasMore: boolean;
+    appendState: "idle" | "loading" | "failed";
     onSelect: (hash: string) => void;
+    onScroll: (top: number) => void;
+    onLoadMore: () => void;
 }) {
     const laned = assignLanes(rows);
     const lanes = Math.min(Math.max(laneCount(laned), 1), MAX_LANES);
     const geom = graphGeometry(laned, { rowH: ROW_H, maxLanes: lanes });
     const indent = graphOn ? geom.gutter : NO_GRAPH_PAD;
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const restored = useRef(false);
+    const lastWrite = useRef(0);
+
+    // Restore once, on the first render that actually has rows to scroll through — setting scrollTop
+    // before then would be clamped to 0 by a zero-height container. The surface unmounts on every nav
+    // switch, so this runs on every return.
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (el == null || restored.current || rows.length === 0) {
+            return;
+        }
+        restored.current = true;
+        el.scrollTop = initialScroll;
+    }, [rows.length, initialScroll]);
+
+    const handleScroll = () => {
+        const el = scrollRef.current;
+        if (el == null) {
+            return;
+        }
+        // Throttled: this fires per frame while scrolling and every write re-renders the surface.
+        const now = Date.now();
+        if (now - lastWrite.current >= SCROLL_THROTTLE_MS) {
+            lastWrite.current = now;
+            onScroll(el.scrollTop);
+        }
+        if (hasMore && appendState !== "loading" && el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX) {
+            onLoadMore();
+        }
+    };
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -151,20 +199,25 @@ export function HistoryPane({
                     </span>
                 ) : null}
                 <div className="flex-1" />
-                <span className="font-mono text-[10px] text-ink-faint">
-                    {loading ? "" : `${rows.length} commit${rows.length === 1 ? "" : "s"}`}
-                </span>
+                <span className="font-mono text-[10px] text-ink-faint">{countLabel}</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pb-[24px]">
+            <div
+                ref={scrollRef}
+                onScroll={handleScroll}
+                data-history-scroll
+                className="min-h-0 flex-1 overflow-y-auto pb-[24px]"
+            >
                 {loading ? (
                     <HistorySkeleton />
                 ) : rows.length === 0 ? (
-                    <div className="px-[14px] py-[6px] text-[12px] text-ink-mid">No commits</div>
+                    <div className="px-[14px] py-[6px] text-[12px] text-ink-mid">
+                        {filtered ? "No commits match these filters" : "No commits"}
+                    </div>
                 ) : (
                     <div className="relative">
                         {graphOn ? <GraphGutter geom={geom} /> : null}
                         {laned.map((row) => (
-                            <div key={row.hash || "__wt__"}>
+                            <div key={row.hash || "__wt__"} data-history-row>
                                 <Row
                                     row={row}
                                     laneIndent={indent}
@@ -174,6 +227,18 @@ export function HistoryPane({
                                 {row.divider ? <Divider label={row.divider} /> : null}
                             </div>
                         ))}
+                        {appendState === "failed" ? (
+                            <button
+                                onClick={onLoadMore}
+                                className="flex h-[34px] w-full items-center gap-[8px] px-[14px] text-left text-[12px] text-error hover:text-foreground"
+                            >
+                                Couldn’t load more commits — retry
+                            </button>
+                        ) : appendState === "loading" ? (
+                            <div className="flex h-[34px] items-center px-[14px] font-mono text-[11px] text-ink-faint">
+                                {`loading commits ${rows.length + 1}–${rows.length + HISTORY_PAGE_SIZE}…`}
+                            </div>
+                        ) : null}
                     </div>
                 )}
             </div>

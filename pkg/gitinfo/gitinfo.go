@@ -10,6 +10,7 @@ package gitinfo
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -504,11 +505,13 @@ type HistoryOpts struct {
 }
 
 // History is a page of commits plus the current HEAD, which the surface needs to anchor a synthetic
-// working-tree row to the commit it sits on top of.
+// working-tree row to the commit it sits on top of. Failure is set when the directory is a work tree
+// but the log read failed: IsRepo:false and Failure:non-nil are deliberately different answers.
 type History struct {
 	Commits []HistoryCommit `json:"commits"`
 	Head    string          `json:"head"`
 	IsRepo  bool            `json:"isrepo"`
+	Failure *GitFailure     `json:"failure,omitempty"`
 }
 
 // HistoryLog walks commit history newest-first with parent links and ref decoration. Unlike RangeLog
@@ -554,7 +557,14 @@ func HistoryLog(ctx context.Context, cwd string, opts HistoryOpts) (*History, er
 	}
 	out, err := run(ctx, cwd, args...)
 	if err != nil {
-		return nil, err
+		// A repo with no commits yet is empty history, not a failed read — git log exits 128 there.
+		// rev-parse --verify --quiet exits 1 for "no such ref" and 128 for a fatal error, so the exit
+		// code discriminates an unborn branch without matching git's wording, which changes between
+		// versions.
+		if _, verr := run(ctx, cwd, "rev-parse", "--verify", "--quiet", "HEAD"); verr != nil && exitCodeOf(verr) == 1 {
+			return &History{IsRepo: true}, nil
+		}
+		return &History{IsRepo: true, Failure: failureOf(args, err)}, nil
 	}
 	head, _ := run(ctx, cwd, "rev-parse", "HEAD")
 	return &History{Commits: parseHistory(out), Head: strings.TrimSpace(head), IsRepo: true}, nil
@@ -763,4 +773,40 @@ func DefaultBranch(ctx context.Context, cwd string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// GitFailure describes a git invocation that failed, in the shape the Diff surface's failure panel
+// renders: the command as run, its exit code, and stderr verbatim. It exists so a failed read can be
+// reported as data rather than as an RPC error — "this is not a repository" and "the read failed"
+// are different screens, and an error string cannot carry the fields the second one shows.
+type GitFailure struct {
+	Command  string `json:"command"`
+	ExitCode int    `json:"exitcode"`
+	Stderr   string `json:"stderr"`
+}
+
+// exitCodeOf reports git's own exit status, or -1 when the failure was not an exit status at all
+// (git missing from PATH, a context deadline). Callers discriminate on it: git uses 1 for "no such
+// ref" and 128 for a fatal error, which is how HistoryLog tells an unborn branch from a real fault.
+func exitCodeOf(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+// failureOf turns the error run() already returns into a GitFailure. cmd.Output() populates
+// ExitError.Stderr, so both the code and git's message are available without changing how git is
+// invoked — and without CombinedOutput, which would fold stderr into the stdout callers parse.
+func failureOf(args []string, err error) *GitFailure {
+	f := &GitFailure{Command: "git " + strings.Join(args, " "), ExitCode: exitCodeOf(err)}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		f.Stderr = strings.TrimSpace(string(ee.Stderr))
+	}
+	if f.Stderr == "" && err != nil {
+		f.Stderr = err.Error() // no stderr to show (git absent, deadline): the Go error is the evidence
+	}
+	return f
 }

@@ -59,17 +59,30 @@ import { RefPicker } from "./refpicker";
 import {
     activeChangesAtom,
     activeDiffAtom,
+    dismissRestoreNotice,
     graphOnAtom,
-    historyErrorAtom,
+    historyAppendAtom,
+    historyFailureAtom,
+    historyFilteredAtom,
+    historyFiltersAtom,
+    historyHasMoreAtom,
     historyRowsAtom,
+    historyScrollAtom,
     loadHistory,
+    loadMoreHistory,
+    noteSurfaceLeft,
     resetHistory,
+    restoreNoticeAtom,
+    retryHistory,
     selectCommit,
     selectCommitFile,
     selectedCommitAtom,
     selectedFileAtom,
 } from "./githistorystore";
+import { GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
+import { HistoryFilterRow } from "./historyfilterrow";
 import { HistoryPane } from "./historypane";
+import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
 
@@ -107,6 +120,7 @@ function SourcePicker({
     return (
         <div className="relative">
             <button
+                data-files-source-picker
                 onClick={() => setOpen((v) => !v)}
                 disabled={!hasAny}
                 className="flex w-full items-center gap-[8px] rounded border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
@@ -154,6 +168,9 @@ function SourcePicker({
                         {projects.map((p) => (
                             <button
                                 key={p.name}
+                                // agent names and project names can collide, and this dropdown renders
+                                // both — a scenario needs to click a project by name, not by text match
+                                data-files-source-option={p.name}
                                 title={p.path}
                                 onClick={() => {
                                     onPickProject(p);
@@ -276,7 +293,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const state = useAtomValue(filesStateAtom);
     const loadError = useAtomValue(filesErrorAtom);
     const historyRows = useAtomValue(historyRowsAtom);
-    const historyError = useAtomValue(historyErrorAtom);
+    const historyFailure = useAtomValue(historyFailureAtom);
+    const historyFiltered = useAtomValue(historyFilteredAtom);
+    const historyFilters = useAtomValue(historyFiltersAtom);
+    const historyScroll = useAtomValue(historyScrollAtom);
+    const historyHasMore = useAtomValue(historyHasMoreAtom);
+    const historyAppend = useAtomValue(historyAppendAtom);
+    const restoreMsg = useAtomValue(restoreNoticeAtom);
     const selectedCommit = useAtomValue(selectedCommitAtom);
     const selectedFile = useAtomValue(selectedFileAtom);
     const graphOn = useAtomValue(graphOnAtom);
@@ -364,6 +387,18 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             globalStore.set(model.focusIdAtom, agents[0].id);
         }
     }, [projectSel, focusId, agents]);
+
+    // The surface unmounts on every nav switch; stamping the time on the way out is all it has to do.
+    // The next history load decides whether anything is worth announcing (historyquery.restoreNotice).
+    useEffect(() => () => noteSurfaceLeft(), []);
+
+    useEffect(() => {
+        if (restoreMsg == null) {
+            return;
+        }
+        const t = setTimeout(() => dismissRestoreNotice(), RESTORE_DISMISS_MS);
+        return () => clearTimeout(t);
+    }, [restoreMsg]);
 
     useEffect(() => {
         if (runSource) {
@@ -541,93 +576,121 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 <span className="font-mono text-[12px] text-ink-mid">{refExpr}</span>
                             </button>
                         )}
-                        <div className="flex-1" />
-                        <button
-                            onClick={() => globalStore.set(graphOnAtom, !graphOn)}
-                            className={cn(
-                                "flex items-center gap-[7px] rounded-[7px] border px-[10px] py-[5px] text-[11.5px] font-semibold",
-                                graphOn ? "border-accent/30 bg-accentbg text-ink-hi" : "border-edge-mid bg-surface text-muted"
-                            )}
-                        >
-                            Graph
-                        </button>
                     </div>
                 </div>
 
-                {loadError || historyError ? <SurfaceError message="Couldn’t read this repository." /> : null}
-
-                <div className="flex min-h-0 flex-1 border-t border-edge-faint">
-                    <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
-                        {state?.isRepo === false && state?.cwd ? (
-                            <div className="px-[14px] py-[10px] text-[12px] text-ink-mid">Not a git repository</div>
-                        ) : compareOn ? (
-                            <CompareColumn
-                                rows={compareRows}
-                                selected={compareSelection}
-                                mergeBase={compareSides?.mergeBase ?? ""}
-                                error={compareError}
-                                loading={compareSides == null && compareError == null}
-                                onSelect={(id) => state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))}
-                            />
-                        ) : (
-                            <HistoryPane
-                                rows={historyRows ?? []}
-                                selected={selectedCommit}
-                                graphOn={graphOn}
-                                loading={historyRows == null}
-                                onSelect={(hash) => state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))}
-                            />
-                        )}
+                {restoreMsg ? (
+                    <div
+                        data-restore-notice
+                        className="mx-[18px] mb-[10px] flex flex-none items-center gap-[9px] rounded-[8px] border border-success/25 bg-success/12 px-[11px] py-[7px]"
+                    >
+                        <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-graphlane-2">
+                            Restored
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-ink-mid">{restoreMsg}</span>
+                        <button
+                            onClick={() => dismissRestoreNotice()}
+                            className="flex-none text-[11px] text-ink-faint hover:text-foreground"
+                        >
+                            ✕
+                        </button>
                     </div>
-                    <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
-                        {compareOn ? (
-                            compareSelection === AGGREGATE ? (
-                                <AggregatePane
-                                    base={compareRefs?.base ?? ""}
-                                    head={compareRefs?.head ?? ""}
-                                    changes={compareChanges}
-                                    selectedFile={compareFile}
-                                    onSelectFile={(path) =>
-                                        state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                ) : null}
+
+                {/* nothing to filter in the two failure states, and compare has its own column */}
+                {!compareOn && historyFailure == null && state?.isRepo !== false ? <HistoryFilterRow /> : null}
+
+                {loadError ? <SurfaceError message="Couldn’t read this repository." /> : null}
+
+                {state?.isRepo === false && state?.cwd ? (
+                    <NotARepoPanel />
+                ) : historyFailure ? (
+                    <GitFailurePanel failure={historyFailure} onRetry={() => retryHistory()} />
+                ) : (
+                    <div className="flex min-h-0 flex-1 border-t border-edge-faint">
+                        <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
+                            {compareOn ? (
+                                <CompareColumn
+                                    rows={compareRows}
+                                    selected={compareSelection}
+                                    mergeBase={compareSides?.mergeBase ?? ""}
+                                    error={compareError}
+                                    loading={compareSides == null && compareError == null}
+                                    onSelect={(id) =>
+                                        state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))
                                     }
                                 />
                             ) : (
-                                // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly
-                                <CommitPane
-                                    row={
-                                        (compareRows.find(
-                                            (r) => r.kind === "commit" && r.id === compareSelection
-                                        ) as CompareCommitRow | undefined) ?? null
+                                <HistoryPane
+                                    rows={historyRows ?? []}
+                                    selected={selectedCommit}
+                                    // a filtered set mostly lacks its own parents, so lane assignment would
+                                    // sprawl to the fold limit and draw edges to commits that are not there
+                                    graphOn={graphOn && !historyFiltered}
+                                    loading={historyRows == null}
+                                    countLabel={countLabel(historyFilters, historyRows?.length ?? 0, historyRows == null)}
+                                    filtered={historyFiltered}
+                                    initialScroll={historyScroll}
+                                    hasMore={historyHasMore}
+                                    appendState={historyAppend}
+                                    onSelect={(hash) =>
+                                        state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))
                                     }
-                                    changes={compareChanges}
-                                    selectedFile={compareFile}
+                                    onScroll={(top) => globalStore.set(historyScrollAtom, top)}
+                                    onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+                                />
+                            )}
+                        </div>
+                        <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
+                            {compareOn ? (
+                                compareSelection === AGGREGATE ? (
+                                    <AggregatePane
+                                        base={compareRefs?.base ?? ""}
+                                        head={compareRefs?.head ?? ""}
+                                        changes={compareChanges}
+                                        selectedFile={compareFile}
+                                        onSelectFile={(path) =>
+                                            state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                                        }
+                                    />
+                                ) : (
+                                    // a compare commit row *is* a HistoryRow, so the shipped pane takes it directly
+                                    <CommitPane
+                                        row={
+                                            (compareRows.find(
+                                                (r) => r.kind === "commit" && r.id === compareSelection
+                                            ) as CompareCommitRow | undefined) ?? null
+                                        }
+                                        changes={compareChanges}
+                                        selectedFile={compareFile}
+                                        onSelectFile={(path) =>
+                                            state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                                        }
+                                    />
+                                )
+                            ) : (
+                                <CommitPane
+                                    row={selectedRow}
+                                    changes={activeChanges}
+                                    selectedFile={selectedFile}
                                     onSelectFile={(path) =>
-                                        state?.cwd && fireAndForget(() => selectCompareFile(state.cwd!, path))
+                                        state?.cwd &&
+                                        selectedCommit != null &&
+                                        fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
                                     }
                                 />
-                            )
-                        ) : (
-                            <CommitPane
-                                row={selectedRow}
-                                changes={activeChanges}
-                                selectedFile={selectedFile}
-                                onSelectFile={(path) =>
-                                    state?.cwd &&
-                                    selectedCommit != null &&
-                                    fireAndForget(() => selectCommitFile(state.cwd!, selectedCommit, path))
-                                }
+                            )}
+                        </div>
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                            <CenterPane
+                                path={compareOn ? compareFile : selectedFile}
+                                view={compareOn ? compareDiff : activeDiff}
+                                // "Open in editor" only makes sense for a path that exists in the working tree
+                                cwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
                             />
-                        )}
+                        </div>
                     </div>
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                        <CenterPane
-                            path={compareOn ? compareFile : selectedFile}
-                            view={compareOn ? compareDiff : activeDiff}
-                            // "Open in editor" only makes sense for a path that exists in the working tree
-                            cwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
-                        />
-                    </div>
-                </div>
+                )}
             </div>
         </MotionConfig>
     );

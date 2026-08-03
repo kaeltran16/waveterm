@@ -38,8 +38,12 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
     files: [
         { ids: ["list:prev-k", "list:next-j", "list:prev", "list:next"], glyph: "↑↓", label: "commit" },
         { ids: ["list:activate"], glyph: "⏎", label: "open file" },
+        { ids: ["files:filter"], glyph: "/", label: "filter" },
+        { ids: ["files:toggle-graph"], glyph: "G", label: "graph" },
+        { ids: ["files:top"], glyph: "g g", label: "top" },
         { ids: ["files:compare"], glyph: "c", label: "compare" },
         { ids: ["files:switch-side"], glyph: "⇥", label: "side" }, // compare-only via its binding
+        { ids: ["files:clear-filters"], glyph: "esc", label: "clear filters" }, // filtered-only via its binding
         { ids: ["files:exit-compare"], glyph: "esc", label: "history" }, // compare-only via its binding
     ],
 };

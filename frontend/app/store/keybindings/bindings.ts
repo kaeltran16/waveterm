@@ -12,6 +12,13 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import { compareOnAtom, compareSelectionAtom, exitCompare } from "@/app/view/agents/comparestore";
+import {
+    clearHistoryFilters,
+    graphOnAtom,
+    historyFiltersAtom,
+    historyScrollAtom,
+} from "@/app/view/agents/githistorystore";
+import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -176,7 +183,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 !globalStore.get(autonomyPanelOpenAtom) &&
                 // the Diff surface's compare state owns Escape while it is on: leaving compare is what
                 // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
-                !globalStore.get(compareOnAtom),
+                !globalStore.get(compareOnAtom) &&
+                // and with filters active, Escape clears them — the filter row says so ("Clear all · esc")
+                !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))),
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -512,7 +521,61 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
 export function buildFilesBindings(): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "files" && !ctx.editable && !ctx.modalOpen;
     const inCompare = (ctx: KeyContext) => on(ctx) && globalStore.get(compareOnAtom);
+    // History keys are off while compare is on: compare has no filter row and draws no graph.
+    const inHistory = (ctx: KeyContext) => on(ctx) && !globalStore.get(compareOnAtom);
+    const filtering = (ctx: KeyContext) => inHistory(ctx) && anyFilterActive(globalStore.get(historyFiltersAtom));
     return [
+        {
+            id: "files:filter",
+            keys: "/",
+            group: "Diff",
+            label: "Filter history",
+            when: inHistory,
+            run: () => {
+                const el = document.querySelector<HTMLInputElement>("[data-history-filter]");
+                if (el == null) {
+                    return false; // no filter row on screen (a failure panel, say) — let the key pass
+                }
+                el.focus();
+            },
+        },
+        {
+            // Shift:g, not bare "g": g is the leader key for the surface chords, and a bare letter
+            // that shadows a leader can never fire. The footer shows it as "G".
+            id: "files:toggle-graph",
+            keys: "Shift:g",
+            group: "Diff",
+            label: "Toggle graph",
+            when: inHistory,
+            run: () => globalStore.set(graphOnAtom, !globalStore.get(graphOnAtom)),
+        },
+        {
+            // Escape's order on this surface: clear filters, else leave compare, else go home. The
+            // three guards are mutually exclusive by construction (this one requires filters active
+            // and compare off), which is what keeps assertNoConflicts passing.
+            id: "files:clear-filters",
+            keys: "Escape",
+            group: "Diff",
+            label: "Clear filters",
+            when: filtering,
+            run: () => clearHistoryFilters(),
+        },
+        {
+            // The mockup's footer says "g h" for top-of-history, but g h is already the chord for
+            // Cockpit (home) in GO_TARGETS. g g is free and is the vim idiom for "top".
+            id: "files:top",
+            keys: "g g",
+            group: "Diff",
+            label: "Top of history",
+            when: inHistory,
+            run: () => {
+                globalStore.set(historyScrollAtom, 0);
+                const el = document.querySelector<HTMLElement>("[data-history-scroll]");
+                if (el != null) {
+                    el.scrollTop = 0;
+                }
+            },
+        },
         {
             id: "files:compare",
             keys: "c",

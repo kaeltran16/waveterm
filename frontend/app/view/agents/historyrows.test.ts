@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { WORKING_TREE, buildRows, classifyRef, defaultSelection, refChipClass, type RefKind } from "./historyrows";
+import {
+    WORKING_TREE,
+    buildRows,
+    classifyRef,
+    defaultSelection,
+    keepSelection,
+    refChipClass,
+    type RefKind,
+} from "./historyrows";
 
 const NOW = 1_800_000_000_000;
 
@@ -171,5 +179,26 @@ describe("defaultSelection", () => {
 
     it("returns null for an empty history", () => {
         expect(defaultSelection([])).toBeNull();
+    });
+});
+
+describe("keepSelection", () => {
+    it("keeps a selection that is still on screen", () => {
+        const rows = buildRows([commit("aaa"), commit("bbb")], { head: "aaa", dirtyFileCount: 0, now: NOW });
+        expect(keepSelection(rows, "bbb")).toBe("bbb");
+    });
+
+    it("keeps the uncommitted row, whose hash is the empty string", () => {
+        const rows = buildRows([commit("aaa")], { head: "aaa", dirtyFileCount: 2, now: NOW });
+        expect(keepSelection(rows, WORKING_TREE)).toBe(WORKING_TREE);
+    });
+
+    it("falls back to the default when the selection was filtered away", () => {
+        const rows = buildRows([commit("aaa"), commit("bbb")], { head: "aaa", dirtyFileCount: 0, now: NOW });
+        expect(keepSelection(rows, "zzz")).toBe("aaa");
+    });
+
+    it("returns null for an empty result, so nothing is selected", () => {
+        expect(keepSelection([], "aaa")).toBeNull();
     });
 });
