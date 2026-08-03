@@ -3,7 +3,18 @@
 
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { Bot, Brain, Gauge, GitCompare, LayoutDashboard, Network, Radar, Settings, SquareStack } from "lucide-react";
+import {
+    Bot,
+    Brain,
+    FileCode2,
+    Gauge,
+    GitCompare,
+    LayoutDashboard,
+    Network,
+    Radar,
+    Settings,
+    SquareStack,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
 import { attentionAtom, splitAttention } from "./attentionstore";
@@ -21,6 +32,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     files: <GitCompare {...iconProps} />,
     memory: <Network {...iconProps} />,
     usage: <Gauge {...iconProps} />,
+    code: <FileCode2 {...iconProps} />,
     settings: <Settings {...iconProps} />,
 };
 
@@ -33,6 +45,7 @@ export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "files", label: "Diff" },
     { key: "memory", label: "Memory" },
     { key: "usage", label: "Usage" },
+    { key: "code", label: "Code" },
 ];
 
 export function NavRail({ model }: { model: AgentsViewModel }) {

@@ -8,6 +8,7 @@
 
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
+import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
@@ -85,13 +86,6 @@ import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
 import { SurfaceEmptyState, SurfaceError } from "./surfacescaffold";
-
-// Windows-only build: git reports repo-relative paths with forward slashes while cwd uses backslashes,
-// so a raw `${cwd}/${path}` join is mixed-separator. Normalize the whole join to backslashes so
-// open::that (ShellExecute) resolves it and a copied absolute path is a valid native Windows path.
-function joinPath(cwd: string, rel: string): string {
-    return `${cwd}/${rel}`.replace(/\//g, "\\");
-}
 
 // The Files surface can be scoped either to a running agent's worktree or to a registered project.
 export type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
@@ -255,7 +249,7 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                         <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
                         {cwd && (
                             <button
-                                onClick={() => getApi().openExternal(joinPath(cwd, path))}
+                                onClick={() => getApi().openExternal(joinRepoPath(cwd, path))}
                                 className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
                             >
                                 Open in editor ↗
@@ -457,7 +451,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                               compareOn ? selectCompareRow(state.cwd!, id) : selectCommit(state.cwd!, id)
                           ),
                       activate:
-                          navFile && state.cwd ? () => getApi().openExternal(joinPath(state.cwd!, navFile)) : undefined,
+                          navFile && state.cwd ? () => getApi().openExternal(joinRepoPath(state.cwd!, navFile)) : undefined,
                       // Tab needs to know which side a row belongs to, which an id list cannot say.
                       rows: compareOn ? compareRows : undefined,
                   }

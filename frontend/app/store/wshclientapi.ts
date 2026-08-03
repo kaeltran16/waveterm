@@ -672,6 +672,12 @@ export class RpcApiType {
         return client.wshRpcCall("githistory", data, opts);
     }
 
+    // command "gitlistfiles" [call]
+    GitListFilesCommand(client: WshClient, data: CommandGitListFilesData, opts?: RpcOpts): Promise<CommandGitListFilesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitlistfiles", data, opts);
+        return client.wshRpcCall("gitlistfiles", data, opts);
+    }
+
     // command "gitrevert" [call]
     GitRevertCommand(client: WshClient, data: CommandGitRevertData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitrevert", data, opts);

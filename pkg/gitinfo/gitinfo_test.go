@@ -1232,3 +1232,55 @@ func TestHistoryLogHealthyReadHasNoFailure(t *testing.T) {
 		t.Errorf("Failure = %+v, want nil — a working repo must not be able to trip the panel", h.Failure)
 	}
 }
+
+func writeAt(t *testing.T, dir, rel, body string) {
+	t.Helper()
+	full := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListFilesIncludesTrackedAndUntrackedButNotIgnored(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeAt(t, dir, ".gitignore", "ignored.txt\n")
+	writeAt(t, dir, "a.go", "package a\n")
+	writeAt(t, dir, "sub/b.go", "package b\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+	writeAt(t, dir, "untracked.go", "package u\n")
+	writeAt(t, dir, "ignored.txt", "nope\n")
+	writeAt(t, dir, "has space.go", "package s\n")
+
+	fl, err := ListFiles(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fl.IsRepo {
+		t.Fatalf("IsRepo = false, want true")
+	}
+	if fl.Truncated {
+		t.Fatalf("Truncated = true, want false")
+	}
+	want := []string{".gitignore", "a.go", "has space.go", "sub/b.go", "untracked.go"}
+	if strings.Join(fl.Paths, "|") != strings.Join(want, "|") {
+		t.Fatalf("Paths = %v, want %v", fl.Paths, want)
+	}
+}
+
+func TestListFilesNonRepoReportsIsRepoFalse(t *testing.T) {
+	fl, err := ListFiles(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("non-repo must not error: %v", err)
+	}
+	if fl.IsRepo {
+		t.Fatalf("IsRepo = true, want false")
+	}
+	if len(fl.Paths) != 0 {
+		t.Fatalf("Paths = %v, want empty", fl.Paths)
+	}
+}

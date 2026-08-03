@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
 import { primeChannels } from "./channelsstore";
+import { CodeSurface } from "@/app/view/code/codesurface";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
@@ -111,6 +112,8 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <UsageSurface model={model} />
                         ) : surface === "memory" ? (
                             <MemorySurface model={model} />
+                        ) : surface === "code" ? (
+                            <CodeSurface model={model} />
                         ) : surface === "settings" ? (
                             <SettingsSurface model={model} />
                         ) : null}

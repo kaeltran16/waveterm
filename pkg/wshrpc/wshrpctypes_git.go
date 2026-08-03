@@ -19,6 +19,7 @@ type GitCommands interface {
 	GitCommitDiffCommand(ctx context.Context, data CommandGitCommitDiffData) (*CommandGitCommitDiffRtnData, error)
 	GitCompareChangesCommand(ctx context.Context, data CommandGitCompareChangesData) (*CommandGitCompareChangesRtnData, error)
 	GitCompareDiffCommand(ctx context.Context, data CommandGitCompareDiffData) (*CommandGitCompareDiffRtnData, error)
+	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -100,4 +101,16 @@ type CommandGitCompareDiffData struct {
 
 type CommandGitCompareDiffRtnData struct {
 	Diff string `json:"diff"`
+}
+
+type CommandGitListFilesData struct {
+	Cwd string `json:"cwd"`
+}
+
+// Files are repo-relative, forward-slashed, sorted. Truncated reports that the repo exceeded the
+// server's cap and Files is a prefix, so the finder can say so instead of implying completeness.
+type CommandGitListFilesRtnData struct {
+	Files     []string `json:"files"`
+	IsRepo    bool     `json:"isrepo"`
+	Truncated bool     `json:"truncated,omitempty"`
 }

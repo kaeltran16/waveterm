@@ -3,8 +3,8 @@ import { SURFACE_ORDER } from "./agents";
 import { ITEMS } from "./navrail";
 
 describe("SURFACE_ORDER", () => {
-    it("has exactly 8 entries so Ctrl+1..8 covers every one — no surface is unreachable by chord", () => {
-        expect(SURFACE_ORDER).toHaveLength(8);
+    it("has exactly 9 entries so Ctrl+1..9 covers every one — no surface is unreachable by chord", () => {
+        expect(SURFACE_ORDER).toHaveLength(9);
     });
 
     it("no longer carries the merged-away surfaces", () => {

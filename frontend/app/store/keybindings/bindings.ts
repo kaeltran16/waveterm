@@ -20,6 +20,7 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { codeFinderOpenAtom, goBack, goForward, refreshIndex } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId, startJarvisThread } from "@/app/view/jarvis/jarvissubjectstore";
@@ -38,6 +39,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "f", surface: "files", label: "Files" },
     { letter: "m", surface: "memory", label: "Memory" },
     { letter: "u", surface: "usage", label: "Usage" },
+    { letter: "b", surface: "code", label: "Code (browse source)" },
     { letter: ",", surface: "settings", label: "Settings" },
 ];
 
@@ -45,7 +47,15 @@ const navigate = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
-const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "radar", "sessions", "files", "memory", "usage"]);
+const ESC_HOME_SURFACES = new Set<SurfaceKey>([
+    "jarvis",
+    "radar",
+    "sessions",
+    "files",
+    "memory",
+    "usage",
+    "code",
+]);
 
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
@@ -71,7 +81,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
         globalStore.set(model.surfaceAtom, next);
     };
 
-    const surfaceChords: Binding[] = SURFACE_ORDER.slice(0, 8).map((surface, i) => ({
+    const surfaceChords: Binding[] = SURFACE_ORDER.slice(0, 9).map((surface, i) => ({
         id: `surface:${surface}`,
         keys: `Ctrl:${i + 1}`,
         group: "Global",
@@ -185,7 +195,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
                 !globalStore.get(compareOnAtom) &&
                 // and with filters active, Escape clears them — the filter row says so ("Clear all · esc")
-                !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))),
+                !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
+                // the Code surface's file finder owns it for the same reason as compare — closing the
+                // overlay is what Escape means while it is open, and going home too would do both at once
+                !globalStore.get(codeFinderOpenAtom),
             run: () => globalStore.set(model.surfaceAtom, "cockpit"),
         },
     ];
@@ -616,6 +629,51 @@ export function buildFilesBindings(): Binding[] {
                     return false; // the other side has no commits — let Tab do its normal thing
                 }
                 c.setCursor(target);
+            },
+        },
+    ];
+}
+
+export function buildCodeBindings(): Binding[] {
+    const on = (ctx: KeyContext) => ctx.surface === "code" && !ctx.editable && !ctx.modalOpen;
+    return [
+        {
+            id: "code:find",
+            keys: "f",
+            group: "Code",
+            label: "Find a file by name",
+            when: on,
+            // Ctrl:p is the command palette, so the finder takes a bare letter like the Diff surface's `c`
+            run: () => globalStore.set(codeFinderOpenAtom, true),
+        },
+        {
+            id: "code:back",
+            keys: "Alt:ArrowLeft",
+            group: "Code",
+            label: "Back",
+            when: on,
+            run: () => {
+                void goBack();
+            },
+        },
+        {
+            id: "code:forward",
+            keys: "Alt:ArrowRight",
+            group: "Code",
+            label: "Forward",
+            when: on,
+            run: () => {
+                void goForward();
+            },
+        },
+        {
+            id: "code:refresh",
+            keys: "r",
+            group: "Code",
+            label: "Refresh the file index",
+            when: on,
+            run: () => {
+                void refreshIndex();
             },
         },
     ];

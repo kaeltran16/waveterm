@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -809,4 +810,49 @@ func failureOf(args []string, err error) *GitFailure {
 		f.Stderr = err.Error() // no stderr to show (git absent, deadline): the Go error is the evidence
 	}
 	return f
+}
+
+// maxListFiles caps the enumeration so a pathological repo cannot hand the frontend a
+// multi-megabyte path array. Truncated tells the caller it happened, because a silently
+// partial index reads as a complete one.
+const maxListFiles = 20000
+
+// FileList is every path git knows about in cwd: tracked files plus untracked files that
+// .gitignore does not exclude. Paths are repo-relative with forward slashes, sorted.
+type FileList struct {
+	Paths     []string `json:"paths"`
+	IsRepo    bool     `json:"isrepo"`
+	Truncated bool     `json:"truncated"`
+}
+
+// ListFiles enumerates cwd for the Code surface's tree and file finder. IsRepo=false when cwd is
+// not a repository (not an error — it is an empty state); a git failure IS an error so the caller
+// can tell "nothing to browse" from "the read failed".
+func ListFiles(ctx context.Context, cwd string) (*FileList, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(inside) != "true" {
+		return &FileList{IsRepo: false}, nil
+	}
+	// -z: NUL-separated, so a path containing a space or non-ASCII byte survives unquoted.
+	out, err := run(ctx, cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, err
+	}
+	paths := []string{}
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	// --cached and --others cannot overlap (others is untracked-only) but the concatenation is
+	// not globally ordered, so sort for a stable tree.
+	sort.Strings(paths)
+	truncated := false
+	if len(paths) > maxListFiles {
+		paths = paths[:maxListFiles]
+		truncated = true
+	}
+	return &FileList{Paths: paths, IsRepo: true, Truncated: truncated}, nil
 }

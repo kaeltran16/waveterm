@@ -18,6 +18,7 @@ export const SURFACE_LABEL = {
     files: "Diff",
     memory: "Memory",
     usage: "Usage",
+    code: "Code",
     settings: "Settings",
 };
 

@@ -67,3 +67,11 @@ func (ws *WshServer) GitCompareDiffCommand(ctx context.Context, data wshrpc.Comm
 	}
 	return &wshrpc.CommandGitCompareDiffRtnData{Diff: d.Diff}, nil
 }
+
+func (ws *WshServer) GitListFilesCommand(ctx context.Context, data wshrpc.CommandGitListFilesData) (*wshrpc.CommandGitListFilesRtnData, error) {
+	fl, err := gitinfo.ListFiles(ctx, data.Cwd)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitListFilesRtnData{Files: fl.Paths, IsRepo: fl.IsRepo, Truncated: fl.Truncated}, nil
+}

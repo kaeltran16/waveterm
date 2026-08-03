@@ -862,6 +862,18 @@ declare global {
         failure?: GitFailure;
     };
 
+    // wshrpc.CommandGitListFilesData
+    type CommandGitListFilesData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandGitListFilesRtnData
+    type CommandGitListFilesRtnData = {
+        files: string[];
+        isrepo: boolean;
+        truncated?: boolean;
+    };
+
     // wshrpc.CommandGitRevertData
     type CommandGitRevertData = {
         cwd: string;
