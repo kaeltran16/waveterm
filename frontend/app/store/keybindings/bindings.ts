@@ -20,7 +20,7 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
-import { codeFinderOpenAtom, goBack, goForward, refreshIndex } from "@/app/view/code/codestore";
+import { codeFinderOpenAtom, goBack, goForward, refreshIndex, saveCurrent } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId, startJarvisThread } from "@/app/view/jarvis/jarvissubjectstore";
@@ -674,6 +674,19 @@ export function buildCodeBindings(): Binding[] {
             when: on,
             run: () => {
                 void refreshIndex();
+            },
+        },
+        {
+            id: "code:save",
+            keys: "Ctrl:s",
+            group: "Code",
+            label: "Save the open file",
+            // deliberately NOT gated on !ctx.editable: you are typing in Monaco when you press this, so
+            // the editable exclusion the bare-letter bindings use would make it unreachable. Same shape
+            // as close-agent's Ctrl:c, which stays live while the terminal has focus.
+            when: (ctx) => ctx.surface === "code",
+            run: () => {
+                void saveCurrent();
             },
         },
     ];

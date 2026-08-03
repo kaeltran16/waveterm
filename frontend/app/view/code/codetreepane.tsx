@@ -11,7 +11,16 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, File } from "lucide-react";
 import { useMemo } from "react";
-import { codeExpandedAtom, codeFileAtom, codeIndexAtom, openPath, toggleDir } from "./codestore";
+import {
+    codeDraftsAtom,
+    codeExpandedAtom,
+    codeFileAtom,
+    codeIndexAtom,
+    codeProjectAtom,
+    draftKey,
+    openPath,
+    toggleDir,
+} from "./codestore";
 import { buildTree, visibleRows } from "./codetree";
 
 export function CodeTreePane({ model }: { model: AgentsViewModel }) {
@@ -19,6 +28,8 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const index = useAtomValue(codeIndexAtom);
     const expanded = useAtomValue(codeExpandedAtom);
     const file = useAtomValue(codeFileAtom);
+    const project = useAtomValue(codeProjectAtom);
+    const drafts = useAtomValue(codeDraftsAtom);
     const selected = file.kind === "none" ? null : file.path;
 
     const tree = useMemo(() => buildTree(index?.paths ?? []), [index]);
@@ -72,6 +83,15 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                         <File size={13} strokeWidth={1.8} className="flex-none opacity-50" />
                     )}
                     <span className="truncate">{row.name}</span>
+                    {/* drafts survive an unmount, so unsaved work can exist on a file you are not looking
+                        at — the dot is the only thing that says so */}
+                    {row.kind === "file" && project != null && drafts.has(draftKey(project, row.path)) ? (
+                        <span
+                            aria-label="Unsaved edits"
+                            title="Unsaved edits"
+                            className="ml-auto size-[6px] flex-none rounded-full bg-accent-soft"
+                        />
+                    ) : null}
                 </button>
             ))}
         </div>

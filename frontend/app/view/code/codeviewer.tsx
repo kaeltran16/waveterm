@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Renders whichever variant the store resolved the opened file to. The text case hands off to the
-// existing read-only Monaco wrapper, which derives the language from the filename — so Go, Rust and
-// TypeScript all highlight without a language map here.
+// existing Monaco wrapper, which derives the language from the filename — so Go, Rust and TypeScript
+// all highlight without a language map here. Only the text case is editable; every other variant
+// (binary, too large, missing, unreadable) stays a dead end by construction.
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
@@ -12,7 +13,7 @@ import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
 import { joinRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { codeFileAtom, codeProjectAtom, refreshIndex } from "./codestore";
+import { codeDraftsAtom, codeFileAtom, codeProjectAtom, draftKey, editDraft, refreshIndex } from "./codestore";
 
 function sizeLabel(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -23,6 +24,7 @@ function sizeLabel(bytes: number): string {
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const file = useAtomValue(codeFileAtom);
     const project = useAtomValue(codeProjectAtom);
+    const drafts = useAtomValue(codeDraftsAtom);
 
     switch (file.kind) {
         case "none":
@@ -61,9 +63,21 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             );
         case "error":
             return <SurfaceEmptyState title="Could not read the file" body={`${file.path} — ${file.message}`} />;
-        case "text":
+        case "text": {
+            // `text` is the draft when one exists, so the buffer survives a surface unmount. Monaco's
+            // prop-sync effect no-ops when the incoming text already equals the model's (monaco-react
+            // checks before pushing an edit), so feeding our own keystrokes back does not move the caret.
+            const draft = project != null ? drafts.get(draftKey(project, file.path)) : undefined;
             return (
-                <CodeEditor key={file.path} blockId={model.blockId} text={file.text} fileName={file.path} readonly />
+                <CodeEditor
+                    key={file.path}
+                    blockId={model.blockId}
+                    text={draft?.text ?? file.text}
+                    fileName={file.path}
+                    readonly={false}
+                    onChange={editDraft}
+                />
             );
+        }
     }
 }

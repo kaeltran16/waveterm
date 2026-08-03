@@ -93,7 +93,17 @@ export function SurfaceEmptyState({
     );
 }
 
-export function SurfaceError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+// actionLabel exists because not every recoverable state is a retry: the Code surface refuses a save
+// when the file changed underneath, and there the button reloads rather than re-attempts.
+export function SurfaceError({
+    message,
+    onRetry,
+    actionLabel = "Retry",
+}: {
+    message: string;
+    onRetry?: () => void;
+    actionLabel?: string;
+}) {
     return (
         <div className="mx-[28px] mt-3 flex items-center gap-3 rounded-[10px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12.5px] text-error">
             <span className="flex-1">{message}</span>
@@ -103,7 +113,7 @@ export function SurfaceError({ message, onRetry }: { message: string; onRetry?: 
                     onClick={onRetry}
                     className="flex-none cursor-pointer rounded border border-error/40 px-2 py-0.5 font-semibold hover:bg-error/15"
                 >
-                    Retry
+                    {actionLabel}
                 </button>
             ) : null}
         </div>

@@ -10,9 +10,10 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { joinRepoPath } from "@/util/paths";
-import { base64ToString } from "@/util/util";
+import { base64ToString, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { classifyFile, hasNulByte } from "./codeclassify";
+import { conflictMessage, conflictOf, nextDrafts, withoutDraft, type Draft, type FileBase } from "./codedraft";
 import { back, currentPath, EMPTY_HISTORY, forward, push, type History } from "./codehistory";
 import { ancestorsOf } from "./codetree";
 
@@ -28,14 +29,24 @@ export interface CodeIndex {
 }
 
 // One union rather than parallel loading/error/tooLarge booleans, so the viewer renders an
-// exhaustive switch and cannot land in a contradictory pair of states.
+// exhaustive switch and cannot land in a contradictory pair of states. Only the text variant is
+// editable, and it carries the size/modtime it was read at so a save can detect a disk change.
 export type CodeFile =
     | { kind: "none" }
     | { kind: "loading"; path: string }
-    | { kind: "text"; path: string; text: string }
+    | { kind: "text"; path: string; text: string; size: number; modtime: number }
     | { kind: "binary"; path: string; size: number }
     | { kind: "toolarge"; path: string; size: number }
     | { kind: "missing"; path: string }
+    | { kind: "error"; path: string; message: string };
+
+// Save is a separate axis from CodeFile: the file can be a perfectly good text buffer while the last
+// write is still in flight, or refused, or failed.
+export type SaveState =
+    | { kind: "idle" }
+    | { kind: "saving"; path: string }
+    | { kind: "saved"; path: string }
+    | { kind: "conflict"; path: string; message: string }
     | { kind: "error"; path: string; message: string };
 
 export const codeProjectAtom = atom<CodeProject | null>(null) as PrimitiveAtom<CodeProject | null>;
@@ -45,6 +56,15 @@ export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as Primitiv
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
 export const codeFinderOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// Unsaved edits, keyed by ABSOLUTE path so two projects cannot collide, and deliberately not cleared
+// on project switch — losing typed-but-unsaved work to a nav click would be the worst kind of bug.
+export const codeDraftsAtom = atom<Map<string, Draft>>(new Map<string, Draft>()) as PrimitiveAtom<Map<string, Draft>>;
+export const codeSaveAtom = atom<SaveState>({ kind: "idle" }) as PrimitiveAtom<SaveState>;
+
+// the absolute path is the draft key; every draft-facing helper goes through this
+export function draftKey(project: CodeProject, rel: string): string {
+    return joinRepoPath(project.path, rel);
+}
 
 // Returning to a project you already browsed should not re-shell out to git. Cleared per project
 // by refreshIndex, which is the only way a new file appears (there is no watcher, by design).
@@ -60,6 +80,9 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeFileAtom, { kind: "none" });
     globalStore.set(codeIndexErrorAtom, null);
     globalStore.set(codeIndexAtom, null);
+    globalStore.set(codeSaveAtom, { kind: "idle" });
+    // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
+    // brings your unsaved edits back with it
     if (p == null) {
         current.indexToken = "";
         return;
@@ -136,8 +159,25 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean }): P
     }
     const token = `file:${rel}`;
     current.fileToken = token;
-    globalStore.set(codeFileAtom, { kind: "loading", path: rel });
+    globalStore.set(codeSaveAtom, { kind: "idle" });
     const abs = joinRepoPath(project.path, rel);
+
+    // A file you have unsaved edits in is restored from its pinned base rather than re-read. Re-reading
+    // would silently re-point the base at whatever is on disk NOW, which is exactly the state the
+    // conflict guard exists to notice — a reopen would launder someone else's write into "no conflict".
+    const draft = globalStore.get(codeDraftsAtom).get(abs);
+    if (draft != null) {
+        globalStore.set(codeFileAtom, {
+            kind: "text",
+            path: rel,
+            text: draft.base.text,
+            size: draft.base.size,
+            modtime: draft.base.modtime,
+        });
+        return;
+    }
+
+    globalStore.set(codeFileAtom, { kind: "loading", path: rel });
     try {
         const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
         if (current.fileToken !== token) {
@@ -167,7 +207,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean }): P
             globalStore.set(codeFileAtom, { kind: "binary", path: rel, size });
             return;
         }
-        globalStore.set(codeFileAtom, { kind: "text", path: rel, text });
+        globalStore.set(codeFileAtom, { kind: "text", path: rel, text, size, modtime: info?.modtime ?? 0 });
     } catch (e) {
         if (current.fileToken !== token) {
             return;
@@ -178,6 +218,90 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean }): P
             message: e instanceof Error ? e.message : String(e),
         });
     }
+}
+
+export function editDraft(text: string): void {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return; // binary/toolarge/missing are not editable, so there is nothing to draft
+    }
+    const key = draftKey(project, file.path);
+    const base: FileBase = { text: file.text, size: file.size, modtime: file.modtime };
+    globalStore.set(codeDraftsAtom, (d) => nextDrafts(d, key, base, text));
+    // a fresh keystroke invalidates whatever the last save attempt said
+    const save = globalStore.get(codeSaveAtom);
+    if (save.kind !== "idle" && save.path === file.path) {
+        globalStore.set(codeSaveAtom, { kind: "idle" });
+    }
+}
+
+export function revertDraft(): void {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return;
+    }
+    globalStore.set(codeDraftsAtom, (d) => withoutDraft(d, draftKey(project, file.path)));
+    globalStore.set(codeSaveAtom, { kind: "idle" });
+}
+
+// Stat, compare against the base the draft pinned, and only then write. The stat is not belt-and-
+// braces: agents run against this same working tree, so "changed since you opened it" is the normal
+// case, not the exotic one. On conflict we refuse and keep the draft — the user's text is never the
+// thing we throw away.
+export async function saveCurrent(): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return;
+    }
+    const rel = file.path;
+    const abs = draftKey(project, rel);
+    const draft = globalStore.get(codeDraftsAtom).get(abs);
+    if (draft == null) {
+        return; // nothing unsaved
+    }
+    globalStore.set(codeSaveAtom, { kind: "saving", path: rel });
+    try {
+        const latest = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
+        const conflict = conflictOf(draft.base, latest);
+        if (conflict !== "none") {
+            globalStore.set(codeSaveAtom, { kind: "conflict", path: rel, message: conflictMessage(conflict) });
+            return;
+        }
+        await RpcApi.FileWriteCommand(TabRpcClient, { info: { path: abs }, data64: stringToBase64(draft.text) });
+        // re-stat so a second save compares against what we just wrote rather than the pre-save state
+        const after = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
+        globalStore.set(codeFileAtom, {
+            kind: "text",
+            path: rel,
+            text: draft.text,
+            size: after?.size ?? draft.text.length,
+            modtime: after?.modtime ?? 0,
+        });
+        globalStore.set(codeDraftsAtom, (d) => withoutDraft(d, abs));
+        globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
+    } catch (e) {
+        globalStore.set(codeSaveAtom, {
+            kind: "error",
+            path: rel,
+            message: e instanceof Error ? e.message : String(e),
+        });
+    }
+}
+
+// Discard the pinned base and take what is on disk now, abandoning the draft. The escape hatch from a
+// conflict, and the only path that intentionally destroys typed text — so it is never automatic.
+export async function reloadFromDisk(): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return;
+    }
+    globalStore.set(codeDraftsAtom, (d) => withoutDraft(d, draftKey(project, file.path)));
+    globalStore.set(codeSaveAtom, { kind: "idle" });
+    await openPath(file.path, { pushHistory: false });
 }
 
 // back/forward re-read from disk rather than replaying cached text: simpler, and it shows the file

@@ -13,18 +13,25 @@ import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agents/surfacescaffold";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown, FolderGit2, RotateCw } from "lucide-react";
+import { ChevronDown, FolderGit2, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CodeFinderPalette } from "./codefinderpalette";
 import { canBack, canForward } from "./codehistory";
 import {
+    codeDraftsAtom,
+    codeFileAtom,
     codeHistoryAtom,
     codeIndexAtom,
     codeIndexErrorAtom,
     codeProjectAtom,
+    codeSaveAtom,
+    draftKey,
     goBack,
     goForward,
     refreshIndex,
+    reloadFromDisk,
+    revertDraft,
+    saveCurrent,
     selectProject,
     type CodeProject,
 } from "./codestore";
@@ -102,6 +109,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                                 )}
                             </PopoverReveal>
                         </div>
+                        <SaveControls />
                         <HeaderButton label="Refresh index" onClick={() => fireAndForget(refreshIndex)}>
                             <RotateCw size={13} strokeWidth={1.8} />
                         </HeaderButton>
@@ -124,6 +132,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                     onRetry={() => fireAndForget(refreshIndex)}
                 />
             ) : null}
+            <SaveBanner />
             <div className="min-h-0 flex-1">
                 <CodeBody model={model} onPickProject={() => setPickerOpen(true)} />
             </div>
@@ -155,6 +164,67 @@ function HeaderButton({
             {children}
         </button>
     );
+}
+
+function useDirty(): boolean {
+    const project = useAtomValue(codeProjectAtom);
+    const file = useAtomValue(codeFileAtom);
+    const drafts = useAtomValue(codeDraftsAtom);
+    if (project == null || file.kind !== "text") {
+        return false;
+    }
+    return drafts.has(draftKey(project, file.path));
+}
+
+function SaveControls() {
+    const dirty = useDirty();
+    const save = useAtomValue(codeSaveAtom);
+
+    // the only steady-state feedback that a write landed; the banner is for the failures
+    const status =
+        save.kind === "saving" ? "Saving…" : save.kind === "saved" && !dirty ? "Saved" : dirty ? "Unsaved" : null;
+
+    return (
+        <>
+            {status != null ? (
+                <span className={cn("text-[11.5px]", dirty ? "text-accent-soft" : "text-muted")}>{status}</span>
+            ) : null}
+            <HeaderButton
+                label="Save (Ctrl+S)"
+                disabled={!dirty || save.kind === "saving"}
+                onClick={() => fireAndForget(saveCurrent)}
+            >
+                <Save size={13} strokeWidth={1.8} />
+            </HeaderButton>
+            <HeaderButton label="Discard unsaved edits" disabled={!dirty} onClick={revertDraft}>
+                <Undo2 size={13} strokeWidth={1.8} />
+            </HeaderButton>
+        </>
+    );
+}
+
+// A refused save and a failed save are different things and say so. Both keep the draft: the button
+// reloads from disk, which is the one action that throws typed text away, so it is never automatic.
+function SaveBanner() {
+    const save = useAtomValue(codeSaveAtom);
+    if (save.kind === "conflict") {
+        return (
+            <SurfaceError
+                message={`${save.path}: ${save.message}`}
+                actionLabel="Reload from disk"
+                onRetry={() => fireAndForget(reloadFromDisk)}
+            />
+        );
+    }
+    if (save.kind === "error") {
+        return (
+            <SurfaceError
+                message={`Could not save ${save.path}: ${save.message}`}
+                onRetry={() => fireAndForget(saveCurrent)}
+            />
+        );
+    }
+    return null;
 }
 
 function CodeBody({ model, onPickProject }: { model: AgentsViewModel; onPickProject: () => void }) {
