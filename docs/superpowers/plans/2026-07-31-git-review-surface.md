@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: shipped.** Executed and merged 2026-07-31 as commit `a7c7c6cd`, plus the follow-up fix `f8044bd4` that moved the Diff surface's project scope into a jotai atom so leaving the surface no longer empties all three panes. The checkboxes below were ticked retroactively on 2026-08-03 — the worker never marked them during execution, so git history is the authoritative record. The one-off Chrome-DevTools-Protocol screenshot step is backed by `cdp-shots/git-review.png`, `git-review-populated.png`, `git-review-uncommitted.png` and `git-review-persist.png`, captured 2026-07-31 15:07–15:21. Re-verified 2026-08-03: `go test ./pkg/gitinfo/` passes and the six git-module vitest files pass (64 cases).
+
 **Goal:** Rebuild the Diff surface as three panes — commit history with a graph gutter, commit detail, file diff — on one time axis, and delete Review mode.
 
 **Architecture:** The surface stops being "files, optionally reviewed" and becomes "history, drilled into". Pane 1 lists commits newest-first with an SVG lane gutter drawn from the pure modules plan 1 produced (`gitgraph.ts` for lane assignment, `gitgraphgeom.ts` for coordinates). Pane 2 shows the selected commit's metadata and its changed files. Pane 3 is the existing diff renderer, unchanged in idiom, now fed either by the working tree or by a selected commit. Uncommitted work is row zero of the history rather than a separate mode, which is what lets the Browse / Review segmented control disappear rather than be replaced. All derivation is pure and unit-tested (`historyrows.ts`); the store is thin glue over the typed RPC, following `filesstore.ts`.
@@ -96,7 +98,7 @@ Selecting a commit must show that commit's own changed files and per-file diffs.
 - Consumes: `run`, `gitTimeout`, `Changes`, `Diff`, `nameStatusToStatusZ` — all already in `pkg/gitinfo`. The test fixtures `repoBranchMerge` (`gitinfo_test.go:758`), `gitAuthored` (`:735`) and `commitAuthored` (`:747`) came from plan 1 and are reused as-is.
 - Produces: `gitinfo.CommitChanges(ctx, cwd, hash) (*Changes, error)` and `gitinfo.CommitDiff(ctx, cwd, hash, path) (*Diff, error)`. For the frontend, `RpcApi.GitCommitChangesCommand(TabRpcClient, {cwd, hash})` returning `{statusz, numstat, isrepo}` and `RpcApi.GitCommitDiffCommand(TabRpcClient, {cwd, hash, path})` returning `{diff}`. Task 5's store calls both.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `pkg/gitinfo/gitinfo_test.go`:
 
@@ -198,12 +200,12 @@ func TestCommitChangesNotARepo(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./pkg/gitinfo/ -run "TestCommit" -v`
 Expected: FAIL to **build**, with `undefined: CommitChanges` and `undefined: CommitDiff`.
 
-- [ ] **Step 3: Implement the two readers**
+- [x] **Step 3: Implement the two readers**
 
 Append to `pkg/gitinfo/gitinfo.go`:
 
@@ -271,12 +273,12 @@ func CommitDiff(ctx context.Context, cwd, hash, path string) (*Diff, error) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./pkg/gitinfo/ -run "TestCommit" -v`
 Expected: PASS — all five cases.
 
-- [ ] **Step 5: Add the two RPC commands**
+- [x] **Step 5: Add the two RPC commands**
 
 In `pkg/wshrpc/wshrpctypes_git.go`, add to the `GitCommands` interface (after `GitDivergenceCommand`):
 
@@ -312,7 +314,7 @@ type CommandGitCommitDiffRtnData struct {
 }
 ```
 
-- [ ] **Step 6: Add the two handlers**
+- [x] **Step 6: Add the two handlers**
 
 Append to `pkg/wshrpc/wshserver/wshserver_git.go`:
 
@@ -334,7 +336,7 @@ func (ws *WshServer) GitCommitDiffCommand(ctx context.Context, data wshrpc.Comma
 }
 ```
 
-- [ ] **Step 7: Regenerate the bindings**
+- [x] **Step 7: Regenerate the bindings**
 
 Run: `task generate`
 Expected: no errors. Confirm the two new commands landed:
@@ -345,7 +347,7 @@ Expected: one line each.
 Run: `grep -n "CommandGitCommitChangesRtnData" frontend/types/gotypes.d.ts`
 Expected: one type declaration.
 
-- [ ] **Step 8: Verify the Go tree still builds and passes**
+- [x] **Step 8: Verify the Go tree still builds and passes**
 
 Run: `go build ./...`
 Expected: exit 0.
@@ -374,19 +376,19 @@ Doing the deletion first means Task 8 restructures a two-pane surface rather tha
 - Consumes: nothing new.
 - Produces: a Diff surface with no mode concept. `FilesSurface({ model })` keeps its signature. `buildReviewBindings` no longer exists; nothing outside the deleted files referenced it except the two keybinding test files.
 
-- [ ] **Step 1: Confirm the blast radius before deleting anything**
+- [x] **Step 1: Confirm the blast radius before deleting anything**
 
 Run: `grep -rn "reviewstore\|reviewsurface\|ReviewSurface\|buildReviewBindings" --include=*.ts --include=*.tsx frontend/`
 
 Expected: matches only in the three files to delete plus `bindings.ts`, `bindings.test.ts`, `store.test.ts`, and `filessurface.tsx`. If anything else appears, stop and report it — the plan's list is out of date.
 
-- [ ] **Step 2: Delete the three review files**
+- [x] **Step 2: Delete the three review files**
 
 ```bash
 git rm frontend/app/view/agents/reviewsurface.tsx frontend/app/view/agents/reviewstore.ts frontend/app/view/agents/reviewstore.test.ts
 ```
 
-- [ ] **Step 3: Prune the keybinding registry**
+- [x] **Step 3: Prune the keybinding registry**
 
 In `frontend/app/store/keybindings/bindings.ts`, delete the entire import block:
 
@@ -405,7 +407,7 @@ import {
 
 and delete the whole `buildReviewBindings` function together with its leading comment — everything from the line `// Files "Review" mode triage keys. Registered by ReviewSurface via useKeybindings, so they exist` down to and including the closing `}` of the function (the line immediately before the `// Run-body ask keys:` comment).
 
-- [ ] **Step 4: Prune the keybinding tests**
+- [x] **Step 4: Prune the keybinding tests**
 
 In `frontend/app/store/keybindings/bindings.test.ts`: delete the line
 
@@ -425,7 +427,7 @@ In `frontend/app/store/keybindings/store.test.ts`: remove `buildReviewBindings,`
     });
 ```
 
-- [ ] **Step 5: Strip the mode out of the surface**
+- [x] **Step 5: Strip the mode out of the surface**
 
 In `frontend/app/view/agents/filessurface.tsx`:
 
@@ -521,7 +523,7 @@ with:
                 <CenterPane path={selected} view={diff} cwd={state?.cwd ?? null} />
 ```
 
-- [ ] **Step 6: Verify nothing dangles**
+- [x] **Step 6: Verify nothing dangles**
 
 Run: `grep -rn "reviewstore\|reviewsurface\|ReviewSurface\|buildReviewBindings\|modeState" --include=*.ts --include=*.tsx frontend/`
 Expected: no output.
@@ -532,7 +534,7 @@ Expected: exit 0.
 Run: `npx vitest run frontend/app/store/keybindings/`
 Expected: PASS, with the review cases gone.
 
-- [ ] **Step 7: Note the orphaned backend, do not delete it**
+- [x] **Step 7: Note the orphaned backend, do not delete it**
 
 Removing the frontend orphans the revert path: `GitRevertCommand` in `pkg/wshrpc/wshrpctypes_projects.go:15` and `pkg/wshrpc/wshserver/wshserver_projects.go`, plus `RevertFile` and `RevertHunk` in `pkg/gitinfo/gitinfo.go` (covered by `TestRevertFileSubdir` and `TestRevertHunkSubdir`). **Leave all of it in place.** Removing tested Go code here widens the blast radius for no user-visible gain, and it follows the precedent already set for the orphaned standalone WaveAI chat block.
 
@@ -562,7 +564,7 @@ Three small gaps between what plan 1 produced and what a React component needs. 
 - Consumes: `GraphCommit`, `LanedRow`, `GraphGeometry` from plan 1.
 - Produces: `assignLanes<T extends GraphCommit>(commits: T[]): (T & { lane: number; merge: boolean })[]`; `GraphGeometry.foldX: number`; the CSS custom properties `--color-graphlane-1` … `--color-graphlane-6` and `--color-graphlane-fold`, available as Tailwind colour utilities and as `var(--color-graphlane-N)` in inline SVG attributes. Task 6's `graphgutter.tsx` uses all of them.
 
-- [ ] **Step 1: Write the failing test for `foldX`**
+- [x] **Step 1: Write the failing test for `foldX`**
 
 Append to `frontend/app/view/agents/gitgraphgeom.test.ts`:
 
@@ -578,12 +580,12 @@ it("reports where to draw the fold indicator, just left of the last drawable lan
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run frontend/app/view/agents/gitgraphgeom.test.ts`
 Expected: FAIL — `Property 'foldX' does not exist on type 'GraphGeometry'` at typecheck, or `expected undefined to be 36` at runtime.
 
-- [ ] **Step 3: Add `foldX` to the geometry**
+- [x] **Step 3: Add `foldX` to the geometry**
 
 In `frontend/app/view/agents/gitgraphgeom.ts`, add the field to the interface:
 
@@ -615,7 +617,7 @@ and include it in the return:
     };
 ```
 
-- [ ] **Step 4: Make `assignLanes` generic**
+- [x] **Step 4: Make `assignLanes` generic**
 
 In `frontend/app/view/agents/gitgraph.ts`, change the signature and the internal row type so display fields carried on the input survive with their types:
 
@@ -629,7 +631,7 @@ export function assignLanes<T extends GraphCommit>(commits: T[]): (T & { lane: n
 
 The body is otherwise unchanged — `rows.push({ ...commit, lane, merge: commit.parents.length > 1 })` already produces exactly that type. Leave `LanedRow` exported as-is; it remains the shape `graphGeometry` accepts, and `T & { lane; merge }` is assignable to it.
 
-- [ ] **Step 5: Add the lane palette**
+- [x] **Step 5: Add the lane palette**
 
 In `frontend/tailwindsetup.css`, insert immediately after the `--color-avatar-6` line (the end of the avatar palette block):
 
@@ -646,7 +648,7 @@ In `frontend/tailwindsetup.css`, insert immediately after the `--color-avatar-6`
     --color-graphlane-fold: #6b7178;
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run frontend/app/view/agents/gitgraph.test.ts frontend/app/view/agents/gitgraphgeom.test.ts`
 Expected: PASS — the seven lane-assignment cases and the ten geometry cases (nine from plan 1 plus the new `foldX` case).
@@ -668,7 +670,7 @@ Everything between "the RPC returned commits" and "the pane renders rows" is pur
 - Consumes: `GraphCommit` from `./gitgraph`; `formatAge(ms?: number): string` from `./agentsviewmodel` (returns `"just now"` / `"42m"` / `"3h"` / `"5d"`); the generated global type `HistoryCommit = { hash, parents, author, email, ts, subject, refs? }` — `ts` is UnixMilli.
 - Produces: `WORKING_TREE`, `RefKind`, `RefChip`, `HistoryRow`, `BuildRowsOpts`, `classifyRef(raw: string): RefChip | null`, `refChipClass(kind: RefKind): string`, `buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): HistoryRow[]`, `defaultSelection(rows: HistoryRow[]): string | null`. Tasks 5, 6 and 7 all consume `HistoryRow`; Tasks 6 and 7 both consume `refChipClass`, which is why it lives here rather than being duplicated in each pane — the same reasoning that puts `statusColor` in `gitstatus.ts`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/app/view/agents/historyrows.test.ts`:
 
@@ -805,12 +807,12 @@ describe("defaultSelection", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run frontend/app/view/agents/historyrows.test.ts`
 Expected: FAIL with `Failed to resolve import "./historyrows"`.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 Create `frontend/app/view/agents/historyrows.ts`:
 
@@ -941,12 +943,12 @@ export function defaultSelection(rows: HistoryRow[]): string | null {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run frontend/app/view/agents/historyrows.test.ts`
 Expected: PASS — all thirteen cases.
 
-- [ ] **Step 5: Typecheck**
+- [x] **Step 5: Typecheck**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 Expected: exit 0.
@@ -966,7 +968,7 @@ Panes 2 and 3 must show either the working tree or a commit. Rather than teachin
 - Consumes: `RpcApi.GitHistoryCommand` and the two commands from Task 1; `WORKING_TREE`, `buildRows`, `defaultSelection`, `HistoryRow` from Task 4; `filesStateAtom`, `filesDiffAtom`, `selectFile` from `./filesstore`; `parseGitChanges`, `GitChanges` from `./gitstatus`; `parseUnifiedDiff`, `FileView` from `./gitdiff`.
 - Produces: `historyRowsAtom`, `historyErrorAtom`, `selectedCommitAtom`, `selectedFileAtom`, `graphOnAtom`, `activeChangesAtom`, `activeDiffAtom`, `loadHistory(cwd, opts)`, `selectCommit(cwd, hash)`, `selectCommitFile(cwd, hash, path)`, `resetHistory()`. Tasks 6, 7 and 8 read these.
 
-- [ ] **Step 1: Write the store**
+- [x] **Step 1: Write the store**
 
 Create `frontend/app/view/agents/githistorystore.ts`:
 
@@ -1119,12 +1121,12 @@ export async function selectCommitFile(cwd: string, hash: string, path: string):
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 Expected: exit 0. If `GitCommitChangesCommand` is reported as missing on `RpcApi`, Task 1's `task generate` did not run — go back and run it.
 
-- [ ] **Step 3: Confirm the existing suite still passes**
+- [x] **Step 3: Confirm the existing suite still passes**
 
 Run: `npx vitest run frontend/app/view/agents/`
 Expected: PASS. This store has no test of its own by design — it is glue, and the repo convention is that pure derivation is tested (Task 4 covers it) while thin RPC plumbing is not. `filesstore.ts` has no test either.
@@ -1145,7 +1147,7 @@ Measurements come from the mockup: 34px rows, a 52px hash column, a 92px author 
 - Consumes: `GraphGeometry` from `./gitgraphgeom` (including Task 3's `foldX`); `assignLanes`, `laneCount` from `./gitgraph`; `graphGeometry` from `./gitgraphgeom`; `HistoryRow`, `RefChip`, `WORKING_TREE` from `./historyrows`; `SkeletonLine` from `@/app/element/skeleton`; `cn` from `@/util/util`.
 - Produces: `GraphGutter({ geom })` and `HistoryPane({ rows, selected, graphOn, loading, onSelect })`. Task 8 renders `HistoryPane`.
 
-- [ ] **Step 1: Write the gutter**
+- [x] **Step 1: Write the gutter**
 
 Create `frontend/app/view/agents/graphgutter.tsx`:
 
@@ -1223,7 +1225,7 @@ export function GraphGutter({ geom }: { geom: GraphGeometry }) {
 }
 ```
 
-- [ ] **Step 2: Write the pane**
+- [x] **Step 2: Write the pane**
 
 Create `frontend/app/view/agents/historypane.tsx`:
 
@@ -1412,7 +1414,7 @@ export function HistoryPane({
 }
 ```
 
-- [ ] **Step 3: Confirm every colour class resolves to a token**
+- [x] **Step 3: Confirm every colour class resolves to a token**
 
 Run: `grep -n "#[0-9a-fA-F]\{3,8\}\|rgba(" frontend/app/view/agents/graphgutter.tsx frontend/app/view/agents/historypane.tsx`
 Expected: no output. Every colour must be a `--color-*` token via a Tailwind utility or a `var()`.
@@ -1432,7 +1434,7 @@ Run: `for t in graphlane-2 graphlane-fold accent accent-soft accentbg warning su
 
 Expected: `1` on every line. A `0` means either Task 3's palette block was not added or a token was renamed since this plan was written — stop and report it rather than inventing a colour.
 
-- [ ] **Step 4: Typecheck**
+- [x] **Step 4: Typecheck**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 Expected: exit 0.
@@ -1452,7 +1454,7 @@ Provenance ("Produced by Run #148") appears in the mockup but nothing in the cod
 - Consumes: `HistoryRow`, `WORKING_TREE` from `./historyrows`; `GitChanges`, `statusColor` from `./gitstatus`; `SkeletonLine` from `@/app/element/skeleton`; `cn` from `@/util/util`.
 - Produces: `CommitPane({ row, changes, selectedFile, onSelectFile })`. Task 8 renders it.
 
-- [ ] **Step 1: Write the pane**
+- [x] **Step 1: Write the pane**
 
 Create `frontend/app/view/agents/commitpane.tsx`:
 
@@ -1581,7 +1583,7 @@ export function CommitPane({
 }
 ```
 
-- [ ] **Step 2: Confirm no raw colour and typecheck**
+- [x] **Step 2: Confirm no raw colour and typecheck**
 
 Run: `grep -n "#[0-9a-fA-F]\{3,8\}\|rgba(" frontend/app/view/agents/commitpane.tsx`
 Expected: no output.
@@ -1604,7 +1606,7 @@ The last task assembles the three panes and replaces the header. The source drop
 - Consumes: `HistoryPane` (Task 6), `CommitPane` (Task 7), and from `./githistorystore` (Task 5) `historyRowsAtom`, `historyErrorAtom`, `selectedCommitAtom`, `selectedFileAtom`, `graphOnAtom`, `activeChangesAtom`, `activeDiffAtom`, `loadHistory`, `selectCommit`, `selectCommitFile`, `resetHistory`; `WORKING_TREE` from `./historyrows`.
 - Produces: nothing new. `FilesSurface({ model })` keeps its signature and its `SurfaceKey` (`files`).
 
-- [ ] **Step 1: Add the imports**
+- [x] **Step 1: Add the imports**
 
 In `frontend/app/view/agents/filessurface.tsx`, add:
 
@@ -1627,7 +1629,7 @@ import { HistoryPane } from "./historypane";
 import { WORKING_TREE } from "./historyrows";
 ```
 
-- [ ] **Step 2: Read the new atoms and derive the scope**
+- [x] **Step 2: Read the new atoms and derive the scope**
 
 Inside `FilesSurface`, after the existing `const diff = useAtomValue(filesDiffAtom);`, add:
 
@@ -1654,7 +1656,7 @@ After the existing `source` derivation, add the scope label and ref expression:
           : `${state?.branch || "—"} · all refs`;
 ```
 
-- [ ] **Step 3: Load history alongside the change list**
+- [x] **Step 3: Load history alongside the change list**
 
 Add an effect immediately after the existing change-loading effect. It depends on `state?.cwd` rather than the source, so history loads once the change list has resolved the working directory — the uncommitted row's file count comes from that same change list.
 
@@ -1676,7 +1678,7 @@ Add an effect immediately after the existing change-loading effect. It depends o
     }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId]);
 ```
 
-- [ ] **Step 4: Point list-nav at the history**
+- [x] **Step 4: Point list-nav at the history**
 
 Replace the `browseNav` memo (as left by Task 2) so `j`/`k` move through commits rather than files — the history is now the surface's primary list:
 
@@ -1715,7 +1717,7 @@ git rm frontend/app/view/agents/filesmotion.ts frontend/app/view/agents/filesmot
 
 `FilesSource` stays exported from `filessurface.tsx` — `SourcePicker` still takes it.
 
-- [ ] **Step 5: Replace the render**
+- [x] **Step 5: Replace the render**
 
 Replace everything from the `return (` of `FilesSurface` (as left by Task 2) through the end of the function with:
 
@@ -1845,7 +1847,7 @@ Replace everything from the `return (` of `FilesSurface` (as left by Task 2) thr
 
 Note the `cwd` passed to `CenterPane`: null for a historical commit, which suppresses the "Open in editor" button. Opening the *current* file on disk while reading a *past* commit's diff would show something that does not match what is on screen.
 
-- [ ] **Step 6: Remove what the restructure orphaned**
+- [x] **Step 6: Remove what the restructure orphaned**
 
 The old left column is gone, so `FileRow`, `FileListSkeleton`, the `ContextMenuModel` file context menu and the `Copy` / `Pencil` lucide imports have no caller in this file. Delete each one whose usage `grep` shows is now zero:
 
@@ -1853,7 +1855,7 @@ Run: `grep -n "FileRow\|FileListSkeleton\|ContextMenuModel\|Pencil\|Copy\|Stacke
 
 Delete every symbol this reports as declared-but-unused, along with its import. `EmptyCenter`, `DiffRow`, `CenterPane`, `SourcePicker`, `baseName` and `joinPath` all stay — `CenterPane` is pane 3 and `SourcePicker` is the repository chip. If `baseName` and `dirLabel` are now unused, delete them too.
 
-- [ ] **Step 7: Typecheck and run the full frontend suite**
+- [x] **Step 7: Typecheck and run the full frontend suite**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 Expected: exit 0.
@@ -1861,7 +1863,7 @@ Expected: exit 0.
 Run: `npx vitest run`
 Expected: PASS. Against plan 1's merged baseline the suite was 1449 passed / 2 skipped / 0 failed; this plan removes `reviewstore.test.ts` and adds `historyrows.test.ts` plus one geometry case, so expect a different total but still zero failures.
 
-- [ ] **Step 8: Lint the files you touched**
+- [x] **Step 8: Lint the files you touched**
 
 Run: `npx eslint frontend/app/view/agents/historyrows.ts frontend/app/view/agents/githistorystore.ts frontend/app/view/agents/graphgutter.tsx frontend/app/view/agents/historypane.tsx frontend/app/view/agents/commitpane.tsx frontend/app/view/agents/filessurface.tsx`
 Expected: no errors.
@@ -1870,7 +1872,7 @@ Run: `npx prettier --check frontend/app/view/agents/historyrows.ts frontend/app/
 
 Expected: pass. These six files are wholly yours, so `npx prettier --write` on **them specifically** is safe if it complains. Do **not** run `--write` on `filessurface.tsx` — it is a pre-existing file and `--write` reorders its imports and rewraps the whole thing, turning your edit into a several-hundred-line diff. Hand-format your own lines there.
 
-- [ ] **Step 9: Verify the rendered surface over the Chrome DevTools Protocol**
+- [x] **Step 9: Verify the rendered surface over the Chrome DevTools Protocol**
 
 There are no render tests, so this is how "does it draw" is answered. With the dev app running (`task dev`):
 
@@ -1880,7 +1882,7 @@ Then open the PNG and confirm, against `wave-handoff/wave/project/Wave-git-revie
 
 Report what you see. If the dev app is not running, say so and skip this step rather than reporting it as passed.
 
-- [ ] **Step 10: Report for review — do not commit**
+- [x] **Step 10: Report for review — do not commit**
 
 Summarise: the five Go tests from Task 1, the thirteen `historyrows` cases, the `foldX` case, the full frontend suite result, `go build ./...`, the typecheck, and what the screenshot showed. Then stop and hand back for the single end-of-work commit, which needs explicit approval.
 

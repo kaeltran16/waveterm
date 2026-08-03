@@ -1581,20 +1581,35 @@ const jarvisSubjectState = {
 const jarvisAttribution = {
     name: "jarvis-attribution",
     surface: "jarvis",
-    async assert(h) {
+    // Start from a clean atom state. The record's detail and scope reads are cache-guarded, so an entry
+    // left by an earlier scenario would make the run count disagree with the vault and fail the wrong step.
+    async arrange(h) {
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
+        return {};
+    },
+    async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
         await h.goto("jarvis");
         await settle(500);
 
-        // the Records group starts collapsed (subjects.ts DEFAULT_COLLAPSED)
-        await h.ev(`(() => {
-            const h = [...document.querySelectorAll('button')].find((b) => /^records/i.test((b.innerText || '').trim()));
-            if (h) h.click();
-            return !!h;
+        // the Records group starts collapsed (subjects.ts DEFAULT_COLLAPSED). The header's text leads with
+        // its own disclosure glyph ("▸ RECORDS 19"), so match that shape rather than anchoring on the word,
+        // and only click while it is still collapsed — clicking an expanded header would close it.
+        const groupOpened = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')]
+                .find((x) => /^[▸▾]\\s*records\\b/i.test((x.innerText || '').trim()));
+            if (!b) return 'nogroup';
+            if (/^▸/.test((b.innerText || '').trim())) b.click();
+            return 'ok';
         })()`);
-        await settle(300);
+        if (groupOpened !== "ok") {
+            rec("0. the Records group is present in the subjects column", false, `header not found (${groupOpened})`);
+            return steps;
+        }
+        await settle(400);
 
         // record rows carry their dossier id in the row's own text; select each until one has runs.
         const recordCount = await h.ev(`(() => {
@@ -1611,6 +1626,17 @@ const jarvisAttribution = {
         // a run row is the only element on the record's thread carrying an EdgeControls detach button
         const runCount = () =>
             h.ev(`[...document.querySelectorAll('button')].filter((b) => /not this record/i.test(b.innerText || '')).length`);
+        const detachedVisible = () => h.ev(`/detached\\s*·\\s*[1-9]/i.test(document.body.innerText || '')`);
+        // A correction round trip is three RPCs deep (the write, then the record's detail and scope re-read)
+        // before the UI can settle — measured at ~2s against a real vault. Poll for the expected state
+        // instead of sleeping a guessed interval, so the check is neither flaky nor slower than it needs.
+        const waitFor = async (pred, budgetMs = 12000) => {
+            for (const t0 = Date.now(); ; ) {
+                if (await pred()) return true;
+                if (Date.now() - t0 > budgetMs) return false;
+                await settle(300);
+            }
+        };
 
         let found = -1;
         for (let i = 0; i < recordCount && found < 0; i++) {
@@ -1630,45 +1656,94 @@ const jarvisAttribution = {
         }
         const before = await runCount();
 
+        // Resolve which record is selected so teardown can undo a run that dies between detach and restore
+        // — this writes to the user's own vault. The row exposes only its label, so match that back to the
+        // record list, and remember what was already detached so teardown restores only what this run did.
+        const rowLabel = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-subject-kind="dossier"]')];
+            return rows[${found}] ? rows[${found}].getAttribute('aria-label') || '' : '';
+        })()`);
+        const listed = await h.rpc("listtaskdossiers", null);
+        const match = (listed?.dossiers ?? []).find((d) => (d.objective ?? "") === rowLabel);
+        if (match != null) {
+            ctx.dossierId = match.id;
+            const pre = await h.rpc("listdetachededges", { dossierid: match.id });
+            ctx.baseline = new Set((pre?.edges ?? []).map((e) => e.oref));
+        }
+
         // 1. detach: the run leaves the list and appears under Detached. The dialog fires because a run
         // reaching a record's list is treated as confirmed (see recordthread.tsx) — the cautious path.
-        await h.ev(`(() => {
+        // Both clicks report whether they landed: a selector that matches nothing would otherwise read as
+        // "the feature did nothing", which is the one diagnosis this scenario must never invent.
+        const clickedDetach = await h.ev(`(() => {
             const b = [...document.querySelectorAll('button')].find((x) => /not this record/i.test(x.innerText || ''));
+            if (!b) return false;
             b.click();
             return true;
         })()`);
         await settle(300);
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => /^detach$/i.test((x.innerText || '').trim()));
+        // the dialog's confirm carries its key hint in the label ("Detach ⏎"), so match the word, not the
+        // whole string.
+        const confirmedDetach = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[role="dialog"] button, button')]
+                .find((x) => /^detach\\b/i.test((x.innerText || '').trim()));
             if (!b) return false;
             b.click();
             return true;
         })()`);
-        await settle(900);
+        await waitFor(async () => (await runCount()) === before - 1 && (await detachedVisible()) === true);
         const afterDetach = await runCount();
-        const detachedGroup = await h.ev(`/detached\\s*·\\s*[1-9]/i.test(document.body.innerText || '')`);
+        const detachedGroup = await detachedVisible();
+        const detachOk = clickedDetach === true && confirmedDetach === true && afterDetach === before - 1 && detachedGroup === true;
         rec(
             "1. detaching removes the run from the record and lists it under Detached",
-            afterDetach === before - 1 && detachedGroup === true,
-            `runs ${before} -> ${afterDetach}, detachedGroupVisible=${detachedGroup}`
+            detachOk,
+            `runs ${before} -> ${afterDetach}, detachedGroupVisible=${detachedGroup}, clicked=${clickedDetach}, confirmed=${confirmedDetach}`
         );
 
         // 2. restore: the starting state returns. This is also the teardown — the vault is the user's.
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => /restore/i.test(x.innerText || ''));
+        // Gated on the detach: with nothing detached, "the count is unchanged" is trivially true, and an
+        // ungated step 2 would go green off the back of a failed step 1.
+        if (!detachOk) {
+            rec("2. restoring returns the run and empties the Detached group", false, "skipped — nothing was detached to restore");
+            return steps;
+        }
+        const clickedRestore = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => /^restore\\b/i.test((x.innerText || '').trim()));
             if (!b) return false;
             b.click();
             return true;
         })()`);
-        await settle(900);
+        await waitFor(async () => (await runCount()) === before && (await detachedVisible()) === false);
         const afterRestore = await runCount();
-        const groupGone = await h.ev(`!/detached\\s*·\\s*[1-9]/i.test(document.body.innerText || '')`);
+        const groupGone = (await detachedVisible()) === false;
         rec(
             "2. restoring returns the run and empties the Detached group",
-            afterRestore === before && groupGone === true,
-            `runs ${afterDetach} -> ${afterRestore} (started at ${before}), detachedGroupGone=${groupGone}`
+            clickedRestore === true && afterRestore === before && groupGone === true,
+            `runs ${afterDetach} -> ${afterRestore} (started at ${before}), detachedGroupGone=${groupGone}, clicked=${clickedRestore}`
         );
         return steps;
+    },
+    // A run that fails partway leaves two kinds of debris, both observed: the confirm dialog stays stacked
+    // and blocks every later scenario's clicks, and the edge stays detached in the user's real vault.
+    async teardown(h, ctx) {
+        for (let i = 0; i < 4; i++) {
+            if ((await h.ev(`document.querySelectorAll('[role="dialog"]').length`)) === 0) break;
+            await h.ev(`(() => {
+                const b = [...document.querySelectorAll('button')].find((x) => /^cancel\\b/i.test((x.innerText || '').trim()));
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+            await h.ev(`new Promise((r) => setTimeout(r, 200))`);
+        }
+        if (ctx?.dossierId == null) return;
+        const now = await h.rpc("listdetachededges", { dossierid: ctx.dossierId });
+        for (const e of now?.edges ?? []) {
+            if (!ctx.baseline?.has(e.oref)) {
+                await h.rpc("acceptdossieredge", { dossierid: ctx.dossierId, runoref: e.oref });
+            }
+        }
     },
 };
 

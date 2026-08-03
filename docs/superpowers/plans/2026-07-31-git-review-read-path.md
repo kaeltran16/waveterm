@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: shipped.** Executed and merged 2026-07-31 as commit `010fa7e9` (Go history/divergence readers, the `GitCommands` RPC interface, and the two pure lane-layout modules). The checkboxes below were ticked retroactively on 2026-08-03 — the worker never marked them during execution, so git history is the authoritative record. Re-verified 2026-08-03: `go test ./pkg/gitinfo/` passes, and the lane-assignment plus SVG-geometry suites (`gitgraph.test.ts`, `gitgraphgeom.test.ts`) pass.
+
 **Goal:** Build and test the read path and graph-layout maths behind commit history and branch comparison in the Diff surface, with no UI changes.
 
 **Architecture:** Extend `pkg/gitinfo` with a full history walk (parents, ref decoration, author, pagination, filters) and a divergence reader, expose both through a new per-domain RPC interface (`GitCommands`), and add two pure frontend modules — lane assignment and SVG geometry — each unit-tested. Nothing renders; this plan produces callable, tested functions that plan 2 (surface restructure) consumes.
@@ -35,7 +37,7 @@ Adds the one genuinely missing read: a paginated commit walk carrying parent lin
 - Consumes: the package-local `run(ctx, cwd, args ...string) (string, error)` helper and the `gitTimeout` constant, both already in `gitinfo.go`.
 - Produces: `gitinfo.HistoryLog(ctx context.Context, cwd string, opts HistoryOpts) (*History, error)`, plus the exported types `HistoryCommit`, `HistoryOpts`, `History`. Task 2 and Task 3 both call this.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `pkg/gitinfo/gitinfo_test.go`:
 
@@ -181,12 +183,12 @@ func TestHistoryLogNotARepo(t *testing.T) {
 
 `gitinfo_test.go` already imports `context`, `os`, `strings` and `testing` for its existing tests; add `os/exec` and `path/filepath` to the import block if they are not present.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./pkg/gitinfo/ -run 'TestHistoryLog' -v`
 Expected: FAIL — compile error, `undefined: HistoryLog`, `undefined: HistoryOpts`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Append to `pkg/gitinfo/gitinfo.go`:
 
@@ -322,12 +324,12 @@ func parseDecoration(d string) []string {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./pkg/gitinfo/ -run 'TestHistoryLog' -v`
 Expected: PASS — all five tests.
 
-- [ ] **Step 5: Confirm nothing else in the package regressed**
+- [x] **Step 5: Confirm nothing else in the package regressed**
 
 Run: `go test ./pkg/gitinfo/`
 Expected: PASS (`ok`). Do not commit; see Global Constraints.
@@ -346,7 +348,7 @@ Branch comparison needs both divergent commit lists and the merge base. Built on
 - Consumes: `HistoryLog` / `HistoryOpts` / `HistoryCommit` from Task 1.
 - Produces: `gitinfo.GetDivergence(ctx context.Context, cwd, base, head string) (*Divergence, error)` and the `Divergence` type. Task 3 calls this.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `pkg/gitinfo/gitinfo_test.go`:
 
@@ -451,12 +453,12 @@ func TestGetDivergenceNotARepo(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./pkg/gitinfo/ -run 'TestGetDivergence' -v`
 Expected: FAIL — compile error, `undefined: GetDivergence`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Append to `pkg/gitinfo/gitinfo.go`:
 
@@ -500,12 +502,12 @@ func GetDivergence(ctx context.Context, cwd, base, head string) (*Divergence, er
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./pkg/gitinfo/ -run 'TestGetDivergence' -v`
 Expected: PASS — all four tests.
 
-- [ ] **Step 5: Confirm the package is still green**
+- [x] **Step 5: Confirm the package is still green**
 
 Run: `go test ./pkg/gitinfo/`
 Expected: PASS (`ok`).
@@ -526,7 +528,7 @@ The typed RPC spine is split one file per domain. History and divergence get the
 - Consumes: `gitinfo.HistoryLog`, `gitinfo.HistoryOpts`, `gitinfo.History` (Task 1); `gitinfo.GetDivergence`, `gitinfo.Divergence` (Task 2).
 - Produces: for the frontend, `RpcApi.GitHistoryCommand(TabRpcClient, {cwd, ref?, skip?, limit?, author?, grep?, path?})` returning `{commits, head, isrepo}`, and `RpcApi.GitDivergenceCommand(TabRpcClient, {cwd, base, head})` returning `{ahead, behind, mergebase, isrepo}`. Plan 2's history store calls both.
 
-- [ ] **Step 1: Declare the domain interface and its payload types**
+- [x] **Step 1: Declare the domain interface and its payload types**
 
 Create `pkg/wshrpc/wshrpctypes_git.go`:
 
@@ -581,11 +583,11 @@ type CommandGitDivergenceRtnData struct {
 }
 ```
 
-- [ ] **Step 2: Add the domain to the composed interface**
+- [x] **Step 2: Add the domain to the composed interface**
 
 In `pkg/wshrpc/wshrpctypes.go`, inside `type WshRpcInterface interface { … }` (lines 35–52), add `GitCommands` on its own line alongside the existing entries (`CoreCommands`, `BlockCommands`, `ConnCommands`, …, `AskCommands`, `WshRpcRemoteFileInterface`, `WshRpcFileInterface`).
 
-- [ ] **Step 3: Implement the server side**
+- [x] **Step 3: Implement the server side**
 
 Create `pkg/wshrpc/wshserver/wshserver_git.go`:
 
@@ -631,12 +633,12 @@ func (ws *WshServer) GitDivergenceCommand(ctx context.Context, data wshrpc.Comma
 
 Confirm the receiver matches the existing convention in `wshserver_projects.go:68` and `:80` — `func (ws *WshServer) …` — and fix if it has since changed.
 
-- [ ] **Step 4: Regenerate the bindings**
+- [x] **Step 4: Regenerate the bindings**
 
 Run: `task generate`
 Expected: exit 0, with `frontend/app/store/wshclientapi.ts` and `pkg/wshrpc/wshclient/wshclient.go` modified. Confirm `GitHistoryCommand` and `GitDivergenceCommand` now appear in `wshclientapi.ts`. Never hand-edit either file.
 
-- [ ] **Step 5: Verify the Go side builds and the generated TypeScript typechecks**
+- [x] **Step 5: Verify the Go side builds and the generated TypeScript typechecks**
 
 Run, from the repo root in PowerShell:
 
@@ -662,7 +664,7 @@ The mockup hardcodes a lane index per fixture commit. Real history has to be lai
 - Consumes: nothing — a pure module.
 - Produces: `assignLanes(commits: GraphCommit[]): LanedRow[]` and `laneCount(rows: LanedRow[]): number`, plus the exported types `GraphCommit` and `LanedRow`. Task 5 consumes `LanedRow[]`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/app/view/agents/gitgraph.test.ts`:
 
@@ -721,12 +723,12 @@ describe("assignLanes", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run frontend/app/view/agents/gitgraph.test.ts`
 Expected: FAIL — cannot resolve `./gitgraph`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `frontend/app/view/agents/gitgraph.ts`:
 
@@ -810,7 +812,7 @@ export function laneCount(rows: LanedRow[]): number {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run frontend/app/view/agents/gitgraph.test.ts`
 Expected: PASS — all seven cases.
@@ -829,7 +831,7 @@ Turns laned rows into SVG coordinates. Mirrors the mockup's `buildGraph` numbers
 - Consumes: `LanedRow` from Task 4 (`./gitgraph`).
 - Produces: `graphGeometry(rows: LanedRow[], opts: GeometryOpts): GraphGeometry`, plus `GeometryOpts`, `GraphGeometry`, `GraphEdge`, `GraphNode`. Plan 2's history pane renders these.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/app/view/agents/gitgraphgeom.test.ts`:
 
@@ -916,12 +918,12 @@ describe("graphGeometry", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run frontend/app/view/agents/gitgraphgeom.test.ts`
 Expected: FAIL — cannot resolve `./gitgraphgeom`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `frontend/app/view/agents/gitgraphgeom.ts`:
 
@@ -1046,17 +1048,17 @@ export function graphGeometry(rows: LanedRow[], opts: GeometryOpts): GraphGeomet
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run frontend/app/view/agents/gitgraphgeom.test.ts`
 Expected: PASS — all nine cases.
 
-- [ ] **Step 5: Typecheck both new frontend modules**
+- [x] **Step 5: Typecheck both new frontend modules**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 Expected: exit 0. Baseline is clean, so any reported error belongs to this task.
 
-- [ ] **Step 6: Report for review — do not commit**
+- [x] **Step 6: Report for review — do not commit**
 
 Summarise: the five Go tests and four divergence tests passing, the two new RPC commands present in the regenerated `frontend/app/store/wshclientapi.ts`, and the sixteen frontend cases passing. Then stop and hand back for the single end-of-work commit, which needs explicit approval.
 

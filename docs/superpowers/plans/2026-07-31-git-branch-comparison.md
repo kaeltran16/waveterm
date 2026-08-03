@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: shipped.** Executed and merged 2026-07-31 as commit `cea7ec8a` (the repo's current HEAD). The checkboxes below were ticked retroactively on 2026-08-03 — the worker never marked them during execution, so git history is the authoritative record. The one-off Chrome-DevTools-Protocol screenshot step is backed by `cdp-shots/compare-1-history.png` through `compare-6-back.png` and `cmp-a-aggregate.png` through `cmp-e-exit.png`, captured 2026-07-31 15:58–17:01. Re-verified 2026-08-03: `go test ./pkg/gitinfo/` passes and the six git-module vitest files pass (64 cases), including the 17 branch-comparison row cases in `comparerows.test.ts`.
+
 **Goal:** Give the Diff surface a branch-comparison state — two labelled divergent commit lists, the merge base, and the aggregate file diff between two refs — driven by an editable two-ref control in the subject bar.
 
 **Architecture:** Compare is a two-ref variant of the surface's existing repo scope, not a new surface and not a mode. Entering it swaps the left column (`comparecolumn.tsx`) and the middle pane (`aggregatepane.tsx`); the right-hand diff pane is untouched and shared with history. Three new Go readers back it, two new RPC commands expose them, and one already-shipped-but-uncalled command (`GitDivergenceCommand`) finally gets its caller.
@@ -34,7 +36,7 @@
 - Consumes: the package's existing `run`, `nameStatusToStatusZ`, `gitTimeout`, and the `Changes` / `Diff` structs; the test fixtures `gitAuthored`, `commitAuthored`, `repoDiverged`.
 - Produces: `gitinfo.CompareChanges(ctx, cwd, base, head string) (*Changes, error)`, `gitinfo.CompareDiff(ctx, cwd, base, head, path string) (*Diff, error)`, `gitinfo.DefaultBranch(ctx, cwd string) (string, error)`. Task 2 wraps all three in RPC commands.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `pkg/gitinfo/gitinfo_test.go`. `repoDiverged` (already at line 880) builds exactly what these need: `main` has the root commit plus `m1.txt`, `feature` has the root commit plus `f1.txt` and `f2.txt`.
 
@@ -167,13 +169,13 @@ func TestDefaultBranchNoneResolve(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./pkg/gitinfo/... -run "Compare|DefaultBranch" -v`
 
 Expected: FAIL — the package does not compile, because `CompareChanges`, `CompareDiff` and `DefaultBranch` are undefined.
 
-- [ ] **Step 3: Implement the three readers**
+- [x] **Step 3: Implement the three readers**
 
 Append to `pkg/gitinfo/gitinfo.go`:
 
@@ -241,7 +243,7 @@ func DefaultBranch(ctx context.Context, cwd string) (string, error) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./pkg/gitinfo/... -run "Compare|DefaultBranch" -v`
 
@@ -262,7 +264,7 @@ Expected: PASS, nine tests. Then run the whole package to prove nothing regresse
 - Consumes: Task 1's `gitinfo.CompareChanges`, `gitinfo.CompareDiff`, `gitinfo.DefaultBranch`.
 - Produces: `RpcApi.GitCompareChangesCommand(TabRpcClient, {cwd, base, head})` → `{statusz, numstat, isrepo}`; `RpcApi.GitCompareDiffCommand(TabRpcClient, {cwd, base, head, path})` → `{diff}`; and a `default` field on the existing `ListBranchesCommand` return. Task 4's store calls all three.
 
-- [ ] **Step 1: Add the two commands to the git domain**
+- [x] **Step 1: Add the two commands to the git domain**
 
 In `pkg/wshrpc/wshrpctypes_git.go`, add to the `GitCommands` interface, after `GitCommitDiffCommand`:
 
@@ -300,7 +302,7 @@ type CommandGitCompareDiffRtnData struct {
 }
 ```
 
-- [ ] **Step 2: Add the two handlers**
+- [x] **Step 2: Add the two handlers**
 
 Append to `pkg/wshrpc/wshserver/wshserver_git.go`:
 
@@ -322,7 +324,7 @@ func (ws *WshServer) GitCompareDiffCommand(ctx context.Context, data wshrpc.Comm
 }
 ```
 
-- [ ] **Step 3: Add the default-branch field to the branches command**
+- [x] **Step 3: Add the default-branch field to the branches command**
 
 In `pkg/wshrpc/wshrpctypes_projects.go`, change `CommandListBranchesRtnData` (currently lines 40-42) to:
 
@@ -355,13 +357,13 @@ func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.Comman
 }
 ```
 
-- [ ] **Step 4: Regenerate the bindings**
+- [x] **Step 4: Regenerate the bindings**
 
 Run: `task generate`
 
 Expected: exit 0, and `frontend/app/store/wshclientapi.ts`, `frontend/types/gotypes.d.ts`, `pkg/wshrpc/wshclient/wshclient.go` change. Do not edit any of the three by hand.
 
-- [ ] **Step 5: Verify the generated surface and that the Go tree builds**
+- [x] **Step 5: Verify the generated surface and that the Go tree builds**
 
 Run:
 
@@ -387,7 +389,7 @@ Expected: the first prints `2` or more; the second shows `default?: string` on t
 - Consumes: `HistoryCommit` and `BranchInfo` (global generated types, no import needed); `GitChanges` from `./gitstatus`; `HistoryRow`, `RefChip`, `classifyRef` from `./historyrows`.
 - Produces: `AGGREGATE`, `CompareSide`, `CompareRow` (union of `CompareAggregateRow` | `CompareHeaderRow` | `CompareCommitRow`), `SIDE_DOT`, `SIDE_TEXT`, `buildCompareRows(opts)`, `compareNavIds(rows)`, `sideJumpTarget(rows, fromId)`. Also `toRow(commit, now)` newly exported from `historyrows.ts`. Tasks 4, 6 and 8 consume these; `CompareCommitRow` extends `HistoryRow` specifically so Task 8 can hand a selected compare commit straight to the shipped `CommitPane` with no adapter.
 
-- [ ] **Step 1: Extract the shared commit-to-row mapper**
+- [x] **Step 1: Extract the shared commit-to-row mapper**
 
 In `frontend/app/view/agents/historyrows.ts`, add `toRow` above `buildRows` and rewrite `buildRows`'s `map` to use it. Replace lines 106–119 (`export function buildRows` through the close of the `.map`) with:
 
@@ -420,13 +422,13 @@ export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): Histor
 
 Leave the rest of `buildRows` (the `dirtyFileCount` guard and the `rows.unshift` of the working-tree row, lines 120–139) exactly as it is.
 
-- [ ] **Step 2: Confirm the extraction changed no behaviour**
+- [x] **Step 2: Confirm the extraction changed no behaviour**
 
 Run: `npx vitest run frontend/app/view/agents/historyrows.test.ts`
 
 Expected: PASS, all thirteen existing cases. This is a pure refactor — if any case fails, `toRow` differs from the inline mapping it replaced.
 
-- [ ] **Step 3: Write the failing test for the compare row model**
+- [x] **Step 3: Write the failing test for the compare row model**
 
 Create `frontend/app/view/agents/comparerows.test.ts`:
 
@@ -553,13 +555,13 @@ describe("sideJumpTarget", () => {
 });
 ```
 
-- [ ] **Step 4: Run the test to verify it fails**
+- [x] **Step 4: Run the test to verify it fails**
 
 Run: `npx vitest run frontend/app/view/agents/comparerows.test.ts`
 
 Expected: FAIL — cannot resolve `./comparerows`.
 
-- [ ] **Step 5: Write the module**
+- [x] **Step 5: Write the module**
 
 Create `frontend/app/view/agents/comparerows.ts`:
 
@@ -693,13 +695,13 @@ export function sideJumpTarget(rows: CompareRow[], fromId: string | null): strin
 }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run frontend/app/view/agents/comparerows.test.ts frontend/app/view/agents/historyrows.test.ts`
 
 Expected: PASS — the seventeen new compare cases and all thirteen history cases.
 
-- [ ] **Step 7: Typecheck**
+- [x] **Step 7: Typecheck**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 
@@ -721,7 +723,7 @@ Expected: exit 0.
 1. The spec lists a `compareDefaultAtom` holding the repo's default branch. It would be write-only: `loadCompareRefsMeta` returns the default directly and `enterCompare` consumes the return value, so nothing ever reads the atom. Dropped.
 2. The spec's store table pairs a derived diff atom with the derived `compareActiveChangesAtom`. Both selection states write the *same* diff atom, so that derivation would be an identity function over it. The primitive `compareDiffAtom` is exported directly instead.
 
-- [ ] **Step 1: Write the store**
+- [x] **Step 1: Write the store**
 
 Create `frontend/app/view/agents/comparestore.ts`:
 
@@ -935,13 +937,13 @@ export async function selectCompareFile(cwd: string, path: string): Promise<void
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [x] **Step 2: Typecheck**
 
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit`
 
 Expected: exit 0. If `GitCompareChangesCommand` or `default` on the branches return is reported missing on `RpcApi`, Task 2's `task generate` did not run — go back and run it.
 
-- [ ] **Step 3: Confirm the existing suite still passes**
+- [x] **Step 3: Confirm the existing suite still passes**
 
 Run: `npx vitest run`
 
@@ -961,7 +963,7 @@ Expected: PASS. This store has no test of its own by design — it is thin RPC p
 
 This is a pure refactor: no behaviour change, no new props beyond what `CommitPane` already passes down.
 
-- [ ] **Step 1: Create the shared list**
+- [x] **Step 1: Create the shared list**
 
 Create `frontend/app/view/agents/changedfilelist.tsx`:
 
@@ -1041,7 +1043,7 @@ export function ChangedFileList({
 
 Note the skeleton's markup: copy `FileListSkeleton` from `commitpane.tsx:17-28` verbatim rather than inventing one, so the loading state does not visibly change.
 
-- [ ] **Step 2: Point the commit pane at it**
+- [x] **Step 2: Point the commit pane at it**
 
 In `frontend/app/view/agents/commitpane.tsx`:
 
@@ -1056,7 +1058,7 @@ In `frontend/app/view/agents/commitpane.tsx`:
             </div>
 ```
 
-- [ ] **Step 3: Verify nothing dangles and the tree still typechecks**
+- [x] **Step 3: Verify nothing dangles and the tree still typechecks**
 
 Run:
 
@@ -1080,7 +1082,7 @@ Expected: the grep prints nothing (all three moved to `changedfilelist.tsx`); ty
 - Consumes: `AGGREGATE`, `CompareRow`, `CompareCommitRow`, `CompareHeaderRow`, `SIDE_DOT`, `SIDE_TEXT` from `./comparerows`; `ChangedFileList` from `./changedfilelist`; `GitChanges` from `./gitstatus`; `SkeletonLine` from `@/app/element/skeleton`; `cn` from `@/util/util`.
 - Produces: `CompareColumn({ rows, selected, mergeBase, error, loading, onSelect })` and `AggregatePane({ base, head, changes, selectedFile, onSelectFile })`. Task 8 renders both.
 
-- [ ] **Step 1: Write the column**
+- [x] **Step 1: Write the column**
 
 Create `frontend/app/view/agents/comparecolumn.tsx`:
 
@@ -1281,7 +1283,7 @@ export function CompareColumn({
 }
 ```
 
-- [ ] **Step 2: Write the aggregate pane**
+- [x] **Step 2: Write the aggregate pane**
 
 Create `frontend/app/view/agents/aggregatepane.tsx`:
 
@@ -1340,7 +1342,7 @@ export function AggregatePane({
 }
 ```
 
-- [ ] **Step 3: Confirm every colour resolves to a token, and typecheck**
+- [x] **Step 3: Confirm every colour resolves to a token, and typecheck**
 
 Run:
 
@@ -1367,7 +1369,7 @@ Expected: the first grep prints nothing (no raw colour anywhere); every token li
 
 The chip displays **head first, then base**, following the mockup (its ref expression at line 871 and the aggregate arrow at lines 405–407 both order it that way). Focus on entry lands on the **base** field regardless of position, because head is almost always the branch you are already on.
 
-- [ ] **Step 1: Write the picker**
+- [x] **Step 1: Write the picker**
 
 Create `frontend/app/view/agents/refpicker.tsx`:
 
@@ -1529,7 +1531,7 @@ export function RefPicker({
 }
 ```
 
-- [ ] **Step 2: Confirm the tokens exist and typecheck**
+- [x] **Step 2: Confirm the tokens exist and typecheck**
 
 Run:
 
@@ -1554,7 +1556,7 @@ Expected: no raw colour; every token prints `1`; typecheck exits 0. If `accent-e
 - Consumes: from `./comparestore` — `compareOnAtom`, `compareRefsAtom`, `compareSidesAtom`, `compareAggregateAtom`, `compareSelectionAtom`, `compareSelectedFileAtom`, `compareErrorAtom`, `compareBranchesAtom`, `compareActiveChangesAtom`, `compareDiffAtom`, `enterCompare`, `setCompareRefs`, `selectCompareRow`, `selectCompareFile`, `exitCompare`; from `./comparerows` — `AGGREGATE`, `buildCompareRows`, `compareNavIds`, `type CompareCommitRow`; `CompareColumn` from `./comparecolumn`; `AggregatePane` from `./aggregatepane`; `RefPicker` from `./refpicker`.
 - Produces: a working compare state on the Diff surface. Task 9 attaches keys to the same store functions.
 
-- [ ] **Step 1: Add the imports**
+- [x] **Step 1: Add the imports**
 
 Add to `frontend/app/view/agents/filessurface.tsx`:
 
@@ -1582,7 +1584,7 @@ import {
 import { RefPicker } from "./refpicker";
 ```
 
-- [ ] **Step 2: Read the compare atoms and derive its rows**
+- [x] **Step 2: Read the compare atoms and derive its rows**
 
 Immediately after the existing atom reads (after `const activeDiff = useAtomValue(activeDiffAtom);`, line 260), add:
 
@@ -1622,7 +1624,7 @@ Then, after the `projects` list is built (after line 266), derive the compare ro
     );
 ```
 
-- [ ] **Step 3: Make the ref expression the picker when compare is on**
+- [x] **Step 3: Make the ref expression the picker when compare is on**
 
 Replace the `refExpr` computation (lines 282–286) with:
 
@@ -1681,7 +1683,7 @@ Then replace the static "Reading" chip (lines 416–421) with:
 
 The scope chips need no change to their own markup — step 4 below makes the repo chip read as selected while compare is on, and step 5 makes a chip click exit compare.
 
-- [ ] **Step 4: Make the repo chip read as selected during compare, and exiting available from a chip**
+- [x] **Step 4: Make the repo chip read as selected during compare, and exiting available from a chip**
 
 Replace the `scope` computation (line 281) with:
 
@@ -1710,7 +1712,7 @@ and in the scope-chip `.map` (lines 396–414), make each chip a button that lea
 
 and close it with `</button>` instead of `</div>`.
 
-- [ ] **Step 5: Point list-nav at whichever column is showing**
+- [x] **Step 5: Point list-nav at whichever column is showing**
 
 Replace the `commitIds` / `historyNav` block (lines 326–343) with:
 
@@ -1740,7 +1742,7 @@ Replace the `commitIds` / `historyNav` block (lines 326–343) with:
     useSurfaceListNav(listNav);
 ```
 
-- [ ] **Step 6: Render the compare panes**
+- [x] **Step 6: Render the compare panes**
 
 Replace the three-pane body (lines 437–470) with:
 
@@ -1819,7 +1821,7 @@ Replace the three-pane body (lines 437–470) with:
                 </div>
 ```
 
-- [ ] **Step 7: Leave compare when the scope's repository changes**
+- [x] **Step 7: Leave compare when the scope's repository changes**
 
 Compare is anchored to one repository, so switching source must not leave a stale two-ref read on screen. Add after the existing history-loading effect (after line 322):
 
@@ -1834,7 +1836,7 @@ Compare is anchored to one repository, so switching source must not leave a stal
     }, [state?.cwd, runSource?.runId]);
 ```
 
-- [ ] **Step 8: Typecheck and run the full frontend suite**
+- [x] **Step 8: Typecheck and run the full frontend suite**
 
 Run:
 
@@ -1845,7 +1847,7 @@ npx vitest run
 
 Expected: typecheck exits 0; the suite passes. A "declared but never read" error on `refExpr` means step 3's replacement chip was not wired; an error on `AGGREGATE` means the import in step 1 was skipped.
 
-- [ ] **Step 9: Lint the files you touched**
+- [x] **Step 9: Lint the files you touched**
 
 Run: `npx eslint frontend/app/view/agents/comparerows.ts frontend/app/view/agents/comparestore.ts frontend/app/view/agents/comparecolumn.tsx frontend/app/view/agents/aggregatepane.tsx frontend/app/view/agents/refpicker.tsx frontend/app/view/agents/changedfilelist.tsx frontend/app/view/agents/filessurface.tsx frontend/app/view/agents/commitpane.tsx`
 
@@ -1869,7 +1871,7 @@ Expected: no errors. Do **not** run `prettier --write` on `filessurface.tsx` or 
 
 **Why the global Escape has to change:** `matchBinding` (`matcher.ts:36-40`) takes the **first** active binding in registration order, and `registerBindings` appends — so a surface binding registered by the mounted surface always loses to a global one on the same key. `surface:back-home` is global and claims Escape for the files surface. Narrowing its guard with `!compareOn` is exactly the pattern it already uses for the Jarvis graph peek and autonomy panel, both of which are surface-specific atoms consulted by that global guard.
 
-- [ ] **Step 1: Write the failing conflict test**
+- [x] **Step 1: Write the failing conflict test**
 
 In `frontend/app/store/keybindings/store.test.ts`, add `buildFilesBindings` to the **existing** `from "./bindings"` import block (lines 6–13) rather than adding a second import from the same module, and add one new import:
 
@@ -1900,13 +1902,13 @@ and add this case inside the existing `describe("keybindings store", ...)` block
     });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run frontend/app/store/keybindings/store.test.ts`
 
 Expected: FAIL — `buildFilesBindings` is not exported from `./bindings`.
 
-- [ ] **Step 3: Let a list-nav controller carry its rows**
+- [x] **Step 3: Let a list-nav controller carry its rows**
 
 `sideJumpTarget` needs the compare rows, which live in the surface, and `ListNavController` (`listnav.ts:15-23`) publishes only an id list. Rather than have the binding rebuild rows it cannot see, let the controller carry them. In `frontend/app/store/keybindings/listnav.ts`, add one optional field to `ListNavController`, after `activate`:
 
@@ -1918,7 +1920,7 @@ Expected: FAIL — `buildFilesBindings` is not exported from `./bindings`.
     rows?: unknown[];
 ```
 
-- [ ] **Step 4: Add the files bindings and narrow the global Escape**
+- [x] **Step 4: Add the files bindings and narrow the global Escape**
 
 In `frontend/app/store/keybindings/bindings.ts`, add these imports:
 
@@ -1998,7 +2000,7 @@ export function buildFilesBindings(): Binding[] {
 }
 ```
 
-- [ ] **Step 5: Publish the compare rows on the controller**
+- [x] **Step 5: Publish the compare rows on the controller**
 
 In Task 8's `listNav` memo in `frontend/app/view/agents/filessurface.tsx`, add one line beside `activate`, so `Tab` can resolve a side jump:
 
@@ -2008,7 +2010,7 @@ In Task 8's `listNav` memo in `frontend/app/view/agents/filessurface.tsx`, add o
 
 and add `compareRows` to that memo's dependency array.
 
-- [ ] **Step 6: Mark the ref expression so `c` can reach it**
+- [x] **Step 6: Mark the ref expression so `c` can reach it**
 
 In `frontend/app/view/agents/filessurface.tsx`, add `data-files-ref-expr` to the non-compare "Reading" button from Task 8 step 3, and to `RefPicker`'s read-only chip button in `refpicker.tsx` — so `c` opens the picker whether or not compare is already on:
 
@@ -2026,7 +2028,7 @@ and in `refpicker.tsx`'s `!editing` branch:
                 onClick={onEdit}
 ```
 
-- [ ] **Step 7: Register the bindings on the surface**
+- [x] **Step 7: Register the bindings on the surface**
 
 In `frontend/app/view/agents/filessurface.tsx`, add the imports and the registration next to the existing `useSurfaceListNav(listNav)` call:
 
@@ -2041,7 +2043,7 @@ import { useKeybindings } from "@/app/store/keybindings/store";
     useKeybindings(filesBindings);
 ```
 
-- [ ] **Step 8: Add the footer hints**
+- [x] **Step 8: Add the footer hints**
 
 In `frontend/app/cockpit/footerhints.ts`, add a `files` entry to `SURFACE_HINTS` and update the stale comment above it (it says only the agent surface has surface-specific bindings, which stops being true here):
 
@@ -2088,13 +2090,13 @@ import {
         );
 ```
 
-- [ ] **Step 9: Run the keybinding and hint tests**
+- [x] **Step 9: Run the keybinding and hint tests**
 
 Run: `npx vitest run frontend/app/store/keybindings/ frontend/app/cockpit/footerhints.test.ts`
 
 Expected: PASS, including the new Escape-ownership case. A conflict error naming `"c"` means some other builder claims bare `c` for the files surface — read the error's surface/editable/modalOpen and narrow whichever guard is too broad.
 
-- [ ] **Step 10: Full verification**
+- [x] **Step 10: Full verification**
 
 Run:
 
@@ -2108,7 +2110,7 @@ npx eslint frontend/app/store/keybindings/bindings.ts frontend/app/store/keybind
 
 Expected: all five clean.
 
-- [ ] **Step 11: Verify the rendered surface over the Chrome DevTools Protocol**
+- [x] **Step 11: Verify the rendered surface over the Chrome DevTools Protocol**
 
 With the dev app running (`task dev`), screenshot the compare state:
 
@@ -2120,7 +2122,7 @@ Navigate to the Diff surface first (`Ctrl+6`, or `g f`), pick a project scope, t
 
 If the page is blank, do a full `location.reload()` first — HMR blanks the cockpit when modules move.
 
-- [ ] **Step 12: Report for review — do not commit**
+- [x] **Step 12: Report for review — do not commit**
 
 Summarise: the nine Go table tests from Task 1; the seventeen `comparerows` cases; the thirteen `historyrows` cases still passing after the `toRow` extraction; the new Escape-ownership keybinding case; `go build ./...`; the typecheck; the full frontend suite; eslint; and what the screenshot showed, including whether commit selection and the return to the aggregate both worked.
 
