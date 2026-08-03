@@ -20,11 +20,13 @@ tree — 2026-07-27. All seven v1 sub-projects (A–G) and all six v2 sub-projec
 | J2 | No way to enable embeddings from the app → S1–S3 are dark code | reachability | S | — | ✅ Resolved 2026-07-27 |
 | J3 | Model tiering (invariant 2) never landed — C + E both burn the capable tier | cost | M | — | ✅ Resolved 2026-07-27 |
 | J4 | `jarviscontinuity.Resume` has no consumer (no "pick up where you left off") | feature gap | S–M | — | ✅ Resolved 2026-07-27 |
-| J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | corpus depth | 🔲 Open — semantic window fitted 2026-07-27 (10/10 end-to-end); rest of the inventory stands |
+| J5 | Every tuning constant across the feature is an uncalibrated PLACEHOLDER | correctness / tuning | M | corpus depth | 🔲 Open — semantic window fitted 2026-07-27 (10/10 end-to-end); the bucket cutoffs were **deleted** 2026-08-03 (the display bucket now derives from the firing layer) and the proactive window went per-collection; the rest of the inventory stands, re-sorted into fitted / unmeasurable / awaiting-a-trigger |
 | J6 | Two durable-knowledge roots — `memvault` never unified into the Wave Vault | architecture | M–L | — | ✅ Resolved 2026-07-27 |
 | J7 | Evidence-gated smalls (U2/U3/S2/S1/C leftovers) | polish | S each | evidence | ⏸ Held — do not build on spec alone |
 | J8 | Task-sharpen "fast" mode points at `fable`, the *priciest* model | cost / correctness | S | — | ✅ Resolved 2026-07-27 · verified live, 10.6× cheaper; latency inversion remains |
 | J9 | Retrieval reads only part of a note — L2 misses frontmatter, embedding misses the id | correctness / reachability | S–M | — | ✅ Resolved 2026-07-27 |
+| J10 | Display bucket re-derived from a float that only ever holds four values — the "medium" band was unreachable | correctness | S | — | ✅ Resolved 2026-08-03 |
+| J11 | Proactive-resurfacing gate queried one global semantic window, so memory starved dossiers and decisions out of the judge's shortlist | correctness / reachability | S | — | ✅ Resolved 2026-08-03 |
 
 **Dependency order.** J1–J4, J6 and J8 are done. J5's *populate a vault* half shipped 2026-07-27 as
 `cmd/jarvisbackfill` and J6 (same day) added ~354 federated memory notes to what the vault reads; the
@@ -306,6 +308,140 @@ Returning to a task that hit a rest boundary surfaces its narrative without a fr
 **Status:** 🔲 Open — the semantic-window slice is closed (below); the rest of the inventory stands ·
 **Effort:** M · **Blocked by:** corpus depth, not tooling · **Kind:** correctness / tuning
 
+### Where each constant actually stands (2026-08-03 — read this instead of the older "still uncalibrated" lists)
+
+This entry accumulated three separate "still uncalibrated" lists on 2026-07-27, which disagreed with
+each other as each slice landed. They are replaced by one sort into three categories. Every constant
+this entry names appears in exactly one of them, so "what is left to do" is answerable without
+reconciling dated prose.
+
+**1. Fitted — measured, with evidence in this entry.** Each is specific to
+`openai/text-embedding-3-small`; switching `jarvis:embedmodel` invalidates all four.
+
+| constant | value | evidence |
+|---|---|---|
+| `semSeedFloor` | 0.325 | measured sweep, "Why `semSeedFloor` is a cost/benefit pick" below — the knee, ~78% less off-topic noise than 0.30 at no measured recall cost |
+| `kSemPerCollection` | 6 | not *fitted* so much as bounded: every measured target ranked #1–#2 within its collection, so the requirement is ≥2; 6 is headroom and the floor is what bounds admission |
+| `cosThreshold` | 0.40 | query→chunk over 647 real chunks; best on-topic 0.4579, off-topic control 0.2342 |
+| `semThreshold` | 0.65 | doc→doc over 14 known pairs vs 238 non-pairs; 100% recall at ~2.1% FP |
+
+**2. Unmeasurable by construction — more data does not help, so neither is waiting on anything.**
+
+- **`weightLayer1` (1.0)** — definitional, not a fit. A canonical dispatch ref is ground truth, so it
+  is the top of the scale by construction; there is nothing to measure.
+- **`weightLayer2` (0.8)** — needs a run whose goal or commits carry a ticket id. No run in the
+  recorded history carries one: the 2026-08-03 probe measures **L2 = 0 across all 41 edges**, the same
+  zero the 2026-07-27 pass found over a smaller corpus. Dogfooding cannot move it unless dispatch goals
+  start carrying ticket ids, which is a workflow change, not a data-collection one.
+- **`weightLayer4` (0.2)** — needs the L1–L3 gate to fall silent, i.e. an orphan dossier.
+  `edgesForDossier` runs the semantic pass *only* when the deterministic layers produce nothing, and
+  the probe measures **22 of 22 dossiers carrying at least one deterministic edge — zero orphans**. The
+  counterfactual already in this entry (gate bypassed, recall 1.00) stands as the only evidence there
+  will be until such a dossier is deliberately created.
+
+**3. Awaiting a named trigger — not blocked on data, blocked on a specific event.**
+
+| constant(s) | trigger | what the probe says today |
+|---|---|---|
+| `timeBoxMs` 30d | elapsed time — roughly **2026-08-19** | oldest run is **14.1 days** old; `pastTimeBox = 0`, so no layer-3 edge has yet had the chance to decay |
+| `probationMs` 24h | a complaint about an edge hardening too early or too late | now **exercised** for the first time: **7 of 25** runs sit inside the 24h window (on 2026-07-27 every edge was uniformly past it) |
+| `weightLayer3` 0.3 | a human ground-truth labeling pass over the structural guesses | 18 concrete layer-3 edges exist to judge; turning them into a weight still needs labels, not more data |
+| `seedTopK` 6, `expandDepth` 2, `expandFanout` 8, `maxCandidates` 12, `semCandidateN` 20, `queryKPerCollection` 8, `shortlistMax` 5 | a measured latency or relevance complaint | the traversal caps **do not bind**: max edges on any one dossier is **5** against `expandFanout` 8. For the two proactive-gate values, the score floor and `prefilter`'s round-robin now bound what reaches the judge, so k is not what constrains admission |
+| E continuity (summary cap, rest-state set, `continuityCaptureTimeout` 90s), S1 index (embed batch size, `##`-only split, 60s HTTP timeout, 240-byte snippet) | a complaint about a truncated summary, a timeout, or a bad chunk boundary | untouched; no measurement attempted |
+| U3 graph visuals (bucket→opacity, bucket→width, `DASH_INFORMING`, `RUN_SQUARE_SCALE`) | the dense-vault legibility check | still unverified. Note the `medium` styling branch is **reachable for the first time** as of 2026-08-03, but the current corpus does not exercise it (see below) |
+
+**Retired, not calibrated: `bucketWeakMax` 0.4 and `bucketStrongMin` 0.75.** These constants no longer
+exist. The display bucket is now derived from the edge's firing layer (`jarvisattrib.BucketFor`), not
+from a float threshold over `Confidence`. They were never calibratable and the reason was structural,
+not a sample-size problem: `confidenceFor` takes the **max** of four fixed layer weights and never
+blends them, so the reachable confidence set is exactly `{0.2, 0.3, 0.8, 1.0}` and **no value can land
+in the old `[0.4, 0.75)` medium band**. Two coupled constant sets — layer weights and bucket cutoffs —
+could drift out of sync with each other; one mapping over what actually fires cannot. See J10.
+
+### The two defects closed 2026-08-03
+
+Both were reachability bugs that no amount of extra corpus would have surfaced, which is why they sat
+under a calibration item for as long as they did.
+
+**J10 — the `medium` bucket was dead code.** `AmbientEdge.Bucket` / `GraphLink.Bucket` advertise
+`weak | medium | strong`, and `frontend/app/view/jarvis/jarvisgraphderive.ts` has styling for all
+three, but nothing could ever produce `medium`. `jarvisattrib.BucketFor(layers)` now maps the
+strongest (lowest-numbered) firing layer directly: layer 1 → `strong`, layer 2 → `medium`, layers 3–4
+→ `weak`, and **no layers → `""`** rather than a fabricated `weak` — the contract a detached edge
+needs, since `Detach` strips the ref and the signal behind it is gone. `strongestLayer` is now shared
+with `provenanceFor`, which previously repeated the same minimum-finding loop. Guarded by
+`TestEveryBucketIsReachableFromSomeFiringLayer`, which fails for any bucket name the wire type
+advertises that no firing layer can produce — the test that would have caught the original bug.
+
+Honest limit: `medium` is now *reachable* but the current corpus does not *reach* it, because layer 2
+never fires (see category 2 above). The probe's bucket histogram is still `strong=23 weak=18`. What
+changed is that the band is no longer unreachable by construction.
+
+**J11 — the proactive gate's semantic window was starved.** `jarvisproactive.evaluate` asked for one
+global top-8 (`ix.Query`) over a corpus of 406 memory / 14 tasks / 4 decisions, so memory's depth filled
+the window and dossiers and decisions never reached the model judge at all. It now uses
+`QueryPerCollection` — the same per-collection window the recall path adopted on 2026-07-27, so the two
+semantic paths no longer disagree about how to bound retrieval — with `queryK` renamed
+`queryKPerCollection` to make the unit unambiguous at the call site.
+
+**Fixing the query alone was not sufficient, and this was verified rather than assumed.**
+`QueryPerCollection` merges the per-collection windows by raw score, which is itself a global ranking,
+so memory's depth re-fills the shortlist at the truncation step. `prefilter` therefore emits
+candidates **round-robin across collections**, best-first within each, visiting collections in order of
+their single best hit. This is the same two-stage finding the recall slice hit on 2026-07-27 (fix 1 vs
+fixes 2–3), reproduced independently in the gate. Pinned by two tests, and the check that matters:
+with `QueryPerCollection` in place but the round-robin reverted, **both**
+`TestPrefilterRoundRobinsAcrossCollections` and `TestEvaluateReachesDossierBehindCrowdedMemory` fail —
+so neither half is redundant. The end-to-end test asserts on **what the judge was offered**, not on the
+final suggestion, because under a global window the dossier is never retrieved and no downstream
+reordering could surface it.
+
+### Measured 2026-08-03 — repeatable corpus probe, no provider spend
+
+Harness: **`pkg/jarvisattrib/liveprobe_test.go`** (build tag `liveprobe`, excluded from the normal
+suite). This replaces the ad-hoc passes that produced the 2026-07-27 figures — re-checking the corpus
+is now a command rather than a re-derivation, which matters because `timeBoxMs` becomes measurable by
+waiting and so wants re-running rather than re-deriving:
+
+```
+CGO_CFLAGS="-O2 -g -I<repo>/pkg/jarvisembed/csrc" \
+WAVETERM_CONFIG_HOME=<copy>/config WAVETERM_DATA_HOME=<copy>/data \
+go test -tags liveprobe,osusergo,sqlite_omit_load_extension -run TestLiveCorpusShape -v ./pkg/jarvisattrib/
+```
+
+Run against a copy of the **installed** profile (`%LOCALAPPDATA%\dev.arc.app`), not the dev profile —
+the dev profile's runs are unrelated to its vault's dossiers and probing it renders a vacuous zero. The
+wstore DB was snapshotted with `VACUUM INTO` rather than copied, because the installed app was running
+and a file copy of a WAL-mode database with its log detached is inconsistent. Verbatim output:
+
+```
+embeddings available=false (L4 fires only for a dossier with zero deterministic edges)
+dossiers=22 attributedRuns=29 totalEdges=41
+edges per dossier: [1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 2 3 3 5]
+by layer: map[1:23 3:18]
+confidence histogram: map[0.3:18 1:23]
+bucket histogram: map[strong:23 weak:18]
+state histogram: map[confirmed:23 informing:18]
+confidence space is still degenerate (2 distinct values): no discrimination pressure on any weight or cutoff
+max edges on one dossier=5 (expandFanout=8 binds only above this)
+runs=25 undated=0 inProbation(<24h)=7 pastTimeBox(>30d)=0 oldestRunAge=14.1d
+timeBoxMs is still unexercised: no run is older than 30 days, so no layer-3 edge has had the chance to decay
+```
+
+**The run cost zero provider spend, and that is provable twice over.** The probe copy deliberately
+omits `secrets.enc`, so `jarvisembed.Available()` is `false` and no embedding call is possible
+structurally. Independently, the corpus makes it moot: the vault's `tasks/` collection holds **22
+dossier files** and the probe found edges for **22** dossiers, so the orphan set is empty, L4 is never
+reached, and a key-enabled run would have embedded nothing either. The `embeddings available=false`
+line is why the layer histogram carries no L4 — not a change in L4's behaviour.
+
+**Movement since 2026-07-27** (14 dossiers / 18 runs / 27 edges → 22 / 25 / 41): the corpus grew ~50%
+and **the shape did not change at all**. Still exactly two distinct confidences, still no L2, still no
+L4, still one dossier at the 5-edge maximum. That is the load-bearing reading — the empty middle is a
+structural property of this history, and this is now a second independent sample saying so rather than
+a single observation. The one genuinely new fact is `probationMs`: 7 runs now sit inside the 24h window,
+where on 2026-07-27 every edge was uniformly past it.
+
 ### Semantic window fitted 2026-07-27 — `kSem` → per-collection, plus a score floor
 
 The calibration this file named as "the one to do first" is done. It was not one change but three,
@@ -412,11 +548,10 @@ the floor bounds admission and no measurement distinguishes 3 from 6.
   numbers above count the **L3 delta** rather than total seeds.
 
 #### Still uncalibrated after this slice
-`seedTopK`, `expandDepth`, `expandFanout`, `maxCandidates` (the *value* — its ordering is fixed),
-`semCandidateN`, `weightLayer2/3/4`, both bucket cutoffs, `probationMs`, `timeBoxMs`, S3's `queryK`
-and `shortlistMax`, and E's and S1's constants. **J5 does not close.** S3's gate has the identical
-global-window shape and is now a follow-on with a known fix and a proven method rather than an open
-question.
+*(Superseded 2026-08-03 — see "Where each constant actually stands" at the top of this entry for the
+canonical sort. Two items on this list have since moved: the bucket cutoffs were deleted rather than
+calibrated, and S3's global-window follow-on — called out here as having "a known fix and a proven
+method" — shipped as J11, confirming both the shape and the method.)* **J5 does not close.**
 
 ### Corpus reality (measured 2026-07-27 — read this before planning any calibration)
 J5's stated precondition, "populate + embed a real vault", was never satisfied, and the gap is deeper
@@ -451,6 +586,8 @@ dispatch goals start carrying a ticket id. What the corpus does *not* reach:
   reason than assumed: the L1–L3 gate, not the missing provider. L2 is unchanged.)*
 - **The bucket cutoffs are consequently untestable.** `bucketWeakMax` 0.4 and `bucketStrongMin` 0.75
   only ever have to separate 0.3 from 1.0 — a gap so wide that any value between them "passes".
+  *(Resolved 2026-08-03 by deletion, not calibration — this diagnosis understated the problem: the
+  cutoffs were not merely untestable but partly unreachable. See J10.)*
 - **Exactly one multi-run dossier exists** (the 5-run `deferred-appendix-briefs` group), so the mixed
   confirmed/informing shape is real but single-sampled.
 - **Decisions are thin for a recorded reason:** 42 Radar investigations exist and 33 have a terminal
@@ -501,9 +638,10 @@ admitted 46 of 238 non-pairs (19.3% FP). The original 0.75 was very nearly right
 wrong for the gate. Any future re-tune must re-measure per comparison type, and per model —
 both figures are specific to `text-embedding-3-small`.
 
-Still uncalibrated: `queryK`, `shortlistMax`, `semCandidateN`, `seedTopK`, `expandDepth`,
-`expandFanout`, `weightLayer2/3/4`, the bucket cutoffs, `probationMs`, `timeBoxMs`. *(`kSem` was
-struck later the same day — it is now `kSemPerCollection` + `semSeedFloor`; see the top of this entry.)*
+Still uncalibrated: *(superseded 2026-08-03 — see "Where each constant actually stands" at the top of
+this entry. `kSem` was struck later the same day as this note, becoming `kSemPerCollection` +
+`semSeedFloor`; `queryK` became `queryKPerCollection` on 2026-08-03; the bucket cutoffs were deleted
+rather than calibrated.)*
 
 **`kSem` now has evidence (2026-07-27, from the J2 probe).** The federated corpus is
 **406 memory / 14 tasks / 4 decisions**, so the memory collection outnumbers everything the second
@@ -568,7 +706,10 @@ L4's proposals here are correct-or-sibling, never unrelated. Treat that cautious
 multi-run group, and the positives are partly circular (a dossier objective is seeded from its run's
 goal). "Weak/informing" is defensible; **0.2 specifically is not yet fitted.** `bucketWeakMax` 0.4
 remains vacuous: L4 (0.2) and L3 (0.3) both fall below it, L1 (1.0) far above, so nothing measured has
-ever landed in the 0.4–0.75 mid band.
+ever landed in the 0.4–0.75 mid band. *(Sharpened 2026-08-03: nothing measured **could** have landed
+there. `confidenceFor` returns the max of four fixed weights, so the reachable set is
+`{0.2, 0.3, 0.8, 1.0}` and the mid band is empty for every possible input, not just for this corpus.
+The cutoffs were deleted — see J10.)*
 
 **Consequence for J5 planning:** more dogfooding will *not* produce L4 edges. The orphan set only
 becomes non-empty when a dossier exists whose work was never dispatch-linked and shares no anchor repo
@@ -584,13 +725,13 @@ hardened edges** — S3 shipped on exactly those uncalibrated weights.
 ### Evidence (the full inventory)
 | Area | Constants | Location |
 |---|---|---|
-| D attribution | `weightLayer1..4` (1.0 / 0.8 / 0.3 / 0.2), `bucketWeakMax` 0.4, `bucketStrongMin` 0.75, `probationMs` 24h, `timeBoxMs` 30d | `pkg/jarvisattrib/edges.go:18-33` |
+| D attribution | `weightLayer1..4` (1.0 / 0.8 / 0.3 / 0.2), `probationMs` 24h, `timeBoxMs` 30d. ~~`bucketWeakMax` 0.4, `bucketStrongMin` 0.75~~ — **deleted 2026-08-03, not calibrated**: the bucket derives from the firing layer (`BucketFor`), and no value could land in the old mid band because `confidenceFor` takes the max of four fixed weights (J10) | `pkg/jarvisattrib/edges.go` |
 | C recall | `seedTopK` 6, `expandDepth` 2, `expandFanout` 8, `maxCandidates` 12 | `pkg/jarvisrecall/retrieve.go:19-21` |
 | ~~S2 L3~~ | ~~`kSem` 6~~ — fitted 2026-07-27 as `kSemPerCollection` 6 + `semSeedFloor` 0.325 | `pkg/jarvisrecall/retrieve.go` |
 | S2 L4 | `semCandidateN` 20, `semThreshold` 0.75 | `pkg/jarvisattrib/semantic.go` |
 | E continuity | summary cap (≤4 sentences), rest-state set, `continuityCaptureTimeout` 90s | `pkg/jarviscontinuity`, `wshserver_runs.go` |
 | S1 index | query `k`, embed batch size, `##`-only section split, 60s HTTP timeout, 240-byte snippet | `pkg/jarvisembed` |
-| S3 proactive | `queryK` 8, `cosThreshold` 0.82, `shortlistMax` 5, the judge prompt | `pkg/jarvisproactive/gate.go:18-20` |
+| S3 proactive | `queryKPerCollection` 8 (was global `queryK`, renamed 2026-08-03 — J11), `cosThreshold` **0.40** (fitted 2026-07-27, was 0.82), `shortlistMax` 5, the judge prompt | `pkg/jarvisproactive/gate.go` |
 | U3 graph | bucket→opacity (1.0 / 0.6 / 0.35), bucket→width (1.4 / 1.0 / 0.7), `DASH_INFORMING` `[3,3]`, `RUN_SQUARE_SCALE` 1.6 | `frontend/app/view/jarvis/jarvisgraphderive.ts` |
 
 All are recorded in `docs/deferred.md` under their sub-project's section.

@@ -18,13 +18,7 @@ const (
 	weightLayer1 = 1.0 // canonical dispatch reference (written by F, read by D)
 	weightLayer2 = 0.8 // identifier (ticket) match
 	weightLayer3 = 0.3 // structural correlation (same repo + overlapping window)
-	weightLayer4 = 0.2 // semantic similarity — below bucketWeakMax, always renders "weak"
-)
-
-// Confidence display bucket cutoffs — PLACEHOLDER.
-const (
-	bucketWeakMax   = 0.4
-	bucketStrongMin = 0.75
+	weightLayer4 = 0.2 // semantic similarity — always renders "weak" (see BucketFor)
 )
 
 // Lifecycle windows in UnixMilli — PLACEHOLDER tuning, see docs/deferred.md.
@@ -85,15 +79,21 @@ func confidenceFor(layers []int) float64 {
 	return max
 }
 
-// provenanceFor maps an edge to the provenance of its strongest (lowest-numbered) firing layer.
-func provenanceFor(layers []int) string {
-	min := 1 << 30
+// strongestLayer returns the lowest layer number present — layer 1 is the strongest signal — or 0
+// when there are none.
+func strongestLayer(layers []int) int {
+	best := 0
 	for _, l := range layers {
-		if l < min {
-			min = l
+		if best == 0 || l < best {
+			best = l
 		}
 	}
-	switch min {
+	return best
+}
+
+// provenanceFor maps an edge to the provenance of its strongest (lowest-numbered) firing layer.
+func provenanceFor(layers []int) string {
+	switch strongestLayer(layers) {
 	case 1:
 		return provDispatch
 	case 2:
@@ -105,14 +105,22 @@ func provenanceFor(layers []int) string {
 	}
 }
 
-func Bucket(c float64) string {
-	switch {
-	case c < bucketWeakMax:
-		return "weak"
-	case c >= bucketStrongMin:
-		return "strong"
+// BucketFor maps an edge's firing layers to its display bucket. It reads the layers rather than the
+// confidence float because confidenceFor takes the MAX of four fixed layer weights and never blends
+// them: the reachable confidence set is {0.2, 0.3, 0.8, 1.0}, so a float-threshold bucket had a band
+// no edge could occupy. One mapping over what actually fires cannot drift out of sync with itself the
+// way two coupled constant sets did. No layers means no signal, so the bucket is absent rather than a
+// fabricated "weak" — the contract wshrpctypes_jarvis.go documents for a detached edge.
+func BucketFor(layers []int) string {
+	switch strongestLayer(layers) {
+	case 1:
+		return "strong" // canonical dispatch reference
+	case 2:
+		return "medium" // identifier (ticket) match
+	case 3, 4:
+		return "weak" // structural correlation, semantic similarity
 	default:
-		return "medium"
+		return ""
 	}
 }
 

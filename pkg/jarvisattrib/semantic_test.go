@@ -20,8 +20,8 @@ func TestLayer4ConfidenceAndBucket(t *testing.T) {
 	if got := confidenceFor([]int{4}); got != weightLayer4 {
 		t.Fatalf("confidenceFor([4]) = %v, want %v", got, weightLayer4)
 	}
-	if got := Bucket(weightLayer4); got != "weak" {
-		t.Fatalf("Bucket(weightLayer4) = %q, want weak", got)
+	if got := BucketFor([]int{4}); got != "weak" {
+		t.Fatalf("BucketFor([4]) = %q, want weak", got)
 	}
 	if got := provenanceFor([]int{4}); got != provSemantic {
 		t.Fatalf("provenanceFor([4]) = %q, want %q", got, provSemantic)

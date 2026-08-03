@@ -60,10 +60,12 @@ func TestVaultGraphProjectsNodesAndWikilinks(t *testing.T) {
 }
 
 func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
+	// Layers is what the display bucket is read off, and mergeInto derives Confidence/Provenance from
+	// it, so an edge without Layers is one the engine cannot produce. Set all three consistently.
 	edges := []jarvisattrib.AttributedEdge{
-		{DossierID: "task-1", RunORef: "run:r1", Provenance: "dispatch", Confidence: 1.0, State: jarvisattrib.StateConfirmed},
-		{DossierID: "task-1", RunORef: "run:r2", Provenance: "semantic", Confidence: 0.2, State: jarvisattrib.StateInforming},
-		{DossierID: "task-1", RunORef: "run:missing", Provenance: "structural", Confidence: 0.3, State: jarvisattrib.StateInforming},
+		{DossierID: "task-1", RunORef: "run:r1", Layers: []int{1}, Provenance: "dispatch", Confidence: 1.0, State: jarvisattrib.StateConfirmed},
+		{DossierID: "task-1", RunORef: "run:r2", Layers: []int{4}, Provenance: "semantic", Confidence: 0.2, State: jarvisattrib.StateInforming},
+		{DossierID: "task-1", RunORef: "run:missing", Layers: []int{3}, Provenance: "structural", Confidence: 0.3, State: jarvisattrib.StateInforming},
 	}
 	byORef := map[string]*waveobj.Run{
 		"run:r1": {OID: "r1", Goal: "add PKCE", Status: "done"},

@@ -43,6 +43,45 @@ func TestPrefilterSelfExclusion(t *testing.T) {
 	}
 }
 
+// The memory collection outnumbers tasks and decisions by more than an order of magnitude on a real
+// vault (measured 406 / 14 / 4), so taking candidates in raw score order lets memory's depth fill
+// every shortlist slot and the model judge never sees a dossier or a decision. Emitting round-robin
+// across collections is what makes the per-collection query in evaluate actually reach the judge.
+func TestPrefilterRoundRobinsAcrossCollections(t *testing.T) {
+	in := []jarvisembed.ScoredChunk{
+		chunk("mem1", "memory", "Note 1", "cache note one", 0.99),
+		chunk("mem2", "memory", "Note 2", "cache note two", 0.98),
+		chunk("mem3", "memory", "Note 3", "cache note three", 0.97),
+		chunk("mem4", "memory", "Note 4", "cache note four", 0.96),
+		chunk("mem5", "memory", "Note 5", "cache note five", 0.95),
+		chunk("mem6", "memory", "Note 6", "cache note six", 0.94),
+		chunk("dos1", "tasks", "Cache dossier", "the prior cache task", 0.72),
+		chunk("dec1", "decisions", "Cache decision", "the prior cache decision", 0.71),
+	}
+	got := prefilter(in, "")
+	if len(got) != shortlistMax {
+		t.Fatalf("want a full shortlist of %d, got %d: %+v", shortlistMax, len(got), got)
+	}
+	types := map[string]bool{}
+	for _, c := range got {
+		types[c.SourceType] = true
+	}
+	for _, want := range []string{"dossier", "decision"} {
+		if !types[want] {
+			t.Errorf("%q never reached the shortlist; got %v", want, shortlistFingerprint(got))
+		}
+	}
+}
+
+// shortlistFingerprint renders a shortlist compactly for failure messages.
+func shortlistFingerprint(cands []candidate) []string {
+	out := make([]string, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, c.SourceType+":"+c.NodeID)
+	}
+	return out
+}
+
 func TestBuildJudgePromptContainsGoalCandidatesAndGuardrail(t *testing.T) {
 	p := buildJudgePrompt("fix the rate limit bug", []candidate{
 		{NodeID: "a", SourceType: "decision", Title: "Rate limiting", Snippet: "drop-oldest"},

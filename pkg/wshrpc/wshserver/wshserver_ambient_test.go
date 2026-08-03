@@ -17,13 +17,15 @@ func TestBuildAmbientProjectsTagsAndDecisions(t *testing.T) {
 		{Id: "task-2", Objective: "drop the electron shell", Status: "paused"},
 		{Id: "task-3", Objective: "unattributed", Status: "active"},
 	}
+	// Layers is what the display bucket is read off, and mergeInto derives Confidence/Provenance from
+	// it, so an edge without Layers is one the engine cannot produce. Set all three consistently.
 	byDossier := map[string][]jarvisattrib.AttributedEdge{
 		"task-1": {
-			{DossierID: "task-1", RunORef: "run:r1", Provenance: "dispatch", Confidence: 1.0, State: jarvisattrib.StateConfirmed},
-			{DossierID: "task-1", RunORef: "run:r2", Provenance: "structural", Confidence: 0.3, State: jarvisattrib.StateInforming},
+			{DossierID: "task-1", RunORef: "run:r1", Layers: []int{1}, Provenance: "dispatch", Confidence: 1.0, State: jarvisattrib.StateConfirmed},
+			{DossierID: "task-1", RunORef: "run:r2", Layers: []int{3}, Provenance: "structural", Confidence: 0.3, State: jarvisattrib.StateInforming},
 		},
 		"task-2": {
-			{DossierID: "task-2", RunORef: "run:r2", Provenance: "ticket-match", Confidence: 0.8, State: jarvisattrib.StateConfirmed},
+			{DossierID: "task-2", RunORef: "run:r2", Layers: []int{2}, Provenance: "ticket-match", Confidence: 0.8, State: jarvisattrib.StateConfirmed},
 		},
 	}
 	decisions := []wshrpc.DecisionCard{

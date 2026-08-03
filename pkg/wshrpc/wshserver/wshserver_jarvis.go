@@ -585,12 +585,10 @@ func (ws *WshServer) ListDetachedEdgesCommand(ctx context.Context, data wshrpc.C
 	out := wshrpc.CommandListDetachedEdgesRtnData{Tasks: []wshrpc.AmbientTask{}, Edges: []wshrpc.AmbientEdge{}}
 	labelled := map[string]bool{}
 	for _, e := range edges {
-		// a bucket derived from zero confidence reads as "weak", which would assert a strength this row
-		// does not have: Detach strips the ref, so the signal behind a detached layer-1 edge is gone.
-		bucket := ""
-		if len(e.Layers) > 0 {
-			bucket = jarvisattrib.Bucket(e.Confidence)
-		}
+		// BucketFor yields "" for an edge with no layers, which is the point here: Detach strips the
+		// ref, so the signal behind a detached layer-1 edge is gone and any bucket would assert a
+		// strength this row does not have.
+		bucket := jarvisattrib.BucketFor(e.Layers)
 		out.Edges = append(out.Edges, wshrpc.AmbientEdge{
 			ORef:       e.RunORef,
 			DossierId:  e.DossierID,
@@ -744,7 +742,7 @@ func buildDossierGraph(dossierID string, edges []jarvisattrib.AttributedEdge, by
 			To:         e.RunORef,
 			Kind:       "attribution",
 			Provenance: e.Provenance,
-			Bucket:     jarvisattrib.Bucket(e.Confidence),
+			Bucket:     jarvisattrib.BucketFor(e.Layers),
 			State:      string(e.State),
 		})
 		if seenRun[e.RunORef] {
@@ -862,7 +860,7 @@ func buildAmbient(dossiers []wshrpc.SpaceSummary, byDossier map[string][]jarvisa
 				ORef:       e.RunORef,
 				DossierId:  d.Id,
 				Provenance: e.Provenance,
-				Bucket:     jarvisattrib.Bucket(e.Confidence),
+				Bucket:     jarvisattrib.BucketFor(e.Layers),
 				State:      string(e.State),
 			})
 		}

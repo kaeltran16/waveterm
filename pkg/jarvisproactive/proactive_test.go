@@ -5,6 +5,8 @@ package jarvisproactive
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -190,6 +192,86 @@ func TestEvaluateDisabledIndexRecordsEmbeddingsOff(t *testing.T) {
 	}
 	if called {
 		t.Fatal("model judge must not run when embeddings are off")
+	}
+}
+
+// gradedEmbedder leans a text onto the query axis in proportion to how often it says "cache", so
+// several nodes clear cosThreshold while still ranking in a controlled order. Cosine against a
+// 3-mention query: 3 mentions ~1.00, 2 ~0.99, 1 ~0.89, 0 ~0.32 (below the 0.40 gate). mockEmbedder is
+// binary and cannot express "retrieved but outranked", which is the state under test here.
+type gradedEmbedder struct{}
+
+func (gradedEmbedder) Model() string { return "graded-1" }
+func (gradedEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		out[i] = []float32{float32(strings.Count(strings.ToLower(t), "cache")), 1, 0}
+	}
+	return out, nil
+}
+
+func newTestVaultAt(t *testing.T) (*wavevault.Vault, string) {
+	t.Helper()
+	dir := t.TempDir()
+	v, err := wavevault.OpenVaultAtForTest(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("open test vault: %v", err)
+	}
+	return v, dir
+}
+
+func writeMemoryNote(t *testing.T, dir, id, body string) {
+	t.Helper()
+	path := filepath.Join(dir, "memory", id+".md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir memory: %v", err)
+	}
+	content := fmt.Sprintf("---\nid: %s\n---\n\n## Note\n\n%s\n", id, body)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// A global top-k window cannot see past a collection that outnumbers the others. Ten memory notes
+// each mention "cache" three times and so score ~1.00; the dossier mentions it once and scores ~0.89.
+// With one global window of 8 the dossier is never retrieved at all, so no amount of downstream
+// reordering could surface it — which is why this asserts on what the judge was actually offered
+// rather than on the final suggestion.
+func TestEvaluateReachesDossierBehindCrowdedMemory(t *testing.T) {
+	ctx := context.Background()
+	v, dir := newTestVaultAt(t)
+	for i := 0; i < 10; i++ {
+		writeMemoryNote(t, dir, fmt.Sprintf("m%d", i), "cache cache cache eviction trivia")
+	}
+	if _, _, err := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{
+		Objective: "fix the cache invalidation bug",
+	}); err != nil {
+		t.Fatalf("seed dossier: %v", err)
+	}
+	if err := v.Commit(ctx, "seed"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	var judgePrompt string
+	restore := SetJudgeForTest(func(_ context.Context, _, prompt string) (string, error) {
+		judgePrompt = prompt
+		return "none", nil
+	})
+	defer restore()
+
+	run := &waveobj.Run{OID: "run-crowd", Goal: "cache cache cache invalidation", ProjectPath: t.TempDir()}
+	sug, err := evaluate(ctx, newTestIndex(t, gradedEmbedder{}), v, run)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if sug == nil {
+		t.Fatal("evaluate must always return a record")
+	}
+	if sug.Reason == ReasonNoCandidates {
+		t.Fatal("nothing reached the judge: the semantic window was filled entirely by memory notes")
+	}
+	if !strings.Contains(judgePrompt, "[dossier]") {
+		t.Fatalf("the dossier never reached the judge's shortlist; prompt was:\n%s", judgePrompt)
 	}
 }
 

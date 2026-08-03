@@ -15,9 +15,41 @@ func TestConfidenceAndProvenanceFromLayers(t *testing.T) {
 	}
 }
 
-func TestBucketCutoffs(t *testing.T) {
-	if Bucket(0.3) != "weak" || Bucket(weightLayer2) != "strong" || Bucket(0.5) != "medium" {
-		t.Fatalf("buckets: %q %q %q", Bucket(0.3), Bucket(weightLayer2), Bucket(0.5))
+func TestBucketForIsTotalOverFiringLayers(t *testing.T) {
+	cases := []struct {
+		layers []int
+		want   string
+	}{
+		{[]int{1}, "strong"},    // canonical dispatch reference
+		{[]int{2}, "medium"},    // identifier (ticket) match
+		{[]int{3}, "weak"},      // structural correlation
+		{[]int{4}, "weak"},      // semantic similarity
+		{[]int{3, 2}, "medium"}, // strongest layer wins regardless of input order
+		{[]int{2, 1}, "strong"},
+		{[]int{4, 3}, "weak"},
+		{nil, ""}, // no layers means no signal: absent, never a fabricated "weak"
+		{[]int{}, ""},
+		{[]int{9}, ""}, // unknown layer is not silently labelled
+	}
+	for _, c := range cases {
+		if got := BucketFor(c.layers); got != c.want {
+			t.Errorf("BucketFor(%v) = %q, want %q", c.layers, got, c.want)
+		}
+	}
+}
+
+// The guard against the defect returning: every bucket name the wire type advertises must be
+// producible by some layer that can actually fire. Re-deriving the bucket from a float threshold
+// fails this, because no layer weight falls inside the old [0.4, 0.75) medium band.
+func TestEveryBucketIsReachableFromSomeFiringLayer(t *testing.T) {
+	reachable := map[string]bool{}
+	for _, l := range []int{1, 2, 3, 4} {
+		reachable[BucketFor([]int{l})] = true
+	}
+	for _, want := range []string{"weak", "medium", "strong"} {
+		if !reachable[want] {
+			t.Errorf("bucket %q is unreachable from any firing layer; reachable set = %v", want, reachable)
+		}
 	}
 }
 

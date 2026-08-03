@@ -42,7 +42,8 @@ PLACEHOLDER tuning (calibrate against a populated, embedded vault):
   `docs/jarvis-second-brain-open-issues.md` § J5; harness is `pkg/jarvisrecall/liveprobe_test.go`.
 - `semCandidateN = 20` (window-overlapping runs considered per orphan dossier, `pkg/jarvisattrib/semantic.go`).
 - `semThreshold = 0.75` (cosine floor to propose a semantic edge).
-- `weightLayer4 = 0.2` (semantic edge confidence; below `bucketWeakMax` so it renders "weak").
+- `weightLayer4 = 0.2` (semantic edge confidence). It renders "weak" because layer 4 maps to "weak"
+  directly — the `bucketWeakMax` cutoff this line used to cite was deleted 2026-08-03 (see § sub-project D).
 
 ## Jarvis U2 — Tasks surface (dossier editor) (2026-07-24)
 
@@ -756,7 +757,12 @@ tokens, then set `paper.dark = true`-equivalent exposure in the picker.
 - layer confidence weights: L1=1.0, L2=0.8, L3=0.3
 - probation window: 24h (`probationMs`)
 - layer-3 time-box (drift decay): 30d (`timeBoxMs`)
-- confidence display buckets: weak <0.4, strong ≥0.75
+- ~~confidence display buckets: weak <0.4, strong ≥0.75~~ — **retired 2026-08-03, not calibrated.**
+  `bucketWeakMax` and `bucketStrongMin` were deleted: the display bucket now derives from the edge's
+  firing layer (`jarvisattrib.BucketFor`), so there is nothing left to calibrate. They were never
+  calibratable — `confidenceFor` returns the max of four fixed layer weights and never blends them, so
+  the reachable confidence set is `{0.2, 0.3, 0.8, 1.0}` and no edge could land in the `[0.4, 0.75)`
+  "medium" band. See J10 in `docs/jarvis-second-brain-open-issues.md`.
 
 ## Jarvis U3 — graph edge/node visual tunables (2026-07-27)
 
@@ -775,7 +781,14 @@ attribution bloom is resolved per focused task, never for every dossier at once.
 ## Jarvis S3 — proactive resurfacing (2026-07-24)
 
 PLACEHOLDER tunables (calibrate against a populated, embedded vault):
-- `pkg/jarvisproactive/gate.go`: `queryK = 8`, `cosThreshold = 0.82` (deliberately high), `shortlistMax = 5`, and the `buildJudgePrompt` wording.
+- `pkg/jarvisproactive/gate.go`: ~~`queryK = 8`~~ → **`queryKPerCollection = 8` as of 2026-08-03** — the
+  window is now per collection, not global. A single global window of this size is filled by the memory
+  collection alone on a real vault (406 memory / 14 tasks / 4 decisions), which starved dossiers and
+  decisions out of the judge's shortlist entirely; `prefilter` also emits round-robin across
+  collections so the crowding cannot reappear at the truncation step (J11). Still unfitted, but the
+  score floor and the round-robin now bound what reaches the judge, so k is not what constrains
+  admission. `cosThreshold` — **fitted 2026-07-27 to 0.40** (was 0.82, at which the gate admitted
+  nothing at all). `shortlistMax = 5` and the `buildJudgePrompt` wording remain PLACEHOLDER.
 - `pkg/wshrpc/wshserver/wshserver_runs.go`: `proactiveDispatchTimeout = 90s`.
 
 Deferred out of the S3 first cycle:

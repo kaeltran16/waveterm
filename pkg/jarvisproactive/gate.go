@@ -21,11 +21,17 @@ import (
 //
 // 0.40 keeps the "deliberately high bar" intent (it fired on 2 of the 5 probe queries) while being
 // reachable. It is model-specific: switching jarvis:embedmodel shifts the distribution and this needs
-// re-measuring. queryK and shortlistMax remain uncalibrated.
+// re-measuring.
+//
+// queryKPerCollection is per collection, not global: one global window of this size is filled by the
+// memory collection alone on a real vault (406 memory / 14 tasks / 4 decisions), which starved
+// dossiers and decisions out of the judge's shortlist entirely. It is unfitted, and with the score
+// floor and prefilter's round-robin now bounding what reaches the judge, k is not what constrains
+// admission. shortlistMax is likewise unfitted.
 const (
-	queryK       = 8    // semantic candidates requested from the index
-	cosThreshold = 0.40 // minimum cosine to survive the pre-filter
-	shortlistMax = 5    // max candidates handed to the model judge
+	queryKPerCollection = 8    // semantic candidates requested from the index, per collection
+	cosThreshold        = 0.40 // minimum cosine to survive the pre-filter
+	shortlistMax        = 5    // max candidates handed to the model judge
 )
 
 type candidate struct {
@@ -49,12 +55,21 @@ func sourceTypeFor(collection string) string {
 	}
 }
 
-// prefilter keeps chunks scoring >= cosThreshold, drops the dispatching run's own
-// node (excludeNodeID), dedupes by node id (a node may chunk into several
-// sections), and caps at shortlistMax. Deterministic, no model, no I/O.
+// prefilter keeps chunks scoring >= cosThreshold, drops the dispatching run's own node
+// (excludeNodeID), dedupes by node id (a node may chunk into several sections), and caps at
+// shortlistMax. Deterministic, no model, no I/O.
+//
+// Candidates are emitted round-robin across collections, best-first within each. Taking them in raw
+// score order would re-impose the global ranking that QueryPerCollection removes one stage earlier:
+// memory outnumbers tasks and decisions by more than an order of magnitude on a real vault, so its
+// depth would fill every slot handed to the judge. Input order within a collection is already
+// score-descending (QueryPerCollection merges that way), so preserving it keeps each collection's
+// best hit first. Collections are visited in order of their single best hit, so the most on-topic
+// one leads.
 func prefilter(chunks []jarvisembed.ScoredChunk, excludeNodeID string) []candidate {
 	seen := map[string]bool{}
-	var out []candidate
+	byColl := map[string][]candidate{}
+	var collOrder []string
 	for _, c := range chunks {
 		if c.Score < cosThreshold {
 			continue
@@ -67,18 +82,33 @@ func prefilter(chunks []jarvisembed.ScoredChunk, excludeNodeID string) []candida
 		if title == "" {
 			title = c.NodeID
 		}
-		out = append(out, candidate{
+		if _, ok := byColl[c.Collection]; !ok {
+			collOrder = append(collOrder, c.Collection)
+		}
+		byColl[c.Collection] = append(byColl[c.Collection], candidate{
 			NodeID:     c.NodeID,
 			SourceType: sourceTypeFor(c.Collection),
 			Title:      title,
 			Snippet:    strings.TrimSpace(c.Snippet),
 			Score:      c.Score,
 		})
-		if len(out) >= shortlistMax {
-			break
+	}
+	var out []candidate
+	for i := 0; ; i++ {
+		before := len(out)
+		for _, coll := range collOrder {
+			if i >= len(byColl[coll]) {
+				continue
+			}
+			out = append(out, byColl[coll][i])
+			if len(out) >= shortlistMax {
+				return out
+			}
+		}
+		if len(out) == before {
+			return out
 		}
 	}
-	return out
 }
 
 // buildJudgePrompt asks the capable model to pick the single most-relevant prior

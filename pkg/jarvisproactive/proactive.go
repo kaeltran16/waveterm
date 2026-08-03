@@ -70,7 +70,7 @@ func evaluate(ctx context.Context, ix *jarvisembed.Index, v *wavevault.Vault, ru
 	if !ix.Available() {
 		return noneBecause(ReasonEmbeddingsOff), nil
 	}
-	chunks, err := ix.Query(ctx, v, run.Goal, queryK, wavevault.AllScope())
+	chunks, err := ix.QueryPerCollection(ctx, v, run.Goal, queryKPerCollection, wavevault.AllScope())
 	if err != nil {
 		if errors.Is(err, jarvisembed.ErrEmbeddingsDisabled) {
 			return noneBecause(ReasonEmbeddingsOff), nil
