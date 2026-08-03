@@ -25,6 +25,9 @@ type JarvisCommands interface {
 	ListTaskDossiersCommand(ctx context.Context) (*CommandListTaskDossiersRtnData, error)                                  // list ALL task dossiers (any status) for the Tasks surface, newest-updated first
 	AppendDossierDecisionCommand(ctx context.Context, data CommandAppendDossierDecisionData) (*CommandAppendDossierDecisionRtnData, error) // human-append a decision to a dossier (user-attributed) + commit
 	SetDossierStatusCommand(ctx context.Context, data CommandSetDossierStatusData) error                                                   // set a dossier's status (active|paused|completed|archived) + commit
+	DetachDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-reject a dossier<->run attribution; suppressed durably via the override log
+	AcceptDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-confirm a dossier<->run attribution and harden it into canonical refs; also restores a detached edge and attaches an unattributed run
+	ListDetachedEdgesCommand(ctx context.Context, data CommandListDetachedEdgesData) (*CommandListDetachedEdgesRtnData, error)             // the human-suppressed edges for one dossier or one run, so a detach can be undone
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)    // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
@@ -212,6 +215,28 @@ type AmbientEdge struct {
 	Provenance string `json:"provenance"`
 	Bucket     string `json:"bucket"` // weak | medium | strong
 	State      string `json:"state"`  // informing | confirmed
+}
+
+// CommandDossierEdgeData names one dossier<->run attribution. Both ids are required: an edge is the pair.
+type CommandDossierEdgeData struct {
+	DossierId string `json:"dossierid"`
+	RunORef   string `json:"runoref"`
+}
+
+// CommandListDetachedEdgesData asks the inverse question from each end — a record's suppressed runs, or a
+// run's suppressed records. Exactly one id is set; setting neither is an error, since an unfiltered read
+// would return every correction ever made.
+type CommandListDetachedEdgesData struct {
+	DossierId string `json:"dossierid,omitempty"`
+	RunORef   string `json:"runoref,omitempty"`
+}
+
+// CommandListDetachedEdgesRtnData mirrors ResolveAmbient's first two fields so the frontend joins labels
+// to edges with the machinery it already has. An edge whose underlying signal is gone (Detach strips a
+// hardened ref) carries an empty Provenance and Bucket — absent, never a fabricated "weak".
+type CommandListDetachedEdgesRtnData struct {
+	Tasks []AmbientTask `json:"tasks"`
+	Edges []AmbientEdge `json:"edges"`
 }
 
 // AmbientDecision is one decision record reachable from a dossier, projected for the ambient

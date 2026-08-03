@@ -548,6 +548,69 @@ func (ws *WshServer) SetDossierStatusCommand(ctx context.Context, data wshrpc.Co
 	return setDossierStatus(ctx, v, data.DossierId, data.Status)
 }
 
+func (ws *WshServer) DetachDossierEdgeCommand(ctx context.Context, data wshrpc.CommandDossierEdgeData) error {
+	if data.DossierId == "" || data.RunORef == "" {
+		return fmt.Errorf("dossierid and runoref are both required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return fmt.Errorf("opening vault: %w", err)
+	}
+	return jarvisattrib.Detach(ctx, v, data.DossierId, data.RunORef)
+}
+
+func (ws *WshServer) AcceptDossierEdgeCommand(ctx context.Context, data wshrpc.CommandDossierEdgeData) error {
+	if data.DossierId == "" || data.RunORef == "" {
+		return fmt.Errorf("dossierid and runoref are both required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return fmt.Errorf("opening vault: %w", err)
+	}
+	return jarvisattrib.Accept(ctx, v, data.DossierId, data.RunORef)
+}
+
+func (ws *WshServer) ListDetachedEdgesCommand(ctx context.Context, data wshrpc.CommandListDetachedEdgesData) (*wshrpc.CommandListDetachedEdgesRtnData, error) {
+	if data.DossierId == "" && data.RunORef == "" {
+		return nil, fmt.Errorf("one of dossierid or runoref is required")
+	}
+	v, err := wavevault.OpenVault(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening vault: %w", err)
+	}
+	edges, err := jarvisattrib.DetachedEdges(ctx, v, data.DossierId, data.RunORef)
+	if err != nil {
+		return nil, fmt.Errorf("reading detached edges: %w", err)
+	}
+	out := wshrpc.CommandListDetachedEdgesRtnData{Tasks: []wshrpc.AmbientTask{}, Edges: []wshrpc.AmbientEdge{}}
+	labelled := map[string]bool{}
+	for _, e := range edges {
+		// a bucket derived from zero confidence reads as "weak", which would assert a strength this row
+		// does not have: Detach strips the ref, so the signal behind a detached layer-1 edge is gone.
+		bucket := ""
+		if len(e.Layers) > 0 {
+			bucket = jarvisattrib.Bucket(e.Confidence)
+		}
+		out.Edges = append(out.Edges, wshrpc.AmbientEdge{
+			ORef:       e.RunORef,
+			DossierId:  e.DossierID,
+			Provenance: e.Provenance,
+			Bucket:     bucket,
+			State:      string(e.State),
+		})
+		if labelled[e.DossierID] {
+			continue
+		}
+		labelled[e.DossierID] = true
+		label := e.DossierID
+		if d, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), e.DossierID); err == nil && d.Objective != "" {
+			label = d.Objective
+		}
+		out.Tasks = append(out.Tasks, wshrpc.AmbientTask{Id: e.DossierID, Label: label})
+	}
+	return &out, nil
+}
+
 // buildSpaceScope is the pure edge->bundle core: dedup the attributed run orefs, their channel oids, and
 // the worker tab ids (tab: prefix stripped) from each run's phases. Order-stable by first appearance; an
 // edge to a run missing from byORef still contributes its run oref (surfaced, not dropped).

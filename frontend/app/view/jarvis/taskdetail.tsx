@@ -8,7 +8,7 @@ import { useState, type ReactNode } from "react";
 import { DecisionLog } from "./decisionlog";
 import { STAGE_GUTTER } from "./stagemeasure";
 import { allowedTransitions, isTerminalTransition } from "./tasksderive";
-import { setDossierStatus } from "./tasksstore";
+import { setDossierStatus } from "./recordactions";
 
 // A machine-maintained region: muted panel + a lock glyph, non-editable. The visible expression of
 // the write-ownership model's inside-Wave tier (spec §4).

@@ -49,12 +49,10 @@ import { StageComposer } from "./stagecomposer";
 import { composeStage } from "./stagecompose";
 import { StageHeader } from "./stageheader";
 import { STAGE_SCROLLER } from "./stagemeasure";
-import { dossierDetailAtom } from "./tasksstore";
 
 export function Stage({ model }: { model: AgentsViewModel }) {
     const subject = useAtomValue(activeSubjectAtom);
     const channel = useAtomValue(activeChannelAtom);
-    const detail = useAtomValue(dossierDetailAtom);
     const conversation = useAtomValue(activeConversationAtom);
     const ambient = useAtomValue(ambientProviderAtom);
     const agents = useAtomValue(model.agentsAtom);
@@ -62,7 +60,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const bandOpen = useAtomValue(recordBandOpenAtom);
     const runIds = useAtomValue(activeRunIdAtom);
     const composingRun = useAtomValue(composingRunAtom);
-    const bandDetails = useAtomValue(recordDetailAtom);
+    const recordDetails = useAtomValue(recordDetailAtom);
     const channels = useAtomValue(channelsAtom);
     const pendingFocus = useAtomValue(pendingRunFocusAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
@@ -127,10 +125,14 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     // underneath it — the column highlights the draft, and both must name the same thing.
     const composing = subject?.kind === "channel" && (composingRun[subject.id] ?? false);
     const open = subject != null ? (bandOpen[subject.id] ?? false) : false;
-    const tags =
+    const activeRunId =
         subject?.kind === "channel" && subject.id === channel?.oid && !composing
-            ? ambient.tagsFor({ oref: "run:" + (resolveActiveRunId(allRuns, runIds[subject.id]) ?? "") })
-            : [];
+            ? resolveActiveRunId(allRuns, runIds[subject.id])
+            : undefined;
+    // null rather than "run:" when nothing resolves: the band hangs Attach and every per-edge correction off
+    // this oref, and an empty one would write a correction against no run at all.
+    const activeRunORef = activeRunId != null ? "run:" + activeRunId : null;
+    const tags = activeRunORef != null ? ambient.tagsFor({ oref: activeRunORef }) : [];
     const band = recordBandCase({ kind: subject?.kind ?? "channel", tags, mentionedIds: [] });
     const bandRecordId = band.case === "one" ? band.edge.taskId : band.case === "several" ? band.primary.taskId : null;
 
@@ -168,6 +170,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     }
 
     const comp = composeStage(subject.kind);
+    // one cache, two readers: the record the user selected, and the record a channel's run is attributed to.
+    const detail = subject.kind === "dossier" ? (recordDetails[subject.id] ?? null) : null;
     const meta = (channel?.meta as Record<string, unknown> | undefined) ?? {};
     const tier = tierFromMeta(meta);
     const mode = (meta["delegator:mode"] as string) ?? "report";
@@ -180,7 +184,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const subtitle = subject.kind === "channel" ? (channel?.projectpath ?? "") : "";
 
     const run = composing ? undefined : allRuns.find((r) => r.id === resolveActiveRunId(allRuns, runIds[subject.id]));
-    const bandDetail = subject.kind === "dossier" ? detail : bandRecordId != null ? (bandDetails[bandRecordId] ?? null) : null;
+    const bandDetail =
+        subject.kind === "dossier" ? detail : bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null;
     askAgentRef.current = run ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;
 
     return (
@@ -201,6 +206,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     tags={tags}
                     mentionedIds={comp.recordBand === "mentions" ? mentionedDossierIds(conversation) : []}
                     detail={bandDetail}
+                    runORef={activeRunORef}
                     open={open}
                     onToggle={() => toggleRecordBand(subject.id)}
                 />

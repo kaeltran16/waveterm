@@ -22,7 +22,6 @@ import {
     submitJarvisQuery,
 } from "./jarvisstore";
 import type { SubjectKind } from "./subjects";
-import { selectDossier } from "./tasksstore";
 
 export interface ActiveSubject {
     kind: SubjectKind;
@@ -90,7 +89,7 @@ export function selectSubject(subject: ActiveSubject): void {
     // strands it: no control closes it, and its forceCollapsed keeps "Needs you" hidden the whole time.
     globalStore.set(profileRailOpenAtom, false);
     if (subject.kind === "dossier") {
-        selectDossier(subject.id);
+        loadRecordDetail(subject.id);
         loadRecordScope(subject.id);
         return;
     }
@@ -109,21 +108,23 @@ export function loadRecordScope(dossierId: string): void {
     if (globalStore.get(recordScopeAtom)[dossierId] != null) {
         return;
     }
-    fireAndForget(async () => {
-        const scope = await RpcApi.ResolveSpaceScopeCommand(TabRpcClient, { dossierid: dossierId });
-        if (scope == null) {
-            return;
+    fireAndForget(() => reloadRecordScope(dossierId));
+}
+
+export async function reloadRecordScope(dossierId: string): Promise<void> {
+    const scope = await RpcApi.ResolveSpaceScopeCommand(TabRpcClient, { dossierid: dossierId });
+    if (scope == null) {
+        return;
+    }
+    globalStore.set(recordScopeAtom, { ...globalStore.get(recordScopeAtom), [dossierId]: scope });
+    const runs: Run[] = [];
+    for (const oref of scope.runorefs ?? []) {
+        const run = await WOS.loadAndPinWaveObject<Run>(oref).catch(() => null);
+        if (run != null) {
+            runs.push(run);
         }
-        globalStore.set(recordScopeAtom, { ...globalStore.get(recordScopeAtom), [dossierId]: scope });
-        const runs: Run[] = [];
-        for (const oref of scope.runorefs ?? []) {
-            const run = await WOS.loadAndPinWaveObject<Run>(oref).catch(() => null);
-            if (run != null) {
-                runs.push(run);
-            }
-        }
-        globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [dossierId]: runs });
-    });
+    }
+    globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [dossierId]: runs });
 }
 
 // keyed by subject id, not a single value: switching subjects must return each one to the state it was in
@@ -133,9 +134,10 @@ export const activeRunIdAtom = atom<Record<string, string | undefined>>({}) as P
     Record<string, string | undefined>
 >;
 
-// The record an *attributed* band expands to, keyed by dossier id. Distinct from tasksstore's
-// dossierDetailAtom, which holds the record the user selected as a subject: a channel's band opens the
-// record its run is attributed to, which is usually not that one.
+// A record's detail, keyed by dossier id — the ONLY cache of it. Both readers use this: the record
+// subject (the record the user selected) and a channel's record band (the record its run is attributed
+// to, usually a different one). It was two atoms, and only one of them was invalidated on write, so
+// setting a record's status from the band appeared to do nothing.
 export const recordDetailAtom = atom<Record<string, DossierDetail>>({}) as PrimitiveAtom<
     Record<string, DossierDetail>
 >;
@@ -222,15 +224,21 @@ export function askAboutRecord(dossierId: string, objective: string, text: strin
     submitJarvisQuery(convId, text);
 }
 
+// The cache-guarded read: a band that opens the same record twice must not refetch it. Every mutation
+// goes through recordactions.afterRecordWrite, which drops the key first, so a guarded read is correct
+// rather than merely cheap.
 export function loadRecordDetail(dossierId: string): void {
     if (globalStore.get(recordDetailAtom)[dossierId] != null) {
         return;
     }
-    fireAndForget(async () => {
-        const detail = await RpcApi.GetDossierCommand(TabRpcClient, { dossierid: dossierId });
-        if (detail == null) {
-            return;
-        }
-        globalStore.set(recordDetailAtom, { ...globalStore.get(recordDetailAtom), [dossierId]: detail });
-    });
+    fireAndForget(() => reloadRecordDetail(dossierId));
+}
+
+// The unguarded read. Returns a promise so a write can await the refreshed detail before the UI settles.
+export async function reloadRecordDetail(dossierId: string): Promise<void> {
+    const detail = await RpcApi.GetDossierCommand(TabRpcClient, { dossierid: dossierId });
+    if (detail == null) {
+        return;
+    }
+    globalStore.set(recordDetailAtom, { ...globalStore.get(recordDetailAtom), [dossierId]: detail });
 }

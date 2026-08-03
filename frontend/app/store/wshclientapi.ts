@@ -18,6 +18,12 @@ export class RpcApiType {
         this.mockClient = client;
     }
 
+    // command "acceptdossieredge" [call]
+    AcceptDossierEdgeCommand(client: WshClient, data: CommandDossierEdgeData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "acceptdossieredge", data, opts);
+        return client.wshRpcCall("acceptdossieredge", data, opts);
+    }
+
     // command "advancerun" [call]
     AdvanceRunCommand(client: WshClient, data: CommandAdvanceRunData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "advancerun", data, opts);
@@ -298,6 +304,12 @@ export class RpcApiType {
     DeleteSubBlockCommand(client: WshClient, data: CommandDeleteBlockData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "deletesubblock", data, opts);
         return client.wshRpcCall("deletesubblock", data, opts);
+    }
+
+    // command "detachdossieredge" [call]
+    DetachDossierEdgeCommand(client: WshClient, data: CommandDossierEdgeData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "detachdossieredge", data, opts);
+        return client.wshRpcCall("detachdossieredge", data, opts);
     }
 
     // command "disposesuggestions" [call]
@@ -784,6 +796,12 @@ export class RpcApiType {
     ListConsultRuntimesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListConsultRuntimesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listconsultruntimes", null, opts);
         return client.wshRpcCall("listconsultruntimes", null, opts);
+    }
+
+    // command "listdetachededges" [call]
+    ListDetachedEdgesCommand(client: WshClient, data: CommandListDetachedEdgesData, opts?: RpcOpts): Promise<CommandListDetachedEdgesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listdetachededges", data, opts);
+        return client.wshRpcCall("listdetachededges", data, opts);
     }
 
     // command "listdossiers" [call]

@@ -72,3 +72,12 @@ export async function focusDossier(dossierId: string): Promise<void> {
         // leave the dossier selected with no bloom; failure is non-fatal (graceful degradation).
     }
 }
+
+// The base graph is the vault's node set and a correction does not change it; the bloom IS the attribution,
+// so that is the only part that goes stale.
+export function invalidateBloom(dossierId: string): void {
+    const next = new Map(globalStore.get(graphBloomAtom));
+    if (next.delete(dossierId)) {
+        globalStore.set(graphBloomAtom, next);
+    }
+}

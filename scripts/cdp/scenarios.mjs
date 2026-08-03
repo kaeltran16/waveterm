@@ -1570,6 +1570,108 @@ const jarvisSubjectState = {
     },
 };
 
+// jarvis-attribution: the correction round trip. Detaching a run from a record must remove it from the
+// record's run list and surface it under Detached; restoring must put it back. That round trip is also
+// the live proof of the invalidation seam — a detach that does not invalidate leaves both lists unchanged,
+// so a missing afterRecordWrite reddens both halves.
+//
+// It ends where it started, which is what makes it safe against the user's real vault (the same reasoning
+// as jarvis-subject-state's archive/unarchive step). It needs one record with at least one attributed run
+// and REPORTS when the vault has none rather than passing quietly.
+const jarvisAttribution = {
+    name: "jarvis-attribution",
+    surface: "jarvis",
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.goto("jarvis");
+        await settle(500);
+
+        // the Records group starts collapsed (subjects.ts DEFAULT_COLLAPSED)
+        await h.ev(`(() => {
+            const h = [...document.querySelectorAll('button')].find((b) => /^records/i.test((b.innerText || '').trim()));
+            if (h) h.click();
+            return !!h;
+        })()`);
+        await settle(300);
+
+        // record rows carry their dossier id in the row's own text; select each until one has runs.
+        const recordCount = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-subject-kind="dossier"]')];
+            return rows.length;
+        })()`);
+        const selectRecord = (i) =>
+            h.ev(`(() => {
+                const rows = [...document.querySelectorAll('[data-jarvis-subject-kind="dossier"]')];
+                if (!rows[${i}]) return false;
+                rows[${i}].click();
+                return true;
+            })()`);
+        // a run row is the only element on the record's thread carrying an EdgeControls detach button
+        const runCount = () =>
+            h.ev(`[...document.querySelectorAll('button')].filter((b) => /not this record/i.test(b.innerText || '')).length`);
+
+        let found = -1;
+        for (let i = 0; i < recordCount && found < 0; i++) {
+            await selectRecord(i);
+            await settle(600);
+            if ((await runCount()) > 0) {
+                found = i;
+            }
+        }
+        if (found < 0) {
+            rec(
+                "1. a record with an attributed run exists to correct",
+                false,
+                `checked ${recordCount} record rows, none had an attributed run — seed the vault before reading this as a pass`
+            );
+            return steps;
+        }
+        const before = await runCount();
+
+        // 1. detach: the run leaves the list and appears under Detached. The dialog fires because a run
+        // reaching a record's list is treated as confirmed (see recordthread.tsx) — the cautious path.
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => /not this record/i.test(x.innerText || ''));
+            b.click();
+            return true;
+        })()`);
+        await settle(300);
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => /^detach$/i.test((x.innerText || '').trim()));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(900);
+        const afterDetach = await runCount();
+        const detachedGroup = await h.ev(`/detached\\s*·\\s*[1-9]/i.test(document.body.innerText || '')`);
+        rec(
+            "1. detaching removes the run from the record and lists it under Detached",
+            afterDetach === before - 1 && detachedGroup === true,
+            `runs ${before} -> ${afterDetach}, detachedGroupVisible=${detachedGroup}`
+        );
+
+        // 2. restore: the starting state returns. This is also the teardown — the vault is the user's.
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => /restore/i.test(x.innerText || ''));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(900);
+        const afterRestore = await runCount();
+        const groupGone = await h.ev(`!/detached\\s*·\\s*[1-9]/i.test(document.body.innerText || '')`);
+        rec(
+            "2. restoring returns the run and empties the Detached group",
+            afterRestore === before && groupGone === true,
+            `runs ${afterDetach} -> ${afterRestore} (started at ${before}), detachedGroupGone=${groupGone}`
+        );
+        return steps;
+    },
+};
+
 // The design's narrow-window collapse order (JC16). This is the check the previous conformance pass
 // could not make: "the thread is still mounted" passed on the broken layout, where the chrome held a
 // constant 572px and the Stage went 1270 -> 70px. So rule 5 is asserted as a *width* — the Stage never
@@ -2244,6 +2346,7 @@ export const SCENARIOS = [
     jarvisProactive,
     jarvisDrawer,
     jarvisSubjectState,
+    jarvisAttribution,
     jarvisCollapseOrder,
     jarvisNarrow,
     jarvisMeasure,

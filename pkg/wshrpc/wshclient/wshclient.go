@@ -16,6 +16,12 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
+// command "acceptdossieredge", wshserver.AcceptDossierEdgeCommand
+func AcceptDossierEdgeCommand(w *wshutil.WshRpc, data wshrpc.CommandDossierEdgeData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "acceptdossieredge", data, opts)
+	return err
+}
+
 // command "advancerun", wshserver.AdvanceRunCommand
 func AdvanceRunCommand(w *wshutil.WshRpc, data wshrpc.CommandAdvanceRunData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "advancerun", data, opts)
@@ -294,6 +300,12 @@ func DeleteProjectCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteProjectDat
 // command "deletesubblock", wshserver.DeleteSubBlockCommand
 func DeleteSubBlockCommand(w *wshutil.WshRpc, data wshrpc.CommandDeleteBlockData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "deletesubblock", data, opts)
+	return err
+}
+
+// command "detachdossieredge", wshserver.DetachDossierEdgeCommand
+func DetachDossierEdgeCommand(w *wshutil.WshRpc, data wshrpc.CommandDossierEdgeData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "detachdossieredge", data, opts)
 	return err
 }
 
@@ -777,6 +789,12 @@ func ListBranchesCommand(w *wshutil.WshRpc, data wshrpc.CommandListBranchesData,
 // command "listconsultruntimes", wshserver.ListConsultRuntimesCommand
 func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListConsultRuntimesRtnData](w, "listconsultruntimes", nil, opts)
+	return resp, err
+}
+
+// command "listdetachededges", wshserver.ListDetachedEdgesCommand
+func ListDetachedEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandListDetachedEdgesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListDetachedEdgesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListDetachedEdgesRtnData](w, "listdetachededges", data, opts)
 	return resp, err
 }
 

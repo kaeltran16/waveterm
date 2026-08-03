@@ -8,17 +8,22 @@
 import { composerReveal } from "@/app/element/motiontokens";
 import type { AmbientTag } from "@/app/view/agents/ambient";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { Lock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useState } from "react";
+import { EdgeControls } from "./edgecontrolsview";
 import { selectSubject } from "./jarvissubjectstore";
+import { acceptEdge, detachedEdgesAtom, loadDetachedEdges } from "./recordactions";
 import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
+import { RecordPicker } from "./recordpicker";
 import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 import type { SubjectKind } from "./subjects";
 import { TaskDetail } from "./taskdetail";
 
 function MachineGlyph() {
     return (
-        <span className="flex-none text-muted" title="machine-maintained">
+        <span className="flex-none text-muted" title="inferred by Jarvis — you can correct it">
             <Lock size={10} strokeWidth={2} />
         </span>
     );
@@ -46,6 +51,7 @@ export function RecordBand({
     tags,
     mentionedIds,
     detail,
+    runORef,
     open,
     onToggle,
 }: {
@@ -53,6 +59,8 @@ export function RecordBand({
     tags: AmbientTag[];
     mentionedIds: string[];
     detail: DossierDetail | null;
+    // the run every edge on this band is an edge *of*. null off a channel, or before a run resolves.
+    runORef: string | null;
     open: boolean;
     onToggle: () => void;
 }) {
@@ -60,6 +68,18 @@ export function RecordBand({
     // a dossier subject IS the record, so its panel is always open and has no collapse affordance.
     const expandable = band.case === "one" || band.case === "several";
     const showPanel = band.case === "subject" || (expandable && open);
+    const [attaching, setAttaching] = useState(false);
+    const detachedByKey = useAtomValue(detachedEdgesAtom);
+    const detached = runORef != null ? (detachedByKey[runORef] ?? []) : [];
+    useEffect(() => {
+        if (runORef != null) {
+            loadDetachedEdges(runORef);
+        }
+    }, [runORef]);
+    // every edge, primary included: the primary had no row of its own, so the one edge most likely to be
+    // wrong was the one edge with nowhere to correct it from.
+    const edges: AmbientTag[] =
+        band.case === "one" ? [band.edge] : band.case === "several" ? [band.primary, ...band.others] : [];
 
     // the row's content sits in the shared gutter; the button around it stays full-bleed so its hover tint
     // covers the whole band rather than stopping at the gutter's edges.
@@ -70,17 +90,28 @@ export function RecordBand({
     const row = (
         <>
             {band.case === "none" ? (
-                <>
-                    <span className="font-mono text-[11px] text-muted">No record attributed to this run</span>
-                    <div className="flex-1" />
-                    {/* the attach/create lifecycle (pkg/jarvisattrib) is not exposed over wshrpc, so
-                            this states who maintains attribution rather than offering buttons that do
-                            nothing. Real controls belong to the cycle that ships the commands. */}
-                    <MachineGlyph />
-                    <span className="flex-none font-mono text-[11px] text-muted">
-                        attribution is machine-maintained
-                    </span>
-                </>
+                attaching && runORef != null ? (
+                    <RecordPicker
+                        onPick={(dossierId) => {
+                            acceptEdge(dossierId, runORef);
+                            setAttaching(false);
+                        }}
+                        onCancel={() => setAttaching(false)}
+                    />
+                ) : (
+                    <>
+                        <span className="font-mono text-[11px] text-muted">No record attributed to this run</span>
+                        <div className="flex-1" />
+                        <button
+                            type="button"
+                            disabled={runORef == null}
+                            onClick={() => setAttaching(true)}
+                            className="flex-none cursor-pointer rounded-[6px] px-1.5 py-0.5 text-[11px] font-semibold text-muted hover:bg-surface-hover hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Attach a record
+                        </button>
+                    </>
+                )
             ) : band.case === "one" ? (
                 <>
                     <MachineGlyph />
@@ -184,10 +215,12 @@ export function RecordBand({
                         </div>
                     </motion.div>
                 ) : null}
-                {/* the others are one-line rows under the primary — expanding must never produce a tab strip */}
-                {expandable && open && band.case === "several" ? (
+                {/* one row per edge — expanding must never produce a tab strip. The open-the-record button
+                    and the correction controls are siblings, never nested: a control inside a control is the
+                    keyboard defect JC19 was filed to fix. */}
+                {expandable && open ? (
                     <motion.div
-                        key="others"
+                        key="edges"
                         variants={composerReveal}
                         initial="initial"
                         animate="animate"
@@ -196,17 +229,65 @@ export function RecordBand({
                     >
                         <div className={cn(STAGE_BAND_INSET, "border-t border-border")}>
                             <div className={cn(STAGE_GUTTER, "flex flex-col gap-px py-2")}>
-                                {band.others.map((o) => (
-                                    <button
-                                        key={o.taskId}
-                                        type="button"
-                                        onClick={() => selectSubject({ kind: "dossier", id: o.taskId })}
-                                        className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                                {edges.map((e) => (
+                                    <div
+                                        key={e.taskId}
+                                        className="flex items-center gap-2 rounded-[7px] px-1 py-1 transition-colors duration-[140ms] hover:bg-surface-hover"
                                     >
-                                        <EdgeChip tag={o} />
-                                        <span className="font-mono text-[10.5px] text-muted">open this record</span>
-                                    </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => selectSubject({ kind: "dossier", id: e.taskId })}
+                                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                                        >
+                                            <EdgeChip tag={e} />
+                                            <span className="font-mono text-[10.5px] text-muted">
+                                                open this record
+                                            </span>
+                                        </button>
+                                        {runORef != null ? (
+                                            <EdgeControls
+                                                dossierId={e.taskId}
+                                                runORef={runORef}
+                                                state={e.state}
+                                                subjectLabel={e.label}
+                                            />
+                                        ) : null}
+                                    </div>
                                 ))}
+                                {detached.map((d) => (
+                                    <div
+                                        key={"detached-" + d.dossierId}
+                                        className="flex items-center gap-2 rounded-[7px] px-1 py-1 opacity-70"
+                                    >
+                                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted">
+                                            Detached · {d.label}
+                                        </span>
+                                        <EdgeControls
+                                            dossierId={d.dossierId}
+                                            runORef={d.runORef}
+                                            state="detached"
+                                            subjectLabel={d.label}
+                                        />
+                                    </div>
+                                ))}
+                                {runORef != null && !attaching ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setAttaching(true)}
+                                        className="cursor-pointer self-start rounded-[6px] px-1 py-1 text-[11px] font-semibold text-muted hover:text-accent"
+                                    >
+                                        + Attach another record
+                                    </button>
+                                ) : null}
+                                {runORef != null && attaching ? (
+                                    <RecordPicker
+                                        onPick={(dossierId) => {
+                                            acceptEdge(dossierId, runORef);
+                                            setAttaching(false);
+                                        }}
+                                        onCancel={() => setAttaching(false)}
+                                    />
+                                ) : null}
                             </div>
                         </div>
                     </motion.div>

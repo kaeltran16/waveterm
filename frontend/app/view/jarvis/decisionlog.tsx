@@ -3,7 +3,7 @@
 
 import { cn } from "@/util/util";
 import { useState } from "react";
-import { appendDecision } from "./tasksstore";
+import { appendDecision } from "./recordactions";
 import { validateDecisionDraft } from "./tasksderive";
 
 function fmtDate(ms: number): string {

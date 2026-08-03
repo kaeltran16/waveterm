@@ -7,6 +7,8 @@ package jarvisattrib
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -105,6 +107,78 @@ func Detach(ctx context.Context, v *wavevault.Vault, dossierID, runORef string) 
 		}
 	}
 	return nil
+}
+
+// DetachedEdges lists the human-suppressed edges for one dossier (dossierID != "") or one run
+// (runORef != ""), so a detach has somewhere to be undone from. The override log is the source of truth
+// rather than the assembled edges: Detach also strips a hardened canonical ref, so a detached layer-1
+// edge is no longer derivable and assembling alone would drop the very row the user needs. Assembly is
+// consulted only to enrich a row whose signal still exists — an edge with no derivable signal comes back
+// with no Layers, no Provenance and zero Confidence, which the caller must render as absent rather than
+// as weak.
+func DetachedEdges(ctx context.Context, v *wavevault.Vault, dossierID, runORef string) ([]AttributedEdge, error) {
+	ov, err := readOverrides(v)
+	if err != nil {
+		return nil, err
+	}
+	type pair struct{ dossier, run string }
+	var pairs []pair
+	for key, action := range ov {
+		if action != "detach" {
+			continue
+		}
+		parts := strings.SplitN(key, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if dossierID != "" && parts[0] != dossierID {
+			continue
+		}
+		if runORef != "" && parts[1] != runORef {
+			continue
+		}
+		pairs = append(pairs, pair{dossier: parts[0], run: parts[1]})
+	}
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	// map iteration is unordered; without this the rows reshuffle between reads
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].dossier != pairs[j].dossier {
+			return pairs[i].dossier < pairs[j].dossier
+		}
+		return pairs[i].run < pairs[j].run
+	})
+
+	lk, runs, err := gatherLookups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lk = memoizeCommits(lk)
+	now := nowFn()
+	// one assembly per distinct dossier, reused across its pairs
+	assembled := map[string][]AttributedEdge{}
+	out := make([]AttributedEdge, 0, len(pairs))
+	for _, p := range pairs {
+		edges, ok := assembled[p.dossier]
+		if !ok {
+			if d, err := loadDossier(v, p.dossier); err == nil {
+				edges = assembleEdges(d, runs, lk, now)
+			}
+			assembled[p.dossier] = edges
+		}
+		e := AttributedEdge{DossierID: p.dossier, RunORef: p.run, State: StateDetached}
+		for _, cand := range edges {
+			if cand.RunORef == p.run {
+				e.Layers = cand.Layers
+				e.Provenance = cand.Provenance
+				e.Confidence = cand.Confidence
+				break
+			}
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // Accept records a human acceptance (provenance human-accept) and hardens the edge into canonical refs.

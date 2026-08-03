@@ -521,6 +521,12 @@ declare global {
         name: string;
     };
 
+    // wshrpc.CommandDossierEdgeData
+    type CommandDossierEdgeData = {
+        dossierid: string;
+        runoref: string;
+    };
+
     // wshrpc.CommandElectronDecryptData
     type CommandElectronDecryptData = {
         ciphertext: string;
@@ -961,6 +967,18 @@ declare global {
     // wshrpc.CommandListConsultRuntimesRtnData
     type CommandListConsultRuntimesRtnData = {
         runtimes: ConsultRuntimeInfo[];
+    };
+
+    // wshrpc.CommandListDetachedEdgesData
+    type CommandListDetachedEdgesData = {
+        dossierid?: string;
+        runoref?: string;
+    };
+
+    // wshrpc.CommandListDetachedEdgesRtnData
+    type CommandListDetachedEdgesRtnData = {
+        tasks: AmbientTask[];
+        edges: AmbientEdge[];
     };
 
     // wshrpc.CommandListDossiersRtnData

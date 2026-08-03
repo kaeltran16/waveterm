@@ -9,11 +9,15 @@ import { runStatusView } from "@/app/view/agents/runmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Brain } from "lucide-react";
+import { useEffect } from "react";
 import { DecisionLog } from "./decisionlog";
+import { EdgeControls } from "./edgecontrolsview";
 import { isAnswerTurn } from "./jarviscontract";
 import { cancelJarvisQuery, conversationsByIdAtom, retryJarvisQuery } from "./jarvisstore";
 import { recordRunsAtom, sourceConversationAtom } from "./jarvissubjectstore";
 import { JarvisAnswer, JarvisUserTurn } from "./jarvisturn";
+import { detachedEdgesAtom, loadDetachedEdges } from "./recordactions";
+import { runRow } from "./recordrunrow";
 import { STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 
 // Status carries tone so the outcome column is scanned as colour instead of read as more grey text — with
@@ -34,6 +38,14 @@ export function RecordThread({ detail, model }: { detail: DossierDetail | null; 
     const runs = detail != null ? (byRecord[detail.id] ?? []) : [];
     // a record's thread is the one attached to its own oref — the same key askAboutRecord writes.
     const conversation = detail != null ? convsById[convIdBySource["task:" + detail.id] ?? ""] : undefined;
+    const detachedByKey = useAtomValue(detachedEdgesAtom);
+    const detachedKey = detail != null ? "task:" + detail.id : null;
+    const detached = detachedKey != null ? (detachedByKey[detachedKey] ?? []) : [];
+    useEffect(() => {
+        if (detachedKey != null) {
+            loadDetachedEdges(detachedKey);
+        }
+    }, [detachedKey]);
     return (
         // the scroller stays full-bleed (its scrollbar belongs to the Stage's edge); the content inside it
         // sits in the same gutter as the record's own fields in the band above, which used to be a 720px
@@ -63,31 +75,74 @@ export function RecordThread({ detail, model }: { detail: DossierDetail | null; 
                                 <div className="flex flex-col gap-1.5">
                                     {runs.map((r) => {
                                         const view = runStatusView(r.status);
+                                        const row = runRow(r, detail.objective ?? "", Date.now());
                                         return (
                                             <div
                                                 key={r.id}
-                                                className="flex items-center gap-2.5 rounded-[10px] border border-border bg-surface px-3 py-2"
+                                                className="flex flex-col gap-1 rounded-[10px] border border-border bg-surface px-3 py-2"
                                             >
-                                                <span className="flex-none font-mono text-[10.5px] font-semibold text-accent-soft">
-                                                    {r.id.slice(0, 8)}
+                                                <div className="flex items-center gap-2.5">
+                                                    <span className="flex-none font-mono text-[10.5px] font-semibold text-accent-soft">
+                                                        {row.shortId}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">
+                                                        {row.headline}
+                                                    </span>
+                                                    <span
+                                                        className={cn(
+                                                            "flex-none font-mono text-[10px]",
+                                                            RUN_TONE[view.tone] ?? "text-accent-soft"
+                                                        )}
+                                                    >
+                                                        {view.label}
+                                                    </span>
+                                                </div>
+                                                <span className="font-mono text-[10px] text-muted">
+                                                    {row.meta.join(" · ")}
                                                 </span>
-                                                <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">
-                                                    {r.goal}
-                                                </span>
-                                                <span
-                                                    className={cn(
-                                                        "flex-none font-mono text-[10px]",
-                                                        RUN_TONE[view.tone] ?? "text-accent-soft"
-                                                    )}
-                                                >
-                                                    {view.label}
-                                                </span>
+                                                <div className="flex items-center justify-end">
+                                                    <EdgeControls
+                                                        dossierId={detail.id}
+                                                        runORef={"run:" + r.id}
+                                                        state={"confirmed"}
+                                                        subjectLabel={`run ${row.shortId}`}
+                                                    />
+                                                </div>
                                             </div>
                                         );
                                     })}
                                 </div>
                             )}
                         </div>
+                        {detached.length > 0 ? (
+                            <div className="flex flex-col gap-2">
+                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
+                                    Detached · {detached.length}
+                                </span>
+                                {detached.map((d) => (
+                                    <div
+                                        key={d.runORef}
+                                        className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-border px-3 py-2"
+                                    >
+                                        <span className="flex-none font-mono text-[10.5px] text-muted">
+                                            {d.runORef.replace(/^run:/, "").slice(0, 8)}
+                                        </span>
+                                        {d.bucket !== "" ? (
+                                            <span className="flex-none font-mono text-[10px] text-muted">
+                                                {d.bucket}
+                                            </span>
+                                        ) : null}
+                                        <div className="flex-1" />
+                                        <EdgeControls
+                                            dossierId={d.dossierId}
+                                            runORef={d.runORef}
+                                            state="detached"
+                                            subjectLabel={`run ${d.runORef.replace(/^run:/, "").slice(0, 8)}`}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : null}
                         <div className="flex flex-col gap-2">
                             <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
                                 Decisions · append-only

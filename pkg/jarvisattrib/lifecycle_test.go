@@ -102,6 +102,71 @@ func TestAcceptConfirms(t *testing.T) {
 	_ = now
 }
 
+func TestDetachedEdgesListsASuppressedCanonicalRefAfterItsRefIsStripped(t *testing.T) {
+	v := testVault(t)
+	id, _, err := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-1", Objective: "oauth pkce"})
+	if err != nil {
+		t.Fatalf("CreateDossier: %v", err)
+	}
+	d, _ := loadDossier(v, id)
+	if err := hardenEdge(v, d, "run:r1"); err != nil {
+		t.Fatalf("hardenEdge: %v", err)
+	}
+	if err := Detach(context.Background(), v, id, "run:r1"); err != nil {
+		t.Fatalf("Detach: %v", err)
+	}
+
+	// Detach strips the canonical ref, so assembling alone can no longer see this edge. The override log
+	// must still surface it, or the only row that can restore it is unreachable.
+	got, err := DetachedEdges(context.Background(), v, id, "")
+	if err != nil {
+		t.Fatalf("DetachedEdges: %v", err)
+	}
+	if len(got) != 1 || got[0].RunORef != "run:r1" || got[0].State != StateDetached {
+		t.Fatalf("want one detached run:r1, got %+v", got)
+	}
+}
+
+func TestDetachedEdgesDropsARestoredEdge(t *testing.T) {
+	v := testVault(t)
+	id, _, _ := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-2", Objective: "retries"})
+	ctx := context.Background()
+	if err := Detach(ctx, v, id, "run:r2"); err != nil {
+		t.Fatalf("Detach: %v", err)
+	}
+	if err := Accept(ctx, v, id, "run:r2"); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	got, err := DetachedEdges(ctx, v, id, "")
+	if err != nil {
+		t.Fatalf("DetachedEdges: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a restored edge is still listed as detached: %+v", got)
+	}
+}
+
+func TestDetachedEdgesFiltersByRunAcrossDossiers(t *testing.T) {
+	v := testVault(t)
+	ctx := context.Background()
+	a, _, _ := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-3", Objective: "alpha"})
+	b, _, _ := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-4", Objective: "beta"})
+	if err := Detach(ctx, v, a, "run:shared"); err != nil {
+		t.Fatalf("Detach a: %v", err)
+	}
+	if err := Detach(ctx, v, b, "run:other"); err != nil {
+		t.Fatalf("Detach b: %v", err)
+	}
+
+	got, err := DetachedEdges(ctx, v, "", "run:shared")
+	if err != nil {
+		t.Fatalf("DetachedEdges: %v", err)
+	}
+	if len(got) != 1 || got[0].DossierID != a {
+		t.Fatalf("want only dossier %s for run:shared, got %+v", a, got)
+	}
+}
+
 func mustOverrides(t *testing.T, v *wavevault.Vault) map[string]string {
 	t.Helper()
 	ov, err := readOverrides(v)

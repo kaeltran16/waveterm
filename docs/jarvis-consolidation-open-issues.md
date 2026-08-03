@@ -47,7 +47,7 @@ fixed, that section of the tour gets cut rather than edited (JC18).
 | JC20 | Every band on the Stage owns its own measure, and the collapse staircase makes the thread *narrower* on a wider window | layout | M | ✅ Fixed (the measure part **revised by JC21**) |
 | JC21 | The shared measure missed the band that did not opt in, and centring it left ~175px of dead gutter a side | layout | S | ✅ Fixed |
 | JC22 | The two lowest text tiers are below readable contrast, and the record view puts five roles on two of them | legibility | S | ✅ Fixed |
-| JC23 | A record's run list repeats the record's own objective on every row — the widest column carries no information | legibility / content | S | ⬜ Open |
+| JC23 | A record's run list repeats the record's own objective on every row — the widest column carries no information | legibility / content | S | ✅ Fixed |
 | **E** | **The tour itself** | | | |
 | JC18 | Three inaccuracies, a missing teardown flow, an unjustified claim | docs | S | ✅ Fixed |
 
@@ -654,11 +654,24 @@ element's real background (a probe that reads the token alone proves nothing abo
 to 3.54:1, but any that are genuinely body text (the diff gutter's line numbers, a few 9.5px section labels)
 still sit below AA and should move to `muted`. Not swept here — it reaches well past this surface.
 
-**Still open, and no tone fixes it (JC23).** A record's run list repeats the same string on every row: a run's
-goal *is* the record's objective, so "runs attributed to this record" renders as N identical lines whose only
-distinguishing datum is an 8-character id. The widest column in the row carries no information. What a reader
-wants there is when it ran, how long it took and what changed — the goal belongs in the row only when it
-differs from the record's. That is a content decision, not a colour one, and is not made here.
+**No tone fixed it, and it is now fixed as content (JC23).** A record's run list repeated the same string on
+every row: a run's goal *is* the record's objective, so "runs attributed to this record" rendered as N
+identical lines whose only distinguishing datum was an 8-character id. The widest column in the row carried
+no information.
+
+**Fixed** in `recordrunrow.ts` (pure, `recordrunrow.test.ts`). The headline is now the run's **evidence
+summary** — the one field that is written per run, by the run, describing what that run actually did — and
+the goal appears only when it genuinely differs from the record's objective, compared after trimming,
+collapsing internal whitespace and lowercasing. When neither applies the headline is `null` and the row
+renders id, blank, status: absent rather than a repeated title, which is the surface's stated rule. Beneath
+it a meta line carries exactly what the issue asked for — when it ran, how long it took, what changed
+(`+N/−M across K files`) — with each part **omitted** rather than defaulted when there is no source for it,
+because an unsealed run has no duration and a zero would assert one.
+
+Why the evidence summary rather than the phase list or the commit subject: it is the only per-run field that
+already exists on the object the list renders, is written at seal time by the worker that did the work, and
+does not require a second read. The phase list is structure, not outcome; the commit subject is absent for
+any run that did not commit.
 
 ### JC19 — The record band's expand control is not keyboard-operable
 

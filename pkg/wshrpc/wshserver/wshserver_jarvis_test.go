@@ -154,3 +154,21 @@ func findSummary(t *testing.T, ws *WshServer, ctx context.Context, oid string) w
 	t.Fatalf("conversation %s missing from the list", oid)
 	return wshrpc.JarvisConversationSummary{}
 }
+
+func TestListDetachedEdgesRequiresAnId(t *testing.T) {
+	ws := &WshServer{}
+	if _, err := ws.ListDetachedEdgesCommand(context.Background(), wshrpc.CommandListDetachedEdgesData{}); err == nil {
+		t.Fatal("an unfiltered detached-edge read must be rejected, not answered with every correction ever made")
+	}
+}
+
+func TestDossierEdgeCommandsRequireBothIds(t *testing.T) {
+	ws := &WshServer{}
+	ctx := context.Background()
+	if err := ws.DetachDossierEdgeCommand(ctx, wshrpc.CommandDossierEdgeData{RunORef: "run:r1"}); err == nil {
+		t.Fatal("detach without a dossierid must be rejected")
+	}
+	if err := ws.AcceptDossierEdgeCommand(ctx, wshrpc.CommandDossierEdgeData{DossierId: "task-a"}); err == nil {
+		t.Fatal("accept without a runoref must be rejected")
+	}
+}

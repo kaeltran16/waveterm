@@ -178,7 +178,7 @@ Five cases:
 
 | Case | When | Collapsed line |
 |---|---|---|
-| `none` | channel, no attributed record | "No record attributed to this run" + "attribution is machine-maintained" |
+| `none` | channel, no attributed record | "No record attributed to this run" + an **Attach a record** control |
 | `one` | channel, one edge | 🔒 task id + edge chip + "Expand the record" |
 | `several` | channel, many edges | 🔒 primary chip + `+N more`, ranked confirmed-first then strong>medium>weak |
 | `subject` | dossier | 🔒 "Selected directly from Records — no run beneath it" |
@@ -190,15 +190,26 @@ stronger than it is.
 
 The collapsed `several` row carries the primary edge and a count, never a chip per record: one chip each put
 826px of content in a 790px box at 1440px and drew the trailing label over the rail. Deliberately **not**
-`flex-wrap` — a band that changes height on selection pushes the thread. The `none` case states who maintains
-attribution rather than offering *attach a record* / *create one from this run*; those were accent-styled
-spans that did nothing, because `pkg/jarvisattrib`'s lifecycle (`Accept`, `Detach`, `Backfill`, `Harden`) is
-not exposed over wshrpc. Real controls belong to the cycle that ships the commands.
+`flex-wrap` — a band that changes height on selection pushes the thread.
 
-Expanding renders `TaskDetail` in a 420px scroll region; extra edges become one-line rows beneath, each
-opening that record as a subject. Expanding never produces a tab strip. The expandable row is a `<button>`
-carrying `aria-expanded`, so the band's one control is keyboard-reachable; the per-record rows are siblings
-below it, not nested inside it, so the outer control cannot swallow them.
+**Attribution is correctable.** `pkg/jarvisattrib`'s lifecycle now reaches the frontend as three wshrpc
+commands (`DetachDossierEdgeCommand`, `AcceptDossierEdgeCommand`, `ListDetachedEdgesCommand`), so the band
+offers real controls rather than the sentence *"attribution is machine-maintained"* that stood in for them.
+The `none` case offers **Attach a record** — a filtered picker over the record list (`recordpicker.tsx`)
+rendered in place, not as a modal. `Accept` on a pair with no existing edge appends the override and hardens
+the run into the record's refs block, so attach, confirm and restore are all one backend call.
+
+Expanding renders `TaskDetail` in a 420px scroll region, then **one row per edge** — the primary included,
+which previously had no row of its own and so was the one edge with nowhere to correct it from. Each row
+carries an open-the-record button and an `EdgeControls` group (`edgecontrolsview.tsx`) whose buttons are
+gated by the pure `edgeControls(state)` (`edgecontrols.ts`): an `informing` edge gets **Confirm** and **Not
+this record**; a `confirmed` edge gets only **Not this record**, behind a confirm dialog, because detaching
+one overrides a reference the worker itself wrote; a `detached` edge gets only **Restore**. Any unrecognised
+state falls to the cautious case. Suppressed edges for the same run are listed beneath at 70% opacity, and
+the list ends in **+ Attach another record**. Expanding never produces a tab strip. The expandable row is a
+`<button>` carrying `aria-expanded`, so the band's one control is keyboard-reachable; the per-edge rows and
+their controls are siblings below it, never nested inside a control, so nothing swallows anything else
+(the structural rule JC19 established).
 
 ![Record band expanded over a live run](images/jarvis-tab/02-record-band-expanded.png)
 
@@ -209,7 +220,16 @@ One thread slot, three renderers:
 - **`run`** — `RunBody` (shared with the old Channels surface): phases, evidence snapshot, files touched,
   verification, ask cards.
 - **`record`** — `recordthread.tsx`: runs attributed to this record, the append-only decision log, and
-  any Jarvis Q&A asked about the record.
+  any Jarvis Q&A asked about the record. Each run row says what *that run* did rather than repeating the
+  record's title: `recordrunrow.ts` (pure) prefers the run's evidence summary as the headline, falls back
+  to the goal only when it genuinely differs from the record's objective (normalised for whitespace and
+  case), and renders `null` otherwise. A meta line beneath carries age, duration and the change stat, each
+  omitted rather than defaulted when there is no source for it — an unsealed run has no duration, and a
+  zero would assert one. Every row also carries its own `EdgeControls`, and suppressed edges appear in a
+  **Detached** group below the list where they can be restored. Controls on this side always pass
+  `state="confirmed"`, so detaching from a record always asks first: a run reaches this list through
+  `ResolveSpaceScope`, which does not carry the per-edge state, and the cautious path is the right default
+  when the state is unknown. The band (§4) has the real state and uses it.
   ![Record subject](images/jarvis-tab/05-record-subject.png)
 - **`turns`** — `conversationview.tsx`: alternating user turns and Jarvis answers.
   ![Thread subject](images/jarvis-tab/06-thread-subject.png)
@@ -595,6 +615,7 @@ value is a module atom, never component state.
 | `channelPickingAtom` | keyed **by subject id** | no |
 | `composingRunAtom` | keyed **by channel id** | no |
 | `recordScopeAtom` / `recordRunsAtom` / `recordDetailAtom` | keyed by dossier id | no |
+| `detachedEdgesAtom` | keyed by `"task:<id>"` **or** a run oref | no |
 | `sourceConversationAtom` | source oref → conversation id | rebuilt from summaries on load |
 | `subjectFilterAtom` | single value | no |
 | `stageRailOpenAtom` | bool, default **open** | localStorage |
@@ -605,6 +626,20 @@ Keying by subject id is deliberate: switching subjects must return each one to t
 draft and the channel picker are in that list because they were not — a half-typed question followed the
 user to the next subject, where one Enter would have dispatched it against the wrong one. One draft store
 serves all three composer faces: on a channel the subject id *is* the channel oid.
+
+`detachedEdgesAtom` takes two key shapes into one store because its two readers ask the inverse question:
+a record's thread wants that record's suppressed runs (`"task:<id>"`), a channel's band wants that run's
+suppressed records (the run oref). The answer to one says nothing about the other.
+
+**One cache per record, one seam.** A record's detail used to live in two atoms — `recordDetailAtom` here
+and a single-value `dossierDetailAtom` in `tasksstore.ts` — and only the second was invalidated on write,
+so setting a record's status from the band appeared to do nothing. There is now one keyed atom, and every
+mutation of a record goes through `recordactions.ts`, which ends in `afterRecordWrite(dossierId)`: it drops
+the record's graph attribution bloom, re-reads the whole-vault ambient map (unawaited — that read carries a
+30s budget and blocking a click on it would be worse than a tag that updates a beat late), and refetches
+the record's detail and scope. `recordactions.ts` exists as its own module rather than living in either
+store because a write must invalidate both, and putting it in either one would make the two stores import
+each other. It imports the stores; only components import it. Mirrors `view/agents/runactions.ts`.
 
 **Restoring the last subject.** The hard part is not persistence but validation: a stored id can name a
 channel, record or thread that has since been deleted, and the three lists load asynchronously. So each

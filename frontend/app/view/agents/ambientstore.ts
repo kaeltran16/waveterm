@@ -43,3 +43,11 @@ export function ensureAmbient(): void {
         }
     })();
 }
+
+// A correction changes attribution everywhere the ambient layer draws a tag — Radar findings, run bodies,
+// Memory rows — not just the surface the user corrected it on. Clearing the once-per-session latch and
+// re-reading is the whole mechanism; there is no per-object invalidation because the read is whole-vault.
+export function reloadAmbient(): void {
+    loaded = false;
+    ensureAmbient();
+}
