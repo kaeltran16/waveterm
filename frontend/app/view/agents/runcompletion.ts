@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure view derivations for the run-completion (evidence-snapshot) surface: formatting, verification
-// tone/counts, file-stat + artifact-kind color classes, and the phase-history node model (elevating a
-// freshctx phase to its own timeline node). No React, no jotai — unit-tested in runcompletion.test.ts.
+// tone/counts, file-stat + artifact-kind color classes, the phase-history node model (elevating a
+// freshctx phase to its own timeline node), and where an evidence click navigates. No React, no jotai —
+// unit-tested in runcompletion.test.ts.
+
+import type { SurfaceKey } from "./agents";
 
 export function runShortId(id: string): string {
     return (id ?? "").replace(/-/g, "").slice(0, 6);
@@ -58,6 +61,38 @@ export function verifCounts(v: EvidenceVerif[]): { pass: number; fail: number; u
         else counts.unknown++;
     }
     return counts;
+}
+
+// A leading setup segment: a directory change or an env assignment. Workers wrap verification as
+// `cd "<worktree path>" && <the real command>`, and the command cell truncates with a trailing ellipsis —
+// so left as-is the cell shows the worktree path and hides what was actually tested.
+const CMD_SETUP_RE = /^(cd\s|export\s+\w+=|\w+=)/;
+
+export function verifCmdLabel(cmd: string): string {
+    const segments = (cmd ?? "").split("&&").map((s) => s.trim());
+    let i = 0;
+    while (i < segments.length && CMD_SETUP_RE.test(segments[i])) {
+        i++;
+    }
+    // all setup and no command: nothing more informative exists, so show it as the worker wrote it
+    return i === segments.length ? cmd : segments.slice(i).join(" && ");
+}
+
+export interface RunFileNavIntent {
+    surface: SurfaceKey;
+    source: { runId: string; cwd: string; baseCommit: string };
+    select: string | null;
+}
+
+// Where a click inside a sealed run's evidence lands: the run-scoped Diff surface, optionally with one
+// file preselected. A deleted file selects like any other — the diff is what is wanted, and opening the
+// path externally would no-op because the file is gone.
+export function runFileNavIntent(run: Run, path?: string): RunFileNavIntent {
+    return {
+        surface: "files",
+        source: { runId: run.id, cwd: run.projectpath, baseCommit: run.basecommit ?? "" },
+        select: path ?? null,
+    };
 }
 
 export function statColor(stat: string): string {

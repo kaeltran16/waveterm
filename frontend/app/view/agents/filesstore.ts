@@ -44,6 +44,11 @@ export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 const current = { token: "" };
 const requestedSelection = { token: "", path: "" };
 
+// token builders: a selection request has to name the exact token its load will run under, since
+// loadChangesForCwd only honours requestedSelection when the two match.
+const agentToken = (id: string) => `agent:${id}`;
+const runToken = (runId: string) => `run:${runId}`;
+
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
 
 // How to anchor the diff: an explicit base commit (runs), or a session-start unix-seconds timestamp
@@ -123,7 +128,7 @@ export async function loadFilesForAgent(
     transcriptPath: string | undefined,
     blockId?: string
 ): Promise<void> {
-    const token = `agent:${id}`;
+    const token = agentToken(id);
     beginLoad(token);
     const [cwd, sessionStartTs] = await Promise.all([
         resolveCwd(transcriptPath, blockId),
@@ -149,13 +154,20 @@ export async function loadFilesForProject(name: string, path: string): Promise<v
 // Run-scoped load: base-anchored, read-only, against the run's captured base commit (an immutable
 // historical record). baseCommit "" degrades to the live HEAD diff.
 export async function loadFilesForRun(runId: string, cwd: string, baseCommit: string): Promise<void> {
-    const token = `run:${runId}`;
+    const token = runToken(runId);
     beginLoad(token);
     await loadChangesForCwd(token, cwd || null, { ref: baseCommit });
 }
 
 export function requestAgentFileSelection(id: string, path: string): void {
-    requestedSelection.token = `agent:${id}`;
+    requestedSelection.token = agentToken(id);
+    requestedSelection.path = path;
+}
+
+// Same deal for a sealed run's evidence card: request the file, then point the surface at the run so the
+// load that follows selects it instead of defaulting to the first changed file.
+export function requestRunFileSelection(runId: string, path: string): void {
+    requestedSelection.token = runToken(runId);
     requestedSelection.path = path;
 }
 

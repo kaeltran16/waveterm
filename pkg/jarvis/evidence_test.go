@@ -100,8 +100,9 @@ func TestVerificationCommandsDedupesAndClassifies(t *testing.T) {
 func TestVerificationDetailStripsANSI(t *testing.T) {
 	// vitest/tsc emit colorized output when a TTY is attached; the detail must be plain text.
 	// json.Marshal encodes the ESC bytes as a captured transcript stores them (escaped), so the
-	// fixture stays valid JSON while carrying real escapes for StripANSI to remove.
-	ansi, _ := json.Marshal("\x1b[1m\x1b[46m RUN \x1b[49m\x1b[22m \x1b[36mv3.2.4\x1b[39m checkout\nmore")
+	// fixture stays valid JSON while carrying real escapes for StripANSI to remove. The escapes sit on
+	// the summary line because that is the line verifSummaryLine reports.
+	ansi, _ := json.Marshal("\x1b[36m RUN \x1b[39m checkout\n\x1b[1m\x1b[32mTests  \x1b[36mv3.2.4\x1b[39m 12 passed\x1b[39m\x1b[22m")
 	lines := []string{
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b1","input":{"command":"npx vitest run"}}]}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b1","is_error":false,"content":` + string(ansi) + `}]}}`,
@@ -113,8 +114,48 @@ func TestVerificationDetailStripsANSI(t *testing.T) {
 	if strings.ContainsRune(v[0].Detail, '\x1b') {
 		t.Errorf("detail still carries ANSI escapes: %q", v[0].Detail)
 	}
-	if !strings.Contains(v[0].Detail, "RUN") || !strings.Contains(v[0].Detail, "v3.2.4") {
+	if !strings.Contains(v[0].Detail, "Tests") || !strings.Contains(v[0].Detail, "v3.2.4") {
 		t.Errorf("detail lost its content after stripping: %q", v[0].Detail)
+	}
+}
+
+func TestVerifSummaryLine(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"pytest band", "rootdir: C:\\p\nplugins: anyio\ntests/t.py ....\n\n===== 12 passed in 3.42s =====\n", "===== 12 passed in 3.42s ====="},
+		{"pytest failures", "tests/t.py F..\n\n2 failed, 10 passed in 1.1s", "2 failed, 10 passed in 1.1s"},
+		{"go test ok", "=== RUN   TestFoo\n--- PASS: TestFoo (0.00s)\nok  \tpkg/jarvis\t0.412s", "ok  \tpkg/jarvis\t0.412s"},
+		{"go test fail below trailing noise", "--- FAIL: TestBar (0.01s)\nFAIL\tpkg/jarvis\t0.4s\nFAIL", "FAIL\tpkg/jarvis\t0.4s"},
+		{"tsc error count", "src/a.ts(3,1): error TS2304: Cannot find name 'x'.\n\nFound 1 error in src/a.ts\n", "Found 1 error in src/a.ts"},
+		{"no summary falls back to the last non-empty line", "building...\nwrote dist/app.js\n\n", "wrote dist/app.js"},
+		{"empty stays empty", "\n  \n", ""},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := verifSummaryLine(tt.in); got != tt.want {
+				t.Errorf("verifSummaryLine() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVerificationDetailPrefersTheSummaryOverTheFirstLine(t *testing.T) {
+	// workers commonly pipe verification through `| tail -N`, so the captured stdout already starts
+	// mid-run: its first line is an arbitrary fragment while the result summary is on the last line.
+	out, _ := json.Marshal("rootdir: C:\\Users\\me\\proj\nplugins: anyio-4.4.0\ntests/test_state.py ....\n\n===== 12 passed in 3.42s =====\n")
+	lines := []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b1","input":{"command":"pytest tests/ | tail -20"}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b1","is_error":false,"content":` + string(out) + `}]}}`,
+	}
+	v := verificationCommands(lines)
+	if len(v) != 1 {
+		t.Fatalf("got %d verifs, want 1", len(v))
+	}
+	if !strings.Contains(v[0].Detail, "12 passed") {
+		t.Errorf("detail = %q, want the pytest result summary", v[0].Detail)
 	}
 }
 

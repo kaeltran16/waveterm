@@ -145,7 +145,7 @@ func verificationCommands(lines []string) []waveobj.EvidenceVerif {
 					continue
 				}
 				// tool output is captured with a TTY attached, so it carries ANSI color codes
-				detail := firstLine(utilfn.StripANSI(txt))
+				detail := verifSummaryLine(utilfn.StripANSI(txt))
 				if i, seen := idx[cmd]; seen {
 					out[i] = waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail}
 				} else {
@@ -165,12 +165,31 @@ func verificationCommands(lines []string) []waveobj.EvidenceVerif {
 	return out
 }
 
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return strings.TrimSpace(s[:i])
+// verifSummaryRe recognizes a test-runner result summary: a counted outcome (pytest/vitest "12 passed",
+// tsc "Found 1 error") or a go-test verdict line. Applied per line, so ^ anchors to that line. The
+// trailing .*\S keeps a bare "FAIL" from winning over go test's informative "FAIL\tpkg\t0.4s" above it.
+var verifSummaryRe = regexp.MustCompile(`(?i)\b\d+ (passed|failed|error|errors|skipped)\b|^(ok|pass|fail)\b.*\S`)
+
+// verifSummaryLine picks the line of captured output that states the result. Workers routinely pipe
+// verification through `| tail -N`, so the captured stdout already starts mid-run: its first line is an
+// arbitrary fragment (a test-fn signature, pytest's rootdir header) while every runner prints its summary
+// last. Scans backward for a recognized summary, falling back to the last non-empty line.
+func verifSummaryLine(s string) string {
+	lines := strings.Split(s, "\n")
+	last := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if verifSummaryRe.MatchString(line) {
+			return line
+		}
+		if last == "" {
+			last = line
+		}
 	}
-	return s
+	return last
 }
 
 // parseNumstatStatus joins `git diff --numstat` rows (adds\tdels\tpath) with `git status --porcelain -z`

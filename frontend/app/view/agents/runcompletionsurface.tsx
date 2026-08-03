@@ -3,7 +3,9 @@
 //
 // Run-completion surface (Wave-run-completion.dc.html): the sealed evidence snapshot + phase history
 // shown when a run is done. Renders run.evidence (derived server-side, immutable). Replaces RunBody's
-// terminal phase-rail view. Read-only — the run stays done; file/artifact clicks open in the OS editor.
+// terminal phase-rail view. Read-only — the run stays done. Changed-file clicks open the in-app Diff
+// surface (the change is the evidence); artifact clicks open in the OS editor (a rendered doc/image is
+// the artifact).
 
 import { cardVariants } from "@/app/element/motiontokens";
 import { getApi } from "@/app/store/global";
@@ -12,14 +14,17 @@ import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualen
 import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
+import { requestRunFileSelection } from "./filesstore";
 import {
     artifactKindClass,
     fmtBytes,
     fmtClock,
     fmtDuration,
     phaseHistory,
+    runFileNavIntent,
     runShortId,
     statColor,
+    verifCmdLabel,
     verifCounts,
     verifTone,
 } from "./runcompletion";
@@ -29,6 +34,17 @@ import { cn } from "@/util/util";
 function openPath(projectPath: string, rel: string) {
     const sep = projectPath.includes("\\") ? "\\" : "/";
     getApi().openExternal(rel.match(/^([/\\]|[a-zA-Z]:)/) ? rel : `${projectPath}${sep}${rel}`);
+}
+
+// Open the run's diff in the Diff surface, optionally scrolled to one file. Selection is requested
+// before the surface switch because the surface's mount triggers the load that consumes it.
+function openRunDiff(model: AgentsViewModel, run: Run, path?: string) {
+    const intent = runFileNavIntent(run, path);
+    if (intent.select) {
+        requestRunFileSelection(intent.source.runId, intent.select);
+    }
+    globalStore.set(model.filesRunAtom, intent.source);
+    globalStore.set(model.surfaceAtom, intent.surface);
 }
 
 function StatCell({ label, value, sub, dot, valueClass }: { label: string; value: string; sub?: string; dot?: boolean; valueClass?: string }) {
@@ -160,7 +176,8 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                 {(ev.files ?? []).map((f) => (
                                     <button
                                         key={f.path}
-                                        onClick={() => openPath(run.projectpath, f.path)}
+                                        onClick={() => openRunDiff(model, run, f.path)}
+                                        title={`Open ${f.path} in the run diff`}
                                         className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface-hover"
                                     >
                                         <span className={"w-[15px] text-center font-mono text-[11px] font-bold " + statColor(f.stat)}>{f.stat}</span>
@@ -189,7 +206,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     return (
                                         <div key={v.cmd} className={"flex items-center gap-2.5 rounded-[9px] border bg-background px-2.5 py-2 " + tone.borderClass}>
                                             <span className={"flex h-[18px] w-[18px] flex-none items-center justify-center rounded-[5px] font-mono text-[10px] font-bold " + tone.badgeClass}>{tone.icon}</span>
-                                            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-secondary">{v.cmd}</span>
+                                            <span title={v.cmd} className="min-w-0 flex-1 truncate font-mono text-[12px] text-secondary">{verifCmdLabel(v.cmd)}</span>
                                             {v.detail ? <span className="font-mono text-[10.5px] text-muted">{v.detail}</span> : null}
                                             <span className={"font-mono text-[9px] font-semibold uppercase tracking-[.06em] " + tone.labelClass}>{v.result}</span>
                                         </div>
@@ -225,10 +242,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                         {/* diff action */}
                         <div className="flex items-center gap-3 px-[18px] py-3.5">
                             <button
-                                onClick={() => {
-                                    globalStore.set(model.filesRunAtom, { runId: run.id, cwd: run.projectpath, baseCommit: run.basecommit ?? "" });
-                                    globalStore.set(model.surfaceAtom, "files");
-                                }}
+                                onClick={() => openRunDiff(model, run)}
                                 className="flex items-center gap-2.5 rounded-[9px] bg-accent px-4 py-2.5 text-[12.5px] font-bold text-background hover:bg-accent/90"
                             >
                                 <span className="text-[12px]">⑂</span>Open repository diff

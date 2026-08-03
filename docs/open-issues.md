@@ -17,10 +17,10 @@ how to verify. Resolved issues keep only their summary-table row.
 | 3   | Transcript-stream residuals — per-card unmount watcher leak (+ optional incremental projection)            | reliability / perf               | M      | ✅ 3a resolved 2026-07-20 (3b = measure-first, not built) |
 | 4   | Channel-attachment temp-file cleanup (unreaped `waveterm-*` temp dirs)                                     | reliability                      | S      | ✅ Resolved 2026-07-20                                    |
 | 5   | Remote/WSL worker host operations (git surfaces + attachment paths)                                        | feature scope                    | M–L    | ⛔ Deferred — blocked on a prerequisite (see below)       |
-| 6   | **Sealed Run-Evidence card** — 3 coupled fixes in `pkg/jarvis/evidence.go` + `runcompletionsurface.tsx`    | correctness + UX                 | M+S+S  | 🔲 Open 2026-07-20                                        |
+| 6   | **Sealed Run-Evidence card** — 3 coupled fixes in `pkg/jarvis/evidence.go` + `runcompletionsurface.tsx`    | correctness + UX                 | M+S+S  | ✅ Resolved — all three parts                             |
 | 6a  | ↳ Files-touched over-attributes under delegator fan-out (ProjectPath-anchored diff + last-worker `by`)     | correctness / evidence integrity | M      | ✅ Resolved 2026-07-21 (2f2f1980)                         |
-| 6b  | ↳ "Files touched" row-click opens the OS editor instead of the in-app Diff tab                             | UX / consistency                 | S      | 🔲 Open                                                   |
-| 6c  | ↳ "Verification" detail shows a meaningless first-line (tail-piped output) + command label front-truncated | correctness / evidence integrity | S      | 🔲 Open                                                   |
+| 6b  | ↳ "Files touched" row-click opens the OS editor instead of the in-app Diff tab                             | UX / consistency                 | S      | ✅ Resolved 2026-08-03                                    |
+| 6c  | ↳ "Verification" detail shows a meaningless first-line (tail-piped output) + command label front-truncated | correctness / evidence integrity | S      | ✅ Resolved 2026-08-03                                    |
 | 7   | Unhandled promise rejection on every Monaco model disposal (`monaco-yaml` schema reset)                    | reliability / noise              | S      | ✅ Resolved 2026-08-03                                    |
 
 ---
@@ -31,8 +31,15 @@ Issues 1–4 were all resolved on 2026-07-20. Their full problem/evidence/fix wr
 the 2026-07-31 docs cleanup — the summary table above records each outcome, and the detail is in git.
 One decision from issue 3 is worth keeping out of the archive; it is restated under "Not in scope".
 
-Only **6b** and **6c** are actionable today. Issue 5 is blocked on work that does not exist yet; issue 7
-was found and fixed the same day (its write-up is kept for the rationale, not as pending work).
+**Nothing in this file is actionable today.** Issue 6 closed completely on 2026-08-03 (6b + 6c); issue 5
+is blocked on work that does not exist yet; issue 7 was found and fixed the same day. The 6b/6c and 7
+write-ups are kept for their rationale, not as pending work.
+
+The repo-wide backlog that remains lives elsewhere: **Phase 3 (Contract) of the channel data-model
+scaling workstream** — `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`, the
+irreversible step that finally collapses the O(session) channel write + broadcast cost — plus the
+OS/dock badge and the held redesigns listed in
+`docs/superpowers/briefs/2026-07-21-open-ended-improvement-scan-brief.md`.
 
 ---
 
@@ -112,15 +119,14 @@ remote connection.
 
 ## 6 — Sealed Run-Evidence card (correctness + UX)
 
-**Status:** 🔲 Partly open · 6a ✅ resolved 2026-07-21 · **6b and 6c remain** · **Effort:** S (6b) + S (6c)
-· **Kind:** correctness / evidence integrity + UX
+**Status:** ✅ Fully resolved · 6a 2026-07-21 (`2f2f1980`) · 6b + 6c 2026-08-03 · **Kind:** correctness /
+evidence integrity + UX
 
 Three coupled defects in the sealed Evidence card, all in the same two files —
-`pkg/jarvis/evidence.go` and `frontend/app/view/agents/runcompletionsurface.tsx`. Best done as one
-pass, **6a first**: 6a fixes how the run diff is computed, and 6b opens that diff, so 6b rides on 6a
-being correct. 6a is the heavier, riskier piece (it changes how the run's change set is scoped) —
-verify it against a real fan-out before the surface fixes depend on it. 6b/6c are the cheaper,
-independent surface fixes.
+`pkg/jarvis/evidence.go` and `frontend/app/view/agents/runcompletionsurface.tsx`. They were done in the
+intended order: **6a first** (it changes how the run's change set is scoped, and 6b opens that diff, so
+6b rode on 6a being correct), then the two cheaper surface fixes. Both 6b and 6c need a backend rebuild
+(`task build:backend`) for the 6c half to take effect, since the summary-line extraction runs in wavesrv.
 
 ### 6a — Files-touched over-attributes under delegator fan-out
 
@@ -188,7 +194,19 @@ drop the field rather than stamp the last worker on everything. Fix the FE capti
 
 ### 6b — Files-touched row-click should open the in-app Diff tab, not the OS editor
 
-**Status.** 🔲 Open 2026-07-20 · **Effort:** S · **Kind:** UX / consistency.
+**Status.** ✅ Resolved 2026-08-03 · **Effort:** S · **Kind:** UX / consistency.
+
+**Fix as built.** A new pure `runFileNavIntent(run, path?)` in `frontend/app/view/agents/runcompletion.ts`
+returns where an evidence click lands (`surface: "files"`, the run source `{runId, cwd, baseCommit}`, and
+the file to select or null), unit-tested in `runcompletion.test.ts`. `runcompletionsurface.tsx` gained one
+`openRunDiff(model, run, path?)` helper that requests the selection, sets `filesRunAtom`, then switches
+`surfaceAtom` — and **both** the file rows and the "Open repository diff" button now go through it, so the
+inline atom-setting the button used to do is gone and the two cannot drift apart. Selection is requested
+via a new `requestRunFileSelection(runId, path)` in `filesstore.ts`, the `run:`-scoped sibling of
+`requestAgentFileSelection`; both now build their token from shared `agentToken`/`runToken` helpers so a
+request can't silently name a token no load will match. Artifact chips still call `openPath` (external),
+which is correct for a rendered doc/image. Deleted files now show their deletion diff rather than
+no-opping, because the Diff surface asks git rather than the filesystem.
 
 **Problem.** Clicking a changed-file row in the sealed Evidence card opens the _current_ file in the OS
 default editor — it shows file **content**, not the **change**, which is the entire point of an
@@ -222,7 +240,23 @@ over-attribution under fan-out — no worse than today, and the real fix is 6a.
 
 ### 6c — Verification detail is a meaningless first-line; command label front-truncated
 
-**Status.** 🔲 Open 2026-07-20 · **Effort:** S · **Kind:** correctness / evidence integrity.
+**Status.** ✅ Resolved 2026-08-03 · **Effort:** S · **Kind:** correctness / evidence integrity.
+
+**Fix as built.** Backend: `firstLine` is replaced by `verifSummaryLine` in `pkg/jarvis/evidence.go`, which
+scans the captured output **backward** for a recognized result summary — a counted outcome
+(`\d+ (passed|failed|error|errors|skipped)`, covering pytest/vitest/tsc) or a go-test verdict line — and
+falls back to the last non-empty line when nothing matches. The verdict alternative requires trailing
+content (`^(ok|pass|fail)\b.*\S`) so go test's bare final `FAIL` does not win over the informative
+`FAIL\tpkg\t0.4s` line above it. `firstLine` had no other caller in `pkg/jarvis` and was deleted (the
+same-named helpers in `memvault`/`memgarden`/`wshserver` are separate copies and untouched). Covered by a
+seven-case table test plus an end-to-end test through `verificationCommands` using a `pytest … | tail -20`
+fixture; `TestVerificationDetailStripsANSI` kept its ANSI-stripping intent but moved its escape codes onto
+the summary line, since it had been asserting on first-line content incidentally.
+
+Frontend: a pure `verifCmdLabel` in `runcompletion.ts` drops leading `cd …` / `VAR=…` / `export VAR=…`
+segments joined by `&&`, so the command cell shows the test invocation instead of the worktree path; it
+returns the command unchanged when every segment is setup, so nothing is ever blanked. The cell also
+carries `title={v.cmd}` for the full original. Pass/fail/unknown counts are untouched.
 
 **Problem.** In the sealed Evidence "Verification" section, the pass/fail **counts are correct**, but
 the two text columns show the least-informative slice of each command:

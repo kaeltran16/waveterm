@@ -2,7 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { fmtBytes, fmtDuration, needsEvidenceSeal, phaseHistory, runShortId, verifCounts, verifTone } from "./runcompletion";
+import {
+    fmtBytes,
+    fmtDuration,
+    needsEvidenceSeal,
+    phaseHistory,
+    runFileNavIntent,
+    runShortId,
+    verifCmdLabel,
+    verifCounts,
+    verifTone,
+} from "./runcompletion";
 
 describe("runcompletion derivations", () => {
     it("formats a short id", () => {
@@ -41,5 +51,59 @@ describe("runcompletion derivations", () => {
         expect(needsEvidenceSeal({ status: "done" } as Run)).toBe(true);
         expect(needsEvidenceSeal({ status: "done", evidence: {} } as unknown as Run)).toBe(false);
         expect(needsEvidenceSeal({ status: "executing" } as Run)).toBe(false);
+    });
+});
+
+describe("verifCmdLabel", () => {
+    it("drops a leading cd prefix so the test invocation survives truncation", () => {
+        expect(verifCmdLabel('cd "C:/Users/me/.claude/worktrees/g2-auth" && pytest tests/test_auth.py')).toBe(
+            "pytest tests/test_auth.py"
+        );
+    });
+    it("drops a leading env assignment", () => {
+        expect(verifCmdLabel("WT=/tmp/wt && npx vitest run frontend/app/foo.test.ts")).toBe(
+            "npx vitest run frontend/app/foo.test.ts"
+        );
+    });
+    it("drops several leading setup segments", () => {
+        expect(verifCmdLabel("cd /repo && export CI=1 && go test ./pkg/jarvis/")).toBe("go test ./pkg/jarvis/");
+    });
+    it("leaves a bare command untouched", () => {
+        expect(verifCmdLabel("npm test")).toBe("npm test");
+    });
+    it("keeps the pipeline that produced the output", () => {
+        expect(verifCmdLabel("cd /repo && pytest | tail -20")).toBe("pytest | tail -20");
+    });
+    it("returns the original when every segment is setup", () => {
+        expect(verifCmdLabel("cd /repo && export CI=1")).toBe("cd /repo && export CI=1");
+    });
+    it("survives empty input", () => {
+        expect(verifCmdLabel("")).toBe("");
+    });
+});
+
+describe("runFileNavIntent", () => {
+    const run = { id: "r1", projectpath: "C:/repo", basecommit: "abc123" } as unknown as Run;
+
+    it("opens the run-scoped Diff surface with the clicked file selected", () => {
+        expect(runFileNavIntent(run, "pkg/jarvis/evidence.go")).toEqual({
+            surface: "files",
+            source: { runId: "r1", cwd: "C:/repo", baseCommit: "abc123" },
+            select: "pkg/jarvis/evidence.go",
+        });
+    });
+    it("selects a deleted file the same way — the diff is what is wanted, not the file", () => {
+        expect(runFileNavIntent(run, "removed/old.ts").select).toBe("removed/old.ts");
+    });
+    it("opens the whole run diff when no file is named", () => {
+        expect(runFileNavIntent(run)).toEqual({
+            surface: "files",
+            source: { runId: "r1", cwd: "C:/repo", baseCommit: "abc123" },
+            select: null,
+        });
+    });
+    it("degrades a missing base commit to the live diff rather than undefined", () => {
+        const noBase = { id: "r2", projectpath: "C:/repo" } as unknown as Run;
+        expect(runFileNavIntent(noBase).source.baseCommit).toBe("");
     });
 });
