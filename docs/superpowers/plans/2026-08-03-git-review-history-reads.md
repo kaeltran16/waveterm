@@ -1926,10 +1926,27 @@ Expected: exit 0.
 
 Then read your addition back for 4-space indentation. `.editorconfig` omits `.mjs`, so **do not run `prettier --write` on `scripts/cdp/scenarios.mjs`** — it would reindent the entire file to two spaces and bury your change in a whole-file diff.
 
-- [ ] **Step 5: Run the scenario against the dev app** — **NOT RUN (2026-08-03).** The dev app was live,
-  but it served pre-change source and a `wavesrv` built before `History.Failure` existed, so step 7's
-  failure panel could not have passed. Restarting the dev app was declined, so the scenario code landed
-  unrun. Run `task verify:ui -- git-history` after the next `task build:backend` + `task dev`.
+- [x] **Step 5: Run the scenario against the dev app** — **RUN 2026-08-03, 7/7 PASS, exit 0.** No backend
+  rebuild was needed after all: the dev `wavesrv` already carried `History.Failure`. The first run was
+  5/7, and both failures were real defects in this plan's own work, not bad assertions:
+
+  - _Step 5 (scroll restore) — returning to the surface landed back at the top._ `beginLoad()`
+    (`filesstore.ts`) nulls `filesStateAtom` at the start of every change-list load, including the one
+    the Diff surface fires on mount. The history effect read that transient null as "no repository" and
+    called `resetHistory()`, wiping the scroll offset, the filters and the selection on every return —
+    so this plan's central promise was not actually kept. Fixed by waiting for a resolved state, plus
+    keeping the rows on screen during a same-subject reload (blanking them collapsed the scroll
+    container, which clamped the restored offset to zero and spent the pane's one-shot restore).
+  - _Step 7 (failure panel) — a corrupt repository showed the calm "not a repository" screen._ The
+    change-list RPC throws for such a repo, which lands as `isRepo:false`, and that branch was checked
+    before the failure branch. The evidence panel was therefore unreachable for the most realistic
+    corruption. Fixed by still asking git for the history when the change-list read fails (its refusal
+    is what carries the real message) and by checking the failure branch first.
+
+  The scenario's own arrangement was also wrong: deleting `.git/objects` makes git report "not a git
+  repository", which is the calm state, not the broken one. It now empties that directory and keeps it,
+  which yields a repo git recognises but cannot read (`git log` exits 128, "fatal: bad object HEAD",
+  while HEAD still resolves).
 
 With the dev app running (`task dev`; if it is not, say so and skip rather than reporting a pass):
 

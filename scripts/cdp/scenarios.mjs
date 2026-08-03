@@ -3,7 +3,7 @@
 // Asserts are RPC-based (backend state) or DOM-based (h.ev) — NOT jotai atom reads (globalStore is not
 // exposed on window). steps are { step, ok, detail }.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
@@ -2441,7 +2441,13 @@ const gitHistory = {
         const broken = mkdtempSync(join(tmpdir(), "verify-git-broken-"));
         git(broken, "init", "-q", "--initial-branch=main");
         git(broken, "commit", "-q", "--allow-empty", "-m", "only commit");
+        // Emptied, not removed: without an objects directory git stops recognising the place as a
+        // repository at all ("fatal: not a git repository"), which is the calm not-a-repo state, not
+        // the failure one. Keeping the directory and dropping its contents leaves a repo git still
+        // recognises but can no longer read — `git log` exits 128 with "fatal: bad object HEAD" while
+        // HEAD itself still resolves, which is what tells a broken read from an unborn branch.
         rmSync(join(broken, ".git", "objects"), { recursive: true, force: true });
+        mkdirSync(join(broken, ".git", "objects"));
 
         const notRepo = mkdtempSync(join(tmpdir(), "verify-git-plain-"));
 

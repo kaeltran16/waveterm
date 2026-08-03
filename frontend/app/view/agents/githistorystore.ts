@@ -102,8 +102,9 @@ export interface LoadHistoryOpts {
 
 // A different repository (or run) is a different subject: filters and scroll offset from the old one
 // are meaningless here and a stale path filter would silently produce an empty history that looks
-// broken. Surviving a *nav switch* is a different thing, and that still works — nothing calls this
-// on remount.
+// broken. Surviving a *nav switch* is a different thing: callers must not reach this on remount, and
+// the one that did — the surface reading a still-loading change list as "no repository" — is why
+// every return to the Diff surface used to land back at the top of an unfiltered list.
 export function resetHistory(): void {
     current.token = "";
     if (filterTimer != null) {
@@ -143,9 +144,18 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
     }
     const filters = globalStore.get(historyFiltersAtom);
     const token = loadToken(cwd, opts, filters);
+    // Blanking the list to signal "loading" unmounts every row, which collapses the scroll container:
+    // the browser then clamps the restored offset to zero, and the pane's one-shot restore is already
+    // spent by the time the rows come back. A remount re-runs this load with an identical token, so
+    // that path is exactly the return-to-the-surface case. Same subject: leave the rows on screen until
+    // their replacement arrives. Different subject: clear them, and start at the top.
+    const sameSubject = current.token === token;
     current.token = token;
     globalStore.set(historyOptsAtom, opts);
-    globalStore.set(historyCommitsAtom, null);
+    if (!sameSubject) {
+        globalStore.set(historyCommitsAtom, null);
+        globalStore.set(historyScrollAtom, 0);
+    }
     globalStore.set(historyFailureAtom, null);
     globalStore.set(historyAppendAtom, "idle");
     try {

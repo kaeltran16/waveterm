@@ -408,7 +408,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // the session-start / run-base commit gets a labelled divider. rowLabel names what the synthetic
     // top row is counting: only repo scope reads the bare working tree, so the other two must say so.
     useEffect(() => {
-        if (!state?.cwd || !state.isRepo) {
+        // A null state means the change list is still loading, not that there is no repository here:
+        // beginLoad() nulls it at the start of every load, including the one this surface fires on
+        // every mount. Resetting on that transient would wipe the scroll offset, the filters and the
+        // selection on every return to the surface — the exact state this surface exists to keep.
+        if (state == null) {
+            return;
+        }
+        // A failed change-list read also lands here as isRepo:false, but a repository git cannot read
+        // is not an absent one. Ask git for the history anyway: its refusal is what carries the real
+        // message the failure panel shows.
+        if (!state.cwd || (!state.isRepo && !loadError)) {
             resetHistory();
             return;
         }
@@ -420,7 +430,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 rowLabel: runSource ? "Run changes" : anchor ? "Since session start" : undefined,
             })
         );
-    }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId]);
+    }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId, loadError]);
 
     // A different repository (or entering a run) means different refs: keep compare from showing one
     // scope's divergence over another's. The guard is the anchor compare recorded when it was entered,
@@ -594,12 +604,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 {/* nothing to filter in the two failure states, and compare has its own column */}
                 {!compareOn && historyFailure == null && state?.isRepo !== false ? <HistoryFilterRow /> : null}
 
-                {loadError ? <SurfaceError message="Couldn’t read this repository." /> : null}
+                {/* the detailed panel below says the same thing with git's own words behind it */}
+                {loadError && historyFailure == null ? <SurfaceError message="Couldn’t read this repository." /> : null}
 
-                {state?.isRepo === false && state?.cwd ? (
-                    <NotARepoPanel />
-                ) : historyFailure ? (
+                {/* a broken read is checked first: it also reports isRepo:false, and showing it as an
+                    absent repository would hide the reason behind a screen that reads like normality */}
+                {historyFailure ? (
                     <GitFailurePanel failure={historyFailure} onRetry={() => retryHistory()} />
+                ) : state?.isRepo === false && state?.cwd ? (
+                    <NotARepoPanel />
                 ) : (
                     <div className="flex min-h-0 flex-1 border-t border-edge-faint">
                         <div className="flex w-[460px] flex-none flex-col border-r border-edge-faint">
