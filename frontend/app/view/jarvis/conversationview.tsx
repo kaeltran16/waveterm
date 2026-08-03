@@ -18,6 +18,7 @@ export function ConversationView({ conversation, model }: { conversation: Jarvis
     if (conversation.turns.length === 0) {
         return (
             <SurfaceEmptyState
+                className={STAGE_GUTTER}
                 glyph={<Brain size={40} strokeWidth={1.6} className="mb-4 text-accent" />}
                 title="Ask Jarvis"
                 body="Recall what happened, recover context, or understand why a decision was made — grounded in your Wave knowledge."

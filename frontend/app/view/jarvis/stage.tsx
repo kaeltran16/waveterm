@@ -48,7 +48,7 @@ import { RecordThread } from "./recordthread";
 import { StageComposer } from "./stagecomposer";
 import { composeStage } from "./stagecompose";
 import { StageHeader } from "./stageheader";
-import { STAGE_SCROLLER } from "./stagemeasure";
+import { STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 
 export function Stage({ model }: { model: AgentsViewModel }) {
     const subject = useAtomValue(activeSubjectAtom);
@@ -162,6 +162,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
         return (
             <div data-jarvis-region="stage" className="flex min-w-0 flex-1 flex-col bg-background">
                 <SurfaceEmptyState
+                    className={STAGE_GUTTER}
                     title="Point me at some work."
                     body="I dispatch runs, keep the record of what they did, and remember it afterwards. Start a channel and I'll drive it — or just ask me something and I'll tell you what I can and can't ground."
                 />
@@ -218,6 +219,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                         <RunBody model={model} channel={channel} agents={agents} run={run} />
                     ) : (
                         <SurfaceEmptyState
+                            className={STAGE_GUTTER}
                             title={`Start a run in #${channel?.name ?? "channel"}`}
                             body="Give Jarvis a goal below. @quick spawns one worker, @run kicks off the channel's full strategy, and @ask is a one-shot consult."
                         />

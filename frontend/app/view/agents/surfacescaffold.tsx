@@ -42,16 +42,21 @@ export function SurfaceHeader({
     );
 }
 
+// className exists for one reason: the Jarvis Stage stacks this directly above and below bands that all
+// share one gutter (jarvis/stagemeasure.ts), and px-[30px] put it 6px right of every one of them. A
+// surface that owns its own horizontal measure passes it in; everyone else keeps the default.
 export function SurfaceEmptyState({
     glyph,
     title,
     body,
     action,
+    className,
 }: {
     glyph?: ReactNode;
     title: string;
     body?: ReactNode;
     action?: { label: ReactNode; onClick: () => void; hint?: ReactNode };
+    className?: string;
 }) {
     return (
         <motion.div
@@ -60,7 +65,10 @@ export function SurfaceEmptyState({
             initial="initial"
             animate="animate"
             exit="exit"
-            className="flex h-full w-full flex-col items-center justify-center px-[30px] py-12 text-center"
+            className={cn(
+                "flex h-full w-full flex-col items-center justify-center px-[30px] py-12 text-center",
+                className
+            )}
         >
             <div className="flex w-full max-w-[600px] flex-col items-center">
                 {glyph}
