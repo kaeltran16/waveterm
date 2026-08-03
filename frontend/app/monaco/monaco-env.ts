@@ -6,7 +6,6 @@ import "monaco-editor/esm/vs/language/css/monaco.contribution";
 import "monaco-editor/esm/vs/language/html/monaco.contribution";
 import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import "monaco-editor/esm/vs/language/typescript/monaco.contribution";
-import { configureMonacoYaml } from "monaco-yaml";
 
 import { MonacoSchemas } from "@/app/monaco/schemaendpoints";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
@@ -14,7 +13,6 @@ import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
-import ymlWorker from "./yamlworker?worker";
 
 let monacoConfigured = false;
 
@@ -25,9 +23,6 @@ window.MonacoEnvironment = {
         }
         if (label === "css" || label === "scss" || label === "less") {
             return new cssWorker();
-        }
-        if (label === "yaml" || label === "yml") {
-            return new ymlWorker();
         }
         if (label === "html" || label === "handlebars" || label === "razor") {
             return new htmlWorker();
@@ -64,10 +59,11 @@ export function loadMonaco() {
             focusBorder: "#00000000",
         },
     });
-    configureMonacoYaml(monaco, {
-        validate: true,
-        schemas: [],
-    });
+    // no monaco-yaml here on purpose: it was configured with zero schemas (so it only duplicated the
+    // yaml grammar monaco already bundles), and its marker provider reset a yaml schema on EVERY
+    // disposed model regardless of language, throwing an unhandled rejection per file switch.
+    // see docs/open-issues.md issue 7 before re-adding it.
+
     monaco.editor.setTheme("wave-theme-dark");
     // Disable default validation errors for typescript and javascript
     monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
