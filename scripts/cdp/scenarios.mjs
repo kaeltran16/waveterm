@@ -569,8 +569,11 @@ const AMBIENT_SURFACES = ["cockpit", "jarvis", "radar", "memory"];
 const jarvisAmbient = {
     name: "jarvis-ambient",
     surface: "cockpit",
-    async arrange() {
-        return {};
+    // "Relevant past decisions" renders in the Jarvis rail now rather than the run body, and
+    // stageRailOpenAtom is persisted — a previous scenario that collapsed it would zero the jarvis count.
+    // resetRail sets the flag *and* reloads, which this scenario's assert does not do on its own.
+    async arrange(h) {
+        return resetRail(h);
     },
     async assert(h) {
         const steps = [];
@@ -755,6 +758,7 @@ const jarvisVaultRecall = {
 // temp dir cleaned up in teardown.
 const CONTINUITY_TICKET = "ZZZ-7373";
 const CONTINUITY_GOAL = `${CONTINUITY_TICKET} spawn-test only: do nothing, make no file changes, stop immediately`;
+const CONTINUITY_SUMMARY = "Landed the boundary; two call sites still bypass it.";
 
 const jarvisContinuityResume = {
     name: "jarvis-continuity-resume",
@@ -769,6 +773,29 @@ const jarvisContinuityResume = {
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
         // advance the single quick phase to done -> E's rest-boundary hook writes the completion narrative.
         await h.rpc("advancerun", { channelid: ch.oid, runid: run.id, phaseidx: 0, action: "complete" });
+        // The rail step below needs a narrative ON the sealed run. E's boundary hook only writes one when a
+        // dossier already references the run — CaptureRunBoundary returns nil otherwise (wshserver_runs.go
+        // "no dossier references this run"), which is what happens on a vault that has not attributed it
+        // yet. So inject one through the same run.Meta path the hook writes through, exactly as
+        // jarvis-proactive injects its suggestion. Consequence worth being explicit about: that step asserts
+        // the RENDER leg on a sealed run, not E's write leg (covered by pkg/jarviscontinuity's Go tests).
+        // Settle first — the seal and the capture both run off-band and either would clobber an earlier write.
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
+        await h.rpc("setmeta", {
+            oref: `run:${run.id}`,
+            meta: {
+                "jarvis:resume": {
+                    taskId: CONTINUITY_TICKET,
+                    summary: CONTINUITY_SUMMARY,
+                    status: "completed",
+                    updated: Date.now(),
+                },
+            },
+        });
+        // the narrative renders in the rail now, and stageRailOpenAtom is persisted — a previous scenario
+        // that drove a narrow width would leave it collapsed and hide it. The assert's own reload picks
+        // this up.
+        await h.ev(`localStorage.setItem('jarvis.stagerail.open', 'true')`);
         return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
     },
     async assert(h, ctx) {
@@ -783,7 +810,54 @@ const jarvisContinuityResume = {
             detail: JSON.stringify({ status: doneRun.status }),
         });
 
+        // The narrative renders in the rail's "Worth knowing" section. Reload first: the channel was created
+        // out-of-band and the Subjects column renders a snapshot refreshed by loadChannels() (same reason
+        // jarvis-proactive reloads).
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
         await h.goto("jarvis");
+        // match the "#" channel ROW, not any button containing the name: the project group's disclosure
+        // header carries the temp dir's name (which starts with the channel's) and comes first in DOM
+        // order, so a bare substring match collapses the group instead of selecting the channel.
+        const pickedChannel = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => {
+                const t = (x.textContent || '').trim();
+                return t.startsWith('#') && t.includes('verify-continuity');
+            });
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        // Evidence is sealed off-band (sealAsync, wshserver_runs.go:430), so the run only reaches the
+        // done+evidence branch a moment after the status flips. Poll rather than sample once.
+        // innerText reflects CSS text-transform and the card's eyebrow is uppercased — compare upper.
+        // Scoped to the rail so the step cannot pass on some other region's text.
+        let narrative = { section: false, eyebrow: false, summary: false, dismiss: false };
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            narrative = await h.ev(`(() => {
+                const el = document.querySelector('[aria-label="Stage context"]');
+                const t = el ? (el.innerText || '').toUpperCase() : "";
+                return {
+                    section: t.includes('WORTH KNOWING'),
+                    eyebrow: t.includes('WHERE THIS STANDS'),
+                    summary: t.includes(${JSON.stringify(CONTINUITY_SUMMARY.toUpperCase())}),
+                    dismiss: !!(el && el.querySelector('button[aria-label="Dismiss resume summary"]')),
+                };
+            })()`);
+            if (narrative.section && narrative.eyebrow && narrative.summary && narrative.dismiss) break;
+        }
+        steps.push({
+            step: "the sealed run's resume narrative renders in the rail",
+            ok:
+                pickedChannel === true &&
+                narrative.section &&
+                narrative.eyebrow &&
+                narrative.summary &&
+                narrative.dismiss,
+            detail: JSON.stringify({ pickedChannel, ...narrative }),
+        });
+
         await newThread(h);
         await h.ev("new Promise((r) => setTimeout(r, 400))");
         const asked = await askJarvis(h, `where did the ${CONTINUITY_TICKET} task land`);
@@ -864,7 +938,24 @@ const jarvisProactive = {
         });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
+        // S3's dispatch hook writes "pending" and then overwrites it with its own verdict off-band, so a
+        // suggestion injected straight after createrun loses that race: the run ends up carrying
+        // {status:"none",reason:"judge-declined"}, the card correctly never renders, and all three steps
+        // fail for a reason that has nothing to do with what they test. Wait for the real verdict to land
+        // first, then overwrite it with the hit this scenario is about.
+        for (let i = 0; i < 40; i++) {
+            const rtn = await h.rpc("getchannelruns", { channelid: ch.oid });
+            const m = ((rtn.runs || []).find((x) => x.id === run.id) || {}).meta || {};
+            const settled = m["jarvis:proactive"] && m["jarvis:proactive"].status;
+            if (settled != null && settled !== "pending") {
+                break;
+            }
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+        }
         await h.rpc("setmeta", { oref: `run:${run.id}`, meta: { "jarvis:proactive": PROACTIVE_SUGGESTION } });
+        // the suggestion renders in the rail now; stageRailOpenAtom is persisted, so pin it open. The
+        // assert's own reload picks this up.
+        await h.ev(`localStorage.setItem('jarvis.stagerail.open', 'true')`);
         return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
     },
     async assert(h, ctx) {
@@ -892,9 +983,15 @@ const jarvisProactive = {
         await h.ev("location.reload()");
         await h.ev("new Promise((r) => setTimeout(r, 2500))");
         await h.goto("jarvis");
+        // match the "#" channel ROW, not any button containing the name: the project group's disclosure
+        // header carries the temp dir's name (mkdtemp prefixes it with the channel's) and comes first in DOM
+        // order, so a bare substring match collapsed the group instead of selecting the channel — which
+        // reported picked:true while selecting nothing.
         const picked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')]
-                .find((x) => (x.textContent || '').includes('verify-proactive'));
+            const b = [...document.querySelectorAll('button')].find((x) => {
+                const t = (x.textContent || '').trim();
+                return t.startsWith('#') && t.includes('verify-proactive');
+            });
             if (!b) return false;
             b.click();
             return true;
@@ -908,7 +1005,7 @@ const jarvisProactive = {
         }
         const rendered = picked === true && shown.label && shown.title && shown.btn;
         steps.push({
-            step: "proactive card renders on the run body (label + suggestion title)",
+            step: "proactive card renders in the rail (label + suggestion title)",
             ok: rendered,
             detail: JSON.stringify({ picked, ...shown }),
         });
@@ -928,7 +1025,7 @@ const jarvisProactive = {
             if (!gone.label && !gone.btn) break;
         }
         steps.push({
-            step: "dismiss (×) removes the card from the run body",
+            step: "dismiss (×) removes the card from the rail",
             ok: clicked === true && !gone.label && !gone.btn,
             detail: JSON.stringify({ clicked, ...gone }),
         });

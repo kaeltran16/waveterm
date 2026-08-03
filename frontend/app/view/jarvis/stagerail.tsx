@@ -7,6 +7,7 @@
 
 import { CollapsibleRail, type RailExtraIcon, type RailSection } from "@/app/element/collapsiblerail";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
 import { ConsultsSection, FleetRoster, NeedsRow } from "@/app/view/agents/channelcontextpanel";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import {
@@ -22,15 +23,19 @@ import { createRun, pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import { spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
+import { useEffect } from "react";
+import { ambientSection } from "./ambientrailview";
 import { fleetCountsLine, fleetForRecord } from "./fleetscope";
 import { groundingSection, hasGroundingAnswer } from "./groundingrail";
 import { activeConversationAtom, conversationsByIdAtom, profileRailOpenAtom, stageRailOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
+    recordRunsAtom,
     recordScopeAtom,
     selectSubject,
     setActiveRunId,
     sourceConversationAtom,
+    stageRunAtom,
 } from "./jarvissubjectstore";
 import { ProfilePanel } from "./profilepanel";
 import type { StageComposition } from "./stagecompose";
@@ -74,6 +79,12 @@ export function StageRail({
     const setProfileOpen = useSetAtom(profileRailOpenAtom);
     const setPendingFocus = useSetAtom(pendingRunFocusAtom);
     const { summary, runSummary } = useFleetSummary();
+    const ambient = useAtomValue(ambientProviderAtom);
+    const stageRun = useAtomValue(stageRunAtom);
+    const recordRuns = useAtomValue(recordRunsAtom);
+    // the provider is lazy, and this rail reads decisionsFor *before* RelevantDecisions mounts and calls
+    // ensureAmbient itself — so without this the section would judge "no decisions" on an unloaded map.
+    useEffect(() => ensureAmbient(), []);
 
     // the pinned Channel's own messages lag the row-backed list, so splice them the way the Channels
     // surface did — the roster and the summary must derive from the same source the thread renders.
@@ -241,6 +252,22 @@ export function StageRail({
                 </div>
             ),
         });
+    }
+
+    // last, after Fleet: this is the only unsolicited, dismissible section, so it must not sit above live
+    // fleet state — and it must never be first, because CollapsibleRail draws sections[0].icon as the
+    // collapsed strip's single glyph and that has to stay the Needs-you bell.
+    const ambientSec =
+        subject != null
+            ? ambientSection({
+                  kind: subject.kind,
+                  run: stageRun,
+                  recordRuns: recordId != null ? (recordRuns[recordId] ?? []) : [],
+                  hasDecisions: stageRun != null && ambient.decisionsFor({ oref: `run:${stageRun.id}` }).length > 0,
+              })
+            : null;
+    if (ambientSec != null) {
+        sections.push(ambientSec);
     }
 
     // one gate for the trigger and the drawer it opens, so the ⚙ cannot appear on a subject that has no

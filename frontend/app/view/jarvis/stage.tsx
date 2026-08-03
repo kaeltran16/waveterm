@@ -17,7 +17,7 @@ import {
     resolvedProfileAtom,
 } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
-import { liveWorkers, resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { liveWorkers } from "@/app/view/agents/runmodel";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { buildChannelsAskBindings, buildJarvisBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
@@ -31,7 +31,6 @@ import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
 import {
-    activeRunIdAtom,
     activeSubjectAtom,
     composingRunAtom,
     loadRecordDetail,
@@ -39,6 +38,7 @@ import {
     recordDetailAtom,
     selectSubject,
     setActiveRunId,
+    stageRunAtom,
     toggleRecordBand,
 } from "./jarvissubjectstore";
 import { mentionedDossierIds } from "./mentions";
@@ -58,7 +58,6 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const allRuns = useAtomValue(activeChannelRunsAtom);
     const bandOpen = useAtomValue(recordBandOpenAtom);
-    const runIds = useAtomValue(activeRunIdAtom);
     const composingRun = useAtomValue(composingRunAtom);
     const recordDetails = useAtomValue(recordDetailAtom);
     const channels = useAtomValue(channelsAtom);
@@ -125,13 +124,12 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     // underneath it — the column highlights the draft, and both must name the same thing.
     const composing = subject?.kind === "channel" && (composingRun[subject.id] ?? false);
     const open = subject != null ? (bandOpen[subject.id] ?? false) : false;
-    const activeRunId =
-        subject?.kind === "channel" && subject.id === channel?.oid && !composing
-            ? resolveActiveRunId(allRuns, runIds[subject.id])
-            : undefined;
+    // one resolution, shared with the context rail (jarvissubjectstore.stageRunAtom). Resolved inline here
+    // twice with different guards, the band and the run body could name different runs mid-channel-switch.
+    const run = useAtomValue(stageRunAtom) ?? undefined;
     // null rather than "run:" when nothing resolves: the band hangs Attach and every per-edge correction off
     // this oref, and an empty one would write a correction against no run at all.
-    const activeRunORef = activeRunId != null ? "run:" + activeRunId : null;
+    const activeRunORef = run != null ? "run:" + run.id : null;
     const tags = activeRunORef != null ? ambient.tagsFor({ oref: activeRunORef }) : [];
     const band = recordBandCase({ kind: subject?.kind ?? "channel", tags, mentionedIds: [] });
     const bandRecordId = band.case === "one" ? band.edge.taskId : band.case === "several" ? band.primary.taskId : null;
@@ -184,7 +182,6 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               : conversation.title;
     const subtitle = subject.kind === "channel" ? (channel?.projectpath ?? "") : "";
 
-    const run = composing ? undefined : allRuns.find((r) => r.id === resolveActiveRunId(allRuns, runIds[subject.id]));
     const bandDetail =
         subject.kind === "dossier" ? detail : bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null;
     askAgentRef.current = run ? liveWorkers(run, agents).find((w) => w.state === "asking") : undefined;

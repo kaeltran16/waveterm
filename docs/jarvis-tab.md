@@ -81,6 +81,7 @@ A **subject** is one of three kinds, and the kind decides everything the Stage d
 | Thread | run | record | turns |
 | Composer target | worker-or-jarvis | jarvis-record | jarvis-thread |
 | Fleet section | Fleet | Fleet · on this record | — |
+| Worth knowing | run's narrative + suggestion + decisions | most recent narrative | — |
 
 The rule is **absent rather than empty**: a band a subject cannot have is not rendered, never greyed out
 and parked.
@@ -359,6 +360,15 @@ absent, but Needs you must not wait on the user selecting something.
    `Summarize the fleet` streams a Jarvis summary **into the rail**, so the user never leaves the subject
    they are on. It is the only way to ask for one: the `@jarvis` handle the consolidation orphaned was
    deleted rather than rewired.
+5. **Worth knowing** — the three ambient views, in one place, chosen by the subject rather than by which run
+   render branch drew (`ambientrail.ts` decides, `ambientrailview.tsx` frames). A channel with a resolved run
+   gets the run's resume narrative at **any** status, its proactive suggestion and its relevant past
+   decisions; a record gets the most recent narrative across its attributed runs (`ResumeVM.updated`) and
+   nothing else, since a suggestion is about a dispatch and the record's own decision log already renders in
+   the thread; a thread gets nothing, all three being run-scoped. Drawn **last**, after Fleet: it is the only
+   unsolicited, dismissible section, and it must never be first because `CollapsibleRail` draws
+   `sections[0].icon` as the collapsed strip's one glyph. Collapsing the rail hides it, which is correct —
+   these are dismissible asides, the opposite of Needs you's "always drawn, never filtered".
 
 ## 8. Autonomy control
 

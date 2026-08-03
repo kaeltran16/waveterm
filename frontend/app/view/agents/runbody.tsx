@@ -35,9 +35,7 @@ import { AskCard, BlockedCard, CancelRunButton, CancelSurvivorsCard, ReviewGateC
 import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
-import { AmbientTags, RelevantDecisions } from "./ambientviews";
-import { ProactiveCard } from "./proactiveviews";
-import { ResumeCard } from "./resumeviews";
+import { AmbientTags } from "./ambientviews";
 import {
     cancelSurvivors,
     currentPhaseIndex,
@@ -187,8 +185,6 @@ export function RunHeader({
                     </div>
                 ) : null}
             </div>
-            <ResumeCard run={run} />
-            <ProactiveCard run={run} />
             {!hideSteer && steering && target ? (
                 <div className="mb-4 max-w-[760px]">
                     <ComposerShell
@@ -570,9 +566,6 @@ export function RunBody({ model, channel, agents, run: runProp }: {
                         onSteerClose={noop}
                         hideSteer
                     />
-                    <div className="mb-4">
-                        <RelevantDecisions oref={sourceRefForRun(run).oref} />
-                    </div>
                     <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
                     <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />

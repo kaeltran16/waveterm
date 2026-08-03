@@ -8,9 +8,10 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { selectChannel } from "@/app/view/agents/channelsstore";
+import { activeChannelAtom, activeChannelRunsAtom, selectChannel } from "@/app/view/agents/channelsstore";
+import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
-import { atom, type PrimitiveAtom } from "jotai";
+import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { JarvisScope } from "./jarviscontract";
 import {
@@ -133,6 +134,29 @@ export const recordBandOpenAtom = atom<Record<string, boolean>>({}) as Primitive
 export const activeRunIdAtom = atom<Record<string, string | undefined>>({}) as PrimitiveAtom<
     Record<string, string | undefined>
 >;
+
+// The run the Stage is showing, resolved once. Both the Stage and the context rail need it — the Stage to
+// render the run body, the rail to derive its ambient section — and this used to be resolved inline in
+// stage.tsx twice with different guards, so the two could name different runs mid-channel-switch.
+export const stageRunAtom: Atom<Run | null> = atom((get) => {
+    const subject = get(activeSubjectAtom);
+    if (subject == null || subject.kind !== "channel") {
+        return null;
+    }
+    const channel = get(activeChannelAtom);
+    // the runs list belongs to the *active* channel, so a subject that has not caught up to it yet would
+    // otherwise resolve a run out of the previous channel's list
+    if (channel == null || subject.id !== channel.oid) {
+        return null;
+    }
+    // a draft run is not a Run yet (the server requires a goal), so nothing should auto-resolve underneath it
+    if (get(composingRunAtom)[subject.id] ?? false) {
+        return null;
+    }
+    const runs = get(activeChannelRunsAtom);
+    const id = resolveActiveRunId(runs, get(activeRunIdAtom)[subject.id]);
+    return runs.find((r) => r.id === id) ?? null;
+});
 
 // A record's detail, keyed by dossier id — the ONLY cache of it. Both readers use this: the record
 // subject (the record the user selected) and a channel's record band (the record its run is attributed
