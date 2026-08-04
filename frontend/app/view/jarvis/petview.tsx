@@ -23,11 +23,12 @@ import {
 } from "@/app/view/agents/ratelimitstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { motion, useMotionValue, useReducedMotion } from "motion/react";
+import { motion, useMotionValue, useReducedMotion, type MotionValue } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { PetBubble } from "./petbubble";
 import { expressionFor, postureFor, type PetExpression, type PetPosture, type PetSignals } from "./petcondition";
 import { indexSignal } from "./petjoin";
+import { eyeRoom, gazeOffset, nextBlinkDelay } from "./petmotion";
 import { PetPeek } from "./petpeek";
 import {
     petBubbleAtom,
@@ -96,11 +97,37 @@ const LEANS: Record<PetPosture, { rotate: number; y: number; ring: string | unde
 
 // Module constants so a re-render (nowAtom ticks every second) cannot restart the breathing loop.
 const BASE_ORIGIN = { originX: 0.5, originY: 1 };
-const IDLE_BREATH = { scale: [1, 1.035, 1] };
+// Counter-phased rather than a uniform scale: the volume is roughly conserved, so it reads as a body
+// drawing breath instead of a shape being zoomed. The pivot is the base, so it rises off it.
+const IDLE_BREATH = { scaleX: [1, 0.985, 1], scaleY: [1, 1.045, 1] };
+const IDLE_STILL = { scaleX: 1, scaleY: 1 };
 const IDLE_TRANSITION = { duration: 4.2, repeat: Infinity, ease: "easeInOut" as const };
 const SHAPE_TRANSITION = { duration: 0.5, ease: "easeOut" as const };
+// Posture springs while the silhouette morph eases. Overshoot on a lean reads as weight settling; the same
+// overshoot on the body's rx/ry reads as jelly.
+const LEAN_TRANSITION = { type: "spring" as const, stiffness: 210, damping: 14, mass: 0.55 };
 const EYE_CY_OFFSET = 4;
 const EYE_DX = 6.5;
+const PUPIL_R = 1.9;
+// A lid this narrow has no blink to show and hides its pupil anyway, so both are gated on it.
+const SLIT_EYE_RY = 2;
+// Well inside the 2.5 units the widest lid would allow: the gaze should be noticed as life, not as an eye
+// moving. eyeRoom narrows it further for whatever the current expression has already spent.
+const GAZE_CAP = 1.5;
+
+// The pool the creature sits in. A cast shadow would have to be darker than --color-background (#0c0e11) to
+// read at all and there is no darker token, so this is a pool tinted with the body's own tone — which works
+// on a dark surface and still themes, being the same var the body fills with.
+const POOL_OPACITY = 0.2;
+const POOL_BREATH = { scaleX: [1, 0.93, 1], opacity: [POOL_OPACITY, POOL_OPACITY * 0.7, POOL_OPACITY] };
+const POOL_STILL = { scaleX: 1, opacity: POOL_OPACITY };
+const POOL_DROP = 1.6; // below the body's base, so the two meet rather than overlap
+const POOL_RY = 1.5;
+const POOL_RX_SCALE = 0.78;
+
+const BLINK_CLOSED = 0.08;
+const BLINK_CLOSE_MS = 90;
+const BLINK_TRANSITION = { duration: BLINK_CLOSE_MS / 1000, ease: "easeOut" as const };
 
 function count(items: AttentionItem[], kind: string): number {
     return items.reduce((n, i) => (i.kind === kind ? n + 1 : n), 0);
@@ -153,10 +180,40 @@ function cornerAt(x: number): PetCorner {
     return x < window.innerWidth / 2 ? "bottom-left" : "bottom-right";
 }
 
-function Blob({ shape, lean, reduce }: { shape: PetShape; lean: (typeof LEANS)[PetPosture]; reduce: boolean }) {
+function Blob({
+    shape,
+    lean,
+    reduce,
+    slit,
+    blinking,
+    gazeX,
+    gazeY,
+}: {
+    shape: PetShape;
+    lean: (typeof LEANS)[PetPosture];
+    reduce: boolean;
+    slit: boolean;
+    blinking: boolean;
+    gazeX: MotionValue<number>;
+    gazeY: MotionValue<number>;
+}) {
     const eyeCy = shape.bodyCy - EYE_CY_OFFSET;
     return (
         <svg viewBox="0 0 48 48" width={PET_PX} height={PET_PX} aria-hidden="true">
+            {/* The pool sits OUTSIDE the breathing group, for two separate reasons. It has to stay planted
+                while the body rises off it, because that contrast is what reads as a lift rather than a
+                zoom. And motion writes transform-origin from originX/originY as fractions of the group's
+                fill box, so a child extending that box downward would drag the breath's pivot off the
+                body's base. Its own group takes the default centre origin, so it widens symmetrically. */}
+            <motion.g animate={reduce ? POOL_STILL : POOL_BREATH} transition={IDLE_TRANSITION}>
+                <motion.ellipse
+                    cx={24}
+                    ry={POOL_RY}
+                    animate={{ cy: shape.bodyCy + shape.bodyRy + POOL_DROP, rx: shape.bodyRx * POOL_RX_SCALE }}
+                    transition={SHAPE_TRANSITION}
+                    fill={shape.tone}
+                />
+            </motion.g>
             {/* Pivot at the blob's base, so breathing grows upward from it and the posture lean tips the
                 whole silhouette. Rotating a near-circular body about its centre instead would move only
                 the eyes, which is most of the posture's legibility gone.
@@ -165,8 +222,12 @@ function Blob({ shape, lean, reduce }: { shape: PetShape; lean: (typeof LEANS)[P
                 transform-box: fill-box on SVG children and writes transform-origin itself from those two
                 props (defaulting to the centre), so a style transformOrigin is silently overwritten.
                 As fractions of the fill box they also stay correct while the body's rx/ry animate. */}
-            <motion.g animate={reduce ? undefined : IDLE_BREATH} transition={IDLE_TRANSITION} style={BASE_ORIGIN}>
-                <motion.g animate={{ rotate: lean.rotate, y: lean.y }} transition={SHAPE_TRANSITION} style={BASE_ORIGIN}>
+            <motion.g animate={reduce ? IDLE_STILL : IDLE_BREATH} transition={IDLE_TRANSITION} style={BASE_ORIGIN}>
+                <motion.g
+                    animate={{ rotate: lean.rotate, y: lean.y }}
+                    transition={reduce ? SHAPE_TRANSITION : LEAN_TRANSITION}
+                    style={BASE_ORIGIN}
+                >
                     <motion.ellipse
                         cx={24}
                         animate={{ cy: shape.bodyCy, rx: shape.bodyRx, ry: shape.bodyRy }}
@@ -176,21 +237,32 @@ function Blob({ shape, lean, reduce }: { shape: PetShape; lean: (typeof LEANS)[P
                         strokeWidth={lean.ring ? 1.6 : 0}
                     />
                     {[-EYE_DX, EYE_DX].map((dx) => (
-                        <g key={dx}>
+                        // The blink scales the eye as a whole instead of animating the lid's ry, which the
+                        // expression is already animating — two writers on one value fight, and the
+                        // expression would win at the end of every blink. Default centre origin: the lid
+                        // closes onto itself, taking the pupil with it.
+                        <motion.g
+                            key={dx}
+                            animate={{ scaleY: blinking ? BLINK_CLOSED : 1 }}
+                            transition={BLINK_TRANSITION}
+                        >
                             <motion.ellipse
                                 cx={24 + dx}
                                 animate={{ cy: eyeCy, rx: shape.eyeRx, ry: shape.eyeRy }}
                                 transition={SHAPE_TRANSITION}
                                 fill="var(--color-primary)"
                             />
+                            {/* gaze is a transform (x/y) while the droop is the cy attribute, so the two
+                                compose instead of overwriting each other */}
                             <motion.circle
                                 cx={24 + dx}
-                                r={1.9}
-                                animate={{ cy: eyeCy + shape.pupilDy, opacity: shape.eyeRy < 2 ? 0 : 1 }}
+                                r={PUPIL_R}
+                                animate={{ cy: eyeCy + shape.pupilDy, opacity: slit ? 0 : 1 }}
                                 transition={SHAPE_TRANSITION}
+                                style={{ x: gazeX, y: gazeY }}
                                 fill="var(--color-background)"
                             />
-                        </g>
+                        </motion.g>
                     ))}
                 </motion.g>
             </motion.g>
@@ -215,6 +287,84 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     const draggingRef = useRef(false);
     const x = useMotionValue(0);
     const y = useMotionValue(0);
+
+    const shape = SHAPES[expression.kind];
+    const slit = shape.eyeRy < SLIT_EYE_RY;
+    const room = eyeRoom(shape.eyeRx, shape.eyeRy, shape.pupilDy, PUPIL_R, GAZE_CAP);
+    const gazeX = useMotionValue(0);
+    const gazeY = useMotionValue(0);
+    const [blinking, setBlinking] = useState(false);
+    const pointerRef = useRef<{ x: number; y: number } | null>(null);
+
+    // Gaze rides motion values rather than React state: a pointermove handler that re-rendered would put a
+    // render on every mouse move, in a window whose other surfaces are live terminals. The creature's rect
+    // is measured once per effect run rather than per move — a getBoundingClientRect on each pointermove is
+    // a forced layout, and the only things that move it are a corner change and a resize.
+    useEffect(() => {
+        if (reduce) {
+            gazeX.set(0);
+            gazeY.set(0);
+            return;
+        }
+        let rect = anchor?.getBoundingClientRect() ?? null;
+        const measure = () => {
+            rect = anchor?.getBoundingClientRect() ?? null;
+        };
+        const apply = () => {
+            const pointer = pointerRef.current;
+            if (rect == null || pointer == null) {
+                return;
+            }
+            const gaze = gazeOffset(
+                rect.left + rect.width / 2,
+                rect.top + rect.height / 2,
+                pointer.x,
+                pointer.y,
+                room.maxX,
+                room.maxY
+            );
+            gazeX.set(gaze.dx);
+            gazeY.set(gaze.dy);
+        };
+        // re-clamp against the room the new expression left, instead of holding a deflection its lid can no
+        // longer contain until the pointer happens to move again
+        apply();
+        const onMove = (e: PointerEvent) => {
+            pointerRef.current = { x: e.clientX, y: e.clientY };
+            apply();
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("resize", measure);
+        return () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("resize", measure);
+        };
+    }, [anchor, corner, reduce, room.maxX, room.maxY, gazeX, gazeY]);
+
+    // A self-rescheduling timer rather than a keyframe loop, because the interval has to be irregular
+    // (nextBlinkDelay) and a repeating animation can only be periodic.
+    useEffect(() => {
+        if (reduce || slit) {
+            setBlinking(false);
+            return;
+        }
+        let closeTimer: ReturnType<typeof setTimeout> | undefined;
+        let nextTimer: ReturnType<typeof setTimeout> | undefined;
+        const schedule = () => {
+            nextTimer = setTimeout(() => {
+                setBlinking(true);
+                closeTimer = setTimeout(() => {
+                    setBlinking(false);
+                    schedule();
+                }, BLINK_CLOSE_MS);
+            }, nextBlinkDelay(Math.random()));
+        };
+        schedule();
+        return () => {
+            clearTimeout(nextTimer);
+            clearTimeout(closeTimer);
+        };
+    }, [reduce, slit]);
 
     // Push once per event (design §4 decision 8). Advancing the watermark re-runs this effect, which
     // then finds nothing new — so the loop settles after one push rather than repeating it.
@@ -271,7 +421,11 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 }}
                 role="button"
                 tabIndex={0}
-                aria-label="Jarvis"
+                // not "Jarvis": the nav rail's entry-two button already owns that name, and the CDP harness
+                // navigates by it (scripts/cdp/attach.mjs SURFACE_LABEL). Two controls with one accessible
+                // name is ambiguous to a screen reader and makes a by-label query pick whichever comes
+                // first in the DOM — which is the nav button, not the creature.
+                aria-label="Jarvis condition"
                 onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
@@ -285,7 +439,15 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     CORNER_CLASS[corner]
                 )}
             >
-                <Blob shape={SHAPES[expression.kind]} lean={LEANS[posture]} reduce={reduce} />
+                <Blob
+                    shape={shape}
+                    lean={LEANS[posture]}
+                    reduce={reduce}
+                    slit={slit}
+                    blinking={blinking}
+                    gazeX={gazeX}
+                    gazeY={gazeY}
+                />
                 {/* the unread marker: a kind of thing happened, never how many */}
                 {unread ? (
                     <span className="pointer-events-none absolute right-0 top-0 h-[9px] w-[9px] rounded-full border border-background bg-accent" />

@@ -158,6 +158,8 @@ Three consequences, and this is why the rule is worth stating before anything el
 | `frontend/app/view/jarvis/petcondition.test.ts` | test | each rank fires alone; each rank beats every lower rank; nothing fires → at rest |
 | `frontend/app/view/jarvis/petvoice.ts` | pure | events since the last-seen watermark → at most one utterance; applies §3's report-once rule |
 | `frontend/app/view/jarvis/petvoice.test.ts` | test | one event yields one utterance; a sweep reported as a condition change is not also spoken; empty → silence |
+| `frontend/app/view/jarvis/petmotion.ts` | pure | involuntary motion: pointer → pupil deflection, and the blink cadence. Reads no condition — aliveness is not a fifth register |
+| `frontend/app/view/jarvis/petmotion.test.ts` | test | a diagonal gaze stays inside the lid; a droop that has spent the vertical room leaves a sideways glance only; the blink delay is a bounded irregular spread |
 | `frontend/app/view/jarvis/petstore.ts` | atoms | unread marker, remembered position, last-seen watermark, peek open state, raw index status |
 | `frontend/app/view/jarvis/petview.tsx` | thin | the SVG creature and its `motion` transitions |
 | `frontend/app/view/jarvis/petbubble.tsx` | thin | `@floating-ui/react`-anchored speech |
@@ -372,10 +374,19 @@ repo-root `public/` directory.
 
 ## 10. Verification
 
-**Unit — the two pure modules.** `petcondition.test.ts`: each rank fires in isolation; each rank beats every
+**Unit — the pure modules.** `petcondition.test.ts`: each rank fires in isolation; each rank beats every
 lower rank simultaneously present; nothing present yields at-rest. `petvoice.test.ts`: one new event yields
 one utterance; a sweep that has already moved the condition level is not also spoken (§3's report-once
 rule); an empty event set yields silence; the last-seen watermark suppresses a re-report.
+`petmotion.test.ts`: a diagonal gaze stays within the lid rather than reaching its corner (the per-axis-clamp
+bug); an expression that has already spent its vertical room on a droop keeps only its sideways glance; a
+non-finite pointer reading yields no deflection rather than a NaN transform; the blink delay is bounded,
+monotonic in its draw, and clamps an out-of-range one.
+
+**The slit-eyed states cannot show either.** `cannot-see` draws a 1.2-unit lid, which by the geometry in
+`eyeRoom` leaves no vertical gaze room and hides the pupil outright, and blink is gated on the same
+threshold. So an instance whose embedding index is off — the common dev case — exercises neither live, and
+both are covered by unit tests only. Verifying them in the app needs an instance that reaches `at-rest`.
 
 **Live — a CDP scenario**, per the codebase's no-jsdom convention. `scripts/cdp/scenarios.mjs` gains a pet
 scenario asserting the creature renders and its peek opens, and the existing `surface-smoke` scenario covers
