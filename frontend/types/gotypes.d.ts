@@ -651,6 +651,15 @@ declare global {
         principlediagnostics?: PrincipleDiagnostic[];
     };
 
+    // wshrpc.CommandGetLatestResumeRtnData
+    type CommandGetLatestResumeRtnData = {
+        card?: ResumeCardData;
+        runoref?: string;
+        channeloid?: string;
+        runstatus?: string;
+        rungoal?: string;
+    };
+
     // wshrpc.CommandGetMetaData
     type CommandGetMetaData = {
         oref: ORef;
@@ -1002,6 +1011,17 @@ declare global {
     // wshrpc.CommandListJarvisConversationsRtnData
     type CommandListJarvisConversationsRtnData = {
         conversations: JarvisConversationSummary[];
+    };
+
+    // wshrpc.CommandListProactiveRefusalsData
+    type CommandListProactiveRefusalsData = {
+        limit?: number;
+    };
+
+    // wshrpc.CommandListProactiveRefusalsRtnData
+    type CommandListProactiveRefusalsRtnData = {
+        refusals: ProactiveRefusal[];
+        total: number;
     };
 
     // wshrpc.CommandListRadarReportsData
@@ -1627,6 +1647,21 @@ declare global {
         decisions: DecisionCard[];
     };
 
+    // wshrpc.EmbedIndexStatus
+    type EmbedIndexStatus = {
+        state: string;
+        reason?: string;
+        detail?: string;
+        enabled: boolean;
+        haskey: boolean;
+        model?: string;
+        indexedmodel?: string;
+        dims?: number;
+        indexednodes: number;
+        vaultnodes: number;
+        stalenodes: number;
+    };
+
     // waveobj.EvidenceArtifact
     type EvidenceArtifact = {
         path: string;
@@ -1931,6 +1966,18 @@ declare global {
         blockid: string;
     };
 
+    // baseds.MemoryActivityData
+    type MemoryActivityData = {
+        kind: string;
+        id: string;
+        ts: number;
+        cwd?: string;
+        sessions?: number;
+        committed?: number;
+        queued?: number;
+        archived?: number;
+    };
+
     // wshrpc.MemoryArchivedNote
     type MemoryArchivedNote = {
         id: string;
@@ -2195,6 +2242,15 @@ declare global {
         disabled?: string[];
     };
 
+    // wshrpc.ProactiveRefusal
+    type ProactiveRefusal = {
+        runoref: string;
+        channeloid?: string;
+        goal?: string;
+        reason: string;
+        ts: number;
+    };
+
     // waveobj.ProfileOverride
     type ProfileOverride = {
         playbook?: RunPhase[];
@@ -2327,6 +2383,14 @@ declare global {
         clientversion: string;
         shell: string;
         homedir: string;
+    };
+
+    // wshrpc.ResumeCardData
+    type ResumeCardData = {
+        taskId: string;
+        summary: string;
+        status: string;
+        updated: number;
     };
 
     // wshrpc.RpcContext

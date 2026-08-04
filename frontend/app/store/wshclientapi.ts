@@ -510,6 +510,12 @@ export class RpcApiType {
         return client.wshRpcCall("getdossier", data, opts);
     }
 
+    // command "getembedindexstatus" [call]
+    GetEmbedIndexStatusCommand(client: WshClient, opts?: RpcOpts): Promise<EmbedIndexStatus> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getembedindexstatus", null, opts);
+        return client.wshRpcCall("getembedindexstatus", null, opts);
+    }
+
     // command "getfullconfig" [call]
     GetFullConfigCommand(client: WshClient, opts?: RpcOpts): Promise<FullConfigType> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getfullconfig", null, opts);
@@ -532,6 +538,12 @@ export class RpcApiType {
     GetJwtPublicKeyCommand(client: WshClient, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getjwtpublickey", null, opts);
         return client.wshRpcCall("getjwtpublickey", null, opts);
+    }
+
+    // command "getlatestresume" [call]
+    GetLatestResumeCommand(client: WshClient, opts?: RpcOpts): Promise<CommandGetLatestResumeRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getlatestresume", null, opts);
+        return client.wshRpcCall("getlatestresume", null, opts);
     }
 
     // command "getmeta" [call]
@@ -820,6 +832,12 @@ export class RpcApiType {
     ListJarvisConversationsCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListJarvisConversationsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listjarvisconversations", null, opts);
         return client.wshRpcCall("listjarvisconversations", null, opts);
+    }
+
+    // command "listproactiverefusals" [call]
+    ListProactiveRefusalsCommand(client: WshClient, data: CommandListProactiveRefusalsData, opts?: RpcOpts): Promise<CommandListProactiveRefusalsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listproactiverefusals", data, opts);
+        return client.wshRpcCall("listproactiverefusals", data, opts);
     }
 
     // command "listradarreports" [call]

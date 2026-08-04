@@ -32,6 +32,7 @@ const (
 	Event_Badge               = "badge"                // type: baseds.BadgeEvent
 	Event_AgentStatus         = "agent:status"         // type: baseds.AgentStatusData
 	Event_AgentAsk            = "agent:ask"            // type: baseds.AgentAskData
+	Event_MemoryActivity      = "memory:activity"      // type: baseds.MemoryActivityData
 )
 
 var AllEvents []string = []string{
@@ -52,6 +53,7 @@ var AllEvents []string = []string{
 	Event_Badge,
 	Event_AgentStatus,
 	Event_AgentAsk,
+	Event_MemoryActivity,
 }
 
 type WaveEvent struct {

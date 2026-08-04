@@ -67,6 +67,32 @@ type AgentStatusData struct {
 	Usage          *AgentUsage `json:"usage,omitempty"`
 }
 
+// MemoryActivity kinds — what an unattended memory pass just finished. Until now these passes were
+// logged and nothing else: a gardener sweep archiving notes and a distillation batch writing new ones
+// both happened entirely off-screen. A sweep and a batch are separate facts from the notes that batch
+// wrote, because the notes are the part with something to correct.
+const (
+	MemoryActivity_Sweep        = "sweep"         // a gardener pass finished having archived something
+	MemoryActivity_DistillBatch = "distill-batch" // a distillation batch flushed
+	MemoryActivity_NotesWritten = "notes-written" // that batch routed notes into the vault
+)
+
+// MemoryActivityData is the payload of Event_MemoryActivity. Id is stable per event so a consumer can
+// dedupe a replayed history read against a live subscription against its own watermark. Counts are
+// per-kind: a sweep reports what it archived, a batch its session count, and notes-written what the
+// router committed outright versus queued for review. Queue *depth* is deliberately not here — the level
+// is a separate read; this event is only the transition.
+type MemoryActivityData struct {
+	Kind      string `json:"kind"`
+	Id        string `json:"id"`
+	Ts        int64  `json:"ts"`            // UnixMilli
+	Cwd       string `json:"cwd,omitempty"` // the project hub the pass covered
+	Sessions  int    `json:"sessions,omitempty"`
+	Committed int    `json:"committed,omitempty"`
+	Queued    int    `json:"queued,omitempty"`
+	Archived  int    `json:"archived,omitempty"`
+}
+
 type AgentAskOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`

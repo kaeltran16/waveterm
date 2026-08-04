@@ -24,6 +24,7 @@ declare global {
         | "badge"
         | "agent:status"
         | "agent:ask"
+        | "memory:activity"
     ;
 
     type WaveEvent = {
@@ -49,7 +50,8 @@ declare global {
         { event: "block:jobstatus"; data?: BlockJobStatusData; } | 
         { event: "badge"; data?: BadgeEvent; } | 
         { event: "agent:status"; data?: AgentStatusData; } | 
-        { event: "agent:ask"; data?: AgentAskData; }
+        { event: "agent:ask"; data?: AgentAskData; } | 
+        { event: "memory:activity"; data?: MemoryActivityData; }
     );
 
 }

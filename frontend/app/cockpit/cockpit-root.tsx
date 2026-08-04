@@ -18,6 +18,9 @@ import { BackgroundAgentsPoller } from "@/app/view/agents/backgroundagentspoller
 import { AttentionPoller } from "@/app/view/agents/attentionpoller";
 import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
+import { PetDecayPoller } from "@/app/view/jarvis/petdecaypoller";
+import { PetSources } from "@/app/view/jarvis/petsources";
+import { PetView } from "@/app/view/jarvis/petview";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
 import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
 import { Provider } from "jotai";
@@ -88,6 +91,8 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <NowTicker model={model} />
             <BackgroundAgentsPoller />
             <AttentionPoller />
+            <PetDecayPoller />
+            <PetSources />
             <CockpitAppBar model={model} />
             <div className="min-h-0 flex-1">
                 <CockpitShell model={model} tabId={tabIdRef.current} />
@@ -97,6 +102,9 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <NewAgentModal model={model} />
             <CommandPalette model={model} />
             <ShortcutsCheatSheet model={model} />
+            {/* window chrome, not a surface: every surface but Agent unmounts on a nav switch, and the
+                creature is the one object in the app that has to survive that */}
+            <PetView model={model} />
             <ModalsRenderer />
             <ContextMenuHost />
         </div>

@@ -11,6 +11,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
@@ -196,6 +197,32 @@ type ResumeCard struct {
 	Summary string `json:"summary"`
 	Status  string `json:"status"`
 	Updated int64  `json:"updated"`
+}
+
+// ReadResumeCard decodes the narrative persisted at a run's rest boundary, honoring the human's
+// dismissal. run.Meta round-trips through the object store as JSON, so the struct written at the boundary
+// comes back as a map. This mirrors the frontend reader (view/agents/resume.ts) exactly — including
+// treating an empty summary as nothing to resurface — so the two cannot disagree about what is showable.
+func ReadResumeCard(run *waveobj.Run) (ResumeCard, bool) {
+	if run == nil || run.Meta == nil {
+		return ResumeCard{}, false
+	}
+	if dismissed, ok := run.Meta[MetaKeyResumeDismissed].(bool); ok && dismissed {
+		return ResumeCard{}, false
+	}
+	raw, ok := run.Meta[MetaKeyResume]
+	if !ok || raw == nil {
+		return ResumeCard{}, false
+	}
+	var card ResumeCard
+	if err := utilfn.ReUnmarshal(&card, raw); err != nil {
+		return ResumeCard{}, false
+	}
+	card.Summary = strings.TrimSpace(card.Summary)
+	if card.Summary == "" {
+		return ResumeCard{}, false
+	}
+	return card, true
 }
 
 // Resume reads the precomputed continuity narrative for a task. Pure, deterministic, free (no model):

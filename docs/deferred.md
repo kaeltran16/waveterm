@@ -803,3 +803,30 @@ Deferred out of the S3 first cycle:
 ## Diff surface — narrow-window folding and row density (2026-08-03)
 
 - **Diff surface narrow-window folding and row density declined** (2026-08-03). The Git-review mockup folds the commit pane to a chip below ~1100px, drops the author column, folds the graph to three lanes and turns history into a drawer below 900px, and exposes comfortable 34px / compact 28px rows. Both declined in `docs/superpowers/specs/2026-08-03-git-review-history-reads-design.md` decision 2: the cockpit runs at roughly 1600×950, so every breakpoint would be an untested path, and `historypane.tsx` keeps its single `ROW_H = 34`. Revive only on evidence of a narrow-window user.
+
+## Jarvis pet — 2D creature (2026-08-04)
+
+PLACEHOLDER tunable (calibrate against a real vault under normal use):
+- `frontend/app/view/jarvis/petcondition.ts`: `DRIFT_QUEUE_BAND = 5` — the cleanup-queue depth at which
+  the creature reports the vault as drifting (rank 3). Fabricated, not fitted. The reasoning is that a live
+  vault always has a note or two flagged and that is tended rather than drifting, so the band is meant to sit
+  where the queue stops being something the next Memory visit absorbs in passing. Observed on 2026-08-04: a
+  real vault of 438 notes carried a queue of 4, i.e. one below the band — so the band is currently doing its
+  job by a single note, which is not evidence that 5 is right. Refit once there is a record of queue depth
+  over time.
+
+Deferred out of this cycle:
+- **The 3D creature.** The renderer is deliberately swappable: every decision it draws is made in the pure
+  `petcondition.ts` / `petvoice.ts` modules, so replacing `petview.tsx` (inline SVG + `motion`) with three.js
+  changes no logic. Design §4 decision 7.
+- **Concierge-tier courier gestures** — carry/hold/escort, i.e. dragging an object onto the creature to
+  pocket it and dragging it back out onto a target. `petstore.ts` already carries `petPocketAtom` and the peek
+  renders a Pocket section when it is non-empty, so the state seam exists and nothing populates it.
+- **The higher acting tiers on the creature** (Gatekeeper, Delegator). Those flags are per-channel with no
+  client-level equivalent (`pkg/jarvis/resolve.go`), so the creature can only express them while acting on a
+  specific channel; design §6 records the resolution and nothing in this cycle acts on a channel.
+- **Top-left corner collides with the surface heading.** `CORNER_CLASS["top-left"]` is `top-[58px]
+  left-[92px]`, which clears the 46px app bar and the nav rail but lands on the page title (the surface's own
+  content starts at about x=108). Observed 2026-08-04 in `cdp-shots/pet/lean-*.png`. The creature is
+  draggable and defaults to bottom-right, so this is only reachable deliberately; left as-is rather than
+  moving the top corners inward, which would stop them being corners.

@@ -13,6 +13,7 @@ import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
+import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { codeFinderOpenAtom } from "@/app/view/code/codestore";
 import {
     buildAgentBindings,
@@ -131,6 +132,17 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("jarvis"))).toBe(false);
         globalStore.set(autonomyPanelOpenAtom, false);
         expect(b.when!(ctx("jarvis"))).toBe(true);
+    });
+
+    // the pet lives in window chrome, so unlike the two above its peek can be open on ANY deep surface
+    it("yields to the pet's peek on every deep surface it can be open over", () => {
+        const b = backHome();
+        globalStore.set(petPeekOpenAtom, true);
+        expect(b.when!(ctx("jarvis"))).toBe(false);
+        expect(b.when!(ctx("files"))).toBe(false);
+        expect(b.when!(ctx("usage"))).toBe(false);
+        globalStore.set(petPeekOpenAtom, false);
+        expect(b.when!(ctx("usage"))).toBe(true);
     });
 });
 

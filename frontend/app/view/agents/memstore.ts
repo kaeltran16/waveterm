@@ -236,13 +236,23 @@ export async function dismissAllPending(): Promise<void> {
 // Cleanup queue: hub notes the distiller flagged as superseded (strong) or stale (weak).
 // MemoryPruneCandidate is an ambient generated wire type (frontend/types/gotypes.d.ts).
 export const memPruneAtom = atom<MemoryPruneCandidate[]>([]) as PrimitiveAtom<MemoryPruneCandidate[]>;
+// true once a read has actually landed. Same reason as memErrorAtom above: loadPrune empties the queue on
+// failure, so without this an empty list reads as "the vault is clean" when it may only mean "never read".
+// The Memory surface can live with that conflation because the user is looking at it and can retry; the pet
+// cannot — it reports vault drift while you are somewhere else, so it must not claim clean on a failed read.
+export const memPruneLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
-export async function loadPrune(): Promise<void> {
+// Returns whether the read landed, so a caller that must not proceed on a guess (the pet's boot read) can
+// retry rather than accept the empty list.
+export async function loadPrune(): Promise<boolean> {
     try {
         const r = await RpcApi.MemoryPruneListCommand(TabRpcClient, { timeout: MEM_RPC_TIMEOUT_MS });
         globalStore.set(memPruneAtom, r.candidates ?? []);
+        globalStore.set(memPruneLoadedAtom, true);
+        return true;
     } catch {
         globalStore.set(memPruneAtom, []);
+        return false;
     }
 }
 

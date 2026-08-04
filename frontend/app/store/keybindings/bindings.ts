@@ -23,6 +23,7 @@ import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { codeFinderOpenAtom, goBack, goForward, refreshIndex, saveCurrent } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
+import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId, startJarvisThread } from "@/app/view/jarvis/jarvissubjectstore";
 import { listNavAtom } from "./listnav";
 import type { Binding, KeyContext } from "./types";
@@ -195,6 +196,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 ESC_HOME_SURFACES.has(ctx.surface) &&
                 !globalStore.get(graphPeekOpenAtom) &&
                 !globalStore.get(autonomyPanelOpenAtom) &&
+                // and the pet's peek, for the same reason again — it is global chrome, so it can be open
+                // on ANY of these surfaces, not just Jarvis
+                !globalStore.get(petPeekOpenAtom) &&
                 // the Diff surface's compare state owns Escape while it is on: leaving compare is what
                 // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
                 !globalStore.get(compareOnAtom) &&

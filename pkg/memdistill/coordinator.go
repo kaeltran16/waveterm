@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -111,9 +112,12 @@ func (d *distiller) flush(cwd string) {
 		log.Printf("[memdistill] distill output unparseable for cwd %s; retaining bucket\n", cwd)
 		return
 	}
+	var committed, queued int
 	if len(cands) > 0 || len(refs) > 0 {
-		if _, _, err := d.routeFn(cwd, cands, refs); err != nil {
-			log.Printf("[memdistill] route learnings: %v\n", err)
+		var rerr error
+		committed, queued, rerr = d.routeFn(cwd, cands, refs)
+		if rerr != nil {
+			log.Printf("[memdistill] route learnings: %v\n", rerr)
 			return
 		}
 	}
@@ -140,6 +144,17 @@ func (d *distiller) flush(cwd string) {
 		log.Printf("[memdistill] save queue after flush: %v\n", err)
 	}
 	d.mu.Unlock()
+
+	// the batch and the notes it wrote are two facts, not one: the first is "I did some work while you
+	// were out", the second is "here is what I now believe about you" — and only the second is correctable.
+	PublishActivity(baseds.MemoryActivityData{
+		Kind: baseds.MemoryActivity_DistillBatch, Cwd: cwd, Sessions: len(sessions),
+	})
+	if committed+queued > 0 {
+		PublishActivity(baseds.MemoryActivityData{
+			Kind: baseds.MemoryActivity_NotesWritten, Cwd: cwd, Committed: committed, Queued: queued,
+		})
+	}
 }
 
 // sweep evaluates every bucket against both trigger conditions (backstop + failed-flush retry).

@@ -506,6 +506,12 @@ func GetDossierCommand(w *wshutil.WshRpc, data wshrpc.CommandGetDossierData, opt
 	return resp, err
 }
 
+// command "getembedindexstatus", wshserver.GetEmbedIndexStatusCommand
+func GetEmbedIndexStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.EmbedIndexStatus, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.EmbedIndexStatus](w, "getembedindexstatus", nil, opts)
+	return resp, err
+}
+
 // command "getfullconfig", wshserver.GetFullConfigCommand
 func GetFullConfigCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (wconfig.FullConfigType, error) {
 	resp, err := sendRpcRequestCallHelper[wconfig.FullConfigType](w, "getfullconfig", nil, opts)
@@ -527,6 +533,12 @@ func GetJarvisProfileCommand(w *wshutil.WshRpc, data wshrpc.CommandGetJarvisProf
 // command "getjwtpublickey", wshserver.GetJwtPublicKeyCommand
 func GetJwtPublicKeyCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "getjwtpublickey", nil, opts)
+	return resp, err
+}
+
+// command "getlatestresume", wshserver.GetLatestResumeCommand
+func GetLatestResumeCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetLatestResumeRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetLatestResumeRtnData](w, "getlatestresume", nil, opts)
 	return resp, err
 }
 
@@ -813,6 +825,12 @@ func ListDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comma
 // command "listjarvisconversations", wshserver.ListJarvisConversationsCommand
 func ListJarvisConversationsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListJarvisConversationsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListJarvisConversationsRtnData](w, "listjarvisconversations", nil, opts)
+	return resp, err
+}
+
+// command "listproactiverefusals", wshserver.ListProactiveRefusalsCommand
+func ListProactiveRefusalsCommand(w *wshutil.WshRpc, data wshrpc.CommandListProactiveRefusalsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListProactiveRefusalsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListProactiveRefusalsRtnData](w, "listproactiverefusals", data, opts)
 	return resp, err
 }
 

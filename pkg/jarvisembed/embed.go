@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -68,7 +69,20 @@ type openAICompatEmbedder struct {
 
 func (e *openAICompatEmbedder) Model() string { return e.model }
 
+// Embed records the provider's outcome around the real call. A configured endpoint that 401s or is
+// unreachable degrades recall exactly as thoroughly as switching embeddings off, and did so invisibly:
+// nothing anywhere remembered that the last call failed. Status cannot probe for it either — a probe is a
+// network round trip inside a 5s RPC budget against a 60s client timeout — so the outcome is recorded as
+// it happens. A cancelled context is the caller giving up, not the provider failing, and is not recorded.
 func (e *openAICompatEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	out, err := e.embed(ctx, texts)
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		noteProviderResult(e.baseURL, e.model, err)
+	}
+	return out, err
+}
+
+func (e *openAICompatEmbedder) embed(ctx context.Context, texts []string) ([][]float32, error) {
 	reqBody, _ := json.Marshal(map[string]any{"model": e.model, "input": texts})
 	url := strings.TrimRight(e.baseURL, "/") + "/embeddings"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
@@ -113,6 +127,41 @@ func newConfiguredEmbedder() (Embedder, bool) {
 		return nil, false
 	}
 	return &openAICompatEmbedder{baseURL: baseURL, model: model, key: key, hc: &http.Client{Timeout: 60 * time.Second}}, true
+}
+
+// providerFailure is the last observed provider failure, scoped to the endpoint + model it was observed
+// against so reconfiguring either clears it rather than leaving a stale accusation. Cleared by the next
+// success. In-process only: a fresh wavesrv starts with no opinion, which reads as "not yet observed".
+var (
+	providerMu      sync.Mutex
+	providerFailure struct {
+		baseURL string
+		model   string
+		err     string
+		ts      int64
+	}
+)
+
+func noteProviderResult(baseURL, model string, err error) {
+	providerMu.Lock()
+	defer providerMu.Unlock()
+	if err == nil {
+		providerFailure.baseURL, providerFailure.model, providerFailure.err, providerFailure.ts = "", "", "", 0
+		return
+	}
+	providerFailure.baseURL, providerFailure.model = baseURL, model
+	providerFailure.err, providerFailure.ts = err.Error(), time.Now().UnixMilli()
+}
+
+// lastProviderError reports the last observed failure for this endpoint + model, or "" when the last call
+// succeeded, none has been made, or the recorded failure belongs to a configuration no longer in effect.
+func lastProviderError(baseURL, model string) (string, int64) {
+	providerMu.Lock()
+	defer providerMu.Unlock()
+	if providerFailure.err == "" || providerFailure.baseURL != baseURL || providerFailure.model != model {
+		return "", 0
+	}
+	return providerFailure.err, providerFailure.ts
 }
 
 var (

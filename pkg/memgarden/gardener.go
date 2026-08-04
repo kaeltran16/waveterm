@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
@@ -122,6 +123,18 @@ func (g *gardener) gardenProject(hubDir string) {
 	}
 
 	g.runLLMPillars(hubDir, notes, repoPath) // no-op until Tasks 11-12
+
+	// Announce only what this pass actually removed. A pass that changed nothing has nothing to say, and
+	// announcing every hourly no-op is how an ambient signal becomes noise. Flags are deliberately not
+	// announced: the cleanup queue's depth is a level someone reads, not a transition worth interrupting
+	// for — and the LLM pillars flag through g.flagFn directly, so any count here would under-report.
+	if archivedThisPass > 0 {
+		memdistill.PublishActivity(baseds.MemoryActivityData{
+			Kind:     baseds.MemoryActivity_Sweep,
+			Cwd:      hubDir,
+			Archived: archivedThisPass,
+		})
+	}
 }
 
 // runLLMPillars runs the flag-only LLM pillars: soft-drift (freshness) + near-dup (dedup).

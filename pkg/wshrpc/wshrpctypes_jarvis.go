@@ -33,6 +33,72 @@ type JarvisCommands interface {
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                    // write the global Jarvis profile to jarvis-profile.json
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
+	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                              // is semantic recall actually working right now: ok | off | stale, and why
+	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error)  // recent persisted "I found nothing" verdicts from proactive recall, with their causes
+	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                     // the newest rest-transition narrative across all runs — "where we were" at launch
+}
+
+// EmbedIndexStatus mirrors jarvisembed.IndexStatus. State is ok | off | stale: off means recall cannot
+// happen (disabled, unkeyed, unreachable provider, unreadable vault), stale means the index exists but no
+// longer matches what a query needs (indexed under a different model, never built, or content drifted).
+// The counts make "stale" legible as a magnitude — one edited note and a never-built index are not the
+// same problem. Mirrored rather than re-exported so pkg/wshrpc stays free of the CGO sqlite-vec build.
+type EmbedIndexStatus struct {
+	State        string `json:"state"`
+	Reason       string `json:"reason,omitempty"`
+	Detail       string `json:"detail,omitempty"`
+	Enabled      bool   `json:"enabled"`
+	HasKey       bool   `json:"haskey"`
+	Model        string `json:"model,omitempty"`
+	IndexedModel string `json:"indexedmodel,omitempty"`
+	Dims         int    `json:"dims,omitempty"`
+	IndexedNodes int    `json:"indexednodes"`
+	VaultNodes   int    `json:"vaultnodes"`
+	StaleNodes   int    `json:"stalenodes"`
+}
+
+// ProactiveRefusal is one persisted decision by proactive recall not to speak. The evaluator writes a
+// verdict into run.Meta on every dispatch precisely so a silence is auditable rather than
+// indistinguishable from never having run; this read is what finally makes that record reachable.
+type ProactiveRefusal struct {
+	RunORef    string `json:"runoref"`
+	ChannelOid string `json:"channeloid,omitempty"`
+	Goal       string `json:"goal,omitempty"`
+	Reason     string `json:"reason"` // no-candidates | judge-declined | judge-error | embeddings-off | index-error | vault-error | query-error
+	Ts         int64  `json:"ts"`     // the run's createdts — when the dispatch that refused was evaluated
+}
+
+type CommandListProactiveRefusalsData struct {
+	Limit int `json:"limit,omitempty"` // 0 = server default; capped server-side
+}
+
+// CommandListProactiveRefusalsRtnData carries the newest refusals plus the count of every refusal on
+// record — all of history, not a recent window. Total exists so truncation does not hide the scale; each
+// row carries its own Ts, so a caller that wants "lately" windows the rows itself.
+type CommandListProactiveRefusalsRtnData struct {
+	Refusals []ProactiveRefusal `json:"refusals"`
+	Total    int                `json:"total"`
+}
+
+// ResumeCardData mirrors jarviscontinuity.ResumeCard field for field, json tags included, so the generated
+// TS type is structurally identical to the frontend's existing ResumeVM (view/agents/resume.ts) and
+// consuming this command is an adapter rather than a translation.
+type ResumeCardData struct {
+	TaskId  string `json:"taskId"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
+	Updated int64  `json:"updated"`
+}
+
+// CommandGetLatestResumeRtnData is the newest rest-transition narrative across every run. No per-run read
+// can answer it: the narrative is written into run.Meta, and there is no global runs list on the frontend,
+// so "where we were" was unreachable at launch. Card is nil when no run carries an undismissed narrative.
+type CommandGetLatestResumeRtnData struct {
+	Card       *ResumeCardData `json:"card,omitempty"`
+	RunORef    string          `json:"runoref,omitempty"`
+	ChannelOid string          `json:"channeloid,omitempty"`
+	RunStatus  string          `json:"runstatus,omitempty"` // the run's rest status: awaiting-review | blocked | done
+	RunGoal    string          `json:"rungoal,omitempty"`
 }
 
 type CommandJarvisDecomposeData struct {

@@ -9,6 +9,11 @@
 // always records that it ran, and why it found nothing.
 package jarvisproactive
 
+import (
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+)
+
 // MetaKeyProactive is the run.Meta key holding the dispatch suggestion (a
 // ProactiveSuggestion: Status:"pending" while evaluating, "hit", or "none" with a
 // Reason when nothing cleared the bar). Hand-kept contract mirrored on the
@@ -50,4 +55,23 @@ type ProactiveSuggestion struct {
 	Snippet    string `json:"snippet,omitempty"`
 	Why        string `json:"why,omitempty"`
 	Reason     string `json:"reason,omitempty"` // why a "none" is a none; empty on a hit
+}
+
+// ReadSuggestion decodes the record persisted at a run's dispatch. run.Meta round-trips through the object
+// store as JSON, so what was written as a struct comes back as a map — this is the one Go decode site.
+// Reported ok only when a Status is present: the whole point of the sentinel is that "never ran" and "ran
+// and declined" are different answers, and a zero value would collapse them again.
+func ReadSuggestion(run *waveobj.Run) (ProactiveSuggestion, bool) {
+	if run == nil || run.Meta == nil {
+		return ProactiveSuggestion{}, false
+	}
+	raw, ok := run.Meta[MetaKeyProactive]
+	if !ok || raw == nil {
+		return ProactiveSuggestion{}, false
+	}
+	var sug ProactiveSuggestion
+	if err := utilfn.ReUnmarshal(&sug, raw); err != nil || sug.Status == "" {
+		return ProactiveSuggestion{}, false
+	}
+	return sug, true
 }
