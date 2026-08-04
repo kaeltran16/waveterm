@@ -24,21 +24,17 @@ import { useAtomValue } from "jotai";
 import { useEffect, type ReactNode } from "react";
 import { conditionLine, postureLine, type PetExpression, type PetPosture, type PetSignals } from "./petcondition";
 import { recallLine } from "./petjoin";
-import { petIndexAtom, petPeekOpenAtom, petPocketAtom, petSaidAtom, type PetCorner } from "./petstore";
+import { petIndexAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
 import { ageLabel } from "./recallderive";
 
 const PLACEMENT: Record<PetCorner, Placement> = {
     "bottom-right": "top-end",
     "bottom-left": "top-start",
-    "top-right": "bottom-end",
-    "top-left": "bottom-start",
 };
 
 const ORIGIN: Record<PetCorner, string> = {
     "bottom-right": "bottom right",
     "bottom-left": "bottom left",
-    "top-right": "top right",
-    "top-left": "top left",
 };
 
 const TONE: Record<PetExpression["kind"], string> = {
@@ -84,7 +80,6 @@ export function PetPeek({
 }) {
     const open = useAtomValue(petPeekOpenAtom);
     const said = useAtomValue(petSaidAtom);
-    const pocket = useAtomValue(petPocketAtom);
     // the raw status, not signals.index: the panel wants the reason and the drift count, which the narrowed
     // signal deliberately drops
     const recall = recallLine(useAtomValue(petIndexAtom));
@@ -200,21 +195,6 @@ export function PetPeek({
                             </div>
                         )}
                     </div>
-
-                    {/* absent when empty — a section drawn with nothing in it is worse than no section */}
-                    {pocket.length > 0 ? (
-                        <div className="flex flex-col gap-2 border-t border-border pt-2.5">
-                            <SectionLabel>Pocket</SectionLabel>
-                            {pocket.map((item) => (
-                                <div key={item.id} className="flex items-center gap-2">
-                                    <span className="flex-none font-mono text-[9.5px] text-muted">{item.kind}</span>
-                                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
-                                        {item.label}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    ) : null}
 
                     <button
                         type="button"

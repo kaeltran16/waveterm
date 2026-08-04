@@ -18,15 +18,11 @@ const BUBBLE_MS = 6_000;
 const PLACEMENT: Record<PetCorner, Placement> = {
     "bottom-right": "top-end",
     "bottom-left": "top-start",
-    "top-right": "bottom-end",
-    "top-left": "bottom-start",
 };
 
 const ORIGIN: Record<PetCorner, string> = {
     "bottom-right": "bottom right",
     "bottom-left": "bottom left",
-    "top-right": "top right",
-    "top-left": "top left",
 };
 
 // what register the utterance came from, in the design's own words

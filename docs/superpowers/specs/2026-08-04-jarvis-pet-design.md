@@ -158,7 +158,7 @@ Three consequences, and this is why the rule is worth stating before anything el
 | `frontend/app/view/jarvis/petcondition.test.ts` | test | each rank fires alone; each rank beats every lower rank; nothing fires → at rest |
 | `frontend/app/view/jarvis/petvoice.ts` | pure | events since the last-seen watermark → at most one utterance; applies §3's report-once rule |
 | `frontend/app/view/jarvis/petvoice.test.ts` | test | one event yields one utterance; a sweep reported as a condition change is not also spoken; empty → silence |
-| `frontend/app/view/jarvis/petstore.ts` | atoms | unread marker, remembered position, pocket contents, last-seen watermark, peek open state |
+| `frontend/app/view/jarvis/petstore.ts` | atoms | unread marker, remembered position, last-seen watermark, peek open state, raw index status |
 | `frontend/app/view/jarvis/petview.tsx` | thin | the SVG creature and its `motion` transitions |
 | `frontend/app/view/jarvis/petbubble.tsx` | thin | `@floating-ui/react`-anchored speech |
 | `frontend/app/view/jarvis/petpeek.tsx` | thin | the overlay (§4 decision 3) |
@@ -242,8 +242,10 @@ Each is independently shippable and gets its own implementation plan. The split 
 feature grouping, which is what makes stage one genuinely free of backend risk.
 
 **Stage one — presence, on data that already exists.** The corner creature, `petcondition.ts`,
-`petvoice.ts`, `petstore.ts`, `petview.tsx`, `petbubble.tsx`, `petpeek.tsx`, the Escape guard (§9), and the
-Concierge-floor capabilities (courier, pocket, escort). Condition runs on the rate-limit body clock; posture
+`petvoice.ts`, `petstore.ts`, `petview.tsx`, `petbubble.tsx`, `petpeek.tsx`, and the Escape guard (§9). The
+Concierge-floor capabilities (courier, pocket, escort) were cut from this stage during implementation and are
+recorded in `docs/deferred.md`: each needs a drag gesture, and the store shape depends on the gesture, so
+neither half is worth building alone. Condition runs on the rate-limit body clock; posture
 runs on attention kinds. The precedence order is implemented in full with its higher ranks simply never
 firing, so stages two and three are a data change and not a logic change. **No Go, no codegen, no
 migration.**
@@ -339,6 +341,23 @@ over a baked asset.
 **Occlusion is the corner dweller's cost**, and it is paid with: a remembered position (persisted in
 `petstore.ts`), a low rest opacity, and a drag-to-move. A creature that covers the composer or a terminal's
 last line and cannot be moved is worse than no creature.
+
+The two *bottom* corners, revised during implementation from four. The top pair was built and measured over
+CDP: the surface heading band runs y=66 to about y=144, the page title starts at x=106, and a top-corner
+creature spanned y=58–102 — so top-left covered the title's first characters, and because `SurfaceHeader` is
+`justify-between`, top-right covered the header's action buttons. A corner that exists to escape occlusion
+cannot be the one that occludes most, and no fixed inset clears the band on every surface (measured bottoms
+range from 107 on Diff to 144 on Sessions, and the Jarvis Stage and Usage surfaces do not use `SurfaceHeader`
+at all). Escape is therefore left/right along the bottom edge. A corner persisted by an older build fails
+`PET_CORNERS` validation and falls back to the default, so there is no migration.
+
+Two corners suffice, which is the part that had to be measured rather than argued — the concern above is
+specifically a covered composer or terminal, and both live at the bottom. Overlap-tested against every
+bottom-region input, terminal, and button on five surfaces: at least one bottom corner is clear on all of
+them, and the two surfaces that do collide collide on *opposite* sides. On Agent the terminal fills x≥330 so
+bottom-right is blocked and bottom-left is clear; on the Jarvis Stage the thread list fills x 86–331 so
+bottom-left is blocked and bottom-right is clear. The horizontal escape is the one that resolves real
+collisions; the vertical one was resolving none.
 
 **Reduced motion.** `useReducedMotion` is already used in `frontend/app/element/meter.tsx`; the idle
 animation must respect it.

@@ -54,13 +54,11 @@ const ATTENTION_ASK = "ask";
 // queue, so staleNotes is a subset of queueDepth, never a second count.
 const PRUNE_REASON_STALE = "stale";
 
-// Corner anchors. The insets clear the chrome the creature would otherwise sit on: 46px app bar at the
-// top, the 28px hints footer at the bottom, and the 56–78px nav rail on the left.
+// Corner anchors. The insets clear the chrome the creature would otherwise sit on: the 28px hints footer
+// at the bottom, and the nav rail on the left (78px measured, expanded).
 const CORNER_CLASS: Record<PetCorner, string> = {
     "bottom-right": "bottom-[40px] right-[18px]",
     "bottom-left": "bottom-[40px] left-[92px]",
-    "top-right": "top-[58px] right-[18px]",
-    "top-left": "top-[58px] left-[92px]",
 };
 
 const PET_PX = 44;
@@ -148,12 +146,11 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
     };
 }
 
-// Nearest corner from where the drag was released. Four corners rather than free coordinates: an offset
-// is measured against a viewport that changes size, a corner still means the same place after a resize.
-function cornerAt(x: number, y: number): PetCorner {
-    const vertical = y < window.innerHeight / 2 ? "top" : "bottom";
-    const horizontal = x < window.innerWidth / 2 ? "left" : "right";
-    return `${vertical}-${horizontal}` as PetCorner;
+// Nearest corner from where the drag was released. Only the horizontal half of the drop is read: the
+// creature keeps to the bottom edge (see PET_CORNERS), so releasing it high still lands it in the bottom
+// corner on that side rather than nowhere.
+function cornerAt(x: number): PetCorner {
+    return x < window.innerWidth / 2 ? "bottom-left" : "bottom-right";
 }
 
 function Blob({ shape, lean, reduce }: { shape: PetShape; lean: (typeof LEANS)[PetPosture]; reduce: boolean }) {
@@ -255,7 +252,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                     draggingRef.current = true;
                 }}
                 onDragEnd={(_, info) => {
-                    setPetCorner(cornerAt(info.point.x, info.point.y));
+                    setPetCorner(cornerAt(info.point.x));
                     // the CSS anchor moves, so the drag transform has to go with it or the creature
                     // lands one whole viewport away from the corner it was dropped in
                     x.set(0);

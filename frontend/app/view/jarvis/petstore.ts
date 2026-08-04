@@ -125,16 +125,7 @@ export const petIndexAtom = atom<EmbedIndexStatus | null>(null) as PrimitiveAtom
 // the guard there, dismissing the peek also ejects the user to the Cockpit.
 export const petPeekOpenAtom = atom(false);
 
-// The pocket: what you have handed the creature but not filed yet (the Concierge floor's "it holds").
-// This is the data structure only — the drag gestures that fill it are not built.
-export type PocketKind = "file" | "commit" | "selection" | "finding";
-
-export interface PocketItem {
-    id: string;
-    kind: PocketKind;
-    label: string;
-    oref?: string; // absent for a kind that is not an object (a terminal selection is text)
-    at: number; // epoch ms
-}
-
-export const petPocketAtom = atom<PocketItem[]>([]) as PrimitiveAtom<PocketItem[]>;
+// No pocket atom here on purpose. The Concierge floor's "it holds" (design §6) needs the carry/drop
+// gestures and this store together; an atom with a reader and no writer made the peek's Pocket section
+// unreachable, which is worse than absent — it cannot be tested and it reads as shipped. Build both
+// halves at once. See docs/deferred.md.

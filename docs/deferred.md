@@ -820,13 +820,18 @@ Deferred out of this cycle:
   `petcondition.ts` / `petvoice.ts` modules, so replacing `petview.tsx` (inline SVG + `motion`) with three.js
   changes no logic. Design §4 decision 7.
 - **Concierge-tier courier gestures** — carry/hold/escort, i.e. dragging an object onto the creature to
-  pocket it and dragging it back out onto a target. `petstore.ts` already carries `petPocketAtom` and the peek
-  renders a Pocket section when it is non-empty, so the state seam exists and nothing populates it.
+  pocket it and dragging it back out onto a target. Nothing of this remains in the code: the half-built state
+  seam (a `petPocketAtom` with a reader and no writer, plus a Pocket section in `petpeek.tsx` that could never
+  render) was removed on 2026-08-04, because unreachable UI cannot be tested, silently rots against the atom
+  shape it reads, and reads as shipped. Build the store and the gestures together — the renderer's shape
+  depends on the gesture it serves (what the drop target looks like, whether the creature changes shape while
+  holding), so guessing at it first is wasted work. Design §6.
 - **The higher acting tiers on the creature** (Gatekeeper, Delegator). Those flags are per-channel with no
   client-level equivalent (`pkg/jarvis/resolve.go`), so the creature can only express them while acting on a
   specific channel; design §6 records the resolution and nothing in this cycle acts on a channel.
-- **Top-left corner collides with the surface heading.** `CORNER_CLASS["top-left"]` is `top-[58px]
-  left-[92px]`, which clears the 46px app bar and the nav rail but lands on the page title (the surface's own
-  content starts at about x=108). Observed 2026-08-04 in `cdp-shots/pet/lean-*.png`. The creature is
-  draggable and defaults to bottom-right, so this is only reachable deliberately; left as-is rather than
-  moving the top corners inward, which would stop them being corners.
+
+Resolved rather than deferred, recorded because the fix removed something a reader might try to restore: the
+two top corners were dropped on 2026-08-04 (`PET_CORNERS` is now the bottom pair only). They sat on the
+surface heading band — the page title on the left, the header's action buttons on the right. Do not re-add
+them without a placement that clears a band whose height varies per surface. Design §9 carries the
+measurements.
