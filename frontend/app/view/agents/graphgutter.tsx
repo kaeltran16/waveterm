@@ -23,7 +23,9 @@ function laneColor(lane: number, folded: boolean): string {
     return folded ? FOLD_TOKEN : LANE_TOKENS[lane % LANE_TOKENS.length];
 }
 
-export function GraphGutter({ geom }: { geom: GraphGeometry }) {
+// selectedIndex indexes geom.nodes, which is one node per row in row order. It exists only so a hollow
+// node can match the fill painted under it — see the z-10 note below.
+export function GraphGutter({ geom, selectedIndex = -1 }: { geom: GraphGeometry; selectedIndex?: number }) {
     if (geom.nodes.length === 0) {
         return null;
     }
@@ -32,7 +34,10 @@ export function GraphGutter({ geom }: { geom: GraphGeometry }) {
             data-graph-gutter
             width={geom.width}
             height={geom.height}
-            className="pointer-events-none absolute left-0 top-0"
+            // z-10 because the rows are positioned too (they anchor the selection bar) and would
+            // otherwise paint over this in DOM order — an opaque selected or hovered row erased the
+            // lane lines and the node inside its band, cutting the graph in half wherever the cursor was.
+            className="pointer-events-none absolute left-0 top-0 z-10"
             aria-hidden="true"
         >
             {geom.foldedCount > 0 ? (
@@ -68,8 +73,16 @@ export function GraphGutter({ geom }: { geom: GraphGeometry }) {
                     cx={n.x}
                     cy={n.y}
                     r={n.r}
-                    // hollow for merges and for the working tree, so both read as "not an ordinary commit"
-                    fill={n.merge || n.workingTree ? "var(--color-background)" : laneColor(n.lane, n.folded)}
+                    // hollow for merges and for the working tree, so both read as "not an ordinary
+                    // commit". The hole has to be whatever is painted beneath it, which on the selected
+                    // row is the selection fill rather than the page background.
+                    fill={
+                        n.merge || n.workingTree
+                            ? i === selectedIndex
+                                ? "var(--color-surface-selected)"
+                                : "var(--color-background)"
+                            : laneColor(n.lane, n.folded)
+                    }
                     stroke={laneColor(n.lane, n.folded)}
                     strokeWidth={2}
                     strokeDasharray={n.workingTree ? "2.5 2.5" : undefined}

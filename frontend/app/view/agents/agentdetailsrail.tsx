@@ -19,7 +19,7 @@ import {
     usageLevel,
     type AgentVM,
 } from "./agentsviewmodel";
-import { requestAgentFileSelection } from "./filesstore";
+import { agentScope, requestFileLink } from "./filesstore";
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
@@ -82,7 +82,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const openDiff = (path?: string) => {
         const intent = diffNavIntent(agent.id, railState?.cwd, path);
         if (intent.select) {
-            requestAgentFileSelection(agent.id, intent.select.path);
+            requestFileLink(agentScope(agent.id), intent.select.path);
         }
         globalStore.set(model.focusIdAtom, intent.focusId);
         globalStore.set(model.surfaceAtom, intent.surface);

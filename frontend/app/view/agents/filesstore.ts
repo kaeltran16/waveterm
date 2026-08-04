@@ -42,13 +42,13 @@ export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // guards against a stale load overwriting a newer one; token distinguishes agent-/project-/run-scoped
 // loads (`agent:<id>` / `project:<name>` / `run:<id>`) so switching source cancels the in-flight load.
 const current = { token: "" };
-const requestedSelection = { token: "", path: "" };
 
-// Token builders, so the format lives in one place. It matters for `agent:` in particular:
-// requestAgentFileSelection has to name the exact token its load will run under, because
-// loadChangesForCwd only honours requestedSelection when the two match.
-const agentToken = (id: string) => `agent:${id}`;
-const runToken = (runId: string) => `run:${runId}`;
+// The scope vocabulary, exported so a caller that wants to deep-link into the surface names the same
+// scope the load will run under. One format, one place — a link built from a different string than
+// the load's would silently never be claimed.
+export const agentScope = (id: string) => `agent:${id}`;
+export const runScope = (runId: string) => `run:${runId}`;
+export const projectScope = (name: string) => `project:${name}`;
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
 
@@ -85,15 +85,10 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(filesStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, ref });
         globalStore.set(filesErrorAtom, false);
-        const requested =
-            requestedSelection.token === token && changes?.files.some((f) => f.path === requestedSelection.path)
-                ? requestedSelection.path
-                : undefined;
-        const first = requested ?? changes?.files[0]?.path;
-        if (requested) {
-            requestedSelection.token = "";
-            requestedSelection.path = "";
-        }
+        // Deliberately always the first file: a deep link is claimed by the history store, which owns
+        // the *visible* selection. Honouring it here as well would load one file's diff and then have
+        // the history load pick another, so the pane showed whichever RPC landed last.
+        const first = changes?.files[0]?.path;
         if (first) {
             void selectFile(cwd, first);
         }
@@ -129,7 +124,7 @@ export async function loadFilesForAgent(
     transcriptPath: string | undefined,
     blockId?: string
 ): Promise<void> {
-    const token = agentToken(id);
+    const token = agentScope(id);
     beginLoad(token);
     const [cwd, sessionStartTs] = await Promise.all([
         resolveCwd(transcriptPath, blockId),
@@ -147,7 +142,7 @@ export async function loadFilesForAgent(
 // Show the live working-tree-vs-HEAD diff (uncommitted changes) — the "open this repo in a git client"
 // view.
 export async function loadFilesForProject(name: string, path: string): Promise<void> {
-    const token = `project:${name}`;
+    const token = projectScope(name);
     beginLoad(token);
     await loadChangesForCwd(token, path || null, {});
 }
@@ -155,45 +150,45 @@ export async function loadFilesForProject(name: string, path: string): Promise<v
 // Run-scoped load: base-anchored, read-only, against the run's captured base commit (an immutable
 // historical record). baseCommit "" degrades to the live HEAD diff.
 export async function loadFilesForRun(runId: string, cwd: string, baseCommit: string): Promise<void> {
-    const token = runToken(runId);
+    const token = runScope(runId);
     beginLoad(token);
     await loadChangesForCwd(token, cwd || null, { ref: baseCommit });
 }
 
-export function requestAgentFileSelection(id: string, path: string): void {
-    requestedSelection.token = agentToken(id);
-    requestedSelection.path = path;
-}
-
-// A sealed run's evidence card names the file it wants before the Diff surface has mounted. Held here
-// rather than in an atom, and read by the history store, which owns the *visible* selection: writing
-// filesSelectedPathAtom would not move the pane, because since the git-review rewrite panes 2 and 3
-// render whatever the history pane's selected row is.
+// A caller elsewhere in the app — a sealed run's evidence card, an agent's changed-file rail — names
+// the file it wants before the Diff surface has mounted. Held here rather than in an atom, and read by
+// the history store, which owns the *visible* selection: writing filesSelectedPathAtom would not move
+// the pane, because since the git-review rewrite panes 2 and 3 render whatever the history pane's
+// selected row is.
+//
+// Keyed by scope (see agentScope / runScope / projectScope) rather than by run id, so every source the
+// surface can be scoped to links the same way. The agent rail used to have a separate mechanism that
+// wrote an atom nothing renders, which is why clicking a file there landed on the scope's first file.
 //
 // One-shot on purpose. The history pane deliberately remembers where you were so a nav switch does not
 // throw you back to row zero; a deep link has to beat that once, then stop, or every return to the
 // surface would drag you back to the linked file.
-const pendingRunFile = { runId: "", path: "" };
+const pendingFileLink = { scope: "", path: "" };
 
-export function requestRunFileSelection(runId: string, path: string): void {
-    pendingRunFile.runId = runId;
-    pendingRunFile.path = path;
+export function requestFileLink(scope: string, path: string): void {
+    pendingFileLink.scope = scope;
+    pendingFileLink.path = path;
 }
 
 // Consumed only when `available` (the scope's loaded change set) actually holds the path. The Diff
 // surface fires one history read per mount against the state captured in that render, which on a
 // remount is still the outgoing scope's — a request eaten by that read would never reach the load that
 // can honour it, and selecting a file the pane does not list would leave it blank.
-export function consumeRunFileSelection(runId: string, available: string[]): string | undefined {
-    if (pendingRunFile.runId !== runId || !pendingRunFile.path) {
+export function consumeFileLink(scope: string, available: string[]): string | undefined {
+    if (!scope || pendingFileLink.scope !== scope || !pendingFileLink.path) {
         return undefined;
     }
-    if (!available.includes(pendingRunFile.path)) {
+    if (!available.includes(pendingFileLink.path)) {
         return undefined;
     }
-    const path = pendingRunFile.path;
-    pendingRunFile.runId = "";
-    pendingRunFile.path = "";
+    const path = pendingFileLink.path;
+    pendingFileLink.scope = "";
+    pendingFileLink.path = "";
     return path;
 }
 

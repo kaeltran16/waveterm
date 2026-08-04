@@ -67,7 +67,8 @@ function Row({
                 selected && "bg-surface-selected"
             )}
         >
-            {selected ? <div className="absolute bottom-0 left-0 top-0 w-[2px] bg-accent" /> : null}
+            {/* no left accent bar: it lands 13px from lane 0's line in the same blue, so a selected row
+                grew a second thing that looks like a graph lane. The fill alone marks the selection. */}
             <span
                 style={{ width: HASH_W }}
                 className={cn("flex-none font-mono text-[11px]", row.workingTree ? "text-ink-faint" : "text-muted")}
@@ -116,7 +117,8 @@ function Row({
 
 function Divider({ label }: { label: string }) {
     return (
-        <div className="flex items-center gap-[9px] py-[6px] pl-[14px] pr-[12px]" style={{ height: 30 }}>
+        // z-20 keeps the band above the graph gutter, which sits at z-10 so rows cannot erase it
+        <div className="relative z-20 flex items-center gap-[9px] py-[6px] pl-[14px] pr-[12px]" style={{ height: 30 }}>
             <span className="flex-none rounded-[5px] border border-accent/30 bg-accentbg px-[7px] py-[2px] font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-accent-soft">
                 {label}
             </span>
@@ -215,7 +217,9 @@ export function HistoryPane({
                     </div>
                 ) : (
                     <div className="relative">
-                        {graphOn ? <GraphGutter geom={geom} /> : null}
+                        {graphOn ? (
+                            <GraphGutter geom={geom} selectedIndex={laned.findIndex((r) => r.hash === selected)} />
+                        ) : null}
                         {laned.map((row) => (
                             <div key={row.hash || "__wt__"} data-history-row>
                                 <Row

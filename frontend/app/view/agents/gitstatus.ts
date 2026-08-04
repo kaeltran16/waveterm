@@ -38,6 +38,16 @@ function parseStatusZ(statusZ: string): { path: string; status: string }[] {
     return out;
 }
 
+// A rename is named by both its ends in --numstat: "old => new", or "pre/{old => new}/post" when the
+// two paths share a prefix or suffix. Porcelain keys the change list by the NEW path alone, so an
+// unresolved arrow key never matches and the file reads as +0 −0 — silently wrong for a rename that
+// also edited content, and it drops those lines from the totals too.
+export function numstatPath(raw: string): string {
+    const expanded = raw.replace(/\{([^{}]*) => ([^{}]*)\}/g, "$2").replace(/\/{2,}/g, "/");
+    const arrow = expanded.indexOf(" => ");
+    return arrow === -1 ? expanded : expanded.slice(arrow + " => ".length);
+}
+
 function parseNumstat(numstat: string): Map<string, { adds: number; dels: number }> {
     const m = new Map<string, { adds: number; dels: number }>();
     for (const line of numstat.split("\n")) {
@@ -47,7 +57,7 @@ function parseNumstat(numstat: string): Map<string, { adds: number; dels: number
         const cols = line.split("\t");
         const a = cols[0];
         const d = cols[1];
-        const path = cols.slice(2).join("\t");
+        const path = numstatPath(cols.slice(2).join("\t"));
         if (!path) {
             continue;
         }

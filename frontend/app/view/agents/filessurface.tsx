@@ -24,12 +24,15 @@ import type { AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { StatusDot } from "./statusdot";
 import {
+    agentScope,
     filesErrorAtom,
     filesProjectSelAtom,
     filesStateAtom,
     loadFilesForAgent,
     loadFilesForProject,
     loadFilesForRun,
+    projectScope,
+    runScope,
     type FilesProject,
 } from "./filesstore";
 import { runShortId } from "./runcompletion";
@@ -188,6 +191,26 @@ function EmptyCenter({ msg }: { msg: string }) {
     return <div className="flex h-full items-center justify-center text-[13px] text-muted">{msg}</div>;
 }
 
+// A file can legitimately have changed and still have no diff text: git sends one sentence for a
+// binary file, and a pure rename or a mode change has no content to show at all. Both used to render
+// as an empty scroll area under a "+0 −0" bar, which reads as a broken pane rather than an answer.
+function NoTextDiff({ view }: { view: FileView }) {
+    return (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[7px] px-[20px] text-center">
+            <span className="text-[13px] text-muted">
+                {view.binary
+                    ? "Binary file — git reports a change but has no text diff to show."
+                    : view.renamedFrom
+                      ? "Renamed. Nothing inside the file changed."
+                      : "Nothing inside this file changed."}
+            </span>
+            {view.renamedFrom ? (
+                <span className="font-mono text-[11.5px] text-ink-faint">from {view.renamedFrom}</span>
+            ) : null}
+        </div>
+    );
+}
+
 function DiffSkeleton() {
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -258,6 +281,8 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                     </div>
                     {view == null ? (
                         <DiffSkeleton />
+                    ) : view.lines.length === 0 ? (
+                        <NoTextDiff view={view} />
                     ) : (
                         <>
                             {view.isDiff && (
@@ -394,6 +419,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         return () => clearTimeout(t);
     }, [restoreMsg]);
 
+    // Which source the surface is scoped to, in the same vocabulary filesstore's loaders use as their
+    // guard token. Both the change-list load and the history load are keyed off this, so a deep link
+    // built for one of them is claimable by the other.
+    const loadScope = runSource
+        ? runScope(runSource.runId)
+        : projectSel
+          ? projectScope(projectSel.name)
+          : focusId
+            ? agentScope(focusId)
+            : undefined;
+
     useEffect(() => {
         if (runSource) {
             fireAndForget(() => loadFilesForRun(runSource.runId, runSource.cwd, runSource.baseCommit));
@@ -431,11 +467,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                     anchorLabel: runSource ? "run base" : anchor ? "session start" : undefined,
                     rowLabel: runSource ? "Run changes" : anchor ? "Since session start" : undefined,
                 },
-                // lets the load claim a file the evidence card asked for, once its change set is in
-                runSource?.runId
+                // names the source this load is for, so it can claim a file an evidence card or an
+                // agent's file rail asked for, once that scope's change set is in
+                loadScope
             )
         );
-    }, [state?.cwd, state?.isRepo, state?.ref, runSource?.runId, loadError]);
+    }, [state?.cwd, state?.isRepo, state?.ref, loadScope, loadError]);
 
     // A different repository (or entering a run) means different refs: keep compare from showing one
     // scope's divergence over another's. The guard is the anchor compare recorded when it was entered,

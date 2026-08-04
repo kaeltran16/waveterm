@@ -13,7 +13,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { consumeRunFileSelection, filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
+import { consumeFileLink, filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
 import { parseUnifiedDiff, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 import {
@@ -137,10 +137,11 @@ function synthFailure(command: string, e: unknown): GitFailure {
     return { command, exitcode: -1, stderr: String((e as Error)?.message ?? e) };
 }
 
-// runId: the run this load is scoped to, if any. Used only to claim a pending file deep link from a
-// sealed run's evidence card. Deliberately not part of opts — opts feeds the load token and is stored
-// for the filter reload to reissue, and a one-shot link must do neither.
-export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}, runId?: string): Promise<void> {
+// scope: which source this load is for (`agent:<id>` / `project:<name>` / `run:<id>`, built by
+// filesstore's scope helpers). Used only to claim a pending file deep link — from a sealed run's
+// evidence card, or from an agent's changed-file rail. Deliberately not part of opts: opts feeds the
+// load token and is stored for the filter reload to reissue, and a one-shot link must do neither.
+export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}, scope?: string): Promise<void> {
     if (!cwd) {
         resetHistory();
         return;
@@ -186,7 +187,7 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
         globalStore.set(historyHeadAtom, h.head);
         globalStore.set(historyCommitsAtom, page);
         globalStore.set(historyHasMoreAtom, hasMorePages(page.length));
-        settleSelection(cwd, runId);
+        settleSelection(cwd, scope);
         announceRestore();
     } catch (e) {
         if (current.token === token) {
@@ -200,14 +201,14 @@ export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}
 // Keep the user's place. The surface's load effect re-runs on every mount, so the unconditional
 // re-select this replaced is what threw the selection back to row zero (and reopened its first file)
 // every time you came back to the Diff surface.
-function settleSelection(cwd: string, runId?: string): void {
+function settleSelection(cwd: string, scope?: string): void {
     const rows = globalStore.get(historyRowsAtom) ?? [];
-    // A deep link from a sealed run's evidence card names one change, so it outranks both the default
-    // pick and the remembered row. It resolves against the scope's own change set — the synthetic top
-    // row, whose file list under run scope *is* the run diff — and consumeRunFileSelection only hands
-    // the path over once that set really holds it.
+    // A deep link names one change, so it outranks both the default pick and the remembered row. It
+    // resolves against the scope's own change set — the synthetic top row, whose file list is the run
+    // diff under run scope and the since-session-start diff under agent scope — and consumeFileLink
+    // only hands the path over once that set really holds it.
     const files = globalStore.get(filesStateAtom)?.changes?.files ?? [];
-    const linked = runId ? consumeRunFileSelection(runId, files.map((f) => f.path)) : undefined;
+    const linked = scope ? consumeFileLink(scope, files.map((f) => f.path)) : undefined;
     if (linked) {
         globalStore.set(selectedCommitAtom, WORKING_TREE);
         void selectCommitFile(cwd, WORKING_TREE, linked);

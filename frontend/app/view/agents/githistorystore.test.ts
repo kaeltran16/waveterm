@@ -22,12 +22,12 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { filesStateAtom, requestRunFileSelection } from "./filesstore";
+import { agentScope, filesStateAtom, requestFileLink, runScope } from "./filesstore";
 import { historyFailureAtom, loadHistory, resetHistory, selectedCommitAtom, selectedFileAtom } from "./githistorystore";
 import { WORKING_TREE } from "./historyrows";
 
 const CWD = "C:/repo";
-const RUN = "run-1";
+const RUN = runScope("run-1");
 // The run's own change set, as filesstore leaves it after loadFilesForRun: everything since the run's
 // base commit, which is what the "Run changes" row lists.
 const RUN_CHANGES = {
@@ -83,7 +83,7 @@ const RUN_OPTS = { anchor: "base000", rowLabel: "Run changes" };
 
 describe("loadHistory selection settling", () => {
     it("opens the deep-linked file on the run's own change set, not the first file", async () => {
-        requestRunFileSelection(RUN, "pkg/jarvis/evidence.go");
+        requestFileLink(RUN, "pkg/jarvis/evidence.go");
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         // a fixture that fails to build rows would make every assertion below vacuous
@@ -93,7 +93,7 @@ describe("loadHistory selection settling", () => {
     });
 
     it("opens a deleted file the same way — the deletion diff is the point", async () => {
-        requestRunFileSelection(RUN, "removed/old.ts");
+        requestFileLink(RUN, "removed/old.ts");
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
@@ -104,7 +104,7 @@ describe("loadHistory selection settling", () => {
         // the pane is already parked on the tip commit, as it would be after an earlier visit
         globalStore.set(selectedCommitAtom, "aaa1111");
         globalStore.set(selectedFileAtom, "x.ts");
-        requestRunFileSelection(RUN, "pkg/jarvis/evidence.go");
+        requestFileLink(RUN, "pkg/jarvis/evidence.go");
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
@@ -115,7 +115,7 @@ describe("loadHistory selection settling", () => {
         // the case that failed live: the pane was parked on the run-changes row with its first file open
         globalStore.set(selectedCommitAtom, WORKING_TREE);
         globalStore.set(selectedFileAtom, "docs/open-issues.md");
-        requestRunFileSelection(RUN, "pkg/jarvis/evidence.go");
+        requestFileLink(RUN, "pkg/jarvis/evidence.go");
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
@@ -124,7 +124,7 @@ describe("loadHistory selection settling", () => {
     it("survives the remount load that has no change set yet", async () => {
         // the surface fires one history read per mount against the previous render's state; that read
         // must not eat the link, or the load that can honour it finds nothing pending
-        requestRunFileSelection(RUN, "pkg/jarvis/evidence.go");
+        requestFileLink(RUN, "pkg/jarvis/evidence.go");
         globalStore.set(filesStateAtom, null);
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
@@ -150,10 +150,52 @@ describe("loadHistory selection settling", () => {
     });
 
     it("ignores a deep-linked path the scope's change set does not contain", async () => {
-        requestRunFileSelection(RUN, "not/in/the/list.ts");
+        requestFileLink(RUN, "not/in/the/list.ts");
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         // falls back to the default pick (row zero = the run-changes row), never a blank pane
         expect(globalStore.get(selectedFileAtom)).toBe("docs/open-issues.md");
+    });
+});
+
+// The agent details rail's changed-file rows are the same gesture as a sealed run's evidence rows, but
+// they used to go through a separate request that only reached an atom no pane renders — so clicking
+// the third file opened the Diff surface on the scope's *first* file. Same settling path now.
+describe("agent-scoped file deep link", () => {
+    const AGENT = agentScope("agent-9");
+    const AGENT_OPTS = { anchor: "base000", rowLabel: "Since session start" };
+
+    it("opens the file clicked in the agent rail, not the scope's first file", async () => {
+        requestFileLink(AGENT, "pkg/jarvis/evidence.go");
+        await loadHistory(CWD, AGENT_OPTS, AGENT);
+        await settle();
+        expect(globalStore.get(historyFailureAtom)).toBeNull();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    it("beats a remembered row, then stops, so a later return keeps the user's own selection", async () => {
+        requestFileLink(AGENT, "pkg/jarvis/evidence.go");
+        await loadHistory(CWD, AGENT_OPTS, AGENT);
+        await settle();
+        // the user moves on to a commit, leaves the surface, and comes back
+        globalStore.set(selectedCommitAtom, "aaa1111");
+        globalStore.set(selectedFileAtom, "x.ts");
+        await loadHistory(CWD, AGENT_OPTS, AGENT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe("aaa1111");
+    });
+
+    it("a run's link is not claimable by the agent load and vice versa", async () => {
+        requestFileLink(RUN, "pkg/jarvis/evidence.go");
+        await loadHistory(CWD, AGENT_OPTS, AGENT);
+        await settle();
+        // the agent load must fall back to the default pick and leave the run's link pending
+        expect(globalStore.get(selectedFileAtom)).toBe("docs/open-issues.md");
+        globalStore.set(selectedCommitAtom, null);
+        globalStore.set(selectedFileAtom, null);
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
     });
 });

@@ -447,11 +447,35 @@ was about.
 
 ## 8 — Agent-rail "open this file's diff" lands on the first changed file
 
-**Status:** 🔲 Open 2026-08-03 · **Effort:** S · **Kind:** UX / consistency · **Found while fixing 6b.**
+**Status.** ✅ Resolved 2026-08-04 · **Effort:** S · **Kind:** UX / consistency · **Found while fixing 6b.**
 
-**Confidence: code-level only — not reproduced against the running app.** The reasoning below traces the
-call path but no live check was run, because it needs a focused agent with a dirty worktree. Confirm
-before fixing; the fix is small enough that reproducing it first is cheap.
+**Still not reproduced against the running app.** The fix is unit-tested and typechecked, but no live
+check was run: it needs a focused agent with a dirty worktree, and the dev app had no live agent during
+the session that fixed it. The *store* half is covered by tests; the *wiring* half (the rail calling the
+new function, the surface passing its scope) rests on the type checker and the run-scoped path that
+shares every line of it.
+
+**Fix as built.** The deep-link mechanism `7dec28d2` built for a sealed run's evidence card is now keyed
+by **scope** rather than by run id, so every source the Diff surface can be scoped to links the same way:
+
+- `filesstore.ts` exports the scope vocabulary its loaders already used as guard tokens — `agentScope(id)`,
+  `runScope(runId)`, `projectScope(name)` — so a caller building a link and the load that claims it cannot
+  spell the same source two different ways.
+- `requestRunFileSelection` / `consumeRunFileSelection` became `requestFileLink(scope, path)` /
+  `consumeFileLink(scope, available)`, holding one pending `{scope, path}`. Still one-shot, still claimed
+  only when the loaded change set really contains the path.
+- `loadHistory(cwd, opts, scope?)` and `settleSelection(cwd, scope?)` take the scope in place of the run id;
+  `filessurface.tsx` derives one `loadScope` from whichever source is active and passes it to both loads.
+- `agentdetailsrail.tsx` calls `requestFileLink(agentScope(agent.id), path)`; `runcompletionsurface.tsx`
+  calls `requestFileLink(runScope(runId), path)`.
+- The dead half predicted below is gone: `requestAgentFileSelection` and the `requestedSelection` block in
+  `loadChangesForCwd` are deleted. `filesSelectedPathAtom` **stays** — the doc called it unread, but
+  `selectFile` uses it as its own stale-response guard, so only its no-reader *write* path went.
+
+Guarded by 3 cases in `githistorystore.test.ts` (an agent-scoped link opens the clicked file rather than
+the scope's first; it beats a remembered row once and then stops; a run's link is not claimable by an
+agent load and vice versa) plus 8 in `filesstore.test.ts` covering the scoped one-shot, including that an
+agent and a run sharing an id do not collide.
 
 **Problem.** The agent details rail's changed-file rows call `requestAgentFileSelection(agent.id, path)`
 then switch to the Diff surface (`agentdetailsrail.tsx:82-89`, via `diffNavIntent`). That is the same

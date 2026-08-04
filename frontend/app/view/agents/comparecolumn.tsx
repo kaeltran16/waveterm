@@ -52,7 +52,7 @@ function AggregateRowView({
                 selected && "bg-surface-selected"
             )}
         >
-            {selected ? <div className="absolute bottom-0 left-0 top-0 w-[2px] bg-accent" /> : null}
+            {/* no left accent bar — the fill marks the selection, matching historypane.tsx */}
             <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Aggregate</span>
             <div className="flex-1" />
             {row.files == null ? (
@@ -102,7 +102,7 @@ function CommitRowView({
                 selected && "bg-surface-selected"
             )}
         >
-            {selected ? <div className="absolute bottom-0 left-0 top-0 w-[2px] bg-accent" /> : null}
+            {/* no left accent bar — the fill marks the selection, matching historypane.tsx */}
             <span className={cn("h-[7px] w-[7px] flex-none rounded-full opacity-85", SIDE_DOT[row.side])} />
             <span className="flex-none font-mono text-[11px] text-muted">{row.hash.slice(0, 7)}</span>
             <span

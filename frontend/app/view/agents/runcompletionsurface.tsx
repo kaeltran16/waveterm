@@ -14,7 +14,7 @@ import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualen
 import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
-import { requestRunFileSelection } from "./filesstore";
+import { requestFileLink, runScope } from "./filesstore";
 import {
     artifactKindClass,
     fmtBytes,
@@ -41,7 +41,7 @@ function openPath(projectPath: string, rel: string) {
 function openRunDiff(model: AgentsViewModel, run: Run, path?: string) {
     const intent = runFileNavIntent(run, path);
     if (intent.select) {
-        requestRunFileSelection(intent.source.runId, intent.select);
+        requestFileLink(runScope(intent.source.runId), intent.select);
     }
     globalStore.set(model.filesRunAtom, intent.source);
     globalStore.set(model.surfaceAtom, intent.surface);

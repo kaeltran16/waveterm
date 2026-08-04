@@ -16,13 +16,16 @@ const ensureSessionStart = vi.fn();
 vi.mock("./agentsessionstore", () => ({ ensureSessionStart: (...a: any[]) => ensureSessionStart(...a) }));
 
 import {
-    consumeRunFileSelection,
+    agentScope,
+    consumeFileLink,
     filesDiffAtom,
     filesSelectedPathAtom,
     filesStateAtom,
     loadFilesForAgent,
     loadFilesForRun,
-    requestRunFileSelection,
+    projectScope,
+    requestFileLink,
+    runScope,
 } from "./filesstore";
 
 afterEach(() => {
@@ -81,37 +84,57 @@ describe("loadFilesForAgent", () => {
     });
 });
 
-describe("run-scoped file deep link", () => {
+describe("scoped file deep link", () => {
     const AVAILABLE = ["docs/open-issues.md", "pkg/jarvis/evidence.go"];
 
-    it("hands the requested path to the run that asked for it", () => {
-        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
-        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    it("hands the requested path to the scope that asked for it", () => {
+        requestFileLink(runScope("r1"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink(runScope("r1"), AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    // the agent details rail used to have its own mechanism, which wrote an atom no pane renders —
+    // clicking the third file there opened the surface on the scope's first file instead
+    it("works for an agent scope, not only a run", () => {
+        requestFileLink(agentScope("a1"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink(agentScope("a1"), AVAILABLE)).toBe("pkg/jarvis/evidence.go");
     });
 
     it("is one-shot, so returning to the Diff surface keeps the user's later selection", () => {
-        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
-        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
-        expect(consumeRunFileSelection("r1", AVAILABLE)).toBeUndefined();
+        requestFileLink(runScope("r1"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink(runScope("r1"), AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+        expect(consumeFileLink(runScope("r1"), AVAILABLE)).toBeUndefined();
     });
 
-    it("does not leak one run's request into another run's load", () => {
-        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
-        expect(consumeRunFileSelection("r2", AVAILABLE)).toBeUndefined();
-        // still pending for the run that asked
-        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    it("does not leak one scope's request into another scope's load", () => {
+        requestFileLink(runScope("r1"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink(runScope("r2"), AVAILABLE)).toBeUndefined();
+        // still pending for the scope that asked
+        expect(consumeFileLink(runScope("r1"), AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    // an agent id and a run id could collide as bare strings; the scope prefix is what keeps them apart
+    it("does not confuse an agent with a run or project of the same id", () => {
+        requestFileLink(agentScope("x"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink(runScope("x"), AVAILABLE)).toBeUndefined();
+        expect(consumeFileLink(projectScope("x"), AVAILABLE)).toBeUndefined();
+        expect(consumeFileLink(agentScope("x"), AVAILABLE)).toBe("pkg/jarvis/evidence.go");
     });
 
     it("survives a load whose change set is not in yet, so the next load can honour it", () => {
         // the Diff surface fires one history read per mount against the state captured in that render,
         // which on a remount is still the outgoing scope's — an empty/foreign set must not eat the link
-        requestRunFileSelection("r1", "pkg/jarvis/evidence.go");
-        expect(consumeRunFileSelection("r1", [])).toBeUndefined();
-        expect(consumeRunFileSelection("r1", ["some/other/file.ts"])).toBeUndefined();
-        expect(consumeRunFileSelection("r1", AVAILABLE)).toBe("pkg/jarvis/evidence.go");
+        requestFileLink(runScope("r1"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink(runScope("r1"), [])).toBeUndefined();
+        expect(consumeFileLink(runScope("r1"), ["some/other/file.ts"])).toBeUndefined();
+        expect(consumeFileLink(runScope("r1"), AVAILABLE)).toBe("pkg/jarvis/evidence.go");
     });
 
     it("has nothing pending when no link was followed", () => {
-        expect(consumeRunFileSelection("r-none", AVAILABLE)).toBeUndefined();
+        expect(consumeFileLink(runScope("r-none"), AVAILABLE)).toBeUndefined();
+    });
+
+    it("an absent scope claims nothing", () => {
+        requestFileLink(agentScope("a1"), "pkg/jarvis/evidence.go");
+        expect(consumeFileLink("", AVAILABLE)).toBeUndefined();
     });
 });

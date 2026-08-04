@@ -1,6 +1,6 @@
 // frontend/app/view/agents/gitstatus.test.ts
 import { describe, expect, it } from "vitest";
-import { capFiles, parseGitChanges } from "./gitstatus";
+import { capFiles, numstatPath, parseGitChanges } from "./gitstatus";
 
 const NUL = "\0";
 
@@ -40,6 +40,38 @@ describe("parseGitChanges", () => {
 
     it("returns empty for a clean tree", () => {
         expect(parseGitChanges("", "")).toEqual({ files: [], adds: 0, dels: 0 });
+    });
+
+    // Real output of `git mv big.txt renamed.txt` plus a one-line edit: porcelain reports the new path,
+    // numstat names both ends. Keyed by the raw numstat string the counts never matched, so a renamed
+    // and edited file read as +0 −0 and its lines went missing from the totals.
+    it("counts a rename that also edited content", () => {
+        const r = parseGitChanges(`RM renamed.txt${NUL}big.txt${NUL}`, "1\t1\tbig.txt => renamed.txt\n");
+        expect(r.files).toEqual([{ path: "renamed.txt", status: "R", adds: 1, dels: 1 }]);
+        expect(r).toMatchObject({ adds: 1, dels: 1 });
+    });
+
+    it("counts a rename git wrote in its brace form", () => {
+        const r = parseGitChanges(`RM sub/renamed.txt${NUL}big.txt${NUL}`, "2\t3\t{ => sub}/renamed.txt\n");
+        expect(r.files[0]).toEqual({ path: "sub/renamed.txt", status: "R", adds: 2, dels: 3 });
+    });
+
+    it("leaves an ordinary path with a literal arrow-free name alone", () => {
+        const r = parseGitChanges(` M a=>b.txt${NUL}`, "4\t0\ta=>b.txt\n");
+        expect(r.files[0]).toEqual({ path: "a=>b.txt", status: "M", adds: 4, dels: 0 });
+    });
+});
+
+describe("numstatPath", () => {
+    it("resolves both rename spellings to the new path", () => {
+        expect(numstatPath("big.txt => renamed.txt")).toBe("renamed.txt");
+        expect(numstatPath("{ => sub}/renamed.txt")).toBe("sub/renamed.txt");
+        expect(numstatPath("src/{a.txt => b.txt}")).toBe("src/b.txt");
+        expect(numstatPath("{src => lib}/x.txt")).toBe("lib/x.txt");
+    });
+
+    it("passes an ordinary path through untouched", () => {
+        expect(numstatPath("pkg/gitinfo/gitinfo.go")).toBe("pkg/gitinfo/gitinfo.go");
     });
 });
 
