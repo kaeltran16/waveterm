@@ -97,7 +97,18 @@ describe("wording", () => {
 
     it("names the cause of a cannot-see rather than only the symptom", () => {
         expect(conditionLine({ kind: "cannot-see", reason: "off" }, now)).toContain("embeddings are off");
-        expect(conditionLine({ kind: "cannot-see", reason: "stale" }, now)).toContain("stale");
+        expect(conditionLine({ kind: "cannot-see", reason: "stale" }, now)).toContain("behind");
+    });
+
+    it("only claims recall is keyword-only when it actually is, and names the remedy when it is not", () => {
+        // A behind index still does semantic recall: jarvisrecall calls the index, and the index reconciles
+        // itself inside that query (jarvisembed prepareQuery). Saying "keyword-only" there described a
+        // degradation that was not happening, and named no way out of a state the user cannot otherwise act
+        // on. Embeddings being OFF is the case that genuinely is keyword-only.
+        const behind = conditionLine({ kind: "cannot-see", reason: "stale" }, now);
+        expect(behind).not.toContain("keyword-only");
+        expect(behind.toLowerCase()).toContain("ask");
+        expect(conditionLine({ kind: "cannot-see", reason: "off" }, now)).toContain("keyword-only");
     });
 
     it("carries the reading, and the reset only when there is one", () => {

@@ -119,6 +119,20 @@ create table if not exists attrib_vectors (
 	model text not null,
 	vec blob not null
 );
+-- What the index has reconciled, per node. Separate from chunks because a node can legitimately produce
+-- ZERO chunks: splitSections refuses to emit a section for an empty body, since an empty embed input makes
+-- providers answer 200 with no data and fails every chunk batched alongside it. With the hash living only on
+-- chunk rows, such a node had nowhere to record that it was up to date, so both the reconcile skip-check and
+-- the drift check read its absence as "never indexed" on every pass, forever — pinning the rank-1 "cannot
+-- see" condition on with nothing a user could do about it.
+create table if not exists indexed_nodes (
+	node_id text primary key,
+	content_hash text not null
+);
+-- Upgrade path for an index built before that table existed: chunk rows already carry the hash, so the
+-- existing corpus is adopted rather than re-embedded. Chunk-free nodes have no row to adopt and get one on
+-- the next reconcile, which is the whole point.
+insert or ignore into indexed_nodes(node_id, content_hash) select node_id, content_hash from chunks;
 `)
 	return err
 }

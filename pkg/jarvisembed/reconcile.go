@@ -73,7 +73,9 @@ func (ix *Index) Reconcile(ctx context.Context, v *wavevault.Vault) (ReconcileSt
 	for _, n := range nodes {
 		live[n.ID] = true
 		var have string
-		row := ix.db.QueryRowContext(ctx, `select content_hash from chunks where node_id = ? limit 1`, n.ID)
+		// indexed_nodes, not chunks: a node with no embeddable sections writes no chunk rows, so reading the
+		// hash off chunks made such a node look unindexed on every pass and never converge.
+		row := ix.db.QueryRowContext(ctx, `select content_hash from indexed_nodes where node_id = ?`, n.ID)
 		if err := row.Scan(&have); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return st, err
 		}
@@ -149,6 +151,14 @@ func (ix *Index) embedBatch(ctx context.Context, batch []pendingNode) (int, erro
 		texts = append(texts, p.texts...)
 	}
 	if len(texts) == 0 {
+		// Every node here is content-free. There is nothing to embed, but they must still be recorded as
+		// reconciled or the hash check re-processes them on every pass and the index never reports itself
+		// clean. writeNode with no vectors writes no chunks and only the per-node hash.
+		for _, p := range batch {
+			if err := ix.writeNode(ctx, p, nil); err != nil {
+				return 0, err
+			}
+		}
 		return 0, nil
 	}
 	vecs, err := ix.emb.Embed(ctx, texts)
@@ -207,11 +217,22 @@ func (ix *Index) writeNode(ctx context.Context, p pendingNode, vecs [][]float32)
 			return err
 		}
 	}
+	// In the same transaction as the chunks, so "indexed at this hash" can never disagree with what was
+	// actually written. This is also the only record a node with zero sections gets.
+	if _, err := tx.ExecContext(ctx,
+		`insert into indexed_nodes(node_id, content_hash) values (?,?)
+			on conflict(node_id) do update set content_hash = excluded.content_hash`,
+		p.node.ID, p.node.ContentHash); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
 func (ix *Index) pruneMissing(ctx context.Context, live map[string]bool) (int, error) {
-	rows, err := ix.db.QueryContext(ctx, `select distinct node_id from chunks`)
+	// The union matters: a content-free node is recorded in indexed_nodes but owns no chunk rows, so
+	// enumerating chunks alone would leave its record behind forever once the note was deleted. The other
+	// side of the union guards the reverse case, a chunk row with no record.
+	rows, err := ix.db.QueryContext(ctx, `select node_id from indexed_nodes union select node_id from chunks`)
 	if err != nil {
 		return 0, err
 	}
@@ -236,6 +257,9 @@ func (ix *Index) pruneMissing(ctx context.Context, live map[string]bool) (int, e
 		if _, err := ix.db.ExecContext(ctx, `delete from chunks where node_id = ?`, id); err != nil {
 			return pruned, err
 		}
+		if _, err := ix.db.ExecContext(ctx, `delete from indexed_nodes where node_id = ?`, id); err != nil {
+			return pruned, err
+		}
 		if aff, _ := res.RowsAffected(); aff > 0 {
 			pruned += int(aff)
 		} else {
@@ -246,7 +270,7 @@ func (ix *Index) pruneMissing(ctx context.Context, live map[string]bool) (int, e
 }
 
 func (ix *Index) wipe(ctx context.Context) error {
-	for _, stmt := range []string{`drop table if exists vec_chunks`, `delete from chunks`, `delete from meta`, `delete from attrib_vectors`} {
+	for _, stmt := range []string{`drop table if exists vec_chunks`, `delete from chunks`, `delete from indexed_nodes`, `delete from meta`, `delete from attrib_vectors`} {
 		if _, err := ix.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}

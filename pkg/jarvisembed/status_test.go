@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
@@ -41,6 +43,68 @@ func TestClassifyIndexState(t *testing.T) {
 				t.Fatalf("state=%q reason=%q, want %q/%q", state, reason, tt.wantState, tt.wantReason)
 			}
 		})
+	}
+}
+
+// A note with an empty body yields no sections by design (see chunk.go: an empty embed input makes providers
+// answer 200 with no data and fails every chunk batched alongside it), so it writes no chunk rows. Its
+// content hash used to live only on those rows, so it had nowhere to be recorded — and both the reconcile
+// skip-check and this drift check read that absence as "never indexed", on every pass, forever. Observed on
+// a real 446-note vault: two frontmatter-only notes pinned the rank-1 "cannot see" condition on permanently,
+// with no user action able to clear it. Asking Jarvis repaired 36 of 38 drifted notes and then plateaued.
+func TestContentFreeNodeReconcilesAndDoesNotReadAsDrift(t *testing.T) {
+	v := seedVault(t) // memory/one.md, tasks/active/two.md
+	writeNode(t, v, "memory/hollow.md", "---\nid: hollow\n---\n")
+	ix := newTestIndex(t, &fakeEmbedder{dims: 3})
+	ctx := context.Background()
+	if _, err := ix.Reconcile(ctx, v); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	indexed, _, _, err := ix.indexedHashes(ctx)
+	if err != nil {
+		t.Fatalf("indexedHashes: %v", err)
+	}
+	nodes, err := v.Retriever(allScopeForTest()).Query(wavevault.Filter{})
+	if err != nil {
+		t.Fatalf("vault query: %v", err)
+	}
+	stale := 0
+	for _, n := range nodes {
+		if indexed[n.ID] != n.ContentHash {
+			stale++
+			t.Errorf("node %q not recorded as indexed: have %q, want %q", n.ID, indexed[n.ID], n.ContentHash)
+		}
+	}
+	// the user-visible consequence, not just the bookkeeping: one stale node makes the WHOLE index report
+	// stale, which is what kept the condition lit
+	if state, reason := classifyIndexState("fake-model", "fake-model", len(indexed), len(nodes), stale); state != IndexState_OK {
+		t.Fatalf("state=%q reason=%q, want ok — a content-free note is not drift", state, reason)
+	}
+}
+
+// Pruning has to forget the new per-node record too, or a deleted note keeps its hash and the index
+// over-reports what it holds.
+func TestPruneForgetsContentFreeNode(t *testing.T) {
+	v := seedVault(t)
+	writeNode(t, v, "memory/hollow.md", "---\nid: hollow\n---\n")
+	ix := newTestIndex(t, &fakeEmbedder{dims: 3})
+	ctx := context.Background()
+	if _, err := ix.Reconcile(ctx, v); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if err := os.Remove(filepath.Join(v.Root, "memory/hollow.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Reconcile(ctx, v); err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	indexed, _, _, err := ix.indexedHashes(ctx)
+	if err != nil {
+		t.Fatalf("indexedHashes: %v", err)
+	}
+	if _, ok := indexed["hollow"]; ok {
+		t.Fatalf("removed node still recorded as indexed: %v", indexed)
 	}
 }
 

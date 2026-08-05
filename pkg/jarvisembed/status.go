@@ -134,8 +134,9 @@ func classifyIndexState(configuredModel, indexedModel string, indexedNodes, vaul
 }
 
 // indexedHashes reads the index's per-node content hash plus its model/dims tags in two queries, so a
-// status read never costs a round trip per node. Every chunk of a node carries that node's hash
-// (writeNode writes one hash across its sections), so distinct node_id + content_hash is one row per node.
+// status read never costs a round trip per node. The hashes come from indexed_nodes, which holds one row per
+// reconciled node — including nodes that legitimately produced no chunks. Reading them off the chunks table
+// instead made every content-free note count as permanent drift.
 func (ix *Index) indexedHashes(ctx context.Context) (map[string]string, string, int, error) {
 	var indexedModel string
 	var dims int
@@ -143,7 +144,7 @@ func (ix *Index) indexedHashes(ctx context.Context) (map[string]string, string, 
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, "", 0, err
 	}
-	rows, err := ix.db.QueryContext(ctx, `select distinct node_id, content_hash from chunks`)
+	rows, err := ix.db.QueryContext(ctx, `select node_id, content_hash from indexed_nodes`)
 	if err != nil {
 		return nil, "", 0, err
 	}

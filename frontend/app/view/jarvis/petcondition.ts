@@ -101,9 +101,12 @@ export function postureFor(signals: PetSignals): PetPosture {
 export function conditionLine(expr: PetExpression, nowMs: number): string {
     switch (expr.kind) {
         case "cannot-see":
+            // Only the "off" case is really keyword-only. A behind index still answers semantically — the
+            // index reconciles itself inside the next query — so that line names the remedy instead of
+            // reporting a degradation that is not happening and offering nothing to do about it.
             return expr.reason === "off"
                 ? "I cannot see as well right now — embeddings are off, so recall is keyword-only."
-                : "I cannot see as well right now — the index is stale, so recall is keyword-only.";
+                : "My index is behind on some notes — ask me anything and I will catch it up.";
         case "tired":
             return expr.resetAt != null
                 ? `Running low — ${Math.round(expr.pct)}% of the window used, back in ${formatReset(expr.resetAt, nowMs)}.`
