@@ -3,12 +3,14 @@
 
 // Shared shell for the cockpit overlays (New Agent, New Project, Command Palette, Keyboard shortcuts).
 // Owns the backdrop scrim, the panel, open/close motion (AnimatePresence + motiontokens), the Esc
-// listener, and the optional backdrop-click dismiss. Reduced-motion drops the scale, keeps the fade.
+// listener, focus (modalfocus.ts), and the optional backdrop-click dismiss. Reduced-motion drops the
+// scale, keeps the fade.
 
 import { modalBackdrop, modalPanel } from "@/app/element/motiontokens";
+import { takeModalFocus } from "@/app/modals/modalfocus";
 import { cn } from "@/util/util";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 interface ModalShellProps {
     open: boolean;
@@ -31,6 +33,16 @@ export function ModalShell({
     dismissOnBackdrop = true,
     children,
 }: ModalShellProps) {
+    const panelRef = useRef<HTMLDivElement>(null);
+    // runs after the children's own effects and after React has applied any child autoFocus, so a modal
+    // with a text field keeps it — this only claims focus when nothing inside the panel took it.
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        return takeModalFocus(panelRef.current, document.activeElement as HTMLElement | null);
+    }, [open]);
+
     useEffect(() => {
         if (!open) {
             return;
@@ -72,12 +84,14 @@ export function ModalShell({
                         }
                     >
                         <motion.div
+                            ref={panelRef}
                             variants={modalPanel}
                             role="dialog"
                             aria-modal="true"
+                            tabIndex={-1} // focus target for a dialog with no field of its own (alerts, the cheatsheet)
                             onMouseDown={(e) => e.stopPropagation()}
                             className={cn(
-                                "overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover",
+                                "overflow-hidden rounded-[14px] border border-edge-strong bg-modalbg shadow-popover outline-none",
                                 className
                             )}
                         >

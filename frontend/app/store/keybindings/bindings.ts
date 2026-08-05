@@ -482,8 +482,10 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             group: "Agent",
             label: "Back to parent agent",
             // fires regardless of editable to preserve the old always-on Escape; mutually exclusive
-            // with agent:back below (both guarded on focusSubagentAtom), so no key conflict.
-            when: (ctx) => ctx.surface === "agent" && globalStore.get(focusSubagentAtom) != null,
+            // with agent:back below (both guarded on focusSubagentAtom), so no key conflict. Still
+            // yields to an open modal — the dialog owns Escape, and this dispatcher runs on window
+            // capture, so without the guard it would consume the key and the dialog would never close.
+            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && globalStore.get(focusSubagentAtom) != null,
             run: () => globalStore.set(focusSubagentAtom, null),
         },
         {

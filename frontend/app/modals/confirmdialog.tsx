@@ -7,6 +7,8 @@
 //
 // Keyboard: Enter confirms, Esc cancels (Esc is owned by ModalShell). There is no text input in this
 // layout, so plain Enter is unambiguous. Omit cancelLabel for a single-button acknowledgement.
+// Both listeners are window/bubble, which only reaches them because ModalShell pulls focus into the
+// panel — with focus left in an xterm, xterm's handler stops the keydown before it ever bubbles.
 
 import { cn, makeIconClass } from "@/util/util";
 import { useEffect, type ReactNode } from "react";
