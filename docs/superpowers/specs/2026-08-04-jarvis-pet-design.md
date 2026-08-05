@@ -6,6 +6,11 @@ and the one load-bearing architectural rule. It also records an audit of what da
 which is what makes the three-stage split in §8 possible. It is not an implementation plan; each stage in
 §8 gets its own plan.
 
+> **Partly superseded** by [the avatar design](2026-08-04-jarvis-avatar-design.md), which replaces the form
+> and the renderer: §4 decisions 6 and 7, the "Creature form" note under §4, the §5 Modules table, the WebGL
+> paragraph in §9, and the slit-eyed-states paragraph in §10. Everything else here still stands — the four
+> registers, the capability ladder, the data audit, and the three-stage split.
+
 ---
 
 ## 1. Why

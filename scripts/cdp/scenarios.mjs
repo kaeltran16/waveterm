@@ -2678,10 +2678,79 @@ const gitHistory = {
     },
 };
 
+// --- jarvis avatar: the hologram in window chrome ----------------------------------------------
+// The avatar is a <canvas>, so there are no attributes to read the way the old SVG creature allowed. It
+// publishes its last built scene on window in DEV builds instead (petview.tsx), which is a STRONGER
+// assertion than the SVG version permitted: the whole scene at once rather than one element's transform.
+// A screenshot still goes to the contact sheet for eyeballing the glow.
+const jarvisAvatar = {
+    name: "jarvis-avatar",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+
+        const raw = await h.ev("JSON.stringify(window.__jarvisAvatarScene ?? null)");
+        const scene = raw ? JSON.parse(raw) : null;
+        if (scene == null) {
+            rec("1. the avatar publishes a scene", false, "window.__jarvisAvatarScene is null — is the loop running?");
+            return steps;
+        }
+
+        rec(
+            "1. the render loop publishes a non-empty scene",
+            scene.segments > 0 && scene.points > 0,
+            `segments=${scene.segments} points=${scene.points} renderer=${scene.renderer}`
+        );
+        // a literal here would silently opt the avatar out of every runtime theme
+        rec(
+            "2. the tone is a theme token, never a resolved colour",
+            String(scene.toneVar).startsWith("--color-"),
+            `toneVar=${scene.toneVar} markerVar=${scene.markerVar}`
+        );
+        rec("3. the form has a non-zero extent", scene.extent > 0, `extent=${scene.extent}`);
+
+        // exactly one control owns each accessible name; two would make a by-label query ambiguous, and
+        // h.goto navigates the rail by exactly this label
+        const named = await h.ev(`[...document.querySelectorAll('[aria-label="Jarvis condition"]')].length`);
+        const navNamed = await h.ev(`[...document.querySelectorAll('[aria-label="Jarvis"]')].length`);
+        rec(
+            "4. the avatar and the nav rail keep distinct accessible names",
+            named === 1 && navNamed === 1,
+            `"Jarvis condition"=${named} "Jarvis"=${navNamed}`
+        );
+
+        // Two canvases by design: one element can only ever yield contexts of a single kind, so the 2D
+        // fallback needs its own. Exactly one is displayed at a time.
+        const canvases = JSON.parse(
+            await h.ev(`(() => {
+                const w = document.querySelector('[aria-label="Jarvis condition"]');
+                if (!w) return "[]";
+                return JSON.stringify([...w.querySelectorAll('canvas')].map((c) => c.className));
+            })()`)
+        );
+        rec(
+            "5. both renderers have a canvas and exactly one is shown",
+            canvases.length === 2 && canvases.filter((c) => c === "block").length === 1,
+            JSON.stringify(canvases)
+        );
+
+        await h.shot("cdp-shots/jarvis-avatar.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     gitHistory,
     surfaceSmoke,
+    jarvisAvatar,
     jarvisStates,
     jarvisFleet,
     jarvisAsk,

@@ -125,6 +125,18 @@ export const petIndexAtom = atom<EmbedIndexStatus | null>(null) as PrimitiveAtom
 // the guard there, dismissing the peek also ejects the user to the Cockpit.
 export const petPeekOpenAtom = atom(false);
 
+// When Jarvis last said something, as a performance.now() reading, or null if not yet this session.
+//
+// Session-scoped and deliberately not persisted: it drives the data rings' surge, and a relaunch surging
+// about something said an hour ago would be a lie. Held as a timestamp rather than as an animating value
+// because the render loop derives the envelope per frame — a 60-per-second atom write would put a React
+// render on every frame in a window running live terminals.
+export const petSpokeAtAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+
+export function markPetSpoke(at: number): void {
+    globalStore.set(petSpokeAtAtom, at);
+}
+
 // No pocket atom here on purpose. The Concierge floor's "it holds" (design §6) needs the carry/drop
 // gestures and this store together; an atom with a reader and no writer made the peek's Pocket section
 // unreachable, which is worse than absent — it cannot be tested and it reads as shipped. Build both
