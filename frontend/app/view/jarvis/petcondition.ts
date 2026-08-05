@@ -19,13 +19,16 @@
 // not answered yet cannot present here as a clean bill of health.
 
 import { formatReset, usageLevel } from "@/app/view/agents/agentsviewmodel";
+import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
 
 export interface PetSignals {
     // rank 1: semantic recall's honesty about itself. Fed from jarvisembed.Status via petjoin.indexSignal.
     index?: { state: "ok" | "off" | "stale" };
     // rank 2: highest 5-hour utilisation across providers (0..100). `resetAt` is epoch SECONDS, matching
     // AgentUsage.fivehourreset and formatReset — the whole cockpit carries this window in seconds.
-    rateLimit?: { pct: number; resetAt?: number };
+    // `provider` is required because the reading is per-provider and the highest wins: unnamed, a codex
+    // window reads as a claude one, and the countdown belongs to whichever provider won.
+    rateLimit?: { provider: string; pct: number; resetAt?: number };
     // rank 3: vault drift. `staleNotes` is the weak-reason subset of `queueDepth`, not a second queue.
     decay?: { queueDepth: number; staleNotes: number };
     // posture: kinds only. The creature never renders a count — the nav badge owns that (design §3).
@@ -34,7 +37,7 @@ export interface PetSignals {
 
 export type PetExpression =
     | { kind: "cannot-see"; reason: "off" | "stale" }
-    | { kind: "tired"; pct: number; resetAt?: number }
+    | { kind: "tired"; provider: string; pct: number; resetAt?: number }
     | { kind: "drifting"; queueDepth: number }
     | { kind: "at-rest" };
 
@@ -67,7 +70,7 @@ export function expressionFor(signals: PetSignals): PetExpression {
     }
     const rl = signals.rateLimit;
     if (rl != null && isTired(rl.pct)) {
-        return { kind: "tired", pct: rl.pct, resetAt: rl.resetAt };
+        return { kind: "tired", provider: rl.provider, pct: rl.pct, resetAt: rl.resetAt };
     }
     const decay = signals.decay;
     if (decay != null && decay.queueDepth >= DRIFT_QUEUE_BAND) {
@@ -107,10 +110,19 @@ export function conditionLine(expr: PetExpression, nowMs: number): string {
             return expr.reason === "off"
                 ? "I cannot see as well right now — embeddings are off, so recall is keyword-only."
                 : "My index is behind on some notes — ask me anything and I will catch it up.";
-        case "tired":
-            return expr.resetAt != null
-                ? `Running low — ${Math.round(expr.pct)}% of the window used, back in ${formatReset(expr.resetAt, nowMs)}.`
-                : `Running low — ${Math.round(expr.pct)}% of the window used.`;
+        case "tired": {
+            const pct = Math.round(expr.pct);
+            const who = providerLabel(expr.provider);
+            const back = expr.resetAt != null ? formatReset(expr.resetAt, nowMs) : null;
+            // a window at 100 is not running low, it is gone. Reading the same at 86% and at 100%
+            // understates the one state where there is nothing left to spend.
+            if (pct >= 100) {
+                return back != null ? `${who}'s window is spent — back in ${back}.` : `${who}'s window is spent.`;
+            }
+            return back != null
+                ? `Running low on ${who} — ${pct}% of the window used, back in ${back}.`
+                : `Running low on ${who} — ${pct}% of the window used.`;
+        }
         case "drifting":
             return `The vault is drifting — ${expr.queueDepth} notes are queued for cleanup.`;
         case "at-rest":

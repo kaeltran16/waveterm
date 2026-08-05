@@ -18,6 +18,7 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatReset } from "@/app/view/agents/agentsviewmodel";
+import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
 import { cn } from "@/util/util";
 import { autoUpdate, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
@@ -155,8 +156,8 @@ export function PetPeek({
                                 rl == null
                                     ? "no reading"
                                     : rl.resetAt != null
-                                      ? `${Math.round(rl.pct)}% used · back in ${formatReset(rl.resetAt, now)}`
-                                      : `${Math.round(rl.pct)}% used`
+                                      ? `${providerLabel(rl.provider)} · ${Math.round(rl.pct)}% used · back in ${formatReset(rl.resetAt, now)}`
+                                      : `${providerLabel(rl.provider)} · ${Math.round(rl.pct)}% used`
                             }
                             dim={rl == null}
                         />

@@ -74,8 +74,23 @@ export function recordRateLimit(provider: string, usage: AgentUsage): void {
     }
 }
 
-function windowFromSaved(pct: number | undefined, reset: number | undefined, now: number): DonutWindow {
-    if (reset != null && reset * 1000 <= now) {
+const FIVE_HOUR_MS = 5 * 60 * 60 * 1000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Two ways a saved window stops being current, and the second is not redundant: the reset timestamp
+// catches the ordinary rollover, but it cannot catch a reset that is itself wrong. A codex snapshot
+// once carried a "five-hour" reset almost six days out, so it never rolled and spoke for the account at
+// 100% for days. A capture older than the window it describes has rolled at least once regardless.
+function windowFromSaved(
+    pct: number | undefined,
+    reset: number | undefined,
+    capturedAt: number,
+    windowMs: number,
+    now: number
+): DonutWindow {
+    const resetPassed = reset != null && reset * 1000 <= now;
+    const outlivedItsWindow = now - capturedAt >= windowMs;
+    if (resetPassed || outlivedItsWindow) {
         return { pct: 0, reset: undefined }; // rolled over; the new cadence is unknowable
     }
     return { pct, reset };
@@ -103,8 +118,8 @@ export function mergeRateLimitWindows(
             const s = saved[provider];
             return {
                 provider,
-                fivehour: windowFromSaved(s.fivehourpct, s.fivehourreset, now),
-                week: windowFromSaved(s.weekpct, s.weekreset, now),
+                fivehour: windowFromSaved(s.fivehourpct, s.fivehourreset, s.capturedAt, FIVE_HOUR_MS, now),
+                week: windowFromSaved(s.weekpct, s.weekreset, s.capturedAt, WEEK_MS, now),
                 stale: { capturedAt: s.capturedAt },
             };
         })
@@ -114,7 +129,14 @@ export function mergeRateLimitWindows(
 // Pure: the single most-utilized provider by 5-hour pct across the merged donuts, or undefined if none
 // report a 5-hour window. Drives the app-bar's compact gauge so it reads off the SAME data as the Usage
 // tab (persisted + per-provider) and can label which provider it's showing when both Claude and Codex exist.
+// A reading nobody is producing right now must never outrank a live one — a stale snapshot pinned high
+// would otherwise speak for the whole account, and its countdown with it. Stale still answers when
+// nothing is live, which is the entire point of persisting it.
 export function topProviderUsage(donuts: ProviderDonuts[]): { provider: string; pct: number } | undefined {
+    return highestFiveHour(donuts.filter((d) => d.stale == null)) ?? highestFiveHour(donuts);
+}
+
+function highestFiveHour(donuts: ProviderDonuts[]): { provider: string; pct: number } | undefined {
     let top: { provider: string; pct: number } | undefined;
     for (const d of donuts) {
         const pct = d.fivehour.pct;

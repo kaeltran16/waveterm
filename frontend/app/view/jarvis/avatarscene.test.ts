@@ -11,7 +11,7 @@ import type { PetExpression } from "./petcondition";
 
 const AT_REST: PetExpression = { kind: "at-rest" };
 const BLIND: PetExpression = { kind: "cannot-see", reason: "off" };
-const TIRED: PetExpression = { kind: "tired", pct: 92 };
+const TIRED: PetExpression = { kind: "tired", provider: "claude", pct: 92 };
 const DRIFTING: PetExpression = { kind: "drifting", queueDepth: 14 };
 
 function input(over: Partial<SceneInput> = {}): SceneInput {

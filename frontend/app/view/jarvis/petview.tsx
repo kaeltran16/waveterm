@@ -110,7 +110,11 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
     const top = topProviderUsage(donuts);
     const rateLimit =
         top != null
-            ? { pct: top.pct, resetAt: donuts.find((d) => d.provider === top.provider)?.fivehour.reset }
+            ? {
+                  provider: top.provider,
+                  pct: top.pct,
+                  resetAt: donuts.find((d) => d.provider === top.provider)?.fivehour.reset,
+              }
             : undefined;
 
     return {

@@ -11,7 +11,7 @@ import {
 
 const OFF: PetSignals["index"] = { state: "off" };
 const STALE: PetSignals["index"] = { state: "stale" };
-const HOT: PetSignals["rateLimit"] = { pct: 94, resetAt: 1_800_000_000 };
+const HOT: PetSignals["rateLimit"] = { provider: "claude", pct: 94, resetAt: 1_800_000_000 };
 const QUEUE: PetSignals["decay"] = { queueDepth: DRIFT_QUEUE_BAND, staleNotes: 2 };
 
 describe("expressionFor — each rank fires in isolation", () => {
@@ -20,8 +20,13 @@ describe("expressionFor — each rank fires in isolation", () => {
         expect(expressionFor({ index: STALE })).toEqual({ kind: "cannot-see", reason: "stale" });
     });
 
-    it("rank 2: a depleting window is tired, carrying the reading and its reset", () => {
-        expect(expressionFor({ rateLimit: HOT })).toEqual({ kind: "tired", pct: 94, resetAt: 1_800_000_000 });
+    it("rank 2: a depleting window is tired, carrying whose reading it is, the reading, and its reset", () => {
+        expect(expressionFor({ rateLimit: HOT })).toEqual({
+            kind: "tired",
+            provider: "claude",
+            pct: 94,
+            resetAt: 1_800_000_000,
+        });
     });
 
     it("rank 3: a queue at the band is drifting, carrying its depth", () => {
@@ -56,7 +61,7 @@ describe("expressionFor — nothing present is at-rest", () => {
     // source yet ship inert instead of firing on undefined.
     it("yields at-rest when a signal is present but says nothing is wrong", () => {
         expect(expressionFor({ index: { state: "ok" } }).kind).toBe("at-rest");
-        expect(expressionFor({ rateLimit: { pct: 12 } }).kind).toBe("at-rest");
+        expect(expressionFor({ rateLimit: { provider: "claude", pct: 12 } }).kind).toBe("at-rest");
         expect(expressionFor({ decay: { queueDepth: DRIFT_QUEUE_BAND - 1, staleNotes: 1 } }).kind).toBe("at-rest");
         expect(expressionFor({ attention: { reviewGates: 3, escalations: 1, blockedWorkers: 2 } }).kind).toBe(
             "at-rest"
@@ -65,7 +70,7 @@ describe("expressionFor — nothing present is at-rest", () => {
 
     it("does not treat a zero-depth queue or a zero reading as drift", () => {
         expect(expressionFor({ decay: { queueDepth: 0, staleNotes: 0 } }).kind).toBe("at-rest");
-        expect(expressionFor({ rateLimit: { pct: 0 } }).kind).toBe("at-rest");
+        expect(expressionFor({ rateLimit: { provider: "claude", pct: 0 } }).kind).toBe("at-rest");
     });
 });
 
@@ -112,10 +117,31 @@ describe("wording", () => {
     });
 
     it("carries the reading, and the reset only when there is one", () => {
-        expect(conditionLine({ kind: "tired", pct: 94, resetAt: 1_800_003_600 }, now)).toBe(
-            "Running low — 94% of the window used, back in 1h 0m."
+        expect(conditionLine({ kind: "tired", provider: "claude", pct: 94, resetAt: 1_800_003_600 }, now)).toBe(
+            "Running low on Claude — 94% of the window used, back in 1h 0m."
         );
-        expect(conditionLine({ kind: "tired", pct: 94 }, now)).toBe("Running low — 94% of the window used.");
+        expect(conditionLine({ kind: "tired", provider: "claude", pct: 94 }, now)).toBe(
+            "Running low on Claude — 94% of the window used."
+        );
+    });
+
+    // rate limits are per-provider, and the highest reading wins across providers. Without the name, a
+    // codex window at 94% is indistinguishable from a claude one, and the countdown belongs to whichever
+    // provider won — which is how a codex reading got read as the claude window it was not.
+    it("names the provider the reading belongs to", () => {
+        expect(conditionLine({ kind: "tired", provider: "codex", pct: 94, resetAt: 1_800_003_600 }, now)).toBe(
+            "Running low on Codex — 94% of the window used, back in 1h 0m."
+        );
+    });
+
+    // "running low" wording the same at 86% and at 100% understates a window that is simply gone.
+    it("says a spent window is spent rather than running low", () => {
+        expect(conditionLine({ kind: "tired", provider: "claude", pct: 100, resetAt: 1_800_003_600 }, now)).toBe(
+            "Claude's window is spent — back in 1h 0m."
+        );
+        expect(conditionLine({ kind: "tired", provider: "claude", pct: 100 }, now)).toBe(
+            "Claude's window is spent."
+        );
     });
 
     it("gives every expression and every posture a line", () => {

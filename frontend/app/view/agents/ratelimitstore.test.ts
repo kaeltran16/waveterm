@@ -26,6 +26,27 @@ describe("topProviderUsage", () => {
         expect(topProviderUsage(donuts)).toBeUndefined();
         expect(topProviderUsage([])).toBeUndefined();
     });
+
+    // observed: a day-old codex snapshot pinned at 100% outranked a live claude reading of 63%, so the
+    // app-bar gauge and the jarvis avatar both reported codex's number — and codex's countdown — as the
+    // account's current window. A reading nobody is currently producing must never beat one that is live.
+    it("never lets a stale saved reading outrank a live one", () => {
+        const donuts = mergeRateLimitWindows(
+            [{ provider: "claude", usage: { fivehourpct: 63 } }],
+            { codex: { fivehourpct: 100, fivehourreset: now / 1000 + 3600, capturedAt: now - 60_000 } },
+            now
+        );
+        expect(topProviderUsage(donuts)).toEqual({ provider: "claude", pct: 63 });
+    });
+
+    it("still reports a saved reading when no provider is live", () => {
+        const donuts = mergeRateLimitWindows(
+            [],
+            { codex: { fivehourpct: 44, fivehourreset: now / 1000 + 3600, capturedAt: now - 60_000 } },
+            now
+        );
+        expect(topProviderUsage(donuts)).toEqual({ provider: "codex", pct: 44 });
+    });
 });
 
 describe("account-level donut ignores idle agents' stale snapshots", () => {
@@ -99,6 +120,34 @@ describe("mergeRateLimitWindows", () => {
         const out = mergeRateLimitWindows([], saved, now);
         expect(out[0].fivehour).toEqual({ pct: 0, reset: undefined }); // rolled over
         expect(out[0].week).toEqual({ pct: 30, reset: now / 1000 + 600 }); // still valid
+    });
+
+    // The reset-passed check above cannot catch a reset that is simply wrong. Observed: a codex snapshot
+    // captured 24h earlier carried a "five-hour" reset almost six days out, so it never rolled and stayed
+    // pinned at 100% for days. A capture older than the window it describes has rolled at least once,
+    // whatever its reset claims.
+    it("expires a five-hour window captured more than five hours ago, however far out its reset claims to be", () => {
+        const saved: Record<string, SavedSnapshot> = {
+            codex: { fivehourpct: 100, fivehourreset: now / 1000 + 115 * 3600, capturedAt: now - 24 * 3600_000 },
+        };
+        const out = mergeRateLimitWindows([], saved, now);
+        expect(out[0].fivehour).toEqual({ pct: 0, reset: undefined });
+    });
+
+    it("keeps a weekly window captured a day ago — a week has not passed", () => {
+        const saved: Record<string, SavedSnapshot> = {
+            claude: { weekpct: 40, weekreset: now / 1000 + 6 * 24 * 3600, capturedAt: now - 24 * 3600_000 },
+        };
+        const out = mergeRateLimitWindows([], saved, now);
+        expect(out[0].week).toEqual({ pct: 40, reset: now / 1000 + 6 * 24 * 3600 });
+    });
+
+    it("expires a weekly window captured more than a week ago", () => {
+        const saved: Record<string, SavedSnapshot> = {
+            claude: { weekpct: 40, weekreset: now / 1000 + 30 * 24 * 3600, capturedAt: now - 8 * 24 * 3600_000 },
+        };
+        const out = mergeRateLimitWindows([], saved, now);
+        expect(out[0].week).toEqual({ pct: 0, reset: undefined });
     });
 
     it("unions live + saved providers, claude first", () => {
