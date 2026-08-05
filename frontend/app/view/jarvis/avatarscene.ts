@@ -95,7 +95,10 @@ const MOODS: Record<PetExpression["kind"], AvatarMood> = {
     "cannot-see": { toneVar: "--color-error", energy: 0.74, align: 0.14, jitter: 0.75, spin: 0.85, sever: 0.72 },
     tired: { toneVar: "--color-warning", energy: 0.44, align: 0.8, jitter: 0.03, spin: 0.34, sever: 0 },
     drifting: { toneVar: "--color-muted", energy: 0.34, align: 0.4, jitter: 0.1, spin: 0.62, sever: 0.25 },
-    "at-rest": { toneVar: "--color-accent-500", energy: 1, align: 1, jitter: 0, spin: 1, sever: 0 },
+    // --color-accent rather than the 500 step: at-rest is the tone shown almost all the time, and the 500
+    // step (#667ad1 in the default theme) is the closest of the five to the panel it sits on, so the state
+    // with the most screen time was also the hardest to see. The error/warning tones already read.
+    "at-rest": { toneVar: "--color-accent", energy: 1, align: 1, jitter: 0, spin: 1, sever: 0 },
 };
 
 export function moodFor(expression: PetExpression): AvatarMood {
@@ -218,9 +221,12 @@ const RING_GAP = 0.3;
 
 const clamp01 = (v: number) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
 
-// Resting scale relative to the active size. Tuned live: the resting form has to read as the same object
-// having stepped back, not as a different smaller one, so it keeps every ring and node and only shrinks.
-export const QUIET_SCALE = 0.62;
+// How much the idle state dims. It does not shrink: the peripheral-when-idle rule (design §3) rides
+// brightness alone, on purpose. It used to ride three axes at once — petview picked a smaller canvas, this
+// factor scaled the sphere radius, and the same factor scaled the glow — and since at-rest-and-idle is the
+// condition the avatar is in almost all the time, the compounded result (a form 28px wide inside a 68px box,
+// at 0.62 alpha, in the lowest-contrast tone of the five) was the state a user essentially always saw.
+export const QUIET_DIM = 0.75;
 // The sphere's radius as a fraction of the viewport. Tuned down from a value that filled the box: sized so
 // the OUTERMOST platter plus its ticks still leaves margin inside the canvas, because the bloom needs
 // somewhere to fall off. A form that reaches the edge turns its own glow into a visible square where the
@@ -237,11 +243,12 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
     const yaw = still ? 0 : input.yaw;
     const pitch = still ? 0.22 : 0.22 + input.pitch;
 
-    const presence = input.quiet ? QUIET_SCALE : 1;
-    const glow = (0.45 + 0.55 * mood.energy) * presence;
+    const dim = input.quiet ? QUIET_DIM : 1;
+    const glow = (0.45 + 0.55 * mood.energy) * dim;
     const centreX = input.size / 2;
     const centreY = input.size / 2;
-    const radius = input.size * SPHERE_FRACTION * presence * (1 + 0.03 * breath);
+    // deliberately not scaled by `dim` — see QUIET_DIM. The geometry is the same size in every state.
+    const radius = input.size * SPHERE_FRACTION * (1 + 0.03 * breath);
 
     const segments: SceneSegment[] = [];
     const points: ScenePoint[] = [];
@@ -283,7 +290,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 const a = (k / 64) * Math.PI * 2;
                 arc.push(project(rot3([Math.cos(a) * rr, Math.sin(lat), Math.sin(a) * rr], yaw, pitch)));
             }
-            strip(arc, "body", 0.16 * glow * mood.align);
+            strip(arc, "body", 0.26 * glow * mood.align);
         }
         for (let i = 0; i < 3; i++) {
             const lon = (i / 3) * Math.PI;
@@ -292,7 +299,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 const a = (k / 64) * Math.PI * 2;
                 arc.push(project(rot3(rotZ(rotX([Math.cos(a), Math.sin(a), 0], Math.PI / 2), lon), yaw, pitch)));
             }
-            strip(arc, "body", 0.13 * glow * mood.align);
+            strip(arc, "body", 0.22 * glow * mood.align);
         }
     }
 
@@ -328,7 +335,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
             by: b[1],
             depth,
             tone: "body",
-            alpha: clamp01((0.14 + 0.34 * ((depth + 1) / 2)) * glow),
+            alpha: clamp01((0.26 + 0.4 * ((depth + 1) / 2)) * glow),
         });
     });
 
@@ -344,7 +351,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
             y: p[1],
             depth: p[2],
             tone: near > 0.5 ? "hot" : "body",
-            alpha: clamp01((0.3 + 0.6 * front) * glow * (0.5 + 0.5 * near)),
+            alpha: clamp01((0.42 + 0.55 * front) * glow * (0.5 + 0.5 * near)),
             size: Math.max(1.6, input.size * 0.013) * p[3] * (0.7 + 0.5 * front) * (1 + 0.6 * near),
         });
     });
@@ -396,7 +403,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 by: outer[1],
                 depth: inner[2],
                 tone: major ? "hot" : "body",
-                alpha: clamp01((0.12 + 0.5 * front) * glow * (0.45 + 0.55 * mag * 1.6)),
+                alpha: clamp01((0.22 + 0.55 * front) * glow * (0.55 + 0.45 * mag * 1.6)),
             });
         }
 
@@ -409,7 +416,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 )
             );
         }
-        strip(edge, "body", 0.2 * glow * (0.4 + 0.6 * mood.align));
+        strip(edge, "body", 0.32 * glow * (0.4 + 0.6 * mood.align));
     }
 
     // the bearing marker: which kind of waiting, at a fixed bearing. Never a count — the nav rail's badge
@@ -428,7 +435,7 @@ export function buildAvatarScene(input: SceneInput): AvatarScene {
                 )
             );
         }
-        strip(arc, "marker", 0.9 * presence);
+        strip(arc, "marker", 0.9 * dim);
     }
 
     return {

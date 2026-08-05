@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildAvatarScene, moodFor, networkFor, ringPlaneNormal, type SceneInput } from "./avatarscene";
+import {
+    type AvatarScene,
+    buildAvatarScene,
+    moodFor,
+    networkFor,
+    ringPlaneNormal,
+    type SceneInput,
+} from "./avatarscene";
 import type { PetExpression } from "./petcondition";
 
 const AT_REST: PetExpression = { kind: "at-rest" };
@@ -178,11 +185,37 @@ describe("buildAvatarScene — shell and platters", () => {
         expect(reach(0.5)).toBeGreaterThan(reach(0));
     });
 
-    it("scales the whole form down when it has nothing to say", () => {
-        // the helmet-display rule: peripheral when idle, central when needed
-        const loud = buildAvatarScene(input({ quiet: false })).extent;
-        const idle = buildAvatarScene(input({ quiet: true })).extent;
-        expect(idle).toBeLessThan(loud);
+    it("dims when it has nothing to say, and does not shrink", () => {
+        // The helmet-display rule (peripheral when idle, central when needed) rides brightness alone. It
+        // used to ride three axes at once — a smaller canvas from petview, a smaller sphere radius, AND a
+        // dimmer glow — which compounded into a resting form 28px wide inside a 68px box. At-rest-and-idle
+        // is the condition the avatar is in almost all the time, so that was the state the user always saw.
+        const loud = buildAvatarScene(input({ quiet: false }));
+        const idle = buildAvatarScene(input({ quiet: true }));
+        expect(idle.extent).toBeCloseTo(loud.extent);
+        const peak = (s: AvatarScene) => Math.max(...s.segments.map((x) => x.alpha));
+        expect(peak(idle)).toBeLessThan(peak(loud));
+    });
+
+    it("still fills enough of its box at rest to be visible", () => {
+        // guards the regression above returning by any route: a form under about a quarter of its own box
+        // reads as a smudge in window chrome, whatever the reason it got small
+        const scene = buildAvatarScene(input({ quiet: true }));
+        expect(scene.extent).toBeGreaterThan(112 * 0.28);
+    });
+
+    it("never reaches its own canvas edge, even mid-utterance at full jitter", () => {
+        // The bloom needs somewhere to fall off: a primitive at the border makes the blur clamp against the
+        // framebuffer and the avatar wears a visible lighter square. This is the constraint that keeps
+        // SPHERE_FRACTION where it is, so it is asserted rather than left as a comment.
+        for (const expression of [AT_REST, BLIND, TIRED, DRIFTING]) {
+            for (const posture of ["none", "review-gate", "escalation", "blocked-worker"] as const) {
+                const scene = buildAvatarScene(
+                    input({ expression, posture, utterance: 1, breath: 1, yaw: 0.6, pitch: -0.34, now: 7_777 })
+                );
+                expect(scene.extent).toBeLessThan(112 / 2);
+            }
+        }
     });
 
     it("emits an even vertex count, because every primitive is a segment or a point", () => {

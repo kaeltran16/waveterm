@@ -56,27 +56,30 @@ const PRUNE_REASON_STALE = "stale";
 // Corner anchors. The insets clear the chrome the avatar would otherwise sit on: the 28px hints footer at
 // the bottom, and the nav rail on the left (78px measured, expanded).
 //
-// Re-measured at the active size (spec §10 required it — the originals were taken against a 44px creature).
-// At 1600x950 the box lands at 1470,798 and 92,798, and the pet design's finding survives the growth: the
-// two corners are blocked on OPPOSITE surfaces, never the same one. Bottom-right sits on the Agent
-// surface's terminal canvas and is clear on Jarvis and Cockpit; bottom-left sits on the Jarvis Stage's
-// thread list and is clear on Agent and Cockpit. So dragging between them still escapes every collision,
-// which is the whole reason the corner pair is the escape hatch and no third corner is needed.
+// Re-measured after the size grew to AVATAR_PX (spec §10 requires it on any size change). At 1920x1032 the
+// bottom-right box lands at 1770,860 and covers the Agent surface's terminal (xterm-link-layer over
+// xterm-viewport), while on Jarvis and Cockpit it covers only a generic scroll container. So the pet
+// design's finding survives the growth: the two corners are blocked on OPPOSITE surfaces, never the same
+// one. Bottom-right sits on the Agent terminal and is clear on Jarvis and Cockpit; bottom-left sits on the
+// Jarvis Stage's thread list and is clear on Agent and Cockpit. Dragging between them still escapes every
+// collision, which is the whole reason the corner pair is the escape hatch and no third corner is needed.
+// Only bottom-right was re-probed at the new size; bottom-left rests against the thread list's own x-range
+// (86-331), which a 20px growth does not move it out of.
 const CORNER_CLASS: Record<PetCorner, string> = {
     "bottom-right": "bottom-[40px] right-[18px]",
     "bottom-left": "bottom-[40px] left-[92px]",
 };
 
-// ACTIVE is the size chosen when placement was settled, kept after re-measuring occlusion above. QUIET_PX
-// is the peripheral size the helmet-display rule asks for — far enough below ACTIVE to read as having
-// stepped back, not so far that the ring ticks stop resolving.
-const ACTIVE_PX = 112;
-const QUIET_PX = 68;
+// One size for every state. There were two — 112 active and 68 idle — and the idle one compounded with the
+// scene's own idle scaling and its own dimming, which put the form the user sees almost all the time at
+// under a fifth of its box by area. The helmet-display rule now lives entirely in QUIET_DIM
+// (avatarscene.ts), so this is the only size and nothing multiplies it.
+const AVATAR_PX = 132;
 
 const YAW_CAP = 0.6;
 const PITCH_CAP = 0.34;
 
-// Density, judged on a contact sheet of all four expressions at ACTIVE_PX. Three platters is what makes the
+// Density, judged on a contact sheet of all four expressions at AVATAR_PX. Three platters is what makes the
 // tilt divergence legible as drifting — two read as a coincidence and four are mush at this size. 72 ticks
 // leaves each one individually resolvable on the outermost ring, where they are sparsest. 16 nodes is
 // enough that severing most of the links at rank 1 still leaves a recognisable network rather than dust.
@@ -157,7 +160,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     // faint at rest and solid the moment it has something to express — a health indicator you cannot see
     // does not work, so anything but at-rest-and-idle claims full presence (design §3).
     const quiet = expression.kind === "at-rest" && posture === "none" && !peekOpen && bubble == null;
-    const size = quiet ? QUIET_PX : ACTIVE_PX;
+    const size = AVATAR_PX;
 
     // Two canvases, not one. A canvas element can only ever hand out contexts of a single kind, so a
     // single element that has already produced a webgl2 context can never produce a 2d one — the fallback

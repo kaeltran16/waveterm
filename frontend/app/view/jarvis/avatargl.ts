@@ -105,9 +105,11 @@ export interface BloomSettings {
  * drop it and the square returns.
  *
  * `strength` then buys back the brightness the threshold cost. Much past 4 the 8-bit render targets start
- * showing their quantisation as banding in the falloff.
+ * showing their quantisation as banding in the falloff, so 4.4 sits deliberately just over that line — it
+ * was raised from 3.6 because the form read as too faint against the panel it sits on, accepting whatever
+ * banding that costs as the better trade at this size.
  */
-export const DEFAULT_BLOOM: BloomSettings = { strength: 3.6, threshold: 0.09, radius: 1.5 };
+export const DEFAULT_BLOOM: BloomSettings = { strength: 4.4, threshold: 0.09, radius: 1.5 };
 
 const V_PRIM = `#version 300 es
 in vec2 aPos;
