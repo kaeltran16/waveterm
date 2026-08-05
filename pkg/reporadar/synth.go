@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/consult"
 )
 
 // synthStream is the parsed result of one claude stream-json run.
@@ -81,8 +83,11 @@ func parseSynthesisStream(lines []string) synthStream {
 	return out
 }
 
-// ConfiguredRadarModel is the fixed v1 alias — no inheritance from the CLI default or Wave AI config.
-const ConfiguredRadarModel = "sonnet"
+// ConfiguredRadarModel is the fixed alias this scan asks for — no inheritance from the CLI default or
+// Wave AI config; the resolved concrete id comes back on the stream's init event and is persisted
+// alongside it. It rides consult's mid-tier alias rather than keeping its own copy of the string:
+// clustering findings is bounded, grounded work, the same class of task the mid tier names.
+const ConfiguredRadarModel = consult.MidModel
 
 // disabledToolArgs disables Claude's built-in tools so model output can never trigger commands.
 // Verified against claude CLI v2.1.206: `--disallowedTools` accepts a space- or comma-separated deny

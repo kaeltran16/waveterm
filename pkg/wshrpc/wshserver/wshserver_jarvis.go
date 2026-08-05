@@ -171,7 +171,10 @@ func (ws *WshServer) JarvisCommand(ctx context.Context, data wshrpc.CommandJarvi
 			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Error: fmt.Errorf("channel not found: %w", err)}
 			return
 		}
-		spec, ok := consult.SpecFor("claude")
+		// cheap tier: the fleet prompt hands the model an already-assembled worker list and asks for
+		// 2-4 terse lines restating it. That is mechanical prose over facts the frontend gathered
+		// deterministically, not synthesis — the same shape as the continuity boundary summary.
+		spec, ok := consult.SpecForTier("claude", consult.TierCheap)
 		if !ok {
 			postJarvisReply(data, "jarvis requires the claude CLI, which is not available")
 			rtn <- wshrpc.RespOrErrorUnion[wshrpc.JarvisChunk]{Error: fmt.Errorf("claude runtime unavailable")}

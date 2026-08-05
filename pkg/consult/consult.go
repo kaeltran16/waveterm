@@ -114,35 +114,85 @@ func SpecFor(runtime string) (RuntimeSpec, bool) {
 	return s, ok
 }
 
-// Tier is the model class for a one-shot call: cheap for mechanical grunt work, capable for
-// synthesis. TierCapable deliberately adds no --model flag — it keeps whatever default the operator
-// configured for the CLI, which is exactly what every call did before tiering existed, so selecting
-// it explicitly is a no-op rather than a downgrade.
+// Tier is the model class for a one-shot call, ordered by task difficulty: cheap for mechanical
+// grunt work, mid for bounded work whose prose a human reads, capable for open-ended synthesis.
+// TierCapable deliberately adds no --model flag — it keeps whatever default the operator configured
+// for the CLI, which is exactly what every call did before tiering existed, so selecting it
+// explicitly is a no-op rather than a downgrade.
 type Tier string
 
 const (
 	TierCapable Tier = "capable"
+	TierMid     Tier = "mid"
 	TierCheap   Tier = "cheap"
 )
 
-// CheapModel is the claude alias for the cheap tier. Haiku 4.5 is the cheapest current alias
-// (~1/5 of Opus per input token). Note "fable" is not a small model despite the naming — Claude
-// Fable 5 prices above Opus — so it is the wrong alias for a cost-driven tier.
-// Exported so callers that need the alias itself rather than a tiered spec (tasksharpen builds its
-// own --model args) share this one definition instead of re-hardcoding it.
-const CheapModel = "haiku"
+// The claude aliases each tier selects. Exported so callers that need the alias itself rather than a
+// tiered spec (tasksharpen and reporadar build their own --model args) share these definitions
+// instead of re-hardcoding the strings.
+const (
+	// CheapModel is the cheap tier's alias. Haiku 4.5 is the cheapest current alias (~1/5 of Opus
+	// per input token). Note "fable" is not a small model despite the naming — Claude Fable 5 prices
+	// above Opus — so it is the wrong alias for a cost-driven tier.
+	CheapModel = "haiku"
+	// MidModel is the mid tier's alias: bounded, grounded work where a cheap model's mistakes would
+	// be visible to the human reading the output, but the operator's default (Opus-class) is more
+	// than the task needs.
+	MidModel = "sonnet"
+)
+
+// modelForTier maps a tier to its claude --model alias. TierCapable maps to "" on purpose: passing
+// no flag is what keeps the operator's configured default (see Tier).
+func modelForTier(tier Tier) string {
+	switch tier {
+	case TierCheap:
+		return CheapModel
+	case TierMid:
+		return MidModel
+	default:
+		return ""
+	}
+}
 
 // SpecForTier resolves a runtime spec with the tier's model selection applied. Only claude has a
 // --model contract here, so the other runtimes come back untouched.
 func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
 	spec, ok := SpecFor(runtime)
-	if !ok || tier != TierCheap || runtime != "claude" {
+	model := modelForTier(tier)
+	if !ok || model == "" || runtime != "claude" {
 		return spec, ok
 	}
 	// SpecFor returns a by-value copy whose BaseArgs still shares the map's backing array; copy
 	// before appending so a tiered call can never mutate the spec every other caller reads.
-	spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", CheapModel)
+	spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", model)
 	return spec, true
+}
+
+// Corpus-size model selection is a DIFFERENT AXIS from Tier: it picks a model for how much text has
+// to fit in one prompt, not for how hard the task is. Callers that pipe a whole corpus over stdin
+// (memory distillation, memory gardening) select with ModelForCorpus; every other caller picks a Tier.
+// Keeping the two separate is the point — routing a window problem through the difficulty tiers would
+// read as "big corpus means hard task", which is not what the escalation means.
+//
+// These pin dated model IDs rather than the floating haiku/sonnet aliases precisely because the
+// choice encodes a context-window fact: Haiku 4.5 caps at a 200K-token window while Sonnet 5 holds
+// 1M. An alias that later moved to a model with a different window would silently invalidate
+// CorpusEscalationBytes, so the guarantee has to name the models it was measured against.
+const (
+	CorpusCheapModel = "claude-haiku-4-5"
+	CorpusLongModel  = "claude-sonnet-5"
+	// CorpusEscalationBytes is ~150K tokens: close enough to Haiku's 200K window that the prompt
+	// plus the reply stop reliably fitting, so the long-context model takes over at or above it.
+	CorpusEscalationBytes = 400 * 1024
+)
+
+// ModelForCorpus picks the model that can hold corpus. Escalation buys context window, not
+// intelligence — see the constants above.
+func ModelForCorpus(corpus string) string {
+	if len(corpus) >= CorpusEscalationBytes {
+		return CorpusLongModel
+	}
+	return CorpusCheapModel
 }
 
 func SupportedRuntimes() []string {

@@ -17,17 +17,14 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
-const (
-	maxArchivesPerPass = 20
-	haikuModel         = "claude-haiku-4-5"
-	sonnetModel        = "claude-sonnet-5"
-)
+const maxArchivesPerPass = 20
 
 type gardener struct {
 	mu       sync.Mutex
@@ -143,17 +140,13 @@ func (g *gardener) runLLMPillars(hubDir string, notes []memvault.NoteWithBody, r
 	g.checkDedup(hubDir, notes)
 }
 
-const (
-	combinedBudget = 400 * 1024 // mirror memdistill: at/above this, use the 1M-context model
-	llmTimeout     = 110 * time.Second
-)
+const llmTimeout = 110 * time.Second
 
-// pickModel escalates to sonnet on a large corpus, mirroring the distiller convention.
+// pickModel defers to consult, which owns the corpus-size escalation and the two model ids it picks
+// between. This package holds no model string and no threshold of its own — the escalation is a
+// context-window fact shared with memdistill, not a per-package convention.
 func pickModel(corpus string) string {
-	if len(corpus) >= combinedBudget {
-		return sonnetModel
-	}
-	return haikuModel
+	return consult.ModelForCorpus(corpus)
 }
 
 // runGardenLLM is the injectable seam wired in newGardener.

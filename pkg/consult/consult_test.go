@@ -225,6 +225,68 @@ func TestSpecForTier_unsupportedRuntime(t *testing.T) {
 	}
 }
 
+func TestSpecForTier_midSelectsTheMidModel(t *testing.T) {
+	spec, ok := SpecForTier("claude", TierMid)
+	if !ok {
+		t.Fatal("expected claude to resolve")
+	}
+	// adjacency, not substring: a bare --model check would also pass on the cheap tier's flag
+	for i, a := range spec.BaseArgs {
+		if a == "--model" && i+1 < len(spec.BaseArgs) && spec.BaseArgs[i+1] == MidModel {
+			return
+		}
+	}
+	t.Fatalf("mid tier must select --model %s, got %v", MidModel, spec.BaseArgs)
+}
+
+// The three tiers must stay distinguishable. Collapsing mid into either neighbour is otherwise a
+// silent change: cheap and mid both pass a --model flag, and capable passes none.
+func TestSpecForTier_tiersAreDistinct(t *testing.T) {
+	if CheapModel == MidModel {
+		t.Fatalf("cheap and mid must not resolve to the same alias (%q)", CheapModel)
+	}
+	capable, _ := SpecForTier("claude", TierCapable)
+	base, _ := SpecFor("claude")
+	if len(capable.BaseArgs) != len(base.BaseArgs) {
+		t.Errorf("capable must add no flag, got %v", capable.BaseArgs)
+	}
+	for _, tier := range []Tier{TierCheap, TierMid} {
+		spec, _ := SpecForTier("claude", tier)
+		if len(spec.BaseArgs) == len(base.BaseArgs) {
+			t.Errorf("%s tier must add a --model flag, got %v", tier, spec.BaseArgs)
+		}
+	}
+}
+
+// ModelForCorpus is the context-window axis, not a difficulty tier: it must pick between the two
+// pinned dated ids, never the floating tier aliases, or CorpusEscalationBytes stops meaning anything.
+func TestModelForCorpus_escalatesAtTheThreshold(t *testing.T) {
+	if got := ModelForCorpus(""); got != CorpusCheapModel {
+		t.Errorf("empty corpus: got %q, want %q", got, CorpusCheapModel)
+	}
+	justUnder := strings.Repeat("x", CorpusEscalationBytes-1)
+	if got := ModelForCorpus(justUnder); got != CorpusCheapModel {
+		t.Errorf("corpus one byte under the threshold must not escalate: got %q", got)
+	}
+	atThreshold := strings.Repeat("x", CorpusEscalationBytes)
+	if got := ModelForCorpus(atThreshold); got != CorpusLongModel {
+		t.Errorf("corpus at the threshold must escalate: got %q, want %q", got, CorpusLongModel)
+	}
+}
+
+// The corpus models are pinned dated ids on purpose — they encode which context windows the
+// threshold was measured against, so an alias must never be substituted for them.
+func TestCorpusModelsArePinnedNotAliases(t *testing.T) {
+	for _, m := range []string{CorpusCheapModel, CorpusLongModel} {
+		if m == CheapModel || m == MidModel {
+			t.Errorf("%q is a floating tier alias; corpus selection needs a pinned dated id", m)
+		}
+		if !strings.HasPrefix(m, "claude-") {
+			t.Errorf("%q does not look like a pinned model id", m)
+		}
+	}
+}
+
 func TestBuildPromptNoPrinciplesMatchesLegacy(t *testing.T) {
 	history := []waveobj.ChannelMessage{{Author: "you", Text: "hello"}}
 	got := BuildPrompt(history, "do the thing", "")

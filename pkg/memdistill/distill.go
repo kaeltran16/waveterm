@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 )
 
@@ -25,9 +26,11 @@ const (
 	// any session whose first prompt starts with it, hiding the headless distill transcript.
 	DistillSentinel = "You are distilling durable learnings from"
 
-	combinedBudget = 400 * 1024 // ~150K tokens; at/above this, use the 1M-context model
-	haikuModel     = "claude-haiku-4-5"
-	sonnetModel    = "claude-sonnet-5"
+	// combinedBudget caps corpus assembly at the same size where the long-context model takes over,
+	// so a corpus is only ever escalated because it actually filled the budget. It reads consult's
+	// threshold rather than its own copy: that constant and the two model ids it selects between are
+	// one fact about context windows, shared with memgarden.
+	combinedBudget = consult.CorpusEscalationBytes
 	flushTimeout   = 110 * time.Second
 )
 
@@ -72,7 +75,7 @@ func readTail(path string, maxBytes int64) string {
 // labeled separators. The model is chosen on the assembled size, mirroring the single-session cutoff.
 func buildCorpus(sessions []pendingSession) (string, string) {
 	if len(sessions) == 0 {
-		return "", haikuModel
+		return "", consult.CorpusCheapModel
 	}
 	perSession := int64(combinedBudget / len(sessions))
 	var b strings.Builder
@@ -81,11 +84,7 @@ func buildCorpus(sessions []pendingSession) (string, string) {
 		b.WriteString(readTail(s.TranscriptPath, perSession))
 	}
 	corpus := b.String()
-	model := haikuModel
-	if len(corpus) >= combinedBudget {
-		model = sonnetModel
-	}
-	return corpus, model
+	return corpus, consult.ModelForCorpus(corpus)
 }
 
 type distillOutput struct {

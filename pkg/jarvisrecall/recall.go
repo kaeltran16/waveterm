@@ -30,14 +30,22 @@ func stepChunk(id, label, status string) wshrpc.JarvisConverseChunk {
 	return wshrpc.JarvisConverseChunk{Kind: "step", Step: &wshrpc.JarvisWorkingStep{Id: id, Label: label, Status: status}}
 }
 
-// synthesize is the grounded answer: the capable tier, selected explicitly. TierCapable adds no
-// --model flag, so this keeps the operator's configured default exactly as before tiering.
+// runFn is the inner process-runner seam. SetSynthesizeForTest replaces spec construction along with
+// the call, so a test using it cannot observe which tier the real body selects. Overriding this
+// instead runs the real synthesize and exposes the spec it built.
+var runFn = consult.Run
+
+// synthesize is the grounded answer, on the mid tier. Retrieval has already done the hard part, so
+// the model only has to answer from at most maxCandidates numbered snippets — the operator's default
+// (Opus-class) is more than that needs. It stays above the cheap tier because citation discipline is
+// exactly what degrades first on a small model, and selectTerminal grades that: a reply citing
+// nothing in range is downgraded to "weak" in the UI.
 var synthesize = func(ctx context.Context, cwd, prompt string, onChunk func(string)) (string, error) {
-	spec, ok := consult.SpecForTier("claude", consult.TierCapable)
+	spec, ok := consult.SpecForTier("claude", consult.TierMid)
 	if !ok {
 		return "", errNoClaude
 	}
-	return consult.Run(ctx, spec, cwd, prompt, onChunk)
+	return runFn(ctx, spec, cwd, prompt, onChunk)
 }
 
 func SetSynthesizeForTest(fn func(context.Context, string, string, func(string)) (string, error)) func(context.Context, string, string, func(string)) (string, error) {

@@ -25,9 +25,10 @@ const (
 	// Model aliases kept in one place so a Claude alias change is a single edit. "fast" rides the
 	// shared cheap-tier alias — a bounded, tool-less rewrite is grunt work, and "fable" (the previous
 	// value) is not a small model despite the naming: Claude Fable 5 prices above Opus, so the mode
-	// labelled fast was both the slowest and the priciest. "sonnet" is the stable mid alias.
+	// labelled fast was both the slowest and the priciest. Both ride consult's tier aliases so a
+	// Claude alias change stays a single edit there rather than one per package.
 	fastModel   = consult.CheapModel
-	sonnetModel = "sonnet"
+	sonnetModel = consult.MidModel
 )
 
 // resolveModel maps the request mode to a Claude model alias. Selection is internal and deterministic.
