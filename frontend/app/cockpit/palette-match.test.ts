@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { fuzzyScore, rankPaletteItems } from "./palette-match";
+import { fuzzyMatch, fuzzyScore, highlightRuns, rankPaletteItems } from "./palette-match";
 
 describe("fuzzyScore", () => {
     it("returns null when query chars are not a subsequence", () => {
@@ -46,5 +46,38 @@ describe("rankPaletteItems", () => {
     it("ranks a contiguous match above a gapped match", () => {
         const ranked = rankPaletteItems(items, "abc").map((i) => i.search);
         expect(ranked.indexOf("abcxyz")).toBeLessThan(ranked.indexOf("axbxcx"));
+    });
+});
+
+describe("fuzzyMatch", () => {
+    it("returns the matched indices in ascending order", () => {
+        // "new agent": n@0, a@4, g@5
+        expect(fuzzyMatch("nag", "New agent")!.positions).toEqual([0, 4, 5]);
+    });
+    it("returns score 0 and no positions for an empty query", () => {
+        expect(fuzzyMatch("", "anything")).toEqual({ score: 0, positions: [] });
+    });
+    it("returns null when the query is not a subsequence", () => {
+        expect(fuzzyMatch("xyz", "New agent")).toBeNull();
+    });
+    it("agrees with fuzzyScore", () => {
+        expect(fuzzyMatch("nag", "New agent")!.score).toBe(fuzzyScore("nag", "New agent"));
+    });
+});
+
+describe("highlightRuns", () => {
+    it("splits text into alternating hit and miss runs", () => {
+        expect(highlightRuns("New agent", [0, 4, 5])).toEqual([
+            { text: "N", hit: true },
+            { text: "ew ", hit: false },
+            { text: "ag", hit: true },
+            { text: "ent", hit: false },
+        ]);
+    });
+    it("returns a single miss run when there are no positions", () => {
+        expect(highlightRuns("New agent", [])).toEqual([{ text: "New agent", hit: false }]);
+    });
+    it("returns [] for empty text", () => {
+        expect(highlightRuns("", [0])).toEqual([]);
     });
 });

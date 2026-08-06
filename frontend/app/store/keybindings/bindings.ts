@@ -38,7 +38,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "c", surface: "jarvis", label: "Jarvis (channels, records, recall)" },
     { letter: "r", surface: "radar", label: "Radar" },
     { letter: "s", surface: "sessions", label: "Sessions" },
-    { letter: "f", surface: "files", label: "Files" },
+    { letter: "f", surface: "files", label: "Diff" },
     { letter: "m", surface: "memory", label: "Memory" },
     { letter: "u", surface: "usage", label: "Usage" },
     { letter: "b", surface: "code", label: "Code (browse source)" },
@@ -88,6 +88,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
         keys: `Ctrl:${i + 1}`,
         group: "Global",
         label: `Jump to ${surface}`,
+        paletteHidden: true, // duplicates the go-target for the same surface, with a worse label
         run: () => globalStore.set(model.surfaceAtom, surface),
     }));
 
@@ -116,6 +117,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:p",
             group: "Global",
             label: "Command palette (file finder on Code)",
+            paletteHidden: true, // a palette row that opens the palette
             run: (ctx) => {
                 if (ctx.surface === "code" && !globalStore.get(model.paletteOpenAtom)) {
                     globalStore.set(codeFinderOpenAtom, (v) => !v);
@@ -129,6 +131,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "g p",
             group: "Go to",
             label: "Command palette",
+            paletteHidden: true, // a palette row that opens the palette
             when: navigate,
             run: () => globalStore.set(model.paletteOpenAtom, true),
         },
@@ -160,6 +163,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Ctrl:c",
             group: "Agent",
             label: "Close agent (press twice)",
+            paletteHidden: true, // one row would fire one press and appear to do nothing
             // Global chord (allowed while the terminal is focused/editable), Agent surface only.
             when: (ctx) => ctx.surface === "agent",
             run: () => {
@@ -249,11 +253,11 @@ export function buildListNavBindings(): Binding[] {
         c.activate();
     };
     return [
-        { id: "list:next-j", keys: "j", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
-        { id: "list:prev-k", keys: "k", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
-        { id: "list:next", keys: "ArrowDown", group: "Navigation", label: "Next item", when: active, run: () => move(1) },
-        { id: "list:prev", keys: "ArrowUp", group: "Navigation", label: "Previous item", when: active, run: () => move(-1) },
-        { id: "list:activate", keys: "Enter", group: "Navigation", label: "Open / activate item", when: active, run: activate },
+        { id: "list:next-j", keys: "j", group: "Navigation", label: "Next item", when: active, paletteHidden: true, run: () => move(1) },
+        { id: "list:prev-k", keys: "k", group: "Navigation", label: "Previous item", when: active, paletteHidden: true, run: () => move(-1) },
+        { id: "list:next", keys: "ArrowDown", group: "Navigation", label: "Next item", when: active, paletteHidden: true, run: () => move(1) },
+        { id: "list:prev", keys: "ArrowUp", group: "Navigation", label: "Previous item", when: active, paletteHidden: true, run: () => move(-1) },
+        { id: "list:activate", keys: "Enter", group: "Navigation", label: "Open / activate item", when: active, paletteHidden: true, run: activate },
     ];
 }
 
@@ -296,12 +300,13 @@ export function buildChannelsAskBindings(
         keys: String(n),
         group: "Jarvis",
         label: `Answer option ${n}`,
+        paletteHidden: true,
         when: ready,
         run: () => toggleDigit(n),
     }));
     return [
         ...digits,
-        { id: "channels:submit", keys: "Enter", group: "Jarvis", label: "Submit answer", when: ready, run: submit },
+        { id: "channels:submit", keys: "Enter", group: "Jarvis", label: "Submit answer", paletteHidden: true, when: ready, run: submit },
     ];
 }
 
@@ -428,6 +433,7 @@ export function buildJarvisBindings(): Binding[] {
             keys: "Escape",
             group: "Jarvis",
             label: "Leave the composer",
+            paletteHidden: true,
             // the counterpart to `i`. Guarded on editable only, so `when` stays pure; run() checks *which*
             // field has focus, because the rename box and the subject filter own their own Escape — and
             // blurring the rename box would commit the rename instead of cancelling it.
@@ -456,6 +462,9 @@ export function buildCockpitBindings(): Binding[] {
         group: "Cockpit",
         label,
         when: on,
+        // documentation-only, so a palette row would be a dead button: run() deliberately performs
+        // nothing, and the surface's own onKeyDown never sees a click. The cheat sheet still lists them.
+        paletteHidden: true,
         run: () => false, // never consume — usecockpitkeyboard.ts performs the action
     });
     return [

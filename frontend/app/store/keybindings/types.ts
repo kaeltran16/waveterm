@@ -22,6 +22,11 @@ export interface Binding {
     group: string; // cheat-sheet section, e.g. "Global" | "Navigation" | "Agent"
     label: string; // human text for cheat sheet + which-key bar
     when?: (ctx: KeyContext) => boolean; // default: always active
+    // Excluded from the command palette's derived command list (the cheat sheet still shows it). Set on
+    // postures — keys pressed while looking at the screen rather than actions searched by name — on
+    // multi-press gestures a single row cannot express, and on chords that duplicate a better-labelled
+    // binding. See palette-commands.ts.
+    paletteHidden?: boolean;
     // Return false to explicitly NOT consume the key (let it pass through, e.g. first Ctrl+C to the PTY).
     // Any other return (including void) consumes it.
     run: (ctx: KeyContext) => void | boolean;
