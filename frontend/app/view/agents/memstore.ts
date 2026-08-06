@@ -31,6 +31,20 @@ export const memSelectedIdAtom = atom<string | null>(null) as PrimitiveAtom<stri
 // memSelectedIdAtom; selecting a saved note (selectNote) clears this, and vice versa.
 export const memSelectedPendingPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
+// Where a deep link into Memory should land. Consumed once on mount by the section that owns it, the same
+// shape as pendingRunFocusAtom: the cleanup queue is collapsed by default and its open flag is component
+// state, so an escort that only switched surface would land on a section the user still has to find.
+export const pendingMemoryFocusAtom = atom<"upkeep" | null>(null) as PrimitiveAtom<"upkeep" | null>;
+
+// Read-and-clear, so two mounts cannot both honour one escort.
+export function takePendingMemoryFocus(): "upkeep" | null {
+    const want = globalStore.get(pendingMemoryFocusAtom);
+    if (want != null) {
+        globalStore.set(pendingMemoryFocusAtom, null);
+    }
+    return want;
+}
+
 // Next selection after `removedPath` leaves the pending queue: the note that shifts into its index,
 // else the previous, else the first saved note. Pure so it unit-tests without RPC.
 export function advanceSelection(

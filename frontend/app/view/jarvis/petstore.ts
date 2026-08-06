@@ -11,6 +11,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
+import type { PetActState } from "./petacts";
 import type { PetEvent, PetWatermark } from "./petvoice";
 
 const CORNER_KEY = "wave:pet.corner";
@@ -142,6 +143,23 @@ export function markPetSpoke(at: number): void {
 // navigation lands on the record and this names the card. Cleared by the consumer once honoured, the
 // same shape as pendingRunFocusAtom.
 export const pendingDecisionAnchorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// What each act is doing right now, keyed by PetAct.id. Module-level because the peek unmounts and
+// remounts while the creature does not, so an outcome has to outlive the panel that showed it.
+//
+// Deliberately NOT persisted, unlike the corner and the watermark above: "3 archived" restored from a
+// previous launch would be a claim about this session that nothing verified.
+export const petActStateAtom = atom<Record<string, PetActState>>({}) as PrimitiveAtom<Record<string, PetActState>>;
+
+export function setActState(id: string, state: PetActState): void {
+    globalStore.set(petActStateAtom, { ...globalStore.get(petActStateAtom), [id]: state });
+}
+
+export function clearActState(id: string): void {
+    const next = { ...globalStore.get(petActStateAtom) };
+    delete next[id];
+    globalStore.set(petActStateAtom, next);
+}
 
 // CDP scenarios drive the creature by pushing an event directly: a real volunteered utterance needs a
 // headless CLI judge run (up to 90s) plus a rate gate with a 45-minute quiet window, neither of which a
