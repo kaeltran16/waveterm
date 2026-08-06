@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { eventFromActivity, eventFromResume, eventFromVolunteer, indexSignal, recallLine } from "./petjoin";
+import {
+    eventFromActivity,
+    eventFromResume,
+    eventFromVolunteer,
+    indexSignal,
+    passFromActivity,
+    passLine,
+    recallLine,
+} from "./petjoin";
 
 function status(over: Partial<EmbedIndexStatus>): EmbedIndexStatus {
     return { state: "ok", enabled: true, haskey: true, indexednodes: 0, vaultnodes: 0, stalenodes: 0, ...over };
@@ -224,5 +232,52 @@ describe("eventFromVolunteer", () => {
         expect(eventFromVolunteer({ ...base, title: "  ", text: "  " })).toBeNull();
         expect(eventFromVolunteer(null)).toBeNull();
         expect(eventFromVolunteer(undefined)).toBeNull();
+    });
+});
+
+describe("passFromActivity", () => {
+    it("records a pass with what it covered and what it wrote", () => {
+        expect(
+            passFromActivity(
+                activity({ kind: "distill-batch", ts: 1000, sessions: 8, notes: [{ id: "x", title: "x" }] })
+            )
+        ).toEqual({ at: 1000, sessions: 8, written: 1 });
+    });
+
+    it("records a barren pass rather than dropping it — that is the whole point of the row", () => {
+        expect(passFromActivity(activity({ kind: "distill-batch", ts: 1000, sessions: 8 }))).toEqual({
+            at: 1000,
+            sessions: 8,
+            written: 0,
+        });
+    });
+
+    it("ignores a sweep, which is a different pass with its own utterance", () => {
+        expect(passFromActivity(activity({ kind: "sweep", ts: 1, archived: 2 }))).toBeNull();
+        expect(passFromActivity(null)).toBeNull();
+    });
+});
+
+describe("passLine", () => {
+    it("says so plainly when a pass wrote nothing", () => {
+        expect(passLine({ at: 1_000_000, sessions: 8, written: 0 }, 1_000_000 + 18 * 60_000)).toBe(
+            "18m ago · 8 sessions · nothing written"
+        );
+    });
+
+    it("counts what a productive pass wrote", () => {
+        expect(passLine({ at: 1_000_000, sessions: 8, written: 3 }, 1_000_000 + 18 * 60_000)).toBe(
+            "18m ago · 8 sessions · 3 notes written"
+        );
+    });
+
+    it("singularises one session and one note", () => {
+        expect(passLine({ at: 1_000_000, sessions: 1, written: 1 }, 1_000_000 + 18 * 60_000)).toBe(
+            "18m ago · 1 session · 1 note written"
+        );
+    });
+
+    it("reads as not-read-yet when no pass has been seen", () => {
+        expect(passLine(null, 0)).toBe("not read yet");
     });
 });

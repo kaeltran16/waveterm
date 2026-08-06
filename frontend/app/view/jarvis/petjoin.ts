@@ -11,6 +11,7 @@
 
 import type { PetSignals } from "./petcondition";
 import type { PetEvent } from "./petvoice";
+import { ageLabel } from "./recallderive";
 
 const INDEX_STATES = ["ok", "off", "stale"] as const;
 type IndexState = (typeof INDEX_STATES)[number];
@@ -169,4 +170,30 @@ export function eventFromVolunteer(d: VolunteerData | null | undefined): PetEven
             ? [{ ref: d.ref, anchor: d.anchor || undefined, title: title || d.ref, sourceType: d.sourcetype ?? "" }]
             : undefined,
     };
+}
+
+// The last distillation pass as a LEVEL rather than an event. This is what makes "a pass that wrote nothing
+// says nothing" safe: the fact moves into the peek's readout, where a pipeline running fruitlessly is more
+// visible than it was when it announced itself and told you nothing (design §4.7).
+export interface PetPass {
+    at: number; // epoch ms
+    sessions: number;
+    written: number;
+}
+
+export function passFromActivity(d: MemoryActivityData | null | undefined): PetPass | null {
+    if (d == null || d.kind !== "distill-batch" || !d.ts) {
+        return null;
+    }
+    return { at: d.ts, sessions: d.sessions ?? 0, written: (d.notes ?? []).length };
+}
+
+// ageLabel already supplies its own " ago", so this does not add one.
+export function passLine(pass: PetPass | null, nowMs: number): string {
+    if (pass == null) {
+        return "not read yet"; // the convention every other unread row in the peek already uses
+    }
+    const wrote = pass.written === 0 ? "nothing written" : `${notes(pass.written)} written`;
+    const covered = pass.sessions === 1 ? "1 session" : `${pass.sessions} sessions`;
+    return `${ageLabel(Math.max(0, nowMs - pass.at))} · ${covered} · ${wrote}`;
 }

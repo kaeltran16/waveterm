@@ -30,8 +30,15 @@ import { useEffect, type ReactNode } from "react";
 import { runAct } from "./petactrun";
 import { actsForAttention, actsForEvent, actsForRecall, actsForVault, type PetAct } from "./petacts";
 import { conditionLine, type PetExpression, type PetSignals } from "./petcondition";
-import { recallLine } from "./petjoin";
-import { petActStateAtom, petIndexAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
+import { passLine, recallLine } from "./petjoin";
+import {
+    petActStateAtom,
+    petIndexAtom,
+    petLastPassAtom,
+    petPeekOpenAtom,
+    petSaidAtom,
+    type PetCorner,
+} from "./petstore";
 import { ageLabel } from "./recallderive";
 
 const PLACEMENT: Record<PetCorner, Placement> = {
@@ -181,6 +188,7 @@ export function PetPeek({
     const pruneCandidates = useAtomValue(memPruneAtom);
     const memNotes = useAtomValue(memNotesAtom);
     const memLoaded = useAtomValue(memLoadedAtom);
+    const lastPass = useAtomValue(petLastPassAtom);
     // three-state on purpose: loadMemory() only runs when the Memory surface is visited, so "not scanned"
     // must not read as "note gone" — that would suppress every product's Open button almost always
     const noteExists = (id: string): boolean | undefined => (memLoaded ? memNotes.some((n) => n.id === id) : undefined);
@@ -289,6 +297,9 @@ export function PetPeek({
                                 model={model}
                                 acts={actsForVault(pruneCandidates)}
                             />
+                            {/* a level, not an event: a pass that wrote nothing says nothing (petjoin.ts),
+                                so this row is the only place a fruitlessly-running pipeline shows up */}
+                            <Row label="Last pass" value={passLine(lastPass, now)} dim />
                             <Waiting model={model} />
                         </div>
 

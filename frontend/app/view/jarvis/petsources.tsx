@@ -25,8 +25,8 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useEffect } from "react";
 import { readUntilLanded } from "./petboot";
-import { eventFromActivity, eventFromResume, eventFromVolunteer } from "./petjoin";
-import { petIndexAtom, pushPetEvent } from "./petstore";
+import { eventFromActivity, eventFromResume, eventFromVolunteer, passFromActivity } from "./petjoin";
+import { petIndexAtom, pushPetEvent, recordPass } from "./petstore";
 
 const INDEX_POLL_MS = 15 * 60_000;
 const ACTIVITY_BACKLOG = 20;
@@ -71,7 +71,14 @@ async function loadActivityBacklog(): Promise<boolean> {
             maxitems: ACTIVITY_BACKLOG,
         });
         for (const e of events ?? []) {
-            const mapped = eventFromActivity(e?.data as MemoryActivityData | undefined);
+            const data = e?.data as MemoryActivityData | undefined;
+            // recorded even when it yields no utterance: a pass that wrote nothing is the case the
+            // last-pass row exists for, and dropping it here is what would make it invisible
+            const pass = passFromActivity(data);
+            if (pass != null) {
+                recordPass(pass);
+            }
+            const mapped = eventFromActivity(data);
             if (mapped != null) {
                 pushPetEvent(mapped);
             }
@@ -117,6 +124,10 @@ export function PetSources() {
         const unsub = waveEventSubscribeSingle({
             eventType: "memory:activity",
             handler: (event) => {
+                const pass = passFromActivity(event?.data);
+                if (pass != null) {
+                    recordPass(pass);
+                }
                 const mapped = eventFromActivity(event?.data);
                 if (mapped != null) {
                     pushPetEvent(mapped);
