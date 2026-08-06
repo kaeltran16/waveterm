@@ -22,15 +22,13 @@ import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { tierFromMeta } from "@/app/view/agents/channelmessages";
 import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
-import { memPruneAtom } from "@/app/view/agents/memstore";
+import { memLoadedAtom, memNotesAtom, memPruneAtom } from "@/app/view/agents/memstore";
 import { cn, fireAndForget } from "@/util/util";
 import { autoUpdate, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { useEffect, type ReactNode } from "react";
-import { askAboutSource } from "./jarvissubjectstore";
-import { openORef } from "./openref";
 import { runAct } from "./petactrun";
-import { actsForAttention, actsForRecall, actsForVault, type PetAct } from "./petacts";
+import { actsForAttention, actsForEvent, actsForRecall, actsForVault, type PetAct } from "./petacts";
 import { conditionLine, type PetExpression, type PetSignals } from "./petcondition";
 import { recallLine } from "./petjoin";
 import { petActStateAtom, petIndexAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
@@ -181,6 +179,11 @@ export function PetPeek({
     const open = useAtomValue(petPeekOpenAtom);
     const said = useAtomValue(petSaidAtom);
     const pruneCandidates = useAtomValue(memPruneAtom);
+    const memNotes = useAtomValue(memNotesAtom);
+    const memLoaded = useAtomValue(memLoadedAtom);
+    // three-state on purpose: loadMemory() only runs when the Memory surface is visited, so "not scanned"
+    // must not read as "note gone" — that would suppress every product's Open button almost always
+    const noteExists = (id: string): boolean | undefined => (memLoaded ? memNotes.some((n) => n.id === id) : undefined);
     // the raw status, not signals.index: the panel wants the reason and the drift count, which the narrowed
     // signal deliberately drops — and actsForRecall keys off the same reason to pick its verb
     const indexStatus = useAtomValue(petIndexAtom);
@@ -303,46 +306,12 @@ export function PetPeek({
                                             <span className="text-[11.5px] leading-[1.45] text-secondary">
                                                 {e.text}
                                             </span>
-                                            {/* only volunteered knowledge has somewhere to go; a housekeeping
-                                                utterance must not grow a dead button. The pair lives here rather
-                                                than on the bubble because the bubble auto-dismisses after six
-                                                seconds, and a click target that vanishes mid-reach is a worse
-                                                trap than no target (design §8 decision 3). */}
-                                            {e.source != null ? (
-                                                <div className="mt-1.5 flex gap-2">
-                                                    <button
-                                                        type="button"
-                                                        className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-accent-soft hover:bg-surface-hover"
-                                                        onClick={() => {
-                                                            // close first: an overlay anchored to the creature
-                                                            // left open over a surface it just navigated away
-                                                            // from is stranded
-                                                            close();
-                                                            fireAndForget(() =>
-                                                                openORef(model, e.source!.ref, e.source!.anchor)
-                                                            );
-                                                        }}
-                                                    >
-                                                        Open
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-accent-soft hover:bg-surface-hover"
-                                                        onClick={() => {
-                                                            close();
-                                                            askAboutSource(
-                                                                e.source!.ref,
-                                                                e.source!.sourceType,
-                                                                e.source!.title,
-                                                                `Tell me more about "${e.source!.title}".`
-                                                            );
-                                                            globalStore.set(model.surfaceAtom, "jarvis");
-                                                        }}
-                                                    >
-                                                        Ask
-                                                    </button>
-                                                </div>
-                                            ) : null}
+                                            {/* every product the utterance carries, each with an Open and an Ask.
+                                                A housekeeping utterance carries none and grows no dead button. The
+                                                pair lives here rather than on the bubble because the bubble
+                                                auto-dismisses after six seconds, and a click target that vanishes
+                                                mid-reach is a worse trap than no target (design §8 decision 3). */}
+                                            <Acts model={model} acts={actsForEvent(e, noteExists)} />
                                         </div>
                                     ))}
                                 </div>

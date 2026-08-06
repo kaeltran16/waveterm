@@ -29,7 +29,6 @@ export interface PetEvent {
         | "resume"
         | "sweep"
         | "distill-batch"
-        | "notes-written"
         | "bg-agent-done"
         // volunteered knowledge: what Jarvis knows about your work, not what the system did
         | "recall"
@@ -37,8 +36,10 @@ export interface PetEvent {
         | "loose-end";
     text: string;
     reportedAsCondition?: boolean;
-    // set only on volunteered knowledge; housekeeping events leave it unset and behave as before
-    source?: PetEventSource;
+    // Set on any utterance that has products to open: volunteered knowledge carries one, a distillation
+    // pass carries the notes it wrote. An utterance with none is either housekeeping that produced nothing
+    // openable, or (for a pass) not said at all — see petjoin.ts.
+    sources?: PetEventSource[];
 }
 
 // The last event the creature considered, not merely the last one it said. Both fields are needed: `at`

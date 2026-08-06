@@ -35,7 +35,10 @@ describe("indexSignal", () => {
 describe("recallLine", () => {
     it("distinguishes never-read from read-and-healthy", () => {
         expect(recallLine(null)).toEqual({ text: "not read yet", dim: true });
-        expect(recallLine(status({ state: "ok", indexednodes: 373 }))).toEqual({ text: "ok · 373 indexed", dim: false });
+        expect(recallLine(status({ state: "ok", indexednodes: 373 }))).toEqual({
+            text: "ok · 373 indexed",
+            dim: false,
+        });
     });
 
     it("names why recall is degraded, which is the diagnostic the register exists for", () => {
@@ -62,30 +65,59 @@ describe("recallLine", () => {
     });
 });
 
-describe("eventFromActivity", () => {
+describe("eventFromActivity — a pass carries its products or is not said", () => {
     it("maps a gardener sweep, carrying the archived count", () => {
         const e = eventFromActivity(activity({ kind: "sweep", archived: 12 }));
         expect(e).toMatchObject({ id: "a1", at: 1_700_000_000_000, kind: "sweep" });
-        expect(e?.text).toContain("12 notes");
+        expect(e?.text).toBe("I tidied the vault — 12 notes archived.");
     });
 
-    it("maps a distillation batch and a notes-written event", () => {
-        expect(eventFromActivity(activity({ kind: "distill-batch", sessions: 8 }))?.text).toContain("8 sessions");
-        expect(eventFromActivity(activity({ kind: "notes-written", committed: 3 }))?.text).toContain("3 notes");
+    it("names what a pass wrote and offers each note as a source", () => {
+        const ev = eventFromActivity(
+            activity({
+                kind: "distill-batch",
+                sessions: 8,
+                committed: 3,
+                notes: [
+                    { id: "prefer-tailwind-ab12", title: "prefer tailwind over scss" },
+                    { id: "cgo-header-path-cd34", title: "cgo needs a windows include path" },
+                    { id: "no-jsdom-tests-ef56", title: "no jsdom render tests" },
+                ],
+            })
+        );
+        expect(ev?.text).toBe("I went back over 8 sessions and wrote down 3 things.");
+        expect(ev?.sources?.map((s) => s.ref)).toEqual([
+            "memnote:prefer-tailwind-ab12",
+            "memnote:cgo-header-path-cd34",
+            "memnote:no-jsdom-tests-ef56",
+        ]);
+        expect(ev?.sources?.[0].title).toBe("prefer tailwind over scss");
+        expect(ev?.sources?.[0].sourceType).toBe("memory");
+    });
+
+    // the pass is still REPORTED — petsources records it for the peek's last-pass row — it just does not
+    // become an utterance, because "I did some work" carries nothing to open
+    it("says nothing at all for a pass that wrote nothing", () => {
+        expect(eventFromActivity(activity({ kind: "distill-batch", sessions: 8, notes: [] }))).toBeNull();
+        expect(eventFromActivity(activity({ kind: "distill-batch", sessions: 8 }))).toBeNull();
     });
 
     it("singularises a count of one", () => {
         expect(eventFromActivity(activity({ kind: "sweep", archived: 1 }))?.text).toContain("1 note ");
-        expect(eventFromActivity(activity({ kind: "distill-batch", sessions: 1 }))?.text).toContain("1 session");
+        const one = eventFromActivity(
+            activity({ kind: "distill-batch", sessions: 1, notes: [{ id: "x-ab12", title: "x" }] })
+        );
+        expect(one?.text).toBe("I went back over 1 session and wrote down 1 thing.");
     });
 
-    it("falls back to unnumbered wording when the batch reports no session count", () => {
-        const e = eventFromActivity(activity({ kind: "distill-batch" }));
-        expect(e?.text).toBe("I went back over your recent sessions while you were out.");
+    it("falls back to unnumbered wording when the pass reports no session count", () => {
+        const e = eventFromActivity(activity({ kind: "distill-batch", notes: [{ id: "x", title: "x" }] }));
+        expect(e?.text).toBe("I went back over your recent sessions and wrote down 1 thing.");
     });
 
-    it("rejects a kind the creature has no register for", () => {
+    it("rejects a kind the creature has no register for, including the retired notes-written", () => {
         expect(eventFromActivity(activity({ kind: "reindexed" }))).toBeNull();
+        expect(eventFromActivity(activity({ kind: "notes-written", committed: 3 }))).toBeNull();
     });
 
     // without both, the watermark cannot order the event, so it would either re-speak forever or
@@ -102,7 +134,12 @@ describe("eventFromActivity", () => {
 });
 
 describe("eventFromResume", () => {
-    const card: ResumeCardData = { taskId: "t1", summary: "  paused at the migration step  ", status: "blocked", updated: 1_700_000_000_500 };
+    const card: ResumeCardData = {
+        taskId: "t1",
+        summary: "  paused at the migration step  ",
+        status: "blocked",
+        updated: 1_700_000_000_500,
+    };
 
     it("speaks the narrative, trimmed", () => {
         const e = eventFromResume({ card, runoref: "run:abc" });
@@ -144,30 +181,34 @@ describe("eventFromVolunteer", () => {
         ref: "task:task-a",
     };
 
-    it("maps a payload to an utterance carrying its source", () => {
+    // volunteered knowledge points at exactly one thing, so its `sources` list has exactly one entry — the
+    // field is a list because a distillation pass carries several, not because this register ever does
+    it("maps a payload to an utterance carrying its one source", () => {
         const ev = eventFromVolunteer(base);
         expect(ev).not.toBeNull();
         expect(ev!.kind).toBe("loose-end");
         expect(ev!.at).toBe(900);
         expect(ev!.text).toContain("Finish the migration");
-        expect(ev!.source).toEqual({
-            ref: "task:task-a",
-            anchor: undefined,
-            title: "Finish the migration",
-            sourceType: "dossier",
-        });
+        expect(ev!.sources).toEqual([
+            {
+                ref: "task:task-a",
+                anchor: undefined,
+                title: "Finish the migration",
+                sourceType: "dossier",
+            },
+        ]);
     });
 
     it("carries an anchor through so a decision can name its card", () => {
         const ev = eventFromVolunteer({ ...base, class: "recall", ref: "task:task-p", anchor: "dec-abc123" });
-        expect(ev!.source?.anchor).toBe("dec-abc123");
+        expect(ev!.sources?.[0].anchor).toBe("dec-abc123");
     });
 
     // a payload the backend could not address is still worth saying; it just grows no Open button
     it("keeps an utterance with no ref but leaves it sourceless", () => {
         const ev = eventFromVolunteer({ ...base, ref: "" });
         expect(ev).not.toBeNull();
-        expect(ev!.source).toBeUndefined();
+        expect(ev!.sources).toBeUndefined();
     });
 
     it("rejects an unknown class rather than inventing a label", () => {

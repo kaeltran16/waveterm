@@ -30,7 +30,6 @@ const KIND_LABEL: Record<PetEvent["kind"], string> = {
     resume: "Where we were",
     sweep: "While you were out",
     "distill-batch": "While you were out",
-    "notes-written": "What I wrote down",
     "bg-agent-done": "While you were out",
     recall: "You have been here before",
     connection: "This just connected",

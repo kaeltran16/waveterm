@@ -53,11 +53,22 @@ export function recallLine(status: EmbedIndexStatus | null | undefined): { text:
     return { text: why != null ? `${status.state} — ${why}${drift}` : status.state, dim: false };
 }
 
-const ACTIVITY_KINDS = ["sweep", "distill-batch", "notes-written"] as const;
+const ACTIVITY_KINDS = ["sweep", "distill-batch"] as const;
 type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 function notes(n: number): string {
     return n === 1 ? "1 note" : `${n} notes`;
+}
+
+function things(n: number): string {
+    return n === 1 ? "1 thing" : `${n} things`;
+}
+
+function sessions(n: number | undefined): string {
+    if (n == null || n <= 0) {
+        return "your recent sessions";
+    }
+    return n === 1 ? "1 session" : `${n} sessions`;
 }
 
 // First person, matching conditionLine in petcondition.ts — the creature is Jarvis with a face, not a
@@ -67,18 +78,19 @@ function activityText(kind: ActivityKind, d: MemoryActivityData): string {
         case "sweep":
             return `I tidied the vault — ${notes(d.archived ?? 0)} archived.`;
         case "distill-batch":
-            return d.sessions != null && d.sessions > 0
-                ? `I went back over ${d.sessions === 1 ? "1 session" : `${d.sessions} sessions`} while you were out.`
-                : "I went back over your recent sessions while you were out.";
-        case "notes-written":
-            return `Here is what I wrote down about you — ${notes(d.committed ?? 0)} into the vault.`;
+            return `I went back over ${sessions(d.sessions)} and wrote down ${things((d.notes ?? []).length)}.`;
     }
 }
 
 // A memory:activity event becomes at most one utterance. `reportedAsCondition` is deliberately left unset
-// on all three kinds: the design's report-once rule splits these registers rather than suppressing one
+// on both kinds: the design's report-once rule splits these registers rather than suppressing one
 // (§3, "the event is the transition, the condition is the level"). A sweep that archived twelve notes and a
 // vault that is no longer drifting are two different facts, so both may be reported.
+//
+// A distillation pass that wrote nothing yields NO utterance: an utterance has to carry the thing it is
+// about (design §2 corollary 2), and "I did some work" carries nothing. The pass is still reported — the
+// backend publishes every pass and petsources.tsx records it for the peek's last-pass row — so a pipeline
+// that keeps producing nothing is visible as a level rather than announced as an event.
 export function eventFromActivity(d: MemoryActivityData | null | undefined): PetEvent | null {
     const kind = d?.kind;
     if (d == null || kind == null || !(ACTIVITY_KINDS as readonly string[]).includes(kind)) {
@@ -87,11 +99,17 @@ export function eventFromActivity(d: MemoryActivityData | null | undefined): Pet
     if (!d.id || !d.ts) {
         return null; // no stable id or no timestamp means the watermark cannot order it
     }
+    const written = d.notes ?? [];
+    if (kind === "distill-batch" && written.length === 0) {
+        return null;
+    }
     return {
         id: d.id,
         at: d.ts,
         kind: kind as ActivityKind,
         text: activityText(kind as ActivityKind, d),
+        // memnote:<slug> is the id memvault's scan reports, so openORef routes it with no lookup
+        sources: written.map((n) => ({ ref: `memnote:${n.id}`, title: n.title || n.id, sourceType: "memory" })),
     };
 }
 
@@ -147,8 +165,8 @@ export function eventFromVolunteer(d: VolunteerData | null | undefined): PetEven
         at: d.at,
         kind: cls as VolunteerKind,
         text: body ? `${title} - ${body}` : title,
-        source: d.ref
-            ? { ref: d.ref, anchor: d.anchor || undefined, title: title || d.ref, sourceType: d.sourcetype ?? "" }
+        sources: d.ref
+            ? [{ ref: d.ref, anchor: d.anchor || undefined, title: title || d.ref, sourceType: d.sourcetype ?? "" }]
             : undefined,
     };
 }

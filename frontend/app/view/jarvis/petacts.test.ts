@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { actsForAttention, actsForRecall, actsForVault } from "./petacts";
+import { actsForAttention, actsForEvent, actsForRecall, actsForVault } from "./petacts";
 
 function cand(id: string, reason: string): MemoryPruneCandidate {
     return { id, title: id, type: "learning", reason, path: `/vault/${id}.md` } as MemoryPruneCandidate;
@@ -120,5 +120,36 @@ describe("actsForAttention", () => {
     it("offers nothing at all for an item with no run to address", () => {
         const orphan = { ...gate(), runid: "" } as AttentionItem;
         expect(actsForAttention(orphan, "delegator")).toEqual([]);
+    });
+});
+
+describe("actsForEvent", () => {
+    const ev = {
+        id: "a1",
+        sources: [
+            { ref: "memnote:kept-ab12", title: "kept", sourceType: "memory" },
+            { ref: "memnote:gone-cd34", title: "gone", sourceType: "memory" },
+        ],
+    };
+
+    it("offers Open and Ask for each product", () => {
+        expect(actsForEvent(ev, () => true).map((a) => a.label)).toEqual(["Open kept", "Ask", "Open gone", "Ask"]);
+    });
+
+    it("drops a product the scan says is gone", () => {
+        expect(actsForEvent(ev, (id) => id !== "gone-cd34").map((a) => a.label)).toEqual(["Open kept", "Ask"]);
+    });
+
+    it("keeps every product while the scan is unknown, rather than hiding them all", () => {
+        expect(actsForEvent(ev, () => undefined)).toHaveLength(4);
+    });
+
+    it("never consults the scan for a ref that is not a vault note", () => {
+        const dossier = { id: "v1", sources: [{ ref: "task:task-a", title: "a task", sourceType: "dossier" }] };
+        expect(actsForEvent(dossier, () => false).map((a) => a.label)).toEqual(["Open a task", "Ask"]);
+    });
+
+    it("offers nothing for an utterance with no products", () => {
+        expect(actsForEvent({ id: "x" }, () => true)).toEqual([]);
     });
 });

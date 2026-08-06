@@ -88,13 +88,13 @@ describe("volunteered knowledge", () => {
         at,
         kind: "loose-end",
         text: "Still open - finish the migration",
-        source: { ref: "task:task-a", title: "Finish the migration", sourceType: "dossier" },
+        sources: [{ ref: "task:task-a", title: "Finish the migration", sourceType: "dossier" }],
     });
 
     it("speaks a knowledge utterance like any other event", () => {
         const { utterance, watermark } = nextUtterance([vol("loose-end:task-a:900", 900)], null);
         expect(utterance?.kind).toBe("loose-end");
-        expect(utterance?.source?.ref).toBe("task:task-a");
+        expect(utterance?.sources?.[0].ref).toBe("task:task-a");
         expect(watermark).toEqual({ at: 900, id: "loose-end:task-a:900" });
     });
 

@@ -9,8 +9,10 @@
 // resolves it. A row with genuinely nothing to do returns [] and stays a readout — the rate-limit countdown
 // is that row, and it is honest rather than an omission.
 
-// type-only, so the purity above holds: JarvisTier lives beside the tierFromMeta that produces it
+// type-only, so the purity above holds: JarvisTier lives beside the tierFromMeta that produces it, and
+// petvoice.ts is itself pure so PetEventSource adds no impure dependency either
 import type { JarvisTier } from "@/app/view/agents/channelmessages";
+import type { PetEventSource } from "./petvoice";
 
 // The closed set of executable operations. Closed rather than open so petactrun.ts's dispatch is
 // exhaustive and a new operation cannot be added without wiring it.
@@ -136,5 +138,41 @@ export function actsForAttention(item: AttentionItem, tier: JarvisTier): PetAct[
     });
     // Triage is deliberately absent: it needs a verdict and a one-line reason, which is a form and not a
     // button. The Open escort covers it.
+    return acts;
+}
+
+const MEMNOTE_PREFIX = "memnote:";
+
+// Open and Ask per product. `noteExists` is three-state and passed in rather than read: undefined means
+// "not scanned yet", which must not suppress the button — the memory scan only runs when that surface is
+// visited, so treating unknown as absent would hide almost every Open there is (design §9).
+export function actsForEvent(
+    event: { id: string; sources?: PetEventSource[] },
+    noteExists: (id: string) => boolean | undefined
+): PetAct[] {
+    const acts: PetAct[] = [];
+    for (const s of event.sources ?? []) {
+        const noteId = s.ref.startsWith(MEMNOTE_PREFIX) ? s.ref.slice(MEMNOTE_PREFIX.length) : null;
+        if (noteId != null && noteExists(noteId) === false) {
+            continue; // known absent: openORef would no-op, and a dead click target is worse than none
+        }
+        acts.push({
+            id: `${event.id}:${s.ref}:open`,
+            verb: "open",
+            label: `Open ${s.title}`,
+            target: { kind: "oref", ref: s.ref, anchor: s.anchor },
+        });
+        acts.push({
+            id: `${event.id}:${s.ref}:ask`,
+            verb: "ask",
+            label: "Ask",
+            seed: {
+                ref: s.ref,
+                sourceType: s.sourceType,
+                title: s.title,
+                prompt: `Tell me more about "${s.title}".`,
+            },
+        });
+    }
     return acts;
 }
