@@ -9,9 +9,15 @@
 // resolves it. A row with genuinely nothing to do returns [] and stays a readout — the rate-limit countdown
 // is that row, and it is honest rather than an omission.
 
+// type-only, so the purity above holds: JarvisTier lives beside the tierFromMeta that produces it
+import type { JarvisTier } from "@/app/view/agents/channelmessages";
+
 // The closed set of executable operations. Closed rather than open so petactrun.ts's dispatch is
 // exhaustive and a new operation cannot be added without wiring it.
-export type PetOp = { kind: "reconcile-index" } | { kind: "clear-superseded"; count: number };
+export type PetOp =
+    | { kind: "reconcile-index" }
+    | { kind: "clear-superseded"; count: number }
+    | { kind: "gate"; channelId: string; runId: string; phaseIdx: number; action: "approve" | "sendback" };
 
 // Where an escort lands. An oref goes through the existing openORef; the two surface targets exist because
 // the Memory cleanup queue and the Settings embeddings section are not addressable as orefs.
@@ -90,4 +96,45 @@ export function actsForRecall(status: EmbedIndexStatus | null | undefined): PetA
         return [{ id: "recall:setup", verb: "open", label: "Set up", target: { kind: "settings-embeddings" } }];
     }
     return [{ id: "recall:retry", verb: "do", label: "Retry", op: { kind: "reconcile-index" } }];
+}
+
+// pkg/jarvis/attention.go's kind for a run parked at a review gate. Only this kind has a resolving verb:
+// an escalation needs a written answer and an ask needs a picked option, neither of which is a button.
+const ATTENTION_GATE = "gate";
+
+// The creature holds no tier of its own — there is no client-level or global tier anywhere in the app — so
+// authority is a property of the creature-and-target pair (pet design §6). `tier` is the TARGET channel's,
+// read through tierFromMeta by the caller. Carrying, holding and escorting need no trust model at all,
+// which is why Open is unconditional.
+export function actsForAttention(item: AttentionItem, tier: JarvisTier): PetAct[] {
+    if (!item?.runid) {
+        return []; // nothing addressable: an item with no run cannot be opened or resolved
+    }
+    const acts: PetAct[] = [
+        {
+            id: `${item.key}:open`,
+            verb: "open",
+            label: "Open",
+            target: { kind: "oref", ref: `run:${item.runid}` },
+        },
+    ];
+    if (item.kind !== ATTENTION_GATE || tier !== "delegator") {
+        return acts;
+    }
+    const base = { channelId: item.channelid ?? "", runId: item.runid, phaseIdx: item.phaseidx ?? 0 };
+    acts.push({
+        id: `${item.key}:approve`,
+        verb: "do",
+        label: "Approve",
+        op: { kind: "gate", ...base, action: "approve" },
+    });
+    acts.push({
+        id: `${item.key}:sendback`,
+        verb: "do",
+        label: "Send back",
+        op: { kind: "gate", ...base, action: "sendback" },
+    });
+    // Triage is deliberately absent: it needs a verdict and a one-line reason, which is a form and not a
+    // button. The Open escort covers it.
+    return acts;
 }

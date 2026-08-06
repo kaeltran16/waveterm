@@ -12,6 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { confirmPruneAllSuperseded, memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
+import { approveGate, sendBackGate } from "@/app/view/agents/runactions";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
@@ -70,6 +71,17 @@ async function perform(act: PetAct & { verb: "do" }): Promise<void> {
         // panel's own version of the lie this whole change removes
         setActState(act.id, { status: "running", text: "catching up" });
         watchCatchUp(act.id);
+        return;
+    }
+    if (op.kind === "gate") {
+        if (op.action === "approve") {
+            await approveGate(op.channelId, op.runId, op.phaseIdx);
+        } else {
+            await sendBackGate(op.channelId, op.runId, op.phaseIdx);
+        }
+        // stays "done" rather than clearing: the attention poll drops the item within ten seconds, and
+        // until it does, a resolved gate whose button went quiet would read as a click that missed
+        setActState(act.id, { status: "done", text: op.action === "approve" ? "approved" : "sent back" });
         return;
     }
     if (op.kind === "clear-superseded") {

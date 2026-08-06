@@ -8,6 +8,8 @@ const openORef = vi.fn();
 const askAboutSource = vi.fn();
 const confirmPruneAllSuperseded = vi.fn();
 const embedReconcile = vi.fn();
+const approveGate = vi.fn();
+const sendBackGate = vi.fn();
 
 vi.mock("./openref", () => ({ openORef: (...a: any[]) => openORef(...a) }));
 vi.mock("./jarvissubjectstore", () => ({ askAboutSource: (...a: any[]) => askAboutSource(...a) }));
@@ -21,6 +23,10 @@ vi.mock("@/app/view/agents/memstore", async () => {
         pendingMemoryFocusAtom: atom<"upkeep" | null>(null),
     };
 });
+vi.mock("@/app/view/agents/runactions", () => ({
+    approveGate: (...a: any[]) => approveGate(...a),
+    sendBackGate: (...a: any[]) => sendBackGate(...a),
+}));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: { EmbedReconcileCommand: (...a: any[]) => embedReconcile(...a) },
 }));
@@ -173,5 +179,54 @@ describe("runAct — catch up the index", () => {
         };
         await runAct(model, act);
         expect(globalStore.get(petActStateAtom)["recall:retry"]).toEqual({ status: "error", text: "EC-TIME" });
+    });
+});
+
+describe("runAct — resolve a gate", () => {
+    it("approves through the existing helper and says so on the row", async () => {
+        approveGate.mockResolvedValue(undefined);
+        const act: PetAct = {
+            id: "gate:run1:approve",
+            verb: "do",
+            label: "Approve",
+            op: { kind: "gate", channelId: "ch1", runId: "run1", phaseIdx: 1, action: "approve" },
+        };
+        await runAct(model, act);
+        expect(approveGate).toHaveBeenCalledWith("ch1", "run1", 1);
+        expect(globalStore.get(petActStateAtom)["gate:run1:approve"]).toEqual({
+            status: "done",
+            text: "approved",
+        });
+    });
+
+    it("sends back through the existing helper", async () => {
+        sendBackGate.mockResolvedValue(undefined);
+        const act: PetAct = {
+            id: "gate:run1:sendback",
+            verb: "do",
+            label: "Send back",
+            op: { kind: "gate", channelId: "ch1", runId: "run1", phaseIdx: 1, action: "sendback" },
+        };
+        await runAct(model, act);
+        expect(sendBackGate).toHaveBeenCalledWith("ch1", "run1", 1);
+        expect(globalStore.get(petActStateAtom)["gate:run1:sendback"]).toEqual({
+            status: "done",
+            text: "sent back",
+        });
+    });
+
+    it("reports a refused advance on the act, so a failed approval is never silent", async () => {
+        approveGate.mockRejectedValue(new Error("run is no longer at that gate"));
+        const act: PetAct = {
+            id: "gate:run1:approve",
+            verb: "do",
+            label: "Approve",
+            op: { kind: "gate", channelId: "ch1", runId: "run1", phaseIdx: 1, action: "approve" },
+        };
+        await runAct(model, act);
+        expect(globalStore.get(petActStateAtom)["gate:run1:approve"]).toEqual({
+            status: "error",
+            text: "run is no longer at that gate",
+        });
     });
 });

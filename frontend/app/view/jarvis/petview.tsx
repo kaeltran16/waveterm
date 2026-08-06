@@ -414,7 +414,6 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 corner={corner}
                 signals={signals}
                 expression={expression}
-                posture={posture}
             />
         </>
     );

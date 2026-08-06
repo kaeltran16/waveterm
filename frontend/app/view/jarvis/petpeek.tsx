@@ -18,6 +18,9 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatReset } from "@/app/view/agents/agentsviewmodel";
+import { attentionAtom } from "@/app/view/agents/attentionstore";
+import { tierFromMeta } from "@/app/view/agents/channelmessages";
+import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
 import { memPruneAtom } from "@/app/view/agents/memstore";
 import { cn, fireAndForget } from "@/util/util";
@@ -27,8 +30,8 @@ import { useEffect, type ReactNode } from "react";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 import { runAct } from "./petactrun";
-import { actsForRecall, actsForVault, type PetAct } from "./petacts";
-import { conditionLine, postureLine, type PetExpression, type PetPosture, type PetSignals } from "./petcondition";
+import { actsForAttention, actsForRecall, actsForVault, type PetAct } from "./petacts";
+import { conditionLine, type PetExpression, type PetSignals } from "./petcondition";
 import { recallLine } from "./petjoin";
 import { petActStateAtom, petIndexAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
 import { ageLabel } from "./recallderive";
@@ -115,24 +118,65 @@ function Row({
     );
 }
 
+// The waiting row was one sentence for any number of waiting things. It is the items themselves now: what
+// is waiting, how long it has waited, and what you can do about it without leaving the panel.
+//
+// Authority is per target, not per creature: the tier comes from the channel the item belongs to, so the
+// same panel offers Approve on a delegator channel and only Open on a gatekeeper one.
+function Waiting({ model }: { model: AgentsViewModel }) {
+    const items = useAtomValue(attentionAtom);
+    const channels = useAtomValue(channelsAtom);
+    const now = useAtomValue(model.nowAtom);
+    if (items.length === 0) {
+        return <Row label="Waiting" value="nothing waiting" dim />;
+    }
+    return (
+        <div className="flex items-baseline gap-2">
+            <span className="w-[52px] flex-none font-mono text-[9.5px] font-semibold uppercase tracking-[.09em] text-muted">
+                Waiting
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+                {items.map((item) => {
+                    const channel = (channels ?? []).find((c) => c.oid === item.channelid);
+                    const tier = tierFromMeta(channel?.meta);
+                    return (
+                        <div key={item.key} className="flex flex-col gap-0.5">
+                            <span className="text-[11.5px] leading-[1.45] text-secondary">
+                                {item.source || item.text}
+                            </span>
+                            {/* ageLabel already carries its own "ago", so the age stands alone here rather
+                                than under a "waiting" prefix that would read "waiting 18m ago" */}
+                            <span className="font-mono text-[9.5px] text-muted">
+                                {item.action} · {ageLabel(Math.max(0, now - item.waitingsince))}
+                            </span>
+                            <Acts model={model} acts={actsForAttention(item, tier)} />
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 function SectionLabel({ children }: { children: ReactNode }) {
     return <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">{children}</span>;
 }
 
+// No `posture` prop any more: the waiting row used to render postureLine(posture), a single sentence for any
+// number of waiting things. It reads attentionAtom directly now (see Waiting above). postureLine stays in
+// petcondition.ts — the creature's face and the bubble still speak in posture.
 export function PetPeek({
     model,
     anchor,
     corner,
     signals,
     expression,
-    posture,
 }: {
     model: AgentsViewModel;
     anchor: HTMLElement | null;
     corner: PetCorner;
     signals: PetSignals;
     expression: PetExpression;
-    posture: PetPosture;
 }) {
     const open = useAtomValue(petPeekOpenAtom);
     const said = useAtomValue(petSaidAtom);
@@ -242,11 +286,7 @@ export function PetPeek({
                                 model={model}
                                 acts={actsForVault(pruneCandidates)}
                             />
-                            <Row
-                                label="Waiting"
-                                value={posture === "none" ? "nothing waiting" : postureLine(posture)}
-                                dim={posture === "none"}
-                            />
+                            <Waiting model={model} />
                         </div>
 
                         <div className="flex flex-col gap-2 border-t border-border pt-2.5">
