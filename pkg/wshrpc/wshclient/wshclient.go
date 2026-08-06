@@ -674,6 +674,12 @@ func GitDivergenceCommand(w *wshutil.WshRpc, data wshrpc.CommandGitDivergenceDat
 	return resp, err
 }
 
+// command "gitgrep", wshserver.GitGrepCommand
+func GitGrepCommand(w *wshutil.WshRpc, data wshrpc.CommandGitGrepData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitGrepRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitGrepRtnData](w, "gitgrep", data, opts)
+	return resp, err
+}
+
 // command "githistory", wshserver.GitHistoryCommand
 func GitHistoryCommand(w *wshutil.WshRpc, data wshrpc.CommandGitHistoryData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitHistoryRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitHistoryRtnData](w, "githistory", data, opts)

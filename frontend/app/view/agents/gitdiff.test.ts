@@ -1,6 +1,6 @@
 // frontend/app/view/agents/gitdiff.test.ts
 import { describe, expect, it } from "vitest";
-import { parseUnifiedDiff, plainFileView } from "./gitdiff";
+import { firstChangedLine, parseUnifiedDiff, plainFileView } from "./gitdiff";
 
 const DIFF = [
     "diff --git a/src/x.ts b/src/x.ts",
@@ -170,5 +170,21 @@ describe("parseUnifiedDiff hunks", () => {
         const combined = v.diffHeader + v.hunks.map((h) => h.body).join("");
         expect(combined).toContain("+X2");
         expect(combined).toContain("+X9");
+    });
+});
+
+describe("firstChangedLine", () => {
+    it("returns the new-side number of the first added line", () => {
+        const view = parseUnifiedDiff(["@@ -10,3 +10,4 @@", " ctx one", "+added here", " ctx two"].join("\n"));
+        expect(firstChangedLine(view)).toBe(11);
+    });
+
+    it("falls back to the first numbered line for a deletion-only hunk", () => {
+        const view = parseUnifiedDiff(["@@ -10,3 +10,2 @@", " ctx one", "-gone", " ctx two"].join("\n"));
+        expect(firstChangedLine(view)).toBe(10);
+    });
+
+    it("returns undefined when there is nothing to land on", () => {
+        expect(firstChangedLine(parseUnifiedDiff(""))).toBeUndefined();
     });
 });

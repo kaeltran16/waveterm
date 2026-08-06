@@ -19,9 +19,10 @@ import { useEffect, useMemo, useState } from "react";
 import { MOTION } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine } from "@/app/element/skeleton";
+import { openInCode } from "@/app/view/code/codestore";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { type DiffLine, type FileView } from "./gitdiff";
+import { firstChangedLine, type DiffLine, type FileView } from "./gitdiff";
 import { StatusDot } from "./statusdot";
 import { filesErrorAtom, filesStateAtom, loadFilesForScope, type FilesProject } from "./filesstore";
 import { availableRanges, historyOptsFor, rangeKey, rangeSummary, scopeKey } from "./diffscope";
@@ -251,7 +252,19 @@ function DiffRow({ line }: { line: DiffLine }) {
     );
 }
 
-function CenterPane({ path, view, cwd }: { path: string | null; view: FileView | null; cwd: string | null }) {
+function CenterPane({
+    path,
+    view,
+    editorCwd,
+    repoCwd,
+    model,
+}: {
+    path: string | null;
+    view: FileView | null;
+    editorCwd: string | null;
+    repoCwd: string | null;
+    model: AgentsViewModel;
+}) {
     return (
         <motion.div
             key={path ?? "__empty__"}
@@ -268,9 +281,25 @@ function CenterPane({ path, view, cwd }: { path: string | null; view: FileView |
                         <span className="min-w-0 truncate font-mono text-[13px] font-semibold">{path}</span>
                         <div className="flex-1" />
                         <span className="flex-none font-mono text-[11px] text-ink-mid">Read-only</span>
-                        {cwd && (
+                        {repoCwd && (
                             <button
-                                onClick={() => getApi().openExternal(joinRepoPath(cwd, path))}
+                                onClick={() =>
+                                    fireAndForget(() =>
+                                        openInCode(model, {
+                                            projectPath: repoCwd,
+                                            rel: path,
+                                            line: view != null ? firstChangedLine(view) : undefined,
+                                        })
+                                    )
+                                }
+                                className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
+                            >
+                                Open in Code
+                            </button>
+                        )}
+                        {editorCwd && (
+                            <button
+                                onClick={() => getApi().openExternal(joinRepoPath(editorCwd, path))}
                                 className="flex-none rounded border border-border px-[11px] py-[6px] text-[12px] text-ink-mid hover:text-foreground"
                             >
                                 Open in editor ↗
@@ -691,7 +720,11 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 path={compareOn ? compareFile : selectedFile}
                                 view={compareOn ? compareDiff : activeDiff}
                                 // "Open in editor" only makes sense for a path that exists in the working tree
-                                cwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
+                                editorCwd={!compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null}
+                                // "Open in Code" wants only the repository: the Code surface always shows the
+                                // working-tree file, and says so itself when the path is gone
+                                repoCwd={state?.cwd ?? null}
+                                model={model}
                             />
                         </div>
                     </div>

@@ -21,7 +21,20 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
-import { codeFinderOpenAtom, goBack, goForward, refreshIndex, saveCurrent } from "@/app/view/code/codestore";
+import {
+    codeCursorAtom,
+    codeFinderOpenAtom,
+    codeRowsAtom,
+    codeTreeFocusedAtom,
+    goBack,
+    goForward,
+    openPath,
+    refreshIndex,
+    saveCurrent,
+    toggleDir,
+} from "@/app/view/code/codestore";
+import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
+import { treeKeyAction, type TreeKey } from "@/app/view/code/codetreekeys";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
@@ -664,6 +677,28 @@ export function buildFilesBindings(): Binding[] {
 
 export function buildCodeBindings(): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "code" && !ctx.editable && !ctx.modalOpen;
+    // Live whenever the tree pane holds focus — NOT gated on !editable, because the editor is
+    // writable and the caret sits in Monaco most of the time. Focus is read from an atom, not the
+    // DOM: store.test.ts evaluates every `when` in vitest's node environment, where document is
+    // undefined.
+    const inTree = (ctx: KeyContext) =>
+        ctx.surface === "code" && !ctx.modalOpen && globalStore.get(codeTreeFocusedAtom);
+    const treeKey = (key: TreeKey) => (): void | boolean => {
+        const action = treeKeyAction(globalStore.get(codeRowsAtom), globalStore.get(codeCursorAtom), key);
+        switch (action.kind) {
+            case "move":
+                globalStore.set(codeCursorAtom, action.path);
+                return;
+            case "toggle":
+                toggleDir(action.path);
+                return;
+            case "open":
+                void openPath(action.path);
+                return;
+            case "none":
+                return false; // nothing to do here — let the key pass
+        }
+    };
     return [
         // The file finder has no chord of its own: the global "palette" binding owns Ctrl+P and
         // routes it here whenever this surface is active.
@@ -708,6 +743,99 @@ export function buildCodeBindings(): Binding[] {
             when: (ctx) => ctx.surface === "code",
             run: () => {
                 void saveCurrent();
+            },
+        },
+        {
+            id: "code:tree-next",
+            keys: "j",
+            group: "Code",
+            label: "Next file or folder",
+            when: inTree,
+            run: treeKey("next"),
+        },
+        {
+            id: "code:tree-prev",
+            keys: "k",
+            group: "Code",
+            label: "Previous file or folder",
+            when: inTree,
+            run: treeKey("prev"),
+        },
+        {
+            id: "code:tree-next-arrow",
+            keys: "ArrowDown",
+            group: "Code",
+            label: "Next file or folder",
+            when: inTree,
+            run: treeKey("next"),
+        },
+        {
+            id: "code:tree-prev-arrow",
+            keys: "ArrowUp",
+            group: "Code",
+            label: "Previous file or folder",
+            when: inTree,
+            run: treeKey("prev"),
+        },
+        {
+            id: "code:tree-collapse",
+            keys: "ArrowLeft",
+            group: "Code",
+            label: "Collapse folder",
+            when: inTree,
+            run: treeKey("collapse"),
+        },
+        {
+            id: "code:tree-expand",
+            keys: "ArrowRight",
+            group: "Code",
+            label: "Expand folder",
+            when: inTree,
+            run: treeKey("expand"),
+        },
+        {
+            id: "code:tree-activate",
+            keys: "Enter",
+            group: "Code",
+            label: "Open file / toggle folder",
+            when: inTree,
+            run: treeKey("activate"),
+        },
+        {
+            id: "code:search",
+            keys: "Ctrl:Shift:f",
+            group: "Code",
+            label: "Search file contents",
+            // like the file finder's Ctrl+P and save's Ctrl+S, deliberately NOT gated on !editable:
+            // the caret is in Monaco when you want this, so a bare letter would be unreachable
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => globalStore.set(codeSearchModeAtom, "search"),
+        },
+        {
+            id: "code:focus-tree",
+            keys: "Alt:t",
+            group: "Code",
+            label: "Focus the file tree",
+            // reaching the tree from a writable editor needs a modified key; a bare letter is
+            // swallowed by Monaco, which is why the finder moved to Ctrl+P
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                // a DOM read in `run` is the established convention here (see files:compare)
+                document.querySelector<HTMLElement>("[data-code-tree]")?.focus();
+            },
+        },
+        {
+            id: "code:focus-editor",
+            keys: "Alt:e",
+            group: "Code",
+            label: "Focus the editor",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                const ta = document.querySelector<HTMLTextAreaElement>(".monaco-editor textarea");
+                if (ta == null) {
+                    return false; // no editor open — let the key pass
+                }
+                ta.focus();
             },
         },
     ];

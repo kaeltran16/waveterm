@@ -852,6 +852,18 @@ declare global {
         isrepo: boolean;
     };
 
+    // wshrpc.CommandGitGrepData
+    type CommandGitGrepData = {
+        cwd: string;
+        query: string;
+    };
+
+    // wshrpc.CommandGitGrepRtnData
+    type CommandGitGrepRtnData = {
+        matches: GitGrepMatch[];
+        truncated?: boolean;
+    };
+
     // wshrpc.CommandGitHistoryData
     type CommandGitHistoryData = {
         cwd: string;
@@ -1794,6 +1806,13 @@ declare global {
         command: string;
         exitcode: number;
         stderr: string;
+    };
+
+    // wshrpc.GitGrepMatch
+    type GitGrepMatch = {
+        path: string;
+        line: number;
+        text: string;
     };
 
     // wshrpc.GraphLink
