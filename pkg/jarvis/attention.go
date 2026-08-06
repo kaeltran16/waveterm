@@ -106,6 +106,7 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 				Source:       run.Goal,
 				Text:         "Approve before Jarvis proceeds.",
 				Action:       "Review",
+				PhaseIdx:     idx,
 				WaitingSince: run.Phases[idx].DoneTs,
 			})
 		}

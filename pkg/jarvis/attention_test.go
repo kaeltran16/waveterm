@@ -135,3 +135,28 @@ func TestBuildAttentionResolvesAnAskToItsOwningRun(t *testing.T) {
 		t.Fatalf("ask should carry its owning run: %+v", items)
 	}
 }
+
+// The frontend must be able to resolve a gate without re-deriving which phase it is: reviewGateIdx encodes
+// a precedence rule, and a second implementation in TypeScript is how the two drift. The gate sits at index
+// 1 here on purpose — index 0 would pass against a hardcoded zero.
+func TestBuildAttentionCarriesTheGatePhaseIndex(t *testing.T) {
+	run := &waveobj.Run{
+		ID:     "r1",
+		Goal:   "refactor the parser",
+		Status: "awaiting-review",
+		Phases: []waveobj.RunPhase{
+			{Kind: "scope", State: "done", DoneTs: 400},
+			{Kind: "plan", State: "done", Gate: true, DoneTs: 1000},
+			{Kind: "execute", State: "pending"},
+		},
+	}
+	items := BuildAttention(AttentionInput{Channels: []AttentionChannel{
+		{OID: "c1", Name: "wave", Runs: []*waveobj.Run{run}},
+	}})
+	if len(items) != 1 {
+		t.Fatalf("expected one gate item, got %d: %+v", len(items), items)
+	}
+	if items[0].PhaseIdx != 1 {
+		t.Errorf("PhaseIdx = %d, want 1 (the gate phase reviewGateIdx found)", items[0].PhaseIdx)
+	}
+}

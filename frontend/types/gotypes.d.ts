@@ -138,6 +138,7 @@ declare global {
         source: string;
         text: string;
         action: string;
+        phaseidx: number;
         waitingsince: number;
     };
 

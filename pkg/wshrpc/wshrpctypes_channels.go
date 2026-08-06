@@ -114,7 +114,8 @@ type AttentionItem struct {
 	RunId        string `json:"runid,omitempty"`
 	Source       string `json:"source"` // the run's goal, or the worker's name
 	Text         string `json:"text"`
-	Action       string `json:"action"` // Review | Decide | Answer
+	Action       string `json:"action"`   // Review | Decide | Answer
+	PhaseIdx     int    `json:"phaseidx"` // gate items only: the phase AdvanceRun must address to approve or send back
 	WaitingSince int64  `json:"waitingsince"`
 }
 
