@@ -24,3 +24,27 @@ describe("orefNavPlan", () => {
         expect(orefNavPlan(":x").kind).toBe("unsupported");
     });
 });
+
+describe("volunteered-knowledge routes", () => {
+    it("classifies a memory note address", () => {
+        expect(orefNavPlan("memnote:mem-abc123")).toEqual({ kind: "memnote", oid: "mem-abc123" });
+    });
+
+    it("still classifies the existing routes", () => {
+        expect(orefNavPlan("task:task-a").kind).toBe("task");
+        expect(orefNavPlan("run:run-9").kind).toBe("run");
+        expect(orefNavPlan("channel:c1").kind).toBe("channel");
+    });
+
+    // a decision stays unroutable on purpose: it is rendered inside its parent record's thread, so the
+    // backend addresses that record and passes the decision id as an anchor instead.
+    it("leaves a bare decision address unsupported", () => {
+        expect(orefNavPlan("decision:dec-abc123").kind).toBe("unsupported");
+    });
+
+    it("treats a malformed address as unsupported rather than throwing", () => {
+        expect(orefNavPlan("memnote:").kind).toBe("unsupported");
+        expect(orefNavPlan("").kind).toBe("unsupported");
+        expect(orefNavPlan("decision").kind).toBe("unsupported");
+    });
+});

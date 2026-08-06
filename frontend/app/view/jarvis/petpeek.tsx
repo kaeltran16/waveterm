@@ -19,10 +19,12 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatReset } from "@/app/view/agents/agentsviewmodel";
 import { providerLabel } from "@/app/view/agents/cockpitrailmodel";
-import { cn } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { autoUpdate, offset, shift, useFloating, type Placement } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { useEffect, type ReactNode } from "react";
+import { askAboutSource } from "./jarvissubjectstore";
+import { openORef } from "./openref";
 import { conditionLine, postureLine, type PetExpression, type PetPosture, type PetSignals } from "./petcondition";
 import { recallLine } from "./petjoin";
 import { petIndexAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
@@ -191,6 +193,46 @@ export function PetPeek({
                                             {e.kind} · {ageLabel(Math.max(0, now - e.at))}
                                         </span>
                                         <span className="text-[11.5px] leading-[1.45] text-secondary">{e.text}</span>
+                                        {/* only volunteered knowledge has somewhere to go; a housekeeping
+                                            utterance must not grow a dead button. The pair lives here rather
+                                            than on the bubble because the bubble auto-dismisses after six
+                                            seconds, and a click target that vanishes mid-reach is a worse
+                                            trap than no target (design §8 decision 3). */}
+                                        {e.source != null ? (
+                                            <div className="mt-1.5 flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-accent-soft hover:bg-surface-hover"
+                                                    onClick={() => {
+                                                        // close first: an overlay anchored to the creature
+                                                        // left open over a surface it just navigated away
+                                                        // from is stranded
+                                                        close();
+                                                        fireAndForget(() =>
+                                                            openORef(model, e.source!.ref, e.source!.anchor)
+                                                        );
+                                                    }}
+                                                >
+                                                    Open
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-accent-soft hover:bg-surface-hover"
+                                                    onClick={() => {
+                                                        close();
+                                                        askAboutSource(
+                                                            e.source!.ref,
+                                                            e.source!.sourceType,
+                                                            e.source!.title,
+                                                            `Tell me more about "${e.source!.title}".`
+                                                        );
+                                                        globalStore.set(model.surfaceAtom, "jarvis");
+                                                    }}
+                                                >
+                                                    Ask
+                                                </button>
+                                            </div>
+                                        ) : null}
                                     </div>
                                 ))}
                             </div>

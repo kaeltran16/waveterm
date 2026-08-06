@@ -25,7 +25,7 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useEffect } from "react";
 import { readUntilLanded } from "./petboot";
-import { eventFromActivity, eventFromResume } from "./petjoin";
+import { eventFromActivity, eventFromResume, eventFromVolunteer } from "./petjoin";
 import { petIndexAtom, pushPetEvent } from "./petstore";
 
 const INDEX_POLL_MS = 15 * 60_000;
@@ -79,6 +79,27 @@ async function loadActivityBacklog(): Promise<boolean> {
     }
 }
 
+// scope "" for the same reason as the memory-activity read above: the event is published scope-less,
+// because it is a fact about your work rather than about one object.
+async function loadVolunteerBacklog(): Promise<boolean> {
+    try {
+        const events = await RpcApi.EventReadHistoryCommand(TabRpcClient, {
+            event: "jarvis:volunteer",
+            scope: "",
+            maxitems: ACTIVITY_BACKLOG,
+        });
+        for (const e of events ?? []) {
+            const mapped = eventFromVolunteer(e?.data as VolunteerData | undefined);
+            if (mapped != null) {
+                pushPetEvent(mapped);
+            }
+        }
+        return true;
+    } catch {
+        return false; // the live subscription still covers anything from here on
+    }
+}
+
 export function PetSources() {
     useEffect(() => {
         // Retried until each lands: all three are one-shot or near-enough (15 min), so a read lost to a
@@ -87,6 +108,7 @@ export function PetSources() {
         const live = () => mounted;
         void readUntilLanded({ read: loadLaunchNarrative, live });
         void readUntilLanded({ read: loadActivityBacklog, live });
+        void readUntilLanded({ read: loadVolunteerBacklog, live });
         void readUntilLanded({ read: loadIndexStatus, live });
         const t = setInterval(() => void loadIndexStatus(), INDEX_POLL_MS);
         const unsub = waveEventSubscribeSingle({
@@ -98,10 +120,20 @@ export function PetSources() {
                 }
             },
         });
+        const unsubVolunteer = waveEventSubscribeSingle({
+            eventType: "jarvis:volunteer",
+            handler: (event) => {
+                const mapped = eventFromVolunteer(event?.data);
+                if (mapped != null) {
+                    pushPetEvent(mapped);
+                }
+            },
+        });
         return () => {
             mounted = false;
             clearInterval(t);
             unsub();
+            unsubVolunteer();
         };
     }, []);
     return null;

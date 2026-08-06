@@ -10,12 +10,35 @@
 //     condition level, so it is skipped here — but it still advances the watermark, because it *was*
 //     reported. Speaking it too would count the gardener's sweep twice.
 
+// Where a knowledge utterance points. `ref` is a frontend navigation address (see openref.ts), which
+// may carry a vault node id inside an oref-shaped string — the same thing askAboutRecord already does
+// with "task:"+dossierId. `anchor` names a sub-object to highlight within `ref`, which is how a
+// decision addresses its parent record's thread: decisionlog.tsx renders it, so it has no route of
+// its own.
+export interface PetEventSource {
+    ref: string;
+    anchor?: string;
+    title: string;
+    sourceType: string; // dossier | decision | memory | run
+}
+
 export interface PetEvent {
     id: string; // stable across reloads; the watermark compares against it
     at: number; // epoch ms
-    kind: "resume" | "sweep" | "distill-batch" | "notes-written" | "bg-agent-done";
+    kind:
+        | "resume"
+        | "sweep"
+        | "distill-batch"
+        | "notes-written"
+        | "bg-agent-done"
+        // volunteered knowledge: what Jarvis knows about your work, not what the system did
+        | "recall"
+        | "connection"
+        | "loose-end";
     text: string;
     reportedAsCondition?: boolean;
+    // set only on volunteered knowledge; housekeeping events leave it unset and behave as before
+    source?: PetEventSource;
 }
 
 // The last event the creature considered, not merely the last one it said. Both fields are needed: `at`

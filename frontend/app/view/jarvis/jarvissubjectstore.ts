@@ -13,7 +13,7 @@ import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import type { JarvisScope } from "./jarviscontract";
+import type { JarvisScope, SourceType } from "./jarviscontract";
 import {
     getConversation,
     profileRailOpenAtom,
@@ -238,14 +238,55 @@ export function conversationForSource(oref: string, scope: JarvisScope): string 
     return id;
 }
 
-export function askAboutRecord(dossierId: string, objective: string, text: string): void {
-    const oref = "task:" + dossierId;
+// A chip is a short badge, so it names the KIND of source and lets the attachment carry the full title.
+// Same convention as contextualentry.tsx's CHIP_LABEL, which is the newer of the two patterns here.
+const SOURCE_CHIP_LABEL: Partial<Record<SourceType, string>> = {
+    task: "This record",
+    decision: "This decision",
+    memory: "This memory",
+    run: "This Run",
+};
+
+const SOURCE_TYPES: readonly string[] = [
+    "memory",
+    "decision",
+    "run",
+    "channel",
+    "radar",
+    "commit",
+    "agent",
+    "session",
+    "task",
+];
+
+// The vault names a record's type "dossier" (pkg/jarvisdossier), which is what the volunteer payload
+// carries; this union calls the same thing "task", which is also its oref prefix. Narrowed here rather
+// than widening SourceType, so the wire keeps the backend's vocabulary and the view keeps one. Null for
+// a type this union does not know, so the caller labels it generically instead of asserting a kind.
+function asSourceType(raw: string): SourceType | null {
+    const alias = raw === "dossier" ? "task" : raw;
+    return SOURCE_TYPES.includes(alias) ? (alias as SourceType) : null;
+}
+
+// Ask Jarvis about any grounding source. conversationForSource keys one thread per source oref, so
+// asking twice about the same utterance continues one thread rather than minting duplicates — the
+// property the jarvis-contextual CDP scenario guards.
+export function askAboutSource(oref: string, sourceType: string, title: string, text: string): void {
+    const narrowed = asSourceType(sourceType);
     const convId = conversationForSource(oref, {
         mode: "object",
-        chips: [{ label: dossierId, active: true }],
-        attached: [{ oref, sourceType: "task", title: objective }],
+        chips: [{ label: (narrowed != null ? SOURCE_CHIP_LABEL[narrowed] : null) ?? "This source", active: true }],
+        // the field is required, so an unknown type still needs a value; it drives the chip and the
+        // grounding icon only — navigation reads the oref — so the cost is a generic badge, never a
+        // wrong destination
+        attached: [{ oref, sourceType: narrowed ?? "task", title }],
     });
     submitJarvisQuery(convId, text);
+}
+
+// kept so existing callers do not change: a record is one source type among several
+export function askAboutRecord(dossierId: string, objective: string, text: string): void {
+    askAboutSource("task:" + dossierId, "task", objective, text);
 }
 
 // The cache-guarded read: a band that opens the same record twice must not refetch it. Every mutation

@@ -33,6 +33,7 @@ const (
 	Event_AgentStatus         = "agent:status"         // type: baseds.AgentStatusData
 	Event_AgentAsk            = "agent:ask"            // type: baseds.AgentAskData
 	Event_MemoryActivity      = "memory:activity"      // type: baseds.MemoryActivityData
+	Event_JarvisVolunteer     = "jarvis:volunteer"     // type: baseds.VolunteerData
 )
 
 var AllEvents []string = []string{
@@ -54,6 +55,7 @@ var AllEvents []string = []string{
 	Event_AgentStatus,
 	Event_AgentAsk,
 	Event_MemoryActivity,
+	Event_JarvisVolunteer,
 }
 
 type WaveEvent struct {

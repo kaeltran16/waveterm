@@ -3128,6 +3128,18 @@ declare global {
         body?: string;
     };
 
+    // baseds.VolunteerData
+    type VolunteerData = {
+        class: string;
+        id: string;
+        at: number;
+        title: string;
+        text: string;
+        sourcetype?: string;
+        ref?: string;
+        anchor?: string;
+    };
+
     type WSCommandType = {
         wscommand: string;
     } & ( WSRpcCommand );

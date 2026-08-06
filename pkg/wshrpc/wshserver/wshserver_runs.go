@@ -15,6 +15,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
 	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
 	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
+	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -120,6 +121,12 @@ func sealDoneRunEvidence(channelId, runId string) {
 	}
 	// run: carries the sealed evidence to the focused view (RunCompletion needs status==done && evidence).
 	publishRunUpdate(channelId, runId)
+	// the connection producer stamps its candidate from the run's CompletedTs, which the UpdateRun above
+	// is what makes durable. Triggering at the rest transition instead would race this seal and always
+	// read an unstamped run. Detached: the judge is a headless CLI process.
+	jarvisvolunteer.EvaluateAsync(jarvisvolunteer.Trigger{
+		Kind: jarvisvolunteer.TriggerRunRest, ChannelID: channelId, RunID: runId,
+	})
 }
 
 // spawnRunWorkers reads the run back, spawns workers for any newly-running phase, and persists the
@@ -300,6 +307,11 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 			}
 		}
 		writeProactive(pctx, data.ChannelId, run.ID, *sug)
+		// the recall producer reads the suggestion this block just persisted, so it must run after the
+		// write, not beside it. Detached: the judge is a headless CLI process.
+		jarvisvolunteer.EvaluateAsync(jarvisvolunteer.Trigger{
+			Kind: jarvisvolunteer.TriggerRunCreated, ChannelID: data.ChannelId, RunID: run.ID,
+		})
 	})
 	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
 		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry

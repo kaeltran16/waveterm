@@ -2746,6 +2746,105 @@ const jarvisAvatar = {
     },
 };
 
+// --- jarvis volunteer: the volunteered-knowledge delivery chain ---------------------------------
+// The unit tests cover each hop in isolation; what they structurally cannot see is a bad hop BETWEEN
+// atoms, which is the defect class this surface's findings keep landing in. So this drives the whole
+// chain in the real app: push a knowledge utterance -> the creature speaks it -> the peek lists it with
+// Open and Ask -> Open lands on the Jarvis surface.
+//
+// It injects the pet event rather than arranging a real utterance. A real one needs a headless CLI judge
+// run (up to 90s) behind a 45-minute quiet window, which is the same live-model limit that keeps the
+// cancel path and the thread-archive path unit-only (docs/jarvis-tab.md). The hook is dev-only, exposed
+// by petstore.ts under import.meta.env.DEV.
+const jarvisVolunteer = {
+    name: "jarvis-volunteer",
+    surface: "cockpit", // the creature lives in window chrome, so any surface will do; start neutral
+    async arrange() {
+        return { id: `loose-end:cdp-probe:${Date.now()}` };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+
+        const pushed = await h.ev(`(() => {
+            const mod = globalThis.__wavePetStore;
+            if (mod == null) return "petstore test hook not exposed (dev build?)";
+            mod.pushPetEvent({
+                id: ${JSON.stringify(ctx.id)},
+                at: Date.now(),
+                kind: "loose-end",
+                text: "CDP probe - untouched for 21 days",
+                source: { ref: "task:cdp-probe", title: "CDP probe", sourceType: "dossier" },
+            });
+            return true;
+        })()`);
+        // the speak effect runs on the events atom, then the bubble mounts
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true, detail: String(pushed) });
+        await h.shot("cdp-shots/jarvis-volunteer-bubble.png");
+
+        // the bubble carries the register's label, which is the compiler-enforced half of the vocabulary
+        const spoke = await h.ev(
+            `(document.body.innerText || "").includes("Still open") && (document.body.innerText || "").includes("CDP probe")`
+        );
+        steps.push({ step: 'bubble speaks it under the "Still open" register', ok: spoke === true, detail: String(spoke) });
+
+        // open the peek: the two verbs live there, not on the bubble, which auto-dismisses after 6s
+        const opened = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')]
+                .find((x) => x.getAttribute('aria-label') === 'Jarvis condition');
+            if (!b) return "no creature control";
+            b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        steps.push({ step: "peek opens from the creature", ok: opened === true, detail: String(opened) });
+        await h.shot("cdp-shots/jarvis-volunteer-peek.png");
+
+        const verbs = await h.ev(`(() => {
+            const btns = [...document.querySelectorAll('button')].map((b) => (b.innerText || '').trim());
+            return { open: btns.includes('Open'), ask: btns.includes('Ask') };
+        })()`);
+        steps.push({
+            step: "peek row offers Open and Ask",
+            ok: verbs?.open === true && verbs?.ask === true,
+            detail: JSON.stringify(verbs),
+        });
+
+        const clicked = await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.innerText || '').trim() === 'Open');
+            if (!b) return "no Open control";
+            b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const landed = await h.activeSurfaceLabel();
+        steps.push({
+            step: "Open navigates to the Jarvis surface",
+            ok: clicked === true && landed === SURFACE_LABEL.jarvis,
+            detail: `clicked=${clicked} surface=${landed}`,
+        });
+        await h.shot("cdp-shots/jarvis-volunteer-opened.png");
+
+        // and it closes the peek on the way out: an overlay anchored to the creature, left open over a
+        // surface it just navigated away from, is stranded
+        const peekClosed = await h.ev(
+            `![...document.querySelectorAll('button')].some((b) => (b.innerText || '').trim() === 'Esc')`
+        );
+        steps.push({ step: "peek closed on navigation", ok: peekClosed === true, detail: String(peekClosed) });
+
+        return steps;
+    },
+    async teardown(h) {
+        await h.ev(`(() => {
+            try {
+                globalThis.localStorage?.removeItem("wave:pet.watermark");
+            } catch {}
+            return true;
+        })()`);
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     gitHistory,
@@ -2766,6 +2865,7 @@ export const SCENARIOS = [
     jarvisCollapseOrder,
     jarvisNarrow,
     jarvisMeasure,
+    jarvisVolunteer,
     usageCharts,
     attentionCrossChannel,
 ];

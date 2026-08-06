@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -74,6 +75,16 @@ func TestWaveEventTypesInSync(t *testing.T) {
 	generatedBody := utilfn.IndentString("    ", GenerateWaveEventTypes(make(map[reflect.Type]string)))
 	if !strings.Contains(normalizeEOL(string(committed)), normalizeEOL(generatedBody)) {
 		t.Fatalf("%s is out of sync with the Go wave-event contract; run `task generate`.\n--- expected to contain ---\n%s", waveEventTypesFile, generatedBody)
+	}
+}
+
+func TestVolunteerEventHasDataType(t *testing.T) {
+	rtype, found := WaveEventDataTypes[wps.Event_JarvisVolunteer]
+	if !found {
+		t.Fatalf("Event_JarvisVolunteer missing from WaveEventDataTypes: the TS type would generate as `any`")
+	}
+	if rtype != reflect.TypeOf(baseds.VolunteerData{}) {
+		t.Fatalf("Event_JarvisVolunteer maps to %v, want baseds.VolunteerData", rtype)
 	}
 }
 

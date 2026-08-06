@@ -81,3 +81,35 @@ describe("report-once", () => {
         expect(nextUtterance(events, null).utterance).toBeNull();
     });
 });
+
+describe("volunteered knowledge", () => {
+    const vol = (id: string, at: number): PetEvent => ({
+        id,
+        at,
+        kind: "loose-end",
+        text: "Still open - finish the migration",
+        source: { ref: "task:task-a", title: "Finish the migration", sourceType: "dossier" },
+    });
+
+    it("speaks a knowledge utterance like any other event", () => {
+        const { utterance, watermark } = nextUtterance([vol("loose-end:task-a:900", 900)], null);
+        expect(utterance?.kind).toBe("loose-end");
+        expect(utterance?.source?.ref).toBe("task:task-a");
+        expect(watermark).toEqual({ at: 900, id: "loose-end:task-a:900" });
+    });
+
+    // the whole reason the backend stamps (at, id) from the fact rather than from emission time
+    it("stays silent when the same fact is re-emitted", () => {
+        const fact = vol("loose-end:task-a:900", 900);
+        const { watermark } = nextUtterance([fact], null);
+        const again = nextUtterance([fact], watermark);
+        expect(again.utterance).toBeNull();
+        expect(again.watermark).toBeNull();
+    });
+
+    it("speaks again once the fact moves to a new bucket", () => {
+        const { watermark } = nextUtterance([vol("loose-end:task-a:900", 900)], null);
+        const next = nextUtterance([vol("loose-end:task-a:1800", 1800)], watermark);
+        expect(next.utterance?.id).toBe("loose-end:task-a:1800");
+    });
+});

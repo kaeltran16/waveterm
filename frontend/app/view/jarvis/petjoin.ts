@@ -118,3 +118,37 @@ export function eventFromResume(rtn: CommandGetLatestResumeRtnData | null | unde
         text: `Where we were — ${summary}`,
     };
 }
+
+const VOLUNTEER_KINDS = ["recall", "connection", "loose-end"] as const;
+type VolunteerKind = (typeof VOLUNTEER_KINDS)[number];
+
+// The backend stamps id and at from the FACT, not from emission time, so an unchanged fact re-emitted
+// after a restart carries an identical pair and nextUtterance discards it against the watermark. This
+// adapter must therefore pass both through untouched — deriving either here would break say-once.
+//
+// A payload with no `ref` still speaks; it just carries no source, so the peek grows no Open/Ask pair.
+// The backend drops an address it could not resolve rather than faking one, and a bubble with nothing
+// to open is better than a button that navigates nowhere.
+export function eventFromVolunteer(d: VolunteerData | null | undefined): PetEvent | null {
+    const cls = d?.class;
+    if (d == null || cls == null || !(VOLUNTEER_KINDS as readonly string[]).includes(cls)) {
+        return null;
+    }
+    if (!d.id || !d.at) {
+        return null; // no stable id or no timestamp means the watermark cannot order it
+    }
+    const title = d.title?.trim() ?? "";
+    const body = d.text?.trim() ?? "";
+    if (!title && !body) {
+        return null;
+    }
+    return {
+        id: d.id,
+        at: d.at,
+        kind: cls as VolunteerKind,
+        text: body ? `${title} - ${body}` : title,
+        source: d.ref
+            ? { ref: d.ref, anchor: d.anchor || undefined, title: title || d.ref, sourceType: d.sourcetype ?? "" }
+            : undefined,
+    };
+}

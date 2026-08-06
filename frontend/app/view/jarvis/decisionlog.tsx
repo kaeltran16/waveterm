@@ -1,10 +1,16 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { useState } from "react";
+import { useAtomValue } from "jotai";
+import { useEffect, useRef, useState } from "react";
+import { pendingDecisionAnchorAtom } from "./petstore";
 import { appendDecision } from "./recordactions";
 import { validateDecisionDraft } from "./tasksderive";
+
+// how long the anchored card stays lit after a volunteered utterance navigated here
+const FLASH_MS = 2_000;
 
 function fmtDate(ms: number): string {
     if (!ms) return "";
@@ -12,8 +18,26 @@ function fmtDate(ms: number): string {
 }
 
 function DecisionCardRow({ card }: { card: DecisionCard }) {
+    const anchor = useAtomValue(pendingDecisionAnchorAtom);
+    const ref = useRef<HTMLDivElement | null>(null);
+    const highlighted = anchor != null && anchor === card.id;
+    useEffect(() => {
+        if (!highlighted) {
+            return;
+        }
+        ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        // clear once honoured so re-selecting this record later does not re-flash
+        const t = setTimeout(() => globalStore.set(pendingDecisionAnchorAtom, null), FLASH_MS);
+        return () => clearTimeout(t);
+    }, [highlighted]);
     return (
-        <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
+        <div
+            ref={ref}
+            className={cn(
+                "rounded-lg border px-3.5 py-3 transition-colors",
+                highlighted ? "border-accent bg-accent/8" : "border-border bg-surface"
+            )}
+        >
             <div className="mb-1.5 flex items-center gap-2 text-[11px] text-muted">
                 <span className="font-mono">{fmtDate(card.created)}</span>
                 <span className="rounded bg-surface-hover px-1.5 py-0.5 font-mono">{card.actor}</span>

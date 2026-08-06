@@ -32,6 +32,9 @@ const KIND_LABEL: Record<PetEvent["kind"], string> = {
     "distill-batch": "While you were out",
     "notes-written": "What I wrote down",
     "bg-agent-done": "While you were out",
+    recall: "You have been here before",
+    connection: "This just connected",
+    "loose-end": "Still open",
 };
 
 export function PetBubble({

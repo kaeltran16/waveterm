@@ -20,6 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
+	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/memgarden"
@@ -589,6 +590,7 @@ func main() {
 	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()
 	memdistill.RegisterSweepHook(memgarden.Sweep)
+	memdistill.RegisterSweepHook(jarvisvolunteer.SweepLooseEnds)
 	memdistill.Start(context.Background())
 	err = wcore.InitBadgeStore()
 	if err != nil {

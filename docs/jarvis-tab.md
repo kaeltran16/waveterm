@@ -29,6 +29,7 @@ Entry point: `JarvisSurface` (`jarvissurface.tsx`), nav rail item **Jarvis** (`B
 - [13a. Motion](#13a-motion)
 - [14. State and persistence](#14-state-and-persistence)
 - [15. Dev fixtures](#15-dev-fixtures)
+- [16. Volunteered knowledge](#16-volunteered-knowledge)
 - [Known gaps](#known-gaps)
 
 ---
@@ -677,6 +678,46 @@ is what used to leak fixture scope chips onto records nobody had asked anything 
 
 ---
 
+## 16. Volunteered knowledge
+
+The Jarvis creature in window chrome (`petview.tsx`, mounted by `cockpit-root`, not by this surface) speaks in
+two registers. **Housekeeping** — a gardener sweep, a distillation batch, notes written, a background agent
+finishing — reports what the *system* did. **Volunteered knowledge** reports what Jarvis knows about *your
+work*, and is the second register:
+
+| Kind | Bubble label | What it is | Produced from |
+|---|---|---|---|
+| `recall` | You have been here before | the relevant past item already judged at run dispatch | `jarvisproactive`'s persisted suggestion, re-read — no second retrieval, no second model call |
+| `connection` | This just connected | an attribution edge that formed on the run that just sealed | `jarvisattrib.AllEdges`; a `detached` edge is a human correction and is never volunteered |
+| `loose-end` | Still open | a non-terminal record going quiet, or one with a blocker | dossier `status` + `updated`; `active`/`paused` only, an allowlist so an unknown status stays silent |
+
+Decided by `pkg/jarvisvolunteer`: a deterministic rate gate first (45-minute quiet window, so a trigger inside
+it costs zero I/O and zero tokens), then stateless producers, then a prefilter, then a **cheap-tier** model
+judge that picks at most one candidate or declines. Every terminal path returns a named reason
+(`rate-limited`, `no-candidates`, `judge-declined`, `judge-error`) rather than a bare nil, so a quiet creature
+is diagnosable. Triggers ride cadences that already exist — run created, the evidence seal at run rest, and
+memdistill's hourly sweep hook — so there is no new scheduler and no new daemon.
+
+**Say-once has no server-side log and no database table.** Each utterance's `(at, id)` pair is stamped from
+the *fact* (a run's `CreatedTs`, a dossier's bucketed `updated`), never from emission time, so re-emitting an
+unchanged fact produces a byte-identical pair that the creature's existing `localStorage` watermark
+(`petstore.ts`) discards. Producers are therefore stateless readers: a dropped, failed or rate-limited trigger
+loses nothing, because the next trigger re-derives whatever is still true.
+
+**Open and Ask live on the peek, not the bubble** (`petpeek.tsx`). The bubble auto-dismisses after six
+seconds by design, and a click target on something that disappears mid-reach is a worse trap than no target.
+They render only when the utterance carries a `source`; a housekeeping utterance has no destination and must
+not grow a dead button. Both close the peek first — an overlay anchored to the creature, left open over a
+surface it just navigated away from, is stranded.
+
+Navigation goes through `openORef` (§12). A record and a memory note have routes (`task:`, `memnote:`); a
+**decision does not, on purpose** — `decisionlog.tsx` renders it inside its parent record's thread, so the
+backend resolves a decision to that parent and passes the decision id as `anchor`, which
+`pendingDecisionAnchorAtom` turns into a scroll-and-flash on the card. When the parent cannot be resolved the
+address is dropped rather than faked: an utterance with no Open button beats an Open button that goes nowhere.
+
+---
+
 ## Known gaps
 
 Open items only. Full reproductions, and the twelve findings closed on 2026-07-28, are in the dated record at
@@ -695,10 +736,10 @@ while the unit suite was green. For those, drive the running app:
 
 ```
 task verify:ui -- jarvis-states jarvis-drawer jarvis-fleet jarvis-subject-state jarvis-contextual \
-                  jarvis-collapse-order jarvis-narrow
+                  jarvis-collapse-order jarvis-narrow jarvis-volunteer
 ```
 
-Five scenarios are the regression nets for that class, and each was checked by breaking the fix and watching
+Six scenarios are the regression nets for that class, and each was checked by breaking the fix and watching
 the right steps go red — a green scenario that cannot fail is not a net:
 
 | Scenario | Covers | Checked against |
@@ -706,6 +747,7 @@ the right steps go red — a green scenario that cannot fail is not a net:
 | `jarvis-drawer` | drawer scope + dismissal, Needs you with no subject | reverting the rail's mount guard turns steps 1–2 red, nothing else |
 | `jarvis-subject-state` | draft + picker per subject, one legend, peek focus, fleet line, unasked threads, last-subject restore, thread archive | a global draft/picker reddens 1 and 3; restoring the header legend reddens 4; the old `across M channels` line reddens 7 at 77px past the rail; skipping the prune reddens 8; dropping `getOnInit` reddens 9; removing `restoreDecision`'s list check reddens 10; not splitting archived threads out of `Threads` reddens 11 |
 | `jarvis-contextual` | one thread per source | minting per click makes the thread count climb |
+| `jarvis-volunteer` | the volunteered-knowledge chain (§16): push an utterance → creature speaks it → peek offers Open/Ask → Open lands on Jarvis and closes the peek | see the break table below |
 | `jarvis-collapse-order` | the *order* — rail before Subjects, never inverted, no document overflow | the order itself; unchanged by this pass beyond a rail probe that no longer assumes the `<aside>` is a direct child of the surface row |
 | `jarvis-narrow` | the two new steps' own widths: the overlay, and the nav rail collapsing itself | disabling `railOverlay` reddens both overlay steps; forcing `navRailCollapsed` false reddens the nav step **and** the overlaid-floor step — a true dependency, since 760px only clears the floor with both layers (the nav rail's 22px plus the rail's 44px) |
 
@@ -719,6 +761,22 @@ rendered row: the other scenarios delete their channels in teardown while the lo
 borrowing one stores a doomed id and the restore correctly clears it — a false failure. Its step 9 also reloads
 *first*, because step 6 selects a record, which leaves a Space active whose scope filters that channel out of
 the column entirely.
+
+`jarvis-volunteer` **injects** its pet event through a dev-only `globalThis.__wavePetStore` hook rather than
+arranging a real utterance: a real one needs a headless CLI judge run behind a 45-minute quiet window, the same
+live-model limit that keeps cancel and thread-archive unit-only. Its steps were each checked by breaking the
+fix:
+
+| Break | Expected red step |
+|---|---|
+| Make `eventFromVolunteer` return null unconditionally | step 1 (nothing pushed reaches the creature) and everything after |
+| Drop the three `KIND_LABEL` entries in `petbubble.tsx` | step 2 (no register label in the bubble) |
+| Remove the `source != null` guard's contents in `petpeek.tsx` so Open/Ask never render | step 4 |
+| Make `orefNavPlan` return `unsupported` for `task` | step 5 (surface stays where it was) |
+| Drop the `close()` before `openORef` in `petpeek.tsx` | step 6 (peek left stranded over the new surface) |
+
+It clears `wave:pet.watermark` in teardown: the injected utterance advances the real persisted watermark, and
+leaving it advanced is a side effect on the user's own creature, not a test.
 
 Neither JC17 (the debounced cursor commit) nor JC8 (cancel) has a live step: both are unit-covered only
 (`subjectcursor.test.ts`, `jarvisturnderive.test.ts`). Cancel needs an in-flight converse stream, and a real

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { eventFromActivity, eventFromResume, indexSignal, recallLine } from "./petjoin";
+import { eventFromActivity, eventFromResume, eventFromVolunteer, indexSignal, recallLine } from "./petjoin";
 
 function status(over: Partial<EmbedIndexStatus>): EmbedIndexStatus {
     return { state: "ok", enabled: true, haskey: true, indexednodes: 0, vaultnodes: 0, stalenodes: 0, ...over };
@@ -130,5 +130,58 @@ describe("eventFromResume", () => {
         expect(eventFromResume(null)).toBeNull();
         expect(eventFromResume({ card: { ...card, summary: "   " } })).toBeNull();
         expect(eventFromResume({ card: { ...card, updated: 0 } })).toBeNull();
+    });
+});
+
+describe("eventFromVolunteer", () => {
+    const base: VolunteerData = {
+        class: "loose-end",
+        id: "loose-end:task-a:900",
+        at: 900,
+        title: "Finish the migration",
+        text: "untouched for 21 days",
+        sourcetype: "dossier",
+        ref: "task:task-a",
+    };
+
+    it("maps a payload to an utterance carrying its source", () => {
+        const ev = eventFromVolunteer(base);
+        expect(ev).not.toBeNull();
+        expect(ev!.kind).toBe("loose-end");
+        expect(ev!.at).toBe(900);
+        expect(ev!.text).toContain("Finish the migration");
+        expect(ev!.source).toEqual({
+            ref: "task:task-a",
+            anchor: undefined,
+            title: "Finish the migration",
+            sourceType: "dossier",
+        });
+    });
+
+    it("carries an anchor through so a decision can name its card", () => {
+        const ev = eventFromVolunteer({ ...base, class: "recall", ref: "task:task-p", anchor: "dec-abc123" });
+        expect(ev!.source?.anchor).toBe("dec-abc123");
+    });
+
+    // a payload the backend could not address is still worth saying; it just grows no Open button
+    it("keeps an utterance with no ref but leaves it sourceless", () => {
+        const ev = eventFromVolunteer({ ...base, ref: "" });
+        expect(ev).not.toBeNull();
+        expect(ev!.source).toBeUndefined();
+    });
+
+    it("rejects an unknown class rather than inventing a label", () => {
+        expect(eventFromVolunteer({ ...base, class: "made-up" })).toBeNull();
+    });
+
+    it("rejects a payload with no stable id or no timestamp", () => {
+        expect(eventFromVolunteer({ ...base, id: "" })).toBeNull();
+        expect(eventFromVolunteer({ ...base, at: 0 })).toBeNull();
+    });
+
+    it("rejects an empty payload rather than speaking a blank bubble", () => {
+        expect(eventFromVolunteer({ ...base, title: "  ", text: "  " })).toBeNull();
+        expect(eventFromVolunteer(null)).toBeNull();
+        expect(eventFromVolunteer(undefined)).toBeNull();
     });
 });

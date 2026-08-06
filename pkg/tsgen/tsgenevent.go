@@ -40,6 +40,7 @@ var WaveEventDataTypes = map[string]reflect.Type{
 	wps.Event_AgentStatus:         reflect.TypeOf(baseds.AgentStatusData{}),
 	wps.Event_AgentAsk:            reflect.TypeOf(baseds.AgentAskData{}),
 	wps.Event_MemoryActivity:      reflect.TypeOf(baseds.MemoryActivityData{}),
+	wps.Event_JarvisVolunteer:     reflect.TypeOf(baseds.VolunteerData{}),
 }
 
 func getWaveEventDataTSType(eventName string, tsTypesMap map[reflect.Type]string) string {

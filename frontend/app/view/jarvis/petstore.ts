@@ -137,6 +137,19 @@ export function markPetSpoke(at: number): void {
     globalStore.set(petSpokeAtAtom, at);
 }
 
+// The decision a volunteered utterance pointed at, for decisionlog.tsx to scroll to and flash. A
+// decision has no surface of its own — decisionlog renders it inside its parent record's thread — so
+// navigation lands on the record and this names the card. Cleared by the consumer once honoured, the
+// same shape as pendingRunFocusAtom.
+export const pendingDecisionAnchorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// CDP scenarios drive the creature by pushing an event directly: a real volunteered utterance needs a
+// headless CLI judge run (up to 90s) plus a rate gate with a 45-minute quiet window, neither of which a
+// scenario can arrange. Dev-only, so it is compiled out of `cargo tauri build`.
+if (import.meta.env.DEV) {
+    (globalThis as Record<string, unknown>).__wavePetStore = { pushPetEvent };
+}
+
 // No pocket atom here on purpose. The Concierge floor's "it holds" (design §6) needs the carry/drop
 // gestures and this store together; an atom with a reader and no writer made the peek's Pocket section
 // unreachable, which is worse than absent — it cannot be tested and it reads as shipped. Build both

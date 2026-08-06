@@ -3,22 +3,26 @@
 //
 // Open a Jarvis grounding source (an oref) in its native cockpit surface. There is no generic oref router
 // in the app; navigation is per-surface (a pending-focus atom + a surfaceAtom flip). Channel / run / task /
-// agent have a clean focus path; the rest no-op (memory and radar need new per-object focus plumbing;
-// decision/commit have no surface). orefNavPlan is a pure, total classifier (never throws); openORef
+// agent / memnote have a clean focus path; the rest no-op. A decision has no route of its own on purpose:
+// decisionlog.tsx renders it inside its parent record's thread, so a decision addresses that record with
+// the decision id passed as `anchor`. orefNavPlan is a pure, total classifier (never throws); openORef
 // performs the side effects.
 
 import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "../agents/agents";
 import { runAtom, selectChannel } from "../agents/channelsstore";
+import { selectNote } from "../agents/memstore";
 import { pendingRunFocusAtom } from "../agents/runactions";
 import { selectSubject } from "./jarvissubjectstore";
+import { pendingDecisionAnchorAtom } from "./petstore";
 
 export type OrefNav =
     | { kind: "channel"; oid: string }
     | { kind: "run"; oid: string }
     | { kind: "task"; oid: string }
     | { kind: "agent"; oid: string }
+    | { kind: "memnote"; oid: string }
     | { kind: "unsupported"; otype: string };
 
 // pure + total: classify an oref into a nav plan. Malformed input or an unroutable otype => unsupported.
@@ -28,14 +32,15 @@ export function orefNavPlan(oref: string): OrefNav {
         return { kind: "unsupported", otype: parts[0] ?? "" };
     }
     const [otype, oid] = parts;
-    if (otype === "channel" || otype === "run" || otype === "task" || otype === "agent") {
+    if (otype === "channel" || otype === "run" || otype === "task" || otype === "agent" || otype === "memnote") {
         return { kind: otype, oid };
     }
     return { kind: "unsupported", otype };
 }
 
 // impure: open the oref in its native surface. Unsupported kinds are a deliberate no-op (never an error).
-export async function openORef(model: AgentsViewModel, oref: string): Promise<void> {
+// `anchor` names a sub-object to highlight once the surface lands — today only a decision within a record.
+export async function openORef(model: AgentsViewModel, oref: string, anchor?: string): Promise<void> {
     const plan = orefNavPlan(oref);
     if (plan.kind === "channel") {
         await selectChannel(plan.oid);
@@ -58,8 +63,14 @@ export async function openORef(model: AgentsViewModel, oref: string): Promise<vo
     }
     // a record has a surface for the first time: it is a subject on the merged Stage, not a separate tab.
     if (plan.kind === "task") {
+        globalStore.set(pendingDecisionAnchorAtom, anchor ?? null);
         selectSubject({ kind: "dossier", id: plan.oid });
         globalStore.set(model.surfaceAtom, "jarvis");
+        return;
+    }
+    if (plan.kind === "memnote") {
+        await selectNote(plan.oid);
+        globalStore.set(model.surfaceAtom, "memory");
         return;
     }
     if (plan.kind === "agent") {

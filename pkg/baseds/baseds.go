@@ -93,6 +93,23 @@ type MemoryActivityData struct {
 	Archived  int    `json:"archived,omitempty"`
 }
 
+// VolunteerData is the payload of Event_JarvisVolunteer: one thing Jarvis chose to say unprompted.
+// Id and At are stamped from the FACT (a run's end time, a dossier's last-touched time), never from
+// the moment of emission — the frontend watermark compares At first and breaks ties on Id, so a
+// re-emitted identical fact must carry an identical pair or the creature repeats itself forever.
+// Ref/Anchor are frontend navigation addresses only; they carry vault node ids and must never be
+// passed to waveobj.ParseORef.
+type VolunteerData struct {
+	Class      string `json:"class"` // recall | connection | loose-end
+	Id         string `json:"id"`
+	At         int64  `json:"at"` // UnixMilli
+	Title      string `json:"title"`
+	Text       string `json:"text"`
+	SourceType string `json:"sourcetype,omitempty"` // dossier | decision | memory | run
+	Ref        string `json:"ref,omitempty"`
+	Anchor     string `json:"anchor,omitempty"`
+}
+
 type AgentAskOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`

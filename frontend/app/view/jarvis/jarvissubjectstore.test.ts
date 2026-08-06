@@ -14,6 +14,8 @@ import { conversationsByIdAtom, setConversation } from "./jarvisstore";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
+    askAboutRecord,
+    askAboutSource,
     channelPickingAtom,
     conversationForSource,
     jarvisDraftAtom,
@@ -165,5 +167,68 @@ describe("setActiveRunId", () => {
         setActiveRunId("chan-a", "run-1");
         setActiveRunId("chan-b", "run-2");
         expect(globalStore.get(activeRunIdAtom)).toEqual({ "chan-a": "run-1", "chan-b": "run-2" });
+    });
+});
+
+// A volunteered utterance can point at a memory note or a decision, not only a record, so the gesture
+// that was record-only had to widen. askAboutRecord stays as the record-shaped caller of it.
+describe("askAboutSource", () => {
+    beforeEach(() => {
+        globalStore.set(sourceConversationAtom, {});
+        globalStore.set(conversationsByIdAtom, {});
+    });
+
+    it("attaches any source type with its title and a kind-named chip", () => {
+        askAboutSource("memnote:mem-1", "memory", "Drop-oldest on overflow", "Tell me more.");
+        const convId = globalStore.get(sourceConversationAtom)["memnote:mem-1"];
+        expect(convId).toBeDefined();
+        const scope = globalStore.get(conversationsByIdAtom)[convId].scope;
+        expect(scope.attached[0]).toEqual({
+            oref: "memnote:mem-1",
+            sourceType: "memory",
+            title: "Drop-oldest on overflow",
+        });
+        expect(scope.chips[0].label).toBe("This memory");
+    });
+
+    it("continues one thread when asked twice about the same source", () => {
+        askAboutSource("memnote:mem-1", "memory", "A note", "first question");
+        const first = globalStore.get(sourceConversationAtom)["memnote:mem-1"];
+        askAboutSource("memnote:mem-1", "memory", "A note", "second question");
+        expect(globalStore.get(sourceConversationAtom)["memnote:mem-1"]).toBe(first);
+    });
+
+    it("mints separate threads for different sources", () => {
+        askAboutSource("memnote:mem-1", "memory", "A note", "q");
+        askAboutSource("task:task-a", "task", "A record", "q");
+        const map = globalStore.get(sourceConversationAtom);
+        expect(map["task:task-a"]).not.toBe(map["memnote:mem-1"]);
+    });
+
+    it("keeps askAboutRecord addressing its record through the same seam", () => {
+        askAboutRecord("task-418", "Finish the migration", "What is left?");
+        const convId = globalStore.get(sourceConversationAtom)["task:task-418"];
+        expect(convId).toBeDefined();
+        const scope = globalStore.get(conversationsByIdAtom)[convId].scope;
+        expect(scope.attached[0]).toEqual({
+            oref: "task:task-418",
+            sourceType: "task",
+            title: "Finish the migration",
+        });
+    });
+
+    // the vault calls a record a "dossier", the view's SourceType union calls it a "task"
+    it("translates the backend's dossier vocabulary to the view's task type", () => {
+        askAboutSource("task:task-a", "dossier", "A record", "q");
+        const convId = globalStore.get(sourceConversationAtom)["task:task-a"];
+        const scope = globalStore.get(conversationsByIdAtom)[convId].scope;
+        expect(scope.attached[0].sourceType).toBe("task");
+        expect(scope.chips[0].label).toBe("This record");
+    });
+
+    it("falls back to a generic chip for a source type it has no name for", () => {
+        askAboutSource("weird:w1", "weird", "Something", "q");
+        const convId = globalStore.get(sourceConversationAtom)["weird:w1"];
+        expect(globalStore.get(conversationsByIdAtom)[convId].scope.chips[0].label).toBe("This source");
     });
 });
