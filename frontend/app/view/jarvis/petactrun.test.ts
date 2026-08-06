@@ -10,6 +10,8 @@ const confirmPruneAllSuperseded = vi.fn();
 const embedReconcile = vi.fn();
 const approveGate = vi.fn();
 const sendBackGate = vi.fn();
+const postMessage = vi.fn();
+const consult = vi.fn();
 
 vi.mock("./openref", () => ({ openORef: (...a: any[]) => openORef(...a) }));
 vi.mock("./jarvissubjectstore", () => ({ askAboutSource: (...a: any[]) => askAboutSource(...a) }));
@@ -28,7 +30,11 @@ vi.mock("@/app/view/agents/runactions", () => ({
     sendBackGate: (...a: any[]) => sendBackGate(...a),
 }));
 vi.mock("@/app/store/wshclientapi", () => ({
-    RpcApi: { EmbedReconcileCommand: (...a: any[]) => embedReconcile(...a) },
+    RpcApi: {
+        EmbedReconcileCommand: (...a: any[]) => embedReconcile(...a),
+        PostChannelMessageCommand: (...a: any[]) => postMessage(...a),
+        ConsultCommand: (...a: any[]) => consult(...a),
+    },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 // petsources.tsx is the always-mounted driver; the runner only borrows its one read
@@ -37,9 +43,9 @@ vi.mock("./petsources", () => ({ loadIndexStatus: vi.fn(async () => true) }));
 import { memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
 import { atom } from "jotai";
-import { runAct } from "./petactrun";
+import { runAct, sendErrand } from "./petactrun";
 import type { PetAct } from "./petacts";
-import { petActStateAtom, petIndexAtom, petPeekOpenAtom } from "./petstore";
+import { petActStateAtom, petErrandAtom, petIndexAtom, petPeekOpenAtom } from "./petstore";
 
 // the runner only ever reads surfaceAtom off the model, so a bare atom pair is a sufficient stand-in
 const model = { surfaceAtom: atom("cockpit") } as any;
@@ -227,6 +233,54 @@ describe("runAct — resolve a gate", () => {
         expect(globalStore.get(petActStateAtom)["gate:run1:approve"]).toEqual({
             status: "error",
             text: "run is no longer at that gate",
+        });
+    });
+});
+
+describe("sendErrand", () => {
+    afterEach(() => globalStore.set(petErrandAtom, null));
+
+    it("posts the question into the channel and streams the reply into the panel", async () => {
+        postMessage.mockResolvedValue(undefined);
+        consult.mockReturnValue(
+            (async function* () {
+                yield { text: "the parser " };
+                yield { text: "is fine." };
+            })()
+        );
+        await sendErrand("ch1", "claude", "is the parser ok?");
+        expect(postMessage).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ channelid: "ch1", kind: "consult", author: "you", text: "is the parser ok?" })
+        );
+        expect(globalStore.get(petErrandAtom)).toEqual({
+            prompt: "is the parser ok?",
+            runtime: "claude",
+            text: "the parser is fine.",
+            status: "done",
+        });
+    });
+
+    it("marks the errand failed with its reason, keeping whatever streamed first", async () => {
+        postMessage.mockResolvedValue(undefined);
+        consult.mockReturnValue(
+            (async function* () {
+                yield { text: "partial" };
+                throw new Error("runtime not installed");
+            })()
+        );
+        await sendErrand("ch1", "claude", "q");
+        expect(globalStore.get(petErrandAtom)).toMatchObject({ text: "partial", status: "error" });
+    });
+
+    it("reports the reason when nothing streamed at all", async () => {
+        postMessage.mockRejectedValue(new Error("no such channel"));
+        await sendErrand("ch-gone", "claude", "q");
+        expect(globalStore.get(petErrandAtom)).toEqual({
+            prompt: "q",
+            runtime: "claude",
+            text: "no such channel",
+            status: "error",
         });
     });
 });

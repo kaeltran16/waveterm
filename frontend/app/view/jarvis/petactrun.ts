@@ -18,7 +18,12 @@ import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 import type { PetAct, PetOp, PetTarget } from "./petacts";
 import { loadIndexStatus } from "./petsources";
-import { clearActState, petIndexAtom, petPeekOpenAtom, setActState } from "./petstore";
+import { clearActState, petErrandAtom, petIndexAtom, petPeekOpenAtom, setActState } from "./petstore";
+
+// The same budget the Channels surface gives a consult (CONSULT_RPC_TIMEOUT_MS in channelactions.ts): the
+// backend's consultTimeout is 120s and the rpc layer's 5s default would kill the stream long before a reply
+// lands. Duplicated rather than imported so the errand does not pull the whole channel-actions module in.
+const ERRAND_TIMEOUT_MS = 130_000;
 
 function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -114,5 +119,41 @@ export async function runAct(model: AgentsViewModel, act: PetAct): Promise<void>
         await perform(act);
     } catch (e) {
         setActState(act.id, { status: "error", text: errText(e) });
+    }
+}
+
+// The errand reuses the Channels surface's consult path exactly (channelactions.ts): post the question as a
+// channel message, then stream the runtime's reply. Two consequences that make it the right seam — the
+// question and its answer persist as channel messages, so closing the panel loses nothing; and it is not
+// tier-gated, because the identical gesture is ungated on that surface and a panel stricter than the
+// surface it mirrors would be incoherent.
+//
+// It needs a channel because CommandConsultData does, and a creature in window chrome has none of its own —
+// the same per-channel hole the pet design named. The caller supplies the active channel.
+export async function sendErrand(channelId: string, runtime: string, prompt: string): Promise<void> {
+    const consultId = crypto.randomUUID();
+    globalStore.set(petErrandAtom, { prompt, runtime, text: "", status: "streaming" });
+    let acc = "";
+    try {
+        await RpcApi.PostChannelMessageCommand(TabRpcClient, {
+            channelid: channelId,
+            kind: "consult",
+            author: "you",
+            text: prompt,
+            reforef: `consult:${consultId}`,
+        });
+        const gen = RpcApi.ConsultCommand(
+            TabRpcClient,
+            { channelid: channelId, runtime, prompt, consultid: consultId },
+            { timeout: ERRAND_TIMEOUT_MS }
+        );
+        for await (const chunk of gen) {
+            acc += chunk?.text ?? "";
+            globalStore.set(petErrandAtom, { prompt, runtime, text: acc, status: "streaming" });
+        }
+        globalStore.set(petErrandAtom, { prompt, runtime, text: acc, status: "done" });
+    } catch (e) {
+        // the backend still posts a consult-reply carrying the error, so the channel keeps the full record
+        globalStore.set(petErrandAtom, { prompt, runtime, text: acc || errText(e), status: "error" });
     }
 }

@@ -30,6 +30,7 @@ import { useEffect, type ReactNode } from "react";
 import { runAct } from "./petactrun";
 import { actsForAttention, actsForEvent, actsForRecall, actsForVault, type PetAct } from "./petacts";
 import { conditionLine, type PetExpression, type PetSignals } from "./petcondition";
+import { PetErrand } from "./peterrand";
 import { passLine, recallLine } from "./petjoin";
 import {
     petActStateAtom,
@@ -328,6 +329,8 @@ export function PetPeek({
                                 </div>
                             )}
                         </div>
+
+                        <PetErrand />
 
                         {/* demoted from a filled button: a bare navigation is the least meaningful thing on the
                             panel, and presenting it as the headline is what made every row above it a readout */}

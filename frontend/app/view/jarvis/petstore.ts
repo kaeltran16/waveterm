@@ -207,3 +207,15 @@ if (import.meta.env.DEV) {
 // gestures and this store together; an atom with a reader and no writer made the peek's Pocket section
 // unreachable, which is worse than absent — it cannot be tested and it reads as shipped. Build both
 // halves at once. See docs/deferred.md.
+
+export interface PetErrand {
+    prompt: string;
+    runtime: string;
+    text: string;
+    status: "streaming" | "done" | "error";
+}
+
+// The last errand and its reply. Module-level so a reply still streaming when you close the peek is there
+// when you reopen it; session-scoped and unpersisted because the durable copy is the channel message the
+// backend posts, which is where a reply worth keeping belongs.
+export const petErrandAtom = atom<PetErrand | null>(null) as PrimitiveAtom<PetErrand | null>;
