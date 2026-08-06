@@ -2931,9 +2931,15 @@ const openProjectPicker = (h) =>
         return true;
     })()`);
 
+// Scoped to the picker's own container, never the whole document: the app bar's global search
+// button also carries a .font-mono child, so an unscoped query picks THAT and opens the command
+// palette instead of selecting a project.
 const chooseProjectRow = (h) =>
     h.ev(`(() => {
-        const rows = [...document.querySelectorAll('button')].filter((b) => b.querySelector('.font-mono'));
+        const chip = document.querySelector('[data-code-project-picker]');
+        const scope = chip && chip.parentElement;
+        if (!scope) return false;
+        const rows = [...scope.querySelectorAll('button')].filter((b) => b !== chip && b.querySelector('.font-mono'));
         if (!rows.length) return false;
         rows[0].click();
         return true;
@@ -2968,7 +2974,8 @@ const codeSearch = {
 
         if ((await openProjectPicker(h)) === true) {
             await sleep(300);
-            await chooseProjectRow(h);
+            const picked = await chooseProjectRow(h);
+            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
             await sleep(1200); // the index is one git ls-files call
         }
 
