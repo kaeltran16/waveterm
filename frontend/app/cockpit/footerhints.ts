@@ -17,7 +17,8 @@ export interface FooterHint {
 
 // Appended to every surface; each filtered by its binding's live when(ctx).
 export const GLOBAL_HINTS: FooterHint[] = [
-    { ids: ["go:cockpit"], glyph: "g", label: "go" }, // g-leader nav; drops in the terminal
+    { ids: ["go:cockpit"], glyph: "g", label: "go" }, // bare g-leader; drops in the terminal
+    { ids: ["leader:enter"], keys: "Ctrl:g", label: "go" }, // the same tree, reachable in the terminal
     { ids: ["surface:back-home"], glyph: "esc", label: "home" }, // deep surfaces only (via its when)
     { ids: ["palette"], keys: "Ctrl:p", label: "palette" },
     { ids: ["new-agent"], keys: "Ctrl:n", label: "new" },
@@ -31,6 +32,7 @@ export const SURFACE_HINTS: Partial<Record<SurfaceKey, FooterHint[]>> = {
         { ids: ["agent:prev-k", "agent:next-j", "agent:prev", "agent:next"], glyph: "↑↓", label: "move" },
         { ids: ["agent:toggle-rail"], glyph: "d", label: "rail" },
         { ids: ["agent:fullscreen"], glyph: "f", label: "full" },
+        { ids: ["agent:fullscreen-chord"], keys: "F11", label: "full" }, // reachable in the terminal
         { ids: ["agent:back"], glyph: "esc", label: "back" },
         { ids: ["cycle-agent-next", "cycle-agent-prev"], keys: "Ctrl:Tab", label: "cycle" },
         { ids: ["agent:return-nav"], keys: "Shift:Escape", label: "leave" }, // editable-only via its binding

@@ -1,29 +1,30 @@
-// Copyright 2025, Command Line Inc.
+// Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+//
+// Keeps the live terminal's palette in step with the active cockpit theme. The terminal is cockpit
+// chrome, not a guest window: its colors derive from the same ThemePalette that paints every other
+// surface, so switching presets re-skins the TUI with no remount.
 
-import type { TermViewModel } from "@/app/view/term/term-model";
-import { computeTheme } from "@/app/view/term/termutil";
-import { TermWrap } from "@/app/view/term/termwrap";
-import { atoms } from "@/store/global";
+import type { TermWrap } from "@/app/view/term/termwrap";
+import { activePalette, deriveTermTheme } from "@/app/view/agents/themes";
+import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 interface TermThemeProps {
-    blockId: string;
     termRef: React.RefObject<TermWrap>;
-    model: TermViewModel;
 }
 
-const TermThemeUpdater = ({ blockId, model, termRef }: TermThemeProps) => {
-    const fullConfig = useAtomValue(atoms.fullConfigAtom);
-    const blockTermTheme = useAtomValue(model.termThemeNameAtom);
-    const transparency = useAtomValue(model.termTransparencyAtom);
-    const [theme, _] = computeTheme(fullConfig, blockTermTheme, transparency);
+const TermThemeUpdater = ({ termRef }: TermThemeProps) => {
+    const preset = useAtomValue(themePresetAtom);
+    const overrides = useAtomValue(themeOverridesAtom);
+    // memoized so the effect re-runs on a real theme change, not on every parent render
+    const theme = useMemo(() => deriveTermTheme(activePalette(preset), overrides), [preset, overrides]);
     useEffect(() => {
         if (termRef.current?.terminal) {
             termRef.current.terminal.options.theme = theme;
         }
-    }, [theme]);
+    }, [theme, termRef]);
     return null;
 };
 

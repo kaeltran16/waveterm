@@ -45,7 +45,13 @@ function contexts(): KeyContext[] {
     for (const surface of SURFACES) {
         for (const editable of [false, true]) {
             for (const modalOpen of [false, true]) {
-                out.push({ surface, editable, modalOpen, leader: null });
+                // leader: "g" is a real posture now — the alias chord (matcher.ts LEADER_ALIASES) opens
+                // the tree from a focused text field, and the leader-aware `navigate` guard activates
+                // bindings that are dormant at rest. Without this axis the invariant would pass
+                // vacuously for every key the leader newly exposes.
+                for (const leader of [null, "g"]) {
+                    out.push({ surface, editable, modalOpen, leader });
+                }
             }
         }
     }
@@ -60,7 +66,7 @@ function assertNoConflicts(bindings: Binding[]) {
             const prev = seen.get(b.keys);
             if (prev != null) {
                 throw new Error(
-                    `key conflict "${b.keys}" between "${prev}" and "${b.id}" in surface=${ctx.surface} editable=${ctx.editable} modalOpen=${ctx.modalOpen}`
+                    `key conflict "${b.keys}" between "${prev}" and "${b.id}" in surface=${ctx.surface} editable=${ctx.editable} modalOpen=${ctx.modalOpen} leader=${ctx.leader}`
                 );
             }
             seen.set(b.keys, b.id);
@@ -236,6 +242,18 @@ describe("keybinding conflict invariant", () => {
         expect(exitCompare.when!(filesCtx)).toBe(true);
         expect(() => assertNoConflicts(all)).not.toThrow();
         globalStore.set(diffScopeAtom, null);
+    });
+
+    it("global + agent + jarvis + files bindings do not conflict in leader posture either", () => {
+        const model = {} as any;
+        expect(() =>
+            assertNoConflicts([
+                ...buildGlobalBindings(model),
+                ...buildAgentBindings(model),
+                ...buildJarvisBindings(),
+                ...buildFilesBindings(),
+            ])
+        ).not.toThrow();
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {

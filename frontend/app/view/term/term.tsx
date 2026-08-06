@@ -13,6 +13,8 @@ import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { TermViewModel } from "@/app/view/term/term-model";
+import { activePalette, deriveTermTheme } from "@/app/view/agents/themes";
+import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { atoms, getOverrideConfigAtom, getSettingsPrefixAtom, WOS } from "@/store/global";
 import { fireAndForget, useAtomValueSafe } from "@/util/util";
 import { computeBgStyleFromMeta } from "@/util/waveutil";
@@ -24,7 +26,7 @@ import * as React from "react";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermStickers } from "./termsticker";
 import { TermThemeUpdater } from "./termtheme";
-import { computeTheme, normalizeCursorStyle } from "./termutil";
+import { normalizeCursorStyle } from "./termutil";
 import { TermWrap } from "./termwrap";
 import "./xterm.css";
 
@@ -270,11 +272,11 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
     // end search
 
     React.useEffect(() => {
-        const fullConfig = globalStore.get(atoms.fullConfigAtom);
-        const termThemeName = globalStore.get(model.termThemeNameAtom);
-        const termTransparency = globalStore.get(model.termTransparencyAtom);
         const termMacOptionIsMetaAtom = getOverrideConfigAtom(blockId, "term:macoptionismeta");
-        const [termTheme, _] = computeTheme(fullConfig, termThemeName, termTransparency);
+        const termTheme = deriveTermTheme(
+            activePalette(globalStore.get(themePresetAtom)),
+            globalStore.get(themeOverridesAtom)
+        );
         let termScrollback = 2000;
         if (termSettings?.["term:scrollback"]) {
             termScrollback = Math.floor(termSettings["term:scrollback"]);
@@ -388,7 +390,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
         <div className={clsx("view-term", "term-mode-" + termMode)} ref={viewRef} onContextMenu={handleContextMenu}>
             {termBg && <div key="term-bg" className="absolute inset-0 z-0 pointer-events-none" style={termBg} />}
             <TermResyncHandler blockId={blockId} model={model} />
-            <TermThemeUpdater blockId={blockId} model={model} termRef={model.termRef} />
+            <TermThemeUpdater termRef={model.termRef} />
             <TermStickers config={stickerConfig} />
             <TermToolbarVDomNode key="vdom-toolbar" blockId={blockId} model={model} />
             <TermVDomNode key="vdom" blockId={blockId} model={model} />

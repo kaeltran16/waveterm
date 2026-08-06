@@ -318,9 +318,6 @@ declare global {
         // Icon buttons displayed at the end of the block header.
         endIconButtons?: jotai.Atom<IconButtonDecl[]>;
 
-        // Background styling metadata for the block.
-        blockBg?: jotai.Atom<MetaType>;
-
         noHeader?: jotai.Atom<boolean>;
 
         // Whether the block manages its own connection (e.g., for remote access).

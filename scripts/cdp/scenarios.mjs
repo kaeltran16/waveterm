@@ -3014,8 +3014,307 @@ const codeSearch = {
     },
 };
 
+// --- terminal palette follows the cockpit theme -------------------------------------------------
+// Asserts against window.term (term.tsx assigns it) + the resolved custom properties, NOT pixels:
+// reading the applied xterm theme is exact, where a screenshot sample is not. The shots are for a
+// human to judge whether Claude Code's own diff colors read well, which no assertion can decide.
+const terminalTheme = {
+    name: "terminal-theme",
+    surface: "agent",
+    async arrange(h) {
+        // step 4 reads window.term, which an HMR can leave pointing at a detached TermWrap — see freshBoot
+        return { booted: await freshBoot(h) };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        steps.push({
+            step: "0. fresh boot, so window.term is the mounted terminal",
+            ok: ctx.booted === true,
+            detail: `reloaded=${ctx.booted}`,
+        });
+        const readVar = (name) =>
+            h.ev(`getComputedStyle(document.documentElement).getPropertyValue(${JSON.stringify(name)}).trim()`);
+        const readTheme = (field) => h.ev(`window.term?.terminal?.options?.theme?.${field} ?? null`);
+        // Scoped to the theme grid: a document-wide button query picks the app bar's global search
+        // button instead of the preset the name belongs to (see cdp-scenario-unscoped-button-query).
+        const pickPreset = (name) =>
+            h.ev(`(() => {
+                const scope = document.querySelector('[data-theme-presets]') || document;
+                const b = [...scope.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === ${JSON.stringify(name)});
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+
+        await h.goto("agent");
+        const bg = await readTheme("background");
+        const cssBg = await readVar("--color-background");
+        steps.push({
+            step: "1. xterm background === --color-background (the black seam is gone)",
+            ok: !!bg && bg.toLowerCase() === cssBg.toLowerCase(),
+            detail: `xterm=${bg} css=${cssBg}`,
+        });
+
+        const blue = await readTheme("blue");
+        const cssAccent = await readVar("--color-accent");
+        steps.push({
+            step: "2. xterm ANSI blue === --color-accent (palette derives from theme roles)",
+            ok: !!blue && blue.toLowerCase() === cssAccent.toLowerCase(),
+            detail: `blue=${blue} accent=${cssAccent}`,
+        });
+
+        steps.push({
+            step: "3. xterm background is opaque (#rrggbb, never #00000000)",
+            ok: typeof bg === "string" && /^#[0-9a-f]{6}$/i.test(bg),
+            detail: `background=${bg}`,
+        });
+        await h.shot("cdp-shots/terminal-theme-midnight.png");
+
+        // switch presets in Settings, return to the Agent surface, and confirm the TUI re-skinned
+        await h.goto("settings");
+        const picked = await pickPreset("Monokai");
+        await h.goto("agent");
+        const bg2 = await readTheme("background");
+        steps.push({
+            step: "4. switching preset re-skins the live TUI with no remount",
+            ok: picked && !!bg2 && bg2.toLowerCase() !== bg.toLowerCase(),
+            detail: `picked=${picked} before=${bg} after=${bg2}`,
+        });
+        await h.shot("cdp-shots/terminal-theme-monokai.png");
+        return steps;
+    },
+    async teardown(h) {
+        // restore the default preset so a later scenario is not judged against Monokai
+        await h.goto("settings");
+        await h.ev(`(() => {
+            const scope = document.querySelector('[data-theme-presets]') || document;
+            const b = [...scope.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Midnight');
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.goto("cockpit");
+    },
+};
+
+// --- cockpit chords reach through a focused TUI -------------------------------------------------
+// The leak is the failure mode that matters, so every step below asserts CONSUMPTION as well as
+// effect. How consumption is observed, and why it is not a terminal-buffer diff:
+//
+// The dispatcher listens on window CAPTURE and calls stopImmediatePropagation() for a key it claims
+// (dispatcher.ts). A sibling window-capture listener registered afterwards therefore fires only for
+// keys the cockpit did NOT claim — and a claimed key raises no event anywhere, so it cannot reach
+// xterm's textarea handler and cannot reach the PTY. Every step carries a control press through the
+// same probe, so "consumed" can never be a silent no-op.
+//
+// Two observables that look more direct are unusable here. A terminal-buffer diff only moves when a
+// live shell echoes, and the dev app's terminals are frequently idle — the diff then reads "no leak"
+// for every key, including one that leaked. A probe on the xterm textarea is worse: xterm's own
+// handler is registered on that element first and stops immediate propagation, so an unclaimed key
+// looks identical to a claimed one.
+const CTRL = 2; // CDP Input.dispatchKeyEvent modifier bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8
+
+// Focus the terminal by clicking its body: terminal.focus() alone leaves document.activeElement on
+// BODY, which would make every assertion below run in the wrong (non-editable) posture.
+const focusTui = async (h) => {
+    await h.goto("agent");
+    const box = await h.ev(`(() => {
+        const el = document.querySelector('.cockpit-focus-pane .xterm-screen') || document.querySelector('.cockpit-focus-pane');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    })()`);
+    if (!box) return false;
+    for (const type of ["mousePressed", "mouseReleased"]) {
+        await h.cdp("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    return h.ev(
+        `(() => { const a = document.activeElement; return !!(a && a.classList && a.classList.contains('xterm-helper-textarea')); })()`
+    );
+};
+
+// A full page reload, for two reasons that both bite only after a dev-session hot reload:
+//
+//  1. Probe ordering. Capture-phase listeners on the same target run in REGISTRATION order, so the
+//     consumption probe below is valid only when the dispatcher registered first. Boot registers it;
+//     an HMR of a keybinding file re-registers it at the BACK of the queue, after the probe, and every
+//     "consumed" step then reports a leak that is not real.
+//  2. window.term freshness. term.tsx assigns window.term on mount. After an HMR the global can point
+//     at a DETACHED TermWrap whose TermThemeUpdater is gone, so its options.theme never changes again
+//     and "switching preset re-skins the TUI" fails against a terminal that is no longer on screen.
+//
+// Both failure modes are safe in direction (no false PASS) but waste a run, so pay the reload.
+const freshBoot = async (h) => {
+    await h.ev("location.reload()");
+    for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const ready = await h.ev(`document.querySelectorAll('nav button').length > 0`).catch(() => false);
+        if (ready) {
+            await new Promise((r) => setTimeout(r, 1500)); // let boot settle before driving it
+            return true;
+        }
+    }
+    return false;
+};
+
+const installProbe = (h) =>
+    h.ev(`(() => {
+        window.__seen = [];
+        window.__probeFn = (e) => window.__seen.push((e.ctrlKey ? "Ctrl+" : "") + e.key);
+        window.addEventListener("keydown", window.__probeFn, true);
+        return true;
+    })()`);
+
+// Returns the keys the probe saw: [] means the cockpit consumed the press.
+const pressKey = async (h, { key, code, keyCode, modifiers = 0 }) => {
+    await h.ev("window.__seen = []");
+    for (const type of ["keyDown", "keyUp"]) {
+        await h.cdp("Input.dispatchKeyEvent", { type, key, code, modifiers, windowsVirtualKeyCode: keyCode });
+    }
+    await new Promise((r) => setTimeout(r, 450));
+    return JSON.parse(await h.ev("JSON.stringify(window.__seen || [])"));
+};
+const whichKeyOpen = (h) => h.ev(`document.body.innerText.includes('Cockpit (home)')`);
+const treeVisible = (h) => h.ev(`!!document.querySelector('[data-agent-tree]')`);
+
+const tuiLeader = {
+    name: "tui-leader",
+    surface: "agent",
+    async arrange(h) {
+        const booted = await freshBoot(h);
+        const focused = await focusTui(h);
+        await installProbe(h);
+        return { booted, focused };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        steps.push({
+            step: "0. the terminal holds focus, so these run in the editable posture",
+            ok: ctx.booted === true && ctx.focused === true,
+            detail: `reloaded=${ctx.booted} xterm textarea focused=${ctx.focused}`,
+        });
+
+        // Control press. Without this, every "consumed" verdict below could be a dead probe.
+        const seenX = await pressKey(h, { key: "x", code: "KeyX", keyCode: 88 });
+        steps.push({
+            step: "1. control: an unclaimed key is NOT consumed (the probe is live)",
+            ok: seenX.length > 0,
+            detail: `probe saw ${JSON.stringify(seenX)}`,
+        });
+
+        // The pre-existing posture must not regress: a bare letter still belongs to the agent.
+        const seenG = await pressKey(h, { key: "g", code: "KeyG", keyCode: 71 });
+        const wkBare = await whichKeyOpen(h);
+        steps.push({
+            step: "2. a bare g still reaches the agent and opens no leader",
+            ok: seenG.length > 0 && wkBare === false,
+            detail: `probe saw ${JSON.stringify(seenG)}, which-key=${wkBare}`,
+        });
+
+        const seenCtrlG = await pressKey(h, { key: "g", code: "KeyG", keyCode: 71, modifiers: CTRL });
+        const wkChord = await whichKeyOpen(h);
+        steps.push({
+            step: "3. Ctrl+G opens the which-key bar and is consumed (no ^G to the PTY)",
+            ok: seenCtrlG.length === 0 && wkChord === true,
+            detail: `probe saw ${JSON.stringify(seenCtrlG)}, which-key=${wkChord}`,
+        });
+
+        // singles fallback: `]` is a navigate-guarded single, dormant in the TUI without a leader
+        const surfBefore = await h.activeSurfaceLabel();
+        const seenBracket = await pressKey(h, { key: "]", code: "BracketRight", keyCode: 221 });
+        const surfAfter = await h.activeSurfaceLabel();
+        steps.push({
+            step: "4. under the leader, the singles fallback runs ']' and consumes it",
+            ok: seenBracket.length === 0 && surfAfter !== surfBefore,
+            detail: `${surfBefore} -> ${surfAfter}, probe saw ${JSON.stringify(seenBracket)}`,
+        });
+
+        // sequence continuation from inside the terminal
+        await focusTui(h);
+        await pressKey(h, { key: "g", code: "KeyG", keyCode: 71, modifiers: CTRL });
+        const seenC = await pressKey(h, { key: "c", code: "KeyC", keyCode: 67 });
+        const surfC = await h.activeSurfaceLabel();
+        steps.push({
+            step: "5. Ctrl+G then c teleports to Jarvis from inside the terminal",
+            ok: seenC.length === 0 && surfC === SURFACE_LABEL.jarvis,
+            detail: `active=${surfC}, probe saw ${JSON.stringify(seenC)}`,
+        });
+
+        // Escape means cancel while the which-key bar is showing — never navigate (spec decision 8)
+        await focusTui(h);
+        await pressKey(h, { key: "g", code: "KeyG", keyCode: 71, modifiers: CTRL });
+        const wkOn = await whichKeyOpen(h);
+        const escFrom = await h.activeSurfaceLabel();
+        await pressKey(h, { key: "Escape", code: "Escape", keyCode: 27 });
+        const wkOff = await whichKeyOpen(h);
+        const escTo = await h.activeSurfaceLabel();
+        steps.push({
+            step: "6. Ctrl+G then Escape cancels the leader without navigating",
+            ok: wkOn === true && wkOff === false && escTo === escFrom,
+            detail: `which-key ${wkOn}->${wkOff}, surface ${escFrom}->${escTo}`,
+        });
+
+        await h.shot("cdp-shots/tui-leader.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
+const tuiFullscreen = {
+    name: "tui-fullscreen",
+    surface: "agent",
+    async arrange(h) {
+        await freshBoot(h);
+        const focused = await focusTui(h);
+        await installProbe(h);
+        return { focused };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        // fullscreen unmounts the agent tree (agentsurface.tsx); its absence is the observable
+        const before = await treeVisible(h);
+        const winBefore = await h.ev(
+            `JSON.stringify({fullscreenEl: !!document.fullscreenElement, w: window.innerWidth, h: window.innerHeight})`
+        );
+        const seen = await pressKey(h, { key: "F11", code: "F11", keyCode: 122 });
+        const after = await treeVisible(h);
+        const winAfter = await h.ev(
+            `JSON.stringify({fullscreenEl: !!document.fullscreenElement, w: window.innerWidth, h: window.innerHeight})`
+        );
+        steps.push({
+            step: "1. F11 toggles terminal fullscreen and is consumed (no F11 to the PTY)",
+            ok: ctx.focused === true && seen.length === 0 && after !== before,
+            detail: `focused=${ctx.focused}, treeVisible ${before} -> ${after}, probe saw ${JSON.stringify(seen)}`,
+        });
+        // the specific worry about F11: that WebView2 answers it with its own fullscreen, the way an
+        // unclaimed Ctrl+P once reached it and raised a print dialog (ccc90133)
+        steps.push({
+            step: "2. no WebView2 fullscreen default fired (viewport unchanged)",
+            ok: winBefore === winAfter,
+            detail: `${winBefore} -> ${winAfter}`,
+        });
+        await h.shot("cdp-shots/tui-fullscreen.png");
+        await pressKey(h, { key: "F11", code: "F11", keyCode: 122 });
+        const restored = await treeVisible(h);
+        steps.push({
+            step: "3. F11 again restores the split view",
+            ok: restored === before,
+            detail: `treeVisible=${restored}`,
+        });
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
+    terminalTheme,
+    tuiLeader,
+    tuiFullscreen,
     gitHistory,
     surfaceSmoke,
     codeSearch,

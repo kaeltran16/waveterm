@@ -60,3 +60,10 @@
         animation: none;
     }
 }
+
+// xterm ships `.xterm .xterm-viewport { background-color: #000 }` in its own stylesheet. The terminal
+// now paints an opaque themed background (deriveTermTheme), but during a resize the viewport can be
+// visible for a frame before xterm repaints — which read as a black seam inside a themed cockpit.
+.cockpit-focus-pane .xterm .xterm-viewport {
+    background-color: transparent;
+}

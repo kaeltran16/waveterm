@@ -1,10 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions } from "@floating-ui/react";
 import { MOTION } from "@/app/element/motiontokens";
-import { PopoverReveal } from "@/app/element/popoverreveal";
-import { atoms, getSettingsKeyAtom } from "@/app/store/global";
+import { getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
@@ -13,7 +11,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { coerceFontSize, coerceScrollback, coerceTransparency, startupSurfaceAtom, startupSurfaceOptions, vaultPathError } from "./cockpitprefsstore";
+import { coerceFontSize, coerceScrollback, startupSurfaceAtom, startupSurfaceOptions, vaultPathError } from "./cockpitprefsstore";
 import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
@@ -116,9 +114,6 @@ function CheckIcon() {
 function Swatch({ color }: { color: string }) {
     return <span className="h-[13px] w-[13px] rounded-[4px]" style={{ background: color }} />;
 }
-
-// mirror termutil.ts DefaultTermTheme (inlined to avoid pulling xterm into the settings bundle)
-const DEFAULT_TERM_THEME = "default-dark";
 
 // Labeled settings row: title + description left, control right. Rows stack directly on the page
 // (flat, no card — matching the design); the first row drops its top divider.
@@ -247,7 +242,7 @@ function AppearanceSection() {
                         {isCustom ? `Custom · based on ${activeName}` : activeName}
                     </span>
                 </div>
-                <div className="grid grid-cols-4 gap-2.5">
+                <div data-theme-presets className="grid grid-cols-4 gap-2.5">
                     {PICKER_THEMES.map((t) => {
                         const on = t.id === preset;
                         return (
@@ -501,119 +496,18 @@ function NewAgentDefaultsSection() {
     );
 }
 
-// Custom color-scheme dropdown (matches the design): a trigger showing a 3-swatch preview + name +
-// chevron, and a popover of themes with swatches + a check on the active one. Uses floating-ui's
-// useDismiss so BOTH Escape and an outside click close it (the old hand-rolled full-viewport backdrop
-// dismissed on click only — never Escape).
-type TermThemeOption = { value: string; label: string; swatch: [string, string, string] };
-
-function TermThemeDropdown({
-    options,
-    value,
-    onChange,
-}: {
-    options: TermThemeOption[];
-    value: string;
-    onChange: (v: string) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const active = options.find((o) => o.value === value);
-    const { refs, floatingStyles, context } = useFloating({
-        open,
-        onOpenChange: setOpen,
-        placement: "bottom-end",
-        middleware: [offset(6)],
-        whileElementsMounted: autoUpdate,
-    });
-    const { getReferenceProps, getFloatingProps } = useInteractions([useClick(context), useDismiss(context)]);
-    return (
-        <div className="relative flex-none">
-            <button
-                ref={refs.setReference}
-                {...getReferenceProps()}
-                type="button"
-                className={cn(
-                    "flex min-w-[180px] cursor-pointer items-center gap-2.5 rounded-[9px] border bg-surface-raised px-[11px] py-2 transition-colors",
-                    open ? "border-accent-700" : "border-edge-mid hover:border-edge-strong"
-                )}
-            >
-                <span className="flex flex-none gap-0.5">
-                    {(active?.swatch ?? ["transparent", "transparent", "transparent"]).map((c, i) => (
-                        <span key={i} className="h-2.5 w-2.5 rounded-[3px]" style={{ background: c }} />
-                    ))}
-                </span>
-                <span className="flex-1 whitespace-nowrap text-left text-[12.5px] font-semibold text-primary">
-                    {active?.label ?? value}
-                </span>
-                <span className={cn("font-mono text-[10px] text-muted transition-transform", open && "rotate-180")}>▾</span>
-            </button>
-            <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-20">
-            <PopoverReveal
-                open={open}
-                origin="top right"
-                className="min-w-[220px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
-            >
-                {options.map((o) => {
-                    const sel = o.value === value;
-                    return (
-                        <button
-                            key={o.value}
-                            type="button"
-                            onClick={() => {
-                                onChange(o.value);
-                                setOpen(false);
-                            }}
-                            className={cn(
-                                "flex w-full cursor-pointer items-center gap-2.5 rounded px-[9px] py-2 text-left transition-colors hover:bg-surface-hover",
-                                sel ? "bg-surface-raised" : "bg-transparent"
-                            )}
-                        >
-                            <span className="flex flex-none gap-0.5">
-                                {o.swatch.map((c, i) => (
-                                    <span key={i} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
-                                ))}
-                            </span>
-                            <span className="flex-1 whitespace-nowrap text-[12.5px] font-semibold text-primary">
-                                {o.label}
-                            </span>
-                            {sel ? (
-                                <span className="flex-none text-accent">
-                                    <CheckIcon />
-                                </span>
-                            ) : null}
-                        </button>
-                    );
-                })}
-            </PopoverReveal>
-            </div>
-        </div>
-    );
-}
-
 function TerminalSection() {
     const fontSize = (useAtomValue(getSettingsKeyAtom("term:fontsize")) as number) ?? 12;
     const scrollback = (useAtomValue(getSettingsKeyAtom("term:scrollback")) as number) ?? 1000;
     const cursorRaw = (useAtomValue(getSettingsKeyAtom("term:cursor")) as string) ?? "block";
     const cursorBlink = (useAtomValue(getSettingsKeyAtom("term:cursorblink")) as boolean) ?? false;
     const copyOnSelect = (useAtomValue(getSettingsKeyAtom("term:copyonselect")) as boolean) ?? false;
-    const transparency = (useAtomValue(getSettingsKeyAtom("term:transparency")) as number) ?? 0.5;
-    const themeName = (useAtomValue(getSettingsKeyAtom("term:theme")) as string) ?? DEFAULT_TERM_THEME;
-    const fullConfig = useAtomValue(atoms.fullConfigAtom);
 
     // SetConfigCommand's data param is a typed settings map; a dynamic-key patch needs the cast.
     const write = (patch: Record<string, unknown>) =>
         void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
 
     const cursor = cursorRaw === "bar" || cursorRaw === "underline" ? cursorRaw : "block";
-
-    // real backend term themes, sorted by display order; 3-swatch preview from bg / blue / green.
-    const termthemes = fullConfig?.termthemes ?? {};
-    const themeOptions: TermThemeOption[] = Object.keys(termthemes)
-        .sort((a, b) => (termthemes[a]["display:order"] ?? 0) - (termthemes[b]["display:order"] ?? 0))
-        .map((k) => {
-            const t = termthemes[k];
-            return { value: k, label: t["display:name"] ?? k, swatch: [t.background, t.blue, t.green] };
-        });
 
     const stepFontSize = (dir: -1 | 1) => {
         const next = coerceFontSize(String(fontSize + dir));
@@ -650,30 +544,6 @@ function TerminalSection() {
                 </Row>
                 <Row title="Copy on select" desc="Copy highlighted text to the clipboard automatically.">
                     <Toggle on={copyOnSelect} onToggle={() => write({ "term:copyonselect": !copyOnSelect })} />
-                </Row>
-                <Row title="Transparency" desc="Terminal background opacity — higher is more see-through.">
-                    <div className="flex items-center gap-3">
-                        <input
-                            type="range"
-                            min={0}
-                            max={1}
-                            step={0.05}
-                            value={transparency}
-                            onChange={(e) => write({ "term:transparency": coerceTransparency(Number(e.target.value)) })}
-                            style={{ accentColor: "var(--color-accent)" }}
-                            className="w-[160px] cursor-pointer"
-                        />
-                        <span className="w-10 flex-none text-right font-mono text-[12.5px] text-primary">
-                            {transparency.toFixed(2)}
-                        </span>
-                    </div>
-                </Row>
-                <Row title="Color scheme" desc="ANSI palette used inside agent terminals.">
-                    <TermThemeDropdown
-                        options={themeOptions}
-                        value={themeName}
-                        onChange={(v) => write({ "term:theme": v })}
-                    />
                 </Row>
             </div>
         </div>

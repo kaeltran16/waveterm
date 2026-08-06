@@ -8,6 +8,8 @@ import {
     applyThemeVars,
     buildThemeVars,
     colorOf,
+    deriveAnsi,
+    deriveTermTheme,
     PICKER_THEMES,
     THEMES,
 } from "./themes";
@@ -89,5 +91,213 @@ describe("helpers", () => {
         const root = { style: { setProperty: (k: string, v: string) => (set[k] = v) } };
         applyThemeVars(root as unknown as HTMLElement, { "--color-accent": "#abc" });
         expect(set["--color-accent"]).toBe("#abc");
+    });
+});
+
+// --- ANSI derivation -----------------------------------------------------------------------------
+// Contrast per WCAG 2.1 relative luminance. Local to the test: production code never needs it.
+function channel(c: number): number {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+function luminance(hex: string): number {
+    const s = hex.replace("#", "");
+    const r = parseInt(s.slice(0, 2), 16);
+    const g = parseInt(s.slice(2, 4), 16);
+    const b = parseInt(s.slice(4, 6), 16);
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+function contrast(a: string, b: string): number {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+// Hue in degrees, from RGB. Only used to assert magenta/cyan land in the right part of the wheel.
+function hue(hex: string): number {
+    const s = hex.replace("#", "");
+    const r = parseInt(s.slice(0, 2), 16) / 255;
+    const g = parseInt(s.slice(2, 4), 16) / 255;
+    const b = parseInt(s.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    if (max === min) {
+        return 0;
+    }
+    const d = max - min;
+    let h: number;
+    if (max === r) {
+        h = ((g - b) / d) % 6;
+    } else if (max === g) {
+        h = (b - r) / d + 2;
+    } else {
+        h = (r - g) / d + 4;
+    }
+    h *= 60;
+    return h < 0 ? h + 360 : h;
+}
+
+const ANSI_SLOTS = [
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+    "brightBlack", "brightRed", "brightGreen", "brightYellow",
+    "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+] as const;
+const BRIGHT_PAIRS: [string, string][] = [
+    ["black", "brightBlack"], ["red", "brightRed"], ["green", "brightGreen"], ["yellow", "brightYellow"],
+    ["blue", "brightBlue"], ["magenta", "brightMagenta"], ["cyan", "brightCyan"], ["white", "brightWhite"],
+];
+
+describe("deriveAnsi — structural invariants across every selectable theme", () => {
+    // Only the picker themes are reachable: themePresetAtom is written by AppearanceSection, which
+    // renders PICKER_THEMES. "paper" exists in THEMES but is excluded (light mode is not shipped).
+    for (const theme of PICKER_THEMES) {
+        const ansi = deriveAnsi(theme.palette) as unknown as Record<string, string>;
+
+        it(`${theme.id}: all 16 slots are parseable 6-digit hex`, () => {
+            for (const slot of ANSI_SLOTS) {
+                expect(ansi[slot], slot).toMatch(/^#[0-9a-f]{6}$/i);
+            }
+        });
+
+        // One Dark defines muted (#a6abb3) LIGHTER than secondary (#9298a4). A white<-secondary
+        // mapping would render "bright black" lighter than "white" in the terminal.
+        it(`${theme.id}: grey ramp is strictly monotonic black < brightBlack < white < brightWhite`, () => {
+            const ramp = ["black", "brightBlack", "white", "brightWhite"];
+            for (let i = 1; i < ramp.length; i++) {
+                expect(luminance(ansi[ramp[i]]), `${ramp[i]} vs ${ramp[i - 1]}`).toBeGreaterThan(
+                    luminance(ansi[ramp[i - 1]])
+                );
+            }
+        });
+
+        it(`${theme.id}: every bright slot is strictly lighter than its base`, () => {
+            for (const [base, bright] of BRIGHT_PAIRS) {
+                expect(luminance(ansi[bright]), `${bright} vs ${base}`).toBeGreaterThan(luminance(ansi[base]));
+            }
+        });
+
+        // Guards the Carbon defect: an amber accent must not produce a green "magenta" (spec decision 12).
+        it(`${theme.id}: magenta and cyan land in their canonical hue ranges`, () => {
+            expect(hue(ansi.magenta), `magenta hue ${hue(ansi.magenta)}`).toBeGreaterThanOrEqual(280);
+            expect(hue(ansi.magenta)).toBeLessThanOrEqual(320);
+            expect(hue(ansi.cyan), `cyan hue ${hue(ansi.cyan)}`).toBeGreaterThanOrEqual(170);
+            expect(hue(ansi.cyan)).toBeLessThanOrEqual(200);
+        });
+
+        // 3:1 is WCAG's floor for UI components / large text. Terminal glyphs are not large text, so
+        // this catches gross regressions rather than certifying AA. Measured worst case across the six
+        // themes is 3.51 (nocturne.black), so this has real margin. See spec decision 5.
+        it(`${theme.id}: every slot clears 3:1 against its own background`, () => {
+            for (const slot of ANSI_SLOTS) {
+                expect(contrast(ansi[slot], theme.palette.bg), `${slot}=${ansi[slot]}`).toBeGreaterThanOrEqual(3);
+            }
+        });
+    }
+
+    it("paper (light, not in the picker) still derives without throwing", () => {
+        const paper = THEMES.find((t) => t.id === "paper")!;
+        expect(Object.keys(deriveAnsi(paper.palette))).toHaveLength(16);
+    });
+});
+
+describe("deriveAnsi — Midnight golden set", () => {
+    // Pinned so a future edit to Midnight's palette roles surfaces as a reviewable diff rather than a
+    // silent change to the terminal's colors.
+    it("matches the recorded values", () => {
+        expect(deriveAnsi(activePalette("midnight"))).toEqual({
+            black: "#646a72",
+            brightBlack: "#7f858b",
+            red: "#e0726c",
+            brightRed: "#e89591",
+            green: "#54c79a",
+            brightGreen: "#7fd5b3",
+            yellow: "#e6b450",
+            brightYellow: "#ecc77c",
+            blue: "#7c95ff",
+            brightBlue: "#9db0ff",
+            magenta: "#ff70fa",
+            brightMagenta: "#ff94fb",
+            cyan: "#70f1ff",
+            brightCyan: "#94f5ff",
+            white: "#e6e9ed",
+            brightWhite: "#eceff2",
+        });
+    });
+
+    it("an accent override moves ANSI blue, magenta and cyan", () => {
+        const base = deriveAnsi(activePalette("midnight"));
+        const overridden = deriveAnsi({ ...activePalette("midnight"), accent: "#66d9ef" });
+        expect(overridden.blue).toBe("#66d9ef");
+        expect(overridden.magenta).not.toBe(base.magenta);
+        expect(overridden.cyan).not.toBe(base.cyan);
+    });
+});
+
+describe("deriveTermTheme", () => {
+    const midnight = activePalette("midnight");
+
+    it("background is the theme background, opaque — never a transparent black", () => {
+        const t = deriveTermTheme(midnight, {});
+        expect(t.background).toBe("#0c0e11");
+        expect(t.background).not.toMatch(/^#00000000$/i);
+        expect(t.background).toHaveLength(7); // #rrggbb — no alpha channel
+    });
+
+    it("maps foreground, cursor, cursorAccent and selection from palette roles", () => {
+        const t = deriveTermTheme(midnight, {});
+        expect(t.foreground).toBe("#e6e9ed"); // text
+        expect(t.cursor).toBe("#7c95ff"); // accent
+        expect(t.cursorAccent).toBe("#0c0e11"); // bg — the glyph under a block cursor
+        expect(t.selectionBackground).toBe("#1a222c"); // surfaceSelected
+    });
+
+    it("carries all 16 ANSI slots", () => {
+        const t = deriveTermTheme(midnight, {}) as unknown as Record<string, string>;
+        for (const slot of ANSI_SLOTS) {
+            expect(t[slot], slot).toMatch(/^#[0-9a-f]{6}$/i);
+        }
+    });
+
+    it("applies role overrides, so a custom accent reaches the cursor and ANSI blue", () => {
+        const t = deriveTermTheme(midnight, { accent: "#66d9ef" });
+        expect(t.cursor).toBe("#66d9ef");
+        expect(t.blue).toBe("#66d9ef");
+    });
+
+    it("switching preset changes the background — this is what re-skins the live TUI", () => {
+        expect(deriveTermTheme(activePalette("monokai"), {}).background).toBe("#272822");
+        expect(deriveTermTheme(activePalette("midnight"), {}).background).toBe("#0c0e11");
+    });
+});
+
+describe("buildThemeVars — ANSI custom properties", () => {
+    it("emits all 16 --ansi-* vars, lowercase, matching deriveAnsi", () => {
+        const vars = buildThemeVars(activePalette("midnight"), {});
+        const ansi = deriveAnsi(activePalette("midnight")) as unknown as Record<string, string>;
+        // css custom-property name -> AnsiPalette key
+        const pairs: [string, string][] = [
+            ["--ansi-black", "black"], ["--ansi-red", "red"], ["--ansi-green", "green"],
+            ["--ansi-yellow", "yellow"], ["--ansi-blue", "blue"], ["--ansi-magenta", "magenta"],
+            ["--ansi-cyan", "cyan"], ["--ansi-white", "white"],
+            ["--ansi-brightblack", "brightBlack"], ["--ansi-brightred", "brightRed"],
+            ["--ansi-brightgreen", "brightGreen"], ["--ansi-brightyellow", "brightYellow"],
+            ["--ansi-brightblue", "brightBlue"], ["--ansi-brightmagenta", "brightMagenta"],
+            ["--ansi-brightcyan", "brightCyan"], ["--ansi-brightwhite", "brightWhite"],
+        ];
+        for (const [cssVar, key] of pairs) {
+            expect(vars[cssVar], cssVar).toBe(ansi[key]);
+        }
+    });
+
+    it("the terminal and the CSS vars cannot drift — both come from one derivation", () => {
+        const palette = activePalette("monokai");
+        const vars = buildThemeVars(palette, {});
+        const term = deriveTermTheme(palette, {});
+        expect(vars["--ansi-red"]).toBe(term.red);
+        expect(vars["--ansi-brightwhite"]).toBe(term.brightWhite);
+    });
+
+    it("role overrides reach the ANSI vars", () => {
+        const vars = buildThemeVars(activePalette("midnight"), { error: "#ff0000" });
+        expect(vars["--ansi-red"]).toBe("#ff0000");
     });
 });

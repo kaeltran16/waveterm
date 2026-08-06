@@ -58,7 +58,17 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: ",", surface: "settings", label: "Settings" },
 ];
 
-const navigate = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
+// Posture guard for keys that reach the cockpit rather than the focused agent. Leader-aware: once a
+// leader is active the dispatcher consumes the keystroke and it never reaches the agent, so "focus is
+// in a text field" has already been overridden by a deliberate chord. In the TUI with no leader,
+// editable is true and leader is null — behavior is bit-for-bit what it was before.
+const navigate = (ctx: KeyContext) => (!ctx.editable || ctx.leader != null) && !ctx.modalOpen;
+
+// For Escape-keyed bindings only. Escape must never activate while a text field or the terminal holds
+// focus: jarvis:blur-composer claims Escape in exactly that posture, and two active claims on one key
+// is what assertNoConflicts exists to catch. During leader mode the matcher intercepts Escape ahead of
+// any binding (matcher.ts), so nothing is lost by keeping these strict.
+const navigateStrict = (ctx: KeyContext) => !ctx.editable && !ctx.modalOpen;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
@@ -140,6 +150,26 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             },
         },
         {
+            // Documentation only: matcher.ts LEADER_ALIASES performs the leader entry, because the
+            // dispatcher owns leader state and a binding cannot set it. This exists so the footer
+            // (footer-visible.ts renders a chip only for an ACTIVE binding id) and the Shift+? cheat
+            // sheet can advertise the chord. Same shape as the cockpit-grid documentation bindings.
+            // The matcher checks LEADER_ALIASES ahead of the singles pass, so this never wins the key.
+            id: "leader:enter",
+            keys: "Ctrl:g",
+            group: "Navigation",
+            label: "Go to… (works inside the agent terminal)",
+            paletteHidden: true, // a palette row for a key the palette itself would swallow
+            // Gated on `editable` for PRESENTATION only, and it costs nothing: the matcher opens the
+            // leader from this chord in every posture regardless of any `when`. At rest the bare-`g`
+            // chip already says "go", so an unguarded chord would render a second identical chip; this
+            // way the footer advertises whichever door is the one that works right now. The Shift+?
+            // cheat sheet lists every registered binding without consulting `when`, so the chord stays
+            // discoverable at rest.
+            when: (ctx) => ctx.editable && !ctx.modalOpen,
+            run: () => false, // never consume — the matcher already handled it
+        },
+        {
             id: "go:palette",
             keys: "g p",
             group: "Go to",
@@ -218,7 +248,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             // The autonomy panel owns it for the same reason — and it cannot claim the key itself, since
             // this dispatcher runs on window capture, ahead of any handler the panel could register.
             when: (ctx) =>
-                navigate(ctx) &&
+                navigateStrict(ctx) &&
                 ESC_HOME_SURFACES.has(ctx.surface) &&
                 !globalStore.get(graphPeekOpenAtom) &&
                 !globalStore.get(autonomyPanelOpenAtom) &&
@@ -494,6 +524,7 @@ export function buildCockpitBindings(): Binding[] {
 }
 
 const agentNav = (ctx: KeyContext) => navigate(ctx) && ctx.surface === "agent";
+const agentNavStrict = (ctx: KeyContext) => navigateStrict(ctx) && ctx.surface === "agent";
 
 // Agent (Focus) surface bindings. Moved out of agentsurface.tsx so the registry has one home
 // and the array is stable: run() reads live atoms instead of closing over per-render focus/order.
@@ -533,7 +564,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "Escape",
             group: "Agent",
             label: "Back to Cockpit (or exit fullscreen)",
-            when: (ctx) => agentNav(ctx) && globalStore.get(focusSubagentAtom) == null,
+            when: (ctx) => agentNavStrict(ctx) && globalStore.get(focusSubagentAtom) == null,
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);
@@ -560,6 +591,21 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             group: "Agent",
             label: "Toggle terminal fullscreen",
             when: agentNav,
+            run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
+        },
+        {
+            // The leader letter `f` is taken by the Diff surface (GO_TARGETS), so fullscreen needs a
+            // chord to stay reachable from inside the TUI. F11 is the universal convention, carries no
+            // editor muscle memory, and is not a key a TUI's text input consumes. Deliberately NOT
+            // gated on !editable — same shape as close-agent's Ctrl+C, which stays live in the terminal.
+            id: "agent:fullscreen-chord",
+            keys: "F11",
+            group: "Agent",
+            // named apart from agent:fullscreen's "Toggle terminal fullscreen" so the cheat sheet does
+            // not show two rows with one label; the parenthetical is what distinguishes this door
+            label: "Toggle terminal fullscreen (works inside the terminal)",
+            paletteHidden: true, // duplicates agent:fullscreen, which already has a palette row
+            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen,
             run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
         },
         {

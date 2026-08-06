@@ -7,6 +7,8 @@
 // cockpit renders through Tailwind v4 var(--color-*) utilities, overriding those custom properties
 // re-skins everything with no component edits.
 
+import { colord } from "colord";
+
 // The base roles we theme. A deliberately small set: the identity-carrying "chrome". Subtle greys
 // (muted-foreground, ink-mid, lane, feed-*) and identity colors (avatar/mem/rt/ansi) are left at their
 // tailwindsetup.css @theme defaults — safe across all dark themes; revisited with light mode (Paper).
@@ -164,10 +166,109 @@ function rgba(h: string, a: number): string {
     return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
+// ---- ANSI derivation ----
+// The 16 terminal color slots, derived from roles the palette already defines. Two consumers:
+// buildThemeVars (--ansi-* custom properties) and deriveTermTheme (the live xterm palette), so the
+// CSS side and the terminal cannot drift.
+export interface AnsiPalette {
+    black: string;
+    red: string;
+    green: string;
+    yellow: string;
+    blue: string;
+    magenta: string;
+    cyan: string;
+    white: string;
+    brightBlack: string;
+    brightRed: string;
+    brightGreen: string;
+    brightYellow: string;
+    brightBlue: string;
+    brightMagenta: string;
+    brightCyan: string;
+    brightWhite: string;
+}
+
+const AnsiBrighten = 0.25; // bright-slot lift; large enough that every pair separates in all 6 themes
+
+// Magenta and cyan are the only slots with no cockpit role. Their hue is pinned to the slot's
+// canonical position and only saturation/lightness follow the accent — rotating the accent's own hue
+// produces a GREEN magenta on Carbon (accent #d7a95c) and a RED cyan, which is worse than ignoring
+// the theme. Floors keep a desaturated accent from yielding a grey "magenta" and a dark one from
+// yielding an illegible slot.
+const MagentaHue = 302;
+const CyanHue = 186;
+const HueSatFloor = 55;
+const HueLightMin = 58;
+const HueLightMax = 72;
+
+function atHue(base: string, h: number): string {
+    const hsl = colord(base).toHsl();
+    return colord({
+        h,
+        s: Math.max(hsl.s, HueSatFloor),
+        l: Math.min(Math.max(hsl.l, HueLightMin), HueLightMax),
+    }).toHex();
+}
+
+// `secondary` is deliberately unmapped: white comes from `text` so the grey ramp
+// black < brightBlack < white < brightWhite stays monotonic even on One Dark, which defines `muted`
+// lighter than `secondary`.
+export function deriveAnsi(palette: ThemePalette): AnsiPalette {
+    const magenta = atHue(palette.accent, MagentaHue);
+    const cyan = atHue(palette.accent, CyanHue);
+    return {
+        black: palette.inkFaint,
+        brightBlack: palette.muted,
+        red: palette.error,
+        brightRed: lighten(palette.error, AnsiBrighten),
+        green: palette.success,
+        brightGreen: lighten(palette.success, AnsiBrighten),
+        yellow: palette.warning,
+        brightYellow: lighten(palette.warning, AnsiBrighten),
+        blue: palette.accent,
+        brightBlue: lighten(palette.accent, AnsiBrighten),
+        magenta,
+        brightMagenta: lighten(magenta, AnsiBrighten),
+        cyan,
+        brightCyan: lighten(cyan, AnsiBrighten),
+        white: palette.text,
+        brightWhite: lighten(palette.text, AnsiBrighten),
+    };
+}
+
+// The terminal's palette. Structurally assignable to xterm's ITheme; declared locally so the theme
+// engine takes no dependency on @xterm/xterm. `background` is OPAQUE on purpose: xterm's own
+// stylesheet paints .xterm-viewport #000, and the previous transparent-background behavior is what
+// let that show through as a black seam inside a themed cockpit.
+export interface TermPalette extends AnsiPalette {
+    background: string;
+    foreground: string;
+    cursor: string;
+    cursorAccent: string;
+    selectionBackground: string;
+}
+
+export function deriveTermTheme(
+    palette: ThemePalette,
+    overrides: Partial<Record<OverrideRole, string>>
+): TermPalette {
+    const p = { ...palette, ...overrides };
+    return {
+        background: p.bg,
+        foreground: p.text,
+        cursor: p.accent,
+        cursorAccent: p.bg,
+        selectionBackground: p.surfaceSelected,
+        ...deriveAnsi(p),
+    };
+}
+
 // Build the full --color-* override map from a base palette + user overrides. Only the themed "chrome"
 // tokens are emitted; everything else keeps its @theme default.
 export function buildThemeVars(palette: ThemePalette, overrides: Partial<Record<OverrideRole, string>>): Record<string, string> {
     const p = { ...palette, ...overrides };
+    const ansi = deriveAnsi(p);
     return {
         // surfaces
         "--color-background": p.bg,
@@ -213,6 +314,25 @@ export function buildThemeVars(palette: ThemePalette, overrides: Partial<Record<
         "--color-asking": p.warning,
         "--color-on-warning": darken(p.warning, 0.9),
         "--color-error": p.error,
+        // ANSI palette — same derivation the terminal uses (deriveTermTheme), so the CSS side and the
+        // live xterm palette cannot drift. Names are lowercase to match the @theme declarations in
+        // tailwindsetup.css, which these override.
+        "--ansi-black": ansi.black,
+        "--ansi-red": ansi.red,
+        "--ansi-green": ansi.green,
+        "--ansi-yellow": ansi.yellow,
+        "--ansi-blue": ansi.blue,
+        "--ansi-magenta": ansi.magenta,
+        "--ansi-cyan": ansi.cyan,
+        "--ansi-white": ansi.white,
+        "--ansi-brightblack": ansi.brightBlack,
+        "--ansi-brightred": ansi.brightRed,
+        "--ansi-brightgreen": ansi.brightGreen,
+        "--ansi-brightyellow": ansi.brightYellow,
+        "--ansi-brightblue": ansi.brightBlue,
+        "--ansi-brightmagenta": ansi.brightMagenta,
+        "--ansi-brightcyan": ansi.brightCyan,
+        "--ansi-brightwhite": ansi.brightWhite,
     };
 }
 

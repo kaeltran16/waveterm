@@ -144,7 +144,9 @@
     --radius-lg: 12px;
     --shadow-popover: 0 20px 56px rgba(0, 0, 0, 0.55);
 
-    /* ANSI Colors (Default Dark Palette) */
+    /* ANSI fallback only. buildThemeVars (view/agents/themes.ts) derives these per theme and writes
+       them onto the document root at runtime, so these literals apply only before the first theme
+       application. Do not edit them to change terminal colors — edit the theme palette roles. */
     --ansi-black: #757575;
     --ansi-red: #cc685c;
     --ansi-green: #76c266;

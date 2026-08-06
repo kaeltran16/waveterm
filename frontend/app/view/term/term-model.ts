@@ -31,10 +31,9 @@ import {
 import * as services from "@/store/services";
 import * as keyutil from "@/util/keyutil";
 import { isMacOS, isWindows } from "@/util/platformutil";
-import { boundNumber, fireAndForget, stringToBase64 } from "@/util/util";
+import { fireAndForget, stringToBase64 } from "@/util/util";
 import * as jotai from "jotai";
 import {
-    Blend,
     Bug,
     Clipboard,
     ClipboardPaste,
@@ -42,8 +41,6 @@ import {
     Eraser,
     ExternalLink,
     type LucideIcon,
-    Maximize2,
-    Palette,
     Power,
     RefreshCw,
     RotateCcw,
@@ -55,7 +52,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { getBlockingCommand } from "./shellblocking";
-import { computeTheme, DefaultTermTheme, trimTerminalSelection } from "./termutil";
+import { trimTerminalSelection } from "./termutil";
 import { TermWrap, WebGLSupported } from "./termwrap";
 
 // term-model.ts is a .ts file (no JSX), so leading menu icons are built via createElement.
@@ -73,7 +70,6 @@ export class TermViewModel implements ViewModel {
     viewIcon: jotai.Atom<IconButtonDecl>;
     viewName: jotai.Atom<string>;
     viewText: jotai.Atom<HeaderElem[]>;
-    blockBg: jotai.Atom<MetaType>;
     manageConnection: jotai.Atom<boolean>;
     filterOutNowsh?: jotai.Atom<boolean>;
     connStatus: jotai.Atom<ConnStatus>;
@@ -83,8 +79,6 @@ export class TermViewModel implements ViewModel {
     vdomToolbarBlockId: jotai.Atom<string>;
     vdomToolbarTarget: jotai.PrimitiveAtom<VDomTargetToolbar>;
     fontSizeAtom: jotai.Atom<number>;
-    termThemeNameAtom: jotai.Atom<string>;
-    termTransparencyAtom: jotai.Atom<number>;
     termBPMAtom: jotai.Atom<boolean>;
     noPadding: jotai.PrimitiveAtom<boolean>;
     endIconButtons: jotai.Atom<IconButtonDecl[]>;
@@ -253,27 +247,6 @@ export class TermViewModel implements ViewModel {
         });
         this.filterOutNowsh = jotai.atom(false);
         this.termBPMAtom = getOverrideConfigAtom(blockId, "term:allowbracketedpaste");
-        this.termThemeNameAtom = useBlockAtom(blockId, "termthemeatom", () => {
-            return jotai.atom<string>((get) => {
-                return get(getOverrideConfigAtom(this.blockId, "term:theme")) ?? DefaultTermTheme;
-            });
-        });
-        this.termTransparencyAtom = useBlockAtom(blockId, "termtransparencyatom", () => {
-            return jotai.atom<number>((get) => {
-                const value = get(getOverrideConfigAtom(this.blockId, "term:transparency")) ?? 0.5;
-                return boundNumber(value, 0, 1);
-            });
-        });
-        this.blockBg = jotai.atom((get) => {
-            const fullConfig = get(atoms.fullConfigAtom);
-            const themeName = get(this.termThemeNameAtom);
-            const termTransparency = get(this.termTransparencyAtom);
-            const [_, bgcolor] = computeTheme(fullConfig, themeName, termTransparency);
-            if (bgcolor != null) {
-                return { bg: bgcolor };
-            }
-            return null;
-        });
         this.connStatus = jotai.atom((get) => {
             const blockData = get(this.blockAtom);
             const connName = blockData?.meta?.connection;
@@ -788,13 +761,6 @@ export class TermViewModel implements ViewModel {
         return true;
     }
 
-    setTerminalTheme(themeName: string) {
-        RpcApi.SetMetaCommand(TabRpcClient, {
-            oref: WOS.makeORef("block", this.blockId),
-            meta: { "term:theme": themeName },
-        });
-    }
-
     async forceRestartController() {
         if (globalStore.get(this.isRestarting)) {
             return;
@@ -882,17 +848,6 @@ export class TermViewModel implements ViewModel {
 
         menu.push({ type: "separator" });
 
-        const magnified = globalStore.get(this.nodeModel.isMagnified);
-        menu.push({
-            label: magnified ? "Un-magnify block" : "Magnify block",
-            icon: mIcon(Maximize2),
-            click: () => {
-                this.nodeModel.toggleMagnify();
-            },
-        });
-
-        menu.push({ type: "separator" });
-
         const settingsItems = this.getSettingsMenuItems();
         menu.push(...settingsItems);
 
@@ -900,19 +855,11 @@ export class TermViewModel implements ViewModel {
     }
 
     getSettingsMenuItems(): ContextMenuItem[] {
-        const fullConfig = globalStore.get(atoms.fullConfigAtom);
-        const termThemes = fullConfig?.termthemes ?? {};
-        const termThemeKeys = Object.keys(termThemes);
-        const curThemeName = globalStore.get(getBlockMetaKeyAtom(this.blockId, "term:theme"));
         const defaultFontSize = globalStore.get(getSettingsKeyAtom("term:fontsize")) ?? 12;
         const defaultAllowBracketedPaste = globalStore.get(getSettingsKeyAtom("term:allowbracketedpaste")) ?? true;
-        const transparencyMeta = globalStore.get(getBlockMetaKeyAtom(this.blockId, "term:transparency"));
         const blockData = globalStore.get(this.blockAtom);
         const overrideFontSize = blockData?.meta?.["term:fontsize"];
 
-        termThemeKeys.sort((a, b) => {
-            return (termThemes[a]["display:order"] ?? 0) - (termThemes[b]["display:order"] ?? 0);
-        });
         const fullMenu: ContextMenuItem[] = [];
 
         fullMenu.push({
@@ -945,55 +892,6 @@ export class TermViewModel implements ViewModel {
             },
         });
         fullMenu.push({ type: "separator" });
-
-        const submenu: ContextMenuItem[] = termThemeKeys.map((themeName) => {
-            return {
-                label: termThemes[themeName]["display:name"] ?? themeName,
-                type: "radio",
-                checked: curThemeName == themeName,
-                click: () => this.setTerminalTheme(themeName),
-            };
-        });
-        submenu.unshift({
-            label: "Default",
-            type: "radio",
-            checked: curThemeName == null,
-            click: () => this.setTerminalTheme(null),
-        });
-        const transparencySubMenu: ContextMenuItem[] = [];
-        transparencySubMenu.push({
-            label: "Default",
-            type: "radio",
-            checked: transparencyMeta == null,
-            click: () => {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", this.blockId),
-                    meta: { "term:transparency": null },
-                });
-            },
-        });
-        transparencySubMenu.push({
-            label: "Transparent background",
-            type: "radio",
-            checked: transparencyMeta == 0.5,
-            click: () => {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", this.blockId),
-                    meta: { "term:transparency": 0.5 },
-                });
-            },
-        });
-        transparencySubMenu.push({
-            label: "No transparency",
-            type: "radio",
-            checked: transparencyMeta == 0,
-            click: () => {
-                RpcApi.SetMetaCommand(TabRpcClient, {
-                    oref: WOS.makeORef("block", this.blockId),
-                    meta: { "term:transparency": 0 },
-                });
-            },
-        });
 
         const fontSizeSubMenu: ContextMenuItem[] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map(
             (fontSize: number) => {
@@ -1107,11 +1005,6 @@ export class TermViewModel implements ViewModel {
             },
         ];
         fullMenu.push({
-            label: "Themes",
-            icon: mIcon(Palette),
-            submenu: submenu,
-        });
-        fullMenu.push({
             label: "Font size",
             icon: mIcon(Type),
             submenu: fontSizeSubMenu,
@@ -1120,11 +1013,6 @@ export class TermViewModel implements ViewModel {
             label: "Cursor",
             icon: mIcon(TextCursor),
             submenu: cursorSubMenu,
-        });
-        fullMenu.push({
-            label: "Transparency",
-            icon: mIcon(Blend),
-            submenu: transparencySubMenu,
         });
         fullMenu.push({ type: "separator" });
         const advancedSubmenu: ContextMenuItem[] = [];

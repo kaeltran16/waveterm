@@ -453,3 +453,47 @@ describe("code surface bindings", () => {
         expect(find("code:save").when?.({ ...code, editable: true })).toBe(true);
     });
 });
+
+describe("leader reachability and the fullscreen chord", () => {
+    const model = {} as any;
+    const inTerm: KeyContext = { surface: "agent", editable: true, modalOpen: false, leader: null };
+    const inTermLeader: KeyContext = { ...inTerm, leader: "g" };
+
+    it("registers a documentation-only leader:enter binding on the alias chord", () => {
+        const b = buildGlobalBindings(model).find((x) => x.id === "leader:enter")!;
+        expect(b).toBeDefined();
+        expect(b.keys).toBe("Ctrl:g");
+        // documentation only — the matcher performs leader entry, so this must never consume the key
+        expect(b.run(inTerm)).toBe(false);
+    });
+
+    it("leader:enter is advertised while the terminal holds focus", () => {
+        const b = buildGlobalBindings(model).find((x) => x.id === "leader:enter")!;
+        expect(b.when?.(inTerm) ?? true).toBe(true);
+    });
+
+    it("surface teleports are dormant in the terminal but live under the leader", () => {
+        const go = buildGlobalBindings(model).find((x) => x.id === "go:agent")!;
+        expect(go.when!(inTerm)).toBe(false);
+        expect(go.when!(inTermLeader)).toBe(true);
+    });
+
+    it("the details rail is dormant in the terminal but live under the leader", () => {
+        const rail = buildAgentBindings(model).find((x) => x.id === "agent:toggle-rail")!;
+        expect(rail.when!(inTerm)).toBe(false);
+        expect(rail.when!(inTermLeader)).toBe(true);
+    });
+
+    it("Escape-keyed navigation stays dormant in BOTH postures (the matcher owns Escape)", () => {
+        const back = buildAgentBindings(model).find((x) => x.id === "agent:back")!;
+        expect(back.when!(inTerm)).toBe(false);
+        expect(back.when!(inTermLeader)).toBe(false);
+    });
+
+    it("F11 toggles fullscreen and is live while the terminal holds focus", () => {
+        const b = buildAgentBindings(model).find((x) => x.id === "agent:fullscreen-chord")!;
+        expect(b.keys).toBe("F11");
+        expect(b.when!(inTerm)).toBe(true);
+        expect(b.when!({ ...inTerm, surface: "cockpit" })).toBe(false);
+    });
+});

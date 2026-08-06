@@ -320,7 +320,7 @@ export function AgentTree({ model }: { model: AgentsViewModel }) {
     }, [idsKey]);
 
     return (
-        <div className="flex w-[248px] shrink-0 flex-col border-r border-border bg-surface">
+        <div data-agent-tree className="flex w-[248px] shrink-0 flex-col border-r border-border bg-surface">
             <div className="border-b border-edge-faint px-[16px] pb-[12px] pt-[16px]">
                 <div className="flex items-center justify-between">
                     <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">Agents</h3>
