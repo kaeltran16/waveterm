@@ -71,6 +71,36 @@ describe("assembleDefaultGroups", () => {
         expect(groups[0].items.map((i) => i.key)).toEqual(["c1"]);
     });
 
+    it("leads with the kind holding the best match, not a fixed kind order", () => {
+        // a focus task that only scatter-matches must not sit above the command the user actually named:
+        // Enter runs the first row, so a fixed focus-task-first order would navigate to the wrong thing
+        const cmd = item("c1", "command", "Usage Go to");
+        const focus = item("f1", "focus-task", scattered("usage"));
+        const groups = assembleDefaultGroups({
+            query: "usage",
+            ranked: [cmd, focus], // ranked is best-first
+            launchItems: [],
+            askItems: [],
+            recent: [],
+        });
+        expect(groups[0].kind).toBe("command");
+        expect(groups[0].items[0].key).toBe("c1");
+        expect(groups.map((g) => g.kind)).toEqual(["command", "focus-task"]);
+    });
+
+    it("keeps the fixed kind order on an empty query", () => {
+        const cmd = item("c1", "command", "Usage Go to");
+        const focus = item("f1", "focus-task", "some task");
+        const groups = assembleDefaultGroups({
+            query: "",
+            ranked: [cmd, focus],
+            launchItems: [],
+            askItems: [],
+            recent: [],
+        });
+        expect(groups.map((g) => g.kind)).toEqual(["focus-task", "command"]);
+    });
+
     it("drops empty groups", () => {
         const groups = assembleDefaultGroups({
             query: "",

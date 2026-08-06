@@ -83,10 +83,19 @@ export function assembleDefaultGroups<T extends GroupableItem>(input: DefaultGro
     const recentKeys = new Set(showRecent ? recent.map((it) => it.key) : []);
     const rest = showRecent ? ranked.filter((it) => !recentKeys.has(it.key)) : ranked;
 
-    const rankedGroups = GROUP_ORDER.map((kind) => ({
-        kind,
-        items: rest.filter((it) => it.kind === kind),
-    })).filter((g) => g.items.length > 0);
+    // The kind holding the best match leads; the rest keep GROUP_ORDER. A fixed kind order alone would
+    // let a focus task that merely scatter-matches sit above the surface the user actually named, and
+    // since Enter runs the first row, typing "usage" would open a task instead of the Usage surface —
+    // the same wrong-Enter this module exists to prevent, one row over. rest is best-first, so its head
+    // names the winning kind. An empty query has no best match, so the fixed order stands.
+    const leadKind = query.trim() !== "" && rest.length > 0 ? rest[0].kind : null;
+    const kindOrder = leadKind == null ? GROUP_ORDER : [leadKind, ...GROUP_ORDER.filter((k) => k !== leadKind)];
+    const rankedGroups = kindOrder
+        .map((kind) => ({
+            kind,
+            items: rest.filter((it) => it.kind === kind),
+        }))
+        .filter((g) => g.items.length > 0);
 
     const groups: PaletteGroup<T>[] = [];
     if (showRecent) {
