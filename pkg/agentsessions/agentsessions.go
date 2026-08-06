@@ -27,29 +27,60 @@ const (
 	maxTaskLen        = 120
 )
 
-// headlessPromptSentinels are the leading texts of the prompts the backend sends to `claude -p`
-// itself: the batch memory distiller (pkg/memdistill), the memory gardener's drift and near-duplicate
-// checks (pkg/memgarden), and Repo Radar's clustering step (pkg/reporadar). A transcript whose first
-// prompt starts with one of these is a maintenance pass, not a session anyone could resume, so it is
-// hidden from the list. These runs now execute in wavebase.GetHeadlessAgentDir and get pruned by
-// directory in scanProvider, which is cheaper because it reads no files; this list still covers the
-// transcripts written before that change, which sit in real project directories. Each entry is held
-// to its live prompt by TestHeadlessSentinelsMatchPrompts.
-var headlessPromptSentinels = []string{
-	"You are distilling durable learnings from",
-	"You are checking whether a project memory note still matches the current code.",
-	"You are finding semantic near-duplicate project memory notes.",
-	"You are Repo Radar's clustering step.",
-}
+// A session's first message is frequently scaffolding rather than anything a person wrote: the CLI
+// wraps messages produced while a local command runs, a slash command arrives as a tag envelope, and a
+// dispatched worker's prompt opens with the operator's principles. Titling a session with any of that
+// tells the reader nothing, so sessionTitle unwraps to the text they would recognize.
+const (
+	caveatOpenTag        = "<local-command-caveat>"
+	caveatCloseTag       = "</local-command-caveat>"
+	dispatchPreambleLead = "Work by these principles"
+	dispatchGoalPrefix   = "Goal: "
+)
 
-// isHeadlessPrompt reports whether task is one of the backend's own maintenance prompts.
-func isHeadlessPrompt(task string) bool {
-	for _, sentinel := range headlessPromptSentinels {
-		if strings.HasPrefix(task, sentinel) {
-			return true
+var (
+	commandNameRe = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>`)
+	commandArgsRe = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
+)
+
+// sessionTitle unwraps a first user message into a human-recognizable title, returning "" when the
+// message is pure scaffolding with no content of its own — the caller then tries the next message.
+// The slash-command shape mirrors parseCommand in frontend/app/view/agents/transcriptprojection.ts so
+// one session is not named two different things in two places.
+func sessionTitle(raw string) string {
+	t := strings.TrimSpace(raw)
+	if t == "" {
+		return ""
+	}
+	if strings.HasPrefix(t, caveatOpenTag) {
+		// the caveat is boilerplate the CLI adds; the real message, if any, follows the closing tag
+		if i := strings.Index(t, caveatCloseTag); i >= 0 {
+			return sessionTitle(t[i+len(caveatCloseTag):])
+		}
+		return ""
+	}
+	if m := commandNameRe.FindStringSubmatch(t); m != nil {
+		name := strings.TrimSpace(m[1])
+		if name != "" && !strings.HasPrefix(name, "/") {
+			name = "/" + name
+		}
+		if a := commandArgsRe.FindStringSubmatch(t); a != nil {
+			if args := strings.TrimSpace(a[1]); args != "" {
+				return strings.TrimSpace(name + " " + args)
+			}
+		}
+		return name
+	}
+	if strings.HasPrefix(t, dispatchPreambleLead) {
+		for _, line := range strings.Split(t, "\n") {
+			if strings.HasPrefix(line, dispatchGoalPrefix) {
+				if goal := strings.TrimSpace(strings.TrimPrefix(line, dispatchGoalPrefix)); goal != "" {
+					return goal
+				}
+			}
 		}
 	}
-	return false
+	return t
 }
 
 // SessionInfo is one resumable past agent session.
@@ -73,10 +104,11 @@ type SessionInfo struct {
 }
 
 type claudeLine struct {
-	Type      string `json:"type"`
-	Cwd       string `json:"cwd"`
-	GitBranch string `json:"gitBranch"`
-	Message   struct {
+	Type       string `json:"type"`
+	Cwd        string `json:"cwd"`
+	GitBranch  string `json:"gitBranch"`
+	Entrypoint string `json:"entrypoint"`
+	Message    struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 		Usage   *struct {
@@ -89,7 +121,9 @@ type claudeLine struct {
 }
 
 // extractClaudeSession folds one transcript file's lines into a SessionInfo. Returns nil when the
-// file carries no human prompt (e.g. a subagent/tool-only file) because those aren't useful to resume.
+// file carries no human prompt (e.g. a subagent/tool-only file) because those aren't useful to resume,
+// and when the transcript is a print-mode run — every model call Wave's own backend makes is print-mode,
+// so that one field excludes all of them without matching a word of any prompt.
 func extractClaudeSession(id string, lines []string) *SessionInfo {
 	s := &SessionInfo{ID: id}
 	hasTask := false
@@ -97,6 +131,9 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 		var rec claudeLine
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			continue
+		}
+		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
+			return nil
 		}
 		if s.ProjectPath == "" && rec.Cwd != "" {
 			s.ProjectPath = rec.Cwd
@@ -113,17 +150,14 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 			s.TokensTotal += u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 		}
 		if !hasTask && rec.Type == "user" {
-			if txt := stringContent(rec.Message.Content); txt != "" {
-				s.Task = trimTo(txt, maxTaskLen)
+			if title := sessionTitle(stringContent(rec.Message.Content)); title != "" {
+				s.Task = trimTo(title, maxTaskLen)
 				hasTask = true
 			}
 		}
 	}
 	if !hasTask {
 		return nil
-	}
-	if isHeadlessPrompt(s.Task) {
-		return nil // one of the backend's own headless maintenance transcripts
 	}
 	return s
 }
@@ -216,8 +250,8 @@ func extractClaudeEvents(lines []string) sessionEvents {
 		case "user":
 			var str string
 			if json.Unmarshal(rec.Message.Content, &str) == nil {
-				if firstUser == "" && strings.TrimSpace(str) != "" {
-					firstUser = str
+				if firstUser == "" {
+					firstUser = sessionTitle(str) // same unwrapping as the session title
 				}
 				continue
 			}
@@ -226,8 +260,8 @@ func extractClaudeEvents(lines []string) sessionEvents {
 				continue
 			}
 			for _, b := range blocks {
-				if b.Type == "text" && firstUser == "" && strings.TrimSpace(b.Text) != "" {
-					firstUser = b.Text
+				if b.Type == "text" && firstUser == "" {
+					firstUser = sessionTitle(b.Text)
 				}
 				if b.Type == "tool_result" && b.IsError && b.ToolUseID != "" {
 					cmd := cmdByID[b.ToolUseID]

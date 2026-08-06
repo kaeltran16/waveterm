@@ -24,9 +24,10 @@ type transcriptFacts struct {
 }
 
 type tLine struct {
-	Type    string `json:"type"`
-	Cwd     string `json:"cwd"`
-	Message struct {
+	Type       string `json:"type"`
+	Cwd        string `json:"cwd"`
+	Entrypoint string `json:"entrypoint"`
+	Message    struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
@@ -83,6 +84,11 @@ func extractTranscript(sessionId, projectPath string, lines []string) *transcrip
 		var rec tLine
 		if json.Unmarshal([]byte(ln), &rec) != nil {
 			continue
+		}
+		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
+			// a print-mode run is one of Wave's own backend calls; its tool failures say nothing
+			// about the user's repo, and several of these run with the project as their cwd
+			return nil
 		}
 		if rec.Cwd != "" {
 			if canonPath(rec.Cwd) != cp {

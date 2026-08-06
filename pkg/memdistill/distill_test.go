@@ -12,7 +12,7 @@ import (
 
 func TestBatchPromptStartsWithSentinel(t *testing.T) {
 	if !strings.HasPrefix(batchDistillPrompt, DistillSentinel) {
-		t.Fatalf("batchDistillPrompt must start with DistillSentinel so the Sessions filter matches")
+		t.Fatalf("batchDistillPrompt must start with DistillSentinel")
 	}
 }
 

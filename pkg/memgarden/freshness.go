@@ -90,11 +90,7 @@ func buildRepoIndex(repoPath string) map[string]bool {
 const (
 	maxLLMChecksPerPass = 20
 	maxRefBytes         = 4 * 1024 // per referenced file fed to the drift check
-	// DriftSentinel is the stable leading text of the drift prompt. The Sessions scanner filters
-	// transcripts whose first prompt starts with it (see pkg/agentsessions).
-	DriftSentinel = "You are checking whether a project memory note still matches the current code."
-
-	driftPrompt = DriftSentinel + " " +
+	driftPrompt         = "You are checking whether a project memory note still matches the current code. " +
 		"Input: the note, then the current content of files it references. " +
 		`Output ONLY JSON: {"drift": bool, "reason": string}. ` +
 		"Set drift=true only if the note's advice clearly contradicts the current code (renamed symbol, " +

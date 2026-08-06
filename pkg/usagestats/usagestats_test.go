@@ -431,3 +431,19 @@ func TestWalkClaudeFiles_SkipsHeadlessDir(t *testing.T) {
 		t.Error("headless transcript was not pruned")
 	}
 }
+
+// Wave's own backend model calls are print-mode runs. Their tokens are real but they are not the
+// user's agent activity, and several of them run with a real project as their working directory, so
+// the headless-directory prune cannot catch those — the entrypoint field is what does.
+func TestExtractClaude_SkipsPrintModeRecords(t *testing.T) {
+	const usage = `"usage":{"input_tokens":100,"output_tokens":50}`
+	headless := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","entrypoint":"` +
+		agentobserve.HeadlessEntrypoint + `","message":{"model":"m",` + usage + `}}`
+	if got := extractClaude([]string{headless}); len(got) != 0 {
+		t.Errorf("print-mode usage should not be counted, got %+v", got)
+	}
+	interactive := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","entrypoint":"cli","message":{"model":"m",` + usage + `}}`
+	if got := extractClaude([]string{interactive}); len(got) != 1 {
+		t.Fatalf("interactive usage should be counted, got %+v", got)
+	}
+}

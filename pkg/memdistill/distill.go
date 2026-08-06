@@ -23,8 +23,10 @@ const (
 	// DistillGuardVar marks the headless distill sub-session so its own SessionEnd hook no-ops
 	// instead of enqueuing itself.
 	DistillGuardVar = "WAVETERM_MEMORY_DISTILL"
-	// DistillSentinel is the stable leading text of the distill prompt. The Sessions scanner filters
-	// any session whose first prompt starts with it, hiding the headless distill transcript.
+	// DistillSentinel is the stable leading text of the distill prompt. It no longer drives any
+	// filtering: the transcript scanners identify Wave's own model calls by the print-mode entrypoint
+	// the CLI records (see agentobserve.HeadlessEntrypoint), which covers every backend call rather
+	// than only the prompts someone remembered to list.
 	DistillSentinel = "You are distilling durable learnings from"
 
 	// combinedBudget caps corpus assembly at the same size where the long-context model takes over,
@@ -43,9 +45,6 @@ const batchDistillPrompt = DistillSentinel + " multiple finished coding sessions
 	"supersedes: the slug of an existing memory this learning replaces, or omit. " +
 	"references: slugs of existing memories the sessions clearly relied on. " +
 	`Extract only durable, reusable learnings. If none, return {"candidates":[],"references":[]}.`
-
-// BatchDistillPromptForTest exposes the batch prompt for cross-package drift tests.
-func BatchDistillPromptForTest() string { return batchDistillPrompt }
 
 // readTail returns the last maxBytes of path (whole file when smaller). Any error yields "".
 func readTail(path string, maxBytes int64) string {

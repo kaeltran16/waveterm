@@ -50,15 +50,18 @@ type Bucket struct {
 
 // extractClaude parses Claude Code transcript lines: one record per type:"assistant" line that
 // carries message.usage + message.model + a parseable timestamp. Malformed/incomplete lines are
-// skipped. Mirrors extractUsage in usagestats.ts.
+// skipped, as are print-mode records: those tokens are real, but they are Wave's own backend model
+// calls rather than the user's agent activity, and several of them run inside a real project directory
+// where the headless-directory prune in walkClaudeFiles cannot reach them.
 func extractClaude(lines []string) []Record {
 	var out []Record
 	for _, line := range lines {
 		var rec struct {
-			Type      string `json:"type"`
-			Timestamp string `json:"timestamp"`
-			RequestID string `json:"requestId"`
-			Message   struct {
+			Type       string `json:"type"`
+			Timestamp  string `json:"timestamp"`
+			RequestID  string `json:"requestId"`
+			Entrypoint string `json:"entrypoint"`
+			Message    struct {
 				ID    string `json:"id"`
 				Model string `json:"model"`
 				Usage *struct {
@@ -76,6 +79,9 @@ func extractClaude(lines []string) []Record {
 			continue
 		}
 		if rec.Type != "assistant" || rec.Message.Usage == nil || rec.Message.Model == "" {
+			continue
+		}
+		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
 			continue
 		}
 		ts, err := time.Parse(time.RFC3339, rec.Timestamp)

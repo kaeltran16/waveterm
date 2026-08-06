@@ -3,7 +3,11 @@
 
 package reporadar
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+)
 
 func TestExtractTranscriptToolErrors(t *testing.T) {
 	lines := []string{
@@ -50,5 +54,20 @@ func TestExtractTranscriptSkipsUserRejections(t *testing.T) {
 	}
 	if facts.toolErrors != 1 {
 		t.Fatalf("user rejections must not count as tool errors: got toolErrors=%d, want 1 (only the genuine failure)", facts.toolErrors)
+	}
+}
+
+// Wave's own backend model calls are print-mode runs, and several use the scanned project as their
+// working directory — so cwd cannot tell them apart. A tool failure inside one of our own maintenance
+// passes is not evidence about the user's repo, so the whole transcript is skipped.
+func TestExtractTranscriptSkipsPrintModeRuns(t *testing.T) {
+	errLine := `{"type":"user","cwd":"/repo","message":{"content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"boom"}]}}`
+	if f := extractTranscript("s1", "/repo", []string{errLine}); f == nil || f.toolErrors != 1 {
+		t.Fatalf("baseline: an interactive tool error should be counted, got %+v", f)
+	}
+	headless := `{"type":"user","cwd":"/repo","entrypoint":"` + agentobserve.HeadlessEntrypoint +
+		`","message":{"content":[{"type":"tool_result","is_error":true,"tool_use_id":"t1","content":"boom"}]}}`
+	if f := extractTranscript("s2", "/repo", []string{headless}); f != nil {
+		t.Errorf("print-mode transcript should yield no facts, got %+v", f)
 	}
 }

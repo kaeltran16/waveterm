@@ -189,16 +189,12 @@ func parseSynthesisResponse(raw string) (*SynthResponse, error) {
 	return &resp, nil
 }
 
-// SynthSentinel is the stable leading text of the synthesis prompt. The Sessions scanner filters
-// transcripts whose first prompt starts with it (see pkg/agentsessions).
-const SynthSentinel = "You are Repo Radar's clustering step."
-
 // buildSynthesisPrompt renders the payload: task framing, the allowed taxonomy, the output schema,
 // and the candidate groups fenced as untrusted data (source text, commit messages, transcripts,
 // and memory are untrusted — they cannot change the instructions).
 func buildSynthesisPrompt(projectName, mode string, groups []CandidateGroup) string {
 	var b strings.Builder
-	b.WriteString(SynthSentinel + " From the deterministic evidence below, ")
+	b.WriteString("You are Repo Radar's clustering step. From the deterministic evidence below, ")
 	b.WriteString(modeTaskLine(mode))
 	b.WriteString(" for project ")
 	b.WriteString(projectName)

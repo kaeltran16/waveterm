@@ -20,11 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 )
 
-// DedupSentinel is the stable leading text of the dedup prompt. The Sessions scanner filters
-// transcripts whose first prompt starts with it (see pkg/agentsessions).
-const DedupSentinel = "You are finding semantic near-duplicate project memory notes."
-
-const dedupPrompt = DedupSentinel + " Input: a list of " +
+const dedupPrompt = "You are finding semantic near-duplicate project memory notes. Input: a list of " +
 	"notes as `slug: first line`. Group notes that say essentially the same thing (near-duplicates), " +
 	`ignoring notes that are merely related. Output ONLY JSON: {"clusters": [["slugA","slugB"], ...]}. ` +
 	"Only include clusters of 2+ genuinely redundant notes. If none, return {\"clusters\": []}."
