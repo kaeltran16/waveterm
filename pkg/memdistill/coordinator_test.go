@@ -47,12 +47,12 @@ func TestFlush_RoutesAndClearsBucket(t *testing.T) {
 	d.distillFn = func(claudePath, model, corpus string) (string, bool) {
 		return `{"candidates":[{"type":"feedback","body":"x","iscorrection":true}],"references":[]}`, true
 	}
-	d.routeFn = func(cwd string, cands []memvault.LearnCandidate, refs []string) (int, int, error) {
+	d.routeFn = func(cwd string, cands []memvault.LearnCandidate, refs []string) (memvault.RouteResult, error) {
 		routedCwd = cwd
 		for _, c := range cands {
 			routedBodies = append(routedBodies, c.Body)
 		}
-		return len(cands), 0, nil
+		return memvault.RouteResult{Committed: len(cands)}, nil
 	}
 	d.enqueue("/repo/a", "/t/1.jsonl", "/usr/bin/claude") // writes queue, no flush (below threshold)
 	d.flush("/repo/a")
@@ -69,7 +69,10 @@ func TestFlush_KeepsBucketOnDistillFailure(t *testing.T) {
 	d := newDistiller(path)
 	d.distillFn = func(claudePath, model, corpus string) (string, bool) { return "", false }
 	routed := false
-	d.routeFn = func(string, []memvault.LearnCandidate, []string) (int, int, error) { routed = true; return 0, 0, nil }
+	d.routeFn = func(string, []memvault.LearnCandidate, []string) (memvault.RouteResult, error) {
+		routed = true
+		return memvault.RouteResult{}, nil
+	}
 	d.enqueue("/repo/a", "/t/1.jsonl", "")
 	d.flush("/repo/a")
 	if routed {

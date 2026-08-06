@@ -28,7 +28,7 @@ type distiller struct {
 	path      string
 	inflight  map[string]bool
 	distillFn func(claudePath, model, corpus string) (string, bool)
-	routeFn   func(cwd string, cands []memvault.LearnCandidate, refs []string) (int, int, error)
+	routeFn   func(cwd string, cands []memvault.LearnCandidate, refs []string) (memvault.RouteResult, error)
 	now       func() time.Time
 }
 
@@ -112,10 +112,10 @@ func (d *distiller) flush(cwd string) {
 		log.Printf("[memdistill] distill output unparseable for cwd %s; retaining bucket\n", cwd)
 		return
 	}
-	var committed, queued int
+	var res memvault.RouteResult
 	if len(cands) > 0 || len(refs) > 0 {
 		var rerr error
-		committed, queued, rerr = d.routeFn(cwd, cands, refs)
+		res, rerr = d.routeFn(cwd, cands, refs)
 		if rerr != nil {
 			log.Printf("[memdistill] route learnings: %v\n", rerr)
 			return
@@ -145,16 +145,19 @@ func (d *distiller) flush(cwd string) {
 	}
 	d.mu.Unlock()
 
-	// the batch and the notes it wrote are two facts, not one: the first is "I did some work while you
-	// were out", the second is "here is what I now believe about you" — and only the second is correctable.
+	// One event per pass, carrying what the pass produced. It used to be two — "I did some work" and "here
+	// is what I now believe" — on the argument that they are separate facts. They are, but the first alone
+	// is an utterance with nothing behind it, and the panel's own last-pass row is where a pass that wrote
+	// nothing belongs. Publishing unconditionally is what keeps that row honest: the frontend decides
+	// whether a pass is worth SAYING, and a barren pass suppressed here would be invisible instead of quiet.
+	notes := make([]baseds.MemoryActivityNote, 0, len(res.Written))
+	for _, w := range res.Written {
+		notes = append(notes, baseds.MemoryActivityNote{Id: w.ID, Title: w.Title})
+	}
 	PublishActivity(baseds.MemoryActivityData{
 		Kind: baseds.MemoryActivity_DistillBatch, Cwd: cwd, Sessions: len(sessions),
+		Committed: res.Committed, Queued: res.Queued, Notes: notes,
 	})
-	if committed+queued > 0 {
-		PublishActivity(baseds.MemoryActivityData{
-			Kind: baseds.MemoryActivity_NotesWritten, Cwd: cwd, Committed: committed, Queued: queued,
-		})
-	}
 }
 
 // sweep evaluates every bucket against both trigger conditions (backstop + failed-flush retry).

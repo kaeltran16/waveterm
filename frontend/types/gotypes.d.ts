@@ -1996,6 +1996,13 @@ declare global {
         committed?: number;
         queued?: number;
         archived?: number;
+        notes?: MemoryActivityNote[];
+    };
+
+    // baseds.MemoryActivityNote
+    type MemoryActivityNote = {
+        id: string;
+        title: string;
     };
 
     // wshrpc.MemoryArchivedNote

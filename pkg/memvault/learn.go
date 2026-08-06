@@ -104,30 +104,49 @@ func firstLine(body string) string {
 	return strings.TrimSpace(body)
 }
 
+// WrittenNote identifies one note a routing pass actually created. ID is the slug, which is also the note's
+// frontmatter `name` and therefore the id memvault's scan reports — so a caller can address it without a
+// second lookup. Title is the note's first line, which is what its `description` carries.
+type WrittenNote struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// RouteResult is what a routing pass did. The counts were always returned; the identities were computed at
+// the write and discarded, which left every consumer able to announce a volume and nothing else.
+type RouteResult struct {
+	Committed int
+	Queued    int
+	Written   []WrittenNote
+}
+
 // RouteLearnings writes distilled candidates into memory: corrections auto-commit into the project
 // hub (or the default vault when cwd has no hub), everything else lands in the review tray. Supersedes
 // and references are applied against the hub. Shared by MemoryLearnCommand and batch distillation.
-func RouteLearnings(cwd string, candidates []LearnCandidate, references []string) (int, int, error) {
+func RouteLearnings(cwd string, candidates []LearnCandidate, references []string) (RouteResult, error) {
 	hub := HubDirForCwd(cwd)
-	committed, queued := 0, 0
+	var res RouteResult
 	for _, cand := range candidates {
 		if cand.IsCorrection {
 			target := hub
 			if target == "" {
 				target = DefaultVaultPath()
 			}
-			wrote, _, err := WriteLearning(target, cand)
+			wrote, slug, err := WriteLearning(target, cand)
 			if err != nil {
-				return committed, queued, fmt.Errorf("writing learning: %w", err)
+				return res, fmt.Errorf("writing learning: %w", err)
 			}
 			if wrote {
-				committed++
+				res.Committed++
+				// only a note that was actually created is a product: a deduped candidate carries a slug
+				// but wrote no file, and offering to open it would be a dead button
+				res.Written = append(res.Written, WrittenNote{ID: slug, Title: firstLine(cand.Body)})
 			}
 		} else {
 			if _, err := WritePending(PendingDir(), cand, cwd); err != nil {
-				return committed, queued, fmt.Errorf("queuing candidate: %w", err)
+				return res, fmt.Errorf("queuing candidate: %w", err)
 			}
-			queued++
+			res.Queued++
 		}
 	}
 	if hub != "" {
@@ -141,5 +160,5 @@ func RouteLearnings(cwd string, candidates []LearnCandidate, references []string
 			_ = TouchReferenced(hub, references, time.Now().UTC().Format(time.RFC3339))
 		}
 	}
-	return committed, queued, nil
+	return res, nil
 }

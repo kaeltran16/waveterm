@@ -38,52 +38,62 @@ func captureActivity(t *testing.T) *[]baseds.MemoryActivityData {
 	return &got
 }
 
-func TestFlushAnnouncesBatchAndNotesSeparately(t *testing.T) {
+// One event per pass, always — the frontend decides whether it is worth saying. This replaced a pair of
+// events ("I did some work", then a count of notes): suppressing a barren pass here would leave the peek's
+// last-pass row with no data, which is how a pipeline that runs and writes nothing becomes invisible.
+func TestFlushPublishesOneActivityPerPassCarryingItsNotes(t *testing.T) {
 	got := captureActivity(t)
 	d := newDistiller(filepath.Join(t.TempDir(), "q.json"))
 	d.distillFn = func(claudePath, model, corpus string) (string, bool) {
 		return `{"candidates":[{"type":"feedback","body":"x"}],"references":[]}`, true
 	}
-	d.routeFn = func(string, []memvault.LearnCandidate, []string) (int, int, error) { return 1, 2, nil }
+	d.routeFn = func(string, []memvault.LearnCandidate, []string) (memvault.RouteResult, error) {
+		return memvault.RouteResult{
+			Committed: 1,
+			Queued:    2,
+			Written:   []memvault.WrittenNote{{ID: "prefer-x-ab12", Title: "prefer x"}},
+		}, nil
+	}
 	d.enqueue("/repo/a", "/t/1.jsonl", "")
 	d.flush("/repo/a")
 
-	if len(*got) != 2 {
-		t.Fatalf("events = %d (%+v), want a batch and a notes-written", len(*got), *got)
+	if len(*got) != 1 {
+		t.Fatalf("published %d events, want exactly 1 per pass: %+v", len(*got), *got)
 	}
-	batch, notes := (*got)[0], (*got)[1]
-	if batch.Kind != baseds.MemoryActivity_DistillBatch || batch.Cwd != "/repo/a" || batch.Sessions != 1 {
-		t.Fatalf("batch event = %+v", batch)
+	ev := (*got)[0]
+	if ev.Kind != baseds.MemoryActivity_DistillBatch || ev.Cwd != "/repo/a" || ev.Sessions != 1 {
+		t.Fatalf("pass event = %+v", ev)
 	}
-	if notes.Kind != baseds.MemoryActivity_NotesWritten || notes.Committed != 1 || notes.Queued != 2 {
-		t.Fatalf("notes event = %+v", notes)
+	if ev.Committed != 1 || ev.Queued != 2 {
+		t.Errorf("Committed/Queued = %d/%d, want 1/2", ev.Committed, ev.Queued)
 	}
-	for _, e := range *got {
-		if e.Id == "" || e.Ts == 0 {
-			t.Fatalf("event without an id/timestamp cannot be watermarked: %+v", e)
-		}
+	if len(ev.Notes) != 1 || ev.Notes[0].Id != "prefer-x-ab12" || ev.Notes[0].Title != "prefer x" {
+		t.Errorf("Notes = %+v, want the one note the pass wrote", ev.Notes)
 	}
-	if batch.Id == notes.Id {
-		t.Fatal("two events share one id; a watermark would swallow the second")
+	if ev.Id == "" || ev.Ts == 0 {
+		t.Fatalf("event without an id/timestamp cannot be watermarked: %+v", ev)
 	}
 }
 
-// A batch that wrote nothing still did work worth reporting, but it has nothing to say it believes.
-func TestFlushWithNoRoutedNotesAnnouncesOnlyTheBatch(t *testing.T) {
+// A pass that wrote nothing is still a pass the panel reports — as a level, not an utterance.
+func TestFlushPublishesABarrenPassWithNoNotes(t *testing.T) {
 	got := captureActivity(t)
 	d := newDistiller(filepath.Join(t.TempDir(), "q.json"))
 	d.distillFn = func(claudePath, model, corpus string) (string, bool) {
 		return `{"candidates":[],"references":[]}`, true
 	}
-	d.routeFn = func(string, []memvault.LearnCandidate, []string) (int, int, error) {
+	d.routeFn = func(string, []memvault.LearnCandidate, []string) (memvault.RouteResult, error) {
 		t.Fatal("routeFn must not run with nothing to route")
-		return 0, 0, nil
+		return memvault.RouteResult{}, nil
 	}
 	d.enqueue("/repo/a", "/t/1.jsonl", "")
 	d.flush("/repo/a")
 
 	if len(*got) != 1 || (*got)[0].Kind != baseds.MemoryActivity_DistillBatch {
 		t.Fatalf("events = %+v, want one distill-batch", *got)
+	}
+	if len((*got)[0].Notes) != 0 {
+		t.Errorf("Notes = %+v, want none", (*got)[0].Notes)
 	}
 }
 

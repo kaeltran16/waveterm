@@ -100,11 +100,11 @@ func (ws *WshServer) MemoryLearnCommand(ctx context.Context, data wshrpc.Command
 	for i, c := range data.Candidates {
 		cands[i] = memvault.LearnCandidate{Type: c.Type, Scope: c.Scope, Body: c.Body, IsCorrection: c.IsCorrection, Supersedes: c.Supersedes}
 	}
-	committed, queued, err := memvault.RouteLearnings(data.Cwd, cands, data.References)
+	res, err := memvault.RouteLearnings(data.Cwd, cands, data.References)
 	if err != nil {
 		return nil, err
 	}
-	return &wshrpc.CommandMemoryLearnRtnData{Committed: committed, Queued: queued}, nil
+	return &wshrpc.CommandMemoryLearnRtnData{Committed: res.Committed, Queued: res.Queued}, nil
 }
 
 func (ws *WshServer) MemoryEnqueueSessionCommand(ctx context.Context, data wshrpc.CommandMemoryEnqueueSessionData) error {
