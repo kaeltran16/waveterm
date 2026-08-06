@@ -154,3 +154,15 @@ export function plainFileView(content: string): FileView {
         binary: false,
     };
 }
+
+// Where a jump into the Code surface should land: the first added line's new-side number. A
+// deletion-only hunk has no added line, so its first numbered line — the context line the hunk
+// starts on — is the closest honest answer.
+export function firstChangedLine(view: FileView): number | undefined {
+    const line = view.lines.find((l) => l.kind === "add") ?? view.lines.find((l) => l.gNew !== "");
+    if (line == null) {
+        return undefined;
+    }
+    const n = parseInt(line.gNew, 10);
+    return Number.isFinite(n) ? n : undefined;
+}

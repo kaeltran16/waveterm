@@ -12,11 +12,14 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "@/app/view/agents/surfacescaffold";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { ChevronDown, FolderGit2, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CodeFinderPalette } from "./codefinderpalette";
 import { canBack, canForward } from "./codehistory";
+import { CodePathBar } from "./codepathbar";
+import { CodeSearchPane } from "./codesearchpane";
+import { codeSearchModeAtom } from "./codesearchstore";
 import {
     codeDraftsAtom,
     codeFileAtom,
@@ -263,13 +266,37 @@ function CodeBody({ model, onPickProject }: { model: AgentsViewModel; onPickProj
 }
 
 function CodePanes({ model }: { model: AgentsViewModel }) {
+    const [mode, setMode] = useAtom(codeSearchModeAtom);
     return (
         <div className="flex h-full w-full">
-            <div className="w-[280px] flex-none">
-                <CodeTreePane model={model} />
+            {/* Search rows carry a line number and a line of source, which is unreadable at the
+                tree's width, so the column widens for them rather than truncating everything. */}
+            <div className={cn("flex flex-none flex-col", mode === "search" ? "w-[380px]" : "w-[280px]")}>
+                <div className="flex flex-none gap-1 border-b border-border px-2 py-1">
+                    {(["files", "search"] as const).map((m) => (
+                        <button
+                            key={m}
+                            type="button"
+                            data-code-column-tab={m}
+                            onClick={() => setMode(m)}
+                            className={cn(
+                                "cursor-pointer rounded-[6px] px-2 py-[3px] text-[11px] capitalize",
+                                m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
+                            )}
+                        >
+                            {m}
+                        </button>
+                    ))}
+                </div>
+                <div className="min-h-0 flex-1">
+                    {mode === "files" ? <CodeTreePane model={model} /> : <CodeSearchPane model={model} />}
+                </div>
             </div>
-            <div className="min-w-0 flex-1">
-                <CodeViewer model={model} />
+            <div className="flex min-w-0 flex-1 flex-col">
+                <CodePathBar model={model} />
+                <div className="min-h-0 flex-1">
+                    <CodeViewer model={model} />
+                </div>
             </div>
         </div>
     );

@@ -1284,3 +1284,154 @@ func TestListFilesNonRepoReportsIsRepoFalse(t *testing.T) {
 		t.Fatalf("Paths = %v, want empty", fl.Paths)
 	}
 }
+
+// A repository with one match in each interesting category: tracked, untracked-not-ignored,
+// ignored, binary, and a CRLF line (this is a Windows checkout, so real files have CRLF).
+func repoForGrep(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("tracked.txt", "alpha NEEDLE here\nsecond line\n")
+	write("crlf.txt", "carriage NEEDLE return\r\n")
+	write(".gitignore", "ignored.txt\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+	write("untracked.txt", "another needle line\n")
+	write("ignored.txt", "NEEDLE in an ignored file\n")
+	write("bin.dat", "NEEDLE\x00binary\n")
+	return dir
+}
+
+func grepPaths(res *GrepResult) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range res.Matches {
+		out[m.Path] = true
+	}
+	return out
+}
+
+func TestGrepReturnsPathLineAndText(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *GrepMatch
+	for i := range res.Matches {
+		if res.Matches[i].Path == "tracked.txt" {
+			got = &res.Matches[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("no match in tracked.txt; got %+v", res.Matches)
+	}
+	if got.Line != 1 {
+		t.Errorf("Line = %d, want 1", got.Line)
+	}
+	if got.Text != "alpha NEEDLE here" {
+		t.Errorf("Text = %q, want %q", got.Text, "alpha NEEDLE here")
+	}
+}
+
+func TestGrepStripsTheCarriageReturn(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "carriage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Matches) != 1 {
+		t.Fatalf("want exactly one match, got %+v", res.Matches)
+	}
+	if res.Matches[0].Text != "carriage NEEDLE return" {
+		t.Errorf("Text = %q — a trailing \\r must be stripped", res.Matches[0].Text)
+	}
+}
+
+func TestGrepNoMatchIsNotAnError(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "no-such-string-anywhere")
+	if err != nil {
+		t.Fatalf("git grep exits 1 for no matches; that is not an error: %v", err)
+	}
+	if len(res.Matches) != 0 {
+		t.Errorf("want no matches, got %+v", res.Matches)
+	}
+	if res.Truncated {
+		t.Error("Truncated must be false when there are no matches")
+	}
+}
+
+func TestGrepSearchesUntrackedAndHonorsGitignore(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := grepPaths(res)
+	if !paths["untracked.txt"] {
+		t.Error("untracked.txt not searched — --untracked is missing, so search disagrees with the file tree")
+	}
+	if paths["ignored.txt"] {
+		t.Error("ignored.txt searched — .gitignore must still be honored")
+	}
+}
+
+func TestGrepSkipsBinaryFiles(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "NEEDLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grepPaths(res)["bin.dat"] {
+		t.Error("bin.dat searched — -I must skip binary files")
+	}
+}
+
+func TestGrepIsCaseInsensitive(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "needle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !grepPaths(res)["tracked.txt"] {
+		t.Error("lowercase query did not match uppercase NEEDLE")
+	}
+}
+
+func TestGrepEmptyQueryReturnsNoMatches(t *testing.T) {
+	res, err := Grep(context.Background(), repoForGrep(t), "   ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Matches) != 0 {
+		t.Errorf("an empty query must match nothing (git grep -e \"\" matches every line), got %d", len(res.Matches))
+	}
+}
+
+func TestGrepTruncatesAtTheCap(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	var sb strings.Builder
+	for i := 0; i < maxGrepMatches+100; i++ {
+		sb.WriteString("NEEDLE line\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "many.txt"), []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Grep(context.Background(), dir, "NEEDLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Matches) != maxGrepMatches {
+		t.Errorf("len(Matches) = %d, want the cap %d", len(res.Matches), maxGrepMatches)
+	}
+	if !res.Truncated {
+		t.Error("Truncated must be true once the cap is hit")
+	}
+}
+
+func TestGrepOnNonRepoIsAnError(t *testing.T) {
+	if _, err := Grep(context.Background(), t.TempDir(), "anything"); err == nil {
+		t.Error("a non-repository must error (git exits 128), not report zero matches")
+	}
+}

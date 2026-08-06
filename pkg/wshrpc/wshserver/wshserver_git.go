@@ -75,3 +75,15 @@ func (ws *WshServer) GitListFilesCommand(ctx context.Context, data wshrpc.Comman
 	}
 	return &wshrpc.CommandGitListFilesRtnData{Files: fl.Paths, IsRepo: fl.IsRepo, Truncated: fl.Truncated}, nil
 }
+
+func (ws *WshServer) GitGrepCommand(ctx context.Context, data wshrpc.CommandGitGrepData) (*wshrpc.CommandGitGrepRtnData, error) {
+	res, err := gitinfo.Grep(ctx, data.Cwd, data.Query)
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]wshrpc.GitGrepMatch, 0, len(res.Matches))
+	for _, m := range res.Matches {
+		matches = append(matches, wshrpc.GitGrepMatch{Path: m.Path, Line: m.Line, Text: m.Text})
+	}
+	return &wshrpc.CommandGitGrepRtnData{Matches: matches, Truncated: res.Truncated}, nil
+}

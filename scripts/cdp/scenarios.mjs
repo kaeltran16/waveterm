@@ -2913,10 +2913,105 @@ const jarvisVolunteer = {
     },
 };
 
+// --- code: content search ----------------------------------------------------------------------
+// Drives the real grep RPC, so it needs a backend built with GitGrepCommand (task build:backend).
+// The query is a string this repository certainly contains; asserting "some rows" rather than an
+// exact count keeps it from breaking on every edit.
+const CODE_SEARCH_QUERY = "openInCode";
+
+// Opens the project picker only when no project is loaded yet — the column tabs render only inside
+// CodePanes, so their absence is the signal. Returns whether the picker was actually opened, because
+// clicking a project row is only safe when it is.
+const openProjectPicker = (h) =>
+    h.ev(`(() => {
+        if (document.querySelector('[data-code-column-tab]')) return false;
+        const chip = document.querySelector('[data-code-project-picker]');
+        if (!chip) return false;
+        chip.click();
+        return true;
+    })()`);
+
+const chooseProjectRow = (h) =>
+    h.ev(`(() => {
+        const rows = [...document.querySelectorAll('button')].filter((b) => b.querySelector('.font-mono'));
+        if (!rows.length) return false;
+        rows[0].click();
+        return true;
+    })()`);
+
+const setSearchQuery = (h, text) =>
+    h.ev(`(() => {
+        const input = document.querySelector('input[placeholder="Search file contents"]');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, ${JSON.stringify(text)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        return true;
+    })()`);
+
+const codeSearch = {
+    name: "code-search",
+    surface: "code",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        await h.goto("code");
+        steps.push({
+            step: "Code surface is active",
+            ok: (await h.activeSurfaceLabel()) === SURFACE_LABEL.code,
+            detail: `active=${await h.activeSurfaceLabel()}`,
+        });
+
+        if ((await openProjectPicker(h)) === true) {
+            await sleep(300);
+            await chooseProjectRow(h);
+            await sleep(1200); // the index is one git ls-files call
+        }
+
+        const switched = await h.ev(`(() => {
+            const t = document.querySelector('[data-code-column-tab="search"]');
+            if (!t) return false;
+            t.click();
+            return true;
+        })()`);
+        steps.push({ step: "switch the left column to Search", ok: switched === true, detail: `switched=${switched}` });
+
+        const typed = await setSearchQuery(h, CODE_SEARCH_QUERY);
+        steps.push({ step: "type a query and submit", ok: typed === true, detail: `typed=${typed}` });
+
+        // poll rather than sleep a guessed interval: the RPC shells out to git. Take the LAST match so
+        // the summary leaf wins over every ancestor div whose textContent also contains it.
+        let summary = "";
+        for (let i = 0; i < 20; i++) {
+            summary = await h.ev(
+                `(() => { const els=[...document.querySelectorAll('div')].filter((d)=>/match(es)? in \\d+ file/.test(d.textContent||'')); const el=els[els.length-1]; return el?(el.textContent||'').trim():''; })()`
+            );
+            if (summary) break;
+            await sleep(500);
+        }
+        steps.push({
+            step: `search "${CODE_SEARCH_QUERY}" reports a match summary`,
+            ok: summary !== "",
+            detail: `summary=${summary || "(none)"}`,
+        });
+
+        await h.shot("cdp-shots/code-search.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     gitHistory,
     surfaceSmoke,
+    codeSearch,
     jarvisAvatar,
     jarvisStates,
     jarvisFleet,

@@ -17,6 +17,7 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
@@ -135,6 +136,24 @@ describe("keybinding conflict invariant", () => {
         const model = {} as any;
         globalStore.set(listNavAtom, null);
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildCodeBindings()])).not.toThrow();
+    });
+
+    // The tree keys are bare letters and arrows, live only while the tree pane holds focus. With
+    // focus false they are inert and prove nothing, so assert with focus TRUE — and with a list-nav
+    // controller published for another surface, which is the state the shared j/k bindings need to
+    // be inert in.
+    it("global + list-nav + code tree keys (tree focused) do not conflict", () => {
+        const model = {} as any;
+        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: [], cursorId: undefined, setCursor() {} });
+        globalStore.set(codeTreeFocusedAtom, true);
+        try {
+            expect(() =>
+                assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(), ...buildCodeBindings()])
+            ).not.toThrow();
+        } finally {
+            globalStore.set(codeTreeFocusedAtom, false);
+            globalStore.set(listNavAtom, null);
+        }
     });
 
     it("global + cockpit-grid documentation bindings do not conflict", () => {

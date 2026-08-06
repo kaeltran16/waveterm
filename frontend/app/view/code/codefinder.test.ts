@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { rankPaths } from "./codefinder";
+import { parseFinderQuery, rankPaths } from "./codefinder";
 
 describe("rankPaths", () => {
     it("ranks a basename hit above a match scattered through directory names", () => {
@@ -41,5 +41,38 @@ describe("rankPaths", () => {
     it("breaks score ties by path so the order is stable", () => {
         const ranked = rankPaths("m", ["z/m.ts", "a/m.ts"], 10);
         expect(ranked[0].path).toBe("a/m.ts");
+    });
+});
+
+describe("parseFinderQuery", () => {
+    it("splits a trailing :line off the path", () => {
+        expect(parseFinderQuery("app/store/codestore.ts:152")).toEqual({
+            text: "app/store/codestore.ts",
+            line: 152,
+        });
+    });
+
+    it("reads a bare :line as a jump within the open file", () => {
+        expect(parseFinderQuery(":152")).toEqual({ text: "", line: 152 });
+    });
+
+    it("leaves a query with no line alone", () => {
+        expect(parseFinderQuery("codestore.ts")).toEqual({ text: "codestore.ts" });
+    });
+
+    it("does not treat digits in a filename as a line", () => {
+        expect(parseFinderQuery("file2.ts")).toEqual({ text: "file2.ts" });
+    });
+
+    it("treats a trailing colon with no digits as still-typing text", () => {
+        expect(parseFinderQuery("codestore.ts:")).toEqual({ text: "codestore.ts:" });
+    });
+
+    it("takes only the last :line when there are several", () => {
+        expect(parseFinderQuery("a:1:2")).toEqual({ text: "a:1", line: 2 });
+    });
+
+    it("trims surrounding whitespace", () => {
+        expect(parseFinderQuery("  a.ts:9  ")).toEqual({ text: "a.ts", line: 9 });
     });
 });

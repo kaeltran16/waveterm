@@ -19,6 +19,7 @@ import {
 import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 import { pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
 import { setDisposition } from "./radarstore";
+import { openInCode } from "@/app/view/code/codestore";
 import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
 import { ambientRefForFinding } from "./ambient";
 import { AmbientTags, RelevantDecisions } from "./ambientviews";
@@ -144,8 +145,19 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                     </div>
                     <ul>
                         {finding.files.map((f) => (
-                            <li key={f} className="border-b border-border px-3 py-1.5 font-mono text-xs text-muted-foreground last:border-b-0">
-                                {f}
+                            <li key={f} className="border-b border-border last:border-b-0">
+                                {/* findings carry no line numbers, so this lands at the top of the file */}
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        fireAndForget(() =>
+                                            openInCode(model, { projectPath: report.projectpath, rel: f })
+                                        )
+                                    }
+                                    className="w-full cursor-pointer truncate px-3 py-1.5 text-left font-mono text-xs text-muted-foreground hover:bg-accent/10 hover:text-primary"
+                                >
+                                    {f}
+                                </button>
                             </li>
                         ))}
                     </ul>

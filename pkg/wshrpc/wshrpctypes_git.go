@@ -20,6 +20,7 @@ type GitCommands interface {
 	GitCompareChangesCommand(ctx context.Context, data CommandGitCompareChangesData) (*CommandGitCompareChangesRtnData, error)
 	GitCompareDiffCommand(ctx context.Context, data CommandGitCompareDiffData) (*CommandGitCompareDiffRtnData, error)
 	GitListFilesCommand(ctx context.Context, data CommandGitListFilesData) (*CommandGitListFilesRtnData, error)
+	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -113,4 +114,24 @@ type CommandGitListFilesRtnData struct {
 	Files     []string `json:"files"`
 	IsRepo    bool     `json:"isrepo"`
 	Truncated bool     `json:"truncated,omitempty"`
+}
+
+type CommandGitGrepData struct {
+	Cwd   string `json:"cwd"`
+	Query string `json:"query"`
+}
+
+// Unlike the change-list and diff commands, which hand raw git output across the wire for one
+// frontend parser to split, grep returns already-parsed matches — the mixed NUL-and-newline record
+// format is the parsing Go already does for ls-files, the match cap has to be applied server-side
+// regardless, and there is no second caller to share a TypeScript parser with.
+type CommandGitGrepRtnData struct {
+	Matches   []GitGrepMatch `json:"matches"`
+	Truncated bool           `json:"truncated,omitempty"`
+}
+
+type GitGrepMatch struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
 }

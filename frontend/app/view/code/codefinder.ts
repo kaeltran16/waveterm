@@ -42,3 +42,22 @@ export function rankPaths(query: string, paths: readonly string[], limit: number
     out.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
     return out.slice(0, limit);
 }
+
+export interface FinderQuery {
+    text: string;
+    line?: number;
+}
+
+// A trailing ":<digits>" is a line. Reusing the finder for this is why there is no second overlay
+// and no Ctrl+G dialog. A trailing colon with nothing after it is someone mid-keystroke, so it
+// stays part of the text.
+const LINE_SUFFIX = /:(\d+)$/;
+
+export function parseFinderQuery(raw: string): FinderQuery {
+    const q = raw.trim();
+    const m = LINE_SUFFIX.exec(q);
+    if (m == null) {
+        return { text: q };
+    }
+    return { text: q.slice(0, m.index), line: parseInt(m[1], 10) };
+}

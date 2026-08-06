@@ -14,8 +14,8 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { rankPaths } from "./codefinder";
-import { codeFinderOpenAtom, codeIndexAtom, openPath, revealPath } from "./codestore";
+import { parseFinderQuery, rankPaths } from "./codefinder";
+import { codeFinderOpenAtom, codeIndexAtom, codePendingLineAtom, codeProjectAtom, openInCode } from "./codestore";
 
 const MAX_RESULTS = 50;
 const COMMAND_SIGIL = ">";
@@ -23,11 +23,13 @@ const COMMAND_SIGIL = ">";
 export function CodeFinderPalette({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(codeFinderOpenAtom);
     const index = useAtomValue(codeIndexAtom);
+    const project = useAtomValue(codeProjectAtom);
     const [query, setQuery] = useState("");
     const [cursor, setCursor] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const matches = useMemo(() => rankPaths(query, index?.paths ?? [], MAX_RESULTS), [query, index]);
+    const parsed = useMemo(() => parseFinderQuery(query), [query]);
+    const matches = useMemo(() => rankPaths(parsed.text, index?.paths ?? [], MAX_RESULTS), [parsed.text, index]);
 
     useEffect(() => {
         if (open) {
@@ -48,8 +50,14 @@ export function CodeFinderPalette({ model }: { model: AgentsViewModel }) {
     const close = () => globalStore.set(codeFinderOpenAtom, false);
     const choose = (path: string) => {
         close();
-        revealPath(path);
-        fireAndForget(() => openPath(path));
+        if (project != null) {
+            fireAndForget(() => openInCode(model, { projectPath: project.path, rel: path, line: parsed.line }));
+        }
+    };
+    // a bare ":152" names no file, so it means "that line of the file already open"
+    const jumpInPlace = () => {
+        close();
+        globalStore.set(codePendingLineAtom, parsed.line ?? null);
     };
     // Seed before opening: the palette reads the seed in its own open effect, so the '>' the user
     // typed survives the swap instead of being eaten by this overlay closing.
@@ -71,7 +79,7 @@ export function CodeFinderPalette({ model }: { model: AgentsViewModel }) {
                 <input
                     ref={inputRef}
                     value={query}
-                    placeholder="Find a file by name, or type &gt; for commands"
+                    placeholder="Find a file by name — add :123 for a line"
                     onChange={(e) => {
                         const next = e.target.value;
                         if (next.startsWith(COMMAND_SIGIL)) {
@@ -90,9 +98,13 @@ export function CodeFinderPalette({ model }: { model: AgentsViewModel }) {
                         } else if (e.key === "ArrowUp") {
                             e.preventDefault();
                             setCursor((c) => Math.max(c - 1, 0));
-                        } else if (e.key === "Enter" && matches[cursor] != null) {
+                        } else if (e.key === "Enter") {
                             e.preventDefault();
-                            choose(matches[cursor].path);
+                            if (parsed.text === "" && parsed.line != null) {
+                                jumpInPlace();
+                            } else if (matches[cursor] != null) {
+                                choose(matches[cursor].path);
+                            }
                         }
                     }}
                     className="w-full border-b border-border bg-transparent px-4 py-3 text-[13px] text-primary outline-none placeholder:text-muted"

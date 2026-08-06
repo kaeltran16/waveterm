@@ -9,13 +9,16 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { joinRepoPath } from "@/util/paths";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { joinRepoPath, repoBasename, sameRepoPath } from "@/util/paths";
 import { base64ToString, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { classifyFile, hasNulByte } from "./codeclassify";
 import { conflictMessage, conflictOf, nextDrafts, withoutDraft, type Draft, type FileBase } from "./codedraft";
 import { back, currentPath, EMPTY_HISTORY, forward, push, type History } from "./codehistory";
-import { ancestorsOf } from "./codetree";
+import { resetSearch } from "./codesearchstore";
+import { ancestorsOf, buildTree, visibleRows } from "./codetree";
 
 export interface CodeProject {
     name: string;
@@ -61,6 +64,23 @@ export const codeFinderOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>
 export const codeDraftsAtom = atom<Map<string, Draft>>(new Map<string, Draft>()) as PrimitiveAtom<Map<string, Draft>>;
 export const codeSaveAtom = atom<SaveState>({ kind: "idle" }) as PrimitiveAtom<SaveState>;
 
+// The tree's highlighted row — a file OR a directory. Deliberately separate from codeFileAtom: the
+// cursor used to BE the open file, which is why the cursor could never rest on a directory.
+export const codeCursorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+// A line a jump wants revealed once the file's text is in place. The store never touches Monaco;
+// codeviewer.tsx consumes this and clears it.
+export const codePendingLineAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+// Whether the tree pane holds focus. An atom rather than a document.activeElement query because the
+// keybinding `when` predicates are evaluated by store.test.ts in vitest's node environment, where
+// there is no document — and because this codebase keeps DOM reads in `run`, never in `when`.
+export const codeTreeFocusedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+
+// The rendered row list. Derived rather than memoized inside the pane, because the keyboard bindings
+// have to agree with the pane about which rows exist and cannot see a component's useMemo.
+export const codeRowsAtom = atom((get) =>
+    visibleRows(buildTree(get(codeIndexAtom)?.paths ?? []), get(codeExpandedAtom))
+);
+
 // the absolute path is the draft key; every draft-facing helper goes through this
 export function draftKey(project: CodeProject, rel: string): string {
     return joinRepoPath(project.path, rel);
@@ -81,6 +101,9 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeIndexErrorAtom, null);
     globalStore.set(codeIndexAtom, null);
     globalStore.set(codeSaveAtom, { kind: "idle" });
+    globalStore.set(codeCursorAtom, null);
+    globalStore.set(codePendingLineAtom, null);
+    resetSearch(); // results belong to the repository they were found in
     // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
     // brings your unsaved edits back with it
     if (p == null) {
@@ -322,4 +345,39 @@ export async function goForward(): Promise<void> {
     if (path != null) {
         await openPath(path, { pushHistory: false });
     }
+}
+
+// The one way into this surface from anywhere else: a content-search hit, a diff row, a Radar
+// finding, a finder query with a line. Takes the view model because surfaceAtom lives on the
+// AgentsViewModel instance rather than in a module — the same type-only seam bindings.ts uses.
+export async function openInCode(
+    model: AgentsViewModel,
+    target: { projectPath: string; rel: string; line?: number }
+): Promise<void> {
+    const project = resolveJumpProject(target.projectPath);
+    const cur = globalStore.get(codeProjectAtom);
+    // switching resets expand state, history and the file; a jump within the repository you are
+    // already reading must not throw that away
+    if (cur == null || !sameRepoPath(cur.path, project.path)) {
+        await selectProject(project);
+    }
+    revealPath(target.rel);
+    globalStore.set(codeCursorAtom, target.rel);
+    // set before the read: the viewer honors this the moment the text lands
+    globalStore.set(codePendingLineAtom, target.line ?? null);
+    globalStore.set(model.surfaceAtom, "code");
+    await openPath(target.rel);
+}
+
+function resolveJumpProject(projectPath: string): CodeProject {
+    const registry = globalStore.get(projectsAtom) ?? {};
+    for (const [name, v] of Object.entries(registry)) {
+        if (v?.path && sameRepoPath(v.path, projectPath)) {
+            return { name, path: v.path };
+        }
+    }
+    // launchAgent creates worktrees, so a diff's cwd is frequently a repository the registry does
+    // not know. git ls-files needs only a path, so browse it under its directory name rather than
+    // refusing the jump — the header shows the full path, so nothing is hidden.
+    return { name: repoBasename(projectPath), path: projectPath };
 }

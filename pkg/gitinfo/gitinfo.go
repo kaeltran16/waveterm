@@ -856,3 +856,69 @@ func ListFiles(ctx context.Context, cwd string) (*FileList, error) {
 	}
 	return &FileList{Paths: paths, IsRepo: true, Truncated: truncated}, nil
 }
+
+const maxGrepMatches = 500
+
+type GrepMatch struct {
+	Path string
+	Line int
+	Text string
+}
+
+// GrepResult holds at most maxGrepMatches matches; Truncated reports that the scan stopped early.
+type GrepResult struct {
+	Matches   []GrepMatch
+	Truncated bool
+}
+
+// Grep searches file contents in cwd for a fixed, case-insensitive string.
+//
+// --untracked is not optional: the Code surface builds its tree and its file finder from
+// ls-files --cached --others --exclude-standard, and without the flag git grep would search only
+// tracked files — so a newly created file would appear in the tree and never in search results.
+// .gitignore is still honored either way.
+//
+// git grep exits 1 when nothing matched, which is not a failure. Exit 128 (not a repository) and
+// everything else are.
+func Grep(ctx context.Context, cwd, query string) (*GrepResult, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return &GrepResult{}, nil // `git grep -e ""` matches every line of every file
+	}
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := run(ctx, cwd, "grep", "--untracked", "-n", "-z", "-I", "-i", "-F", "--no-color", "-e", q)
+	if err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+			return nil, err
+		}
+	}
+	matches := []GrepMatch{}
+	truncated := false
+	// -n -z prints "path\0line\0text"; the record itself still ends at a newline, so a path
+	// containing a newline is not representable — the limit of git grep's output format.
+	for _, rec := range strings.Split(out, "\n") {
+		if rec == "" {
+			continue
+		}
+		parts := strings.SplitN(rec, "\x00", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		n, convErr := strconv.Atoi(parts[1])
+		if convErr != nil {
+			continue
+		}
+		if len(matches) >= maxGrepMatches {
+			truncated = true
+			break
+		}
+		matches = append(matches, GrepMatch{
+			Path: parts[0],
+			Line: n,
+			Text: strings.TrimSuffix(parts[2], "\r"), // Windows checkout: real files are CRLF
+		})
+	}
+	return &GrepResult{Matches: matches, Truncated: truncated}, nil
+}
