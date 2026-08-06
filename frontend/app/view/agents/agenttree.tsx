@@ -11,7 +11,7 @@ import { Copy, CopyPlus, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
-import { confirmCloseAgent } from "./agentactions";
+import { confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree } from "./agenttreemodel";
 import { duplicateSession } from "./session-models/sessionsidebarmodel";
@@ -68,7 +68,7 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
                 label: "Close agent",
                 icon: <X size={15} />,
                 danger: true,
-                click: () => confirmCloseAgent(agent.id, agent.name),
+                click: () => confirmCloseSession(agent),
             },
         ];
         ContextMenuModel.getInstance().showContextMenu(items, e);
@@ -174,9 +174,30 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
         globalStore.set(model.focusIdAtom, terminal.id);
         globalStore.set(model.focusReplyAtom, false);
     };
+    // Same three actions an agent row offers, minus the agent-only wording: a terminal duplicates
+    // into a fresh shell in the same cwd (buildDuplicateBlockMeta copies only launch keys).
+    const onContextMenu = (e: React.MouseEvent) => {
+        const items: ContextMenuItem[] = [
+            { label: "Duplicate", icon: <CopyPlus size={15} />, click: () => duplicateSession(model, terminal.id) },
+            {
+                label: "Copy name",
+                icon: <Copy size={15} />,
+                click: () => void navigator.clipboard.writeText(terminal.name),
+            },
+            { type: "separator" },
+            {
+                label: "Close terminal",
+                icon: <X size={15} />,
+                danger: true,
+                click: () => confirmCloseSession(terminal),
+            },
+        ];
+        ContextMenuModel.getInstance().showContextMenu(items, e);
+    };
     return (
         <div
             onClick={select}
+            onContextMenu={onContextMenu}
             className={cn(
                 "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[10px] transition-colors duration-[140ms]",
                 selected ? "bg-accentbg" : "hover:bg-surface-hover"

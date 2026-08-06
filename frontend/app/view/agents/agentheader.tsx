@@ -16,7 +16,7 @@ import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { CircleStop, Maximize2, Minimize2, PanelRight, X } from "lucide-react";
 import { motion } from "motion/react";
-import { confirmCloseAgent } from "./agentactions";
+import { confirmCloseSession } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { runtimeMeta } from "./runtimemeta";
@@ -59,8 +59,10 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
         );
     };
 
-    // Close the whole agent session (a tab, per launchAgent) — shared with the double-Ctrl+C handler.
-    const closeTerminal = () => confirmCloseAgent(agent.id, agent.name);
+    // Close the whole session (a tab, per launchAgent) — shared with the double-Ctrl+C handler. The
+    // header also fronts background terminals, so the noun follows what is actually focused.
+    const closeTerminal = () => confirmCloseSession(agent);
+    const closeLabel = agent.kind === "terminal" ? "Close terminal" : "Close agent";
 
     // Right-click the header for the same controls as the button row (plus the details toggle).
     const onContextMenu = (e: React.MouseEvent) => {
@@ -82,7 +84,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
         });
         if (blockId != null) {
             items.push({ type: "separator" });
-            items.push({ label: "Close agent", icon: <X size={15} />, danger: true, click: closeTerminal });
+            items.push({ label: closeLabel, icon: <X size={15} />, danger: true, click: closeTerminal });
         }
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };

@@ -3,7 +3,7 @@
 
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { globalStore } from "@/app/store/jotaiStore";
-import { confirmCloseAgent } from "@/app/view/agents/agentactions";
+import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { MutableRefObject } from "react";
@@ -165,7 +165,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                     const fid = globalStore.get(model.focusIdAtom);
                     const a = closeTargetForDoubleCtrlC(agents, fid);
                     if (a) {
-                        confirmCloseAgent(a.id, a.name);
+                        confirmCloseSession(a);
                         return true;
                     }
                     return false;

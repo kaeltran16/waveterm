@@ -10,7 +10,7 @@ import { Meter } from "@/app/element/meter";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { confirmCloseAgent } from "./agentactions";
+import { confirmCloseSession } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     agentRowMenuItems,
@@ -303,7 +303,7 @@ export const AgentRow = memo(function AgentRow({
             fullwidth: () => onToggleFullWidth?.(),
             mute: () => muteAction?.(),
             copy: () => void navigator.clipboard.writeText(agent.name),
-            close: () => confirmCloseAgent(agent.id, agent.name),
+            close: () => confirmCloseSession(agent),
         };
         const items: ContextMenuItem[] = agentRowMenuItems({
             hasDiff: !!diff,

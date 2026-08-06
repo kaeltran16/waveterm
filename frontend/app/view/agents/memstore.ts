@@ -149,7 +149,7 @@ export async function deleteNote(path: string): Promise<void> {
 }
 
 // Confirm before deleting a note — shared by the memory list context menu and the
-// detail-pane Delete button, matching the confirmCloseAgent pattern.
+// detail-pane Delete button, matching the confirmCloseSession pattern.
 export function confirmDeleteNote(path: string, title: string): void {
     modalsModel.pushModal("ConfirmModal", {
         title: "Delete note",
