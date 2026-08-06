@@ -9,36 +9,46 @@
 import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
+import { bindingsAtom } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
-import { ITEMS as SURFACE_ITEMS } from "@/app/view/agents/navrail";
 import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
+import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { formatChord } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { startConversation, submitJarvisQuery } from "@/app/view/jarvis/jarvisstore";
 import { selectSubject } from "@/app/view/jarvis/jarvissubjectstore";
 import { buildAskItems } from "./palette-ask";
+import { buildCommandItems, buildExtraItems, postCloseContext } from "./palette-commands";
 import { buildFocusItems } from "./palette-focus";
+import {
+    assembleDefaultGroups,
+    capGroups,
+    isRichGroup,
+    type GroupKind,
+    type PaletteGroup,
+    type RichGroupKind,
+} from "./palette-groups";
 import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
-import { rankPaletteItems } from "./palette-match";
+import { fuzzyMatch, highlightRuns, rankPaletteItems } from "./palette-match";
+import { MAX_RECENT, nextMru, paletteMruAtom, recentItems, sortByMru } from "./palette-mru";
 import { parseScope, resolveChannelToken } from "./palette-scope";
-import { cheatsheetOpenAtom } from "./shortcuts-cheatsheet";
-
-type PaletteKind = "launch" | "ask-jarvis" | "focus-task" | "command" | "agent" | "session" | "channel";
 
 interface PaletteItem {
     key: string;
-    kind: PaletteKind;
+    kind: GroupKind;
     search: string; // matched text (title + keywords) — "" for launch rows (never ranked)
     title: string;
     subtitle?: string;
     hint?: string; // right-aligned (session age)
+    chord?: string; // keybinding chord for derived command rows
     run: () => void;
     // launch group only (rich fast-dispatch row):
     glyph?: string; // monospace badge glyph
@@ -48,15 +58,45 @@ interface PaletteItem {
     footer?: string; // one-line echo shown in the palette footer when selected
 }
 
-const GROUP_ORDER: PaletteKind[] = ["focus-task", "command", "agent", "session"];
 // The launch group renders its own dynamic label ("Launch in #<channel>"), so it is excluded here.
-const GROUP_LABELS: Record<Exclude<PaletteKind, "launch" | "ask-jarvis">, string> = {
+const GROUP_LABELS: Record<Exclude<GroupKind, RichGroupKind>, string> = {
+    recent: "Recent",
     "focus-task": "Focus on task",
     command: "Commands",
     agent: "Agents",
     session: "Sessions",
     channel: "Channels",
 };
+
+// Positions index the string that was matched, and item.search is not what a row displays — for an
+// agent it is name + task + project while the title is "name — task". So the row re-matches against
+// its own title; a query that hit only keywords renders unhighlighted, which beats bolding the wrong
+// characters.
+function Highlighted({ text, query }: { text: string; query: string }) {
+    const runs = useMemo(() => {
+        if (query.trim() === "") {
+            return null;
+        }
+        const m = fuzzyMatch(query, text);
+        return m == null || m.positions.length === 0 ? null : highlightRuns(text, m.positions);
+    }, [text, query]);
+    if (runs == null) {
+        return <>{text}</>;
+    }
+    return (
+        <>
+            {runs.map((r, i) =>
+                r.hit ? (
+                    <span key={i} className="font-semibold text-primary">
+                        {r.text}
+                    </span>
+                ) : (
+                    <span key={i}>{r.text}</span>
+                )
+            )}
+        </>
+    );
+}
 
 export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.paletteOpenAtom);
@@ -66,10 +106,14 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const channels = useAtomValue(channelsAtom);
     const spaces = useAtomValue(spacesAtom);
     const activeSpace = useAtomValue(activeSpaceAtom);
+    const surface = useAtomValue(model.surfaceAtom);
+    const bindings = useAtomValue(bindingsAtom);
+    const mru = useAtomValue(paletteMruAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
     const [runStrategy, setRunStrategy] = useState<string | undefined>(undefined);
     const inputRef = useRef<HTMLInputElement>(null);
+    const listRef = useRef<HTMLDivElement>(null);
     const loadedRef = useRef(false);
 
     const close = () => globalStore.set(model.paletteOpenAtom, false);
@@ -78,6 +122,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // picked channel; otherwise it targets the active channel (today's behavior). Scopes
     // other than default/channel-launch never show the launch group.
     const parsed = useMemo(() => parseScope(query), [query]);
+    // under '@'/'#'/'>' the sigil is not part of what was matched, so rows highlight the scope's own filter text
+    const highlightQuery = parsed.scope === "default" ? query : parsed.sub;
     const channelLaunch = parsed.scope === "channel" ? parsed.channelLaunch : null;
     const pickedChannel = channelLaunch ? (resolveChannelToken(channelLaunch.token, channels ?? []) ?? null) : null;
     const targetChannel = channelLaunch ? pickedChannel : channel;
@@ -130,48 +176,32 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
 
     const items = useMemo<PaletteItem[]>(() => {
         const now = Date.now();
-        const commands: PaletteItem[] = [
-            ...SURFACE_ITEMS.map((it) => ({
-                key: `cmd:surface:${it.key}`,
-                kind: "command" as const,
-                search: `Go to ${it.label}`,
-                title: `Go to ${it.label}`,
-                run: () => {
-                    globalStore.set(model.surfaceAtom, it.key);
-                    close();
-                },
-            })),
-            {
-                key: "cmd:new-agent",
-                kind: "command",
-                search: "New agent",
-                title: "New agent",
-                run: () => {
-                    globalStore.set(model.newAgentOpenAtom, true);
-                    close();
-                },
+        const ctx = postCloseContext(surface);
+        const extras = buildExtraItems({
+            openNewProject: () => globalStore.set(model.newProjectOpenAtom, true),
+            // memNewOpenAtom is read only inside memorysurface.tsx, and every surface but Agent unmounts
+            // when off-screen — so the surface has to be switched first or nothing is listening.
+            openNewMemory: () => {
+                globalStore.set(model.surfaceAtom, "memory");
+                globalStore.set(model.memNewOpenAtom, true);
             },
-            {
-                key: "cmd:new-project",
-                kind: "command",
-                search: "New project",
-                title: "New project",
-                run: () => {
-                    globalStore.set(model.newProjectOpenAtom, true);
-                    close();
-                },
+            // matches selectPreset in settingssurface.tsx: picking a preset drops per-role overrides.
+            setTheme: (presetId) => {
+                globalStore.set(themePresetAtom, presetId);
+                globalStore.set(themeOverridesAtom, {});
             },
-            {
-                key: "cmd:shortcuts",
-                kind: "command",
-                search: "Keyboard shortcuts help cheat sheet",
-                title: "Keyboard shortcuts",
-                run: () => {
-                    globalStore.set(cheatsheetOpenAtom, true);
-                    close();
-                },
+        });
+        const commands: PaletteItem[] = [...buildCommandItems(bindings, ctx), ...extras].map((c) => ({
+            key: c.key,
+            kind: "command" as const,
+            search: `${c.title} ${c.group}`,
+            title: c.title,
+            chord: c.keys,
+            run: () => {
+                c.run();
+                close();
             },
-        ];
+        }));
         const agentItems: PaletteItem[] = agents.map((a) => ({
             key: `agent:${a.id}`,
             kind: "agent" as const,
@@ -206,7 +236,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 },
             }));
         return [...commands, ...agentItems, ...sessionItems];
-    }, [agents, sessions, model]);
+    }, [agents, sessions, model, bindings, surface]);
 
     // Fast-dispatch rows: the typed query is the *goal*, not a filter. Built only when a goal is
     // typed AND a channel is active (buildLaunchItems returns [] otherwise). The user never types
@@ -318,7 +348,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     );
 
     // A sigil scope narrows to one group; default keeps today's launch-lead + ranked kinds.
-    let groups: { kind: PaletteKind; items: PaletteItem[] }[];
+    let groups: PaletteGroup<PaletteItem>[];
     if (parsed.scope === "channel") {
         if (channelLaunch) {
             groups = launchItems.length > 0 ? [{ kind: "launch", items: launchItems }] : [];
@@ -327,11 +357,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             groups = ranked.length > 0 ? [{ kind: "channel", items: ranked }] : [];
         }
     } else if (parsed.scope === "default") {
-        const ranked = rankPaletteItems([...focusItems, ...items], query);
-        groups = GROUP_ORDER.map((kind) => ({ kind, items: ranked.filter((it) => it.kind === kind) })).filter(
-            (g) => g.items.length > 0
-        );
-        const askPalItems = askItems.map((ai) => ({
+        const pool = sortByMru([...focusItems, ...items], mru);
+        const ranked = rankPaletteItems(pool, query);
+        const askPalItems: PaletteItem[] = askItems.map((ai) => ({
             key: ai.key,
             kind: "ask-jarvis" as const,
             search: "",
@@ -342,12 +370,13 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             footer: ai.footer,
             run: ai.run,
         }));
-        if (askPalItems.length > 0) {
-            groups = [{ kind: "ask-jarvis", items: askPalItems }, ...groups];
-        }
-        if (launchItems.length > 0) {
-            groups = [{ kind: "launch", items: launchItems }, ...groups];
-        }
+        groups = assembleDefaultGroups({
+            query,
+            ranked,
+            launchItems,
+            askItems: askPalItems,
+            recent: recentItems(pool, mru, MAX_RECENT),
+        });
     } else {
         const kind = parsed.scope; // "command" | "agent" | "session"
         const ranked = rankPaletteItems(
@@ -356,7 +385,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         );
         groups = ranked.length > 0 ? [{ kind, items: ranked }] : [];
     }
-    const flat = groups.flatMap((g) => g.items);
+    const capped = capGroups(groups);
+    const flat = capped.flatMap((g) => g.items);
 
     // Scope-aware empty text: a '#<token>' that resolves to nothing vs. an empty channel list.
     const emptyMessage =
@@ -371,6 +401,24 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const selFooter =
         selected?.kind === "launch" || selected?.kind === "ask-jarvis" ? selected.footer : undefined;
 
+    // Arrow-keying past the visible rows used to move the selection out of view — the scroll container
+    // was never told to follow it.
+    useEffect(() => {
+        listRef.current?.querySelector(`[data-idx="${selClamped}"]`)?.scrollIntoView({ block: "nearest" });
+    }, [selClamped]);
+
+    // Launch and ask rows are not recorded: their keys are generic ("launch:quick"), they never enter the
+    // ranked pool, and floating them would mean nothing.
+    const fire = (it: PaletteItem | undefined) => {
+        if (it == null) {
+            return;
+        }
+        if (!isRichGroup(it.kind)) {
+            globalStore.set(paletteMruAtom, (prev) => nextMru(prev, it.key));
+        }
+        it.run();
+    };
+
     const onKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "ArrowDown") {
             e.preventDefault();
@@ -380,7 +428,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             setSel((s) => (flat.length ? (s - 1 + flat.length) % flat.length : 0));
         } else if (e.key === "Enter") {
             e.preventDefault();
-            flat[selClamped]?.run();
+            fire(flat[selClamped]);
         }
     };
 
@@ -416,23 +464,31 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                         esc
                     </span>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto py-2">
+                <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2">
                     {flat.length === 0 ? (
                         <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
                     ) : (
-                        groups.map((g) =>
-                            g.kind === "launch" || g.kind === "ask-jarvis" ? (
+                        capped.map((g) =>
+                            isRichGroup(g.kind) ? (
                                 <div
                                     key={g.kind}
                                     className="relative mx-0.5 mb-2 mt-1 rounded-[10px] bg-accent/5 px-1 pb-1"
                                 >
-                                    {/* accent rail marks the one group that acts on your typed goal */}
-                                    <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
+                                    {/* accent rail marks the one group that acts on your typed goal — the
+                                        trailing act-on block stays quiet so it does not compete with the
+                                        row Enter will actually run */}
+                                    {g.kind === "act-on" ? null : (
+                                        <div className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-accent/80" />
+                                    )}
                                     <div className="px-3 pb-1 pt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-accent-soft">
                                         {g.kind === "launch" ? (
                                             <>
                                                 Launch in{" "}
                                                 <span className="text-accent-100">#{targetChannel?.name}</span>
+                                            </>
+                                        ) : g.kind === "act-on" ? (
+                                            <>
+                                                Act on <span className="text-accent-100">“{query.trim()}”</span>
                                             </>
                                         ) : (
                                             "Ask Jarvis"
@@ -445,8 +501,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                             <button
                                                 key={it.key}
                                                 type="button"
+                                                data-idx={myIdx}
                                                 onMouseMove={() => setSel(myIdx)}
-                                                onClick={() => it.run()}
+                                                onClick={() => fire(it)}
                                                 className={cn(
                                                     "flex w-full cursor-pointer items-center gap-[11px] rounded-[9px] px-3 py-[7px] text-left transition-colors duration-[140ms]",
                                                     active ? "bg-accentbg" : "hover:bg-surface-hover"
@@ -503,8 +560,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                             <button
                                                 key={it.key}
                                                 type="button"
+                                                data-idx={myIdx}
                                                 onMouseMove={() => setSel(myIdx)}
-                                                onClick={() => it.run()}
+                                                onClick={() => fire(it)}
                                                 className={cn(
                                                     "flex w-full cursor-pointer items-center gap-3 px-4 py-[7px] text-left transition-colors duration-[140ms]",
                                                     active ? "bg-accentbg" : "hover:bg-surface-hover"
@@ -517,7 +575,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                                             active ? "text-primary" : "text-secondary"
                                                         )}
                                                     >
-                                                        {it.title}
+                                                        <Highlighted text={it.title} query={highlightQuery} />
                                                     </span>
                                                     {it.subtitle ? (
                                                         <span className="block truncate font-mono text-[10.5px] text-muted">
@@ -525,6 +583,18 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                                         </span>
                                                     ) : null}
                                                 </span>
+                                                {it.chord ? (
+                                                    <span className="flex shrink-0 items-center gap-1">
+                                                        {formatChord(it.chord).map((k, i) => (
+                                                            <span
+                                                                key={i}
+                                                                className="rounded-[5px] border border-edge-mid px-[6px] py-0.5 font-mono text-[10.5px] text-muted"
+                                                            >
+                                                                {k}
+                                                            </span>
+                                                        ))}
+                                                    </span>
+                                                ) : null}
                                                 {it.hint ? (
                                                     <span className="shrink-0 font-mono text-[10.5px] text-muted">
                                                         {it.hint}
@@ -538,6 +608,11 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                                             </button>
                                         );
                                     })}
+                                    {g.overflow > 0 ? (
+                                        <div className="px-4 pb-1 pt-0.5 font-mono text-[10.5px] text-muted">
+                                            +{g.overflow} more — keep typing
+                                        </div>
+                                    ) : null}
                                 </div>
                             )
                         )

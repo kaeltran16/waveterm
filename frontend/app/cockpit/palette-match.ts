@@ -9,20 +9,31 @@ const WORD_BOUNDARY_BONUS = 3;
 const MATCH_POINT = 1;
 const MAX_GAP_PENALTY = 3;
 
+// The score a single matched character can normally earn: the match itself plus the contiguity bonus.
+// palette-groups.ts uses this as the reference when deciding whether a query matched densely enough
+// to be a name the user is typing rather than prose that happens to be a subsequence.
+export const SCORE_PER_CHAR = MATCH_POINT + CONTIGUOUS_BONUS;
+
+export interface FuzzyMatch {
+    score: number;
+    positions: number[]; // indices into `text` that matched, ascending
+}
+
 function isWordChar(ch: string): boolean {
     return /[a-z0-9]/.test(ch);
 }
 
 /**
- * Case-insensitive subsequence match. Returns a score (higher = better), or null
- * when the query chars do not all appear in order within `text`. Empty query -> 0.
+ * Case-insensitive subsequence match. Returns the score (higher = better) and the matched indices,
+ * or null when the query chars do not all appear in order within `text`. Empty query -> score 0.
  */
-export function fuzzyScore(query: string, text: string): number | null {
+export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
     const q = query.trim().toLowerCase();
     if (q === "") {
-        return 0;
+        return { score: 0, positions: [] };
     }
     const t = text.toLowerCase();
+    const positions: number[] = [];
     let score = 0;
     let ti = 0;
     let prevMatch = -2; // sentinel: no previous match, and not adjacent to index 0
@@ -50,10 +61,38 @@ export function fuzzyScore(query: string, text: string): number | null {
                 score -= Math.min(gap, MAX_GAP_PENALTY);
             }
         }
+        positions.push(found);
         prevMatch = found;
         ti = found + 1;
     }
-    return score;
+    return { score, positions };
+}
+
+/**
+ * Case-insensitive subsequence match. Returns a score (higher = better), or null
+ * when the query chars do not all appear in order within `text`. Empty query -> 0.
+ */
+export function fuzzyScore(query: string, text: string): number | null {
+    return fuzzyMatch(query, text)?.score ?? null;
+}
+
+/**
+ * Splits `text` into contiguous runs, each flagged as matched or not, so a row can bold what the
+ * user typed without emitting one element per character.
+ */
+export function highlightRuns(text: string, positions: number[]): { text: string; hit: boolean }[] {
+    const hits = new Set(positions);
+    const runs: { text: string; hit: boolean }[] = [];
+    for (let i = 0; i < text.length; i++) {
+        const hit = hits.has(i);
+        const last = runs[runs.length - 1];
+        if (last != null && last.hit === hit) {
+            last.text += text[i];
+        } else {
+            runs.push({ text: text[i], hit });
+        }
+    }
+    return runs;
 }
 
 /**
