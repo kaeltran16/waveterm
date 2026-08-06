@@ -56,6 +56,7 @@ import {
     memViewAtom,
     saveNote,
     selectNote,
+    takePendingMemoryFocus,
 } from "./memstore";
 import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
@@ -546,6 +547,10 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     // reset on unmount: this surface remounts on re-entry, and the flag lives on the (persistent) model.
     // a mouse-switch away while the modal is open would otherwise leave modalOpen stuck -> global nav frozen.
     useEffect(() => () => globalStore.set(model.memNewOpenAtom, false), []);
+
+    // Drop an escort nothing honoured, so it cannot fire on a later visit: the cleanup queue can empty
+    // between the pet's poll and the click, in which case CleanupQueue renders null and never consumes it.
+    useEffect(() => () => void takePendingMemoryFocus(), []);
 
     // Resolve the focused agent's cwd so new notes land in that project's Claude hub (mirrors
     // FilesSurface). Null when no agent is focused -> authoring falls back to the dedicated vault.

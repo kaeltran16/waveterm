@@ -11,8 +11,8 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
-import { confirmPruneAllSuperseded, memPruneAtom, prune } from "./memstore";
+import { useEffect, useRef, useState } from "react";
+import { confirmPruneAllSuperseded, memPruneAtom, prune, takePendingMemoryFocus } from "./memstore";
 import { reasonMeta, typeMeta } from "./memtypes";
 
 const COLLAPSED = 5;
@@ -62,12 +62,23 @@ export function CleanupQueue() {
     const candidates = useAtomValue(memPruneAtom);
     const [open, setOpen] = useState(false);
     const [expanded, setExpanded] = useState(false);
+    const sectionRef = useRef<HTMLElement | null>(null);
+    // An escort from the creature's vault row means "show me these": the section is collapsed by default
+    // and that flag is component state, so without this the escort lands on a heading the user must still
+    // find and expand.
+    useEffect(() => {
+        if (takePendingMemoryFocus() == null) {
+            return;
+        }
+        setOpen(true);
+        sectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, []);
     if (candidates.length === 0) return null;
     const shown = expanded ? candidates : candidates.slice(0, COLLAPSED);
     const hidden = candidates.length - shown.length;
     const supersededCount = candidates.filter((c) => c.reason === "superseded").length;
     return (
-        <section className="mt-[30px]">
+        <section ref={sectionRef} className="mt-[30px]">
             <div className="mb-[6px] flex items-center gap-[10px]">
                 <button
                     type="button"

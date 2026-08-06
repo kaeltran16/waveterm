@@ -18,6 +18,7 @@ import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
 import { railVisibleAtom } from "./railstore";
+import { SETTINGS_SECTION_EMBEDDINGS, takePendingSettingsSection } from "./settingsstore";
 import { SurfaceHeader } from "./surfacescaffold";
 import { ACCENT_SWATCHES, activePalette, colorOf, PICKER_THEMES, type OverrideRole } from "./themes";
 import { themeOverridesAtom, themePresetAtom } from "./themestore";
@@ -36,6 +37,15 @@ const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
 
 export function SettingsSurface(_props: { model: AgentsViewModel }) {
     const reduce = useReducedMotion();
+    // Deep-link landing. The sections are a flat scroll with no routes and embeddings is the last of seven,
+    // so a bare surface switch lands at the top of a long page — an escort in name only.
+    useEffect(() => {
+        const want = takePendingSettingsSection();
+        if (want == null) {
+            return;
+        }
+        document.getElementById(want)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, []);
     return (
         <MotionConfig reducedMotion="user">
             <div className="flex h-full flex-col overflow-y-auto bg-background px-10 py-9">
@@ -64,7 +74,9 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     <SectionGap />
                     <MemorySection />
                     <SectionGap />
-                    <EmbeddingsSection />
+                    <div id={SETTINGS_SECTION_EMBEDDINGS}>
+                        <EmbeddingsSection />
+                    </div>
                 </motion.div>
             </div>
         </MotionConfig>
