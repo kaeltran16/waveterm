@@ -8,13 +8,16 @@
 // worse than no button, because it also spends the attention the panel exists to earn.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { confirmPruneAllSuperseded, memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
-import type { PetAct, PetTarget } from "./petacts";
-import { clearActState, petPeekOpenAtom, setActState } from "./petstore";
+import type { PetAct, PetOp, PetTarget } from "./petacts";
+import { loadIndexStatus } from "./petsources";
+import { clearActState, petIndexAtom, petPeekOpenAtom, setActState } from "./petstore";
 
 function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -39,8 +42,36 @@ async function escort(model: AgentsViewModel, target: PetTarget): Promise<void> 
     globalStore.set(model.surfaceAtom, "settings");
 }
 
+// The ambient index poll is every 15 minutes because the backend parses the whole vault to count drift —
+// right for ambient polling, and far too slow the moment the user presses a button. This re-reads on a
+// tight cadence for long enough to cover a real build (a 373-note vault measured 5m17s) and then stops,
+// clearing the act so the row goes back to speaking for itself.
+const CATCHUP_POLL_MS = 30_000;
+const CATCHUP_WINDOW_MS = 12 * 60_000;
+
+function watchCatchUp(actId: string): void {
+    const deadline = Date.now() + CATCHUP_WINDOW_MS;
+    const timer = setInterval(() => {
+        void loadIndexStatus().then(() => {
+            const caughtUp = globalStore.get(petIndexAtom)?.state === "ok";
+            if (caughtUp || Date.now() > deadline) {
+                clearInterval(timer);
+                clearActState(actId);
+            }
+        });
+    }, CATCHUP_POLL_MS);
+}
+
 async function perform(act: PetAct & { verb: "do" }): Promise<void> {
     const op = act.op;
+    if (op.kind === "reconcile-index") {
+        await RpcApi.EmbedReconcileCommand(TabRpcClient);
+        // stays "running": the rpc returning means the work STARTED, and claiming done here would be the
+        // panel's own version of the lie this whole change removes
+        setActState(act.id, { status: "running", text: "catching up" });
+        watchCatchUp(act.id);
+        return;
+    }
     if (op.kind === "clear-superseded") {
         // the confirm modal owns the outcome from here, and pruneAllSuperseded reloads the queue itself, so
         // this act keeps no state: a lingering "done" would outlive a cancelled confirmation
@@ -48,7 +79,10 @@ async function perform(act: PetAct & { verb: "do" }): Promise<void> {
         clearActState(act.id);
         return;
     }
-    throw new Error(`unwired operation: ${op.kind}`);
+    // Exhaustiveness backstop. Every PetOp is handled above, so `op` is `never` here and the cast is what
+    // keeps the line compiling: adding a fourth operation without wiring it should be a visible error on the
+    // row that offered it, not a button that silently does nothing.
+    throw new Error(`unwired operation: ${(op as PetOp).kind}`);
 }
 
 export async function runAct(model: AgentsViewModel, act: PetAct): Promise<void> {

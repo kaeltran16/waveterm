@@ -36,7 +36,10 @@ const ACTIVITY_BACKLOG = 20;
 //
 // A failed read leaves the previous value alone. Blanking the index status on one dropped request would read
 // as "recall is fine", which is the one thing rank 1 must never say without knowing it.
-async function loadIndexStatus(): Promise<boolean> {
+//
+// Exported for petactrun.ts: after a catch-up is dispatched, the 15-minute ambient cadence below is far too
+// slow to show that the button did anything, so the runner re-reads on a tight bounded burst of its own.
+export async function loadIndexStatus(): Promise<boolean> {
     try {
         const status = await RpcApi.GetEmbedIndexStatusCommand(TabRpcClient);
         globalStore.set(petIndexAtom, status);

@@ -27,7 +27,7 @@ import { useEffect, type ReactNode } from "react";
 import { askAboutSource } from "./jarvissubjectstore";
 import { openORef } from "./openref";
 import { runAct } from "./petactrun";
-import { actsForVault, type PetAct } from "./petacts";
+import { actsForRecall, actsForVault, type PetAct } from "./petacts";
 import { conditionLine, postureLine, type PetExpression, type PetPosture, type PetSignals } from "./petcondition";
 import { recallLine } from "./petjoin";
 import { petActStateAtom, petIndexAtom, petPeekOpenAtom, petSaidAtom, type PetCorner } from "./petstore";
@@ -138,8 +138,9 @@ export function PetPeek({
     const said = useAtomValue(petSaidAtom);
     const pruneCandidates = useAtomValue(memPruneAtom);
     // the raw status, not signals.index: the panel wants the reason and the drift count, which the narrowed
-    // signal deliberately drops
-    const recall = recallLine(useAtomValue(petIndexAtom));
+    // signal deliberately drops — and actsForRecall keys off the same reason to pick its verb
+    const indexStatus = useAtomValue(petIndexAtom);
+    const recall = recallLine(indexStatus);
     const now = useAtomValue(model.nowAtom);
     const close = () => globalStore.set(petPeekOpenAtom, false);
 
@@ -210,7 +211,13 @@ export function PetPeek({
                             {/* absent rather than omitted: "not read yet" is itself something the system knows
                                 and never said, which is the whole argument for the creature (design §1). The
                                 reason, not just the state — that is the diagnostic half (design §3). */}
-                            <Row label="Recall" value={recall.text} dim={recall.dim} />
+                            <Row
+                                label="Recall"
+                                value={recall.text}
+                                dim={recall.dim}
+                                model={model}
+                                acts={actsForRecall(indexStatus)}
+                            />
                             <Row
                                 label="Window"
                                 value={

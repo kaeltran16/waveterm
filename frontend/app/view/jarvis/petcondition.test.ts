@@ -105,14 +105,18 @@ describe("wording", () => {
         expect(conditionLine({ kind: "cannot-see", reason: "stale" }, now)).toContain("behind");
     });
 
-    it("only claims recall is keyword-only when it actually is, and names the remedy when it is not", () => {
+    it("only claims recall is keyword-only when it actually is, and no longer promises a remedy in prose", () => {
         // A behind index still does semantic recall: jarvisrecall calls the index, and the index reconciles
         // itself inside that query (jarvisembed prepareQuery). Saying "keyword-only" there described a
-        // degradation that was not happening, and named no way out of a state the user cannot otherwise act
-        // on. Embeddings being OFF is the case that genuinely is keyword-only.
+        // degradation that was not happening. Embeddings being OFF is the case that genuinely is keyword-only.
+        //
+        // Neither line names an action any more. The stale line used to read "ask me anything and I will
+        // catch it up" while the panel offered nowhere to do it — prose that names an action was the
+        // original defect. petacts.ts supplies the verb now (design §4.1).
         const behind = conditionLine({ kind: "cannot-see", reason: "stale" }, now);
         expect(behind).not.toContain("keyword-only");
-        expect(behind.toLowerCase()).toContain("ask");
+        expect(behind.toLowerCase()).not.toContain("ask");
+        expect(behind).toBe("My index is behind on some notes.");
         expect(conditionLine({ kind: "cannot-see", reason: "off" }, now)).toContain("keyword-only");
     });
 

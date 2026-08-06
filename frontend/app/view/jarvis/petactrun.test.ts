@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const openORef = vi.fn();
 const askAboutSource = vi.fn();
 const confirmPruneAllSuperseded = vi.fn();
+const embedReconcile = vi.fn();
 
 vi.mock("./openref", () => ({ openORef: (...a: any[]) => openORef(...a) }));
 vi.mock("./jarvissubjectstore", () => ({ askAboutSource: (...a: any[]) => askAboutSource(...a) }));
@@ -20,15 +21,19 @@ vi.mock("@/app/view/agents/memstore", async () => {
         pendingMemoryFocusAtom: atom<"upkeep" | null>(null),
     };
 });
-vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { EmbedReconcileCommand: (...a: any[]) => embedReconcile(...a) },
+}));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+// petsources.tsx is the always-mounted driver; the runner only borrows its one read
+vi.mock("./petsources", () => ({ loadIndexStatus: vi.fn(async () => true) }));
 
 import { memViewAtom, pendingMemoryFocusAtom } from "@/app/view/agents/memstore";
 import { pendingSettingsSectionAtom, SETTINGS_SECTION_EMBEDDINGS } from "@/app/view/agents/settingsstore";
 import { atom } from "jotai";
 import { runAct } from "./petactrun";
 import type { PetAct } from "./petacts";
-import { petActStateAtom, petPeekOpenAtom } from "./petstore";
+import { petActStateAtom, petIndexAtom, petPeekOpenAtom } from "./petstore";
 
 // the runner only ever reads surfaceAtom off the model, so a bare atom pair is a sufficient stand-in
 const model = { surfaceAtom: atom("cockpit") } as any;
@@ -113,5 +118,60 @@ describe("runAct — clear superseded", () => {
             status: "error",
             text: "modal host missing",
         });
+    });
+});
+
+describe("runAct — catch up the index", () => {
+    // fake timers so the bounded re-read burst is drivable rather than a 30-second wait, and so the
+    // interval cannot outlive the test
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+        vi.useRealTimers();
+        globalStore.set(petIndexAtom, null);
+    });
+
+    const catchup: PetAct = {
+        id: "recall:catchup",
+        verb: "do",
+        label: "Catch up",
+        op: { kind: "reconcile-index" },
+    };
+
+    it("dispatches the reconcile and stays running, because the work outlives the call", async () => {
+        embedReconcile.mockResolvedValue(undefined);
+        await runAct(model, catchup);
+        expect(embedReconcile).toHaveBeenCalledTimes(1);
+        expect(globalStore.get(petActStateAtom)["recall:catchup"]).toEqual({
+            status: "running",
+            text: "catching up",
+        });
+    });
+
+    it("stops watching and clears the act once the index reads ok", async () => {
+        embedReconcile.mockResolvedValue(undefined);
+        await runAct(model, catchup);
+        globalStore.set(petIndexAtom, { state: "ok" } as EmbedIndexStatus);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(globalStore.get(petActStateAtom)["recall:catchup"]).toBeUndefined();
+    });
+
+    it("gives up after the window rather than watching forever", async () => {
+        embedReconcile.mockResolvedValue(undefined);
+        await runAct(model, catchup);
+        globalStore.set(petIndexAtom, { state: "stale" } as EmbedIndexStatus);
+        await vi.advanceTimersByTimeAsync(12 * 60_000 + 30_000);
+        expect(globalStore.get(petActStateAtom)["recall:catchup"]).toBeUndefined();
+    });
+
+    it("reports a refused dispatch on the row", async () => {
+        embedReconcile.mockRejectedValue(new Error("EC-TIME"));
+        const act: PetAct = {
+            id: "recall:retry",
+            verb: "do",
+            label: "Retry",
+            op: { kind: "reconcile-index" },
+        };
+        await runAct(model, act);
+        expect(globalStore.get(petActStateAtom)["recall:retry"]).toEqual({ status: "error", text: "EC-TIME" });
     });
 });

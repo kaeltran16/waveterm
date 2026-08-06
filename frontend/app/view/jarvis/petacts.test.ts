@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { actsForVault } from "./petacts";
+import { actsForRecall, actsForVault } from "./petacts";
 
 function cand(id: string, reason: string): MemoryPruneCandidate {
     return { id, title: id, type: "learning", reason, path: `/vault/${id}.md` } as MemoryPruneCandidate;
@@ -29,5 +29,52 @@ describe("actsForVault", () => {
 
     it("offers no clear when nothing is superseded", () => {
         expect(actsForVault([cand("a", "stale")]).map((a) => a.label)).toEqual(["Review 1"]);
+    });
+});
+
+function status(state: string, reason?: string): EmbedIndexStatus {
+    return {
+        state,
+        reason,
+        enabled: true,
+        haskey: true,
+        indexednodes: 0,
+        vaultnodes: 0,
+        stalenodes: 0,
+    } as EmbedIndexStatus;
+}
+
+describe("actsForRecall", () => {
+    it("offers nothing when there is no reading or recall is fine", () => {
+        expect(actsForRecall(null)).toEqual([]);
+        expect(actsForRecall(status("ok"))).toEqual([]);
+    });
+
+    it("offers a catch-up for every stale reason, because reconcile is what fixes all three", () => {
+        for (const reason of ["content-drift", "model-mismatch", "not-built"]) {
+            expect(actsForRecall(status("stale", reason))).toEqual([
+                { id: "recall:catchup", verb: "do", label: "Catch up", op: { kind: "reconcile-index" } },
+            ]);
+        }
+    });
+
+    it("escorts to settings when the cause is configuration, which no operation can fix", () => {
+        for (const reason of ["disabled", "no-key"]) {
+            expect(actsForRecall(status("off", reason))).toEqual([
+                { id: "recall:setup", verb: "open", label: "Set up", target: { kind: "settings-embeddings" } },
+            ]);
+        }
+    });
+
+    it("offers a retry for a transient failure, where the result line is the diagnostic", () => {
+        for (const reason of ["provider-error", "index-error", "vault-error"]) {
+            expect(actsForRecall(status("off", reason))).toEqual([
+                { id: "recall:retry", verb: "do", label: "Retry", op: { kind: "reconcile-index" } },
+            ]);
+        }
+    });
+
+    it("offers nothing for a state it has not been taught, rather than guessing a verb", () => {
+        expect(actsForRecall(status("rebuilding"))).toEqual([]);
     });
 });

@@ -67,3 +67,27 @@ export function actsForVault(candidates: MemoryPruneCandidate[] | null | undefin
     }
     return acts;
 }
+
+// pkg/jarvisembed/status.go's off-reasons split cleanly in two: these two are a flag and a credential,
+// which is a text entry in Settings and not something an operation can fix. Every other off-reason is a
+// failure, and for a failure the result of retrying IS the diagnostic.
+const CONFIG_REASONS = new Set(["disabled", "no-key"]);
+
+export function actsForRecall(status: EmbedIndexStatus | null | undefined): PetAct[] {
+    if (status == null || status.state === "ok") {
+        return [];
+    }
+    if (status.state === "stale") {
+        // all three stale reasons — drifted content, another model, never built — are what Reconcile does
+        return [{ id: "recall:catchup", verb: "do", label: "Catch up", op: { kind: "reconcile-index" } }];
+    }
+    if (status.state !== "off") {
+        // a state this build has not been taught: recallLine still reports it, but guessing a verb for it
+        // would be worse than offering none
+        return [];
+    }
+    if (CONFIG_REASONS.has(status.reason ?? "")) {
+        return [{ id: "recall:setup", verb: "open", label: "Set up", target: { kind: "settings-embeddings" } }];
+    }
+    return [{ id: "recall:retry", verb: "do", label: "Retry", op: { kind: "reconcile-index" } }];
+}

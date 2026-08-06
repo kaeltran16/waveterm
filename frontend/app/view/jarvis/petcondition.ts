@@ -105,11 +105,15 @@ export function conditionLine(expr: PetExpression, nowMs: number): string {
     switch (expr.kind) {
         case "cannot-see":
             // Only the "off" case is really keyword-only. A behind index still answers semantically — the
-            // index reconciles itself inside the next query — so that line names the remedy instead of
-            // reporting a degradation that is not happening and offering nothing to do about it.
+            // index reconciles itself inside the next query — so that line reports the fact rather than a
+            // degradation that is not happening.
+            //
+            // Prose that names an action was the original defect: the panel said "ask me anything and I
+            // will catch it up" and offered nowhere to do it. Both lines now state the fact; petacts.ts
+            // supplies the verb (design §4.1).
             return expr.reason === "off"
                 ? "I cannot see as well right now — embeddings are off, so recall is keyword-only."
-                : "My index is behind on some notes — ask me anything and I will catch it up.";
+                : "My index is behind on some notes.";
         case "tired": {
             const pct = Math.round(expr.pct);
             const who = providerLabel(expr.provider);
