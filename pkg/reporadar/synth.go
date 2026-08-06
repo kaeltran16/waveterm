@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 // synthStream is the parsed result of one claude stream-json run.
@@ -100,9 +101,9 @@ func disabledToolArgs() []string {
 type streamFn func(ctx context.Context, prompt string) ([]string, error)
 
 // runSonnet is the production streamFn: `claude -p --model sonnet --output-format stream-json
-// --verbose <disabled tools>`, prompt over stdin, run outside the scanned repo (process cwd, not the
-// repo). Cannot use --bare (it forces API-key auth and never reads OAuth/keychain), so OAuth users
-// authenticate normally.
+// --verbose <disabled tools>`, prompt over stdin, run outside the scanned repo (in the shared
+// headless working dir, not the repo). Cannot use --bare (it forces API-key auth and never reads
+// OAuth/keychain), so OAuth users authenticate normally.
 func runSonnet(ctx context.Context, prompt string) ([]string, error) {
 	args := []string{"-p", "--model", ConfiguredRadarModel, "--output-format", "stream-json", "--verbose"}
 	args = append(args, disabledToolArgs()...)
@@ -110,7 +111,7 @@ func runSonnet(ctx context.Context, prompt string) ([]string, error) {
 		return nil, fmt.Errorf("claude CLI not available: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = "" // run outside the scanned repository (process cwd, not the repo)
+	cmd.Dir = wavebase.HeadlessAgentCwd() // outside the scanned repo, in the pruned headless dir
 	cmd.Stdin = strings.NewReader(prompt)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -188,12 +189,16 @@ func parseSynthesisResponse(raw string) (*SynthResponse, error) {
 	return &resp, nil
 }
 
+// SynthSentinel is the stable leading text of the synthesis prompt. The Sessions scanner filters
+// transcripts whose first prompt starts with it (see pkg/agentsessions).
+const SynthSentinel = "You are Repo Radar's clustering step."
+
 // buildSynthesisPrompt renders the payload: task framing, the allowed taxonomy, the output schema,
 // and the candidate groups fenced as untrusted data (source text, commit messages, transcripts,
 // and memory are untrusted — they cannot change the instructions).
 func buildSynthesisPrompt(projectName, mode string, groups []CandidateGroup) string {
 	var b strings.Builder
-	b.WriteString("You are Repo Radar's clustering step. From the deterministic evidence below, ")
+	b.WriteString(SynthSentinel + " From the deterministic evidence below, ")
 	b.WriteString(modeTaskLine(mode))
 	b.WriteString(" for project ")
 	b.WriteString(projectName)

@@ -8,7 +8,11 @@
 // docs/superpowers/specs/2026-07-12-hook-reliability-pilot-design.md.
 package agentobserve
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
+)
 
 // SlugifyCwd encodes a working directory into the Claude Code projects-dir name: every
 // non-alphanumeric rune becomes '-'. Verified against real dirs on disk, e.g.
@@ -29,4 +33,15 @@ func SlugifyCwd(cwd string) string {
 		b.WriteByte('-')
 	}
 	return b.String()
+}
+
+// HeadlessAgentSlug is the projects-dir name holding the transcripts of the backend's own headless
+// passes (the runs that execute in wavebase.GetHeadlessAgentDir). Nothing a user started lands there,
+// so transcript scanners skip the whole directory instead of reading each file to recognize it.
+// Returns "" when the data dir is unknown, which callers must read as "prune nothing".
+func HeadlessAgentSlug() string {
+	if wavebase.GetWaveDataDir() == "" {
+		return ""
+	}
+	return SlugifyCwd(wavebase.GetHeadlessAgentDir())
 }

@@ -242,6 +242,30 @@ func EnsureWaveCachesDir() error {
 	return CacheEnsureDir(GetWaveCachesDir(), "wavecaches", 0700, "wave caches directory")
 }
 
+const headlessAgentDirName = "headless"
+
+// GetHeadlessAgentDir is the fixed working directory for the headless `claude -p` passes the backend
+// spawns itself (memory distill/garden, radar clustering). They must not inherit wavesrv's cwd: the
+// agent CLI files every transcript under a slug of its process cwd, so an inherited cwd invents a
+// project out of whatever directory wavesrv happens to run in and buries real sessions under
+// maintenance runs. One fixed directory lets the transcript scanners prune it wholesale — see
+// agentobserve.HeadlessAgentSlug.
+func GetHeadlessAgentDir() string {
+	return filepath.Join(GetWaveDataDir(), headlessAgentDirName)
+}
+
+// HeadlessAgentCwd returns GetHeadlessAgentDir for use as exec.Cmd.Dir, creating it on first use.
+// It returns "" when the directory can't be created, which means "inherit" to exec — only transcript
+// hygiene is lost that way, so it must not block the pass itself.
+func HeadlessAgentCwd() string {
+	dir := GetHeadlessAgentDir()
+	if err := CacheEnsureDir(dir, "headlessagent", 0700, "headless agent working directory"); err != nil {
+		log.Printf("wavebase: cannot create headless agent dir, inheriting cwd: %v\n", err)
+		return ""
+	}
+	return dir
+}
+
 func CacheEnsureDir(dirName string, cacheKey string, perm os.FileMode, dirDesc string) error {
 	baseLock.Lock()
 	ok := ensureDirCache[cacheKey]

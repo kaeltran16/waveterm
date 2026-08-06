@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -134,9 +135,20 @@ func relFileFromInput(raw json.RawMessage, projectPath string) string {
 // emits one signal per transcript that carried an explicit tool error or repeated edits.
 func collectTranscript(ctx context.Context, in collectInput) ([]waveobj.RadarSignal, error) {
 	root := filepath.Join(wavebase.GetHomeDir(), ".claude", "projects")
+	headlessSlug := agentobserve.HeadlessAgentSlug()
 	var sigs []waveobj.RadarSignal
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			// a failure inside our own maintenance pass is not evidence about the user's repo
+			if headlessSlug != "" && d.Name() == headlessSlug {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".jsonl") {
 			return nil
 		}
 		if ctx.Err() != nil {

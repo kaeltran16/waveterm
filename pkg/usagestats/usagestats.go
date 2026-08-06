@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -271,11 +272,22 @@ type scanFile struct {
 }
 
 // walkClaudeFiles collects in-window Claude transcript files (recursively, so subagent dirs are
-// included), pruning by modtime against cutoff.
+// included), pruning by modtime against cutoff and skipping the backend's own headless passes —
+// those tokens are real, but they are Wave's maintenance work rather than the user's agent activity.
 func walkClaudeFiles(root string, cutoff time.Time) []scanFile {
 	var files []scanFile
+	headlessSlug := agentobserve.HeadlessAgentSlug()
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if headlessSlug != "" && d.Name() == headlessSlug {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
 		if inWindow(path, cutoff) {

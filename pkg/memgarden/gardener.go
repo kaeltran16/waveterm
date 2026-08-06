@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
@@ -165,6 +166,7 @@ func runClaudeHeadless(model, prompt, corpus string) (string, bool) {
 	defer cancel()
 	c := exec.CommandContext(ctx, exe, "-p", "--model", model, prompt)
 	c.Stdin = strings.NewReader(corpus)
+	c.Dir = wavebase.HeadlessAgentCwd() // keep our transcripts out of any repo's project dir
 	c.Env = append(os.Environ(), memdistill.DistillGuardVar+"=1")
 	out, err := c.Output()
 	if err != nil {

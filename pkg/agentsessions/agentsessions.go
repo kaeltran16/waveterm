@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -26,10 +27,30 @@ const (
 	maxTaskLen        = 120
 )
 
-// distillSessionSentinel is the leading text of the batch memory-distillation prompt. Sessions whose
-// first prompt starts with it are the headless distiller's own transcripts — hidden from the list.
-// Kept in sync with memdistill's prompt by TestDistillSentinelMatchesPrompt.
-const distillSessionSentinel = "You are distilling durable learnings from"
+// headlessPromptSentinels are the leading texts of the prompts the backend sends to `claude -p`
+// itself: the batch memory distiller (pkg/memdistill), the memory gardener's drift and near-duplicate
+// checks (pkg/memgarden), and Repo Radar's clustering step (pkg/reporadar). A transcript whose first
+// prompt starts with one of these is a maintenance pass, not a session anyone could resume, so it is
+// hidden from the list. These runs now execute in wavebase.GetHeadlessAgentDir and get pruned by
+// directory in scanProvider, which is cheaper because it reads no files; this list still covers the
+// transcripts written before that change, which sit in real project directories. Each entry is held
+// to its live prompt by TestHeadlessSentinelsMatchPrompts.
+var headlessPromptSentinels = []string{
+	"You are distilling durable learnings from",
+	"You are checking whether a project memory note still matches the current code.",
+	"You are finding semantic near-duplicate project memory notes.",
+	"You are Repo Radar's clustering step.",
+}
+
+// isHeadlessPrompt reports whether task is one of the backend's own maintenance prompts.
+func isHeadlessPrompt(task string) bool {
+	for _, sentinel := range headlessPromptSentinels {
+		if strings.HasPrefix(task, sentinel) {
+			return true
+		}
+	}
+	return false
+}
 
 // SessionInfo is one resumable past agent session.
 type SessionInfo struct {
@@ -101,8 +122,8 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 	if !hasTask {
 		return nil
 	}
-	if strings.HasPrefix(s.Task, distillSessionSentinel) {
-		return nil // the batch distiller's own headless transcript
+	if isHeadlessPrompt(s.Task) {
+		return nil // one of the backend's own headless maintenance transcripts
 	}
 	return s
 }
@@ -592,8 +613,18 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 		mtime time.Time
 	}
 	var cands []candidate
+	headlessSlug := agentobserve.HeadlessAgentSlug()
 	_ = filepath.WalkDir(p.root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !p.matches(d.Name()) {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if headlessSlug != "" && d.Name() == headlessSlug {
+				return filepath.SkipDir // the backend's own headless passes, never a user session
+			}
+			return nil
+		}
+		if !p.matches(d.Name()) {
 			return nil
 		}
 		info, infoErr := d.Info()

@@ -16,6 +16,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 const (
@@ -127,6 +128,7 @@ func runDistill(claudePath, model, corpus string) (string, bool) {
 	defer cancel()
 	c := exec.CommandContext(ctx, exe, "-p", "--model", model, batchDistillPrompt)
 	c.Stdin = strings.NewReader(corpus)
+	c.Dir = wavebase.HeadlessAgentCwd() // keep our transcripts out of any repo's project dir
 	c.Env = append(os.Environ(), DistillGuardVar+"=1")
 	stdout, err := c.Output()
 	if err != nil {

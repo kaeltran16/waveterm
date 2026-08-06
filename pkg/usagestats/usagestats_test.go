@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 func TestExtractClaude(t *testing.T) {
@@ -394,5 +397,37 @@ func TestWindowTokens(t *testing.T) {
 	// cutoff[0]: only newer → 200+20+5 = 225 ; cutoff[1]: both → 110 + 225 = 335
 	if got[0] != 225 || got[1] != 335 {
 		t.Fatalf("window sums = %v; want [225 335]", got)
+	}
+}
+
+// The Usage scan must not count the backend's own headless maintenance passes as the user's agent
+// activity, and it skips their directory outright so the files are never parsed. The planted
+// transcript is a normal assistant/usage line — only the directory skip can exclude it.
+func TestWalkClaudeFiles_SkipsHeadlessDir(t *testing.T) {
+	saved := wavebase.DataHome_VarCache
+	wavebase.DataHome_VarCache = filepath.Join(t.TempDir(), "data")
+	t.Cleanup(func() { wavebase.DataHome_VarCache = saved })
+
+	slug := agentobserve.HeadlessAgentSlug()
+	if slug == "" {
+		t.Fatal("HeadlessAgentSlug is empty with a data home set")
+	}
+	root := t.TempDir()
+	for _, dir := range []string{slug, "C--Users-x-repo"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","message":{"model":"m","usage":{"input_tokens":1}}}`
+		if err := os.WriteFile(filepath.Join(root, dir, "s.jsonl"), []byte(line), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files := walkClaudeFiles(root, time.Time{})
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file after pruning the headless dir, got %d: %+v", len(files), files)
+	}
+	if filepath.Base(filepath.Dir(files[0].path)) == slug {
+		t.Error("headless transcript was not pruned")
 	}
 }
