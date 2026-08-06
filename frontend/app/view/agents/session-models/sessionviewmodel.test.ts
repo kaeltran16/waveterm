@@ -8,6 +8,7 @@ import {
     cycleTarget,
     findSessionTermBlock,
     flattenVisualOrder,
+    labelChanged,
     loomBinOrDefault,
     modelLabel,
     needsYouTarget,
@@ -254,6 +255,35 @@ describe("buildSessionViewModel — title (task summary)", () => {
             input({ tabId: "t1", agent: "claude", title: "Refactor auth", cwd: "/src/CorrelationEngine", pinned: true }),
         ]);
         expect(vm.pinned[0].label).toBe("Refactor auth · CorrelationEngine");
+    });
+});
+
+describe("labelChanged", () => {
+    it("is a change when a name is set on a session that had none", () => {
+        expect(labelChanged("deploy shell", undefined)).toBe(true);
+    });
+    it("is a change when the name is replaced", () => {
+        expect(labelChanged("deploy shell", "old name")).toBe(true);
+    });
+    it("is not a change when the same name is resubmitted", () => {
+        expect(labelChanged("deploy shell", "deploy shell")).toBe(false);
+    });
+    it("is not a change when only surrounding whitespace differs", () => {
+        expect(labelChanged("  deploy shell  ", "deploy shell")).toBe(false);
+    });
+    // the clear gesture: emptying the box on a renamed session reverts it to its auto label, so this
+    // has to reach renameSession — a no-op here would make a rename permanent
+    it("is a change when an existing name is cleared", () => {
+        expect(labelChanged("", "deploy shell")).toBe(true);
+    });
+    it("treats a whitespace-only draft as clearing an existing name", () => {
+        expect(labelChanged("   ", "deploy shell")).toBe(true);
+    });
+    // ...but clearing a name that was never set changes nothing, so it must not write
+    it("is not a change when an empty box is submitted on an auto-labeled session", () => {
+        expect(labelChanged("", undefined)).toBe(false);
+        expect(labelChanged("", "")).toBe(false);
+        expect(labelChanged("   ", undefined)).toBe(false);
     });
 });
 

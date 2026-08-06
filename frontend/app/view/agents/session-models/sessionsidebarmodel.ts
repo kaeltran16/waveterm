@@ -134,6 +134,16 @@ export function togglePin(tabId: string, pinned: boolean) {
     );
 }
 
+/** The custom label stored on this session, or "" when it has none and the row is showing an auto
+ *  label. A rename box seeds from this rather than from the rendered row label: that label can be an
+ *  ai-title, a project name, or carry a " · service" suffix (rowLabel), and re-submitting any of
+ *  those would pin it as a manual name the auto label can never take back. Read imperatively — the
+ *  seed is a snapshot taken when the box opens, not something it should track. */
+export function sessionCustomLabel(tabId: string): string {
+    const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
+    return tab?.meta?.["session:label"] ?? "";
+}
+
 /** Set (or clear, when empty) the session's custom label. Null reverts the row to its auto label. */
 export function renameSession(tabId: string, name: string) {
     const trimmed = name.trim();
