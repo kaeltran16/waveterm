@@ -124,6 +124,14 @@ export function findSessionTermBlock(blocks: ResolvedSessionBlock[]): SessionTer
     return undefined;
 }
 
+/** Pure: is this submitted rename worth a write? Both sides trim, so retyping the same name is a
+ *  no-op. An empty draft is NOT automatically a no-op: against an existing custom label it is the
+ *  clear gesture (renameSession writes null and rowLabel falls back to the auto label), and only
+ *  against no custom label at all does it mean "nothing happened". */
+export function labelChanged(draft: string, current: string | undefined): boolean {
+    return draft.trim() !== (current ?? "").trim();
+}
+
 function rowLabel(s: SessionInput, includeService: boolean): string {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const title = s.title && s.title.trim().length > 0 ? s.title.trim() : undefined;

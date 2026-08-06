@@ -7,20 +7,26 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Copy, CopyPlus, X } from "lucide-react";
+import { Copy, CopyPlus, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { buildAgentTree } from "./agenttreemodel";
-import { duplicateSession } from "./session-models/sessionsidebarmodel";
+import { renamingRowAtom } from "./rowrenameatom";
+import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     getSubagentExpandAtom,
     toggleSubagentExpand,
 } from "./session-models/agentstatusstore";
-import { subagentExpanded, visibleSubagents, type SubagentState } from "./session-models/sessionviewmodel";
+import {
+    labelChanged,
+    subagentExpanded,
+    visibleSubagents,
+    type SubagentState,
+} from "./session-models/sessionviewmodel";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
@@ -38,6 +44,66 @@ const SUB_COLOR: Record<SubagentState, string> = {
     done: "var(--color-muted)",
 };
 
+function startRowRename(tabId: string): void {
+    globalStore.set(renamingRowAtom, tabId);
+}
+
+// Scoped to one row on purpose: starting a rename on a second row has already moved the atom, and the
+// first box unmounting must not then cancel the box that replaced it.
+function endRowRename(tabId: string): void {
+    if (globalStore.get(renamingRowAtom) === tabId) {
+        globalStore.set(renamingRowAtom, null);
+    }
+}
+
+// The inline rename editor, shared by both row kinds — a session is a tab either way, so both rename
+// through the same `session:label` meta. Mounted in place of the row's name while renaming, which is
+// why the seed is read on mount: this component's whole lifetime IS the edit.
+function RenameBox({ tabId }: { tabId: string }) {
+    const [initial] = useState(() => sessionCustomLabel(tabId));
+    const [draft, setDraft] = useState(initial);
+    // Enter and blur both mean commit and Escape means cancel, but removing a focused input also
+    // fires blur — so without this latch, cancelling would immediately commit the draft it discarded.
+    const settled = useRef(false);
+    const finish = (save: boolean) => {
+        if (settled.current) {
+            return;
+        }
+        settled.current = true;
+        if (save && labelChanged(draft, initial)) {
+            renameSession(tabId, draft);
+        }
+        endRowRename(tabId);
+    };
+    // The row can vanish under an open box — its session closed, or the agent exited — and React does
+    // not deliver blur to an unmounting input. Without this the atom would keep naming a dead tab and
+    // the Escape guard in bindings.ts would go on yielding to a box nobody can see.
+    useEffect(() => () => endRowRename(tabId), [tabId]);
+    return (
+        <input
+            autoFocus
+            value={draft}
+            // the row itself is a click target (select/focus); a click meant for the caret is not one
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    finish(true);
+                }
+                if (e.key === "Escape") {
+                    e.preventDefault();
+                    finish(false);
+                }
+            }}
+            onBlur={() => finish(true)}
+            placeholder="Name this session"
+            aria-label="Session name"
+            className="w-full min-w-0 rounded-[5px] border border-accent bg-surface px-1 font-mono text-[12px] font-semibold text-primary focus:outline-none"
+        />
+    );
+}
+
 function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const branch = useAtomValue(agentBranchesAtom)[agent.id];
@@ -51,12 +117,15 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
     // m4: one-shot settle when this agent reaches idle (working/asking -> idle)
     const settling = useSettle(agent.state === "idle");
 
+    const renaming = useAtomValue(renamingRowAtom) === agent.id;
+
     const select = () => {
         globalStore.set(model.focusIdAtom, agent.id);
         globalStore.set(model.focusReplyAtom, false);
     };
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
+            { label: "Rename", icon: <Pencil size={15} />, click: () => startRowRename(agent.id) },
             { label: "Duplicate", icon: <CopyPlus size={15} />, click: () => duplicateSession(model, agent.id) },
             {
                 label: "Copy name",
@@ -91,7 +160,11 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
             >
                 <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[7px] !w-[7px]" />
                 <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{agent.name}</div>
+                    {renaming ? (
+                        <RenameBox tabId={agent.id} />
+                    ) : (
+                        <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{agent.name}</div>
+                    )}
                     <div className="truncate text-[10.5px] text-muted">{branch || "—"}</div>
                 </div>
                 {subs.length > 0 ? (
@@ -170,14 +243,18 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
 function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: AgentVM }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const selected = focusId === terminal.id;
+    const renaming = useAtomValue(renamingRowAtom) === terminal.id;
     const select = () => {
         globalStore.set(model.focusIdAtom, terminal.id);
         globalStore.set(model.focusReplyAtom, false);
     };
-    // Same three actions an agent row offers, minus the agent-only wording: a terminal duplicates
-    // into a fresh shell in the same cwd (buildDuplicateBlockMeta copies only launch keys).
+    // The same actions an agent row offers, minus the agent-only wording: a terminal duplicates into a
+    // fresh shell in the same cwd (buildDuplicateBlockMeta copies only launch keys). Rename matters
+    // more here than on an agent row — a terminal has no ai-title to name it, so without a rename it
+    // is stuck forever on the launch-time label it shares with every other shell in the repo.
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
+            { label: "Rename", icon: <Pencil size={15} />, click: () => startRowRename(terminal.id) },
             { label: "Duplicate", icon: <CopyPlus size={15} />, click: () => duplicateSession(model, terminal.id) },
             {
                 label: "Copy name",
@@ -205,7 +282,11 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
         >
             <span className="w-[7px] shrink-0 text-center font-mono text-[11px] leading-none text-muted">›_</span>
             <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{terminal.name}</div>
+                {renaming ? (
+                    <RenameBox tabId={terminal.id} />
+                ) : (
+                    <div className="truncate font-mono text-[12px] font-semibold text-ink-hi">{terminal.name}</div>
+                )}
             </div>
             <span className="font-mono text-[10px] font-medium text-muted">terminal</span>
         </div>

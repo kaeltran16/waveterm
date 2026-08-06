@@ -10,6 +10,7 @@ import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom, stageRailOpenAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
@@ -300,6 +301,24 @@ describe("subagent vs agent Escape", () => {
         // now that no subagent is focused, Escape falls to agent-back
         expect(sub.when!(agentCtx)).toBe(false);
         expect(back.when!(agentCtx)).toBe(true);
+    });
+
+    // subagent:back is the one Escape on this surface that fires while a field has focus, so it is the
+    // one that can steal Escape from an open rename box. Escape there means cancel the edit, and the
+    // dispatcher runs on window capture — if this binding claims the key the input never sees it, and
+    // the box commits on the following blur instead of discarding.
+    it("yields Escape to an open row rename, even with a subagent focused", () => {
+        const sub = buildAgentBindings({} as any).find((b) => b.id === "subagent:back")!;
+        const editingCtx: KeyContext = { surface: "agent", editable: true, modalOpen: false, leader: null };
+        globalStore.set(focusSubagentAtom, { parentId: "p", agentId: "s" } as any);
+
+        expect(sub.when!(editingCtx)).toBe(true); // fires while editable — that is the whole problem
+        globalStore.set(renamingRowAtom, "tab-1");
+        expect(sub.when!(editingCtx)).toBe(false);
+
+        globalStore.set(renamingRowAtom, null);
+        expect(sub.when!(editingCtx)).toBe(true);
+        globalStore.set(focusSubagentAtom, null);
     });
 });
 

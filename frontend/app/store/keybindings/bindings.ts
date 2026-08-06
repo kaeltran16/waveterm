@@ -8,6 +8,7 @@ import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agen
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { MutableRefObject } from "react";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -493,7 +494,16 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             // with agent:back below (both guarded on focusSubagentAtom), so no key conflict. Still
             // yields to an open modal — the dialog owns Escape, and this dispatcher runs on window
             // capture, so without the guard it would consume the key and the dialog would never close.
-            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && globalStore.get(focusSubagentAtom) != null,
+            // A tree row's rename box owns it for the same reason, and needs saying separately: every
+            // other Escape here is gated on !editable, which would exclude a focused input on its own,
+            // but this one cannot use that gate (the terminal textarea holds focus for most of this
+            // surface's life). Unguarded, Escape would exit the subagent while the box stayed open —
+            // and the box would then commit on blur the name the user was trying to discard.
+            when: (ctx) =>
+                ctx.surface === "agent" &&
+                !ctx.modalOpen &&
+                globalStore.get(renamingRowAtom) == null &&
+                globalStore.get(focusSubagentAtom) != null,
             run: () => globalStore.set(focusSubagentAtom, null),
         },
         {
