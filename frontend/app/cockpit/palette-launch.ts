@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure builder for the command palette's "Launch" lead group (Ctrl+Shift+P fast-dispatch).
+// Pure builder for the command palette's "Launch" lead group (Ctrl+P fast-dispatch).
 // The typed query is the *goal*, not a filter — these rows are always shown (never ranked)
 // when there is a goal and an active channel. The component injects the impure deps
 // (dispatch/run/consult) and renders LaunchItem's presentational fields.

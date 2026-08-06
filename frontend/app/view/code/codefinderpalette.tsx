@@ -4,8 +4,13 @@
 
 // Fuzzy open-by-name over the same flat path list the tree is built from. Opening a file inside a
 // collapsed subtree expands its ancestors, so the tree shows where you landed.
+//
+// This is what Ctrl+P opens on the Code surface; on every other surface the same chord opens the
+// command palette. A leading '>' here hands off to that palette (VS Code's convention), so commands
+// stay reachable without a second chord.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,8 +18,9 @@ import { rankPaths } from "./codefinder";
 import { codeFinderOpenAtom, codeIndexAtom, openPath, revealPath } from "./codestore";
 
 const MAX_RESULTS = 50;
+const COMMAND_SIGIL = ">";
 
-export function CodeFinderPalette() {
+export function CodeFinderPalette({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(codeFinderOpenAtom);
     const index = useAtomValue(codeIndexAtom);
     const [query, setQuery] = useState("");
@@ -45,6 +51,13 @@ export function CodeFinderPalette() {
         revealPath(path);
         fireAndForget(() => openPath(path));
     };
+    // Seed before opening: the palette reads the seed in its own open effect, so the '>' the user
+    // typed survives the swap instead of being eaten by this overlay closing.
+    const toCommands = (seed: string) => {
+        close();
+        globalStore.set(model.paletteSeedAtom, seed);
+        globalStore.set(model.paletteOpenAtom, true);
+    };
 
     return (
         <div
@@ -58,8 +71,15 @@ export function CodeFinderPalette() {
                 <input
                     ref={inputRef}
                     value={query}
-                    placeholder="Find a file by name"
-                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Find a file by name, or type &gt; for commands"
+                    onChange={(e) => {
+                        const next = e.target.value;
+                        if (next.startsWith(COMMAND_SIGIL)) {
+                            toCommands(next);
+                            return;
+                        }
+                        setQuery(next);
+                    }}
                     onKeyDown={(e) => {
                         if (e.key === "Escape") {
                             e.preventDefault();

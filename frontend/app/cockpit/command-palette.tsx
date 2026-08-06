@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Command palette overlay (Ctrl+Shift+P). Fuzzy-searches live agents, resumable sessions,
+// Command palette overlay — Ctrl+P everywhere except the Code surface, which leads with its file
+// finder and hands off here on a leading '>'. Fuzzy-searches live agents, resumable sessions,
 // and cockpit commands, and dispatches the selected item's action. Hand-rolled to match
 // the NewAgentModal overlay pattern (jotai visibility atom + fixed overlay from cockpit-root).
 
@@ -94,12 +95,14 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
     }, [open]);
 
-    // Each open: reset query + selection and focus the input after paint.
+    // Each open: reset selection, focus the input after paint, and start from whatever handed off to
+    // us (the Code file finder passes a leading '>' so the user's keystroke is not swallowed).
     useEffect(() => {
         if (!open) {
             return;
         }
-        setQuery("");
+        setQuery(globalStore.get(model.paletteSeedAtom));
+        globalStore.set(model.paletteSeedAtom, "");
         setSel(0);
         const raf = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(raf);

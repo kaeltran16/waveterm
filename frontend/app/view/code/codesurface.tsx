@@ -136,7 +136,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
             <div className="min-h-0 flex-1">
                 <CodeBody model={model} onPickProject={() => setPickerOpen(true)} />
             </div>
-            <CodeFinderPalette />
+            <CodeFinderPalette model={model} />
         </div>
     );
 }

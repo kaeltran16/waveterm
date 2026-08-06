@@ -127,9 +127,10 @@ describe("keybinding conflict invariant", () => {
         globalStore.set(historyFiltersAtom, NO_FILTERS);
     });
 
-    // The Code surface holds the two bindings that deliberately survive `editable` (Ctrl+P find,
-    // Ctrl+S save), so it is the surface most likely to collide with a global chord. It went
-    // uncovered when the surface landed; this is the guard.
+    // The Code surface holds Ctrl+S save, which deliberately survives `editable`, so it is the
+    // surface most likely to collide with a global chord. It went uncovered when the surface
+    // landed; this is the guard — and it is what would catch the file finder re-claiming Ctrl+P
+    // now that the global palette binding owns that key on every surface.
     it("global + code-surface bindings do not conflict, editable or not", () => {
         const model = {} as any;
         globalStore.set(listNavAtom, null);

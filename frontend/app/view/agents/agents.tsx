@@ -113,6 +113,9 @@ export class AgentsViewModel implements ViewModel {
     newProjectOpenAtom = atom(false);
     newAgentOpenAtom = atom(false);
     paletteOpenAtom = atom(false);
+    // Query the palette opens with, consumed (and cleared) on open. Non-empty only when something
+    // handed off to it — today that is the Code surface's file finder seeing a leading '>'.
+    paletteSeedAtom = atom("");
     // New Memory modal (rendered inline in the memory surface). Kept here — not local state — so the
     // keybinding dispatcher can see it via deriveKeyContext.modalOpen and suppress surface/list nav.
     memNewOpenAtom = atom(false);

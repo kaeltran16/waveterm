@@ -105,15 +105,23 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
         { id: "surface:next", keys: "]", group: "Navigation", label: "Next surface", when: navigate, run: () => cycleSurface(1) },
         { id: "surface:prev", keys: "[", group: "Navigation", label: "Previous surface", when: navigate, run: () => cycleSurface(-1) },
         {
-            // VS Code's split: Ctrl+P goes to a file, Ctrl+Shift+P runs a command. The Code surface
-            // claims the plain Ctrl+P for its file finder, so the palette takes the Shift form — here
-            // and on every other surface, because one palette key that changes meaning per surface is
-            // worse than one that never does. `g p` still opens it too.
+            // One chord for both palettes, dispatched on surface: Code leads with its file finder
+            // (VS Code's Ctrl+P), every other surface opens the command palette. Typing '>' in the
+            // finder hands off to the command palette, so commands stay one keystroke away on Code
+            // without a second chord to remember. Deliberately unguarded — the palette has to be
+            // reachable from inside a text field, and a binding that always matches is also what
+            // keeps WebView2's print dialog off this key. `g p` still opens the palette directly.
             id: "palette",
-            keys: "Ctrl:Shift:p",
+            keys: "Ctrl:p",
             group: "Global",
-            label: "Command palette",
-            run: () => globalStore.set(model.paletteOpenAtom, (v) => !v),
+            label: "Command palette (file finder on Code)",
+            run: (ctx) => {
+                if (ctx.surface === "code" && !globalStore.get(model.paletteOpenAtom)) {
+                    globalStore.set(codeFinderOpenAtom, (v) => !v);
+                    return;
+                }
+                globalStore.set(model.paletteOpenAtom, (v) => !v);
+            },
         },
         {
             id: "go:palette",
@@ -647,18 +655,8 @@ export function buildFilesBindings(): Binding[] {
 export function buildCodeBindings(): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "code" && !ctx.editable && !ctx.modalOpen;
     return [
-        {
-            id: "code:find",
-            keys: "Ctrl:p",
-            group: "Code",
-            label: "Find a file by name",
-            // A bare letter used to be right here, because Ctrl+P was the palette. Two things changed:
-            // the palette moved to Ctrl+Shift+P, and the editor became writable — so the caret now sits
-            // in Monaco's textarea most of the time and a letter gated on !editable would be unreachable
-            // exactly when you want it. Yields to an open modal, and to nothing else.
-            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
-            run: () => globalStore.set(codeFinderOpenAtom, true),
-        },
+        // The file finder has no chord of its own: the global "palette" binding owns Ctrl+P and
+        // routes it here whenever this surface is active.
         {
             id: "code:back",
             keys: "Alt:ArrowLeft",

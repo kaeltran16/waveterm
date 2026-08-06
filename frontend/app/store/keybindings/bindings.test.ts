@@ -358,14 +358,55 @@ describe("diff-surface history bindings", () => {
 });
 
 describe("command palette chord", () => {
-    it("is Ctrl+Shift+P, leaving plain Ctrl+P to the Code surface's file finder", () => {
-        const model = { surfaceAtom: atom<SurfaceKey>("cockpit"), paletteOpenAtom: atom(false) } as any;
-        const b = buildGlobalBindings(model).find((x) => x.id === "palette")!;
-        expect(b.keys).toBe("Ctrl:Shift:p");
-        // no `when` at all: the palette has to be reachable from inside a text field
+    const build = () => {
+        const model = {
+            surfaceAtom: atom<SurfaceKey>("cockpit"),
+            paletteOpenAtom: atom(false),
+            paletteSeedAtom: atom(""),
+        } as any;
+        return { model, b: buildGlobalBindings(model).find((x) => x.id === "palette")! };
+    };
+
+    beforeEach(() => globalStore.set(codeFinderOpenAtom, false));
+
+    it("is Ctrl+P with no `when`, so nothing else can claim the chord", () => {
+        const { b } = build();
+        expect(b.keys).toBe("Ctrl:p");
+        // no guard at all: reachable from inside a text field, and an always-matching binding is
+        // what stops WebView2's print dialog from taking the key on unhandled surfaces
         expect(b.when).toBeUndefined();
-        b.run(ctx("code"));
+    });
+
+    it("opens the command palette on a non-Code surface", () => {
+        const { model, b } = build();
+        b.run(ctx("cockpit"));
         expect(globalStore.get(model.paletteOpenAtom)).toBe(true);
+        expect(globalStore.get(codeFinderOpenAtom)).toBe(false);
+    });
+
+    it("opens the file finder instead when the Code surface is active", () => {
+        const { model, b } = build();
+        b.run(ctx("code"));
+        expect(globalStore.get(codeFinderOpenAtom)).toBe(true);
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(false);
+    });
+
+    it("closes the command palette on Code rather than stacking the finder under it", () => {
+        const { model, b } = build();
+        globalStore.set(model.paletteOpenAtom, true); // reached via '>' inside the finder
+        b.run(ctx("code"));
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(false);
+        expect(globalStore.get(codeFinderOpenAtom)).toBe(false);
+    });
+
+    it("toggles each palette shut on a second press", () => {
+        const { model, b } = build();
+        b.run(ctx("cockpit"));
+        b.run(ctx("cockpit"));
+        expect(globalStore.get(model.paletteOpenAtom)).toBe(false);
+        b.run(ctx("code"));
+        b.run(ctx("code"));
+        expect(globalStore.get(codeFinderOpenAtom)).toBe(false);
     });
 });
 
@@ -381,29 +422,15 @@ describe("code surface bindings", () => {
 
     beforeEach(() => globalStore.set(codeFinderOpenAtom, false));
 
-    it("puts the file finder on Ctrl+P, matching VS Code's go-to-file", () => {
-        const b = find("code:find");
-        expect(b.keys).toBe("Ctrl:p");
-        b.run(code);
-        expect(globalStore.get(codeFinderOpenAtom)).toBe(true);
+    // The file finder used to own Ctrl+P here. It has no chord of its own now — the single global
+    // "palette" binding routes Ctrl+P to it whenever this surface is active (see "command palette
+    // chord" above), so a chord here would be a second, conflicting claim on the same key.
+    it("owns no chord for the file finder — the global Ctrl+P binding routes to it", () => {
+        expect(buildCodeBindings().find((b) => b.keys === "Ctrl:p")).toBeUndefined();
     });
 
-    it("opens the finder even while the caret is in the editor", () => {
-        // the editor is writable now, so focus-in-Monaco is the normal case rather than the exotic one
-        expect(find("code:find").when?.({ ...code, editable: true })).toBe(true);
-    });
-
-    it("yields the finder to an open modal", () => {
-        expect(find("code:find").when?.({ ...code, modalOpen: true })).toBe(false);
-    });
-
-    it("does not offer the finder on another surface", () => {
-        expect(find("code:find").when?.(ctx("files"))).toBe(false);
-    });
-
-    it("keeps bare-letter refresh out of the editor, while find and save survive it", () => {
+    it("keeps bare-letter refresh out of the editor, while save survives it", () => {
         expect(find("code:refresh").when?.({ ...code, editable: true })).toBe(false);
-        expect(find("code:find").when?.({ ...code, editable: true })).toBe(true);
         expect(find("code:save").when?.({ ...code, editable: true })).toBe(true);
     });
 });
