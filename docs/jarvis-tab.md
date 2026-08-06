@@ -767,16 +767,23 @@ arranging a real utterance: a real one needs a headless CLI judge run behind a 4
 live-model limit that keeps cancel and thread-archive unit-only. Its steps were each checked by breaking the
 fix:
 
-| Break | Expected red step |
+| Break | Observed |
 |---|---|
-| Make `eventFromVolunteer` return null unconditionally | step 1 (nothing pushed reaches the creature) and everything after |
-| Drop the three `KIND_LABEL` entries in `petbubble.tsx` | step 2 (no register label in the bubble) |
-| Remove the `source != null` guard's contents in `petpeek.tsx` so Open/Ask never render | step 4 |
-| Make `orefNavPlan` return `unsupported` for `task` | step 5 (surface stays where it was) |
-| Drop the `close()` before `openORef` in `petpeek.tsx` | step 6 (peek left stranded over the new surface) |
+| Change `KIND_LABEL["loose-end"]` in `petbubble.tsx` | step 2 only (5/6) |
+| Make the `source != null` guard in `petpeek.tsx` never render Open/Ask | steps 4, 5 and 6 (3/6) — 5 and 6 depend on 4, so the cascade is the expected shape |
+| Drop `task` from `orefNavPlan`'s routable set | step 5 only (5/6) |
+| Drop the `close()` before `openORef` in `petpeek.tsx` | step 6 only (5/6) |
 
-It clears `wave:pet.watermark` in teardown: the injected utterance advances the real persisted watermark, and
-leaving it advanced is a side effect on the user's own creature, not a test.
+Two of its steps were **written wrong first and caught by exactly this exercise**, which is the argument for
+doing it: step 3 originally asserted only that the creature click did not throw, and step 6 asserted the
+absence of the peek's close control. Both pass when the peek never opened at all, so the pair went green on a
+run where nothing worked. Step 3 now asserts the peek is open, which is what makes step 6 mean anything.
+
+The scenario also **closes any open peek before it starts**. The creature's click toggles, so a run beginning
+with the peek already open closed it instead and read as "no Open control" — the scenario passed or failed
+depending on what the previous run left behind. It clears `wave:pet.watermark` in teardown for the same
+reason: the injected utterance advances the real persisted watermark, and leaving it advanced is a side
+effect on the user's own creature, not a test.
 
 Neither JC17 (the debounced cursor commit) nor JC8 (cancel) has a live step: both are unit-covered only
 (`subjectcursor.test.ts`, `jarvisturnderive.test.ts`). Cancel needs an in-flight converse stream, and a real

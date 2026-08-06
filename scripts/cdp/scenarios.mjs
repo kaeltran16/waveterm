@@ -2765,6 +2765,17 @@ const jarvisVolunteer = {
     async assert(h, ctx) {
         const steps = [];
 
+        // The creature's click TOGGLES the peek, so a run that starts with it already open would close it
+        // instead and read as "no Open control". Normalise first: without this the scenario passes or
+        // fails depending on what the previous run left behind, which is the one thing a regression net
+        // must never do.
+        await h.ev(`(() => {
+            const esc = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === 'Esc');
+            if (esc) esc.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+
         const pushed = await h.ev(`(() => {
             const mod = globalThis.__wavePetStore;
             if (mod == null) return "petstore test hook not exposed (dev build?)";
@@ -2782,22 +2793,35 @@ const jarvisVolunteer = {
         steps.push({ step: "knowledge utterance pushed to the creature", ok: pushed === true, detail: String(pushed) });
         await h.shot("cdp-shots/jarvis-volunteer-bubble.png");
 
-        // the bubble carries the register's label, which is the compiler-enforced half of the vocabulary
-        const spoke = await h.ev(
-            `(document.body.innerText || "").includes("Still open") && (document.body.innerText || "").includes("CDP probe")`
-        );
+        // the bubble carries the register's label, which is the compiler-enforced half of the vocabulary.
+        // Lowercased before matching: the label is styled `uppercase`, and innerText returns the RENDERED
+        // text, so a literal "Still open" never matches.
+        const spoke = await h.ev(`(() => {
+            const t = (document.body.innerText || "").toLowerCase();
+            return t.includes("still open") && t.includes("cdp probe");
+        })()`);
         steps.push({ step: 'bubble speaks it under the "Still open" register', ok: spoke === true, detail: String(spoke) });
 
-        // open the peek: the two verbs live there, not on the bubble, which auto-dismisses after 6s
+        // open the peek: the two verbs live there, not on the bubble, which auto-dismisses after 6s.
+        // The creature is a motion.div with role="button", not a <button>, so query the label directly.
         const opened = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')]
-                .find((x) => x.getAttribute('aria-label') === 'Jarvis condition');
-            if (!b) return "no creature control";
-            b.click();
+            const c = document.querySelector('[aria-label="Jarvis condition"]');
+            if (!c) return "no creature control";
+            c.click();
             return true;
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
-        steps.push({ step: "peek opens from the creature", ok: opened === true, detail: String(opened) });
+        // assert the peek is actually OPEN, not merely that the click did not throw: its own close
+        // control is the marker. Without this the step passes on a click that toggled it shut, and step 6
+        // ("peek closed on navigation") then passes vacuously too.
+        const peekOpen = await h.ev(
+            `[...document.querySelectorAll('button')].some((b) => (b.innerText || '').trim() === 'Esc')`
+        );
+        steps.push({
+            step: "peek opens from the creature",
+            ok: opened === true && peekOpen === true,
+            detail: `clicked=${opened} open=${peekOpen}`,
+        });
         await h.shot("cdp-shots/jarvis-volunteer-peek.png");
 
         const verbs = await h.ev(`(() => {
@@ -2836,6 +2860,11 @@ const jarvisVolunteer = {
     },
     async teardown(h) {
         await h.ev(`(() => {
+            // close the peek if a failed run left it open, and drop the watermark the injected utterance
+            // advanced -- that key is persisted, so leaving it moved is a side effect on the user's own
+            // creature rather than a test
+            const esc = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === 'Esc');
+            if (esc) esc.click();
             try {
                 globalThis.localStorage?.removeItem("wave:pet.watermark");
             } catch {}
