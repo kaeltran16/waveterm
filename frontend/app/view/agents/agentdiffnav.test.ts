@@ -1,31 +1,67 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
-import { diffNavIntent } from "./agentdiffnav";
+import { globalStore } from "@/app/store/jotaiStore";
+import { atom } from "jotai";
+import { describe, expect, it, vi } from "vitest";
 
-describe("diffNavIntent", () => {
-    it("opens Diff for the agent and selects a file when cwd and path are known", () => {
-        expect(diffNavIntent("agent-1", "C:/repo", "src/app.ts")).toEqual({
-            focusId: "agent-1",
-            surface: "files",
-            select: { cwd: "C:/repo", path: "src/app.ts" },
+const requestFileLink = vi.fn();
+vi.mock("./filesstore", () => ({ requestFileLink: (...a: any[]) => requestFileLink(...a) }));
+
+import { agentDiffScope, openDiff, runDiffScope } from "./agentdiffnav";
+import { scopeKey } from "./diffscope";
+import { diffScopeAtom } from "./diffscopeatom";
+
+const surfaceAtom = atom("cockpit");
+const model = { diffScopeAtom, surfaceAtom } as any;
+
+describe("openDiff", () => {
+    it("stores the scope and switches to the Diff surface", () => {
+        const scope = agentDiffScope("a1", "jarvis-recall");
+        openDiff(model, scope);
+        expect(globalStore.get(diffScopeAtom)).toEqual(scope);
+        expect(globalStore.get(surfaceAtom)).toBe("files");
+    });
+
+    // The link and the load must name the scope with the same string, or the request is never claimed
+    // and the surface opens on its first file instead of the one that was clicked.
+    it("requests the file link under the same key the loader will use", () => {
+        requestFileLink.mockClear();
+        const scope = runDiffScope("r1", "/repo", "9f2c1de");
+        openDiff(model, scope, "pkg/jarvis/evidence.go");
+        expect(requestFileLink).toHaveBeenCalledWith(scopeKey(scope), "pkg/jarvis/evidence.go");
+    });
+
+    it("skips the link request when no file was named", () => {
+        requestFileLink.mockClear();
+        openDiff(model, agentDiffScope("a1", "jarvis-recall"));
+        expect(requestFileLink).not.toHaveBeenCalled();
+    });
+
+    it("opens a run on the run range and an agent on its session range", () => {
+        expect(runDiffScope("r1", "/repo", "9f2c1de").range).toEqual({
+            kind: "run",
+            runId: "r1",
+            baseCommit: "9f2c1de",
+        });
+        expect(agentDiffScope("a1", "n").range).toEqual({ kind: "session", agentId: "a1" });
+    });
+
+    it("carries the run's directory and base commit, which exist nowhere else to be re-resolved", () => {
+        expect(runDiffScope("r1", "/repo", "9f2c1de").repo.origin).toEqual({
+            kind: "run",
+            runId: "r1",
+            cwd: "/repo",
+            baseCommit: "9f2c1de",
         });
     });
 
-    it("opens Diff without file selection when the caller only wants the full file list", () => {
-        expect(diffNavIntent("agent-1", "C:/repo")).toEqual({
-            focusId: "agent-1",
-            surface: "files",
-            select: null,
-        });
-    });
-
-    it("does not select a file when cwd is missing", () => {
-        expect(diffNavIntent("agent-1", null, "src/app.ts")).toEqual({
-            focusId: "agent-1",
-            surface: "files",
-            select: null,
+    it("degrades a missing base commit to the live diff rather than undefined", () => {
+        expect(runDiffScope("r2", "/repo").repo.origin).toEqual({
+            kind: "run",
+            runId: "r2",
+            cwd: "/repo",
+            baseCommit: "",
         });
     });
 });

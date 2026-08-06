@@ -14,7 +14,7 @@ import {
     buildListNavBindings,
 } from "./bindings";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { compareOnAtom } from "@/app/view/agents/comparestore";
+import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -121,7 +121,7 @@ describe("keybinding conflict invariant", () => {
     it("Escape stays unambiguous on the Diff surface with filters active", () => {
         const model = {} as any;
         globalStore.set(listNavAtom, null);
-        globalStore.set(compareOnAtom, false);
+        globalStore.set(diffScopeAtom, null);
         globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildFilesBindings()])).not.toThrow();
         globalStore.set(historyFiltersAtom, NO_FILTERS);
@@ -202,16 +202,20 @@ describe("keybinding conflict invariant", () => {
         const backHome = all.find((b) => b.id === "surface:back-home")!;
         const exitCompare = all.find((b) => b.id === "files:exit-compare")!;
 
-        globalStore.set(compareOnAtom, false);
+        // compare is on when the stored range says so, so this drives it the way the surface does
+        globalStore.set(diffScopeAtom, null);
         expect(backHome.when!(filesCtx)).toBe(true);
         expect(exitCompare.when!(filesCtx)).toBe(false);
 
-        globalStore.set(compareOnAtom, true);
+        globalStore.set(diffScopeAtom, {
+            repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+        });
         // compare owns Escape: exactly one of the two is live, so the key never means two things
         expect(backHome.when!(filesCtx)).toBe(false);
         expect(exitCompare.when!(filesCtx)).toBe(true);
         expect(() => assertNoConflicts(all)).not.toThrow();
-        globalStore.set(compareOnAtom, false);
+        globalStore.set(diffScopeAtom, null);
     });
 
     it("registers agent:return-nav on Shift:Escape, active only in the terminal", () => {

@@ -7,7 +7,7 @@ import { atom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
-import { compareOnAtom } from "@/app/view/agents/comparestore";
+import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -309,7 +309,7 @@ describe("diff-surface history bindings", () => {
 
     beforeEach(() => {
         globalStore.set(historyFiltersAtom, NO_FILTERS);
-        globalStore.set(compareOnAtom, false);
+        globalStore.set(diffScopeAtom, null);
         globalStore.set(graphOnAtom, true);
     });
 
@@ -322,7 +322,10 @@ describe("diff-surface history bindings", () => {
     });
 
     it("does not claim the graph or filter keys while compare is on", () => {
-        globalStore.set(compareOnAtom, true);
+        globalStore.set(diffScopeAtom, {
+            repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+            range: { kind: "compare", base: "main", head: "feat", from: { kind: "working" } },
+        });
         expect(find("files:toggle-graph").when?.(ctx)).toBe(false);
         expect(find("files:filter").when?.(ctx)).toBe(false);
     });

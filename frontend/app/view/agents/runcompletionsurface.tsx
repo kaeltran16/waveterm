@@ -9,19 +9,17 @@
 
 import { cardVariants } from "@/app/element/motiontokens";
 import { getApi } from "@/app/store/global";
-import { globalStore } from "@/app/store/jotaiStore";
 import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
 import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
-import { requestFileLink, runScope } from "./filesstore";
+import { openDiff, runDiffScope } from "./agentdiffnav";
 import {
     artifactKindClass,
     fmtBytes,
     fmtClock,
     fmtDuration,
     phaseHistory,
-    runFileNavIntent,
     runShortId,
     statColor,
     verifCmdLabel,
@@ -34,17 +32,6 @@ import { cn } from "@/util/util";
 function openPath(projectPath: string, rel: string) {
     const sep = projectPath.includes("\\") ? "\\" : "/";
     getApi().openExternal(rel.match(/^([/\\]|[a-zA-Z]:)/) ? rel : `${projectPath}${sep}${rel}`);
-}
-
-// Open the run's diff in the Diff surface, optionally scrolled to one file. Selection is requested
-// before the surface switch because the surface's mount triggers the load that consumes it.
-function openRunDiff(model: AgentsViewModel, run: Run, path?: string) {
-    const intent = runFileNavIntent(run, path);
-    if (intent.select) {
-        requestFileLink(runScope(intent.source.runId), intent.select);
-    }
-    globalStore.set(model.filesRunAtom, intent.source);
-    globalStore.set(model.surfaceAtom, intent.surface);
 }
 
 function StatCell({ label, value, sub, dot, valueClass }: { label: string; value: string; sub?: string; dot?: boolean; valueClass?: string }) {
@@ -176,7 +163,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                 {(ev.files ?? []).map((f) => (
                                     <button
                                         key={f.path}
-                                        onClick={() => openRunDiff(model, run, f.path)}
+                                        onClick={() => openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit), f.path)}
                                         title={`Open ${f.path} in the run diff`}
                                         className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface-hover"
                                     >
@@ -242,7 +229,7 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                         {/* diff action */}
                         <div className="flex items-center gap-3 px-[18px] py-3.5">
                             <button
-                                onClick={() => openRunDiff(model, run)}
+                                onClick={() => openDiff(model, runDiffScope(run.id, run.projectpath, run.basecommit))}
                                 className="flex items-center gap-2.5 rounded-[9px] bg-accent px-4 py-2.5 text-[12.5px] font-bold text-background hover:bg-accent/90"
                             >
                                 <span className="text-[12px]">⑂</span>Open repository diff

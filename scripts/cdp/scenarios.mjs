@@ -2642,11 +2642,50 @@ const gitHistory = {
             `scrollTop=${scrollBack}`
         );
 
+        // The range strip. A chip is drawn only when it has something to switch to: a project has no
+        // session and no run, so exactly two ranges apply. The bar this replaced drew three chips
+        // regardless of context, two of them permanently inert.
+        const chips = await h.ev(
+            `Array.from(document.querySelectorAll('[data-range-chip]')).map(e => e.dataset.rangeChip + ':' + (e.disabled ? 'off' : 'on')).join(',')`
+        );
+        rec("6. a project draws exactly two range chips, both live", chips === "working:on,compare:on", chips);
+
+        // Every chip drawn must be operable — the whole point of the change.
+        const deadChips = await h.ev(
+            `Array.from(document.querySelectorAll('[data-range-chip]')).filter(e => !e.disabled && e.offsetParent === null).length`
+        );
+        rec("7. no chip is drawn enabled but invisible", deadChips === 0, `hiddenButEnabled=${deadChips}`);
+
+        // Switching range is a chip click, it restates the read in words, and the reader keeps their
+        // place across it: the history read is keyed on directory and filters, so a range change costs
+        // one change-list call and zero history calls.
+        await h.ev(`(() => { const el = document.querySelector('[data-history-scroll]'); el.scrollTop = 900; })()`);
+        await sleep(400);
+        const scrollBeforeRange = await h.ev(`document.querySelector('[data-history-scroll]').scrollTop`);
+        const summaryWorking = await text("[data-files-range-summary]");
+        await h.ev(`document.querySelector('[data-range-chip="compare"]').click()`);
+        await sleep(1800);
+        const summaryCompare = await text("[data-files-range-summary]");
+        const comparingNow = await present("[data-compare-column]");
+        await h.ev(`document.querySelector('[data-range-chip="working"]').click()`);
+        await sleep(1800);
+        const summaryBack = await text("[data-files-range-summary]");
+        const scrollAfterRange = await h.ev(`document.querySelector('[data-history-scroll]').scrollTop`);
+        rec(
+            "8. the chips switch the read, say so in words, and keep the reader's place",
+            summaryWorking.length > 0 &&
+                comparingNow &&
+                summaryCompare !== summaryWorking &&
+                summaryBack === summaryWorking &&
+                scrollAfterRange === scrollBeforeRange,
+            `working="${summaryWorking}" compare="${summaryCompare}" back="${summaryBack}" scroll=${scrollBeforeRange} -> ${scrollAfterRange}`
+        );
+
         await pick(ctx.names.notRepo);
         const calm = await present("[data-not-a-repo]");
         const noFailure = await present("[data-git-failure]");
         rec(
-            "6. a plain directory reads as not-a-repository, not a failure",
+            "9. a plain directory reads as not-a-repository, not a failure",
             calm && !noFailure,
             `notRepo=${calm} failure=${noFailure}`
         );
@@ -2656,7 +2695,7 @@ const gitHistory = {
         const failed = await present("[data-git-failure]");
         const evidence = await text("[data-git-failure]");
         rec(
-            "7. an unreadable repository reads as a failure, with git's own message",
+            "10. an unreadable repository reads as a failure, with git's own message",
             failed && evidence.includes("git log") && evidence.length > 40,
             `failure=${failed} evidence="${evidence.slice(0, 120)}"`
         );

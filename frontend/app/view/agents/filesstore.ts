@@ -12,6 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { resolveCwd } from "./agentcwdresolve";
 import { ensureSessionStart } from "./agentsessionstore";
+import { originCwd, scopeKey, type DiffOrigin, type DiffRange, type DiffScope } from "./diffscope";
 import { parseUnifiedDiff, plainFileView, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
@@ -30,25 +31,14 @@ export interface FilesProject {
 }
 
 export const filesStateAtom = atom<FilesState | null>(null) as PrimitiveAtom<FilesState | null>;
-// Which project the surface is scoped to; null = follow the focused agent instead. Module scope for the
-// same reason as the rest of this file: the Diff surface unmounts on nav switch, so component state here
-// meant leaving and returning silently dropped the repository and emptied all three panes.
-export const filesProjectSelAtom = atom<FilesProject | null>(null) as PrimitiveAtom<FilesProject | null>;
 export const filesSelectedPathAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const filesDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
 // true = the git load failed (distinct from "not a repo" — a failed RPC used to masquerade as isRepo:false).
 export const filesErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
-// guards against a stale load overwriting a newer one; token distinguishes agent-/project-/run-scoped
-// loads (`agent:<id>` / `project:<name>` / `run:<id>`) so switching source cancels the in-flight load.
+// guards against a stale load overwriting a newer one; the token is scopeKey(scope), so switching
+// either the repository or the range cancels the in-flight load.
 const current = { token: "" };
-
-// The scope vocabulary, exported so a caller that wants to deep-link into the surface names the same
-// scope the load will run under. One format, one place — a link built from a different string than
-// the load's would silently never be claimed.
-export const agentScope = (id: string) => `agent:${id}`;
-export const runScope = (runId: string) => `run:${runId}`;
-export const projectScope = (name: string) => `project:${name}`;
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "" };
 
@@ -119,40 +109,51 @@ function beginLoad(token: string): void {
     globalStore.set(filesErrorAtom, false);
 }
 
-export async function loadFilesForAgent(
-    id: string,
-    transcriptPath: string | undefined,
-    blockId?: string
-): Promise<void> {
-    const token = agentScope(id);
+export interface ScopeAgent {
+    transcriptPath?: string;
+    blockId?: string;
+}
+
+// One load for every subject the surface can have. Which range is active decides the anchor and
+// nothing else; the directory comes from the origin, resolved from the transcript only for an agent.
+export async function loadFilesForScope(scope: DiffScope, agent?: ScopeAgent): Promise<void> {
+    const token = scopeKey(scope);
     beginLoad(token);
-    const [cwd, sessionStartTs] = await Promise.all([
-        resolveCwd(transcriptPath, blockId),
-        ensureSessionStart(transcriptPath),
-    ]);
+    const cwd = await resolveScopeCwd(scope.repo.origin, agent);
     if (current.token !== token) {
         return;
     }
-    // anchor on the session-start commit so committed work stays visible (a plain vs-HEAD diff would
-    // collapse to nothing after the agent commits). Null ts degrades to the live diff.
-    await loadChangesForCwd(token, cwd, { sessionStartTs: sessionStartTs ?? undefined });
+    const opts = await resolveRangeOpts(scope.range, agent?.transcriptPath);
+    if (current.token !== token) {
+        return;
+    }
+    await loadChangesForCwd(token, cwd, opts);
 }
 
-// Project-scoped load: the registry path IS the cwd, so no transcript / session exists to anchor to.
-// Show the live working-tree-vs-HEAD diff (uncommitted changes) — the "open this repo in a git client"
-// view.
-export async function loadFilesForProject(name: string, path: string): Promise<void> {
-    const token = projectScope(name);
-    beginLoad(token);
-    await loadChangesForCwd(token, path || null, {});
+async function resolveScopeCwd(origin: DiffOrigin, agent?: ScopeAgent): Promise<string | null> {
+    const known = originCwd(origin);
+    if (known != null) {
+        return known;
+    }
+    return (await resolveCwd(agent?.transcriptPath, agent?.blockId)) || null;
 }
 
-// Run-scoped load: base-anchored, read-only, against the run's captured base commit (an immutable
-// historical record). baseCommit "" degrades to the live HEAD diff.
-export async function loadFilesForRun(runId: string, cwd: string, baseCommit: string): Promise<void> {
-    const token = runScope(runId);
-    beginLoad(token);
-    await loadChangesForCwd(token, cwd || null, { ref: baseCommit });
+// The one place a range becomes RPC arguments. Not in diffscope.ts with the other derivations,
+// because the session anchor is an async transcript read rather than a pure function of the range.
+async function resolveRangeOpts(range: DiffRange, transcriptPath?: string): Promise<LoadOpts> {
+    switch (range.kind) {
+        case "run":
+            return { ref: range.baseCommit };
+        case "session":
+            // anchor on the session-start commit so committed work stays visible (a plain vs-HEAD
+            // diff would collapse to nothing after the agent commits). Null degrades to the live diff.
+            return { sessionStartTs: (await ensureSessionStart(transcriptPath)) ?? undefined };
+        // Neither anchors. Comparison drives panes 1 and 2 from comparestore; this load only supplies
+        // cwd, branch and whether the directory is a repository at all.
+        case "working":
+        case "compare":
+            return {};
+    }
 }
 
 // A caller elsewhere in the app — a sealed run's evidence card, an agent's changed-file rail — names
@@ -161,9 +162,10 @@ export async function loadFilesForRun(runId: string, cwd: string, baseCommit: st
 // the pane, because since the git-review rewrite panes 2 and 3 render whatever the history pane's
 // selected row is.
 //
-// Keyed by scope (see agentScope / runScope / projectScope) rather than by run id, so every source the
-// surface can be scoped to links the same way. The agent rail used to have a separate mechanism that
-// wrote an atom nothing renders, which is why clicking a file there landed on the scope's first file.
+// Keyed by scopeKey (diffscope.ts) rather than by run id, so every subject the surface can be scoped
+// to links the same way, and the link and the load that must claim it are built by the same function.
+// The agent rail used to have a separate mechanism that wrote an atom nothing renders, which is why
+// clicking a file there landed on the scope's first file.
 //
 // One-shot on purpose. The history pane deliberately remembers where you were so a nav switch does not
 // throw you back to row zero; a deep link has to beat that once, then stop, or every return to the

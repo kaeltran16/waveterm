@@ -22,13 +22,27 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { agentScope, filesStateAtom, requestFileLink, runScope } from "./filesstore";
-import { historyFailureAtom, loadHistory, resetHistory, selectedCommitAtom, selectedFileAtom } from "./githistorystore";
+import { scopeKey } from "./diffscope";
+import { filesStateAtom, requestFileLink } from "./filesstore";
+import {
+    historyCommitsAtom,
+    historyFailureAtom,
+    historyRowsAtom,
+    historyScrollAtom,
+    loadHistory,
+    resetHistory,
+    selectedCommitAtom,
+    selectedFileAtom,
+    setHistoryOpts,
+} from "./githistorystore";
 import { WORKING_TREE } from "./historyrows";
 
 const CWD = "C:/repo";
-const RUN = runScope("run-1");
-// The run's own change set, as filesstore leaves it after loadFilesForRun: everything since the run's
+const RUN = scopeKey({
+    repo: { origin: { kind: "run", runId: "run-1", cwd: CWD, baseCommit: "base000" }, label: "run base000" },
+    range: { kind: "run", runId: "run-1", baseCommit: "base000" },
+});
+// The run's own change set, as filesstore leaves it after a run-range load: everything since the run's
 // base commit, which is what the "Run changes" row lists.
 const RUN_CHANGES = {
     files: [
@@ -162,7 +176,10 @@ describe("loadHistory selection settling", () => {
 // they used to go through a separate request that only reached an atom no pane renders — so clicking
 // the third file opened the Diff surface on the scope's *first* file. Same settling path now.
 describe("agent-scoped file deep link", () => {
-    const AGENT = agentScope("agent-9");
+    const AGENT = scopeKey({
+        repo: { origin: { kind: "agent", id: "agent-9" }, label: "agent-9" },
+        range: { kind: "session", agentId: "agent-9" },
+    });
     const AGENT_OPTS = { anchor: "base000", rowLabel: "Since session start" };
 
     it("opens the file clicked in the agent rail, not the scope's first file", async () => {
@@ -197,5 +214,60 @@ describe("agent-scoped file deep link", () => {
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
+    });
+});
+
+describe("range changes do not re-read git", () => {
+    // Decision 5 of the design. The anchor never reaches git — it labels a divider and names what the
+    // synthetic top row counts — so folding it into the load identity is what made switching range
+    // blank the list and throw the reader back to the top.
+    it("keeps the reader's scroll offset and the loaded commits when only the anchor changes", async () => {
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "aaa1111",
+            commits: [commit("aaa1111", "tip commit"), commit("bbb2222", "older commit")],
+        });
+
+        await loadHistory("/repo", { anchor: "bbb2222", anchorLabel: "session start", rowLabel: "Since session start" });
+        globalStore.set(historyScrollAtom, 420);
+        const before = globalStore.get(historyCommitsAtom);
+
+        await loadHistory("/repo", {});
+
+        expect(gitHistory).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(historyScrollAtom)).toBe(420);
+        expect(globalStore.get(historyCommitsAtom)).toEqual(before);
+    });
+
+    it("relabels the divider with no git call at all", async () => {
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "aaa1111",
+            commits: [commit("aaa1111", "tip commit"), commit("bbb2222", "older commit")],
+        });
+
+        await loadHistory("/repo", {});
+        gitHistory.mockClear();
+
+        setHistoryOpts({ anchor: "bbb2222", anchorLabel: "run base", rowLabel: "Run changes" });
+
+        expect(gitHistory).not.toHaveBeenCalled();
+        // the divider label and the synthetic top row's name are what the anchor is for; asserting the
+        // row merely exists would pass without the setter, because that commit is in the list anyway
+        const rows = globalStore.get(historyRowsAtom) ?? [];
+        expect(rows.find((r) => r.hash === "bbb2222")?.divider).toBe("run base");
+        expect(rows[0]?.subject).toBe("Run changes — 3 files");
+    });
+
+    // A different repository IS a different subject: filters and scroll from the old one are
+    // meaningless, and a stale path filter would produce an empty history that looks broken.
+    it("still starts a different repository at the top", async () => {
+        gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: [commit("aaa1111", "tip commit")] });
+
+        await loadHistory("/repo", {});
+        globalStore.set(historyScrollAtom, 420);
+        await loadHistory("/other", {});
+
+        expect(globalStore.get(historyScrollAtom)).toBe(0);
     });
 });

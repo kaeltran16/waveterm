@@ -7,7 +7,6 @@ import {
     fmtDuration,
     needsEvidenceSeal,
     phaseHistory,
-    runFileNavIntent,
     runShortId,
     verifCmdLabel,
     verifCounts,
@@ -79,31 +78,5 @@ describe("verifCmdLabel", () => {
     });
     it("survives empty input", () => {
         expect(verifCmdLabel("")).toBe("");
-    });
-});
-
-describe("runFileNavIntent", () => {
-    const run = { id: "r1", projectpath: "C:/repo", basecommit: "abc123" } as unknown as Run;
-
-    it("opens the run-scoped Diff surface with the clicked file selected", () => {
-        expect(runFileNavIntent(run, "pkg/jarvis/evidence.go")).toEqual({
-            surface: "files",
-            source: { runId: "r1", cwd: "C:/repo", baseCommit: "abc123" },
-            select: "pkg/jarvis/evidence.go",
-        });
-    });
-    it("selects a deleted file the same way — the diff is what is wanted, not the file", () => {
-        expect(runFileNavIntent(run, "removed/old.ts").select).toBe("removed/old.ts");
-    });
-    it("opens the whole run diff when no file is named", () => {
-        expect(runFileNavIntent(run)).toEqual({
-            surface: "files",
-            source: { runId: "r1", cwd: "C:/repo", baseCommit: "abc123" },
-            select: null,
-        });
-    });
-    it("degrades a missing base commit to the live diff rather than undefined", () => {
-        const noBase = { id: "r2", projectpath: "C:/repo" } as unknown as Run;
-        expect(runFileNavIntent(noBase).source.baseCommit).toBe("");
     });
 });

@@ -9,7 +9,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
-import { diffNavIntent } from "./agentdiffnav";
+import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import {
     formatAge,
@@ -19,7 +19,6 @@ import {
     usageLevel,
     type AgentVM,
 } from "./agentsviewmodel";
-import { agentScope, requestFileLink } from "./filesstore";
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
@@ -79,13 +78,10 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const { shown: shownFiles, more: moreFiles } = capFiles(railState?.changes?.files ?? [], RailFilesCap);
 
     const noTerminal = agent.blockId == null;
-    const openDiff = (path?: string) => {
-        const intent = diffNavIntent(agent.id, railState?.cwd, path);
-        if (intent.select) {
-            requestFileLink(agentScope(agent.id), intent.select.path);
-        }
-        globalStore.set(model.focusIdAtom, intent.focusId);
-        globalStore.set(model.surfaceAtom, intent.surface);
+    // A path is only worth linking when the rail resolved a working directory to resolve it against.
+    const openFileDiff = (path?: string) => {
+        globalStore.set(model.focusIdAtom, agent.id);
+        openDiff(model, agentDiffScope(agent.id, agent.name), railState?.cwd && path ? path : undefined);
     };
     const drive = (data: string) => {
         if (!agent.blockId) {
@@ -253,7 +249,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                 <button
                                     type="button"
                                     key={f.path}
-                                    onClick={() => openDiff(f.path)}
+                                    onClick={() => openFileDiff(f.path)}
                                     className="flex cursor-pointer items-center gap-[8px] rounded-sm px-[5px] py-[3px] text-left font-mono text-[11.5px] font-medium text-secondary hover:bg-surface-hover hover:text-primary"
                                 >
                                     <span className={cn("flex-none font-bold", statusColor(f.status))}>{f.status}</span>
@@ -263,7 +259,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                             {moreFiles > 0 ? (
                                 <button
                                     type="button"
-                                    onClick={() => openDiff()}
+                                    onClick={() => openFileDiff()}
                                     className="w-fit cursor-pointer rounded-sm px-[5px] py-[3px] text-[11px] text-muted hover:bg-surface-hover hover:text-secondary"
                                 >
                                     +{moreFiles} more

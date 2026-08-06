@@ -13,6 +13,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
+import { historyKey, type LoadHistoryOpts } from "./diffscope";
 import { consumeFileLink, filesDiffAtom, filesStateAtom, selectFile } from "./filesstore";
 import { parseUnifiedDiff, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
@@ -91,13 +92,13 @@ export const activeDiffAtom = atom<FileView | null>((get) =>
 const current = { token: "" };
 let filterTimer: ReturnType<typeof setTimeout> | null = null;
 
-export interface LoadHistoryOpts {
-    // scope anchor: an agent's session-start commit or a run's base commit
-    anchor?: string;
-    anchorLabel?: string;
-    // What the working-tree row's file count is actually counting — see BuildRowsOpts.rowLabel.
-    // Omitted for repo scope, where the count really is working-tree-vs-HEAD.
-    rowLabel?: string;
+// Owned by diffscope.ts, where it is derived from the range; re-exported for the pane's convenience.
+export type { LoadHistoryOpts };
+
+// Relabels the divider and the synthetic top row without touching git. The rows are derived from this
+// atom (historyRowsAtom), so a range change costs one change-list read and zero history reads.
+export function setHistoryOpts(opts: LoadHistoryOpts): void {
+    globalStore.set(historyOptsAtom, opts);
 }
 
 // A different repository (or run) is a different subject: filters and scroll offset from the old one
@@ -125,10 +126,10 @@ export function resetHistory(): void {
     globalStore.set(commitDiffAtom, null);
 }
 
-// The guard token covers scope AND filters: a page that arrives after either changed is stale and
-// must be dropped rather than merged into a list it does not belong to.
-function loadToken(cwd: string, opts: LoadHistoryOpts, filters: HistoryFilters): string {
-    return `${cwd}|${opts.anchor ?? ""}|${filters.author}|${filters.path}|${filters.text}`;
+// Deliberately excludes the anchor: GitHistoryCommand takes cwd, limit and filters, so two loads that
+// differ only in their divider label are the same read and must not blank the list between them.
+function loadToken(cwd: string, filters: HistoryFilters): string {
+    return historyKey(cwd, filters);
 }
 
 function synthFailure(command: string, e: unknown): GitFailure {
@@ -137,17 +138,17 @@ function synthFailure(command: string, e: unknown): GitFailure {
     return { command, exitcode: -1, stderr: String((e as Error)?.message ?? e) };
 }
 
-// scope: which source this load is for (`agent:<id>` / `project:<name>` / `run:<id>`, built by
-// filesstore's scope helpers). Used only to claim a pending file deep link — from a sealed run's
-// evidence card, or from an agent's changed-file rail. Deliberately not part of opts: opts feeds the
-// load token and is stored for the filter reload to reissue, and a one-shot link must do neither.
+// scope: which subject this load is for, as scopeKey(scope) from diffscope.ts. Used only to claim a
+// pending file deep link — from a sealed run's evidence card, or from an agent's changed-file rail.
+// Deliberately not part of opts: opts is stored for the filter reload to reissue, and a one-shot link
+// must not be.
 export async function loadHistory(cwd: string | null, opts: LoadHistoryOpts = {}, scope?: string): Promise<void> {
     if (!cwd) {
         resetHistory();
         return;
     }
     const filters = globalStore.get(historyFiltersAtom);
-    const token = loadToken(cwd, opts, filters);
+    const token = loadToken(cwd, filters);
     // Blanking the list to signal "loading" unmounts every row, which collapses the scroll container:
     // the browser then clamps the restored offset to zero, and the pane's one-shot restore is already
     // spent by the time the rows come back. A remount re-runs this load with an identical token, so

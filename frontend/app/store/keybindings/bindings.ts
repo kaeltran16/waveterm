@@ -11,7 +11,7 @@ import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/rails
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
-import { compareOnAtom, compareSelectionAtom, exitCompare } from "@/app/view/agents/comparestore";
+import { compareOnAtom, compareSelectionAtom, leaveCompare } from "@/app/view/agents/comparestore";
 import {
     clearHistoryFilters,
     graphOnAtom,
@@ -606,9 +606,9 @@ export function buildFilesBindings(): Binding[] {
             label: "Compare refs",
             when: on,
             run: () => {
-                const el = document.querySelector<HTMLElement>("[data-files-ref-expr]");
+                const el = document.querySelector<HTMLElement>('[data-range-chip="compare"]');
                 if (el == null) {
-                    return false; // no repo scoped -> nothing to compare; let the key pass
+                    return false; // no repository scoped -> nothing to compare; let the key pass
                 }
                 el.click();
             },
@@ -619,7 +619,7 @@ export function buildFilesBindings(): Binding[] {
             group: "Diff",
             label: "Back to history",
             when: inCompare,
-            run: () => exitCompare(),
+            run: () => leaveCompare(),
         },
         {
             id: "files:switch-side",

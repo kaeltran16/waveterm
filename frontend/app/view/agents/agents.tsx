@@ -23,6 +23,7 @@ import {
 } from "./agentsviewmodel";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
+import { diffScopeAtom } from "./diffscopeatom";
 import type { SessionStatusFilter } from "./sessionsarchivestore";
 import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
 
@@ -93,13 +94,13 @@ export class AgentsViewModel implements ViewModel {
     answerTabAtom = atom<Record<string, number>>({}) as PrimitiveAtom<Record<string, number>>;
     sentIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
     focusIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
-    // run-scoped Diff-tab source: set by the run-completion "Open repository diff" button. Non-null
-    // overrides agent/project scoping with a read-only, base-anchored view of that run's changes.
-    filesRunAtom = atom<{ runId: string; cwd: string; baseCommit: string } | null>(null) as PrimitiveAtom<{
-        runId: string;
-        cwd: string;
-        baseCommit: string;
-    } | null>;
+    // The Diff surface's subject: which repository, and which range within it. One stored value
+    // rather than three source variables and a ternary chain, so a control can actually set it. It
+    // lives in its own module (the git stores read and write it and must not import this view model);
+    // re-exported here so callers that reach it through the model keep working.
+    get diffScopeAtom() {
+        return diffScopeAtom;
+    }
     focusReplyAtom = atom(false);
     railOpenAtom = atom(true);
     chipFilterAtom = atom<ChipFilter>("all");

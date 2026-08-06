@@ -23,19 +23,12 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { type DiffLine, type FileView } from "./gitdiff";
 import { StatusDot } from "./statusdot";
-import {
-    agentScope,
-    filesErrorAtom,
-    filesProjectSelAtom,
-    filesStateAtom,
-    loadFilesForAgent,
-    loadFilesForProject,
-    loadFilesForRun,
-    projectScope,
-    runScope,
-    type FilesProject,
-} from "./filesstore";
-import { runShortId } from "./runcompletion";
+import { filesErrorAtom, filesStateAtom, loadFilesForScope, type FilesProject } from "./filesstore";
+import { availableRanges, historyOptsFor, rangeKey, rangeSummary, scopeKey } from "./diffscope";
+import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
+import { setDiffRange } from "./diffscopeatom";
+import { peekSessionStart } from "./agentsessionstore";
+import { RangeStrip } from "./rangestrip";
 import { projectsAtom } from "./projectsstore";
 import { CommitPane } from "./commitpane";
 import { AggregatePane } from "./aggregatepane";
@@ -44,7 +37,6 @@ import { AGGREGATE, buildCompareRows, compareNavIds, type CompareCommitRow } fro
 import {
     compareActiveChangesAtom,
     compareAggregateAtom,
-    compareAnchorAtom,
     compareBranchesAtom,
     compareDiffAtom,
     compareErrorAtom,
@@ -54,7 +46,7 @@ import {
     compareSelectionAtom,
     compareSidesAtom,
     enterCompare,
-    exitCompare,
+    leaveCompare,
     selectCompareFile,
     selectCompareRow,
     setCompareRefs,
@@ -82,6 +74,7 @@ import {
     selectCommitFile,
     selectedCommitAtom,
     selectedFileAtom,
+    setHistoryOpts,
 } from "./githistorystore";
 import { GitFailurePanel, NotARepoPanel } from "./gitstatepanels";
 import { HistoryFilterRow } from "./historyfilterrow";
@@ -100,12 +93,16 @@ function SourcePicker({
     agents,
     projects,
     source,
+    currentLabel,
     onPickAgent,
     onPickProject,
 }: {
     agents: AgentVM[];
     projects: FilesProject[];
     source: FilesSource | null;
+    // The stored scope's own label. A run is neither an agent nor a registered project, so without
+    // this the picker would read "Select a source" while a run's diff is on screen.
+    currentLabel?: string;
     onPickAgent: (id: string) => void;
     onPickProject: (p: FilesProject) => void;
 }) {
@@ -113,7 +110,8 @@ function SourcePicker({
     const currentAgent = source?.kind === "agent" ? agents.find((a) => a.id === source.id) : undefined;
     const currentProject = source?.kind === "project" ? projects.find((p) => p.name === source.name) : undefined;
     const hasAny = agents.length > 0 || projects.length > 0;
-    const label = currentAgent?.name ?? currentProject?.name ?? (hasAny ? "Select a source" : "No agents or projects");
+    const fallback = hasAny ? "Select a source" : "No agents or projects";
+    const label = currentAgent?.name ?? currentProject?.name ?? currentLabel ?? fallback;
     return (
         <div className="relative">
             <button
@@ -360,31 +358,27 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         [compareRefs, compareSides, compareAggregate]
     );
 
-    // A picked project overrides agent-focus scoping; null means "follow the focused agent".
-    const projectSel = useAtomValue(filesProjectSelAtom);
-    const setProjectSel = (p: FilesProject | null) => globalStore.set(filesProjectSelAtom, p);
-    const runSource = useAtomValue(model.filesRunAtom);
-    const agent = agents.find((a) => a.id === focusId);
-    const source: FilesSource | null = projectSel
-        ? { kind: "project", name: projectSel.name }
-        : focusId
-          ? { kind: "agent", id: focusId }
-          : null;
+    // The surface's stored subject: which repository, and which range within it.
+    const scope = useAtomValue(model.diffScopeAtom);
+    const origin = scope?.repo.origin;
+    const agent = origin?.kind === "agent" ? agents.find((a) => a.id === origin.id) : undefined;
+    const source: FilesSource | null =
+        origin?.kind === "project"
+            ? { kind: "project", name: origin.name }
+            : origin?.kind === "agent"
+              ? { kind: "agent", id: origin.id }
+              : focusId
+                ? { kind: "agent", id: focusId }
+                : null;
 
-    // The three scopes the surface already had, now named. Run wins, then a picked project, then the
-    // focused agent — the same precedence the load effect below uses. Compare is a two-ref read of
-    // the repo, so it reads as repo scope for as long as it is on.
-    const scope: "run" | "repo" | "agent" = compareOn ? "repo" : runSource ? "run" : projectSel ? "repo" : "agent";
-    const refExpr = runSource
-        ? `${(runSource.baseCommit || "HEAD").slice(0, 7)} … HEAD`
-        : scope === "agent" && state?.ref
-          ? `session start ${state.ref.slice(0, 7)} … worktree`
-          : `${state?.branch || "—"} · all refs`;
-
-    // Which repository+run the surface is currently showing. Compare is anchored to one of these, and
-    // leaves when it changes; comparing it to a stored anchor rather than keying an effect on cwd is
-    // what lets compare survive the surface unmounting on a nav switch.
-    const scopeAnchor = `${state?.cwd ?? ""}|${runSource?.runId ?? ""}`;
+    const pickAgent = (id: string) => {
+        const a = agents.find((x) => x.id === id);
+        globalStore.set(model.diffScopeAtom, agentDiffScope(id, a?.name ?? id));
+        globalStore.set(model.focusIdAtom, id);
+    };
+    const pickProject = (p: FilesProject) => {
+        globalStore.set(model.diffScopeAtom, projectDiffScope(p.name, p.path));
+    };
 
     // Entering compare is a repo-scoped two-ref read, so it needs a cwd and a branch to start from.
     const startCompare = () => {
@@ -392,20 +386,41 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             return;
         }
         setPickerOpen(true);
-        fireAndForget(() => enterCompare(state.cwd!, state.branch ?? "", scopeAnchor));
+        fireAndForget(() => enterCompare(state.cwd!, state.branch ?? ""));
     };
-    const leaveCompare = () => {
+    // The ref fields are this surface's own state; the range itself is restored by the store.
+    const stopCompare = () => {
         setPickerOpen(false);
-        exitCompare();
+        leaveCompare();
     };
+
+    // Follows the focused agent only while the stored repository IS an agent — pinning a project or
+    // arriving from a run stops focus changes from moving the surface. This is the old
+    // run-beats-project-beats-agent precedence, stated once, as data.
+    useEffect(() => {
+        if (scope != null && scope.repo.origin.kind !== "agent") {
+            return;
+        }
+        if (!focusId) {
+            return;
+        }
+        if (scope?.repo.origin.kind === "agent" && scope.repo.origin.id === focusId) {
+            return;
+        }
+        const a = agents.find((x) => x.id === focusId);
+        if (a == null) {
+            return;
+        }
+        globalStore.set(model.diffScopeAtom, agentDiffScope(a.id, a.name));
+    }, [focusId, scope, agents]);
 
     // Default to the first agent when nothing is scoped, so opening Files is immediately useful
     // instead of a dead "select a source" screen.
     useEffect(() => {
-        if (!projectSel && !focusId && agents.length > 0) {
+        if (scope == null && !focusId && agents.length > 0) {
             globalStore.set(model.focusIdAtom, agents[0].id);
         }
-    }, [projectSel, focusId, agents]);
+    }, [scope, focusId, agents]);
 
     // The surface unmounts on every nav switch; stamping the time on the way out is all it has to do.
     // The next history load decides whether anything is worth announcing (historyquery.restoreNotice).
@@ -419,36 +434,28 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         return () => clearTimeout(t);
     }, [restoreMsg]);
 
-    // Which source the surface is scoped to, in the same vocabulary filesstore's loaders use as their
+    // Which subject the surface is scoped to, in the same vocabulary filesstore's loader uses as its
     // guard token. Both the change-list load and the history load are keyed off this, so a deep link
     // built for one of them is claimable by the other.
-    const loadScope = runSource
-        ? runScope(runSource.runId)
-        : projectSel
-          ? projectScope(projectSel.name)
-          : focusId
-            ? agentScope(focusId)
-            : undefined;
+    const loadScope = scope ? scopeKey(scope) : undefined;
 
     useEffect(() => {
-        if (runSource) {
-            fireAndForget(() => loadFilesForRun(runSource.runId, runSource.cwd, runSource.baseCommit));
-        } else if (projectSel) {
-            fireAndForget(() => loadFilesForProject(projectSel.name, projectSel.path));
-        } else if (focusId) {
-            fireAndForget(() => loadFilesForAgent(focusId, agent?.transcriptPath, agent?.blockId));
+        if (scope == null) {
+            return;
         }
-    }, [runSource?.runId, runSource?.cwd, runSource?.baseCommit, projectSel?.name, projectSel?.path, focusId, agent?.transcriptPath, agent?.blockId]);
+        fireAndForget(() =>
+            loadFilesForScope(scope, { transcriptPath: agent?.transcriptPath, blockId: agent?.blockId })
+        );
+    }, [loadScope, agent?.transcriptPath, agent?.blockId]);
 
-    // History follows whatever cwd the change-list load resolved, and anchors on the scope's base so
-    // the session-start / run-base commit gets a labelled divider. rowLabel names what the synthetic
-    // top row is counting: only repo scope reads the bare working tree, so the other two must say so.
+    // History follows whatever directory the change-list load resolved. The anchor and its labels are
+    // derived from the range, and are pushed separately so switching range relabels without a re-read.
     useEffect(() => {
         // A null state means the change list is still loading, not that there is no repository here:
         // beginLoad() nulls it at the start of every load, including the one this surface fires on
         // every mount. Resetting on that transient would wipe the scroll offset, the filters and the
         // selection on every return to the surface — the exact state this surface exists to keep.
-        if (state == null) {
+        if (state == null || scope == null) {
             return;
         }
         // A failed change-list read also lands here as isRepo:false, but a repository git cannot read
@@ -458,33 +465,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             resetHistory();
             return;
         }
-        const anchor = runSource ? runSource.baseCommit : state.ref;
-        fireAndForget(() =>
-            loadHistory(
-                state.cwd,
-                {
-                    anchor: anchor || undefined,
-                    anchorLabel: runSource ? "run base" : anchor ? "session start" : undefined,
-                    rowLabel: runSource ? "Run changes" : anchor ? "Since session start" : undefined,
-                },
-                // names the source this load is for, so it can claim a file an evidence card or an
-                // agent's file rail asked for, once that scope's change set is in
-                loadScope
-            )
-        );
+        // loadScope names the subject this load is for, so it can claim a file an evidence card or an
+        // agent's file rail asked for, once that scope's change set is in.
+        fireAndForget(() => loadHistory(state.cwd, historyOptsFor(scope.range, state.ref), loadScope));
     }, [state?.cwd, state?.isRepo, state?.ref, loadScope, loadError]);
 
-    // A different repository (or entering a run) means different refs: keep compare from showing one
-    // scope's divergence over another's. The guard is the anchor compare recorded when it was entered,
-    // NOT the bare cwd — this effect also runs on every remount, and the surface unmounts on a nav
-    // switch, so keying on cwd alone would tear down a compare the user is still using.
     useEffect(() => {
-        const anchored = globalStore.get(compareAnchorAtom);
-        if (anchored != null && anchored !== scopeAnchor) {
-            exitCompare();
-            setPickerOpen(false);
+        if (scope == null || state == null) {
+            return;
         }
-    }, [scopeAnchor]);
+        setHistoryOpts(historyOptsFor(scope.range, state.ref));
+    }, [scope && rangeKey(scope.range), state?.ref]);
 
     // publish the visible column's rows for global j/k list-nav. cursor == selection: moving selects,
     // which loads that row's files and first diff. Must run before the early return (hooks rules).
@@ -530,70 +521,36 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     return (
         <MotionConfig reducedMotion="user">
             <div className="absolute inset-0 flex min-h-0 flex-col">
-                {/* subject bar: what am I looking at, and against what */}
+                {/* subject bar: which repository, and which range within it */}
                 <div className="flex-none px-[18px] pt-[14px]">
-                    <div className="flex items-center gap-[14px] pb-[11px]">
+                    <div className="flex items-center gap-[14px] pb-[6px]">
                         <h1 className="flex-none text-[16px] font-bold">Diff</h1>
-                        <div className="flex items-center overflow-hidden rounded-[9px] border border-edge-mid bg-surface">
-                            <div className="w-[210px] border-r border-edge-mid">
-                                {runSource ? (
-                                    <div className="flex items-center gap-[8px] px-[11px] py-[6px]">
-                                        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink-mid">
-                                            run {runShortId(runSource.runId)}
-                                        </span>
-                                        <button
-                                            onClick={() => globalStore.set(model.filesRunAtom, null)}
-                                            className="flex-none rounded border border-border px-[8px] py-[2px] text-[11px] text-ink-mid hover:text-foreground"
-                                        >
-                                            Exit
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <SourcePicker
-                                        agents={agents}
-                                        projects={projects}
-                                        source={source}
-                                        onPickAgent={(id) => {
-                                            setProjectSel(null);
-                                            globalStore.set(model.focusIdAtom, id);
-                                        }}
-                                        onPickProject={(p) => setProjectSel(p)}
-                                    />
-                                )}
-                            </div>
-                            {(
-                                [
-                                    ["repo", "Repository", projectSel?.name ?? ""],
-                                    ["agent", "Agent", agent?.name ?? ""],
-                                    ["run", "Run", runSource ? runShortId(runSource.runId) : ""],
-                                ] as const
-                            ).map(([key, label, sub]) => (
-                                <button
-                                    key={key}
-                                    // run scope and agent scope are single-ref reads by definition, so
-                                    // picking one of them is a way out of compare
-                                    onClick={() => {
-                                        if (compareOn && key !== "repo") {
-                                            leaveCompare();
-                                        }
-                                    }}
-                                    className={cn(
-                                        "flex items-center gap-[6px] border-r border-edge-faint px-[11px] py-[6px] text-[11.5px] font-semibold",
-                                        scope === key ? "bg-surface-selected text-ink-hi" : "text-muted"
-                                    )}
-                                >
-                                    {label}
-                                    <span
-                                        className={cn(
-                                            "max-w-[90px] truncate font-mono text-[10.5px]",
-                                            scope === key ? "text-accent-soft" : "text-edge-strong"
-                                        )}
-                                    >
-                                        {sub}
-                                    </span>
-                                </button>
-                            ))}
+                        <div className="w-[210px] overflow-hidden rounded-[9px] border border-edge-mid bg-surface">
+                            <SourcePicker
+                                agents={agents}
+                                projects={projects}
+                                source={source}
+                                currentLabel={scope?.repo.label}
+                                onPickAgent={pickAgent}
+                                onPickProject={pickProject}
+                            />
                         </div>
+                        {scope ? (
+                            <RangeStrip
+                                options={availableRanges(scope, {
+                                    sessionStartTs: peekSessionStart(agent?.transcriptPath),
+                                    sessionRef: state?.ref ?? "",
+                                })}
+                                active={scope.range}
+                                onPick={(r) =>
+                                    r.kind === "compare"
+                                        ? startCompare()
+                                        : compareOn
+                                          ? (stopCompare(), setDiffRange(r))
+                                          : setDiffRange(r)
+                                }
+                            />
+                        ) : null}
                         {compareOn ? (
                             <RefPicker
                                 base={compareRefs?.base ?? ""}
@@ -609,20 +566,19 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 }}
                                 onCancel={() => setPickerOpen(false)}
                             />
-                        ) : (
-                            <button
-                                data-files-ref-expr
-                                onClick={startCompare}
-                                disabled={!state?.cwd || !state.isRepo}
-                                className="flex items-center gap-[8px] rounded-[9px] border border-edge-mid bg-surface px-[11px] py-[6px] hover:border-edge-strong disabled:cursor-default disabled:hover:border-edge-mid"
-                            >
-                                <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
-                                    Reading
-                                </span>
-                                <span className="font-mono text-[12px] text-ink-mid">{refExpr}</span>
-                            </button>
-                        )}
+                        ) : null}
                     </div>
+                    {scope ? (
+                        <div data-files-range-summary className="pb-[11px] font-mono text-[11.5px] text-ink-faint">
+                            {rangeSummary(scope.range, {
+                                branch: state?.branch ?? "",
+                                ref: state?.ref ?? "",
+                                files: activeChanges?.files.length ?? 0,
+                                adds: activeChanges?.adds ?? 0,
+                                dels: activeChanges?.dels ?? 0,
+                            })}
+                        </div>
+                    ) : null}
                 </div>
 
                 {restoreMsg ? (

@@ -49,3 +49,14 @@ export async function ensureSessionStart(transcriptPath: string | undefined): Pr
     inflight.set(transcriptPath, p);
     return p;
 }
+
+// Synchronous read of the memoized value. The range strip needs to know whether an agent has a
+// session start in order to decide whether that chip is live, and it cannot await inside a render.
+// Returns null when nothing is cached yet — the chip renders disabled and becomes live on its own
+// once ensureSessionStart resolves.
+export function peekSessionStart(transcriptPath: string | undefined): number | null {
+    if (!transcriptPath) {
+        return null;
+    }
+    return cache.get(transcriptPath) ?? null;
+}

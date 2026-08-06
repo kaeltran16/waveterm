@@ -17,6 +17,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { AGGREGATE } from "./comparerows";
+import type { DiffRange } from "./diffscope";
+import { diffScopeAtom } from "./diffscopeatom";
 import { parseUnifiedDiff, type FileView } from "./gitdiff";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
@@ -31,7 +33,9 @@ export interface CompareSides {
     mergeBase: string;
 }
 
-export const compareOnAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// Derived, not stored: there is exactly one place that says what the surface is showing, so the
+// surface can no longer be comparing and in some other scope at the same time.
+export const compareOnAtom = atom((get) => get(diffScopeAtom)?.range.kind === "compare");
 export const compareRefsAtom = atom<CompareRefs | null>(null) as PrimitiveAtom<CompareRefs | null>;
 export const compareSidesAtom = atom<CompareSides | null>(null) as PrimitiveAtom<CompareSides | null>;
 export const compareAggregateAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
@@ -44,11 +48,6 @@ export const compareBranchesAtom = atom<BranchInfo[]>([]) as PrimitiveAtom<Branc
 // The open file's diff. One atom for both selection states — the aggregate and a commit each write it
 // from their own command, so there is nothing for a derived atom to choose between.
 export const compareDiffAtom = atom<FileView | null>(null) as PrimitiveAtom<FileView | null>;
-// The surface scope compare was entered from, as an opaque token the surface composes (cwd + run).
-// Module-level rather than a component ref because the surface unmounts on nav switch: an effect
-// keyed on cwd alone would fire on every remount and tear down a compare the user is still using.
-// null = compare is not anchored to anything, i.e. it is off.
-export const compareAnchorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
 
@@ -59,10 +58,18 @@ export const compareActiveChangesAtom = atom<GitChanges | null>((get) =>
 
 const current = { token: "" };
 
-export function exitCompare(): void {
+// Restores the range comparison interrupted. Named leaveCompare rather than exitCompare because it
+// now moves the surface somewhere specific instead of clearing a flag.
+export function leaveCompare(): void {
+    const scope = globalStore.get(diffScopeAtom);
+    if (scope != null && scope.range.kind === "compare") {
+        globalStore.set(diffScopeAtom, { ...scope, range: scope.range.from });
+    }
+    clearCompareState();
+}
+
+function clearCompareState(): void {
     current.token = "";
-    globalStore.set(compareOnAtom, false);
-    globalStore.set(compareAnchorAtom, null);
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
     globalStore.set(compareSelectionAtom, AGGREGATE);
@@ -88,11 +95,15 @@ export async function loadCompareRefsMeta(cwd: string): Promise<string> {
 
 // Enter compare on the checked-out branch against the repo's default branch — the review question,
 // and the pair that needs no typing. currentBranch comes from filesStateAtom.branch, which the
-// change-list read already resolved, so learning where you are costs no extra git call. `anchor`
-// identifies the surface scope this compare belongs to; the surface exits compare when it changes.
-export async function enterCompare(cwd: string, currentBranch: string, anchor: string): Promise<void> {
-    globalStore.set(compareOnAtom, true);
-    globalStore.set(compareAnchorAtom, anchor);
+// change-list read already resolved, so learning where you are costs no extra git call. The range
+// records what it interrupted so leaving is a restore rather than a guess; that is also why the old
+// compareAnchorAtom and the effect that invalidated it are gone.
+export async function enterCompare(cwd: string, currentBranch: string): Promise<void> {
+    const scope = globalStore.get(diffScopeAtom);
+    if (scope == null) {
+        return;
+    }
+    const from: DiffRange = scope.range.kind === "compare" ? scope.range.from : scope.range;
     globalStore.set(compareErrorAtom, null);
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
@@ -100,11 +111,17 @@ export async function enterCompare(cwd: string, currentBranch: string, anchor: s
     const prev = globalStore.get(compareRefsAtom);
     const base = prev?.base || def;
     const head = prev?.head || currentBranch;
+    globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, from } });
     await setCompareRefs(cwd, base, head);
 }
 
 export async function setCompareRefs(cwd: string, base: string, head: string): Promise<void> {
     globalStore.set(compareRefsAtom, { base, head });
+    // the scope stays the single source of truth for what the surface is showing
+    const scope = globalStore.get(diffScopeAtom);
+    if (scope?.range.kind === "compare") {
+        globalStore.set(diffScopeAtom, { ...scope, range: { ...scope.range, base, head } });
+    }
     const token = `${cwd}|${base}|${head}`;
     current.token = token;
     globalStore.set(compareSidesAtom, null);

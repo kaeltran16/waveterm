@@ -135,7 +135,7 @@ export function CompareColumn({
 }) {
     const diverges = rows.some((r) => r.kind === "commit");
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div data-compare-column className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-none items-center gap-[9px] px-[14px] pb-[8px] pt-[10px]">
                 <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted">Compare</span>
                 <div className="flex-1" />

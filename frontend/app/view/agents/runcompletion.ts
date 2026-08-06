@@ -6,7 +6,6 @@
 // freshctx phase to its own timeline node), and where an evidence click navigates. No React, no jotai —
 // unit-tested in runcompletion.test.ts.
 
-import type { SurfaceKey } from "./agents";
 
 export function runShortId(id: string): string {
     return (id ?? "").replace(/-/g, "").slice(0, 6);
@@ -76,23 +75,6 @@ export function verifCmdLabel(cmd: string): string {
     }
     // all setup and no command: nothing more informative exists, so show it as the worker wrote it
     return i === segments.length ? cmd : segments.slice(i).join(" && ");
-}
-
-export interface RunFileNavIntent {
-    surface: SurfaceKey;
-    source: { runId: string; cwd: string; baseCommit: string };
-    select: string | null;
-}
-
-// Where a click inside a sealed run's evidence lands: the run-scoped Diff surface, optionally with one
-// file preselected. A deleted file selects like any other — the diff is what is wanted, and opening the
-// path externally would no-op because the file is gone.
-export function runFileNavIntent(run: Run, path?: string): RunFileNavIntent {
-    return {
-        surface: "files",
-        source: { runId: run.id, cwd: run.projectpath, baseCommit: run.basecommit ?? "" },
-        select: path ?? null,
-    };
 }
 
 export function statColor(stat: string): string {
