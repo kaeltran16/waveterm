@@ -327,6 +327,12 @@ func ElectronEncryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronEncryp
 	return resp, err
 }
 
+// command "embedreconcile", wshserver.EmbedReconcileCommand
+func EmbedReconcileCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "embedreconcile", nil, opts)
+	return err
+}
+
 // command "eventpublish", wshserver.EventPublishCommand
 func EventPublishCommand(w *wshutil.WshRpc, data wps.WaveEvent, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "eventpublish", data, opts)

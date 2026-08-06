@@ -10,12 +10,15 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
+	"sync/atomic"
 
 	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
 	"github.com/wavetermdev/waveterm/pkg/jarvisembed"
 	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -42,6 +45,48 @@ func (ws *WshServer) GetEmbedIndexStatusCommand(ctx context.Context) (*wshrpc.Em
 		VaultNodes:   st.VaultNodes,
 		StaleNodes:   st.StaleNodes,
 	}, nil
+}
+
+// reconcileRunning single-flights the catch-up. Two concurrent whole-vault rebuilds against one index db
+// would race each other's writes, and the second press is not a user error — the work is already happening.
+var reconcileRunning atomic.Bool
+
+func tryStartReconcile() bool { return reconcileRunning.CompareAndSwap(false, true) }
+
+func finishReconcile() { reconcileRunning.Store(false) }
+
+// EmbedReconcileCommand dispatches the catch-up and returns immediately. It CANNOT do the work inline:
+// wshutil.DefaultTimeoutMs is 5000 and binds the server-side context, while a 373-note build measured
+// 5m17s (pkg/jarvisembed/status.go). The frontend learns it finished by re-reading GetEmbedIndexStatus,
+// which it already polls — so there is no completion event to invent.
+func (ws *WshServer) EmbedReconcileCommand(ctx context.Context) error {
+	if !tryStartReconcile() {
+		return nil
+	}
+	// detached: the handler returns in milliseconds and its ctx is cancelled with it, which would kill the
+	// reconcile a moment after starting it
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		defer finishReconcile()
+		ix, err := jarvisembed.OpenIndex(bg)
+		if err != nil {
+			log.Printf("[jarvispet] reconcile: open index: %v\n", err)
+			return
+		}
+		defer ix.Close()
+		v, err := wavevault.OpenVault(bg)
+		if err != nil {
+			log.Printf("[jarvispet] reconcile: open vault: %v\n", err)
+			return
+		}
+		st, err := ix.Reconcile(bg, v)
+		if err != nil {
+			log.Printf("[jarvispet] reconcile: %v\n", err)
+			return
+		}
+		log.Printf("[jarvispet] reconcile: embedded=%d pruned=%d rebuilt=%v\n", st.Embedded, st.Pruned, st.Rebuilt)
+	}()
+	return nil
 }
 
 func (ws *WshServer) ListProactiveRefusalsCommand(ctx context.Context, data wshrpc.CommandListProactiveRefusalsData) (*wshrpc.CommandListProactiveRefusalsRtnData, error) {

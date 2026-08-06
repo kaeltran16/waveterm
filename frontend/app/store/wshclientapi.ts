@@ -330,6 +330,12 @@ export class RpcApiType {
         return client.wshRpcCall("electronencrypt", data, opts);
     }
 
+    // command "embedreconcile" [call]
+    EmbedReconcileCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "embedreconcile", null, opts);
+        return client.wshRpcCall("embedreconcile", null, opts);
+    }
+
     // command "eventpublish" [call]
     EventPublishCommand(client: WshClient, data: WaveEvent, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "eventpublish", data, opts);

@@ -34,6 +34,7 @@ type JarvisCommands interface {
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                    // write the global Jarvis profile to jarvis-profile.json
 	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
 	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                              // is semantic recall actually working right now: ok | off | stale, and why
+	EmbedReconcileCommand(ctx context.Context) error                                                                                        // start catching the embedding index up to the vault; returns as soon as the work is dispatched
 	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error)  // recent persisted "I found nothing" verdicts from proactive recall, with their causes
 	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                     // the newest rest-transition narrative across all runs — "where we were" at launch
 }
