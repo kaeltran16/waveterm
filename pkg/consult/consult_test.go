@@ -30,6 +30,14 @@ func TestSpecFor_knownRuntimes(t *testing.T) {
 			t.Errorf("%s: got bin=%q args=%v", rt, spec.Bin, spec.BaseArgs)
 		}
 	}
+	// openrouter is an API runtime — no Bin, but ApiBackend must be set
+	spec, ok := SpecFor("openrouter")
+	if !ok {
+		t.Fatal("openrouter: expected ok")
+	}
+	if spec.ApiBackend == nil {
+		t.Error("openrouter: expected ApiBackend to be set")
+	}
 }
 
 func TestSpecFor_unsupported(t *testing.T) {
@@ -283,6 +291,27 @@ func TestSpecForTier_tiersAreDistinct(t *testing.T) {
 		if len(spec.BaseArgs) == len(base.BaseArgs) {
 			t.Errorf("%s tier must add a --model flag, got %v", tier, spec.BaseArgs)
 		}
+	}
+}
+
+func TestSpecForTier_openrouterSetsModel(t *testing.T) {
+	spec, ok := SpecForTier("openrouter", TierCheap)
+	if !ok {
+		t.Fatal("expected openrouter to resolve")
+	}
+	if spec.Model == "" {
+		t.Fatal("cheap tier must set a model on the spec")
+	}
+	if spec.ApiBackend == nil {
+		t.Fatal("openrouter spec must have an ApiBackend")
+	}
+	mid, _ := SpecForTier("openrouter", TierMid)
+	if mid.Model == "" {
+		t.Fatal("mid tier must set a model")
+	}
+	cap, _ := SpecForTier("openrouter", TierCapable)
+	if cap.Model != mid.Model {
+		t.Fatalf("capable must match mid tier for openrouter: %q vs %q", cap.Model, mid.Model)
 	}
 }
 
