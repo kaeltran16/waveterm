@@ -938,7 +938,7 @@ function HeadlessAISection() {
             </div>
             {!hasKey ? (
                 <div className="mt-3 text-[12px] text-warning">
-                    API key not set — headless AI features are disabled until the key is configured.
+                    API key not set — background AI features are disabled until the key is configured.
                 </div>
             ) : null}
         </div>
