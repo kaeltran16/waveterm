@@ -78,6 +78,8 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     <div id={SETTINGS_SECTION_EMBEDDINGS}>
                         <EmbeddingsSection />
                     </div>
+                    <SectionGap />
+                    <HeadlessAISection />
                 </motion.div>
             </div>
         </MotionConfig>
@@ -876,6 +878,69 @@ function EmbeddingsSection() {
                 </div>
             ) : null}
             {error ? <div className="mt-2 text-[12px] text-error">{error}</div> : null}
+        </div>
+    );
+}
+
+function HeadlessAISection() {
+    const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
+    const midModel = (useAtomValue(getSettingsKeyAtom("headless:openroutermidmodel")) as string) ?? "";
+    const longModel = (useAtomValue(getSettingsKeyAtom("headless:openrouterlongmodel")) as string) ?? "";
+
+    const [hasKey, setHasKey] = useState(false);
+    useEffect(() => {
+        fireAndForget(async () => {
+            try {
+                const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
+                setHasKey((names ?? []).includes(EMBED_SECRET_NAME));
+            } catch (_) {}
+        });
+    }, []);
+
+    const write = (patch: Record<string, unknown>) =>
+        void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
+
+    return (
+        <div>
+            <SectionLabel>Headless AI</SectionLabel>
+            <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
+                Models for background AI features (gardener, gatekeeper, recall, etc.).
+                Uses OpenRouter with the{" "}
+                <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
+                    {hasKey ? "stored" : "missing"}
+                </span>{" "}
+                OpenRouter key from
+                the secret store (same key as Embeddings).
+                Model IDs use the full <code className="font-mono text-[11.5px] text-secondary">provider/model</code> format.
+            </div>
+            <div>
+                <ConfigField
+                    title="Cheap model"
+                    desc="For mechanical tasks: gatekeeper, decompose, continuity, proactive."
+                    placeholder="deepseek/deepseek-v4-flash"
+                    stored={cheapModel}
+                    onSave={(v) => write({ "headless:openroutercheapmodel": v })}
+                />
+                <ConfigField
+                    title="Mid model"
+                    desc="For synthesis and conversation: recall, radar, Jarvis."
+                    placeholder="deepseek/deepseek-v4-pro"
+                    stored={midModel}
+                    onSave={(v) => write({ "headless:openroutermidmodel": v })}
+                />
+                <ConfigField
+                    title="Long-context model"
+                    desc="For large-corpus tasks: distillation, gardener when corpus > 400KB."
+                    placeholder="deepseek/deepseek-v4-pro"
+                    stored={longModel}
+                    onSave={(v) => write({ "headless:openrouterlongmodel": v })}
+                />
+            </div>
+            {!hasKey ? (
+                <div className="mt-3 text-[12px] text-warning">
+                    API key not set — headless AI features are disabled until the key is configured.
+                </div>
+            ) : null}
         </div>
     );
 }

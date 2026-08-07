@@ -21,7 +21,7 @@ import (
 
 const (
 	openRouterChatEndpoint = "https://openrouter.ai/api/v1/chat/completions"
-	openRouterSecretName   = "OPENROUTER_KEY"
+	openRouterSecretName   = "jarvis_embedapikey"
 	openRouterTimeout      = 5 * time.Minute
 )
 
