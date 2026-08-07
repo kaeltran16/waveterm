@@ -110,7 +110,7 @@ func (ws *WshServer) MemoryLearnCommand(ctx context.Context, data wshrpc.Command
 func (ws *WshServer) MemoryEnqueueSessionCommand(ctx context.Context, data wshrpc.CommandMemoryEnqueueSessionData) error {
 	// real recall telemetry: stamp last_referenced from what the finished session actually recalled.
 	memvault.RecordRecall(data.Cwd, data.TranscriptPath, time.Now())
-	memdistill.Enqueue(data.Cwd, data.TranscriptPath, data.ClaudePath)
+	memdistill.Enqueue(data.Cwd, data.TranscriptPath)
 	return nil
 }
 

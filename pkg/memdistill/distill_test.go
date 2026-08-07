@@ -29,7 +29,7 @@ func TestReadTail_ReturnsLastBytes(t *testing.T) {
 	}
 }
 
-func TestBuildCorpus_CapsPerSessionAndPicksModel(t *testing.T) {
+func TestBuildCorpus_CapsPerSession(t *testing.T) {
 	dir := t.TempDir()
 	var sessions []pendingSession
 	// two sessions, each larger than half the budget, so each gets truncated to budget/2
@@ -41,12 +41,9 @@ func TestBuildCorpus_CapsPerSessionAndPicksModel(t *testing.T) {
 		}
 		sessions = append(sessions, pendingSession{TranscriptPath: p, EnqueuedAt: "2026-07-15T00:0" + string(rune('0'+i)) + ":00Z"})
 	}
-	corpus, model := buildCorpus(sessions)
+	corpus := buildCorpus(sessions)
 	if len(corpus) > combinedBudget+512 { // +separators headroom
 		t.Errorf("corpus length %d exceeds budget", len(corpus))
-	}
-	if model != "claude-sonnet-5" {
-		t.Errorf("model = %q, want claude-sonnet-5 for a budget-filling corpus", model)
 	}
 }
 

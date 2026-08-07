@@ -10,7 +10,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -72,10 +71,10 @@ func readTail(path string, maxBytes int64) string {
 }
 
 // buildCorpus reads a capped tail of each session (combinedBudget split evenly) and joins them with
-// labeled separators. The model is chosen on the assembled size, mirroring the single-session cutoff.
-func buildCorpus(sessions []pendingSession) (string, string) {
+// labeled separators. The caller resolves the model from the assembled size.
+func buildCorpus(sessions []pendingSession) string {
 	if len(sessions) == 0 {
-		return "", consult.CorpusCheapModel
+		return ""
 	}
 	perSession := int64(combinedBudget / len(sessions))
 	var b strings.Builder
@@ -83,8 +82,7 @@ func buildCorpus(sessions []pendingSession) (string, string) {
 		fmt.Fprintf(&b, "\n\n===== SESSION %d (%s) =====\n\n", i+1, s.TranscriptPath)
 		b.WriteString(readTail(s.TranscriptPath, perSession))
 	}
-	corpus := b.String()
-	return corpus, consult.ModelForCorpus(corpus)
+	return b.String()
 }
 
 type distillOutput struct {
@@ -117,22 +115,15 @@ func parseDistillOutput(raw string) ([]memvault.LearnCandidate, []string, bool) 
 	return cands, out.References, true
 }
 
-// runDistill spawns the headless `claude -p` pass. claudePath falls back to "claude" on PATH.
-func runDistill(claudePath, model, corpus string) (string, bool) {
-	exe := claudePath
-	if exe == "" {
-		exe = "claude"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), flushTimeout)
-	defer cancel()
-	c := exec.CommandContext(ctx, exe, "-p", "--model", model, batchDistillPrompt)
-	c.Stdin = strings.NewReader(corpus)
-	c.Dir = wavebase.HeadlessAgentCwd() // keep our transcripts out of any repo's project dir
-	c.Env = append(os.Environ(), DistillGuardVar+"=1")
-	stdout, err := c.Output()
+// runDistill runs the consult.Run pass with the batch distill prompt + assembled corpus.
+func runDistill(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool) {
+	model := consult.CorpusModel(consult.OpenrouterCheapModel(), consult.OpenrouterLongModel(), corpus)
+	spec.Model = model
+	prompt := batchDistillPrompt + "\n\n" + corpus
+	full, err := consult.Run(ctx, spec, wavebase.HeadlessAgentCwd(), prompt, func(string) {})
 	if err != nil {
-		log.Printf("[memdistill] distill exec failed (model %s): %v\n", model, err)
+		log.Printf("[memdistill] distill failed (model %s): %v\n", model, err)
 		return "", false
 	}
-	return string(stdout), true
+	return full, true
 }

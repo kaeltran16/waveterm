@@ -3,7 +3,7 @@
 
 // Package memdistill owns the per-cwd pending-session queue and the batch distillation that turns
 // finished coding sessions into memory. wavesrv enqueues sessions (via the SessionEnd hook over
-// wshrpc) and this package flushes each cwd bucket through a single combined `claude -p` pass.
+// wshrpc) and this package flushes each cwd bucket through a single consult.Run pass.
 package memdistill
 
 import (
@@ -17,8 +17,7 @@ type pendingSession struct {
 }
 
 type queueState struct {
-	ClaudePath string                      `json:"claudepath"`
-	Buckets    map[string][]pendingSession `json:"buckets"`
+	Buckets map[string][]pendingSession `json:"buckets"`
 }
 
 // loadQueue reads path; a missing or unparseable file yields an empty (non-nil) state.
@@ -48,13 +47,9 @@ func saveQueue(path string, st queueState) error {
 }
 
 // addPending appends the session to its cwd bucket unless transcriptPath is already queued there.
-// A non-empty claudePath refreshes the last-known-good path.
-func addPending(st *queueState, cwd, transcriptPath, claudePath, enqueuedAt string) {
+func addPending(st *queueState, cwd, transcriptPath, enqueuedAt string) {
 	if st.Buckets == nil {
 		st.Buckets = map[string][]pendingSession{}
-	}
-	if claudePath != "" {
-		st.ClaudePath = claudePath
 	}
 	for _, p := range st.Buckets[cwd] {
 		if p.TranscriptPath == transcriptPath {

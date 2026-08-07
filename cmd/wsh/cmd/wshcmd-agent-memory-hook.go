@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
@@ -53,7 +52,6 @@ func agentMemoryHookRun(cmd *cobra.Command, args []string) error {
 	if json.Unmarshal(raw, &ev) != nil || ev.TranscriptPath == "" {
 		return nil
 	}
-	claudePath, _ := exec.LookPath("claude") // "" is fine; wavesrv falls back to PATH
 
 	jwt := os.Getenv(wshutil.WaveJwtTokenVarName)
 	if jwt == "" {
@@ -65,7 +63,6 @@ func agentMemoryHookRun(cmd *cobra.Command, args []string) error {
 	_ = wshclient.MemoryEnqueueSessionCommand(RpcClient, wshrpc.CommandMemoryEnqueueSessionData{
 		Cwd:            ev.Cwd,
 		TranscriptPath: ev.TranscriptPath,
-		ClaudePath:     claudePath,
 	}, &wshrpc.RpcOpts{Timeout: 5000})
 	return nil
 }

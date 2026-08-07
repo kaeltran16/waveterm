@@ -98,7 +98,6 @@ type CommandMemoryLearnRtnData struct {
 type CommandMemoryEnqueueSessionData struct {
 	Cwd            string `json:"cwd"`
 	TranscriptPath string `json:"transcriptpath"`
-	ClaudePath     string `json:"claudepath"`
 }
 
 type CommandMemoryReviewListRtnData struct {

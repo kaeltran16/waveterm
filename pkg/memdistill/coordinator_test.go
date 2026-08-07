@@ -4,11 +4,13 @@
 package memdistill
 
 import (
+	"context"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 )
 
@@ -44,7 +46,7 @@ func TestFlush_RoutesAndClearsBucket(t *testing.T) {
 	d := newDistiller(path)
 	var routedCwd string
 	var routedBodies []string
-	d.distillFn = func(claudePath, model, corpus string) (string, bool) {
+	d.distillFn = func(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool) {
 		return `{"candidates":[{"type":"feedback","body":"x","iscorrection":true}],"references":[]}`, true
 	}
 	d.routeFn = func(cwd string, cands []memvault.LearnCandidate, refs []string) (memvault.RouteResult, error) {
@@ -54,7 +56,7 @@ func TestFlush_RoutesAndClearsBucket(t *testing.T) {
 		}
 		return memvault.RouteResult{Committed: len(cands)}, nil
 	}
-	d.enqueue("/repo/a", "/t/1.jsonl", "/usr/bin/claude") // writes queue, no flush (below threshold)
+	d.enqueue("/repo/a", "/t/1.jsonl") // writes queue, no flush (below threshold)
 	d.flush("/repo/a")
 	if routedCwd != "/repo/a" || len(routedBodies) != 1 || routedBodies[0] != "x" {
 		t.Fatalf("flush did not route candidates: cwd=%q bodies=%+v", routedCwd, routedBodies)
@@ -67,13 +69,13 @@ func TestFlush_RoutesAndClearsBucket(t *testing.T) {
 func TestFlush_KeepsBucketOnDistillFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "q.json")
 	d := newDistiller(path)
-	d.distillFn = func(claudePath, model, corpus string) (string, bool) { return "", false }
+	d.distillFn = func(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool) { return "", false }
 	routed := false
 	d.routeFn = func(string, []memvault.LearnCandidate, []string) (memvault.RouteResult, error) {
 		routed = true
 		return memvault.RouteResult{}, nil
 	}
-	d.enqueue("/repo/a", "/t/1.jsonl", "")
+	d.enqueue("/repo/a", "/t/1.jsonl")
 	d.flush("/repo/a")
 	if routed {
 		t.Error("routeFn must not run when distill fails")

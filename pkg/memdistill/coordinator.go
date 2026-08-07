@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -27,7 +28,7 @@ type distiller struct {
 	mu        sync.Mutex
 	path      string
 	inflight  map[string]bool
-	distillFn func(claudePath, model, corpus string) (string, bool)
+	distillFn func(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool)
 	routeFn   func(cwd string, cands []memvault.LearnCandidate, refs []string) (memvault.RouteResult, error)
 	now       func() time.Time
 }
@@ -56,10 +57,10 @@ func shouldFlush(sessions []pendingSession, now time.Time) bool {
 	return false
 }
 
-func (d *distiller) enqueue(cwd, transcriptPath, claudePath string) {
+func (d *distiller) enqueue(cwd, transcriptPath string) {
 	d.mu.Lock()
 	st := loadQueue(d.path)
-	addPending(&st, cwd, transcriptPath, claudePath, d.now().UTC().Format(time.RFC3339))
+	addPending(&st, cwd, transcriptPath, d.now().UTC().Format(time.RFC3339))
 	if err := saveQueue(d.path, st); err != nil {
 		log.Printf("[memdistill] save queue: %v\n", err)
 	}
@@ -96,14 +97,14 @@ func (d *distiller) flush(cwd string) {
 	d.mu.Lock()
 	st := loadQueue(d.path)
 	sessions := append([]pendingSession(nil), st.Buckets[cwd]...)
-	claudePath := st.ClaudePath
 	d.mu.Unlock()
 	if len(sessions) == 0 {
 		return
 	}
 
-	corpus, model := buildCorpus(sessions)
-	raw, ok := d.distillFn(claudePath, model, corpus)
+	corpus := buildCorpus(sessions)
+	spec, _ := consult.SpecForTier("openrouter", consult.TierCheap)
+	raw, ok := d.distillFn(context.Background(), spec, corpus)
 	if !ok {
 		return
 	}
@@ -202,9 +203,9 @@ func ensure() {
 }
 
 // Enqueue records a finished session for later batch distillation.
-func Enqueue(cwd, transcriptPath, claudePath string) {
+func Enqueue(cwd, transcriptPath string) {
 	ensure()
-	defaultDistiller.enqueue(cwd, transcriptPath, claudePath)
+	defaultDistiller.enqueue(cwd, transcriptPath)
 }
 
 // Start runs a startup sweep and an hourly backstop sweep until ctx is cancelled.

@@ -4,10 +4,12 @@
 package memdistill
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 )
@@ -44,7 +46,7 @@ func captureActivity(t *testing.T) *[]baseds.MemoryActivityData {
 func TestFlushPublishesOneActivityPerPassCarryingItsNotes(t *testing.T) {
 	got := captureActivity(t)
 	d := newDistiller(filepath.Join(t.TempDir(), "q.json"))
-	d.distillFn = func(claudePath, model, corpus string) (string, bool) {
+	d.distillFn = func(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool) {
 		return `{"candidates":[{"type":"feedback","body":"x"}],"references":[]}`, true
 	}
 	d.routeFn = func(string, []memvault.LearnCandidate, []string) (memvault.RouteResult, error) {
@@ -54,7 +56,7 @@ func TestFlushPublishesOneActivityPerPassCarryingItsNotes(t *testing.T) {
 			Written:   []memvault.WrittenNote{{ID: "prefer-x-ab12", Title: "prefer x"}},
 		}, nil
 	}
-	d.enqueue("/repo/a", "/t/1.jsonl", "")
+	d.enqueue("/repo/a", "/t/1.jsonl")
 	d.flush("/repo/a")
 
 	if len(*got) != 1 {
@@ -79,14 +81,14 @@ func TestFlushPublishesOneActivityPerPassCarryingItsNotes(t *testing.T) {
 func TestFlushPublishesABarrenPassWithNoNotes(t *testing.T) {
 	got := captureActivity(t)
 	d := newDistiller(filepath.Join(t.TempDir(), "q.json"))
-	d.distillFn = func(claudePath, model, corpus string) (string, bool) {
+	d.distillFn = func(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool) {
 		return `{"candidates":[],"references":[]}`, true
 	}
 	d.routeFn = func(string, []memvault.LearnCandidate, []string) (memvault.RouteResult, error) {
 		t.Fatal("routeFn must not run with nothing to route")
 		return memvault.RouteResult{}, nil
 	}
-	d.enqueue("/repo/a", "/t/1.jsonl", "")
+	d.enqueue("/repo/a", "/t/1.jsonl")
 	d.flush("/repo/a")
 
 	if len(*got) != 1 || (*got)[0].Kind != baseds.MemoryActivity_DistillBatch {
@@ -101,8 +103,8 @@ func TestFlushPublishesABarrenPassWithNoNotes(t *testing.T) {
 func TestFailedFlushAnnouncesNothing(t *testing.T) {
 	got := captureActivity(t)
 	d := newDistiller(filepath.Join(t.TempDir(), "q.json"))
-	d.distillFn = func(claudePath, model, corpus string) (string, bool) { return "", false }
-	d.enqueue("/repo/a", "/t/1.jsonl", "")
+	d.distillFn = func(ctx context.Context, spec consult.RuntimeSpec, corpus string) (string, bool) { return "", false }
+	d.enqueue("/repo/a", "/t/1.jsonl")
 	d.flush("/repo/a")
 
 	if len(*got) != 0 {
