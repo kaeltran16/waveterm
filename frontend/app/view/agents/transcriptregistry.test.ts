@@ -29,8 +29,19 @@ describe("projectorFor", () => {
     });
 
     it("defaults to claude for an unknown agent and no path", () => {
-        expect(projectorFor("opencode").project([claudeLine])).toEqual(MSG);
+        expect(projectorFor("gemini").project([claudeLine])).toEqual(MSG);
         expect(projectorFor(undefined, undefined).project([claudeLine])).toEqual(MSG);
+    });
+
+    it("routes by explicit agent: opencode", () => {
+        expect(projectorFor("opencode", "/no/such/path").project).toBeDefined();
+    });
+
+    it("falls back to opencode for a shadow path", () => {
+        // a shadow transcript line only the opencode projector understands
+        const opencodeLine = JSON.stringify({ type: "assistant", text: "hi" });
+        const shadow = "C:\\Users\\u\\.local\\share\\opencode\\waveterm\\ses_x.jsonl";
+        expect(projectorFor(undefined, shadow).project([opencodeLine])).toEqual(MSG);
     });
 
     it("exposes extractTitle for claude (ai-title) and omits it for codex (deferred)", () => {

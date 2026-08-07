@@ -20,6 +20,13 @@ describe("parseComposerCommand", () => {
     it("parses @ask <runtime> override", () => {
         expect(parseComposerCommand("@ask codex any coupon validation?")).toEqual({ mode: "ask", runtime: "codex", body: "any coupon validation?" });
     });
+    it("accepts opencode as an @ask runtime override", () => {
+        expect(parseComposerCommand("@ask opencode audit the auth path")).toEqual({
+            mode: "ask",
+            runtime: "opencode",
+            body: "audit the auth path",
+        });
+    });
     it("does not treat a mid-text @ as a command", () => {
         expect(parseComposerCommand("add @mentions to the composer")).toEqual({ mode: "run", body: "add @mentions to the composer" });
     });

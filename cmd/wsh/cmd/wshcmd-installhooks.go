@@ -4,10 +4,12 @@
 package cmd
 
 import (
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -273,6 +275,54 @@ func configIsHealthy(existing map[string]any, exeExists func(string) bool) bool 
 	return exeExists(exe)
 }
 
+//go:embed opencode-plugin.js
+var opencodePluginTemplate string
+
+// opencodeLookPath is a var so tests can simulate a machine with or without opencode installed.
+var opencodeLookPath = exec.LookPath
+
+// jsonString marshals s as a JSON string literal (escapes backslashes/quotes) for substitution
+// into the plugin's WSH constant.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(b)
+}
+
+// installOpencodePlugin writes the Wave status plugin into opencode's global plugin directory
+// (~/.config/opencode/plugins/), where opencode auto-loads every file. No-op when opencode is not
+// installed. Idempotent: rewrites only when the installed copy differs (the wsh path changes when
+// the app install moves), so re-running on every launch self-heals without churn.
+func installOpencodePlugin(home string) error {
+	if _, err := opencodeLookPath("opencode"); err != nil {
+		return nil // opencode not installed; nothing to hook
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving wsh path: %w", err)
+	}
+	want := strings.ReplaceAll(opencodePluginTemplate, "__WSH_PATH__", jsonString(exe))
+	dir := filepath.Join(home, ".config", "opencode", "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "waveterm-status.js")
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
+		return nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(want), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	fmt.Printf("installed opencode status plugin into %s\n", path)
+	return nil
+}
+
 var installAgentHooksCmd = &cobra.Command{
 	Use:                   "install-agent-hooks",
 	Short:                 "install Arc's Claude Code hooks into ~/.claude/settings.json (idempotent)",
@@ -309,28 +359,30 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err == nil
 	}) {
 		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
-		return nil
-	}
+	} else {
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("resolving wsh path: %w", err)
+		}
 
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolving wsh path: %w", err)
-	}
+		merged := mergeAgentHooks(existing, exe)
+		merged = mergeStatusLine(merged, exe)
+		out, err := json.MarshalIndent(merged, "", "  ")
+		if err != nil {
+			return fmt.Errorf("encoding settings: %w", err)
+		}
 
-	merged := mergeAgentHooks(existing, exe)
-	merged = mergeStatusLine(merged, exe)
-	out, err := json.MarshalIndent(merged, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding settings: %w", err)
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", tmp, err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			return fmt.Errorf("replacing %s: %w", path, err)
+		}
+		fmt.Printf("installed Arc agent hooks into %s\n", path)
 	}
-
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", tmp, err)
+	if err := installOpencodePlugin(home); err != nil {
+		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replacing %s: %w", path, err)
-	}
-	fmt.Printf("installed Arc agent hooks into %s\n", path)
 	return nil
 }

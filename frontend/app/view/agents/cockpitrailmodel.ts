@@ -7,8 +7,12 @@
 import type { WindowTokens } from "./windowtokenstore";
 
 // provider identity for the plan strip. not theme tokens — brand colors, single source.
-const PROVIDER_DOT: Record<string, string> = { claude: "bg-provider-claude", codex: "bg-provider-codex" };
-const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
+const PROVIDER_DOT: Record<string, string> = {
+    claude: "bg-provider-claude",
+    codex: "bg-provider-codex",
+    opencode: "bg-provider-opencode",
+};
+const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
 
 export function providerLabel(provider: string): string {
     return PROVIDER_LABEL[provider] ?? provider;

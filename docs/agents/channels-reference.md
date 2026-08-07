@@ -65,6 +65,12 @@ wshrpc commands: `ConsultCommand`, `ConsultRuntimesCommand`, `CreateChannelComma
   a useful signal when triage disagrees.
 - **`agy` positional quirk.** Antigravity dispatch must use `agy -i <task>`; a bare positional prompt
   is ignored by the `agy` CLI (handled in `buildLaunchMeta`).
+- **opencode consult is JSONL.** `ask @opencode` runs `opencode run --format json`, whose stdout is
+  one event per line; assistant text arrives as `text` events and everything else is skipped. The
+  worker's shadow transcript lives at `~/.local/share/opencode/waveterm/<sessionID>.jsonl` (the
+  filename stem is the resume id, `opencode -s <id>`). The status plugin is auto-installed by
+  `wsh install-agent-hooks` into `~/.config/opencode/plugins/` — no `opencode.json` edit; the config
+  `plugin` array is npm-only and is never touched.
 - **Worker auto-titles are paraphrases.** Roster rows are labeled by the ai-title reporter, which
   paraphrases the task (goal "reply with token DELEG8" → title "Provide delegation token"). Derived,
   not a stuck prompt — see [`tab-auto-naming.md`](tab-auto-naming.md).

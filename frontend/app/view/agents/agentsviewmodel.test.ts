@@ -534,6 +534,14 @@ describe("providerPlanUsage", () => {
         const rows = providerPlanUsage([mk("u", "working", { usage: { weekpct: 30 } })]);
         expect(rows[0].provider).toBe("claude");
     });
+
+    it("sorts opencode after codex", () => {
+        const claude = mk("c", "working", { agent: "claude", usage: { fivehourpct: 10, weekpct: 10 } });
+        const codex = mk("x", "working", { agent: "codex", usage: { fivehourpct: 10, weekpct: 10 } });
+        const opencode = mk("o", "working", { agent: "opencode", usage: { fivehourpct: 10, weekpct: 10 } });
+        const rows = providerPlanUsage([opencode, claude, codex]);
+        expect(rows.map((r) => r.provider)).toEqual(["claude", "codex", "opencode"]);
+    });
 });
 
 describe("providerPlanUsage (no dedup)", () => {

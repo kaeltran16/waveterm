@@ -28,7 +28,7 @@ import type { ClassUsage, ProviderUsage, UsageStats } from "./usagestats";
 import { loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageStatsAtom, usageWindowAtom } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
-const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex" };
+const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
 const RING: Record<"ok" | "warn" | "hot", string> = {
     ok: "var(--color-success)",
     warn: "var(--color-warning)",

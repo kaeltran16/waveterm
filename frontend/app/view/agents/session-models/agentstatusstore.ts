@@ -5,7 +5,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { atom, type PrimitiveAtom } from "jotai";
 import { recordRateLimit } from "../ratelimitstore";
-import { persistClaudeResume } from "./agentresumestore";
+import { persistResume } from "./agentresumestore";
 
 function invertPct(pct: number | undefined): number | undefined {
     if (pct == null) {
@@ -92,8 +92,8 @@ export function setupAgentStatusSubscription() {
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
                 globalStore.set(getAgentStatusAtom(data.oref), data);
-                // resume-on-reopen: bake this Claude session's --resume key into the block's launch command
-                void persistClaudeResume(data.oref, data.agent, data.transcriptpath);
+                // resume-on-reopen: bake this session's resume key into the block's launch command
+                void persistResume(data.oref, data.agent, data.transcriptpath);
                 if (data.state === "idle") {
                     // turn ended: reset the manual subagent-expand override (disk-backed list persists)
                     globalStore.set(getSubagentExpandAtom(data.oref), undefined);

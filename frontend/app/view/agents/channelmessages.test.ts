@@ -72,6 +72,20 @@ describe("planMessage", () => {
     it("does not consult without the ask keyword (leading @runtime still dispatches)", () => {
         expect(planMessage("@claude build it", roster)).toEqual({ kind: "dispatch", runtime: "claude", text: "build it" });
     });
+    it("dispatches to opencode by leading mention", () => {
+        expect(planMessage("@opencode fix the flaky test", [])).toEqual({
+            kind: "dispatch",
+            runtime: "opencode",
+            text: "fix the flaky test",
+        });
+    });
+    it("consults opencode after ask", () => {
+        expect(planMessage("ask @opencode does this race?", [])).toEqual({
+            kind: "consult",
+            runtimes: ["opencode"],
+            text: "does this race?",
+        });
+    });
 });
 
 // "jarvis" was a reserved manager handle routing to a fleet summary or a delegator dispatch. The

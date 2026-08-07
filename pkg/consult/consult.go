@@ -57,6 +57,7 @@ var runtimeSpecs = map[string]RuntimeSpec{
 	"claude":      {Bin: "claude", BaseArgs: []string{"-p", "--output-format", "stream-json", "--verbose"}, PromptViaStdin: true, ParseLine: claudeParseLine},
 	"codex":       {Bin: "codex", BaseArgs: []string{"exec", "--json"}, PromptViaStdin: true, ParseLine: codexParseLine},
 	"antigravity": {Bin: "agy", BaseArgs: []string{"-p"}, PromptViaStdin: false, UsePty: true},
+	"opencode":    {Bin: "opencode", BaseArgs: []string{"run", "--format", "json"}, PromptViaStdin: false, ParseLine: opencodeParseLine},
 }
 
 // codexParseLine extracts assistant text from a `codex exec --json` JSONL event. The reply arrives as
@@ -107,6 +108,30 @@ func claudeParseLine(line []byte) (string, bool) {
 		return "", false
 	}
 	return b.String(), true
+}
+
+// opencodeParseLine extracts assistant text from an `opencode run --format json` JSONL event.
+// Verified 2026-08-07: run --format json emits one event per line; assistant text arrives as a
+// `text` event whose part.type is "text". step_start/step_finish/reasoning/tool events carry no
+// reply text and are skipped. Streaming is incremental — each text event carries its own delta.
+func opencodeParseLine(line []byte) (string, bool) {
+	var ev struct {
+		Type string `json:"type"`
+		Part struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"part"`
+	}
+	if json.Unmarshal(line, &ev) != nil {
+		return "", false
+	}
+	if ev.Type != "text" || ev.Part.Type != "text" {
+		return "", false
+	}
+	if strings.TrimSpace(ev.Part.Text) == "" {
+		return "", false
+	}
+	return ev.Part.Text, true
 }
 
 func SpecFor(runtime string) (RuntimeSpec, bool) {
@@ -196,7 +221,7 @@ func ModelForCorpus(corpus string) string {
 }
 
 func SupportedRuntimes() []string {
-	return []string{"claude", "codex", "antigravity"}
+	return []string{"claude", "codex", "antigravity", "opencode"}
 }
 
 // OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A

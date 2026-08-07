@@ -9,6 +9,9 @@ describe("runtimeMeta", () => {
         expect(runtimeMeta("codex").id).toBe("codex");
         expect(runtimeMeta("Codex").id).toBe("codex");
         expect(runtimeMeta("claude").glyph).toBe("✳");
+        expect(runtimeMeta("opencode").id).toBe("opencode");
+        expect(runtimeMeta("opencode").label).toBe("opencode");
+        expect(runtimeMeta("Opencode").id).toBe("opencode");
     });
 
     it("falls back to claude for unknown/undefined providers", () => {

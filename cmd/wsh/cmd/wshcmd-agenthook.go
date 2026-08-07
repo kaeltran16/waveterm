@@ -225,6 +225,52 @@ func readLastUserPrompt(path string) string {
 	return lastUserPrompt(tailLines(path))
 }
 
+// shadowSessionRecord is the `session` line of an opencode shadow transcript.
+type shadowSessionRecord struct {
+	Type  string `json:"type"`
+	Model string `json:"model"`
+	Title string `json:"title"`
+}
+
+// readShadowSessionInfo returns the model + title from the last `session` record in an opencode
+// shadow transcript (the plugin refreshes it as the session gains a model/title).
+func readShadowSessionInfo(path string) (model, title string) {
+	for _, ln := range tailLines(path) {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		var rec shadowSessionRecord
+		if json.Unmarshal([]byte(ln), &rec) == nil && rec.Type == "session" {
+			if rec.Model != "" {
+				model = rec.Model
+			}
+			if rec.Title != "" {
+				title = rec.Title
+			}
+		}
+	}
+	return model, title
+}
+
+// readShadowFirstUser returns the first `user` record's text in an opencode shadow transcript.
+func readShadowFirstUser(path string) string {
+	for _, ln := range tailLines(path) {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		var rec struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal([]byte(ln), &rec) == nil && rec.Type == "user" && strings.TrimSpace(rec.Text) != "" {
+			return rec.Text
+		}
+	}
+	return ""
+}
+
 func truncateRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -291,8 +337,17 @@ var agentHookCmd = &cobra.Command{
 	SilenceUsage:          true,
 }
 
+var (
+	agentHookAgent  string
+	agentHookShadow string
+	agentHookState  string
+)
+
 func init() {
 	rootCmd.AddCommand(agentHookCmd)
+	agentHookCmd.Flags().StringVar(&agentHookAgent, "agent", "claude", "agent identity to stamp (claude | opencode)")
+	agentHookCmd.Flags().StringVar(&agentHookShadow, "shadow", "", "opencode shadow transcript path to report as the transcript")
+	agentHookCmd.Flags().StringVar(&agentHookState, "state", "", "explicit agent state (opencode path; claude derives it from the hook payload)")
 }
 
 // hookDebugLine appends one diagnostic line to ~/.claude/arc-hook-debug.log when WAVETERM_HOOK_DEBUG
@@ -324,17 +379,24 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	if os.Getenv("WAVETERM_BLOCKID") == "" {
 		return nil // not inside an Arc block; near-instant no-op (not logged: not an error)
 	}
-	raw, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		hookDebugLine("skip: read stdin failed")
-		return nil
-	}
-	var ev ccHookEvent
-	if json.Unmarshal(raw, &ev) != nil {
-		hookDebugLine("skip: unmarshal hook event failed")
-		return nil
+	// The opencode path (--shadow) supplies its state explicitly — the plugin derives it from
+	// opencode events. The claude path derives state from the lifecycle-hook payload on stdin.
+	ev := ccHookEvent{}
+	if agentHookShadow == "" {
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			hookDebugLine("skip: read stdin failed")
+			return nil
+		}
+		if json.Unmarshal(raw, &ev) != nil {
+			hookDebugLine("skip: unmarshal hook event failed")
+			return nil
+		}
 	}
 	em := planEmission(ev)
+	if agentHookShadow != "" {
+		em = agentEmission{State: agentHookState, AttachModelTitle: true}
+	}
 	if em.State == "" {
 		hookDebugLine("skip: no emission for event=" + ev.HookEventName)
 		return nil
@@ -355,32 +417,41 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	}
 	// stamp the transcript path so a gone-worker exit can derive its outcome from the transcript.
 	// best-effort: a hook must never fail the turn.
-	if ev.TranscriptPath != "" {
+	transcriptPath := ev.TranscriptPath
+	if agentHookShadow != "" {
+		transcriptPath = agentHookShadow
+	}
+	if transcriptPath != "" {
 		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{
 			ORef: *oref,
-			Meta: waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: ev.TranscriptPath},
+			Meta: waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: transcriptPath},
 		}, &wshrpc.RpcOpts{Timeout: 2000})
 	}
-	if em.State != "" {
-		data := baseds.AgentStatusData{
-			ORef:           oref.String(),
-			State:          em.State,
-			Detail:         em.Detail,
-			Agent:          "claude",
-			TranscriptPath: ev.TranscriptPath,
-			Ts:             time.Now().UnixMilli(),
-		}
-		if em.AttachModelTitle && ev.TranscriptPath != "" {
-			data.Model = readLastModel(ev.TranscriptPath)
-			data.Title = readLastTitle(ev.TranscriptPath)
+	data := baseds.AgentStatusData{
+		ORef:           oref.String(),
+		State:          em.State,
+		Detail:         em.Detail,
+		Agent:          agentHookAgent,
+		TranscriptPath: transcriptPath,
+		Ts:             time.Now().UnixMilli(),
+	}
+	if em.AttachModelTitle && transcriptPath != "" {
+		if agentHookShadow != "" {
+			data.Model, data.Title = readShadowSessionInfo(transcriptPath)
+			if data.Title == "" {
+				data.Title = titleFromPrompt(readShadowFirstUser(transcriptPath))
+			}
+		} else {
+			data.Model = readLastModel(transcriptPath)
+			data.Title = readLastTitle(transcriptPath)
 			// no ai-title yet (e.g. a skill/slash-command turn) -> fall back to the user's prompt so
 			// the row still gets a head-text summary instead of the bare agent name
 			if data.Title == "" {
-				data.Title = titleFromPrompt(readLastUserPrompt(ev.TranscriptPath))
+				data.Title = titleFromPrompt(readLastUserPrompt(transcriptPath))
 			}
 		}
-		_ = publishAgentStatusData(oref, data, 1)
 	}
+	_ = publishAgentStatusData(oref, data, 1)
 	hookDebugLine("published event=" + ev.HookEventName + " state=" + em.State + " oref=" + oref.String())
 	return nil
 }

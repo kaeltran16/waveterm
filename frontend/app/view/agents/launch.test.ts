@@ -7,6 +7,7 @@ import {
     composeStartupCommand,
     deriveBranch,
     resumeArgsForClaude,
+    resumeArgsForOpencode,
     RUNTIME_FLAGS,
     runtimeLaunchLabel,
     runtimeCreatesAgentPanel,
@@ -21,7 +22,12 @@ describe("runtime helpers", () => {
     it("derives the startup command", () => {
         expect(runtimeStartupCommand("claude")).toBe("claude");
         expect(runtimeStartupCommand("codex")).toBe("codex");
+        expect(runtimeStartupCommand("opencode")).toBe("opencode");
         expect(runtimeStartupCommand("terminal")).toBe("");
+    });
+    it("catalogs opencode's boolean launch flags", () => {
+        expect(RUNTIME_FLAGS.opencode.map((f) => f.flag)).toEqual(["--auto", "--pure", "-c"]);
+        expect(composeStartupCommand("opencode", "opencode", { auto: true })).toBe("opencode --auto");
     });
     it("labels the launch button", () => {
         expect(runtimeLaunchLabel("claude")).toBe("Launch agent");
@@ -129,6 +135,11 @@ describe("buildLaunchMeta", () => {
         const m = buildLaunchMeta({ runtime: "terminal", startupCommand: "", task: "", cwd: "/x" });
         expect(m).toEqual({ view: "term", controller: "shell", "cmd:cwd": "/x" });
     });
+    it("passes the opencode task positionally with cwd", () => {
+        const m = buildLaunchMeta({ runtime: "opencode", startupCommand: "opencode", task: "refactor auth", cwd: "/x" });
+        expect(m).toMatchObject({ cmd: "opencode", "cmd:args": ["refactor auth"], "cmd:shell": false, "cmd:cwd": "/x" });
+        expect(m["agent:baseargs"]).toEqual([]);
+    });
     it("passes the antigravity task via -i (agy ignores a bare positional prompt)", () => {
         const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "do the thing", cwd: "/x" });
         expect(m["cmd"]).toBe("agy");
@@ -183,5 +194,25 @@ describe("resumeArgsForClaude", () => {
     });
     it("handles empty base args", () => {
         expect(resumeArgsForClaude("s1", [])).toEqual(["--resume", "s1"]);
+    });
+});
+
+describe("resumeArgsForOpencode", () => {
+    it("prepends -s <id> and keeps launch flags", () => {
+        expect(resumeArgsForOpencode("s1", ["--auto"])).toEqual(["-s", "s1", "--auto"]);
+    });
+    it("preserves value-taking options (does not mistake the value for a prompt)", () => {
+        expect(resumeArgsForOpencode("s1", ["--model", "openai/gpt-5"])).toEqual(["-s", "s1", "--model", "openai/gpt-5"]);
+    });
+    it("drops a prior -s <id> so resuming twice never stacks", () => {
+        expect(resumeArgsForOpencode("s2", ["-s", "s1", "--auto"])).toEqual(["-s", "s2", "--auto"]);
+        expect(resumeArgsForOpencode("s2", ["--session", "s1"])).toEqual(["-s", "s2"]);
+    });
+    it("drops -c/--continue to avoid a conflicting double-resume", () => {
+        expect(resumeArgsForOpencode("s1", ["-c"])).toEqual(["-s", "s1"]);
+        expect(resumeArgsForOpencode("s1", ["--continue"])).toEqual(["-s", "s1"]);
+    });
+    it("handles empty base args", () => {
+        expect(resumeArgsForOpencode("s1", [])).toEqual(["-s", "s1"]);
     });
 });

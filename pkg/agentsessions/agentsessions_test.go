@@ -172,3 +172,93 @@ func TestScanProvider_codexSkipsFileWithoutUserMessage(t *testing.T) {
 		t.Fatalf("want 0 (no human user_message), got %d", len(got))
 	}
 }
+
+func writeJSON(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// buildOpencodeTree creates the opencode storage layout (session info + message + part dirs) under
+// root and returns the storage root.
+func buildOpencodeTree(t *testing.T, root string) string {
+	storage := filepath.Join(root, "opencode", "storage")
+	writeJSON(t, filepath.Join(storage, "session", "proj1", "ses_abc.json"),
+		`{"id":"ses_abc","slug":"tidy-meadow","projectID":"proj1","directory":"/home/me/payments-api","title":"Fix auth","time":{"created":1770000000000,"updated":1770000100000}}`)
+	writeJSON(t, filepath.Join(storage, "message", "ses_abc", "msg_1.json"),
+		`{"id":"msg_1","sessionID":"ses_abc","role":"user","time":{"created":1770000000000}}`)
+	writeJSON(t, filepath.Join(storage, "message", "ses_abc", "msg_2.json"),
+		`{"id":"msg_2","sessionID":"ses_abc","role":"assistant","model":{"providerID":"openai","modelID":"gpt-5.2-codex"},"time":{"created":1770000090000}}`)
+	writeJSON(t, filepath.Join(storage, "part", "msg_1", "p1.json"),
+		`{"id":"p1","sessionID":"ses_abc","messageID":"msg_1","type":"text","text":"Fix the auth race"}`)
+	writeJSON(t, filepath.Join(storage, "part", "msg_2", "p1.json"),
+		`{"id":"p1","sessionID":"ses_abc","messageID":"msg_2","type":"text","text":"done, +40 -10"}`)
+	writeJSON(t, filepath.Join(storage, "part", "msg_2", "p2.json"),
+		`{"id":"p2","sessionID":"ses_abc","messageID":"msg_2","type":"step-finish","reason":"stop","cost":0.5,"tokens":{"input":100,"output":50,"reasoning":0,"cache":{"read":0,"write":0}}}`)
+	return storage
+}
+
+func TestScanProvider_opencodeExtractsInfoAndUsage(t *testing.T) {
+	storage := buildOpencodeTree(t, t.TempDir())
+	got := scanProvider(opencodeProvider(storage), 0, 10)
+	if len(got) != 1 {
+		t.Fatalf("want 1 opencode session, got %d", len(got))
+	}
+	s := got[0]
+	if s.ID != "ses_abc" {
+		t.Errorf("ID = %q, want the info-file stem ses_abc", s.ID)
+	}
+	if s.Runtime != "opencode" {
+		t.Errorf("runtime = %q", s.Runtime)
+	}
+	if s.ProjectName != "payments-api" {
+		t.Errorf("projectName = %q", s.ProjectName)
+	}
+	if s.Model != "openai/gpt-5.2-codex" {
+		t.Errorf("model = %q", s.Model)
+	}
+	if s.Task != "Fix the auth race" {
+		t.Errorf("task = %q (must be the first user text part)", s.Task)
+	}
+	if s.ResumeCommand != "opencode -s ses_abc" {
+		t.Errorf("resumeCommand = %q", s.ResumeCommand)
+	}
+	if s.TokensTotal != 150 {
+		t.Errorf("tokensTotal = %d, want 150", s.TokensTotal)
+	}
+	if s.CostUsd != 0.5 {
+		t.Errorf("costUsd = %v, want 0.5", s.CostUsd)
+	}
+	if len(s.Events) == 0 {
+		t.Fatal("expected lifecycle events")
+	}
+	if s.Events[0].Type != "started" || !strings.Contains(s.Events[0].Text, "Fix the auth race") {
+		t.Errorf("first event = %+v, want started with the task", s.Events[0])
+	}
+}
+
+func TestScanProvider_opencodeSkipsSubagentOnlySession(t *testing.T) {
+	storage := buildOpencodeTree(t, t.TempDir())
+	writeJSON(t, filepath.Join(storage, "session", "proj2", "ses_xyz.json"),
+		`{"id":"ses_xyz","directory":"/x","time":{"created":1770000200000}}`)
+	// no message dir for ses_xyz => no user task => skipped
+	if got := scanProvider(opencodeProvider(storage), 0, 10); len(got) != 1 {
+		t.Fatalf("want only ses_abc, got %d", len(got))
+	}
+}
+
+func TestExtractSession_opencode(t *testing.T) {
+	storage := buildOpencodeTree(t, t.TempDir())
+	path := filepath.Join(storage, "session", "proj1", "ses_abc.json")
+	s, err := ExtractSession(path, "opencode")
+	if err != nil {
+		t.Fatalf("ExtractSession error: %v", err)
+	}
+	if s == nil || s.ID != "ses_abc" {
+		t.Fatalf("want ses_abc, got %+v", s)
+	}
+}

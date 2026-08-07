@@ -23,7 +23,7 @@ export const LAUNCH_COMMANDS: { cmd: string; mode: LaunchMode; desc: string }[] 
     { cmd: "@ask", mode: "ask", desc: "one-shot consult · no worker" },
 ];
 
-const KNOWN_RUNTIMES = new Set(["claude", "codex", "antigravity"]);
+const KNOWN_RUNTIMES = new Set(["claude", "codex", "antigravity", "opencode"]);
 
 // Parse a Launch-face draft into its mode + goal. Only a leading `@quick`/`@run`/`@ask` token is a
 // command; a mid-text `@` (e.g. "add @mentions") is left in the goal and defaults to run. `@ask` accepts

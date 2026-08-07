@@ -1,12 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-export type Runtime = "claude" | "codex" | "antigravity" | "terminal";
+export type Runtime = "claude" | "codex" | "antigravity" | "opencode" | "terminal";
 
 const RUNTIME_CMD: Record<Runtime, string> = {
     claude: "claude",
     codex: "codex",
     antigravity: "agy",
+    opencode: "opencode",
     terminal: "",
 };
 
@@ -44,6 +45,11 @@ export const RUNTIME_FLAGS: Record<Runtime, FlagDef[]> = {
         { id: "yolo", flag: "--yolo", desc: "Auto-approve file edits" },
         { id: "verbose", flag: "--verbose", desc: "Stream every tool call" },
         { id: "no-telemetry", flag: "--no-telemetry", desc: "Disable usage reporting" },
+    ],
+    opencode: [
+        { id: "auto", flag: "--auto", desc: "Auto-approve non-denied permissions (dangerous)" },
+        { id: "pure", flag: "--pure", desc: "Run without external plugins" },
+        { id: "continue", flag: "-c", desc: "Resume the last session" },
     ],
     terminal: [],
 };
@@ -188,4 +194,23 @@ export function resumeArgsForClaude(sessionId: string, baseArgs: string[]): stri
         kept.push(a);
     }
     return ["--resume", sessionId, ...kept];
+}
+
+// Recompose an opencode launch as a resume: `opencode -s <id> <baseArgs>`. -s/--session resume a
+// named session (a cockpit worker's session id is its shadow filename stem); -c resumes only the
+// last session and is stripped like claude's --continue so a repeated resume cannot stack directives.
+export function resumeArgsForOpencode(sessionId: string, baseArgs: string[]): string[] {
+    const kept: string[] = [];
+    for (let i = 0; i < baseArgs.length; i++) {
+        const a = baseArgs[i];
+        if (a === "-s" || a === "--session") {
+            i++; // also skip its id value
+            continue;
+        }
+        if (a === "-c" || a === "--continue") {
+            continue;
+        }
+        kept.push(a);
+    }
+    return ["-s", sessionId, ...kept];
 }

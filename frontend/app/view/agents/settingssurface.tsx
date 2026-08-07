@@ -33,6 +33,7 @@ const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
     { id: "claude", name: "Claude Code" },
     { id: "codex", name: "Codex" },
     { id: "antigravity", name: "Antigravity" },
+    { id: "opencode", name: "opencode" },
 ];
 
 export function SettingsSurface(_props: { model: AgentsViewModel }) {

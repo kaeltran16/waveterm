@@ -19,6 +19,7 @@ func TestSpecFor_knownRuntimes(t *testing.T) {
 		"claude":      {"claude", "-p"},
 		"codex":       {"codex", "exec"},
 		"antigravity": {"agy", "-p"},
+		"opencode":    {"opencode", "run"},
 	}
 	for rt, want := range cases {
 		spec, ok := SpecFor(rt)
@@ -143,6 +144,28 @@ func TestClaudeParseLine_extractsAssistantText(t *testing.T) {
 	}
 }
 
+func TestOpencodeParseLine_extractsText(t *testing.T) {
+	// real `opencode run --format json` events (captured 2026-08-07)
+	skip := []string{
+		`{"type":"step_start","timestamp":1786080035726,"sessionID":"ses_x","part":{"id":"p1","messageID":"m1","sessionID":"ses_x","snapshot":"s","type":"step-start"}}`,
+		`{"type":"reasoning","timestamp":1786080035800,"sessionID":"ses_x","part":{"id":"p2","messageID":"m1","sessionID":"ses_x","type":"reasoning","text":"thinking..."}}`,
+		`{"type":"step_finish","timestamp":1786080036726,"sessionID":"ses_x","part":{"id":"p3","messageID":"m1","sessionID":"ses_x","type":"step-finish","reason":"stop","cost":0,"tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}`,
+	}
+	for _, line := range skip {
+		if txt, ok := opencodeParseLine([]byte(line)); ok || txt != "" {
+			t.Errorf("expected skip for %q, got %q", line, txt)
+		}
+	}
+	reply := `{"type":"text","timestamp":1786080036000,"sessionID":"ses_x","part":{"id":"p4","messageID":"m1","sessionID":"ses_x","type":"text","text":"pong"}}`
+	txt, ok := opencodeParseLine([]byte(reply))
+	if !ok || txt != "pong" {
+		t.Errorf("expected text part 'pong', got %q ok=%v", txt, ok)
+	}
+	if _, ok := opencodeParseLine([]byte("not json")); ok {
+		t.Error("garbage line should not parse as a reply")
+	}
+}
+
 func TestCleanTUI_stripsAnsiAndBoxDrawing(t *testing.T) {
 	// agy renders a repainting TUI over a pty: ANSI CSI, OSC, box-drawing, CR repaints.
 	raw := "\x1b[2J\x1b[H┌────────┐\r\n│ working…│\r\x1b[32mpong\x1b[0m\r\n└────────┘"
@@ -170,6 +193,11 @@ func TestSpecFor_streamingModes(t *testing.T) {
 	agy, _ := SpecFor("antigravity")
 	if !agy.UsePty {
 		t.Error("agy must run under a pty (upstream non-TTY stdout bug antigravity-cli#76)")
+	}
+
+	opencode, _ := SpecFor("opencode")
+	if opencode.ParseLine == nil {
+		t.Error("opencode should use JSONL line parsing (run --format json)")
 	}
 }
 
@@ -207,7 +235,7 @@ func TestSpecForTier_neverMutatesTheSharedSpec(t *testing.T) {
 
 func TestSpecForTier_nonClaudeRuntimesAreUnchanged(t *testing.T) {
 	// only claude has a --model contract here; a tier must not invent flags for the others.
-	for _, rt := range []string{"codex", "antigravity"} {
+	for _, rt := range []string{"codex", "antigravity", "opencode"} {
 		base, _ := SpecFor(rt)
 		spec, ok := SpecForTier(rt, TierCheap)
 		if !ok {

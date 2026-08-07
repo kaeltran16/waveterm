@@ -182,6 +182,44 @@ func TestAgentHookRegistered(t *testing.T) {
 	}
 }
 
+func TestReadShadowSessionInfoAndFirstUser(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ses_x.jsonl")
+	content := `{"type":"session","id":"ses_x","title":"First title","ts":1}
+{"type":"user","text":"fix the flaky test","ts":2}
+{"type":"session","id":"ses_x","model":"openai/gpt-5.2-codex","title":"Final title","ts":3}
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, title := readShadowSessionInfo(path)
+	if model != "openai/gpt-5.2-codex" {
+		t.Fatalf("model = %q, want openai/gpt-5.2-codex (last session record wins)", model)
+	}
+	if title != "Final title" {
+		t.Fatalf("title = %q, want Final title", title)
+	}
+	if got := readShadowFirstUser(path); got != "fix the flaky test" {
+		t.Fatalf("first user = %q, want fix the flaky test", got)
+	}
+}
+
+func TestAgentHookFlagsRegistered(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"agent-hook"})
+	if err != nil || cmd == nil {
+		t.Fatalf("agent-hook not found: %v", err)
+	}
+	if cmd.Flags().Lookup("agent") == nil {
+		t.Fatal("agent-hook missing --agent flag")
+	}
+	if cmd.Flags().Lookup("shadow") == nil {
+		t.Fatal("agent-hook missing --shadow flag")
+	}
+	if cmd.Flags().Lookup("state") == nil {
+		t.Fatal("agent-hook missing --state flag")
+	}
+}
+
 func TestHookDebugLine(t *testing.T) {
 	home := t.TempDir()
 	// os.UserHomeDir reads HOME on unix, USERPROFILE on windows — set both so the test is OS-agnostic.

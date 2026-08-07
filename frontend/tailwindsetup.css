@@ -71,6 +71,7 @@
     /* Provider brand identity (not theme-derived; single source for the plan-strip dots) */
     --color-provider-claude: #d97757;
     --color-provider-codex: #96aacd;
+    --color-provider-opencode: #a78bfa;
     --color-success-soft: #bfe6d6; /* working activity line */
     --color-error-soft: #f0a9a4; /* danger CTA label on tinted fill (Canvas-13 confirm dialog) */
     --color-warning-soft: #f0d79f; /* warning accent, lightened */
@@ -107,6 +108,9 @@
     --color-rt-codex: #ececec;
     --color-rt-codex-soft: rgba(236, 236, 236, 0.13);
     --color-rt-codex-line: rgba(236, 236, 236, 0.32);
+    --color-rt-opencode: #a78bfa;
+    --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
+    --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
     --color-rt-terminal: #9aa3ad;
     --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
     --color-rt-terminal-line: rgba(154, 163, 173, 0.28);

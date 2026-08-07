@@ -86,13 +86,14 @@ func sessionTitle(raw string) string {
 // SessionInfo is one resumable past agent session.
 type SessionInfo struct {
 	ID            string // runtime resume key
-	Runtime       string // "claude" | "codex"
+	Runtime       string // "claude" | "codex" | "opencode"
 	ProjectPath   string // cwd
 	ProjectName   string // last path segment of cwd
 	Branch        string
 	Task          string // first human prompt, trimmed
 	Model         string // last assistant model seen
 	TokensTotal   int
+	CostUsd       float64
 	LastActiveTs  int64  // file mtime, UnixMilli
 	ResumeCommand string // runtime resume invocation; empty means not resumable
 
@@ -605,9 +606,9 @@ type provider struct {
 	runtime   string
 	root      string
 	matches   func(name string) bool
-	extract   func(stem string, lines []string) *SessionInfo
+	extract   func(path, stem string, lines []string) *SessionInfo
 	resumeCmd func(s *SessionInfo) string
-	events    func(lines []string) sessionEvents
+	events    func(path string, lines []string) sessionEvents
 }
 
 func claudeProvider(root string) provider {
@@ -615,9 +616,9 @@ func claudeProvider(root string) provider {
 		runtime:   "claude",
 		root:      root,
 		matches:   func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
-		extract:   extractClaudeSession,
+		extract:   func(_ string, id string, lines []string) *SessionInfo { return extractClaudeSession(id, lines) },
 		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
-		events:    extractClaudeEvents,
+		events:    func(_ string, lines []string) sessionEvents { return extractClaudeEvents(lines) },
 	}
 }
 
@@ -628,10 +629,221 @@ func codexProvider(root string) provider {
 		matches: func(name string) bool {
 			return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
 		},
-		extract:   extractCodexSession,
+		extract:   func(_ string, id string, lines []string) *SessionInfo { return extractCodexSession(id, lines) },
 		resumeCmd: func(s *SessionInfo) string { return "codex resume " + s.ID },
-		events:    extractCodexEvents,
+		events:    func(_ string, lines []string) sessionEvents { return extractCodexEvents(lines) },
 	}
+}
+
+// opencodeProvider scans opencode's native storage. root is the storage root (…/opencode/storage);
+// scanProvider walks its session subdir. extract/events resolve the sibling message/part dirs by
+// session id, which is the info-file filename stem.
+func opencodeProvider(storageRoot string) provider {
+	return provider{
+		runtime: "opencode",
+		root:    filepath.Join(storageRoot, "session"),
+		matches: func(name string) bool {
+			return strings.HasPrefix(name, "ses_") && strings.HasSuffix(name, ".json")
+		},
+		extract:   extractOpencodeSession,
+		resumeCmd: func(s *SessionInfo) string { return "opencode -s " + s.ID },
+		events:    extractOpencodeEvents,
+	}
+}
+
+// storageRootOf derives the storage root from an opencode session-info path
+// (<root>/session/<projectID>/<sessionID>.json).
+func storageRootOf(path string) string {
+	return filepath.Dir(filepath.Dir(filepath.Dir(path)))
+}
+
+type opencodeMsg struct {
+	ID    string `json:"id"`
+	Role  string `json:"role"`
+	Model struct {
+		ProviderID string `json:"providerID"`
+		ModelID    string `json:"modelID"`
+	} `json:"model"`
+	Time struct {
+		Created int64 `json:"created"`
+	} `json:"time"`
+}
+
+// opencodeMessages returns a session's message files, oldest-first by creation time.
+func opencodeMessages(dir string) []opencodeMsg {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []opencodeMsg
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var m opencodeMsg
+		if json.Unmarshal(b, &m) != nil || m.ID == "" {
+			continue
+		}
+		out = append(out, m)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Created < out[j].Time.Created })
+	return out
+}
+
+type opencodePart struct {
+	Type      string `json:"type"`
+	Text      string `json:"text"`
+	Tool      string `json:"tool"`
+	Synthetic bool   `json:"synthetic"`
+	State     struct {
+		Status string `json:"status"`
+		Input  struct {
+			Command string `json:"command"`
+		} `json:"input"`
+		Metadata struct {
+			Exit *int `json:"exit"`
+		} `json:"metadata"`
+	} `json:"state"`
+	Cost   float64 `json:"cost"`
+	Tokens struct {
+		Input     int `json:"input"`
+		Output    int `json:"output"`
+		Reasoning int `json:"reasoning"`
+		Cache     struct {
+			Read  int `json:"read"`
+			Write int `json:"write"`
+		} `json:"cache"`
+	} `json:"tokens"`
+}
+
+// opencodeParts returns a message's part files, in filename order.
+func opencodeParts(root, messageID string) []opencodePart {
+	dir := filepath.Join(root, "part", messageID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []opencodePart
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var p opencodePart
+		if json.Unmarshal(b, &p) != nil || p.Type == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// extractOpencodeSession folds one session info file + its message/part siblings into a
+// SessionInfo. The resume key is the info-file stem. The task is the first user text part; the
+// model is the last assistant message's provider/model id. Token/cost sums come from step-finish
+// parts. Returns nil when the session has no human task (a subagent-only session isn't resumable).
+func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo {
+	s := &SessionInfo{ID: sessionID}
+	root := storageRootOf(path)
+	for _, line := range lines {
+		var info struct {
+			Directory string `json:"directory"`
+		}
+		if json.Unmarshal([]byte(line), &info) != nil {
+			continue
+		}
+		if info.Directory != "" {
+			s.ProjectPath = info.Directory
+			s.ProjectName = filepath.Base(info.Directory)
+		}
+	}
+	hasTask := false
+	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
+		if m.Role == "assistant" && m.Model.ProviderID != "" {
+			s.Model = m.Model.ProviderID + "/" + m.Model.ModelID // last assistant model wins
+		}
+		if !hasTask && m.Role == "user" {
+			if task := firstUserText(root, m.ID); task != "" {
+				s.Task = trimTo(task, maxTaskLen)
+				hasTask = true
+			}
+		}
+	}
+	if !hasTask {
+		return nil
+	}
+	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
+		for _, p := range opencodeParts(root, m.ID) {
+			s.TokensTotal += p.Tokens.Input + p.Tokens.Output + p.Tokens.Reasoning + p.Tokens.Cache.Read + p.Tokens.Cache.Write
+			s.CostUsd += p.Cost
+		}
+	}
+	return s
+}
+
+// firstUserText returns the first non-empty, non-environment text part of a user message.
+func firstUserText(root, messageID string) string {
+	for _, p := range opencodeParts(root, messageID) {
+		if p.Type != "text" || strings.TrimSpace(p.Text) == "" || p.Synthetic {
+			continue
+		}
+		if strings.HasPrefix(p.Text, "<environment_context") {
+			continue
+		}
+		return p.Text
+	}
+	return ""
+}
+
+// extractOpencodeEvents derives lifecycle events from a session's stored parts: first user text ->
+// started, last assistant text -> finished, a failed bash tool -> errored, a git commit -> committed.
+func extractOpencodeEvents(path string, _ []string) sessionEvents {
+	root := storageRootOf(path)
+	sessionID := strings.TrimSuffix(filepath.Base(path), ".json")
+	var raw []SessionEvent
+	var firstTs, lastTs int64
+	var firstUser, lastAssistant string
+	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
+		if ts := m.Time.Created; ts > 0 {
+			if firstTs == 0 {
+				firstTs = ts
+			}
+			lastTs = ts
+		}
+		for _, p := range opencodeParts(root, m.ID) {
+			switch {
+			case m.Role == "user" && p.Type == "text" && firstUser == "" && !p.Synthetic &&
+				!strings.HasPrefix(p.Text, "<environment_context") && strings.TrimSpace(p.Text) != "":
+				firstUser = clipText(p.Text)
+			case m.Role == "assistant" && p.Type == "text" && strings.TrimSpace(p.Text) != "":
+				lastAssistant = clipText(p.Text)
+			case p.Type == "tool" && p.Tool == "bash" && commitRe.MatchString(p.State.Input.Command):
+				raw = append(raw, SessionEvent{Type: "committed", Ts: m.Time.Created, Text: commitSubject(p.State.Input.Command)})
+			case p.Type == "tool" && p.State.Metadata.Exit != nil && *p.State.Metadata.Exit != 0:
+				cmd := p.State.Input.Command
+				if cmd == "" {
+					cmd = "a command"
+				}
+				raw = append(raw, SessionEvent{Type: "errored", Ts: m.Time.Created, Text: "failed: " + clipText(cmd)})
+			}
+		}
+	}
+	startedText := "started session"
+	if firstUser != "" {
+		startedText = firstUser
+	}
+	finishedText := "finished"
+	if lastAssistant != "" {
+		finishedText = lastAssistant
+	}
+	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
 }
 
 // scanProvider returns up to limit sessions from one provider's root, newest-first. It reads
@@ -668,7 +880,7 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 		if !cutoff.IsZero() && info.ModTime().Before(cutoff) {
 			return nil
 		}
-		cands = append(cands, candidate{path: path, stem: strings.TrimSuffix(d.Name(), ".jsonl"), mtime: info.ModTime()})
+		cands = append(cands, candidate{path: path, stem: strings.TrimSuffix(strings.TrimSuffix(d.Name(), ".jsonl"), ".json"), mtime: info.ModTime()})
 		return nil
 	})
 	sort.Slice(cands, func(i, j int) bool { return cands[i].mtime.After(cands[j].mtime) })
@@ -679,7 +891,7 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 			break
 		}
 		lines := readLines(c.path)
-		s := p.extract(c.stem, lines)
+		s := p.extract(c.path, c.stem, lines)
 		if s == nil {
 			continue
 		}
@@ -687,7 +899,7 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 		s.LastActiveTs = c.mtime.UnixMilli()
 		s.ResumeCommand = p.resumeCmd(s)
 		s.TranscriptPath = c.path
-		se := p.events(lines)
+		se := p.events(c.path, lines)
 		s.Events = se.Events
 		s.Status = se.Status
 		s.StartedTs = se.StartedTs
@@ -707,18 +919,22 @@ func ExtractSession(path, runtime string) (*SessionInfo, error) {
 		p = claudeProvider("")
 	case "codex":
 		p = codexProvider("")
+	case "opencode":
+		p = opencodeProvider("")
 	default:
 		return nil, fmt.Errorf("agentsessions: unknown runtime %q", runtime)
 	}
 	lines := readLines(path)
-	stem := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-	s := p.extract(stem, lines)
+	// strip .jsonl then .json so a claude/codex path (foo.jsonl) keeps its stem and an opencode
+	// session-info path (ses_x.json) is trimmed too.
+	stem := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".jsonl"), ".json")
+	s := p.extract(path, stem, lines)
 	if s == nil {
 		return nil, nil
 	}
 	s.Runtime = runtime
 	s.TranscriptPath = path
-	se := p.events(lines)
+	se := p.events(path, lines)
 	s.Events = se.Events
 	s.Status = se.Status
 	s.StartedTs = se.StartedTs
@@ -736,9 +952,11 @@ func ScanSessions(windowDays, limit int) ([]SessionInfo, error) {
 		limit = defaultLimit
 	}
 	home := wavebase.GetHomeDir()
+	opencodeRoot := filepath.Join(home, ".local", "share", "opencode", "storage")
 	providers := []provider{
 		claudeProvider(filepath.Join(home, ".claude", "projects")),
 		codexProvider(filepath.Join(home, ".codex", "sessions")),
+		opencodeProvider(opencodeRoot),
 	}
 	var all []SessionInfo
 	for _, p := range providers {

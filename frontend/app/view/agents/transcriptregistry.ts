@@ -7,6 +7,7 @@
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
 import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
+import { extractOpencodeTitle, projectOpencodeTranscript } from "./opencodetranscriptprojection";
 import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
 
 export interface TranscriptProjector {
@@ -20,6 +21,7 @@ export interface TranscriptProjector {
 const PROJECTORS: Record<string, TranscriptProjector> = {
     claude: { project: projectTranscript, extractTitle: extractAiTitle, extractTasks },
     codex: { project: projectCodexTranscript, extractTasks: extractCodexTasks },
+    opencode: { project: projectOpencodeTranscript, extractTitle: extractOpencodeTitle },
 };
 
 const DEFAULT_AGENT = "claude";
@@ -37,6 +39,9 @@ function agentFromPath(path?: string): string | undefined {
     }
     if (path.includes(".codex")) {
         return "codex";
+    }
+    if (path.includes("opencode")) {
+        return "opencode";
     }
     return undefined;
 }

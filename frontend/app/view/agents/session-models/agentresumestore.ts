@@ -12,31 +12,33 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { resumeArgsForClaude, sessionIdFromTranscript } from "../launch";
+import { resumeArgsForClaude, resumeArgsForOpencode, sessionIdFromTranscript } from "../launch";
 import { naRememberFlagsAtom } from "../naflagsstore";
 
 // oref -> resume id already baked into the block this session, to skip redundant SetMeta writes
 const bakedResumeId = new Map<string, string>();
 
-// Pure: resume-on-reopen is Claude-only, gated on the user's "Remember flags" New Agent default. When
-// that setting is off the user wants a clean slate, so the agent relaunches fresh on reopen; when on
-// (the default) reopening reattaches to the live session. codex/antigravity always restart fresh.
-export function shouldPersistClaudeResume(provider: string | undefined, rememberFlags: boolean): boolean {
-    return (provider ?? "").toLowerCase() === "claude" && rememberFlags === true;
+// Pure: resume-on-reopen is Claude- and opencode-only, gated on the user's "Remember flags" New
+// Agent default. When that setting is off the user wants a clean slate, so the agent relaunches
+// fresh on reopen; when on (the default) reopening reattaches to the live session. codex and
+// antigravity always restart fresh.
+export function shouldPersistResume(provider: string | undefined, rememberFlags: boolean): boolean {
+    const p = (provider ?? "").toLowerCase();
+    return (p === "claude" || p === "opencode") && rememberFlags === true;
 }
 
 function sameArgs(a: string[], b: string[]): boolean {
     return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-// Bake the live Claude session's --resume key into the block's persisted cmd:args. Fire-and-forget: any
+// Bake the live session's resume key into the block's persisted cmd:args. Fire-and-forget: any
 // failure just leaves the block to relaunch fresh (today's behavior), so callers ignore the result.
-export async function persistClaudeResume(
+export async function persistResume(
     oref: string,
     provider: string | undefined,
     transcriptPath: string | undefined
 ): Promise<void> {
-    if (!shouldPersistClaudeResume(provider, globalStore.get(naRememberFlagsAtom))) {
+    if (!shouldPersistResume(provider, globalStore.get(naRememberFlagsAtom))) {
         return;
     }
     const sessionId = sessionIdFromTranscript(transcriptPath);
@@ -45,14 +47,17 @@ export async function persistClaudeResume(
     }
     const block = WOS.getObjectValue<Block>(oref);
     const meta = block?.meta as Record<string, unknown> | undefined;
-    if (!meta || meta["controller"] !== "cmd" || meta["cmd"] !== "claude") {
+    if (!meta || meta["controller"] !== "cmd" || (meta["cmd"] !== "claude" && meta["cmd"] !== "opencode")) {
         return;
     }
     const baseArgs = meta["agent:baseargs"] as string[] | undefined;
     if (baseArgs == null) {
         return; // launched before resume support: relaunches fresh
     }
-    const nextArgs = resumeArgsForClaude(sessionId, baseArgs);
+    const nextArgs =
+        meta["cmd"] === "opencode"
+            ? resumeArgsForOpencode(sessionId, baseArgs)
+            : resumeArgsForClaude(sessionId, baseArgs);
     const curArgs = (meta["cmd:args"] as string[] | undefined) ?? [];
     if (sameArgs(nextArgs, curArgs)) {
         bakedResumeId.set(oref, sessionId);

@@ -3,7 +3,12 @@
 
 package cmd
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const testWsh = `C:\a\bin\wsh-0.14.5-windows.x64.exe`
 
@@ -235,5 +240,48 @@ func TestConfigIsHealthy(t *testing.T) {
 	hooksOnly := mergeAgentHooks(map[string]any{}, testWsh)
 	if configIsHealthy(hooksOnly, func(string) bool { return true }) {
 		t.Fatal("config missing managed statusLine should NOT be healthy")
+	}
+}
+
+func TestJsonStringEscapesBackslashes(t *testing.T) {
+	got := jsonString(`C:\Users\u\bin\wsh.exe`)
+	if !strings.Contains(got, `\\`) {
+		t.Fatalf("expected escaped backslashes in %q", got)
+	}
+}
+
+func TestInstallOpencodePlugin_writesSubstitutedPlugin(t *testing.T) {
+	origLookPath := opencodeLookPath
+	opencodeLookPath = func(string) (string, error) { return "opencode", nil }
+	defer func() { opencodeLookPath = origLookPath }()
+
+	home := t.TempDir()
+	if err := installOpencodePlugin(home); err != nil {
+		t.Fatalf("installOpencodePlugin error: %v", err)
+	}
+	path := filepath.Join(home, ".config", "opencode", "plugins", "waveterm-status.js")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading installed plugin: %v", err)
+	}
+	if strings.Contains(string(b), "__WSH_PATH__") {
+		t.Fatalf("placeholder not substituted:\n%s", string(b))
+	}
+	if !strings.Contains(string(b), `"agent-hook"`) {
+		t.Fatalf("installed plugin missing the agent-hook invocation:\n%s", string(b))
+	}
+}
+
+func TestInstallOpencodePlugin_skipsWhenOpencodeMissing(t *testing.T) {
+	origLookPath := opencodeLookPath
+	opencodeLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	defer func() { opencodeLookPath = origLookPath }()
+
+	home := t.TempDir()
+	if err := installOpencodePlugin(home); err != nil {
+		t.Fatalf("missing opencode must not error, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "waveterm-status.js")); !os.IsNotExist(err) {
+		t.Fatalf("plugin should not be written when opencode is absent")
 	}
 }

@@ -36,6 +36,7 @@ const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
     { id: "claude", name: "Claude Code", glyph: "✳" },
     { id: "codex", name: "Codex", glyph: "{ }" },
     { id: "antigravity", name: "Antigravity", glyph: "◭" },
+    { id: "opencode", name: "opencode", glyph: "◇" },
     { id: "terminal", name: "Terminal", glyph: "›_" },
 ];
 
