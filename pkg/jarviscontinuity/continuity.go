@@ -23,7 +23,7 @@ var errNoClaude = fmt.Errorf("continuity summary requires the claude CLI, which 
 // rest transition on every run. A seam so tests mock it; capture is one-shot and unstreamed, so the
 // emit callback is discarded.
 var summarize = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("claude", consult.TierCheap)
+	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
 	if !ok {
 		return "", errNoClaude
 	}

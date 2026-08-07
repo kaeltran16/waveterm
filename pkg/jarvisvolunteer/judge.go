@@ -22,7 +22,7 @@ var judgeRun = consult.Run
 // judge runs on the cheap tier: deciding whether any of a short list is worth interrupting for is
 // bounded classification, not synthesis. One-shot and unstreamed, so the emit callback is discarded.
 var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("claude", consult.TierCheap)
+	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
 	if !ok {
 		return "", errNoClaude
 	}

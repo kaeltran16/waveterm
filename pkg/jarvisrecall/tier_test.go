@@ -27,13 +27,9 @@ func TestSynthesizeRunsOnTheMidTier(t *testing.T) {
 	if _, err := synthesize(context.Background(), "", "why did we pick sqlite-vec?", func(string) {}); err != nil {
 		t.Fatalf("synthesize: %v", err)
 	}
-	// adjacency, not substring: a bare --model check would pass on the cheap tier's flag too
-	for i, a := range got.BaseArgs {
-		if a == "--model" && i+1 < len(got.BaseArgs) && got.BaseArgs[i+1] == consult.MidModel {
-			return
-		}
+	if got.Model != consult.OpenrouterMidModel() {
+		t.Fatalf("expected Model %q in the spec handed to the runner, got %q", consult.OpenrouterMidModel(), got.Model)
 	}
-	t.Fatalf("expected --model %s in the spec handed to the runner, got %v", consult.MidModel, got.BaseArgs)
 }
 
 // Guards the floor specifically: the cheap tier is the wrong home for this call because citation
@@ -50,9 +46,7 @@ func TestSynthesizeIsNotOnTheCheapTier(t *testing.T) {
 	if _, err := synthesize(context.Background(), "", "q", func(string) {}); err != nil {
 		t.Fatalf("synthesize: %v", err)
 	}
-	for i, a := range got.BaseArgs {
-		if a == "--model" && i+1 < len(got.BaseArgs) && got.BaseArgs[i+1] == consult.CheapModel {
-			t.Fatalf("synthesize must not run on the cheap tier, got %v", got.BaseArgs)
-		}
+	if got.Model == consult.OpenrouterCheapModel() {
+		t.Fatalf("synthesize must not run on the cheap tier, got Model %q", got.Model)
 	}
 }

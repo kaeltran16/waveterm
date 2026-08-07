@@ -26,11 +26,7 @@ func TestJudgeRunsOnTheCheapTier(t *testing.T) {
 	if _, err := judge(context.Background(), "", "pick one"); err != nil {
 		t.Fatalf("judge: %v", err)
 	}
-	// adjacency, not substring: a bare --model check would pass on a capable-tier flag too
-	for i, a := range got.BaseArgs {
-		if a == "--model" && i+1 < len(got.BaseArgs) && got.BaseArgs[i+1] == consult.CheapModel {
-			return
-		}
+	if got.Model != consult.OpenrouterCheapModel() {
+		t.Fatalf("expected Model %q in the spec handed to the runner, got %q", consult.OpenrouterCheapModel(), got.Model)
 	}
-	t.Fatalf("expected --model %s in the spec handed to the runner, got %v", consult.CheapModel, got.BaseArgs)
 }

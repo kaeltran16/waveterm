@@ -27,7 +27,7 @@ var judgeRun = consult.Run
 // parsing is parseJudgeReply's job. A seam so tests mock it. One-shot and unstreamed,
 // so the emit callback is discarded.
 var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("claude", consult.TierCheap)
+	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
 	if !ok {
 		return "", errNoClaude
 	}

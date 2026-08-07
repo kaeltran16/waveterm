@@ -52,10 +52,10 @@ func TestBuildJudgePromptListsEveryCandidate(t *testing.T) {
 // The real judge body must select the cheap tier. Overriding judgeRun (the process seam) rather than
 // judge (the whole call) is what makes the tier observable — see the same pattern in jarvisproactive.
 func TestJudgeUsesCheapTier(t *testing.T) {
-	var gotArgs []string
+	var gotModel string
 	old := judgeRun
 	judgeRun = func(_ context.Context, spec consult.RuntimeSpec, _, _ string, _ func(string)) (string, error) {
-		gotArgs = spec.BaseArgs
+		gotModel = spec.Model
 		return "none", nil
 	}
 	defer func() { judgeRun = old }()
@@ -63,8 +63,7 @@ func TestJudgeUsesCheapTier(t *testing.T) {
 	if _, err := judge(context.Background(), "", "prompt"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	joined := strings.Join(gotArgs, " ")
-	if !strings.Contains(joined, "--model "+consult.CheapModel) {
-		t.Fatalf("judge must run on the cheap tier; args were %q", joined)
+	if gotModel != consult.OpenrouterCheapModel() {
+		t.Fatalf("judge must run on the cheap tier; model was %q", gotModel)
 	}
 }

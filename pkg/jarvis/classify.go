@@ -115,7 +115,7 @@ func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQu
 	// cheap tier: this is a bounded pick-an-option classification, and every failure mode
 	// (unparseable reply, no option index, non-"answer" action) already falls through to
 	// escalate — a weaker model degrades toward asking the human, not toward a wrong answer.
-	spec, ok := consult.SpecForTier("claude", consult.TierCheap)
+	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
 	if !ok {
 		return Decision{Action: "escalate", Reason: "claude CLI unavailable"}
 	}

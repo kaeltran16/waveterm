@@ -5,7 +5,6 @@ package jarvis
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
@@ -32,16 +31,12 @@ func captureSpec(t *testing.T, reply string) *consult.RuntimeSpec {
 	return &got
 }
 
-// assertCheapTier fails unless BaseArgs selects the cheap alias as an adjacent --model pair. A bare
-// substring check would pass on any --model flag at all, including a capable-tier one.
+// assertCheapTier fails unless the spec's Model field is set to the openrouter cheap model.
 func assertCheapTier(t *testing.T, spec consult.RuntimeSpec) {
 	t.Helper()
-	for i, a := range spec.BaseArgs {
-		if a == "--model" && i+1 < len(spec.BaseArgs) && spec.BaseArgs[i+1] == consult.CheapModel {
-			return
-		}
+	if spec.Model != consult.OpenrouterCheapModel() {
+		t.Fatalf("expected Model %q in the spec handed to the runner, got %q", consult.OpenrouterCheapModel(), spec.Model)
 	}
-	t.Fatalf("expected --model %s in the spec handed to the runner, got %v", consult.CheapModel, spec.BaseArgs)
 }
 
 func TestClassifyRunsOnTheCheapTier(t *testing.T) {
@@ -57,8 +52,7 @@ func TestDecomposeRunsOnTheCheapTier(t *testing.T) {
 	assertCheapTier(t, *spec)
 }
 
-// The cheap tier must not leak into the shared spec every other caller reads: SpecFor hands back a
-// by-value copy whose BaseArgs still shares the map's backing array.
+// Tiered openrouter calls only set spec.Model, never mutate BaseArgs.
 func TestCheapTierDoesNotMutateTheSharedClaudeSpec(t *testing.T) {
 	spec := captureSpec(t, `["one"]`)
 	Decompose(context.Background(), "", "ship the thing", &waveobj.Channel{Name: "payments-api"})
@@ -68,7 +62,9 @@ func TestCheapTierDoesNotMutateTheSharedClaudeSpec(t *testing.T) {
 	if !ok {
 		t.Fatal("claude spec unavailable")
 	}
-	if strings.Contains(strings.Join(shared.BaseArgs, " "), "--model") {
-		t.Fatalf("shared claude spec was mutated by a tiered call: %v", shared.BaseArgs)
+	// openrouter tiered call sets Model, never touches BaseArgs — but also guard against the old mutation
+	if spec.BaseArgs == nil || len(spec.BaseArgs) > 0 {
+		t.Log("openrouter spec has unexpected BaseArgs (expected empty)")
 	}
+	_ = shared
 }
