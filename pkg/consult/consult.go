@@ -9,6 +9,7 @@
 package consult
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -23,6 +24,11 @@ const (
 	maxContextMessages = 20
 	maxContextChars    = 4000
 )
+
+// apiBackend runs a model call over an HTTP API instead of a local CLI process.
+type apiBackend interface {
+	Run(ctx context.Context, spec RuntimeSpec, prompt string, emit func(string)) (string, error)
+}
 
 // RuntimeSpec is how to invoke a runtime in one-shot/print mode.
 //
@@ -41,6 +47,8 @@ type RuntimeSpec struct {
 	PromptViaStdin bool
 	UsePty         bool
 	ParseLine      func(line []byte) (text string, isReply bool)
+	ApiBackend     apiBackend // if set, Run() calls the API instead of shelling out
+	Model          string     // model id for API backends
 }
 
 // runtimeSpecs is keyed by the FE Runtime identifier. Note antigravity's binary is "agy", not
@@ -58,6 +66,7 @@ var runtimeSpecs = map[string]RuntimeSpec{
 	"codex":       {Bin: "codex", BaseArgs: []string{"exec", "--json"}, PromptViaStdin: true, ParseLine: codexParseLine},
 	"antigravity": {Bin: "agy", BaseArgs: []string{"-p"}, PromptViaStdin: false, UsePty: true},
 	"opencode":    {Bin: "opencode", BaseArgs: []string{"run", "--format", "json"}, PromptViaStdin: false, ParseLine: opencodeParseLine},
+	"openrouter":  {ApiBackend: &openrouterBackend{}},
 }
 
 // codexParseLine extracts assistant text from a `codex exec --json` JSONL event. The reply arrives as
@@ -221,7 +230,7 @@ func ModelForCorpus(corpus string) string {
 }
 
 func SupportedRuntimes() []string {
-	return []string{"claude", "codex", "antigravity", "opencode"}
+	return []string{"claude", "codex", "antigravity", "opencode", "openrouter"}
 }
 
 // OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A

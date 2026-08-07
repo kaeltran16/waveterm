@@ -23,6 +23,9 @@ import (
 // Run executes the runtime in one-shot mode with the given prompt and cwd, calling emit for each
 // reply fragment as it arrives, and returns the complete captured reply.
 func Run(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(string)) (string, error) {
+	if spec.ApiBackend != nil {
+		return spec.ApiBackend.Run(ctx, spec, prompt, emit)
+	}
 	if spec.UsePty {
 		return runPty(ctx, spec, cwd, prompt, emit)
 	}
