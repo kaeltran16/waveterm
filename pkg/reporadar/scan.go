@@ -9,6 +9,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -155,17 +156,13 @@ func runScan(ctx context.Context, reportId string) {
 		return
 	}
 
-	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, cr.signals, V1Modes, synthStreamFn)
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, cr.signals, V1Modes)
 	if ctx.Err() != nil {
 		finishCancelled(ctx, reportId)
 		return
 	}
 	finalizeFindings(ctx, reportId, findings, modeRuns, cr.signals, cr.partialSources)
 }
-
-// synthStreamFn is the model runner used by runScan. Production defaults to runSonnet; tests
-// override it with an injected fake so the suite never spends the real CLI/tokens.
-var synthStreamFn streamFn = runSonnet
 
 // runClusterOnly re-runs synthesis + finalize using a report's retained candidates, with no
 // recollection. Used by Retry after a clustering failure.
@@ -176,7 +173,7 @@ func runClusterOnly(ctx context.Context, reportId string) {
 		return
 	}
 	setStatus(ctx, reportId, StatusClustering, "clustering")
-	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, V1Modes, synthStreamFn)
+	findings, modeRuns := clusterModes(ctx, rpt.ProjectName, rpt.ProjectPath, rpt.Candidates, V1Modes)
 	if ctx.Err() != nil {
 		finishCancelled(ctx, reportId)
 		return
@@ -228,7 +225,7 @@ func finishCancelled(ctx context.Context, reportId string) {
 // prepares + synthesizes + validates them, and returns the merged validated findings plus one
 // RadarModeRun per mode. A mode whose synthesis fails is recorded clustering-failed and skipped; the
 // loop continues so other lenses still deliver.
-func clusterModes(ctx context.Context, projectName, projectPath string, signals []waveobj.RadarSignal, modes []string, fn streamFn) ([]waveobj.RadarFinding, []waveobj.RadarModeRun) {
+func clusterModes(ctx context.Context, projectName, projectPath string, signals []waveobj.RadarSignal, modes []string) ([]waveobj.RadarFinding, []waveobj.RadarModeRun) {
 	var merged []waveobj.RadarFinding
 	var runs []waveobj.RadarModeRun
 	for _, mode := range modes {
@@ -238,7 +235,7 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 		cand := candidatesForMode(mode, signals)
 		groups, payloadTokens := prepareCandidates(cand, DefaultRadarPayloadBudget)
 		run := waveobj.RadarModeRun{Mode: mode, PayloadTokens: payloadTokens}
-		resp, stream, serr := synthesize(ctx, projectName, mode, groups, fn)
+		resp, serr := synthesize(ctx, projectName, mode, groups)
 		if serr != nil {
 			if ctx.Err() != nil {
 				return merged, runs
@@ -254,9 +251,6 @@ func clusterModes(ctx context.Context, projectName, projectPath string, signals 
 		}
 		validated := validateFindings(projectPath, mode, resp, byID)
 		run.Status = ModeRunCompleted
-		run.ResolvedModel = stream.modelID
-		run.TotalTokens = stream.totalTokens
-		run.TokensEstimated = !stream.haveUsage
 		run.FindingCount = len(validated)
 		runs = append(runs, run)
 		merged = append(merged, validated...)
@@ -361,7 +355,7 @@ func finalizeFindings(ctx context.Context, reportId string, validated []waveobj.
 		r.Signals = kept
 		r.ModeRuns = modeRuns
 		r.PartialSources = partialSources
-		r.ConfiguredModel = ConfiguredRadarModel
+		r.ConfiguredModel = consult.MidModel
 		r.ResolvedModel = agg.resolvedModel
 		r.PayloadTokens = agg.payloadTokens
 		r.TotalTokens = agg.totalTokens

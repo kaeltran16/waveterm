@@ -4,7 +4,6 @@
 package reporadar
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -31,11 +30,6 @@ func TestMain(m *testing.M) {
 	}
 	if err := wstore.InitWStore(); err != nil {
 		panic(err)
-	}
-	// never spend the real claude CLI/tokens in tests: default the scan's model runner to a fake
-	// that returns an empty-findings result. Tests needing specific findings override via withFakeSynth.
-	synthStreamFn = func(ctx context.Context, prompt string) ([]string, error) {
-		return []string{`{"type":"result","subtype":"success","result":"{\"findings\":[]}"}`}, nil
 	}
 	code := m.Run()
 	os.RemoveAll(dir)

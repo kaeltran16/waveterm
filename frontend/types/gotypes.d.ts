@@ -1080,7 +1080,6 @@ declare global {
     type CommandMemoryEnqueueSessionData = {
         cwd: string;
         transcriptpath: string;
-        claudepath: string;
     };
 
     // wshrpc.CommandMemoryHarvestData
@@ -2607,6 +2606,10 @@ declare global {
         "term:trimtrailingwhitespace"?: boolean;
         "memory:vaultpath"?: string;
         "memory:gardenerstaledays"?: number;
+        "memory:gardenercooldownmins"?: number;
+        "headless:openroutercheapmodel"?: string;
+        "headless:openroutermidmodel"?: string;
+        "headless:openrouterlongmodel"?: string;
         "jarvis:vaultpath"?: string;
         "jarvis:embedenabled"?: boolean;
         "jarvis:embedbaseurl"?: string;

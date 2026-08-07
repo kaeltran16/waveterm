@@ -167,6 +167,18 @@
         "memory:gardenerstaledays": {
           "type": "integer"
         },
+        "memory:gardenercooldownmins": {
+          "type": "integer"
+        },
+        "headless:openroutercheapmodel": {
+          "type": "string"
+        },
+        "headless:openroutermidmodel": {
+          "type": "string"
+        },
+        "headless:openrouterlongmodel": {
+          "type": "string"
+        },
         "jarvis:vaultpath": {
           "type": "string"
         },
