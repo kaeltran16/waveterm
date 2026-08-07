@@ -111,8 +111,12 @@ type SettingsType struct {
 	TermShowSplitButtons       bool     `json:"term:showsplitbuttons,omitempty"`
 	TermTrimTrailingWhitespace *bool    `json:"term:trimtrailingwhitespace,omitempty"`
 
-	MemoryVaultPath         string `json:"memory:vaultpath,omitempty"`
-	MemoryGardenerStaleDays int    `json:"memory:gardenerstaledays,omitempty"`
+	MemoryVaultPath              string `json:"memory:vaultpath,omitempty"`
+	MemoryGardenerStaleDays      int    `json:"memory:gardenerstaledays,omitempty"`
+	MemoryGardenerCooldownMins   int    `json:"memory:gardenercooldownmins,omitempty"`
+	HeadlessOpenRouterCheapModel string `json:"headless:openroutercheapmodel,omitempty"`
+	HeadlessOpenRouterMidModel   string `json:"headless:openroutermidmodel,omitempty"`
+	HeadlessOpenRouterLongModel  string `json:"headless:openrouterlongmodel,omitempty"`
 	JarvisVaultPath         string `json:"jarvis:vaultpath,omitempty"`
 	JarvisEmbedEnabled      bool   `json:"jarvis:embedenabled,omitempty"`
 	JarvisEmbedBaseURL      string `json:"jarvis:embedbaseurl,omitempty"`

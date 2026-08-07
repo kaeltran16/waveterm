@@ -60,6 +60,11 @@ const (
 
 	ConfigKey_MemoryVaultPath                = "memory:vaultpath"
 	ConfigKey_MemoryGardenerStaleDays        = "memory:gardenerstaledays"
+	ConfigKey_MemoryGardenerCooldownMins     = "memory:gardenercooldownmins"
+
+	ConfigKey_HeadlessOpenRouterCheapModel  = "headless:openroutercheapmodel"
+	ConfigKey_HeadlessOpenRouterMidModel    = "headless:openroutermidmodel"
+	ConfigKey_HeadlessOpenRouterLongModel   = "headless:openrouterlongmodel"
 
 	ConfigKey_JarvisVaultPath                = "jarvis:vaultpath"
 	ConfigKey_JarvisEmbedEnabled             = "jarvis:embedenabled"
