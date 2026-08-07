@@ -10,9 +10,6 @@ package memgarden
 import (
 	"context"
 	"log"
-	"os"
-	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -31,9 +28,12 @@ type gardener struct {
 	mu       sync.Mutex
 	inflight map[string]bool
 
-	now         func() time.Time
-	staleDays   int
-	maxArchives int
+	now          func() time.Time
+	staleDays    int
+	maxArchives  int
+	cooldownMins int
+
+	lastLLMSweep map[string]time.Time
 
 	hubDirsFn   func() []string
 	hubNotesFn  func(hubDir string) []memvault.NoteWithBody
@@ -48,17 +48,19 @@ type gardener struct {
 
 func newGardener() *gardener {
 	g := &gardener{
-		inflight:    map[string]bool{},
-		now:         time.Now,
-		staleDays:   gardenerStaleDays(),
-		maxArchives: maxArchivesPerPass,
-		hubDirsFn:   memvault.ClaudeHubDirs,
-		hubNotesFn:  memvault.HubNotes,
-		repoPathFn:  memvault.RepoPathForHubDir,
-		repoIndexFn: buildRepoIndex,
-		archiveFn:   memvault.Archive,
-		flagFn:      memvault.FlagNote,
-		llmFn:       runGardenLLM,
+		inflight:     map[string]bool{},
+		now:          time.Now,
+		staleDays:    gardenerStaleDays(),
+		maxArchives:  maxArchivesPerPass,
+		cooldownMins: gardenerCooldownMins(),
+		lastLLMSweep: map[string]time.Time{},
+		hubDirsFn:    memvault.ClaudeHubDirs,
+		hubNotesFn:   memvault.HubNotes,
+		repoPathFn:   memvault.RepoPathForHubDir,
+		repoIndexFn:  buildRepoIndex,
+		archiveFn:    memvault.Archive,
+		flagFn:       memvault.FlagNote,
+		llmFn:        runGardenLLM,
 	}
 	g.gardenFn = g.gardenProject
 	return g
@@ -70,6 +72,15 @@ func gardenerStaleDays() int {
 		return cfg.Settings.MemoryGardenerStaleDays
 	}
 	return memvault.StaleDays
+}
+
+// gardenerCooldownMins resolves the minimum minutes between LLM-triggered sweeps per hub from config,
+// falling back to 120 (2 hours). The deterministic pillars (decay, dead-ref) always run.
+func gardenerCooldownMins() int {
+	if cfg := wconfig.GetWatcher().GetFullConfig(); cfg.Settings.MemoryGardenerCooldownMins > 0 {
+		return cfg.Settings.MemoryGardenerCooldownMins
+	}
+	return 120
 }
 
 // gardenProject runs the pillars for one hub, honoring the per-pass archive cap. Every auto-action is
@@ -136,9 +147,23 @@ func (g *gardener) gardenProject(hubDir string) {
 }
 
 // runLLMPillars runs the flag-only LLM pillars: soft-drift (freshness) + near-dup (dedup).
+// Gated by a per-hub cooldown so rapid note/file changes during active development don't
+// trigger an LLM call on every hourly sweep. Deterministic pillars always run unthrottled.
 func (g *gardener) runLLMPillars(hubDir string, notes []memvault.NoteWithBody, repoPath string) {
+	now := g.now()
+	if g.cooldownMins > 0 {
+		g.mu.Lock()
+		last := g.lastLLMSweep[hubDir]
+		g.mu.Unlock()
+		if now.Sub(last) < time.Duration(g.cooldownMins)*time.Minute {
+			return
+		}
+	}
 	g.checkSoftDrift(repoPath, notes)
 	g.checkDedup(hubDir, notes)
+	g.mu.Lock()
+	g.lastLLMSweep[hubDir] = now
+	g.mu.Unlock()
 }
 
 const llmTimeout = 110 * time.Second
@@ -152,28 +177,24 @@ func pickModel(corpus string) string {
 
 // runGardenLLM is the injectable seam wired in newGardener.
 func runGardenLLM(model, prompt, corpus string) (string, bool) {
-	return runClaudeHeadless(model, prompt, corpus)
+	cheap := consult.OpenrouterCheapModel()
+	long := consult.OpenrouterLongModel()
+	resolvedModel := consult.CorpusModel(cheap, long, corpus)
+	spec, _ := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec.Model = resolvedModel
+	fullPrompt := prompt + "\n\n" + corpus
+	return runGardenAPI(spec, fullPrompt)
 }
 
-// runClaudeHeadless runs a `claude -p` pass. The distill guard env marks it as a headless sub-session
-// so its own SessionEnd hook no-ops (no self-enqueue, no recall pollution). Mirrors memdistill.runDistill.
-func runClaudeHeadless(model, prompt, corpus string) (string, bool) {
-	exe := "claude"
-	if p, err := exec.LookPath("claude"); err == nil {
-		exe = p
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
-	defer cancel()
-	c := exec.CommandContext(ctx, exe, "-p", "--model", model, prompt)
-	c.Stdin = strings.NewReader(corpus)
-	c.Dir = wavebase.HeadlessAgentCwd() // keep our transcripts out of any repo's project dir
-	c.Env = append(os.Environ(), memdistill.DistillGuardVar+"=1")
-	out, err := c.Output()
+// runGardenAPI runs a consult.Run pass. The distill guard env is no longer needed because the backend
+// is an API call, not a claude sub-session.
+func runGardenAPI(spec consult.RuntimeSpec, prompt string) (string, bool) {
+	full, err := consult.Run(context.Background(), spec, wavebase.HeadlessAgentCwd(), prompt, func(string) {})
 	if err != nil {
-		log.Printf("[memgarden] llm exec failed (model %s): %v\n", model, err)
+		log.Printf("[memgarden] llm failed (model %s): %v\n", spec.Model, err)
 		return "", false
 	}
-	return string(out), true
+	return full, true
 }
 
 // sweep enumerates hubs and launches a single-flight background garden per project.
