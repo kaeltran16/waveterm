@@ -188,16 +188,28 @@ func modelForTier(tier Tier) string {
 	}
 }
 
-// SpecForTier resolves a runtime spec with the tier's model selection applied. Only claude has a
-// --model contract here, so the other runtimes come back untouched.
+// SpecForTier resolves a runtime spec with the tier's model selection applied.
+// For claude, it appends --model flags to BaseArgs.
+// For openrouter, it sets spec.Model from the configured tier models.
+// Other runtimes are returned unchanged.
 func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
 	spec, ok := SpecFor(runtime)
+	if !ok {
+		return spec, false
+	}
+	if runtime == "openrouter" {
+		switch tier {
+		case TierCheap:
+			spec.Model = OpenrouterCheapModel()
+		case TierMid, TierCapable:
+			spec.Model = OpenrouterMidModel()
+		}
+		return spec, true
+	}
 	model := modelForTier(tier)
-	if !ok || model == "" || runtime != "claude" {
+	if model == "" || runtime != "claude" {
 		return spec, ok
 	}
-	// SpecFor returns a by-value copy whose BaseArgs still shares the map's backing array; copy
-	// before appending so a tiered call can never mutate the spec every other caller reads.
 	spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", model)
 	return spec, true
 }
@@ -227,6 +239,16 @@ func ModelForCorpus(corpus string) string {
 		return CorpusLongModel
 	}
 	return CorpusCheapModel
+}
+
+// CorpusModel picks cheapModel or longModel based on whether corpus exceeds the escalation threshold.
+// Callers using openrouter pass the configured model IDs; callers using claude pass CorpusCheapModel/
+// CorpusLongModel. The threshold is the same for both.
+func CorpusModel(cheapModel, longModel, corpus string) string {
+	if len(corpus) >= CorpusEscalationBytes {
+		return longModel
+	}
+	return cheapModel
 }
 
 func SupportedRuntimes() []string {
