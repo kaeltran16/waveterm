@@ -6,7 +6,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 
-const WSH = "__WSH_PATH__";
+const WSH = __WSH_PATH__;
 const SHADOW_DIR = "waveterm";
 
 const stateBySession = new Map();

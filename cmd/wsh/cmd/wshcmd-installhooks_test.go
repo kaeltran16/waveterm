@@ -270,6 +270,14 @@ func TestInstallOpencodePlugin_writesSubstitutedPlugin(t *testing.T) {
 	if !strings.Contains(string(b), `"agent-hook"`) {
 		t.Fatalf("installed plugin missing the agent-hook invocation:\n%s", string(b))
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolving test executable: %v", err)
+	}
+	wantDeclaration := "const WSH = " + jsonString(exe) + ";"
+	if !strings.Contains(string(b), wantDeclaration) {
+		t.Fatalf("installed plugin has invalid WSH declaration, want %q:\n%s", wantDeclaration, string(b))
+	}
 }
 
 func TestInstallOpencodePlugin_skipsWhenOpencodeMissing(t *testing.T) {
