@@ -29,16 +29,23 @@ const BAR_MAX = 30;
 // range had painted only 13% of its bars 3.2s after mount, so the chart read as EMPTY on arrival.
 // A cascade across hundreds of columns communicates nothing anyway — it only reads as motion at small n.
 const STAGGER_MAX_COLS = 40;
-// Existing design-system tokens, unchanged from the pre-visx chart (claude = accent, codex = success).
-const SERIES = [
-    { key: "claude" as const, label: "claude", color: "var(--color-accent)" },
-    { key: "codex" as const, label: "codex", color: "var(--color-success)" },
-];
+// Stable known-harness metadata. Existing design-system tokens, unchanged from the pre-visx chart
+// (claude = accent, codex = success) plus the OpenCode runtime token. Unknown harnesses fall back to
+// the muted "other" color below.
+const HARNESS_META: Record<string, { label: string; color: string }> = {
+    claude: { label: "claude", color: "var(--color-accent)" },
+    codex: { label: "codex", color: "var(--color-success)" },
+    opencode: { label: "opencode", color: "var(--color-rt-opencode)" },
+};
+const OTHER_COLOR = "var(--color-muted)";
 
-interface Row {
+function harnessMeta(h: string): { label: string; color: string } {
+    return HARNESS_META[h] ?? { label: h, color: OTHER_COLOR };
+}
+
+export interface Row {
     day: string; // "MM-DD"
-    claude: number;
-    codex: number;
+    values: Record<string, number>;
     total: number;
 }
 
@@ -52,11 +59,12 @@ function barPath(x: number, y: number, w: number, h: number, r: number): string 
     return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
 }
 
-export function toRows(daily: DailyUsage[], metric: "tokens" | "spend"): Row[] {
+export function toRows(daily: DailyUsage[], metric: "tokens" | "spend", harnesses: string[]): Row[] {
     return daily.map((d) => {
-        const claude = metric === "tokens" ? d.claudeTokens : d.claudeSpendUsd;
-        const codex = metric === "tokens" ? d.codexTokens : d.codexSpendUsd;
-        return { day: d.day.slice(5), claude, codex, total: claude + codex };
+        const values = Object.fromEntries(
+            harnesses.map((h) => [h, d.byHarness[h]?.[metric === "tokens" ? "tokens" : "spendUsd"] ?? 0])
+        );
+        return { day: d.day.slice(5), values, total: Object.values(values).reduce((sum, value) => sum + value, 0) };
     });
 }
 
@@ -65,11 +73,13 @@ export function DailyChart({
     window: win,
     metric,
     onMetric,
+    harnesses,
 }: {
     daily: DailyUsage[];
     window: "7d" | "all";
     metric: "tokens" | "spend";
     onMetric: (m: "tokens" | "spend") => void;
+    harnesses: string[];
 }) {
     const reduce = useReducedMotion();
     const hostRef = useRef<HTMLDivElement>(null);
@@ -82,7 +92,7 @@ export function DailyChart({
     const { tooltipData, tooltipLeft, tooltipTop, tooltipOpen, showTooltip, hideTooltip } = useTooltip<Row>();
     const { containerRef, TooltipInPortal } = useTooltipInPortal({ scroll: true, detectBounds: true });
 
-    const rows = toRows(daily, metric);
+    const rows = toRows(daily, metric, harnesses);
     const [range, setRange] = useState<[number, number] | null>(null);
     // All-time can span years; 7d never needs a brush. Reset the range when the window or the row
     // count changes so a stale slice can't outlive its data.
@@ -115,6 +125,23 @@ export function DailyChart({
     const byLinear = scaleLinear<number>({ domain: [0, 1], range: [BRUSH_H, 0] });
     const brushMax = Math.max(1, ...rows.map((r) => r.total));
 
+    // Cumulative y-offset from the bottom for each harness segment, plus the height of the top
+    // (highest) non-zero segment — only that one gets rounded top corners.
+    function segmentOffsets(r: Row): { offsets: number[]; top: { index: number; h: number } | null } {
+        const offsets: number[] = [];
+        let acc = 0;
+        let top: { index: number; h: number } | null = null;
+        harnesses.forEach((h, i) => {
+            const v = r.values[h] ?? 0;
+            offsets.push(acc);
+            if (v > 0) {
+                acc += v;
+                top = { index: i, h: v };
+            }
+        });
+        return { offsets, top };
+    }
+
     return (
         <div className="mb-4 rounded-[14px] border border-border bg-surface-raised px-[22px] pb-5 pt-[18px]">
             <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -128,13 +155,13 @@ export function DailyChart({
                 </span>
                 <div className="flex-1" />
                 <div className="flex items-center gap-[14px]">
-                    {SERIES.map((s) => (
+                    {harnesses.map((h) => (
                         <span
-                            key={s.key}
+                            key={h}
                             className="flex items-center gap-[5px] font-mono text-[10.5px] text-secondary"
                         >
-                            <span className="h-[9px] w-[9px] rounded-[2px]" style={{ background: s.color }} />
-                            {s.label}
+                            <span className="h-[9px] w-[9px] rounded-[2px]" style={{ background: harnessMeta(h).color }} />
+                            {harnessMeta(h).label}
                         </span>
                     ))}
                 </div>
@@ -185,12 +212,7 @@ export function DailyChart({
                             />
                             {view.map((r, ri) => {
                                 const cx = (x(r.day) ?? 0) + (x.bandwidth() - bandW) / 2;
-                                const codexH = r.codex > 0 ? CHART_H - y(r.codex) : 0;
-                                const claudeH = r.claude > 0 ? CHART_H - y(r.claude) : 0;
-                                // 2px surface gap between the two stacked fills, per the mark spec
-                                const gap = codexH > 0 && claudeH > 0 ? 2 : 0;
-                                const claudeY = CHART_H - claudeH;
-                                const codexY = claudeY - gap - codexH;
+                                const { offsets, top } = segmentOffsets(r);
                                 const grow = reduce || !cascade
                                     ? {}
                                     : {
@@ -213,7 +235,7 @@ export function DailyChart({
                                     showTooltip({
                                         tooltipData: r,
                                         tooltipLeft: MARGIN.left + cx + bandW / 2,
-                                        tooltipTop: MARGIN.top + Math.max(0, claudeY - 12),
+                                        tooltipTop: MARGIN.top + Math.max(0, y(r.total) - 12),
                                     });
                                 return (
                                     <g key={r.day} onMouseEnter={onEnter} onMouseLeave={hideTooltip}>
@@ -245,22 +267,24 @@ export function DailyChart({
                                                 fill="var(--color-edge-strong)"
                                             />
                                         ) : null}
-                                        {codexH > 0 ? (
-                                            <motion.path
-                                                {...grow}
-                                                d={barPath(cx, codexY, bandW, codexH, 4)}
-                                                fill="var(--color-success)"
-                                                style={originStyle}
-                                            />
-                                        ) : null}
-                                        {claudeH > 0 ? (
-                                            <motion.path
-                                                {...grow}
-                                                d={barPath(cx, claudeY, bandW, claudeH, codexH > 0 ? 0 : 4)}
-                                                fill="var(--color-accent)"
-                                                style={originStyle}
-                                            />
-                                        ) : null}
+                                        {harnesses.map((h, i) => {
+                                            const v = r.values[h] ?? 0;
+                                            if (v <= 0) {
+                                                return null;
+                                            }
+                                            const hPx = CHART_H - y(v);
+                                            const yPx = y(offsets[i] + v);
+                                            const radius = top?.index === i ? 4 : 0;
+                                            return (
+                                                <motion.path
+                                                    key={h}
+                                                    {...grow}
+                                                    d={barPath(cx, yPx, bandW, hPx, radius)}
+                                                    fill={harnessMeta(h).color}
+                                                    style={originStyle}
+                                                />
+                                            );
+                                        })}
                                     </g>
                                 );
                             })}
@@ -321,14 +345,14 @@ export function DailyChart({
                             <div className="mb-[5px] font-mono text-[10.5px] font-semibold text-primary">
                                 {tooltipData.day}
                             </div>
-                            {SERIES.map((s) => (
-                                <div key={s.key} className="flex items-center gap-[6px] font-mono text-[10.5px]">
+                            {harnesses.map((h) => (
+                                <div key={h} className="flex items-center gap-[6px] font-mono text-[10.5px]">
                                     <span
                                         className="h-[8px] w-[8px] flex-none rounded-[2px]"
-                                        style={{ background: s.color }}
+                                        style={{ background: harnessMeta(h).color }}
                                     />
-                                    <span className="text-muted">{s.label}</span>
-                                    <span className="ml-auto pl-3 text-secondary">{axisFmt(tooltipData[s.key])}</span>
+                                    <span className="text-muted">{harnessMeta(h).label}</span>
+                                    <span className="ml-auto pl-3 text-secondary">{axisFmt(tooltipData.values[h] ?? 0)}</span>
                                 </div>
                             ))}
                             <div className="mt-[5px] flex items-center gap-[6px] border-t border-border pt-[5px] font-mono text-[10.5px]">

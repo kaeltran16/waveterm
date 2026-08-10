@@ -423,8 +423,8 @@ export function providerPlanUsage(
  *  every active session of a provider reports the same window; an idle agent instead keeps a frozen
  *  snapshot from its last turn. Feeding that as "live" lets a stale idle reading override a fresher
  *  active one when providerPlanUsage rows collapse per-provider. Excluding idle agents lets them fall
- *  through to the persisted (continuously-updated) saved reading. The Usage donut and the app-bar
- *  gauge both take this so they show the same, current account window. */
+ *  through to the persisted (continuously-updated) saved reading. The Usage surface's Provider limits
+ *  and the cockpit rail take this so they show the same, current account window. */
 export function liveWindowAgents(agents: AgentVM[]): AgentVM[] {
     return agents.filter((a) => a.state !== "idle");
 }
@@ -838,8 +838,7 @@ export function filterAgents(agents: AgentVM[], projectFilter: string, liveOnly:
     return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || a.state !== "idle"));
 }
 
-/** Pure: the highest reported 5-hour plan pct across agents, or undefined if none report one.
- *  Drives the app-bar usage donut (one figure across providers). */
+/** Pure: the highest reported 5-hour plan pct across agents, or undefined if none report one. */
 export function topFiveHourPct(agents: AgentVM[]): number | undefined {
     let top: number | undefined;
     for (const a of agents) {

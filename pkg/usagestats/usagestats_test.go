@@ -1,6 +1,7 @@
 package usagestats
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,8 +18,8 @@ func TestExtractClaude(t *testing.T) {
 		t.Fatalf("want 1 record, got %d", len(got))
 	}
 	r := got[0]
-	if r.Provider != "claude" || r.Model != "claude-opus-4-8" {
-		t.Errorf("provider/model = %q/%q", r.Provider, r.Model)
+	if r.Harness != "claude" || r.Provider != "anthropic" || r.Model != "claude-opus-4-8" {
+		t.Errorf("harness/provider/model = %q/%q/%q", r.Harness, r.Provider, r.Model)
 	}
 	if r.Input != 100 || r.Output != 50 || r.CacheRead != 1000 || r.CacheCreate != 200 || r.CacheCreate1h != 150 {
 		t.Errorf("tokens = %+v", r)
@@ -68,6 +69,70 @@ func TestExtractClaudeNoDedupKeyWhenMissing(t *testing.T) {
 	}
 }
 
+func TestExtractorsSetHarnessAndProvider(t *testing.T) {
+	claude := extractClaude([]string{`{"type":"assistant","timestamp":"2026-08-10T10:00:00Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-1","usage":{"input_tokens":1}}}`})
+	if len(claude) != 1 || claude[0].Harness != "claude" || claude[0].Provider != "anthropic" {
+		t.Fatalf("claude identity = %#v", claude)
+	}
+
+	codex := extractCodex([]string{
+		`{"type":"turn_context","payload":{"model":"gpt-5-codex"}}`,
+		`{"type":"event_msg","timestamp":"2026-08-10T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}}`,
+	})
+	if len(codex) != 1 || codex[0].Harness != "codex" || codex[0].Provider != "openai" {
+		t.Fatalf("codex identity = %#v", codex)
+	}
+}
+
+func TestBucketSeparatesHarnessProviderModelAndDay(t *testing.T) {
+	ts := time.Date(2026, 8, 10, 12, 0, 0, 0, time.Local)
+	records := []Record{
+		{TS: ts, Harness: "claude", Provider: "anthropic", Model: "opus", Input: 1},
+		{TS: ts, Harness: "opencode", Provider: "anthropic", Model: "opus", Input: 2},
+		{TS: ts, Harness: "opencode", Provider: "openai", Model: "gpt-5.6-sol", Input: 3},
+	}
+	got := bucket(records)
+	if len(got) != 3 {
+		t.Fatalf("got %d buckets: %#v", len(got), got)
+	}
+}
+
+func TestExtractOpencodeCurrentAssistantMessage(t *testing.T) {
+	data := []byte(`{
+		"id":"msg_1","role":"assistant",
+		"time":{"created":1786356000000},
+		"providerID":"openai","modelID":"gpt-5.6-sol","cost":0,
+		"tokens":{"input":11,"output":12,"reasoning":13,"cache":{"read":14,"write":15}}
+	}`)
+	r, ok := extractOpencode(data)
+	if !ok {
+		t.Fatal("record was not extracted")
+	}
+	if r.Harness != "opencode" || r.Provider != "openai" || r.Model != "gpt-5.6-sol" {
+		t.Fatalf("identity = %#v", r)
+	}
+	if r.Input != 11 || r.Output != 12 || r.Reasoning != 13 || r.CacheRead != 14 || r.CacheCreate != 15 {
+		t.Fatalf("tokens = %#v", r)
+	}
+	if r.ReportedCostUsd == nil || *r.ReportedCostUsd != 0 {
+		t.Fatalf("reported cost = %#v", r.ReportedCostUsd)
+	}
+}
+
+func TestExtractOpencodeRejectsIncompleteMessages(t *testing.T) {
+	cases := [][]byte{
+		[]byte(`not json`),
+		[]byte(`{"role":"user","time":{"created":1786356000000},"providerID":"openai","modelID":"gpt"}`),
+		[]byte(`{"role":"assistant","time":{"created":1786356000000},"modelID":"gpt","tokens":{}}`),
+		[]byte(`{"role":"assistant","time":{"created":1786356000000},"providerID":"openai","modelID":"gpt"}`),
+	}
+	for _, data := range cases {
+		if _, ok := extractOpencode(data); ok {
+			t.Fatalf("accepted %s", data)
+		}
+	}
+}
+
 func TestExtractCodex(t *testing.T) {
 	turn := `{"timestamp":"2026-06-26T03:07:50.000Z","type":"turn_context","payload":{"model":"gpt-5.5"}}`
 	count := `{"timestamp":"2026-06-26T03:08:00.663Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":9458,"cached_input_tokens":7040,"output_tokens":89,"total_tokens":9547}}}}`
@@ -76,8 +141,8 @@ func TestExtractCodex(t *testing.T) {
 		t.Fatalf("want 1, got %d", len(got))
 	}
 	r := got[0]
-	if r.Provider != "codex" || r.Model != "gpt-5.5" {
-		t.Errorf("provider/model = %q/%q", r.Provider, r.Model)
+	if r.Harness != "codex" || r.Provider != "openai" || r.Model != "gpt-5.5" {
+		t.Errorf("harness/provider/model = %q/%q/%q", r.Harness, r.Provider, r.Model)
 	}
 	if r.Input != 9458-7040 || r.CacheRead != 7040 || r.Output != 89 || r.CacheCreate != 0 {
 		t.Errorf("tokens = %+v", r)
@@ -167,12 +232,12 @@ func TestScanRootsPrunesByModtime(t *testing.T) {
 		t.Fatal(err)
 	}
 	// window 7d (+1d margin) => stale (30d old) pruned, fresh kept
-	got := scanRoots(claude, filepath.Join(dir, "codex-missing"), 7)
+	got := scanRoots(claude, filepath.Join(dir, "codex-missing"), filepath.Join(dir, "opencode-missing"), 7)
 	if len(got) != 1 || got[0].Model != "claude-haiku-4-5" {
 		t.Fatalf("want 1 haiku bucket from fresh file only, got %+v", got)
 	}
 	// windowDays 0 => no prune => both files counted (2 msgs, same model/day bucket)
-	all := scanRoots(claude, filepath.Join(dir, "codex-missing"), 0)
+	all := scanRoots(claude, filepath.Join(dir, "codex-missing"), filepath.Join(dir, "opencode-missing"), 0)
 	if len(all) != 1 || all[0].Msgs != 2 {
 		t.Fatalf("want 1 bucket msgs=2 with no prune, got %+v", all)
 	}
@@ -260,7 +325,7 @@ func TestTranscriptUsage(t *testing.T) {
 	if err != nil || len(cg) != 1 {
 		t.Fatalf("codex buckets = %+v, err = %v; want 1", cg, err)
 	}
-	if cg[0].Provider != "codex" || cg[0].Input != 2418 || cg[0].CacheRead != 7040 || cg[0].Output != 89 || cg[0].CacheCreate != 0 {
+	if cg[0].Harness != "codex" || cg[0].Provider != "openai" || cg[0].Input != 2418 || cg[0].CacheRead != 7040 || cg[0].Output != 89 || cg[0].CacheCreate != 0 {
 		t.Errorf("codex bucket = %+v", cg[0])
 	}
 
@@ -397,6 +462,66 @@ func TestWindowTokens(t *testing.T) {
 	// cutoff[0]: only newer → 200+20+5 = 225 ; cutoff[1]: both → 110 + 225 = 335
 	if got[0] != 225 || got[1] != 335 {
 		t.Fatalf("window sums = %v; want [225 335]", got)
+	}
+}
+
+func TestScanRootsWindowsOpencodeByMessageTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	msgRoot := filepath.Join(dir, "opencode-message")
+	if err := os.MkdirAll(msgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	msg := func(created int64, cost float64, input int) []byte {
+		return []byte(`{"id":"m","role":"assistant","time":{"created":` +
+			fmt.Sprintf("%d", created) +
+			`},"providerID":"openai","modelID":"gpt-5.6-sol","cost":` +
+			fmt.Sprintf("%g", cost) +
+			`,"tokens":{"input":` +
+			fmt.Sprintf("%d", input) +
+			`,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}`)
+	}
+	// old message (30 days ago), file freshly written
+	oldMsg := filepath.Join(msgRoot, "old.json")
+	oldTS := time.Now().AddDate(0, 0, -30)
+	if err := os.WriteFile(oldMsg, msg(oldTS.UnixMilli(), 1.0, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// recent message (today), file freshly written
+	newMsg := filepath.Join(msgRoot, "new.json")
+	if err := os.WriteFile(newMsg, msg(time.Now().UnixMilli(), 0.5, 200), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := scanRoots(filepath.Join(dir, "claude-missing"), filepath.Join(dir, "codex-missing"), msgRoot, 7)
+	if len(got) != 1 {
+		t.Fatalf("want 1 bucket (old excluded by timestamp despite fresh modtime), got %+v", got)
+	}
+	b := got[0]
+	if b.Harness != "opencode" || b.Provider != "openai" || b.Model != "gpt-5.6-sol" || b.Input != 200 {
+		t.Fatalf("bucket = %+v", b)
+	}
+	if b.ReportedCostUsd == nil || *b.ReportedCostUsd != 0.5 {
+		t.Fatalf("reported cost = %#v, want present 0.5", b.ReportedCostUsd)
+	}
+}
+
+func TestBucketSumsReportedCostPreservingPresence(t *testing.T) {
+	ts := time.Date(2026, 8, 10, 12, 0, 0, 0, time.Local)
+	zero := 0.0
+	half := 0.5
+	records := []Record{
+		{TS: ts, Harness: "opencode", Provider: "openai", Model: "gpt-5.6-sol", Input: 1, ReportedCostUsd: &zero},
+		{TS: ts, Harness: "opencode", Provider: "openai", Model: "gpt-5.6-sol", Input: 1, ReportedCostUsd: &half},
+		{TS: ts, Harness: "opencode", Provider: "openai", Model: "gpt-5.6-sol", Input: 1},
+	}
+	got := bucket(records)
+	if len(got) != 1 {
+		t.Fatalf("want 1 bucket, got %d: %#v", len(got), got)
+	}
+	if got[0].ReportedCostUsd == nil || *got[0].ReportedCostUsd != 0.5 {
+		t.Fatalf("reported cost = %#v, want present sum 0.5", got[0].ReportedCostUsd)
+	}
+	if got[0].Input != 3 {
+		t.Fatalf("input = %d, want 3", got[0].Input)
 	}
 }
 

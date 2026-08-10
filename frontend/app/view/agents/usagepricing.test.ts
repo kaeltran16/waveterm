@@ -5,10 +5,12 @@ import type { UsageRecord } from "./usagestats";
 function rec(over: Partial<UsageRecord>): UsageRecord {
     return {
         ts: 0,
+        harness: "claude",
         provider: "claude",
         model: "claude-opus-4-8",
         inputTokens: 0,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheCreateTokens: 0,
         ...over,
@@ -70,10 +72,12 @@ describe("spendOf", () => {
 describe("spendBreakdown", () => {
     const rec = (over: Partial<UsageRecord>): UsageRecord => ({
         ts: 0,
+        harness: "claude",
         provider: "claude",
         model: "claude-opus-4-8",
         inputTokens: 0,
         outputTokens: 0,
+        reasoningTokens: 0,
         cacheReadTokens: 0,
         cacheCreateTokens: 0,
         ...over,
@@ -89,6 +93,11 @@ describe("spendBreakdown", () => {
         expect(b.cacheWrite).toBeCloseTo(6.25, 5); // all 5m (no 1h portion)
     });
 
+    it("prices reasoning at the output rate", () => {
+        const spend = spendBreakdown(rec({ model: "gpt-5.5", reasoningTokens: 1_000_000 }));
+        expect(spend.reasoning).toBe(30);
+    });
+
     it("splits cache write into 1h vs 5m tiers", () => {
         const b = spendBreakdown(rec({ cacheCreateTokens: 1e6, cacheCreate1hTokens: 1e6 }));
         expect(b.cacheWrite).toBeCloseTo(10, 5); // opus cacheWrite1h
@@ -96,7 +105,7 @@ describe("spendBreakdown", () => {
 
     it("unknown model -> all zero", () => {
         const b = spendBreakdown(rec({ model: "mystery", inputTokens: 1e6 }));
-        expect(b).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+        expect(b).toEqual({ input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 });
     });
 
     it("spendOf equals the sum of the breakdown", () => {

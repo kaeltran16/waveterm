@@ -658,12 +658,20 @@ func storageRootOf(path string) string {
 }
 
 type opencodeMsg struct {
-	ID    string `json:"id"`
-	Role  string `json:"role"`
-	Model struct {
-		ProviderID string `json:"providerID"`
-		ModelID    string `json:"modelID"`
-	} `json:"model"`
+	ID         string `json:"id"`
+	Role       string `json:"role"`
+	ProviderID string `json:"providerID"`
+	ModelID    string `json:"modelID"`
+	Cost       float64 `json:"cost"`
+	Tokens     struct {
+		Input     int `json:"input"`
+		Output    int `json:"output"`
+		Reasoning int `json:"reasoning"`
+		Cache     struct {
+			Read  int `json:"read"`
+			Write int `json:"write"`
+		} `json:"cache"`
+	} `json:"tokens"`
 	Time struct {
 		Created int64 `json:"created"`
 	} `json:"time"`
@@ -746,9 +754,11 @@ func opencodeParts(root, messageID string) []opencodePart {
 }
 
 // extractOpencodeSession folds one session info file + its message/part siblings into a
-// SessionInfo. The resume key is the info-file stem. The task is the first user text part; the
-// model is the last assistant message's provider/model id. Token/cost sums come from step-finish
-// parts. Returns nil when the session has no human task (a subagent-only session isn't resumable).
+// SessionInfo. The resume key is the info-file stem. The task is the first user text part. Assistant
+// messages carry their own top-level provider/model id, cost, and token classes (current OpenCode
+// storage shape), so the model and usage sums come from assistant message metadata while parts remain
+// the source for user text and lifecycle events. Returns nil when the session has no human task (a
+// subagent-only session isn't resumable).
 func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo {
 	s := &SessionInfo{ID: sessionID}
 	root := storageRootOf(path)
@@ -766,8 +776,13 @@ func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo
 	}
 	hasTask := false
 	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
-		if m.Role == "assistant" && m.Model.ProviderID != "" {
-			s.Model = m.Model.ProviderID + "/" + m.Model.ModelID // last assistant model wins
+		if m.Role == "assistant" && m.ProviderID != "" {
+			s.Model = m.ProviderID + "/" + m.ModelID // last assistant model wins
+		}
+		if m.Role == "assistant" {
+			t := m.Tokens
+			s.TokensTotal += t.Input + t.Output + t.Reasoning + t.Cache.Read + t.Cache.Write
+			s.CostUsd += m.Cost
 		}
 		if !hasTask && m.Role == "user" {
 			if task := firstUserText(root, m.ID); task != "" {
@@ -778,12 +793,6 @@ func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo
 	}
 	if !hasTask {
 		return nil
-	}
-	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
-		for _, p := range opencodeParts(root, m.ID) {
-			s.TokensTotal += p.Tokens.Input + p.Tokens.Output + p.Tokens.Reasoning + p.Tokens.Cache.Read + p.Tokens.Cache.Write
-			s.CostUsd += p.Cost
-		}
 	}
 	return s
 }

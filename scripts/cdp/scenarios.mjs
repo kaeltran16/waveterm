@@ -2230,11 +2230,109 @@ const jarvisMeasure = {
 // `visx-axis visx-axis-left` on the axis group and `visx-axis-tick` on each tick, and @visx/tooltip
 // puts `visx-tooltip` on the portal. Step 5 is scoped to the chart's own <svg> — a page-wide title
 // query would trip over icon <title> elements that have nothing to do with the chart.
+// Deterministic Usage surface: seed wave:dev-usage-buckets (the dev-only fixture the store reads)
+// and wave:ratelimits (the persisted Claude quota snapshot), reload so savedRateLimitsAtom seeds from
+// the snapshot, then let the Usage surface's mount load consume the historical fixture.
+// Local day keys relative to "now" so the default 7-day view always has recent records.
+const dayAgo = (n) => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - n);
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${month}-${day}`;
+};
+
+const buildUsageFixture = () => {
+    const buckets = [];
+    // Claude/Anthropic/Opus across 16 days so All-time renders the brush.
+    for (let n = 0; n < 16; n++) {
+        buckets.push({
+            harness: "claude",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+            day: dayAgo(n),
+            input: 1000,
+            output: 200,
+            reasoning: 0,
+            cacheread: 3000,
+            cachecreate: 0,
+            cachecreate1h: 0,
+            msgs: 4,
+        });
+    }
+    // Codex/OpenAI with known pricing.
+    buckets.push({
+        harness: "codex",
+        provider: "openai",
+        model: "gpt-5.5",
+        day: dayAgo(2),
+        input: 500,
+        output: 120,
+        reasoning: 0,
+        cacheread: 900,
+        cachecreate: 0,
+        cachecreate1h: 0,
+        msgs: 3,
+    });
+    // OpenCode/OpenAI with reasoning and a REPORTED ZERO cost (present zero, not absent).
+    buckets.push({
+        harness: "opencode",
+        provider: "openai",
+        model: "gpt-5.5",
+        day: dayAgo(1),
+        input: 700,
+        output: 150,
+        reasoning: 400,
+        cacheread: 900,
+        cachecreate: 0,
+        cachecreate1h: 0,
+        reportedcostusd: 0,
+        msgs: 2,
+    });
+    // OpenCode/OpenCode-Go/DeepSeek with UNKNOWN pricing and non-zero reported cost (coverage < 100%).
+    buckets.push({
+        harness: "opencode",
+        provider: "opencode-go",
+        model: "deepseek-v4-pro",
+        day: dayAgo(3),
+        input: 2000,
+        output: 500,
+        reasoning: 0,
+        cacheread: 0,
+        cachecreate: 0,
+        cachecreate1h: 0,
+        reportedcostusd: 1.25,
+        msgs: 5,
+    });
+    return buckets;
+};
+
 const usageCharts = {
     name: "usage-charts",
     surface: "usage",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = {
+            prevUsage: await h.ev(`localStorage.getItem('wave:dev-usage-buckets')`),
+            prevRate: await h.ev(`localStorage.getItem('wave:ratelimits')`),
+        };
+        const nowSec = Math.floor(Date.now() / 1000);
+        // a current Claude snapshot with FUTURE reset epochs, so the donut renders and its countdown is live
+        const rateLimits = {
+            claude: {
+                fivehourpct: 62,
+                fivehourreset: nowSec + 3 * 3600,
+                weekpct: 41,
+                weekreset: nowSec + 6 * 24 * 3600,
+                capturedAt: Date.now(),
+            },
+        };
+        await h.ev(`localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageFixture()))})`);
+        await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(rateLimits))})`);
+        // reload so savedRateLimitsAtom (module-load seeded) and the Usage surface both read the snapshot
+        await h.ev("location.reload()");
+        await new Promise((r) => setTimeout(r, 2500));
+        return ctx;
     },
     async assert(h) {
         const steps = [];
@@ -2274,7 +2372,7 @@ const usageCharts = {
         // these are the pre-existing design-system tokens, so a rename would break the fills silently)
         const palette = await h.ev(`(() => {
             const cs = getComputedStyle(document.documentElement);
-            const names = ["--color-cacheread","--color-accent","--color-warning","--color-success","--color-accent-200","--color-accent-800"];
+            const names = ["--color-cacheread","--color-accent","--color-warning","--color-success","--color-accent-200","--color-accent-800","--color-accent-300","--color-rt-opencode"];
             return Object.fromEntries(names.map((n) => [n, cs.getPropertyValue(n).trim()]));
         })()`);
         rec(
@@ -2283,12 +2381,22 @@ const usageCharts = {
             JSON.stringify(palette)
         );
 
-        // ArcMeter sweep: --usage-arc is set per element, so several rings coexist
+        // ArcMeter sweep, scoped to the Usage surface's Provider limits: the rings (and their per-element
+        // --usage-arc) live only inside that section now that the app bar carries no usage control.
         const arcs = await h.ev(`(() => {
-            const els = [...document.querySelectorAll("*")].filter((e) => e.style && e.style.getPropertyValue("--usage-arc"));
-            return { count: els.length, values: els.slice(0, 6).map((e) => e.style.getPropertyValue("--usage-arc")) };
+            const holder = [...document.querySelectorAll("div")]
+                .find((d) => (d.textContent || "").includes("Provider limits"));
+            if (!holder) return { found: false, count: 0, values: [] };
+            const els = [...holder.querySelectorAll("*")].filter(
+                (e) => e.style && e.style.getPropertyValue("--usage-arc")
+            );
+            return { found: true, count: els.length, values: els.slice(0, 6).map((e) => e.style.getPropertyValue("--usage-arc")) };
         })()`);
-        rec("3. ArcMeter rings scope --usage-arc per element", arcs.count >= 1, JSON.stringify(arcs));
+        rec(
+            "3. Provider-limits ArcMeter rings scope --usage-arc per element",
+            arcs.found && arcs.count >= 1,
+            JSON.stringify(arcs)
+        );
 
         // hovering a column opens the visx tooltip (replacing the old native title attribute). React
         // delegates pointer events from a child rect, so dispatch there rather than on the <g>.
@@ -2350,14 +2458,138 @@ const usageCharts = {
         }
         rec("6. All-time renders the brush strip under the chart", !!brush.brushStrip, JSON.stringify(brush));
 
+        const chipLabels = await h.ev(`(() => {
+            const chips = [...document.querySelectorAll("button")].filter(
+                (b) => ["All", "Claude Code", "Codex", "OpenCode"].includes((b.textContent || "").trim())
+            );
+            return chips.map((b) => (b.textContent || "").trim());
+        })()`);
+        rec(
+            "7. harness filter chips include All, Claude Code, Codex, and OpenCode",
+            ["All", "Claude Code", "Codex", "OpenCode"].every((l) => chipLabels.includes(l)),
+            JSON.stringify(chipLabels)
+        );
+
+        // click the OpenCode chip, then assert only OpenCode history remains
+        const clickedOpenCode = await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")]
+                .find((x) => (x.textContent || "").trim() === "OpenCode");
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(400);
+        const openCodeState = await h.ev(`(() => {
+            const h3s = [...document.querySelectorAll("h3")].map((x) => (x.textContent || "").trim());
+            const body = document.body.textContent || "";
+            return {
+                hasOpenaiModel: body.includes("openai/gpt-5.5"),
+                hasDeepseekModel: body.includes("opencode-go/deepseek-v4-pro"),
+                hasAnthropicHeading: h3s.includes("anthropic"),
+                hasReasoning: body.includes("Reasoning"),
+                hasReportedCostLabel: body.includes("Reported cost"),
+                hasEstimateLabel: body.includes("API-equivalent"),
+            };
+        })()`);
+        rec(
+            "8. selecting OpenCode leaves only OpenCode model cards and totals",
+            clickedOpenCode && openCodeState.hasOpenaiModel && openCodeState.hasDeepseekModel && !openCodeState.hasAnthropicHeading,
+            JSON.stringify(openCodeState)
+        );
+        rec(
+            "9. the token-class section shows Reasoning",
+            openCodeState.hasReasoning,
+            `reasoning=${openCodeState.hasReasoning}`
+        );
+        rec(
+            "10. reported cost and API-equivalent estimate are separate labels",
+            openCodeState.hasReportedCostLabel && openCodeState.hasEstimateLabel,
+            JSON.stringify({ reported: openCodeState.hasReportedCostLabel, estimated: openCodeState.hasEstimateLabel })
+        );
+
+        // DeepSeek is intentionally unpriced, so the estimate's priced-token coverage must be below 100%
+        const coverage = await h.ev(`(() => {
+            const m = (document.body.textContent || "").match(/(\\d+)% of tokens priced/);
+            return m ? Number(m[1]) : null;
+        })()`);
+        rec("11. pricing coverage is below 100% because DeepSeek is unpriced", coverage != null && coverage < 100, `coverage=${coverage}%`);
+
+        // provider limits must be unaffected by the harness filter
+        const limitsBefore = await h.ev(`(() => {
+            const holder = [...document.querySelectorAll("div")]
+                .find((d) => (d.textContent || "").includes("Provider limits"));
+            if (!holder) return -1;
+            return [...holder.querySelectorAll("*")].filter((e) => e.style && e.style.getPropertyValue("--usage-arc")).length;
+        })()`);
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")]
+                .find((x) => (x.textContent || "").trim() === "All");
+            if (b) b.click();
+        })()`);
+        await settle(400);
+        const limitsAfter = await h.ev(`(() => {
+            const holder = [...document.querySelectorAll("div")]
+                .find((d) => (d.textContent || "").includes("Provider limits"));
+            if (!holder) return -1;
+            return [...holder.querySelectorAll("*")].filter((e) => e.style && e.style.getPropertyValue("--usage-arc")).length;
+        })()`);
+        rec("12. harness filters do not alter Provider limits", limitsBefore >= 1 && limitsBefore === limitsAfter, `rings ${limitsBefore} -> ${limitsAfter}`);
+
+        // the harness filter lives in the long-lived view model, so it survives a surface switch
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")]
+                .find((x) => (x.textContent || "").trim() === "OpenCode");
+            if (b) b.click();
+        })()`);
+        await settle(400);
+        await h.goto("cockpit");
+        await h.goto("usage");
+        await settle(600);
+        const filterSurvived = await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")]
+                .find((x) => (x.textContent || "").trim() === "OpenCode");
+            return !!b && (b.className || "").includes("bg-accentbg");
+        })()`);
+        rec("13. OpenCode filter survives a surface switch", filterSurvived === true, `selected=${filterSurvived}`);
+
+        // the app bar must have no usage control at all, and its native window controls must remain
+        const appBar = await h.ev(`(() => {
+            const bar = document.querySelector("[data-tauri-drag-region]");
+            if (!bar) return { found: false };
+            const usageArcs = [...bar.querySelectorAll("*")].filter(
+                (e) => e.style && e.style.getPropertyValue("--usage-arc")
+            ).length;
+            const hasLimitText = (bar.textContent || "").includes("5h limit");
+            const min = !!bar.querySelector('[aria-label="Minimize"]');
+            const max = !!bar.querySelector('[aria-label="Maximize"]');
+            const close = !!bar.querySelector('[aria-label="Close"]');
+            return { found: true, usageArcs, hasLimitText, min, max, close };
+        })()`);
+        rec(
+            "14. the app bar has no usage signal and keeps native window controls",
+            appBar.found && appBar.usageArcs === 0 && !appBar.hasLimitText && appBar.min && appBar.max && appBar.close,
+            JSON.stringify(appBar)
+        );
+
         return steps;
     },
-    // leave the surface on the 7-day window the rest of the suite (and the developer) expects
-    async teardown(h) {
+    // Restore the developer's pre-existing quota + fixture snapshots (delete only absent keys), reload so
+    // savedRateLimitsAtom returns to the original value, then select the 7-day window and return to Cockpit.
+    async teardown(h, ctx) {
+        const restore = (key, prev) =>
+            prev === null
+                ? `localStorage.removeItem('${key}')`
+                : `localStorage.setItem('${key}', ${JSON.stringify(prev)})`;
+        await h.ev(restore("wave:dev-usage-buckets", ctx.prevUsage));
+        await h.ev(restore("wave:ratelimits", ctx.prevRate));
+        await h.ev("location.reload()");
+        await new Promise((r) => setTimeout(r, 2500));
+        await h.goto("usage");
         await h.ev(`(() => {
             const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === "7 days");
             if (b) b.click();
         })()`);
+        await h.goto("cockpit");
     },
 };
 

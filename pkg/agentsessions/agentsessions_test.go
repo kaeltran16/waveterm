@@ -192,13 +192,13 @@ func buildOpencodeTree(t *testing.T, root string) string {
 	writeJSON(t, filepath.Join(storage, "message", "ses_abc", "msg_1.json"),
 		`{"id":"msg_1","sessionID":"ses_abc","role":"user","time":{"created":1770000000000}}`)
 	writeJSON(t, filepath.Join(storage, "message", "ses_abc", "msg_2.json"),
-		`{"id":"msg_2","sessionID":"ses_abc","role":"assistant","model":{"providerID":"openai","modelID":"gpt-5.2-codex"},"time":{"created":1770000090000}}`)
+		`{"id":"msg_2","sessionID":"ses_abc","role":"assistant","providerID":"openai","modelID":"gpt-5.2-codex","time":{"created":1770000090000},"cost":0.5,"tokens":{"input":10,"output":20,"reasoning":30,"cache":{"read":40,"write":50}}}`)
 	writeJSON(t, filepath.Join(storage, "part", "msg_1", "p1.json"),
 		`{"id":"p1","sessionID":"ses_abc","messageID":"msg_1","type":"text","text":"Fix the auth race"}`)
 	writeJSON(t, filepath.Join(storage, "part", "msg_2", "p1.json"),
 		`{"id":"p1","sessionID":"ses_abc","messageID":"msg_2","type":"text","text":"done, +40 -10"}`)
 	writeJSON(t, filepath.Join(storage, "part", "msg_2", "p2.json"),
-		`{"id":"p2","sessionID":"ses_abc","messageID":"msg_2","type":"step-finish","reason":"stop","cost":0.5,"tokens":{"input":100,"output":50,"reasoning":0,"cache":{"read":0,"write":0}}}`)
+		`{"id":"p2","sessionID":"ses_abc","messageID":"msg_2","type":"step-finish","reason":"stop"}`)
 	return storage
 }
 

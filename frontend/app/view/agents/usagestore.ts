@@ -1,44 +1,22 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Usage surface store: the aggregated UsageStats atom + the impure loader. The scan now runs in
-// the Go backend (GetUsageStatsCommand walks every in-window transcript, no file cap); this just
-// asks for buckets and folds them into the view model. On RPC failure the last-good stats are
-// kept (a transient websocket drop must not blank the surface) and usageErrorAtom is set.
+// Usage surface store: raw wire buckets + the impure loader. The scan runs in the Go backend
+// (GetUsageStatsCommand walks every in-window transcript, no file cap); this stores the raw buckets
+// and exposes aggregateBuckets over them (all-history when no harness filter is applied — the
+// surface's filtered stats come from the view model). On RPC failure the last-good buckets are kept
+// (a transient websocket drop must not blank the surface) and usageErrorAtom is set.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { aggregateBuckets, type UsageStats } from "./usagestats";
+import { aggregateBuckets } from "./usagestats";
 
 const DEFAULT_WINDOW_DAYS = 7;
 
-const EMPTY: UsageStats = {
-    totals: {
-        tokensToday: 0,
-        tokensWeek: 0,
-        spendTodayUsd: 0,
-        spendWeekUsd: 0,
-        tokensWindow: 0,
-        spendWindowUsd: 0,
-        claudeTokensWindow: 0,
-        codexTokensWindow: 0,
-        activeDays: 0,
-        busiestDay: null,
-        busiestTokens: 0,
-    },
-    split: [
-        { cls: "cacheRead", label: "Cache read", tokens: 0, spendUsd: 0 },
-        { cls: "output", label: "Output", tokens: 0, spendUsd: 0 },
-        { cls: "cacheWrite", label: "Cache write", tokens: 0, spendUsd: 0 },
-        { cls: "input", label: "Input", tokens: 0, spendUsd: 0 },
-    ],
-    daily: [],
-    providers: [],
-};
-
-export const usageStatsAtom = atom<UsageStats>(EMPTY) as PrimitiveAtom<UsageStats>;
+export const usageBucketsAtom = atom<UsageBucket[]>([]) as PrimitiveAtom<UsageBucket[]>;
+export const allUsageStatsAtom = atom((get) => aggregateBuckets(get(usageBucketsAtom), Date.now(), "all"));
 export const usageErrorAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const usageLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
@@ -47,6 +25,23 @@ export const usageLoadedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // on every tab switch. Module-level atoms keep the user's window/metric choice across unmount.
 export const usageWindowAtom = atom<"7d" | "all">("7d");
 export const usageMetricAtom = atom<"tokens" | "spend">("tokens");
+
+// DEV-only fixture seam: a deterministic localStorage array of wire buckets (see the usage-charts CDP
+// scenario). Compiled out behaviorally in production because import.meta.env.DEV is false. Malformed
+// or absent fixtures fall through to the RPC.
+const DEV_USAGE_FIXTURE_KEY = "wave:dev-usage-buckets";
+
+function devUsageBuckets(): UsageBucket[] | undefined {
+    if (!import.meta.env.DEV || typeof localStorage === "undefined") return undefined;
+    const raw = localStorage.getItem(DEV_USAGE_FIXTURE_KEY);
+    if (raw == null) return undefined;
+    try {
+        const value = JSON.parse(raw);
+        return Array.isArray(value) ? value : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 // Monotonic request id: the latest loadUsage wins. Replaces a single `loading` bool that silently
 // dropped a window switch fired while a prior load was in flight (and let a slow prior-window response
@@ -57,17 +52,18 @@ let loadSeq = 0;
 export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void> {
     const seq = ++loadSeq;
     try {
-        const rtn = await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays });
+        const fixture = devUsageBuckets();
+        const buckets = fixture ?? (await RpcApi.GetUsageStatsCommand(TabRpcClient, { windowdays: windowDays })).buckets ?? [];
         if (seq !== loadSeq) {
             return; // a newer load superseded this one — ignore its result
         }
-        globalStore.set(usageStatsAtom, aggregateBuckets(rtn.buckets ?? [], Date.now()));
+        globalStore.set(usageBucketsAtom, buckets);
         globalStore.set(usageErrorAtom, false);
     } catch {
         if (seq !== loadSeq) {
             return;
         }
-        // keep the last-good stats; surface a subtle "couldn't refresh" instead of blanking
+        // keep the last-good buckets; surface a subtle "couldn't refresh" instead of blanking
         globalStore.set(usageErrorAtom, true);
     } finally {
         if (seq === loadSeq) {

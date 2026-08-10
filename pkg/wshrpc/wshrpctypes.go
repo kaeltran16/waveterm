@@ -312,15 +312,18 @@ type SubagentFileInfo struct {
 }
 
 type UsageBucket struct {
-	Provider      string `json:"provider"`
-	Model         string `json:"model"`
-	Day           string `json:"day"`
-	Input         int    `json:"input"`
-	Output        int    `json:"output"`
-	CacheRead     int    `json:"cacheread"`
-	CacheCreate   int    `json:"cachecreate"`
-	CacheCreate1h int    `json:"cachecreate1h"`
-	Msgs          int    `json:"msgs"`
+	Harness         string   `json:"harness"`
+	Provider        string   `json:"provider"`
+	Model           string   `json:"model"`
+	Day             string   `json:"day"`
+	Input           int      `json:"input"`
+	Output          int      `json:"output"`
+	Reasoning       int      `json:"reasoning"`
+	CacheRead       int      `json:"cacheread"`
+	CacheCreate     int      `json:"cachecreate"`
+	CacheCreate1h   int      `json:"cachecreate1h"`
+	ReportedCostUsd *float64 `json:"reportedcostusd,omitempty"`
+	Msgs            int      `json:"msgs"`
 }
 
 type SessionInfo struct {

@@ -3,11 +3,13 @@ import { aggregateSessionUsage } from "./sessionusage";
 
 function bkt(over: Partial<UsageBucket>): UsageBucket {
     return {
-        provider: "claude",
+        harness: "claude",
+        provider: "anthropic",
         model: "claude-opus-4-8",
         day: "2026-07-14",
         input: 0,
         output: 0,
+        reasoning: 0,
         cacheread: 0,
         cachecreate: 0,
         cachecreate1h: 0,
@@ -23,7 +25,7 @@ describe("aggregateSessionUsage", () => {
         expect(s.totalSpendUsd).toBe(0);
         expect(s.models).toEqual([]);
         expect(s.insight).toBeNull();
-        expect(s.classes.map((c) => c.cls)).toEqual(["cacheRead", "output", "cacheWrite", "input"]);
+        expect(s.classes.map((c) => c.cls)).toEqual(["cacheRead", "reasoning", "output", "cacheWrite", "input"]);
     });
 
     it("folds one model: per-class tokens + opus-priced spend + derived insight", () => {
@@ -55,7 +57,7 @@ describe("aggregateSessionUsage", () => {
 
     it("handles a codex session with no cache-write class", () => {
         const s = aggregateSessionUsage([
-            bkt({ provider: "codex", model: "gpt-5-codex", input: 1_000_000, output: 100_000, cacheread: 500_000 }),
+            bkt({ harness: "codex", provider: "openai", model: "gpt-5-codex", input: 1_000_000, output: 100_000, cacheread: 500_000 }),
         ]);
         const write = s.classes.find((c) => c.cls === "cacheWrite")!;
         expect(write.tokens).toBe(0);

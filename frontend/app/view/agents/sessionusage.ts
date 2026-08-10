@@ -30,7 +30,7 @@ export interface SessionUsage {
 }
 
 function zeroClasses(): Record<TokenClass, number> {
-    return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    return { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
 export function aggregateSessionUsage(buckets: UsageBucket[]): SessionUsage {
@@ -41,35 +41,40 @@ export function aggregateSessionUsage(buckets: UsageBucket[]): SessionUsage {
     for (const b of buckets) {
         const sb = spendBreakdown({
             ts: 0,
+            harness: b.harness,
             provider: b.provider,
             model: b.model,
             inputTokens: b.input,
             outputTokens: b.output,
+            reasoningTokens: b.reasoning,
             cacheReadTokens: b.cacheread,
             cacheCreateTokens: b.cachecreate,
             cacheCreate1hTokens: b.cachecreate1h,
         });
         tok.input += b.input;
         tok.output += b.output;
+        tok.reasoning += b.reasoning;
         tok.cacheRead += b.cacheread;
         tok.cacheWrite += b.cachecreate;
         spd.input += sb.input;
         spd.output += sb.output;
+        spd.reasoning += sb.reasoning;
         spd.cacheRead += sb.cacheRead;
         spd.cacheWrite += sb.cacheWrite;
 
         const m = byModel.get(b.model) ?? { tokens: 0, spend: 0, classes: zeroClasses() };
-        m.tokens += b.input + b.output + b.cacheread + b.cachecreate;
-        m.spend += sb.input + sb.output + sb.cacheRead + sb.cacheWrite;
+        m.tokens += b.input + b.output + b.reasoning + b.cacheread + b.cachecreate;
+        m.spend += sb.input + sb.output + sb.reasoning + sb.cacheRead + sb.cacheWrite;
         m.classes.input += b.input;
         m.classes.output += b.output;
+        m.classes.reasoning += b.reasoning;
         m.classes.cacheRead += b.cacheread;
         m.classes.cacheWrite += b.cachecreate;
         byModel.set(b.model, m);
     }
 
-    const totalTokens = tok.input + tok.output + tok.cacheRead + tok.cacheWrite;
-    const totalSpendUsd = spd.input + spd.output + spd.cacheRead + spd.cacheWrite;
+    const totalTokens = tok.input + tok.output + tok.reasoning + tok.cacheRead + tok.cacheWrite;
+    const totalSpendUsd = spd.input + spd.output + spd.reasoning + spd.cacheRead + spd.cacheWrite;
 
     const classes: ClassUsage[] = CLASS_ORDER.map((cls) => ({
         cls,

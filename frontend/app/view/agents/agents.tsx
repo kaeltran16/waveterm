@@ -26,6 +26,8 @@ import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
 import type { SessionStatusFilter } from "./sessionsarchivestore";
 import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
+import { usageBucketsAtom } from "./usagestore";
+import { aggregateBuckets, type HarnessFilter } from "./usagestats";
 
 export type SurfaceKey =
     | "cockpit"
@@ -108,6 +110,12 @@ export class AgentsViewModel implements ViewModel {
     sessionsStatusFilterAtom = atom<SessionStatusFilter>("all");
     // Sessions surface: selected left-list entry. "all" = merged feed; else "${runtime}:${id}".
     sessionsSelAtom = atom<string>("all");
+    // Usage surface: harness filter chip (All / Claude Code / Codex / OpenCode). Lives here rather
+    // than surface-local state so it survives the surface unmounting on nav-rail switch.
+    usageHarnessFilterAtom = atom<HarnessFilter>("all");
+    // Usage surface: the harness-filtered derivation over the store's raw buckets. Reads
+    // Date.now() at compute time, so it stays fresh when any bucket/filter dependency changes.
+    usageStatsAtom = atom((get) => aggregateBuckets(get(usageBucketsAtom), Date.now(), get(this.usageHarnessFilterAtom)));
 
     // New Project / New Agent modal + command-palette visibility (gated overlays rendered from the cockpit root).
     newProjectOpenAtom = atom(false);
