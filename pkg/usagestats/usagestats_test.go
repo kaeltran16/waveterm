@@ -34,8 +34,8 @@ func TestExtractClaude(t *testing.T) {
 
 func TestExtractClaudeSkips(t *testing.T) {
 	cases := []string{
-		`{"type":"user","message":{}}`,                             // non-assistant
-		`{not json`,                                                // malformed
+		`{"type":"user","message":{}}`, // non-assistant
+		`{not json`,                    // malformed
 		`{"type":"assistant","message":{"model":"claude-opus-4"}}`, // no usage/timestamp
 	}
 	if got := extractClaude(cases); len(got) != 0 {
@@ -45,8 +45,8 @@ func TestExtractClaudeSkips(t *testing.T) {
 
 func TestFilterUsageLines(t *testing.T) {
 	in := []string{
-		`{"type":"assistant","message":{"usage":{"input_tokens":1}}}`, // kept
-		`{"type":"user","message":{}}`,                                // dropped
+		`{"type":"assistant","message":{"usage":{"input_tokens":1}}}`,   // kept
+		`{"type":"user","message":{}}`,                                  // dropped
 		`{"payload":{"info":{"total_token_usage":{"input_tokens":9}}}}`, // Codex: dropped (no "usage" match)
 	}
 	orig := append([]string(nil), in...) // snapshot to assert non-destructiveness
@@ -456,7 +456,7 @@ func TestWindowTokens(t *testing.T) {
 
 	cutoffs := []time.Time{
 		time.Date(2026, 6, 26, 10, 0, 0, 0, time.UTC), // excludes older, includes newer
-		time.Time{},                                   // all-time: includes both
+		time.Time{}, // all-time: includes both
 	}
 	got := sumRecordsSinceCutoffs(recs, cutoffs)
 	// cutoff[0]: only newer → 200+20+5 = 225 ; cutoff[1]: both → 110 + 225 = 335
@@ -522,6 +522,136 @@ func TestBucketSumsReportedCostPreservingPresence(t *testing.T) {
 	}
 	if got[0].Input != 3 {
 		t.Fatalf("input = %d, want 3", got[0].Input)
+	}
+}
+
+// extractOpencodeShadow parses the usage records the opencode status plugin appends to the shadow
+// transcript. Each record is an assistant-message object (reusing extractOpencode's validation) plus
+// a messageID used as the dedup key: the plugin re-emits a message's accumulated usage on every
+// step-finish, so snapshots for one message must collapse to the final one.
+func TestExtractOpencodeShadow(t *testing.T) {
+	lines := []string{
+		`{"type":"usage","messageID":"msg_1","role":"assistant","providerID":"openai","modelID":"gpt-5.2-codex","cost":0.5,"time":{"created":1786334672800},"tokens":{"input":1000,"output":50,"reasoning":30,"cache":{"read":200,"write":10}}}`,
+		// a later step-finish snapshot of the same message accumulates tokens
+		`{"type":"usage","messageID":"msg_1","role":"assistant","providerID":"openai","modelID":"gpt-5.2-codex","cost":0.6,"time":{"created":1786334673000},"tokens":{"input":1200,"output":80,"reasoning":40,"cache":{"read":300,"write":10}}}`,
+		`{"type":"usage","messageID":"msg_2","role":"assistant","providerID":"anthropic","modelID":"claude-sonnet-4-6","time":{"created":1786334674000},"tokens":{"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}}}`,
+		// non-assistant, malformed, and usage-less shadow lines must be skipped
+		`{"type":"usage","messageID":"msg_3","role":"user","providerID":"openai","modelID":"gpt","time":{"created":1},"tokens":{"input":1}}`,
+		`not json`,
+		`{"type":"session","id":"ses_x","title":"t"}`,
+		`{"type":"assistant","text":"no tokens on this one","ts":1}`,
+	}
+	got := extractOpencodeShadow(lines)
+	if len(got) != 3 {
+		t.Fatalf("want 3 records, got %d: %#v", len(got), got)
+	}
+	// dedupe collapses msg_1's snapshots to the largest-output (final) copy
+	ded := dedupe(got)
+	if len(ded) != 2 {
+		t.Fatalf("dedupe want 2, got %d: %#v", len(ded), ded)
+	}
+	byID := map[string]Record{}
+	for _, r := range ded {
+		byID[r.ID] = r
+	}
+	m1 := byID["msg_1"]
+	if m1.Harness != "opencode" || m1.Provider != "openai" || m1.Model != "gpt-5.2-codex" {
+		t.Errorf("msg_1 identity = %#v", m1)
+	}
+	if m1.Input != 1200 || m1.Output != 80 || m1.Reasoning != 40 || m1.CacheRead != 300 || m1.CacheCreate != 10 {
+		t.Errorf("msg_1 tokens = %#v", m1)
+	}
+	if m1.ReportedCostUsd == nil || *m1.ReportedCostUsd != 0.6 {
+		t.Errorf("msg_1 reported cost = %#v, want 0.6", m1.ReportedCostUsd)
+	}
+	if !m1.TS.Equal(time.UnixMilli(1786334673000)) {
+		t.Errorf("msg_1 ts = %v", m1.TS)
+	}
+	m2 := byID["msg_2"]
+	if m2.Harness != "opencode" || m2.Provider != "anthropic" || m2.Model != "claude-sonnet-4-6" {
+		t.Errorf("msg_2 identity = %#v", m2)
+	}
+	if m2.ReportedCostUsd != nil {
+		t.Errorf("msg_2 reported cost = %#v, want absent", m2.ReportedCostUsd)
+	}
+}
+
+// A shadow transcript is a JSONL mix of session/user/assistant/tool/state lines plus the plugin's
+// usage records. TranscriptUsage must route it to the opencode parser and ignore everything that is
+// not a usage record, producing one bucket per (provider, model, day).
+func TestTranscriptUsageOpencodeShadow(t *testing.T) {
+	dir := t.TempDir()
+	shadow := filepath.Join(dir, "opencode", "waveterm", "ses_x.jsonl")
+	if err := os.MkdirAll(filepath.Dir(shadow), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "" +
+		`{"type":"session","id":"ses_x","title":"new session","ts":1}` + "\n" +
+		`{"type":"state","state":"working","ts":2}` + "\n" +
+		`{"type":"user","text":"fix the flaky test","ts":3}` + "\n" +
+		`{"type":"tool","name":"bash","state":"running","input":"go test ./...","ts":4}` + "\n" +
+		`{"type":"assistant","text":"on it","ts":5}` + "\n" +
+		`{"type":"usage","messageID":"msg_1","role":"assistant","providerID":"openai","modelID":"gpt-5.2-codex","cost":0.4,"time":{"created":1786334673000},"tokens":{"input":1000,"output":50,"reasoning":30,"cache":{"read":200,"write":10}}}` + "\n" +
+		`{"type":"usage","messageID":"msg_1","role":"assistant","providerID":"openai","modelID":"gpt-5.2-codex","cost":0.4,"time":{"created":1786334673000},"tokens":{"input":1200,"output":80,"reasoning":40,"cache":{"read":300,"write":10}}}` + "\n"
+	if err := os.WriteFile(shadow, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := TranscriptUsage(shadow)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 bucket, got %d: %#v", len(got), got)
+	}
+	b := got[0]
+	if b.Harness != "opencode" || b.Provider != "openai" || b.Model != "gpt-5.2-codex" {
+		t.Errorf("bucket identity = %#v", b)
+	}
+	// deduped msg_1 final snapshot: input 1200, output 80, reasoning 40, cacheRead 300, cacheWrite 10
+	if b.Input != 1200 || b.Output != 80 || b.Reasoning != 40 || b.CacheRead != 300 || b.CacheCreate != 10 || b.Msgs != 1 {
+		t.Errorf("bucket = %#v", b)
+	}
+	if b.ReportedCostUsd == nil || *b.ReportedCostUsd != 0.4 {
+		t.Errorf("reported cost = %#v, want 0.4", b.ReportedCostUsd)
+	}
+
+	// SumTranscript totals all five classes on the deduped final snapshot.
+	sum, err := SumTranscript(shadow)
+	if err != nil || sum != 1200+80+40+300+10 {
+		t.Fatalf("sum = %d, err = %v; want %d", sum, err, 1200+80+40+300+10)
+	}
+}
+
+// A claude transcript path never routes to the opencode parser (unchanged behavior); a path that is
+// NOT under opencode/waveterm is not treated as a shadow even when it carries usage records.
+func TestTranscriptUsageIgnoresNonShadowOpencodeRecords(t *testing.T) {
+	dir := t.TempDir()
+	claude := filepath.Join(dir, "proj", "sess.jsonl")
+	if err := os.MkdirAll(filepath.Dir(claude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeLine := `{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":50}}}` + "\n"
+	if err := os.WriteFile(claude, []byte(claudeLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := TranscriptUsage(claude)
+	if err != nil || len(got) != 1 || got[0].Harness != "claude" {
+		t.Fatalf("claude bucket = %#v, err = %v; want one claude bucket", got, err)
+	}
+
+	// A plain .jsonl outside opencode/waveterm carrying usage-shaped lines stays on the claude/codex
+	// path and yields nothing (the lines are neither claude nor codex shape).
+	other := filepath.Join(dir, "misc", "x.jsonl")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	usageLine := `{"type":"usage","messageID":"m1","role":"assistant","providerID":"openai","modelID":"gpt-5.2-codex","time":{"created":1786334673000},"tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}`
+	if err := os.WriteFile(other, []byte(usageLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got2, err := TranscriptUsage(other); err != nil || got2 != nil {
+		t.Fatalf("non-shadow usage-only file = %#v, err = %v; want nil/nil", got2, err)
 	}
 }
 

@@ -70,6 +70,21 @@ export const WaveStatusPlugin = async () => {
           });
           report(p.info.sessionID, "working");
         }
+        // the Assistant message carries the authoritative per-message usage; the backend keys on
+        // messageID and keeps only the last snapshot, so step-finish re-emits never double-count.
+        if (p.info.role === "assistant" && p.info.tokens) {
+          appendLine(p.info.sessionID, {
+            type: "usage",
+            messageID: p.info.id,
+            role: p.info.role,
+            providerID: p.info.providerID,
+            modelID: p.info.modelID,
+            cost: p.info.cost,
+            time: { created: p.info.time && p.info.time.created },
+            tokens: p.info.tokens,
+            ts: Date.now(),
+          });
+        }
         return;
       }
       if (event.type === "message.part.updated" && p.part) {

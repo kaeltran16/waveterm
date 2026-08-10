@@ -211,6 +211,39 @@ func extractOpencode(data []byte) (Record, bool) {
 	}, true
 }
 
+// extractOpencodeShadow parses the usage records the opencode status plugin appends to its shadow
+// transcript. Each record is an assistant-message object (the plugin echoes the message.updated info,
+// so extractOpencode's validation applies) plus a messageID. The plugin re-emits a message's
+// accumulated usage on every step-finish, so the ID is the dedup key — dedupe keeps the largest
+// output, i.e. the final snapshot. Records without a messageID are not dedupable and are skipped.
+func extractOpencodeShadow(lines []string) []Record {
+	var out []Record
+	for _, line := range lines {
+		var rec struct {
+			MessageID string `json:"messageID"`
+		}
+		if json.Unmarshal([]byte(line), &rec) != nil || rec.MessageID == "" {
+			continue
+		}
+		r, ok := extractOpencode([]byte(line))
+		if !ok {
+			continue
+		}
+		r.ID = rec.MessageID
+		out = append(out, r)
+	}
+	return out
+}
+
+// isOpencodeShadowPath reports whether path is an opencode shadow transcript (the plugin's JSONL
+// under <opencode root>/waveterm). The parent-dir name plus an opencode segment keeps the check
+// specific without coupling to the machine's data-home layout.
+func isOpencodeShadowPath(path string) bool {
+	return strings.HasSuffix(path, ".jsonl") &&
+		strings.EqualFold(filepath.Base(filepath.Dir(path)), "waveterm") &&
+		strings.Contains(strings.ToLower(path), "opencode")
+}
+
 // dedupe collapses records sharing an ID to the one with the largest Output (the final
 // streaming snapshot; input/cache are constant across snapshots). Keyless records pass through.
 // Mirrors dedupeUsage in usagestats.ts.
@@ -518,6 +551,11 @@ func transcriptRecords(path string) []Record {
 	lines := readLines(path)
 	if len(lines) == 0 {
 		return nil
+	}
+	// opencode shadows are the plugin's usage records, none of which the claude/codex parsers
+	// understand — route them to the opencode parser before the claude/codex attempts run.
+	if isOpencodeShadowPath(path) {
+		return extractOpencodeShadow(lines)
 	}
 	// Claude parse runs on the usage-filtered subset; the Codex fallback needs the full lines (its
 	// model + token counts live on non-usage lines), so filterUsageLines must not mutate `lines`.
