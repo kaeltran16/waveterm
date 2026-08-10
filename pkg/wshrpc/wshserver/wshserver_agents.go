@@ -44,6 +44,15 @@ func (ws *WshServer) GetSubagentsCommand(ctx context.Context, data wshrpc.Comman
 	return &wshrpc.CommandGetSubagentsRtnData{Subagents: infos}, nil
 }
 
+func usageBucketToWire(b usagestats.Bucket) wshrpc.UsageBucket {
+	return wshrpc.UsageBucket{
+		Harness: b.Harness, Provider: b.Provider, Model: b.Model, Day: b.Day,
+		Input: b.Input, Output: b.Output, Reasoning: b.Reasoning,
+		CacheRead: b.CacheRead, CacheCreate: b.CacheCreate, CacheCreate1h: b.CacheCreate1h,
+		ReportedCostUsd: b.ReportedCostUsd, Msgs: b.Msgs,
+	}
+}
+
 func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.CommandGetUsageStatsData) (*wshrpc.CommandGetUsageStatsRtnData, error) {
 	buckets, err := usagestats.ScanUsage(data.WindowDays)
 	if err != nil {
@@ -51,11 +60,7 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 	}
 	out := make([]wshrpc.UsageBucket, len(buckets))
 	for i, b := range buckets {
-		out[i] = wshrpc.UsageBucket{
-			Provider: b.Provider, Model: b.Model, Day: b.Day,
-			Input: b.Input, Output: b.Output, CacheRead: b.CacheRead,
-			CacheCreate: b.CacheCreate, CacheCreate1h: b.CacheCreate1h, Msgs: b.Msgs,
-		}
+		out[i] = usageBucketToWire(b)
 	}
 	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out}, nil
 }
@@ -119,11 +124,7 @@ func (ws *WshServer) GetTranscriptUsageCommand(ctx context.Context, data wshrpc.
 	}
 	out := make([]wshrpc.UsageBucket, len(buckets))
 	for i, b := range buckets {
-		out[i] = wshrpc.UsageBucket{
-			Provider: b.Provider, Model: b.Model, Day: b.Day,
-			Input: b.Input, Output: b.Output, CacheRead: b.CacheRead,
-			CacheCreate: b.CacheCreate, CacheCreate1h: b.CacheCreate1h, Msgs: b.Msgs,
-		}
+		out[i] = usageBucketToWire(b)
 	}
 	return &wshrpc.CommandGetTranscriptUsageRtnData{Buckets: out}, nil
 }

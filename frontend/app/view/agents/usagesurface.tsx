@@ -20,12 +20,11 @@ import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import { DailyChart } from "./dailychart";
 import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
-import { prettyModel } from "./modellabel";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { CLASS_FILL, fmt, foldModels, modelGridClass, usd } from "./usagestats";
 import type { ClassUsage, ProviderUsage, UsageStats } from "./usagestats";
-import { loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageStatsAtom, usageWindowAtom } from "./usagestore";
+import { allUsageStatsAtom, loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageWindowAtom } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
 const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
@@ -48,11 +47,17 @@ function pctStr(n: number): string {
     if (n < 0.1) return n <= 0 ? "0%" : "<0.1%";
     return +n.toFixed(1) + "%";
 }
-const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-// "YYYY-MM-DD" -> "Jul 15" for the busiest-day card sub-line.
-function dayLabel(day: string): string {
-    const [, m, d] = day.split("-").map(Number);
-    return `${MONTH_SHORT[m - 1] ?? "?"} ${d}`;
+
+// Filter-chip labels for known harnesses; unknown ones render their raw id.
+const HARNESS_CHIP_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
+
+// "claude 1.2K · opencode 300" for the token summary-card secondary line.
+function harnessSub(byHarness: Record<string, number>): string {
+    const parts = Object.entries(byHarness)
+        .filter(([, n]) => n > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([h, n]) => `${h} ${fmt(n)}`);
+    return parts.length > 0 ? parts.join(" · ") : "no usage in scope";
 }
 function ageStr(ms: number): string {
     const s = Math.max(0, Math.floor(ms / 1000));
@@ -198,7 +203,7 @@ function SplitCard({ split }: { split: ClassUsage[] }) {
                 segs={split.map((c) => ({ key: c.cls, value: c.spendUsd, fill: CLASS_FILL[c.cls] }))}
             />
 
-            <div className="grid grid-cols-2 gap-x-[12px] gap-y-[14px] border-t border-border pt-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-x-[12px] gap-y-[14px] border-t border-border pt-4 sm:grid-cols-3 lg:grid-cols-5">
                 {split.map((c) => (
                     <div key={c.cls}>
                         <div className="mb-2 flex items-center gap-[7px]">
@@ -237,7 +242,9 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
             {foldModels(p.models, MAX_MODEL_ROWS).map((m, i) => (
                 <div key={m.model} className="mb-[13px]">
                     <div className="mb-[6px] flex items-baseline justify-between">
-                        <span className="font-mono text-[12px] text-secondary" title={m.model}>{prettyModel(m.model)}</span>
+                        <span className="font-mono text-[12px] text-secondary" title={`${p.provider}/${m.model}`}>
+                            {m.model === "Other" ? m.model : `${p.provider}/${m.model}`}
+                        </span>
                         <span className="font-mono text-[11px] text-muted">
                             {fmt(m.tokens)} · <span className="font-semibold text-secondary">{pctStr(m.pct)}</span>
                         </span>
@@ -284,13 +291,15 @@ function UsageHistorySkeleton() {
 }
 export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
-    const stats: UsageStats = useAtomValue(usageStatsAtom);
+    const allStats: UsageStats = useAtomValue(allUsageStatsAtom);
+    const stats: UsageStats = useAtomValue(model.usageStatsAtom);
     const loadError = useAtomValue(usageErrorAtom);
     const usageLoaded = useAtomValue(usageLoadedAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
     const [usageWindow, setUsageWindow] = useAtom(usageWindowAtom);
     const [usageMetric, setUsageMetric] = useAtom(usageMetricAtom);
+    const [harnessFilter, setHarnessFilter] = useAtom(model.usageHarnessFilterAtom);
 
     useEffect(() => {
         const days = usageWindow === "7d" ? 7 : 0;
@@ -303,25 +312,40 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         return () => clearInterval(refresh);
     }, [usageWindow]);
 
+    // A window reload can remove the selected harness from the loaded data (e.g. its history falls
+    // outside the window). Reset to "all" so the filters never point at an absent harness.
+    useEffect(() => {
+        if (harnessFilter !== "all" && !allStats.availableHarnesses.includes(harnessFilter)) {
+            setHarnessFilter("all");
+        }
+    }, [allStats.availableHarnesses, harnessFilter, setHarnessFilter]);
+
     const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
     const claudeDonut = donuts.find((d) => d.provider === "claude");
     const weeklyProjectionMs =
         claudeDonut?.week.pct != null && claudeDonut.week.reset != null
             ? projectWeeklyExhaustion(
-                  stats.daily.map((d) => ({ day: d.day, tokens: d.claudeTokens })),
+                  stats.daily.map((d) => ({ day: d.day, tokens: d.byHarness.claude?.tokens ?? 0 })),
                   claudeDonut.week.pct,
                   claudeDonut.week.reset,
                   now
               )
             : null;
-    const tokTotal = stats.split.reduce((s, c) => s + c.tokens, 0);
-    const cacheRead = stats.split.find((c) => c.cls === "cacheRead");
-    const cachePctSub =
-        tokTotal > 0 && cacheRead ? `${pctStr((cacheRead.tokens / tokTotal) * 100)} are cache reads` : "API-equivalent";
-    const claudeToday = stats.daily.length ? stats.daily[stats.daily.length - 1].claudeTokens : 0;
-    const codexToday = stats.daily.length ? stats.daily[stats.daily.length - 1].codexTokens : 0;
     const hasHistory = stats.providers.length > 0 || stats.totals.tokensWeek > 0;
     const revealHistory = useDidBecomeTrue(hasHistory);
+
+    const chartHarnesses = harnessFilter === "all" ? allStats.availableHarnesses : [harnessFilter];
+
+    const cardForReported = (
+        present: boolean,
+        harnesses: string[],
+        value: number
+    ): { value: string; sub: string } => ({
+        value: usd(value),
+        sub: present && harnesses.length > 0 ? `from ${harnesses.join(" · ")}` : "No source reports cost",
+    });
+    const estimateSub = (coveragePct: number | null) =>
+        coveragePct == null ? "no priced tokens" : `${Math.round(coveragePct)}% of tokens priced`;
 
     return (
         <MotionConfig reducedMotion="user">
@@ -332,10 +356,10 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                             border={false}
                             title="Usage"
                             subtitle={
-                                <span className="max-w-[640px] leading-[1.5]">
-                                    Durable history from transcripts, plus live quota while agents run. Spend is an{" "}
-                                    <span className="text-muted-foreground">≈ API-equivalent</span> estimate from a bundled
-                                    price table — never a bill.
+                                <span className="max-w-[680px] leading-[1.5]">
+                                    Durable history from transcripts, plus live provider quota while agents run. Reported
+                                    cost is what each agent source recorded; the API-equivalent estimate comes from a bundled
+                                    price table. Neither is a bill.
                                 </span>
                             }
                             actions={
@@ -354,16 +378,16 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         ) : null}
                     </div>
 
-                    {/* LIVE LIMITS */}
+                    {/* PROVIDER LIMITS */}
                     <div className="mb-[10px] rounded-[14px] border border-border bg-background px-[18px] py-[15px]">
                         <div className="mb-[14px] flex flex-wrap items-center gap-[11px]">
                             <span className="flex items-center gap-2">
                                 <span className="h-[8px] w-[8px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-success" />
                                 <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-secondary">
-                                    Live limits
+                                    Provider limits
                                 </span>
                             </span>
-                            <span className="font-mono text-[10.5px] text-muted">ephemeral · known only while a Claude agent runs</span>
+                            <span className="font-mono text-[10.5px] text-muted">ephemeral · known only while a provider agent runs</span>
                             <div className="flex-1" />
                             <div className="flex items-center gap-[13px] font-mono text-[10px] text-secondary">
                                 <span className="flex items-center gap-[5px]">
@@ -378,7 +402,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         </div>
                         {donuts.length === 0 ? (
                             <div className="py-3 text-center font-mono text-[11px] text-muted">
-                                No quota readings yet — start a Claude agent.
+                                No provider limit data is currently available.
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -395,7 +419,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                     <p className="mb-8 ml-[2px] font-mono text-[10.5px] leading-[1.5] text-muted">
                         Each donut keeps its last snapshot per provider — countdowns stay correct off absolute reset times,
-                        rolling to empty once a window passes. Codex quota isn’t wired through the live roster yet.
+                        rolling to empty once a window passes. Providers without a trustworthy reading are omitted.
                     </p>
 
                     {/* HISTORICAL */}
@@ -411,35 +435,93 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         <div className="mt-10 text-center text-[13px] text-muted">No usage yet — start an agent.</div>
                     ) : (
                         <motion.div variants={cardVariants} initial={revealHistory ? "initial" : false} animate="animate">
+                            <div className="mb-4 flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setHarnessFilter("all")}
+                                    className={cn(
+                                        "rounded-full border px-3 py-1 font-mono text-[11px]",
+                                        harnessFilter === "all"
+                                            ? "border-accent bg-accentbg text-accent"
+                                            : "border-border text-secondary hover:bg-surface-raised"
+                                    )}
+                                >
+                                    All
+                                </button>
+                                {allStats.availableHarnesses.map((h) => (
+                                    <button
+                                        key={h}
+                                        type="button"
+                                        onClick={() => setHarnessFilter(h)}
+                                        className={cn(
+                                            "rounded-full border px-3 py-1 font-mono text-[11px]",
+                                            harnessFilter === h
+                                                ? "border-accent bg-accentbg text-accent"
+                                                : "border-border text-secondary hover:bg-surface-raised"
+                                        )}
+                                    >
+                                        {HARNESS_CHIP_LABEL[h] ?? h}
+                                    </button>
+                                ))}
+                            </div>
+
                             <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
                                 {usageWindow === "7d" ? (
                                     <>
                                         <StatCard
                                             label="Tokens · today"
-                                            value={fmt(claudeToday + codexToday)}
-                                            sub={`claude ${fmt(claudeToday)} · codex ${fmt(codexToday)}`}
+                                            value={fmt(stats.totals.tokensToday)}
+                                            sub={harnessSub(stats.totals.tokensTodayByHarness)}
                                         />
-                                        <StatCard label="Spend · today" value={`≈ ${usd(stats.totals.spendTodayUsd)}`} sub="API-equivalent" />
-                                        <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} sub={cachePctSub} />
-                                        <StatCard label="Spend · 7 days" value={`≈ ${usd(stats.totals.spendWeekUsd)}`} sub="API-equivalent" />
+                                        <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} />
+                                        <StatCard
+                                            label="Reported cost · 7 days"
+                                            value={cardForReported(
+                                                stats.totals.reportedCostWeekPresent,
+                                                stats.totals.reportedCostWeekHarnesses,
+                                                stats.totals.reportedCostWeekUsd
+                                            ).value}
+                                            sub={cardForReported(
+                                                stats.totals.reportedCostWeekPresent,
+                                                stats.totals.reportedCostWeekHarnesses,
+                                                stats.totals.reportedCostWeekUsd
+                                            ).sub}
+                                        />
+                                        <StatCard
+                                            label="API-equivalent · 7 days"
+                                            value={`≈ ${usd(stats.totals.spendWeekUsd)}`}
+                                            sub={estimateSub(stats.totals.pricingCoverageWeekPct)}
+                                        />
                                     </>
                                 ) : (
                                     <>
                                         <StatCard
                                             label="Tokens · all time"
                                             value={fmt(stats.totals.tokensWindow)}
-                                            sub={`claude ${fmt(stats.totals.claudeTokensWindow)} · codex ${fmt(stats.totals.codexTokensWindow)}`}
+                                            sub={harnessSub(stats.totals.tokensWindowByHarness)}
                                         />
-                                        <StatCard label="Spend · all time" value={`≈ ${usd(stats.totals.spendWindowUsd)}`} sub="API-equivalent" />
                                         <StatCard
                                             label="Daily avg"
                                             value={fmt(stats.totals.activeDays > 0 ? stats.totals.tokensWindow / stats.totals.activeDays : 0)}
                                             sub={`over ${stats.totals.activeDays} active day${stats.totals.activeDays === 1 ? "" : "s"}`}
                                         />
                                         <StatCard
-                                            label="Busiest day"
-                                            value={fmt(stats.totals.busiestTokens)}
-                                            sub={stats.totals.busiestDay ? dayLabel(stats.totals.busiestDay) : "—"}
+                                            label="Reported cost · all time"
+                                            value={cardForReported(
+                                                stats.totals.reportedCostWindowPresent,
+                                                stats.totals.reportedCostWindowHarnesses,
+                                                stats.totals.reportedCostWindowUsd
+                                            ).value}
+                                            sub={cardForReported(
+                                                stats.totals.reportedCostWindowPresent,
+                                                stats.totals.reportedCostWindowHarnesses,
+                                                stats.totals.reportedCostWindowUsd
+                                            ).sub}
+                                        />
+                                        <StatCard
+                                            label="API-equivalent · all time"
+                                            value={`≈ ${usd(stats.totals.spendWindowUsd)}`}
+                                            sub={estimateSub(stats.totals.pricingCoverageWindowPct)}
                                         />
                                     </>
                                 )}
@@ -452,6 +534,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                 window={usageWindow}
                                 metric={usageMetric}
                                 onMetric={setUsageMetric}
+                                harnesses={chartHarnesses}
                             />
 
                             <div className={modelGridClass(stats.providers.length)}>

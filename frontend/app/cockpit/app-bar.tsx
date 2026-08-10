@@ -1,49 +1,17 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { ArcMeter } from "@/app/element/meter";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { liveWindowAgents, providerPlanUsage, usageLevel } from "@/app/view/agents/agentsviewmodel";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
 import { SpaceSwitcher } from "@/app/view/agents/spaceswitcher";
-import { mergeRateLimitWindows, savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
-import { runtimeMeta } from "@/app/view/agents/runtimemeta";
 import { formatChordString } from "@/util/keysym";
-import { cn } from "@/util/util";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useAtomValue } from "jotai";
-
-// donut foreground tracks the usage band — the SAME rings the Usage tab uses (success/warn/error), so
-// a given percentage reads the same color in the app bar and on the tab. Both are now literally the
-// same ArcMeter, which is what finally makes that true: this ring previously had no --usage-arc (so it
-// never animated) and a different track color.
-const DONUT_COLOR: Record<"ok" | "warn" | "hot", string> = {
-    ok: "var(--color-success)",
-    warn: "var(--color-warning)",
-    hot: "var(--color-error)",
-};
 
 // Handoff top app bar (46px). Replaces CockpitTitlebar + the old "+ New Agent" strip.
 // Windows adaptation (spec D1): functional min/max/close on the right; no mac traffic-lights.
 export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
     const win = getCurrentWindow();
-    const agents = useAtomValue(model.agentsAtom);
-    const saved = useAtomValue(savedRateLimitsAtom);
-    const now = useAtomValue(model.nowAtom);
-    // one compact gauge per provider that reports a 5-hour window (claude + codex) — the SAME merged
-    // (live-over-saved) per-provider data as the Usage tab. Showing every provider (not just the most-
-    // utilized) means a maxed-out provider no longer hides the other's usage.
-    const gauges = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now)
-        .filter((d) => d.fivehour.pct != null)
-        .map((d) => {
-            const pct = d.fivehour.pct!;
-            return {
-                provider: d.provider,
-                pct,
-                rt: runtimeMeta(d.provider),
-            };
-        });
     return (
         <div
             data-tauri-drag-region
@@ -83,61 +51,28 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <span className="-mt-px text-[15px] leading-none">+</span>New agent
             </button>
 
-            {/* Usage column: the 5h gauge sits above the usage rail. The left border IS the rail divider —
-                this column is w-[300px] and flush to the right edge, so its border-l lands exactly on the
-                rail's left edge (also 300px), reading as one continuous vertical line from top to bottom. */}
-            <div className="flex h-full w-[300px] shrink-0 items-center border-l border-border pl-3">
+            <div className="ml-auto flex h-full shrink-0 items-center border-l border-border">
                 <button
-                    type="button"
-                    onClick={() => globalStore.set(model.surfaceAtom, "usage")}
-                    className="flex cursor-pointer flex-col items-start justify-center gap-0.5 rounded-[7px] px-1.5 py-1 hover:bg-surface-hover"
+                    onClick={() => win.minimize()}
+                    aria-label="Minimize"
+                    className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
                 >
-                    {gauges.length === 0 ? (
-                        <span className="font-mono text-[11px] text-secondary">—</span>
-                    ) : (
-                        <span className="flex items-center gap-3">
-                            {gauges.map((g) => (
-                                <span key={g.provider} className="flex items-center gap-1.5">
-                                    <ArcMeter
-                                        pct={g.pct}
-                                        size={18}
-                                        thickness={3.5}
-                                        color={DONUT_COLOR[usageLevel(g.pct)]}
-                                        center="bg-surface"
-                                    />
-                                    <span className="flex items-center gap-1 font-mono text-[11px] text-secondary">
-                                        <span className={cn("leading-none", g.rt.text)}>{g.rt.glyph}</span>
-                                        {`${Math.round(g.pct)}%`}
-                                    </span>
-                                </span>
-                            ))}
-                        </span>
-                    )}
-                    <span className="text-[9px] text-muted">5h limit</span>
+                    &#x2013;
                 </button>
-                <div className="ml-auto flex h-full items-center">
-                    <button
-                        onClick={() => win.minimize()}
-                        aria-label="Minimize"
-                        className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
-                    >
-                        &#x2013;
-                    </button>
-                    <button
-                        onClick={() => win.toggleMaximize()}
-                        aria-label="Maximize"
-                        className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
-                    >
-                        &#x25A1;
-                    </button>
-                    <button
-                        onClick={() => win.close()}
-                        aria-label="Close"
-                        className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-error hover:text-white"
-                    >
-                        &#x2715;
-                    </button>
-                </div>
+                <button
+                    onClick={() => win.toggleMaximize()}
+                    aria-label="Maximize"
+                    className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
+                >
+                    &#x25A1;
+                </button>
+                <button
+                    onClick={() => win.close()}
+                    aria-label="Close"
+                    className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-error hover:text-white"
+                >
+                    &#x2715;
+                </button>
             </div>
         </div>
     );

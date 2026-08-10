@@ -127,8 +127,8 @@ export function mergeRateLimitWindows(
 }
 
 // Pure: the single most-utilized provider by 5-hour pct across the merged donuts, or undefined if none
-// report a 5-hour window. Drives the app-bar's compact gauge so it reads off the SAME data as the Usage
-// tab (persisted + per-provider) and can label which provider it's showing when both Claude and Codex exist.
+// report a 5-hour window. Drives the Jarvis pet's provider reading off the SAME data as the Usage tab
+// (persisted + per-provider) and can label which provider it's showing when both Claude and Codex exist.
 // A reading nobody is producing right now must never outrank a live one — a stale snapshot pinned high
 // would otherwise speak for the whole account, and its countdown with it. Stale still answers when
 // nothing is live, which is the entire point of persisting it.

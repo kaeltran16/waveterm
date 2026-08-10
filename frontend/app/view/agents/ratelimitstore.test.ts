@@ -28,8 +28,8 @@ describe("topProviderUsage", () => {
     });
 
     // observed: a day-old codex snapshot pinned at 100% outranked a live claude reading of 63%, so the
-    // app-bar gauge and the jarvis avatar both reported codex's number — and codex's countdown — as the
-    // account's current window. A reading nobody is currently producing must never beat one that is live.
+    // jarvis avatar reported codex's number — and codex's countdown — as the account's current window.
+    // A reading nobody is currently producing must never beat one that is live.
     it("never lets a stale saved reading outrank a live one", () => {
         const donuts = mergeRateLimitWindows(
             [{ provider: "claude", usage: { fivehourpct: 63 } }],

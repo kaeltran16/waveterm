@@ -24,28 +24,34 @@ import (
 // Record is one parsed usage event. Token fields mirror the four Claude classes; Codex maps
 // its cumulative totals onto the same shape (CacheCreate stays 0).
 type Record struct {
-	ID            string // "message.id:requestId" dedup key; empty when either is absent
-	TS            time.Time
-	Provider      string // "claude" | "codex"
-	Model         string
-	Input         int
-	Output        int
-	CacheRead     int
-	CacheCreate   int
-	CacheCreate1h int // subset of CacheCreate billed at the 1h extended-cache rate
+	ID              string // "message.id:requestId" dedup key; empty when either is absent
+	TS              time.Time
+	Harness         string
+	Provider        string
+	Model           string
+	Input           int
+	Output          int
+	Reasoning       int
+	CacheRead       int
+	CacheCreate     int
+	CacheCreate1h   int // subset of CacheCreate billed at the 1h extended-cache rate
+	ReportedCostUsd *float64
 }
 
-// Bucket is one (provider, model, local-day) aggregate. The frontend prices and rolls these up.
+// Bucket is one (harness, provider, model, local-day) aggregate. The frontend prices and rolls these up.
 type Bucket struct {
-	Provider      string
-	Model         string
-	Day           string // "YYYY-MM-DD", server-local timezone
-	Input         int
-	Output        int
-	CacheRead     int
-	CacheCreate   int
-	CacheCreate1h int
-	Msgs          int
+	Harness         string
+	Provider        string
+	Model           string
+	Day             string // "YYYY-MM-DD", server-local timezone
+	Input           int
+	Output          int
+	Reasoning       int
+	CacheRead       int
+	CacheCreate     int
+	CacheCreate1h   int
+	ReportedCostUsd *float64
+	Msgs            int
 }
 
 // extractClaude parses Claude Code transcript lines: one record per type:"assistant" line that
@@ -97,7 +103,7 @@ func extractClaude(lines []string) []Record {
 			c1h = rec.Message.Usage.CacheCreation.Ephemeral1h
 		}
 		out = append(out, Record{
-			ID: id, TS: ts, Provider: "claude", Model: rec.Message.Model,
+			ID: id, TS: ts, Harness: "claude", Provider: "anthropic", Model: rec.Message.Model,
 			Input: rec.Message.Usage.InputTokens, Output: rec.Message.Usage.OutputTokens,
 			CacheRead: rec.Message.Usage.CacheReadInputTokens, CacheCreate: rec.Message.Usage.CacheCreationInputTokens,
 			CacheCreate1h: c1h,
@@ -160,7 +166,7 @@ func extractCodex(lines []string) []Record {
 			if input < 0 {
 				input = 0
 			}
-			best = &Record{TS: ts, Provider: "codex", Model: model, Input: input, Output: tu.OutputTokens, CacheRead: tu.CachedInputTokens}
+			best = &Record{TS: ts, Harness: "codex", Provider: "openai", Model: model, Input: input, Output: tu.OutputTokens, CacheRead: tu.CachedInputTokens}
 			bestTotal = total
 		}
 	}
@@ -168,6 +174,41 @@ func extractCodex(lines []string) []Record {
 		return nil
 	}
 	return []Record{*best}
+}
+
+// extractOpencode parses a current-format OpenCode assistant-message file. A record is accepted
+// only when the message is an assistant turn with a valid creation epoch, non-empty provider and
+// model IDs, and a token object. Reported cost uses a *float64 so an absent report differs from a
+// reported zero. Assistant messages are final records rather than cumulative streaming snapshots,
+// so no dedup key is needed here.
+func extractOpencode(data []byte) (Record, bool) {
+	var msg struct {
+		Role       string   `json:"role"`
+		ProviderID string   `json:"providerID"`
+		ModelID    string   `json:"modelID"`
+		Cost       *float64 `json:"cost"`
+		Time       struct {
+			Created int64 `json:"created"`
+		} `json:"time"`
+		Tokens *struct {
+			Input     int `json:"input"`
+			Output    int `json:"output"`
+			Reasoning int `json:"reasoning"`
+			Cache     struct {
+				Read  int `json:"read"`
+				Write int `json:"write"`
+			} `json:"cache"`
+		} `json:"tokens"`
+	}
+	if json.Unmarshal(data, &msg) != nil || msg.Role != "assistant" || msg.Time.Created <= 0 ||
+		msg.ProviderID == "" || msg.ModelID == "" || msg.Tokens == nil {
+		return Record{}, false
+	}
+	return Record{
+		TS: time.UnixMilli(msg.Time.Created), Harness: "opencode", Provider: msg.ProviderID, Model: msg.ModelID,
+		Input: msg.Tokens.Input, Output: msg.Tokens.Output, Reasoning: msg.Tokens.Reasoning,
+		CacheRead: msg.Tokens.Cache.Read, CacheCreate: msg.Tokens.Cache.Write, ReportedCostUsd: msg.Cost,
+	}, true
 }
 
 // dedupe collapses records sharing an ID to the one with the largest Output (the final
@@ -191,28 +232,35 @@ func dedupe(records []Record) []Record {
 	return out
 }
 
-// bucket groups deduped records by (provider, model, local day), summing token classes and a
-// message count. Records with model "<synthetic>" (Claude's non-billable internal turns) are
-// dropped here so they never reach the wire.
+// bucket groups deduped records by (harness, provider, model, local day), summing token classes,
+// reported cost (preserving presence), and a message count. Records with model "<synthetic>"
+// (Claude's non-billable internal turns) are dropped here so they never reach the wire.
 func bucket(records []Record) []Bucket {
-	type key struct{ provider, model, day string }
+	type key struct{ harness, provider, model, day string }
 	m := map[key]*Bucket{}
 	for _, r := range records {
 		if r.Model == "<synthetic>" {
 			continue
 		}
 		day := r.TS.Local().Format("2006-01-02")
-		k := key{r.Provider, r.Model, day}
+		k := key{r.Harness, r.Provider, r.Model, day}
 		b := m[k]
 		if b == nil {
-			b = &Bucket{Provider: r.Provider, Model: r.Model, Day: day}
+			b = &Bucket{Harness: r.Harness, Provider: r.Provider, Model: r.Model, Day: day}
 			m[k] = b
 		}
 		b.Input += r.Input
 		b.Output += r.Output
+		b.Reasoning += r.Reasoning
 		b.CacheRead += r.CacheRead
 		b.CacheCreate += r.CacheCreate
 		b.CacheCreate1h += r.CacheCreate1h
+		if r.ReportedCostUsd != nil {
+			if b.ReportedCostUsd == nil {
+				b.ReportedCostUsd = new(float64)
+			}
+			*b.ReportedCostUsd += *r.ReportedCostUsd
+		}
 		b.Msgs++
 	}
 	out := make([]Bucket, 0, len(m))
@@ -271,10 +319,21 @@ func inWindow(path string, cutoff time.Time) bool {
 	return !info.ModTime().Before(cutoff)
 }
 
-// scanFile is one transcript to parse, tagged with the parser it needs.
+// scanKind identifies which parser a scanFile needs.
+type scanKind uint8
+
+const (
+	scanClaude scanKind = iota
+	scanCodex
+	scanOpencode
+)
+
+// scanFile is one transcript to parse, tagged with the parser it needs. cutoff is the authoritative
+// timestamp window for the file (used by the OpenCode walker, which cannot prune by modtime).
 type scanFile struct {
-	path  string
-	codex bool
+	path   string
+	kind   scanKind
+	cutoff time.Time
 }
 
 // walkClaudeFiles collects in-window Claude transcript files (recursively, so subagent dirs are
@@ -297,7 +356,7 @@ func walkClaudeFiles(root string, cutoff time.Time) []scanFile {
 			return nil
 		}
 		if inWindow(path, cutoff) {
-			files = append(files, scanFile{path: path})
+			files = append(files, scanFile{path: path, kind: scanClaude})
 		}
 		return nil
 	})
@@ -316,8 +375,24 @@ func walkCodexFiles(root string, cutoff time.Time) []scanFile {
 			return nil
 		}
 		if inWindow(path, cutoff) {
-			files = append(files, scanFile{path: path, codex: true})
+			files = append(files, scanFile{path: path, kind: scanCodex})
 		}
+		return nil
+	})
+	return files
+}
+
+// walkOpencodeFiles collects OpenCode assistant-message JSON files under the message root. Message
+// timestamps are the authoritative window (a file may be written long after the message it holds),
+// so every file is walked without inWindow pruning and the exact timestamp cutoff is stored on each
+// scanFile for the parser to apply.
+func walkOpencodeFiles(root string, cutoff time.Time) []scanFile {
+	var files []scanFile
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
+			return nil
+		}
+		files = append(files, scanFile{path: path, kind: scanOpencode, cutoff: cutoff})
 		return nil
 	})
 	return files
@@ -328,7 +403,8 @@ func walkCodexFiles(root string, cutoff time.Time) []scanFile {
 // a single-threaded json.Unmarshal per line dominated load time; fanning the per-file parse across
 // cores is the bulk of the speedup. Result order is unspecified — callers dedupe + bucket, both
 // order-independent. Codex files are read whole (the model lives on a turn_context line, so they
-// can't be pre-filtered); Claude files skip lines that can't carry usage (readClaudeLines).
+// can't be pre-filtered); Claude files skip lines that can't carry usage (readClaudeLines). OpenCode
+// files are whole-file JSON with the message timestamp as the window.
 func parseFiles(files []scanFile) []Record {
 	workers := runtime.NumCPU()
 	if workers < 1 {
@@ -343,9 +419,22 @@ func parseFiles(files []scanFile) []Record {
 		go func(i int, f scanFile) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if f.codex {
+			switch f.kind {
+			case scanCodex:
 				results[i] = extractCodex(readLines(f.path))
-			} else {
+			case scanOpencode:
+				data, err := os.ReadFile(f.path)
+				if err != nil {
+					return
+				}
+				rec, ok := extractOpencode(data)
+				if !ok {
+					return
+				}
+				if f.cutoff.IsZero() || !rec.TS.Before(f.cutoff) {
+					results[i] = []Record{rec}
+				}
+			default:
 				results[i] = extractClaude(readClaudeLines(f.path))
 			}
 		}(i, f)
@@ -358,29 +447,38 @@ func parseFiles(files []scanFile) []Record {
 	return records
 }
 
-// scanRoots walks the Claude and Codex transcript roots, prunes files by modtime to the window
-// (with a 1-day margin), parses + dedups them, and returns buckets. Missing roots yield nothing.
-func scanRoots(claudeRoot, codexRoot string, windowDays int) []Bucket {
+// scanRoots walks the Claude, Codex, and OpenCode transcript roots, prunes Claude/Codex files by
+// modtime to the window (with a 1-day margin), applies the exact timestamp cutoff for OpenCode,
+// parses + dedups the records, and returns buckets. Missing roots yield nothing.
+func scanRoots(claudeRoot, codexRoot, opencodeRoot string, windowDays int) []Bucket {
 	var cutoff time.Time
+	var opencodeCutoff time.Time
 	if windowDays > 0 {
 		cutoff = time.Now().AddDate(0, 0, -windowDays-1)
+		opencodeCutoff = time.Now().AddDate(0, 0, -windowDays)
 	}
 	files := append(walkClaudeFiles(claudeRoot, cutoff), walkCodexFiles(codexRoot, cutoff)...)
+	files = append(files, walkOpencodeFiles(opencodeRoot, opencodeCutoff)...)
 	return bucket(dedupe(parseFiles(files)))
 }
 
-// ScanUsage aggregates usage from the user's Claude + Codex transcripts within the last
-// windowDays (0 = all-time). It is the only exported entry point.
+// ScanUsage aggregates usage from the user's Claude, Codex, and OpenCode transcripts within the
+// last windowDays (0 = all-time). It is the only exported entry point.
 func ScanUsage(windowDays int) ([]Bucket, error) {
 	home := wavebase.GetHomeDir()
-	return scanRoots(filepath.Join(home, ".claude", "projects"), filepath.Join(home, ".codex", "sessions"), windowDays), nil
+	return scanRoots(
+		filepath.Join(home, ".claude", "projects"),
+		filepath.Join(home, ".codex", "sessions"),
+		filepath.Join(home, ".local", "share", "opencode", "storage", "message"),
+		windowDays,
+	), nil
 }
 
-// sumRecords totals the four token classes across deduped records.
+// sumRecords totals the five token classes across deduped records.
 func sumRecords(records []Record) int {
 	total := 0
 	for _, r := range dedupe(records) {
-		total += r.Input + r.Output + r.CacheRead + r.CacheCreate
+		total += r.Input + r.Output + r.Reasoning + r.CacheRead + r.CacheCreate
 	}
 	return total
 }
@@ -484,7 +582,7 @@ func LastCacheWrite(path string) (*CacheWrite, error) {
 func sumRecordsSinceCutoffs(records []Record, cutoffs []time.Time) []int {
 	out := make([]int, len(cutoffs))
 	for _, r := range records {
-		tokens := r.Input + r.Output + r.CacheRead + r.CacheCreate
+		tokens := r.Input + r.Output + r.Reasoning + r.CacheRead + r.CacheCreate
 		for i, c := range cutoffs {
 			if c.IsZero() || !r.TS.Before(c) {
 				out[i] += tokens

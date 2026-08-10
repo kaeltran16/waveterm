@@ -2930,14 +2930,17 @@ declare global {
 
     // wshrpc.UsageBucket
     type UsageBucket = {
+        harness: string;
         provider: string;
         model: string;
         day: string;
         input: number;
         output: number;
+        reasoning: number;
         cacheread: number;
         cachecreate: number;
         cachecreate1h: number;
+        reportedcostusd?: number;
         msgs: number;
     };
 
