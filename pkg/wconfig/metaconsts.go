@@ -124,5 +124,7 @@ const (
 	ConfigKey_DebugPprofPort                 = "debug:pprofport"
 	ConfigKey_DebugPprofMemProfileRate       = "debug:pprofmemprofilerate"
 	ConfigKey_DebugWebGlStatus               = "debug:webglstatus"
+
+	ConfigKey_HarnessPreferredRuntime        = "harness:preferredruntime"
 )
 

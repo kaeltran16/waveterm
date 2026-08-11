@@ -3,11 +3,12 @@
 //
 // Per-runtime chrome (label, glyph, accent classes) for the roster/header/details badges. Ports the
 // RUNTIME() map from Wave-cockpit-live.dc.html. Keyed on an agent's provider string (AgentVM.agent,
-// e.g. "claude" | "codex"); unknown providers fall back to claude. The class strings are full literals
-// so Tailwind's source scanner emits the utilities.
+// e.g. "claude" | "codex"). Unknown providers return an unknown metadata record rather than falling
+// back to Claude, so an explicit invalid runtime is never mislabeled. The class strings are full
+// literals so Tailwind's source scanner emits the utilities.
 
 export interface RuntimeMeta {
-    id: "claude" | "codex" | "opencode" | "terminal";
+    id: "claude" | "codex" | "opencode" | "antigravity" | "terminal" | "unknown";
     label: string;
     glyph: string;
     text: string; // text-color utility (glyph/label tint)
@@ -40,6 +41,14 @@ const RUNTIMES: Record<string, RuntimeMeta> = {
         softBg: "bg-rt-opencode-soft",
         line: "border-rt-opencode-line",
     },
+    antigravity: {
+        id: "antigravity",
+        label: "Antigravity",
+        glyph: "△",
+        text: "text-rt-antigravity",
+        softBg: "bg-rt-antigravity-soft",
+        line: "border-rt-antigravity-line",
+    },
     terminal: {
         id: "terminal",
         label: "Terminal",
@@ -50,6 +59,18 @@ const RUNTIMES: Record<string, RuntimeMeta> = {
     },
 };
 
+const UNKNOWN: RuntimeMeta = {
+    id: "unknown",
+    label: "Unknown",
+    glyph: "?",
+    text: "text-muted",
+    softBg: "bg-surface-hover",
+    line: "border-border",
+};
+
 export function runtimeMeta(provider: string | undefined): RuntimeMeta {
-    return RUNTIMES[(provider ?? "claude").toLowerCase()] ?? RUNTIMES.claude;
+    if (provider == null || provider === "") {
+        return UNKNOWN;
+    }
+    return RUNTIMES[provider.toLowerCase()] ?? UNKNOWN;
 }

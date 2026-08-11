@@ -11,6 +11,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
 	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
@@ -256,6 +257,11 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
 		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
 	}
+	// Every new Run needs an explicit, run-worker-capable, installed harness. Validated before any run
+	// is persisted or a worker spawned; an unknown/unsupported/unavailable runtime is rejected outright.
+	if _, err := validateHarness(data.Runtime, harness.OperationRunWorker); err != nil {
+		return nil, err
+	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
@@ -264,6 +270,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
 	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
+	run.Runtime = data.Runtime // immutable after Start; every phase and child inherits this
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
@@ -340,6 +347,12 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 	resolved := jarvis.ResolveProfile(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(m.Channel))
 	childMode, playbook := childRunPlan(resolved, mode)
 	child := jarvis.NewRun(data.Goal, parent.WorkspaceId, parent.ProjectPath, parent.Principles, childMode, playbook, time.Now().UnixMilli())
+	// Children inherit the parent's runtime server-side; an empty legacy parent runtime becomes explicit
+	// claude so the child is never re-resolved as a legacy object.
+	child.Runtime = parent.Runtime
+	if child.Runtime == "" {
+		child.Runtime = "claude"
+	}
 	child.ParentLeadORef = data.ORef
 	if head, herr := gitinfo.HeadCommit(ctx, parent.ProjectPath); herr == nil {
 		child.BaseCommit = head

@@ -456,6 +456,7 @@ declare global {
         channelid: string;
         workspaceid: string;
         goal: string;
+        runtime: string;
         playbookid?: string;
         mode?: string;
         plangate?: boolean;
@@ -999,11 +1000,6 @@ declare global {
         default?: string;
     };
 
-    // wshrpc.CommandListConsultRuntimesRtnData
-    type CommandListConsultRuntimesRtnData = {
-        runtimes: ConsultRuntimeInfo[];
-    };
-
     // wshrpc.CommandListDetachedEdgesData
     type CommandListDetachedEdgesData = {
         dossierid?: string;
@@ -1019,6 +1015,11 @@ declare global {
     // wshrpc.CommandListDossiersRtnData
     type CommandListDossiersRtnData = {
         spaces: SpaceSummary[];
+    };
+
+    // wshrpc.CommandListHarnessesRtnData
+    type CommandListHarnessesRtnData = {
+        harnesses: HarnessInfo[];
     };
 
     // wshrpc.CommandListJarvisConversationsRtnData
@@ -1378,20 +1379,6 @@ declare global {
         note?: string;
     };
 
-    // wshrpc.CommandSharpenTaskData
-    type CommandSharpenTaskData = {
-        task: string;
-        projectname: string;
-        runtime: string;
-        mode: string;
-    };
-
-    // wshrpc.CommandSharpenTaskRtnData
-    type CommandSharpenTaskRtnData = {
-        task: string;
-        model: string;
-    };
-
     // wshrpc.CommandStartJobData
     type CommandStartJobData = {
         cmd: string;
@@ -1614,13 +1601,6 @@ declare global {
         text: string;
     };
 
-    // wshrpc.ConsultRuntimeInfo
-    type ConsultRuntimeInfo = {
-        runtime: string;
-        installed: boolean;
-        version?: string;
-    };
-
     // wshrpc.DecisionCard
     type DecisionCard = {
         id: string;
@@ -1832,6 +1812,16 @@ declare global {
         label: string;
         status?: string;
         updated?: number;
+    };
+
+    // wshrpc.HarnessInfo
+    type HarnessInfo = {
+        runtime: string;
+        label: string;
+        installed: boolean;
+        version?: string;
+        consultcapable: boolean;
+        runworkercapable: boolean;
     };
 
     // gitinfo.HistoryCommit
@@ -2456,6 +2446,7 @@ declare global {
         channeloid?: string;
         id: string;
         goal: string;
+        runtime?: string;
         playbookid?: string;
         mode?: string;
         workspaceid: string;
@@ -2657,6 +2648,7 @@ declare global {
         "debug:pprofport"?: number;
         "debug:pprofmemprofilerate"?: number;
         "debug:webglstatus"?: boolean;
+        "harness:preferredruntime"?: string;
     };
 
     // wshrpc.SpaceScope

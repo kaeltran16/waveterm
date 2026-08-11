@@ -111,6 +111,9 @@
     --color-rt-opencode: #a78bfa;
     --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
     --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-antigravity: #8ecdf0;
+    --color-rt-antigravity-soft: rgba(142, 205, 240, 0.13);
+    --color-rt-antigravity-line: rgba(142, 205, 240, 0.34);
     --color-rt-terminal: #9aa3ad;
     --color-rt-terminal-soft: rgba(154, 163, 173, 0.1);
     --color-rt-terminal-line: rgba(154, 163, 173, 0.28);

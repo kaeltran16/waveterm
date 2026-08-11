@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -23,6 +24,13 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
+)
+
+// probeHarnesses and validateHarness are seams for tests so handler behavior is decidable without
+// local PATH state; production wiring is the shared harness catalog.
+var (
+	probeHarnesses  = harness.ProbeAll
+	validateHarness = harness.ValidateInstalled
 )
 
 func (ws *WshServer) GetJarvisProfileCommand(ctx context.Context, data wshrpc.CommandGetJarvisProfileData) (*wshrpc.CommandGetJarvisProfileRtnData, error) {
@@ -101,6 +109,11 @@ func (ws *WshServer) ConsultCommand(ctx context.Context, data wshrpc.CommandCons
 			panichandler.PanicHandler("ConsultCommand", recover())
 		}()
 		defer close(rtn)
+		if _, err := validateHarness(data.Runtime, harness.OperationConsult); err != nil {
+			postConsultReply(data, "consult is not supported for @"+data.Runtime)
+			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: err}
+			return
+		}
 		ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 		if err != nil {
 			rtn <- wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk]{Error: fmt.Errorf("channel not found: %w", err)}
@@ -332,13 +345,20 @@ func (ws *WshServer) ArchiveJarvisConversationCommand(ctx context.Context, data 
 	}
 	return nil
 }
-func (ws *WshServer) ListConsultRuntimesCommand(ctx context.Context) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
-	var infos []wshrpc.ConsultRuntimeInfo
-	for _, rt := range consult.SupportedRuntimes() {
-		installed, version := consult.ProbeInstalled(ctx, rt)
-		infos = append(infos, wshrpc.ConsultRuntimeInfo{Runtime: rt, Installed: installed, Version: version})
+func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandListHarnessesRtnData, error) {
+	results := probeHarnesses(ctx)
+	infos := make([]wshrpc.HarnessInfo, len(results))
+	for i, r := range results {
+		infos[i] = wshrpc.HarnessInfo{
+			Runtime:          r.Spec.Runtime,
+			Label:            r.Spec.Label,
+			Installed:        r.Installed,
+			Version:          r.Version,
+			ConsultCapable:   r.Spec.ConsultCapable,
+			RunWorkerCapable: r.Spec.RunWorkerCapable,
+		}
 	}
-	return &wshrpc.CommandListConsultRuntimesRtnData{Runtimes: infos}, nil
+	return &wshrpc.CommandListHarnessesRtnData{Harnesses: infos}, nil
 }
 
 func (ws *WshServer) ListDossiersCommand(ctx context.Context) (*wshrpc.CommandListDossiersRtnData, error) {

@@ -19,6 +19,7 @@ import {
     resolveActiveRunId,
     resolveArtifactPath,
     reviewGate,
+    runRuntimeView,
     runStatusView,
     steerTarget,
 } from "./runmodel";
@@ -365,5 +366,35 @@ describe("orchestrator derivations", () => {
         expect(composerSummary("orchestrator", true)).toBe("orchestrator · plan gate on");
         expect(composerSummary("orchestrator", false)).toBe("orchestrator · adaptive");
         expect(composerSummary("pipeline", true)).toBe("pipeline · Superpowers default");
+    });
+});
+
+const runtimeHarnesses: HarnessInfo[] = [
+    { runtime: "claude", label: "Claude Code", installed: true, consultcapable: true, runworkercapable: true },
+    { runtime: "codex", label: "Codex", installed: true, consultcapable: true, runworkercapable: true },
+    { runtime: "opencode", label: "OpenCode", installed: true, consultcapable: true, runworkercapable: true },
+];
+
+describe("runRuntimeView", () => {
+    it("labels an empty runtime as legacy Claude", () => {
+        expect(runRuntimeView({ runtime: "" } as Run, runtimeHarnesses)).toEqual({
+            runtime: "claude",
+            label: "Claude · legacy",
+            legacy: true,
+            valid: true,
+        });
+    });
+    it("labels an explicit runtime from the catalog", () => {
+        expect(runRuntimeView({ runtime: "opencode" } as Run, runtimeHarnesses)).toMatchObject({
+            label: "OpenCode",
+            legacy: false,
+            valid: true,
+        });
+    });
+    it("renders an unknown runtime visibly invalid, never as Claude", () => {
+        expect(runRuntimeView({ runtime: "mystery" } as Run, runtimeHarnesses)).toMatchObject({
+            label: "Unknown: mystery",
+            valid: false,
+        });
     });
 });

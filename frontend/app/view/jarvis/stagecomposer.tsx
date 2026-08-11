@@ -11,12 +11,15 @@ import { sendChannelMessage, steerWorker } from "@/app/view/agents/channelaction
 import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { LaunchComposer, TalkComposer } from "@/app/view/agents/channelcomposers";
 import { type RosterEntry } from "@/app/view/agents/channelmessages";
-import { LAUNCH_COMMANDS, composerFace, parseComposerCommand } from "@/app/view/agents/composercommand";
+import { LAUNCH_COMMANDS, composerFace, parseComposerCommand, resolveComposerDispatch } from "@/app/view/agents/composercommand";
 import { appendAttachments, useComposerAttachments } from "@/app/view/agents/composerattachments";
+import { harnessRuntimeIds } from "@/app/view/agents/harnesspicker";
+import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
 import { createRun, pendingRunDraftAtom } from "@/app/view/agents/runactions";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
+import { useState } from "react";
 import { resolveComposerTarget } from "./composertarget";
 import type { ScopeChip } from "./jarviscontract";
 import { activeConversationAtom, activeConversationIdAtom, submitJarvisQuery } from "./jarvisstore";
@@ -188,6 +191,10 @@ export function StageComposer({
     const pendingDraft = useAtomValue(pendingRunDraftAtom);
     const setRadarDraft = useSetAtom(pendingRunDraftAtom);
     const attach = useComposerAttachments();
+    const pref = useAtomValue(harnessPreferenceAtom);
+    const harnesses = useAtomValue(harnessesAtom);
+    const runtimeIds = harnessRuntimeIds(harnesses);
+    const [harnessOpenRequest, setHarnessOpenRequest] = useState(0);
 
     // The Radar draft is one global value (one investigation at a time), but it belongs to the channel its
     // finding's project resolves to. Ungated it followed the user onto every other channel: the banner and
@@ -227,9 +234,9 @@ export function StageComposer({
     // reads any non-empty mode as a per-dispatch override — so echoing back the profile we were last
     // handed is exactly how a just-saved ⚙ change got overridden by the value it replaced. `quick` is the
     // one real override, chosen per dispatch by design.
-    const launchInto = (channelId: string, goal: string, mode?: string) =>
+    const launchInto = (channelId: string, goal: string, runtime: string, mode?: string) =>
         fireAndForget(async () => {
-            const created = await createRun(channelId, goal, { mode });
+            const created = await createRun(channelId, goal, runtime, { mode });
             setActiveRunId(channelId, created.id);
         });
 
@@ -247,13 +254,26 @@ export function StageComposer({
             if (!goal) {
                 return;
             }
+            // a Radar investigation needs a valid preferred harness; blocked keeps the draft visible.
+            const dispatch = resolveComposerDispatch({
+                command: { mode: "run", body: goal },
+                preferredRuntime: pref.runtime,
+                preferenceSaving: pref.saving,
+                harnesses,
+            });
+            if (dispatch.kind === "blocked") {
+                setHarnessOpenRequest((n) => n + 1);
+                return;
+            }
             attach.clear();
             setRadarDraft(null);
             // this dispatch also ends any draft run open on the channel — otherwise its row stays in the
             // Subjects column, selected, holding the Stage off the run this just created.
             setComposingRun(channel.oid, false);
             fireAndForget(async () => {
-                const created = await createRun(channel.oid, goal, { radarOrigin: radarDraft.radarOrigin });
+                const created = await createRun(channel.oid, goal, dispatch.runtime, {
+                    radarOrigin: radarDraft.radarOrigin,
+                });
                 setActiveRunId(channel.oid, created.id);
             });
             return;
@@ -274,17 +294,25 @@ export function StageComposer({
         if (!text.trim()) {
             return;
         }
+        // parse + resolve first: a blocked dispatch (missing/invalid harness or preference in flight)
+        // preserves the draft and attachments and opens/focuses the picker instead of dispatching.
+        const cmd = parseComposerCommand(text, runtimeIds);
+        const dispatch = resolveComposerDispatch({
+            command: cmd,
+            preferredRuntime: pref.runtime,
+            preferenceSaving: pref.saving,
+            harnesses,
+        });
+        if (dispatch.kind === "blocked") {
+            setHarnessOpenRequest((n) => n + 1);
+            return;
+        }
         setDraft("");
         attach.clear();
         // whatever this dispatches, the Launch face has done its job — release the face back to the run.
         setComposingRun(channel.oid, false);
-        const cmd = parseComposerCommand(text);
-        if (cmd.mode === "run") {
-            launchInto(channel.oid, cmd.body);
-            return;
-        }
-        if (cmd.mode === "quick") {
-            launchInto(channel.oid, cmd.body, "quick");
+        if (dispatch.kind === "run") {
+            launchInto(channel.oid, dispatch.body, dispatch.runtime, dispatch.mode === "quick" ? "quick" : undefined);
             return;
         }
         // @ask -> one-shot consult (no worker), via sendChannelMessage's ask transport.
@@ -295,7 +323,7 @@ export function StageComposer({
                 projectPath: channel.projectpath ?? "",
                 projectName: channel.name ?? "agent",
                 roster,
-                text: `ask @${cmd.runtime ?? "claude"} ${cmd.body}`,
+                text: `ask @${dispatch.runtime} ${dispatch.body}`,
             })
         );
     };
@@ -320,10 +348,10 @@ export function StageComposer({
     };
 
     const dispatchFromPicker = (channelId: string) => {
-        const cmd = parseComposerCommand(draft.trim());
+        const cmd = parseComposerCommand(draft.trim(), runtimeIds);
         setPicking(false);
         setDraft("");
-        launchInto(channelId, cmd.body, cmd.mode === "quick" ? "quick" : undefined);
+        launchInto(channelId, cmd.body, pref.runtime, cmd.mode === "quick" ? "quick" : undefined);
     };
 
     // data-jarvis-composer is the handle `i` focuses and Escape leaves (buildJarvisBindings). One marker on
@@ -394,6 +422,7 @@ export function StageComposer({
                             channelName={channel.name ?? "channel"}
                             pending={radarDraft != null}
                             attach={attach}
+                            harnessOpenRequest={harnessOpenRequest}
                         />
                     </>
                 )

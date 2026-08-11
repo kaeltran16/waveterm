@@ -252,6 +252,7 @@ type Run struct {
 	ChannelOID  string          `json:"channeloid,omitempty"` // parent channel oid; indexed for per-channel run queries (phase 2)
 	ID          string          `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
 	Goal        string          `json:"goal"`
+	Runtime     string          `json:"runtime,omitempty"` // the harness running every phase and child; empty means legacy Claude-only
 	PlaybookId  string          `json:"playbookid,omitempty"`
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)

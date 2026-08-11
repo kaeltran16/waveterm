@@ -25,18 +25,21 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	run := jarvis.NewRun("do X", "ws-id", "/repo", nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	run.Runtime = "opencode"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
 
 	var calls int32
-	origSpawn := jarvis.SpawnClaudeWorker
-	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+	var spawnedWith string
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+		spawnedWith = runtime
 		atomic.AddInt32(&calls, 1)
 		time.Sleep(30 * time.Millisecond) // widen the read->spawn->attach window so a truly-concurrent second caller overlaps
 		return waveobj.MakeORef(waveobj.OType_Tab, "faketab").String(), nil
 	}
-	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -51,7 +54,10 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 	wg.Wait()
 
 	if got := atomic.LoadInt32(&calls); got != 1 {
-		t.Fatalf("SpawnClaudeWorker calls = %d, want exactly 1", got)
+		t.Fatalf("SpawnRunWorker calls = %d, want exactly 1", got)
+	}
+	if spawnedWith != "opencode" {
+		t.Fatalf("worker spawned with runtime %q, want the persisted opencode", spawnedWith)
 	}
 	out, err := wstore.GetRun(ctx, ch.OID, run.ID)
 	if err != nil {

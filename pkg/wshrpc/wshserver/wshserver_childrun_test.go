@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -29,11 +30,11 @@ func TestCreateChildRunCommand_InheritsAndStampsParent(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 
-	origSpawn := jarvis.SpawnClaudeWorker
-	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
-	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
 
 	ws := &WshServer{}
 	rtn, err := ws.CreateChildRunCommand(ctx, wshrpc.CommandCreateChildRunData{ORef: leadORef, Goal: "fix issue 6a"})
@@ -66,6 +67,93 @@ func TestCreateChildRunCommand_InheritsAndStampsParent(t *testing.T) {
 	}
 }
 
+// A child Run inherits the parent's explicit runtime.
+func TestCreateChildRunCommand_InheritsParentRuntime(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "backlog-rt", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	parent := jarvis.NewRun("work the backlog", "ws-1", "/repo",
+		nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(true), 1)
+	parent.Runtime = "opencode"
+	leadORef := waveobj.MakeORef(waveobj.OType_Tab, "leadtab").String()
+	parent.Phases[0].WorkerOrefs = []string{leadORef}
+	if err := wstore.AppendRun(ctx, ch.OID, parent); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			return harness.ValidateInstalled(runtime, op)
+		}
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+
+	rtn, err := (&WshServer{}).CreateChildRunCommand(ctx, wshrpc.CommandCreateChildRunData{ORef: leadORef, Goal: "fix 6a"})
+	if err != nil {
+		t.Fatalf("CreateChildRunCommand: %v", err)
+	}
+	child, err := wstore.GetRun(ctx, ch.OID, rtn.RunId)
+	if err != nil {
+		t.Fatalf("GetRun(child): %v", err)
+	}
+	if child.Runtime != "opencode" {
+		t.Errorf("child runtime = %q, want inherited opencode", child.Runtime)
+	}
+}
+
+// A child Run of a legacy parent (empty runtime) persists explicit claude.
+func TestCreateChildRunCommand_LegacyParentPersistsClaude(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "backlog-legacy", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	parent := jarvis.NewRun("work the backlog", "ws-1", "/repo",
+		nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(true), 1)
+	leadORef := waveobj.MakeORef(waveobj.OType_Tab, "leadtab").String()
+	parent.Phases[0].WorkerOrefs = []string{leadORef}
+	if err := wstore.AppendRun(ctx, ch.OID, parent); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			return harness.ValidateInstalled(runtime, op)
+		}
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+
+	rtn, err := (&WshServer{}).CreateChildRunCommand(ctx, wshrpc.CommandCreateChildRunData{ORef: leadORef, Goal: "fix 6a"})
+	if err != nil {
+		t.Fatalf("CreateChildRunCommand: %v", err)
+	}
+	child, err := wstore.GetRun(ctx, ch.OID, rtn.RunId)
+	if err != nil {
+		t.Fatalf("GetRun(child): %v", err)
+	}
+	if child.Runtime != "claude" {
+		t.Errorf("child runtime = %q, want explicit claude for a legacy parent", child.Runtime)
+	}
+}
+
 func TestCreateChildRunCommand_UnresolvedOrefFails(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
@@ -87,11 +175,11 @@ func TestChildDoneNotifiesParentLead(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 
-	origSpawn := jarvis.SpawnClaudeWorker
-	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
-	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
 
 	var gotORef, gotLine string
 	origSteer := steerRunLead
@@ -149,11 +237,11 @@ func TestParentlessRunDoesNotNotify(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
-	origSpawn := jarvis.SpawnClaudeWorker
-	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
-	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
 
 	called := false
 	origSteer := steerRunLead

@@ -14,7 +14,6 @@ type AgentCommands interface {
 	GetSessionsActivityCommand(ctx context.Context, data CommandGetSessionsActivityData) (*CommandGetSessionsActivityRtnData, error)
 	GetTranscriptTokensCommand(ctx context.Context, data CommandGetTranscriptTokensData) (*CommandGetTranscriptTokensRtnData, error)
 	GetTranscriptUsageCommand(ctx context.Context, data CommandGetTranscriptUsageData) (*CommandGetTranscriptUsageRtnData, error)
-	SharpenTaskCommand(ctx context.Context, data CommandSharpenTaskData) (*CommandSharpenTaskRtnData, error)
 	GetWindowTokensCommand(ctx context.Context, data CommandGetWindowTokensData) (*CommandGetWindowTokensRtnData, error)
 	GetCacheStatusCommand(ctx context.Context, data CommandGetCacheStatusData) (*CommandGetCacheStatusRtnData, error)
 	GetBackgroundAgentsCommand(ctx context.Context, data CommandGetBackgroundAgentsData) (*CommandGetBackgroundAgentsRtnData, error)
@@ -91,18 +90,6 @@ type CommandGetTranscriptUsageData struct {
 
 type CommandGetTranscriptUsageRtnData struct {
 	Buckets []UsageBucket `json:"buckets"`
-}
-
-type CommandSharpenTaskData struct {
-	Task        string `json:"task"`
-	ProjectName string `json:"projectname"`
-	Runtime     string `json:"runtime"`
-	Mode        string `json:"mode"`
-}
-
-type CommandSharpenTaskRtnData struct {
-	Task  string `json:"task"`
-	Model string `json:"model"`
 }
 
 type CommandGetWindowTokensData struct {

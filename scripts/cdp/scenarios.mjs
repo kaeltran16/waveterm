@@ -40,6 +40,7 @@ const runsLifecycle = {
             channelid: ctx.channelId,
             workspaceid: ctx.workspaceId,
             goal: "spawn-test only: do nothing, make no file changes, stop immediately",
+            runtime: "claude",
         });
         const run = created.run;
         const runId = run.id;
@@ -688,7 +689,7 @@ const jarvisVaultRecall = {
         const wslist = await h.rpc("workspacelist", null);
         const workspaceId = wslist[0].workspacedata.oid;
         const ch = await h.rpc("createchannel", { name: "verify-vault", projectpath: cwd });
-        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: VAULT_GOAL });
+        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: VAULT_GOAL, runtime: "claude" });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
         return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
@@ -768,7 +769,7 @@ const jarvisContinuityResume = {
         const wslist = await h.rpc("workspacelist", null);
         const workspaceId = wslist[0].workspacedata.oid;
         const ch = await h.rpc("createchannel", { name: "verify-continuity", projectpath: cwd });
-        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: CONTINUITY_GOAL, mode: "quick" });
+        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: CONTINUITY_GOAL, mode: "quick", runtime: "claude" });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
         // advance the single quick phase to done -> E's rest-boundary hook writes the completion narrative.
@@ -934,6 +935,7 @@ const jarvisProactive = {
             channelid: ch.oid,
             workspaceid: workspaceId,
             goal: PROACTIVE_GOAL,
+            runtime: "claude",
             mode: "quick",
         });
         const run = created.run;
@@ -2636,7 +2638,8 @@ const attentionCrossChannel = {
         const created = await h.rpc("createrun", {
             channelid: ctx.probeId,
             workspaceid: ctx.workspaceId,
-            goal: "spawn-test only: do nothing, make no file changes, stop immediately",
+            goal: "spawn-test, only: do nothing, make no file changes, stop immediately",
+            runtime: "claude",
         });
         const runId = created.run.id;
         track(workerOf(created.run.phases[0]));
@@ -3542,11 +3545,209 @@ const tuiFullscreen = {
     },
 };
 
+// --- harness picker: shared preference, composer blocking, one-off ask, legacy labels --------------
+// Drives the Launch composer's harness picker and the shared preference atom. No worker is ever spawned:
+// the goal stays a draft, and the one real Run this scenario creates is a legacy object injected via
+// eventpublish (missing runtime), so the header/summary labels are exercised without a harness.
+const harnessPicker = {
+    name: "harness-picker",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-harness-"));
+        const wslist = await h.rpc("workspacelist", null);
+        const workspaceId = wslist[0].workspacedata.oid;
+        const ch = await h.rpc("createchannel", { name: "verify-harness", projectpath: cwd });
+        // save + clear the shared preference so the scenario starts from "choose a harness"
+        const cfg = await h.rpc("getfullconfig", null);
+        const prev = cfg?.settings?.["harness:preferredruntime"] ?? "";
+        if (prev !== "") {
+            await h.rpc("setconfig", { "harness:preferredruntime": "" });
+        }
+        return { cwd, workspaceId, channelId: ch.oid, prev };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const picker = (operation) =>
+            h.ev(`(() => {
+                const p = [...document.querySelectorAll('[data-testid="harness-picker"]')]
+                    .find((x) => x.getAttribute('data-harness-operation') === ${JSON.stringify(operation)});
+                return p ? {
+                    runtime: p.getAttribute('data-harness-runtime') || '',
+                    label: (p.textContent || '').trim(),
+                } : null;
+            })()`);
+        const submitDisabled = () =>
+            h.ev(`(() => {
+                const b = document.querySelector('[data-testid="composer-action"]');
+                return b ? b.disabled : null;
+            })()`);
+
+        await h.goto("jarvis");
+        // open the Launch composer: select the channel in the Subjects column
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[data-jarvis-subject-kind]')]
+                .find((x) => (x.textContent || '').includes('verify-harness'));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(900);
+
+        const empty = await picker("run-worker");
+        rec("1. Launch composer shows 'Choose harness' with the preference cleared", empty != null && empty.runtime === "" && empty.label.includes("Choose harness"), JSON.stringify(empty));
+        const disabledEmpty = await submitDisabled();
+        rec("2. Run action disabled without a harness", disabledEmpty === true, `disabled=${disabledEmpty}`);
+
+        // footer order: picker (footerLeft) before attachment (footerRight) before the action button
+        const order = await h.ev(`(() => {
+            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
+            if (!shell) return null;
+            const tags = [...shell.children].map((c) =>
+                c.getAttribute('data-testid') || c.textContent.trim().slice(0, 24));
+            return tags;
+        })()`);
+        rec("3. footer order: picker, behavior, attachment, action", Array.isArray(order) && order[0].includes("harness-picker") && order.some((t) => t.includes("composer-attachment")), JSON.stringify(order));
+
+        // open the picker, assert installed/disabled rows, then select OpenCode
+        await h.ev(`(() => {
+            const b = document.querySelector('[data-testid="harness-picker"][data-harness-operation="run-worker"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(300);
+        const rows = await h.ev(`(() => {
+            const opts = [...document.querySelectorAll('[data-testid^="harness-option-"]')].map((o) => ({
+                runtime: o.getAttribute('data-testid').replace('harness-option-', ''),
+                disabled: o.disabled,
+            }));
+            return opts;
+        })()`);
+        rec("4. picker lists catalog rows, uninstalled disabled", Array.isArray(rows) && rows.length >= 3 && rows.some((r) => r.disabled), JSON.stringify(rows));
+        const picked = await h.ev(`(() => {
+            const o = document.querySelector('[data-testid="harness-option-opencode"]');
+            if (!o) return false;
+            o.click();
+            return true;
+        })()`);
+        await settle(600); // wait for SetConfigCommand to persist
+        const afterOpen = await picker("run-worker");
+        rec("5. selecting OpenCode persists it as the shared preference", picked && afterOpen != null && afterOpen.runtime === "opencode", JSON.stringify(afterOpen));
+
+        // bare ask uses the preferred runtime; an explicit @ask override is one-off
+        const ta = () =>
+            h.ev(`(() => {
+                const t = document.querySelector('[data-jarvis-composer] textarea');
+                if (!t) return false;
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                setter.call(t, ${JSON.stringify("inspect the auth path")});
+                t.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            })()`);
+        await ta();
+        await settle(200);
+        const footerText = await h.ev(`(() => {
+            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
+            return shell ? shell.textContent.trim() : '';
+        })()`);
+        rec("6. bare goal footer names the preferred harness", footerText.includes("OpenCode"), `footer=${footerText.slice(0, 80)}`);
+        const oneOff = await h.ev(`(() => {
+            const t = document.querySelector('[data-jarvis-composer] textarea');
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(t, ${JSON.stringify("@ask codex inspect")});
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        await settle(200);
+        const footerOneOff = await h.ev(`(() => {
+            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
+            return shell ? shell.textContent.trim() : '';
+        })()`);
+        rec("7. explicit @ask shows Codex · one-off, preference unchanged", oneOff && footerOneOff.includes("one-off") && footerOneOff.includes("OpenCode") && !footerOneOff.includes("preferred codex"), `footer=${footerOneOff.slice(0, 100)}`);
+
+        // blocked submission preserves draft + attachment: attach a file, submit, then assert both remain
+        await h.ev(`(() => {
+            const t = document.querySelector('[data-jarvis-composer] textarea');
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            setter.call(t, ${JSON.stringify("this must not dispatch")});
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        const draftBefore = await h.ev(`document.querySelector('[data-jarvis-composer] textarea')?.value || ''`);
+        await h.ev(`(() => {
+            const a = document.querySelector('[data-testid="composer-attachment"] input');
+            if (!a) return false;
+            a.disabled = false;
+            return true;
+        })()`);
+        await h.ev(`(() => {
+            const b = document.querySelector('[data-testid="composer-action"]');
+            b.click();
+            return true;
+        })()`);
+        await settle(300);
+        const draftAfter = await h.ev(`document.querySelector('[data-jarvis-composer] textarea')?.value || ''`);
+        rec("8. a blocked dispatch preserves the draft", draftBefore.includes("this must not dispatch") && draftAfter === draftBefore, `before=${draftBefore.length} after=${draftAfter.length}`);
+
+        // legacy label: inject a Run object with no runtime via eventpublish, then assert the header label
+        const legacyId = "00000000-0000-0000-0000-0000000000ff";
+        await h.rpc("eventpublish", {
+            event: "waveobj:update",
+            scopes: [`run:${legacyId}`],
+            data: {
+                updatetype: "update",
+                otype: "run",
+                oid: legacyId,
+                obj: {
+                    otype: "run", oid: legacyId, version: 1, meta: {},
+                    id: legacyId, goal: "legacy run", workspaceid: ctx.workspaceId,
+                    projectpath: ctx.cwd, status: "done", phases: [], createdts: Date.now(),
+                },
+            },
+        });
+        const legacy = await h.ev(`(() => {
+            const el = document.querySelector('[data-testid="run-runtime"]');
+            return el ? { label: el.textContent.trim(), legacy: el.getAttribute('data-run-legacy') } : null;
+        })()`);
+        rec("9. a missing-runtime Run renders Claude · legacy", legacy != null && legacy.label.includes("Claude · legacy") && legacy.legacy === "true", JSON.stringify(legacy));
+
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // restore the prior preference and drop the fixture channel
+        if (ctx.prev !== "") {
+            try {
+                await h.rpc("setconfig", { "harness:preferredruntime": ctx.prev });
+            } catch {
+                // best-effort cleanup
+            }
+        } else {
+            try {
+                await h.rpc("setconfig", { "harness:preferredruntime": "" });
+            } catch {
+                // best-effort cleanup
+            }
+        }
+        try {
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     terminalTheme,
-    tuiLeader,
-    tuiFullscreen,
+    tuiLeader,    tuiFullscreen,
     gitHistory,
     surfaceSmoke,
     codeSearch,
@@ -3569,4 +3770,5 @@ export const SCENARIOS = [
     jarvisVolunteer,
     usageCharts,
     attentionCrossChannel,
+    harnessPicker,
 ];

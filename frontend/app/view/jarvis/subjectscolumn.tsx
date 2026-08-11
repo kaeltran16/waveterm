@@ -19,6 +19,7 @@ import {
     renameChannel,
 } from "@/app/view/agents/channelsstore";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
+import { harnessesAtom } from "@/app/view/agents/harnessstore";
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot } from "@/app/view/agents/jarvisderive";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -27,6 +28,7 @@ import {
     isTerminal,
     liveWorkers,
     resolveActiveRunId,
+    runRuntimeView,
     runStatusView,
     type RunStatusTone,
 } from "@/app/view/agents/runmodel";
@@ -181,6 +183,7 @@ export function SubjectsColumn({
     const activeSpace = useAtomValue(activeSpaceAtom);
     const spaceScope = useAtomValue(spaceScopeAtom);
     const revealed = useAtomValue(spaceRevealAtom).has("jarvis");
+    const runtimeHarnesses = useAtomValue(harnessesAtom);
     const [filter, setFilter] = useAtom(subjectFilterAtom);
     const collapsedGroups = useAtomValue(collapsedSubjectGroupsAtom);
     const [picking, setPicking] = useState(false);
@@ -790,6 +793,7 @@ export function SubjectsColumn({
                                             ) : null}
                                             {rowRuns.map((r) => {
                                                 const view = runStatusView(r.status);
+                                                const rt = runRuntimeView(r, runtimeHarnesses);
                                                 return (
                                                     <button
                                                         key={r.id}
@@ -825,6 +829,9 @@ export function SubjectsColumn({
                                                             )}
                                                         >
                                                             {r.goal}
+                                                        </span>
+                                                        <span className="flex-none font-mono text-[9.5px] text-muted">
+                                                            {rt.label}
                                                         </span>
                                                         <span className="flex-none font-mono text-[9.5px] text-muted">
                                                             {view.label}

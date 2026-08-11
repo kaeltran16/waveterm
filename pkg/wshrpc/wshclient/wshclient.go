@@ -816,12 +816,6 @@ func ListBranchesCommand(w *wshutil.WshRpc, data wshrpc.CommandListBranchesData,
 	return resp, err
 }
 
-// command "listconsultruntimes", wshserver.ListConsultRuntimesCommand
-func ListConsultRuntimesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListConsultRuntimesRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListConsultRuntimesRtnData](w, "listconsultruntimes", nil, opts)
-	return resp, err
-}
-
 // command "listdetachededges", wshserver.ListDetachedEdgesCommand
 func ListDetachedEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandListDetachedEdgesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandListDetachedEdgesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListDetachedEdgesRtnData](w, "listdetachededges", data, opts)
@@ -831,6 +825,12 @@ func ListDetachedEdgesCommand(w *wshutil.WshRpc, data wshrpc.CommandListDetached
 // command "listdossiers", wshserver.ListDossiersCommand
 func ListDossiersCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListDossiersRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListDossiersRtnData](w, "listdossiers", nil, opts)
+	return resp, err
+}
+
+// command "listharnesses", wshserver.ListHarnessesCommand
+func ListHarnessesCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandListHarnessesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandListHarnessesRtnData](w, "listharnesses", nil, opts)
 	return resp, err
 }
 
@@ -1245,12 +1245,6 @@ func SetSecretsCommand(w *wshutil.WshRpc, data map[string]*string, opts *wshrpc.
 func SetVarCommand(w *wshutil.WshRpc, data wshrpc.CommandVarData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setvar", data, opts)
 	return err
-}
-
-// command "sharpentask", wshserver.SharpenTaskCommand
-func SharpenTaskCommand(w *wshutil.WshRpc, data wshrpc.CommandSharpenTaskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandSharpenTaskRtnData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandSharpenTaskRtnData](w, "sharpentask", data, opts)
-	return resp, err
 }
 
 // command "startjob", wshserver.StartJobCommand

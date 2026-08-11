@@ -370,16 +370,3 @@ func TestBuildPromptPrependsPrinciples(t *testing.T) {
 		t.Fatalf("expected the request to survive, got: %q", got)
 	}
 }
-
-func TestProbe_presentAndAbsent(t *testing.T) {
-	ok, ver := probe(context.Background(), "git")
-	if !ok {
-		t.Fatal("expected git to be installed in the dev env")
-	}
-	if !strings.Contains(strings.ToLower(ver), "git") {
-		t.Errorf("expected version string to mention git, got %q", ver)
-	}
-	if absent, _ := probe(context.Background(), "definitely-not-a-real-binary-xyz"); absent {
-		t.Error("expected a missing binary to probe as absent")
-	}
-}

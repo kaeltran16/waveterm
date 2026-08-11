@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -102,11 +103,11 @@ func TestCompleteDefersEvidenceSeal(t *testing.T) {
 	defer func() { sealAsync = origAsync }()
 
 	// a done quick run spawns no next worker; guard against a real subprocess if that assumption breaks
-	origSpawn := jarvis.SpawnClaudeWorker
-	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
-	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
 
 	ws := &WshServer{}
 	if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
@@ -163,11 +164,11 @@ func TestAdvanceRunDispatchesContinuityCapture(t *testing.T) {
 	sealAsync = func(fn func()) {}
 	defer func() { sealAsync = origSeal }()
 
-	origSpawn := jarvis.SpawnClaudeWorker
-	jarvis.SpawnClaudeWorker = func(_ context.Context, _, _, _, _ string) (string, error) {
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
-	defer func() { jarvis.SpawnClaudeWorker = origSpawn }()
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
 
 	ws := &WshServer{}
 	if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
@@ -243,5 +244,151 @@ func TestResolveRunPlan(t *testing.T) {
 	_, pb = resolveRunPlan(waveobj.JarvisProfile{DefaultMode: jarvis.RunMode_Orchestrator}, "", nil)
 	if len(pb) != 1 || !pb[0].Gate {
 		t.Fatalf("gate default should be on: %+v", pb)
+	}
+}
+
+// stubRunServer replaces the process boundaries (harness validation + worker spawn) so run handlers
+// are deterministic without launching CLIs or tabs. Restores prior values on cleanup.
+func stubRunServer(t *testing.T, validRuntime string, spawnErr error) {
+	t.Helper()
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		if op != harness.OperationRunWorker {
+			t.Fatalf("CreateRun validated with operation %q, want run-worker", op)
+		}
+		spec, ok := harness.Lookup(runtime)
+		if !ok || runtime != validRuntime {
+			return harness.ValidateInstalled(runtime, op)
+		}
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+		if runtime != validRuntime {
+			return "", context.Canceled
+		}
+		if spawnErr != nil {
+			return "", spawnErr
+		}
+		return waveobj.MakeORef(waveobj.OType_Tab, "w-"+runtime).String(), nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+
+	oldSeal := sealAsync
+	sealAsync = func(func()) {}
+	t.Cleanup(func() { sealAsync = oldSeal })
+}
+
+// New Run creation requires an explicit, validated runtime: an empty runtime is rejected before the
+// run is appended or a worker spawned.
+func TestCreateRunCommand_EmptyRuntimeRejected(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-empty-rt", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	stubRunServer(t, "opencode", nil)
+
+	ws := &WshServer{}
+	_, err = ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "",
+	})
+	if err == nil {
+		t.Fatal("CreateRun must reject an empty runtime")
+	}
+	existing, _ := wstore.GetChannelRuns(ctx, ch.OID)
+	if len(existing) != 0 {
+		t.Fatalf("no run should be persisted on rejection, got %d", len(existing))
+	}
+}
+
+// New Run creation persists the explicit runtime on the Run before the worker is spawned.
+func TestCreateRunCommand_PersistsExplicitRuntime(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-open", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	stubRunServer(t, "opencode", nil)
+
+	ws := &WshServer{}
+	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "opencode",
+	})
+	if err != nil {
+		t.Fatalf("CreateRunCommand: %v", err)
+	}
+	if rtn.Run.Runtime != "opencode" {
+		t.Fatalf("persisted run runtime = %q, want opencode", rtn.Run.Runtime)
+	}
+}
+
+// An unknown runtime is rejected before any run is persisted.
+func TestCreateRunCommand_UnknownRuntimeRejected(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-unknown-rt", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		return harness.ValidateInstalled(runtime, op)
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+
+	_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "mystery",
+	})
+	if err == nil {
+		t.Fatal("CreateRun must reject an unknown runtime")
+	}
+	existing, _ := wstore.GetChannelRuns(ctx, ch.OID)
+	if len(existing) != 0 {
+		t.Fatalf("no run should be persisted on rejection, got %d", len(existing))
+	}
+}
+
+// AdvanceRun must spawn the next phase with the run's persisted runtime, never a request-side value.
+func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "advance-rt", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	run.Runtime = "opencode"
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+
+	var spawnedWith string
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			return harness.ValidateInstalled(runtime, op)
+		}
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+		spawnedWith = runtime
+		return waveobj.MakeORef(waveobj.OType_Tab, "w").String(), nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	oldSeal := sealAsync
+	sealAsync = func(func()) {}
+	t.Cleanup(func() { sealAsync = oldSeal })
+
+	if err := (&WshServer{}).AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete,
+	}); err != nil {
+		t.Fatalf("AdvanceRunCommand: %v", err)
+	}
+	if spawnedWith != "opencode" {
+		t.Fatalf("next worker spawned with runtime %q, want persisted opencode", spawnedWith)
 	}
 }

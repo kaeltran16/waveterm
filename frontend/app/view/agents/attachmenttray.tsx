@@ -88,10 +88,17 @@ export function AttachmentTray({
 
 // The paperclip: a <label> wrapping a hidden multi file input. Resets value after change so re-picking
 // the same file still fires onChange.
-export function AttachButton({ onFiles }: { onFiles: (files: FileList) => void }) {
+export function AttachButton({
+    onFiles,
+    testId,
+}: {
+    onFiles: (files: FileList) => void;
+    testId?: string;
+}) {
     return (
         <label
             title="Attach files"
+            data-testid={testId}
             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-[6px] border border-edge-mid text-muted hover:border-edge-strong hover:text-secondary"
         >
             <Paperclip size={13} />

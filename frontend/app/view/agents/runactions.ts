@@ -61,13 +61,16 @@ export async function stopRunWorker(channelId: string, runId: string, workerORef
 export async function createRun(
     channelId: string,
     goal: string,
+    runtime: string,
     opts?: { mode?: string; planGate?: boolean; radarOrigin?: { reportid: string; findingid: string; fingerprint: string } }
 ): Promise<Run> {
+    if (!runtime) throw new Error("Choose a harness");
     const workspaceId = globalStore.get(atoms.workspaceId);
     const rtn = await RpcApi.CreateRunCommand(TabRpcClient, {
         channelid: channelId,
         workspaceid: workspaceId,
         goal,
+        runtime,
         mode: opts?.mode,
         plangate: opts?.planGate,
         radarorigin: opts?.radarOrigin,
