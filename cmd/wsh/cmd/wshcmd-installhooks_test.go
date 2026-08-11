@@ -293,3 +293,86 @@ func TestInstallOpencodePlugin_skipsWhenOpencodeMissing(t *testing.T) {
 		t.Fatalf("plugin should not be written when opencode is absent")
 	}
 }
+
+func fakeWshPath(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolving test executable: %v", err)
+	}
+	return exe
+}
+
+func stubPiLookPath(t *testing.T) {
+	t.Helper()
+	orig := piLookPath
+	piLookPath = func(string) (string, error) { return "pi", nil }
+	t.Cleanup(func() { piLookPath = orig })
+}
+
+func piMemoryExtensionPath(home string) string {
+	return filepath.Join(home, ".pi", "agent", "extensions", "waveterm-memory.ts")
+}
+
+func TestInstallPiMemoryExtension_writesSubstitutedExtension(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	if err := installPiMemoryExtension(home); err != nil {
+		t.Fatalf("installPiMemoryExtension error: %v", err)
+	}
+	path := piMemoryExtensionPath(home)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading installed extension: %v", err)
+	}
+	if strings.Contains(string(body), `registerWavetermMemory(pi, "__WSH_PATH__")`) {
+		t.Fatalf("placeholder not substituted in emitted call:\n%s", string(body))
+	}
+	if !strings.Contains(string(body), "registerWavetermMemory(pi, "+jsonString(fakeWshPath(t))+")") {
+		t.Fatalf("installed extension has malformed registerWavetermMemory call:\n%s", string(body))
+	}
+}
+
+func TestInstallPiMemoryExtension_skipsWhenPiMissing(t *testing.T) {
+	orig := piLookPath
+	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	defer func() { piLookPath = orig }()
+
+	home := t.TempDir()
+	if err := installPiMemoryExtension(home); err != nil {
+		t.Fatalf("missing pi must not error, got %v", err)
+	}
+	if _, err := os.Stat(piMemoryExtensionPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("extension should not be written when pi is absent")
+	}
+}
+
+func TestInstallPiMemoryExtension_rewritesChangedPath(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating extension dir: %v", err)
+	}
+	path := filepath.Join(dir, "waveterm-memory.ts")
+	stale := strings.ReplaceAll(piMemoryExtensionTemplate, `"__WSH_PATH__"`, jsonString(`C:\old\bin\wsh-0.14.4-windows.x64.exe`))
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatalf("seeding stale extension: %v", err)
+	}
+
+	if err := installPiMemoryExtension(home); err != nil {
+		t.Fatalf("installPiMemoryExtension error: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading rewritten extension: %v", err)
+	}
+	if strings.Contains(string(body), "0.14.4") {
+		t.Fatalf("stale wsh path still present after reinstall:\n%s", string(body))
+	}
+	if !strings.Contains(string(body), "registerWavetermMemory(pi, "+jsonString(fakeWshPath(t))+")") {
+		t.Fatalf("new wsh path not written:\n%s", string(body))
+	}
+}

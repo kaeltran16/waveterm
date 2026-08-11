@@ -70,8 +70,8 @@ type CommandMemoryProjectData struct {
 }
 
 type CommandMemoryProjectionStatusRtnData struct {
-	// Runtimes maps a lackey runtime ("codex" | "antigravity") to the project label its steering
-	// file currently reflects. A runtime missing from the map has no projection yet.
+	// Runtimes maps a lackey runtime ("codex" | "antigravity" | "pi") to the project label its
+	// steering file currently reflects. A runtime missing from the map has no projection yet.
 	Runtimes map[string]string `json:"runtimes"`
 }
 

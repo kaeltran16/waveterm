@@ -92,17 +92,19 @@ func applySteeringRegion(existing, label, body string) string {
 }
 
 type steeringTarget struct {
-	runtime string // "codex" | "antigravity"
+	runtime string // "codex" | "antigravity" | "pi"
 	path    string
 }
 
 // steeringTargets are the home-level steering files for each lackey runtime. Global (home) files
-// only — never repo-tracked files. Paths mirror the spike findings.
+// only — never repo-tracked files. Paths mirror the spike findings. pi reads ~/.pi/agent/AGENTS.md
+// as its global guidelines, so projecting there is what makes the vault's memory reach pi sessions.
 func steeringTargets() []steeringTarget {
 	home := wavebase.GetHomeDir()
 	return []steeringTarget{
 		{runtime: "codex", path: filepath.Join(home, ".codex", "AGENTS.md")},
 		{runtime: "antigravity", path: filepath.Join(home, ".gemini", "GEMINI.md")},
+		{runtime: "pi", path: filepath.Join(home, ".pi", "agent", "AGENTS.md")},
 	}
 }
 

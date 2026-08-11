@@ -24,9 +24,16 @@ type sessionEndEvent struct {
 	Cwd            string `json:"cwd"`
 }
 
+// agentMemoryHookFlags carry the session info when invoked by a non-Claude harness (the pi
+// extension), which has no stdin contract. Empty when the Claude SessionEnd hook payload is used.
+var (
+	agentMemoryHookTranscript string
+	agentMemoryHookCwd        string
+)
+
 var agentMemoryHookCmd = &cobra.Command{
 	Use:                   "agent-memory-hook",
-	Short:                 "Claude Code SessionEnd hook: enqueue the session for batch memory distillation",
+	Short:                 "enqueue a finished session for batch memory distillation",
 	Args:                  cobra.NoArgs,
 	RunE:                  agentMemoryHookRun,
 	Hidden:                true,
@@ -36,6 +43,8 @@ var agentMemoryHookCmd = &cobra.Command{
 }
 
 func init() {
+	agentMemoryHookCmd.Flags().StringVar(&agentMemoryHookTranscript, "transcript", "", "")
+	agentMemoryHookCmd.Flags().StringVar(&agentMemoryHookCwd, "cwd", "", "")
 	rootCmd.AddCommand(agentMemoryHookCmd)
 }
 
@@ -44,12 +53,20 @@ func agentMemoryHookRun(cmd *cobra.Command, args []string) error {
 	if os.Getenv(memdistill.DistillGuardVar) != "" {
 		return nil // we are the headless distillation sub-session; don't enqueue ourselves
 	}
-	raw, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		return nil
+	transcriptPath, cwd := agentMemoryHookTranscript, agentMemoryHookCwd
+	if transcriptPath == "" {
+		// stdin contract (Claude Code SessionEnd hook): read the JSON payload from stdin.
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil
+		}
+		var ev sessionEndEvent
+		if json.Unmarshal(raw, &ev) != nil || ev.TranscriptPath == "" {
+			return nil
+		}
+		transcriptPath, cwd = ev.TranscriptPath, ev.Cwd
 	}
-	var ev sessionEndEvent
-	if json.Unmarshal(raw, &ev) != nil || ev.TranscriptPath == "" {
+	if transcriptPath == "" {
 		return nil
 	}
 
@@ -61,8 +78,8 @@ func agentMemoryHookRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	_ = wshclient.MemoryEnqueueSessionCommand(RpcClient, wshrpc.CommandMemoryEnqueueSessionData{
-		Cwd:            ev.Cwd,
-		TranscriptPath: ev.TranscriptPath,
+		Cwd:            cwd,
+		TranscriptPath: transcriptPath,
 	}, &wshrpc.RpcOpts{Timeout: 5000})
 	return nil
 }
