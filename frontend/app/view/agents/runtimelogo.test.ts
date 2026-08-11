@@ -19,4 +19,11 @@ describe("runtimeLogo", () => {
     it("returns undefined for unknown runtimes", () => {
         expect(runtimeLogo("unknown")).toBeUndefined();
     });
+
+    it("returns undefined for an undefined runtime (booting/pending agents have none yet)", () => {
+        // a just-launched agent's pending row has no `agent` field until the status reporter
+        // registers it; the header/detail mark must not throw on that window (regression: the
+        // RuntimeMark path crashed the whole app with `undefined.toLowerCase()`)
+        expect(runtimeLogo(undefined)).toBeUndefined();
+    });
 });

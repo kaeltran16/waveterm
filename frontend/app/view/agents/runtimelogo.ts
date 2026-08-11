@@ -19,7 +19,9 @@ const RUNTIME_LOGO: Record<string, string> = {
     pi: PiLogo,
 };
 
-// The brand mark URL for a runtime author name (case-insensitive), or undefined for humans/jarvis/roster.
-export function runtimeLogo(name: string): string | undefined {
-    return RUNTIME_LOGO[name.toLowerCase()];
+// The brand mark URL for a runtime author name (case-insensitive), or undefined for
+// humans/jarvis/roster — and for booting rows whose status reporter hasn't registered a
+// runtime yet (AgentVM.agent is optional there, mirroring runtimeMeta's provider arg).
+export function runtimeLogo(name: string | undefined): string | undefined {
+    return name ? RUNTIME_LOGO[name.toLowerCase()] : undefined;
 }

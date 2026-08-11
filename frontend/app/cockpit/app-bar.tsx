@@ -28,51 +28,55 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <SpaceSwitcher model={model} />
             </div>
 
-            <button
-                type="button"
-                onClick={() => globalStore.set(model.paletteOpenAtom, true)}
-                className="mx-auto flex w-[min(520px,42%)] cursor-text items-center gap-2.5 rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-muted hover:border-edge-strong hover:bg-surface-hover"
-            >
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <circle cx="5.5" cy="5.5" r="4" />
-                    <path d="M9 9l3 3" strokeLinecap="round" />
-                </svg>
-                <span className="flex-1 text-left text-[13px]">Search agents, sessions, commands…</span>
-                <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
-                    {formatChordString("Ctrl:p")}
-                </span>
-            </button>
+            <div className="flex min-w-0 flex-1 justify-center">
+                <button
+                    type="button"
+                    onClick={() => globalStore.set(model.paletteOpenAtom, true)}
+                    className="flex w-[min(520px,42%)] cursor-text items-center gap-2.5 rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-muted hover:border-edge-strong hover:bg-surface-hover"
+                >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="5.5" cy="5.5" r="4" />
+                        <path d="M9 9l3 3" strokeLinecap="round" />
+                    </svg>
+                    <span className="flex-1 text-left text-[13px]">Search agents, sessions, commands…</span>
+                    <span className="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[11px]">
+                        {formatChordString("Ctrl:p")}
+                    </span>
+                </button>
+            </div>
 
-            <button
-                type="button"
-                onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
-                className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[clamp(9px,1.3vw,12px)] py-[7px] text-[clamp(11px,1.35vw,12.5px)] font-semibold text-background hover:bg-accenthover"
-            >
-                <span className="-mt-px text-[15px] leading-none">+</span>New agent
-            </button>
+            <div className="flex h-full shrink-0 items-center gap-2.5">
+                <button
+                    type="button"
+                    onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
+                    className="flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[8px] bg-accent px-[clamp(9px,1.3vw,12px)] py-[7px] text-[clamp(11px,1.35vw,12.5px)] font-semibold text-background hover:bg-accenthover"
+                >
+                    <span className="-mt-px text-[15px] leading-none">+</span>New agent
+                </button>
 
-            <div className="ml-auto flex h-full shrink-0 items-center border-l border-border">
-                <button
-                    onClick={() => win.minimize()}
-                    aria-label="Minimize"
-                    className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
-                >
-                    &#x2013;
-                </button>
-                <button
-                    onClick={() => win.toggleMaximize()}
-                    aria-label="Maximize"
-                    className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
-                >
-                    &#x25A1;
-                </button>
-                <button
-                    onClick={() => win.close()}
-                    aria-label="Close"
-                    className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-error hover:text-white"
-                >
-                    &#x2715;
-                </button>
+                <div className="flex h-full shrink-0 items-center border-l border-border">
+                    <button
+                        onClick={() => win.minimize()}
+                        aria-label="Minimize"
+                        className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
+                    >
+                        &#x2013;
+                    </button>
+                    <button
+                        onClick={() => win.toggleMaximize()}
+                        aria-label="Maximize"
+                        className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-hover"
+                    >
+                        &#x25A1;
+                    </button>
+                    <button
+                        onClick={() => win.close()}
+                        aria-label="Close"
+                        className="flex h-8 w-11 cursor-pointer items-center justify-center text-secondary hover:bg-error hover:text-white"
+                    >
+                        &#x2715;
+                    </button>
+                </div>
             </div>
         </div>
     );
