@@ -602,6 +602,12 @@ func GetSubagentsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetSubagentsData,
 	return resp, err
 }
 
+// command "gettasks", wshserver.GetTasksCommand
+func GetTasksCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTasksData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTasksRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTasksRtnData](w, "gettasks", data, opts)
+	return resp, err
+}
+
 // command "gettranscripttokens", wshserver.GetTranscriptTokensCommand
 func GetTranscriptTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetTranscriptTokensData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetTranscriptTokensRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetTranscriptTokensRtnData](w, "gettranscripttokens", data, opts)

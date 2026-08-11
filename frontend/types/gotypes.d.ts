@@ -718,6 +718,16 @@ declare global {
         subagents: SubagentFileInfo[];
     };
 
+    // wshrpc.CommandGetTasksData
+    type CommandGetTasksData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandGetTasksRtnData
+    type CommandGetTasksRtnData = {
+        tasks: PiTask[];
+    };
+
     // wshrpc.CommandGetTranscriptTokensData
     type CommandGetTranscriptTokensData = {
         path: string;
@@ -2234,6 +2244,19 @@ declare global {
     type PhaseTriage = {
         verdict: string;
         note?: string;
+    };
+
+    // wshrpc.PiTask
+    type PiTask = {
+        id: string;
+        subject: string;
+        description: string;
+        status: string;
+        owner: string;
+        blocks: string[];
+        blockedby: string[];
+        createdat: number;
+        updatedat: number;
     };
 
     // waveobj.Point

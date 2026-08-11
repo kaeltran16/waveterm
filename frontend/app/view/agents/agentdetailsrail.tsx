@@ -11,22 +11,17 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
-import {
-    formatAge,
-    projectOf,
-    recentActions,
-    summarizeActions,
-    usageLevel,
-    type AgentVM,
-} from "./agentsviewmodel";
+import { formatAge, projectOf, recentActions, summarizeActions, usageLevel, type AgentVM } from "./agentsviewmodel";
+import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
+import { capTasks, edgeSummary, groupTasks } from "./pitasks";
+import { loadTasksForAgent, tasksAtom } from "./pitasksstore";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
-import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
 import { loadSessionUsage } from "./transcriptusagestore";
@@ -38,10 +33,11 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
 };
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
+const TaskCap = 8; // a 296px rail can't show a large backlog; overflow folds into "+N more"
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
     return (
-        <div className="flex items-baseline justify-between border-b border-edge-faint py-[8px] last:border-b-0">
+        <div className="flex items-baseline justify-between border-b border-edge-faint py-[5px] last:border-b-0">
             <span className="text-[12.5px] text-muted">{label}</span>
             <span className="font-mono text-[12px] font-medium text-secondary">{value}</span>
         </div>
@@ -50,6 +46,53 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
     return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
+}
+
+function TasksSection({ tasks, now }: { tasks: PiTask[]; now: number }) {
+    const { groups, more } = capTasks(groupTasks(tasks), TaskCap);
+    return (
+        <div>
+            <div className="mb-[11px]">
+                <SectionLabel>Tasks</SectionLabel>
+            </div>
+            <div className="flex flex-col gap-[7px]">
+                {groups.map((g) =>
+                    g.tasks.map((t) => {
+                        const edges = edgeSummary(t);
+                        return (
+                            <div
+                                key={t.id}
+                                className="flex items-center gap-[10px] rounded-[10px] border border-border bg-surface px-[11px] py-[9px]"
+                            >
+                                <span
+                                    className={cn(
+                                        "h-[6px] w-[6px] shrink-0 rounded-full",
+                                        t.status === "in_progress"
+                                            ? "bg-accent"
+                                            : t.status === "pending"
+                                              ? "bg-warning"
+                                              : "bg-success"
+                                    )}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <div className="truncate font-mono text-[11.5px] font-semibold text-secondary">
+                                        {t.subject}
+                                    </div>
+                                    {edges != null ? (
+                                        <div className="truncate text-[10px] text-muted">{edges}</div>
+                                    ) : null}
+                                </div>
+                                <span className="whitespace-nowrap font-mono text-[9.5px] font-medium text-muted">
+                                    {formatAge(now - t.updatedat)}
+                                </span>
+                            </div>
+                        );
+                    })
+                )}
+                {more > 0 ? <div className="px-[5px] py-[3px] text-[11px] text-muted">+{more} more</div> : null}
+            </div>
+        </div>
+    );
 }
 
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -64,15 +107,17 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const railState = useAtomValue(railStateAtom);
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
+    const tasks = useAtomValue(tasksAtom);
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
         fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath));
         fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
-        const refresh = setInterval(
-            () => fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath, { silent: true })),
-            15_000
-        );
+        fireAndForget(() => loadTasksForAgent(agent.id, agent.transcriptPath, agent.blockId));
+        const refresh = setInterval(() => {
+            fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath, { silent: true }));
+            fireAndForget(() => loadTasksForAgent(agent.id, agent.transcriptPath, agent.blockId));
+        }, 15_000);
         return () => clearInterval(refresh);
     }, [agent.id, agent.transcriptPath, agent.blockId]);
 
@@ -114,16 +159,18 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         <DetailRow
                             label="Runtime"
                             value={
-                                <span className={cn("inline-flex items-center gap-[5px] font-semibold", rt.text)}>
-                                    <RuntimeMark runtime={agent.agent} className="text-[11px]" />
-                                    {rt.label}
+                                <span className="inline-flex items-center gap-[5px]">
+                                    <span className={cn("inline-flex items-center gap-[5px] font-semibold", rt.text)}>
+                                        <RuntimeMark runtime={agent.agent} className="text-[11px]" />
+                                        {rt.label}
+                                    </span>
+                                    <span className="text-muted">· {running}</span>
                                 </span>
                             }
                         />
                         <DetailRow label="Project" value={project || "—"} />
                         <DetailRow label="Branch" value={railState?.branch || "—"} />
                         <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
-                        <DetailRow label="Running" value={running} />
                         {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
                     </div>
                 </div>
@@ -271,6 +318,16 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                 </div>
             ),
         },
+        ...(tasks != null && tasks.length > 0
+            ? [
+                  {
+                      id: "tasks",
+                      label: "Tasks",
+                      icon: RAIL_ICON.tasks,
+                      content: <TasksSection tasks={tasks} now={now} />,
+                  } as RailSection,
+              ]
+            : []),
     ];
 
     return (
