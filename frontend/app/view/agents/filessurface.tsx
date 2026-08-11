@@ -119,7 +119,7 @@ function SourcePicker({
                 data-files-source-picker
                 onClick={() => setOpen((v) => !v)}
                 disabled={!hasAny}
-                className="flex w-full items-center gap-[8px] rounded border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
+                className="flex w-full items-center gap-[8px] rounded-[9px] border border-border px-[10px] py-[7px] hover:border-edge-strong disabled:cursor-default disabled:opacity-60"
             >
                 {currentAgent ? (
                     <StatusDot state={currentAgent.state} className="!h-[7px] !w-[7px]" />
@@ -554,7 +554,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 <div className="flex-none px-[18px] pt-[14px]">
                     <div className="flex items-center gap-[14px] pb-[6px]">
                         <h1 className="flex-none text-[16px] font-bold">Diff</h1>
-                        <div className="w-[210px] overflow-hidden rounded-[9px] border border-edge-mid bg-surface">
+                        <div className="w-[210px] rounded-[9px] border border-edge-mid bg-surface">
                             <SourcePicker
                                 agents={agents}
                                 projects={projects}
