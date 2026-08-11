@@ -37,6 +37,7 @@ import { AnswerBar } from "./answerbar";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
@@ -373,11 +374,8 @@ export const AgentRow = memo(function AgentRow({
             {/* header bar */}
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
                 <QuietDot nowAtom={nowAtom} agentId={agent.id} state={agent.state} />
-                <span
-                    title={rt.label}
-                    className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}
-                >
-                    {rt.glyph}
+                <span title={rt.label} className="shrink-0">
+                    <RuntimeMark runtime={agent.agent} className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)} />
                 </span>
                 <b className="min-w-[30px] flex-1 truncate font-mono text-[13.5px] font-semibold text-primary">
                     {agent.name}

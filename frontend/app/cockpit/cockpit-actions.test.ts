@@ -10,9 +10,12 @@ import { globalStore } from "@/app/store/jotaiStore";
 const createTab = vi.fn();
 const setMeta = vi.fn().mockResolvedValue(undefined);
 const reloadWaveObject = vi.fn().mockResolvedValue(undefined);
+const fileInfo = vi.fn();
 
 vi.mock("@/app/store/services", () => ({ WorkspaceService: { CreateTab: (...a: any[]) => createTab(...a) } }));
-vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { SetMetaCommand: (...a: any[]) => setMeta(...a) } }));
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { SetMetaCommand: (...a: any[]) => setMeta(...a), FileInfoCommand: (...a: any[]) => fileInfo(...a) },
+}));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("@/app/view/agents/agents", () => ({ AgentsViewModel: class {} }));
 vi.mock("@/app/store/global-atoms", () => ({ atoms: { workspace: atom({ oid: "ws1", tabids: [] }) } }));
@@ -36,6 +39,7 @@ afterEach(() => {
     createTab.mockReset().mockResolvedValue("tab-1");
     setMeta.mockClear();
     reloadWaveObject.mockClear();
+    fileInfo.mockReset().mockResolvedValue({});
 });
 
 describe("launchAgent", () => {
@@ -54,5 +58,38 @@ describe("launchAgent", () => {
         expect(blockSetMeta[1].meta.controller).toBe("cmd");
         // ...and its stale FE cache must be refreshed so the roster recognizes it
         expect(reloadWaveObject).toHaveBeenCalledWith("block:blk-1");
+    });
+
+    it("preflights a missing Pi resumePath and refuses to create a tab", async () => {
+        const missing = "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\gone.jsonl";
+        fileInfo.mockRejectedValue(new Error("no such file"));
+        const err = (await launchAgent(fakeModel(), {
+            runtime: "pi",
+            startupCommand: "pi",
+            task: "",
+            projectPath: "C:/proj",
+            projectName: "proj",
+            resumePath: missing,
+        }).catch((e: unknown) => e)) as Error;
+        expect(fileInfo).toHaveBeenCalledWith({}, { info: { path: missing } });
+        expect(createTab).not.toHaveBeenCalled();
+        expect(err.message).toContain("Pi session no longer exists");
+        expect(err.message).toContain(missing);
+    });
+
+    it("forwards startupArgs into the block meta (pi resume is one argv element per arg)", async () => {
+        await launchAgent(fakeModel(), {
+            runtime: "pi",
+            startupCommand: "pi",
+            startupArgs: ["--session", "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl"],
+            task: "",
+            projectPath: "C:/proj",
+            projectName: "proj",
+        });
+        const blockSetMeta = setMeta.mock.calls.find((c) => c[1]?.oref === "block:blk-1");
+        expect(blockSetMeta[1].meta["cmd:args"]).toEqual([
+            "--session",
+            "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl",
+        ]);
     });
 });

@@ -190,6 +190,26 @@ describe("aggregateBuckets", () => {
         expect(zeroed.totals.reportedCostWindowUsd).toBe(0);
         expect(zeroed.totals.reportedCostWindowHarnesses).toEqual(["opencode"]);
     });
+
+    it("keeps Pi a separate harness from its provider/model dimensions", () => {
+        const buckets = [
+            bkt({ harness: "pi", provider: "openai-codex", model: "gpt-5.5", day: today, input: 300, output: 100 }),
+            bkt({ harness: "claude", provider: "anthropic", model: "claude-opus-4-8", day: today, input: 200 }),
+        ];
+        const all = aggregateBuckets(buckets, now, "all");
+        expect(all.availableHarnesses).toEqual(["pi", "claude"]);
+        expect(all.totals.tokensWindowByHarness.pi).toBe(400);
+        expect(all.totals.tokensWindowByHarness.claude).toBe(200);
+        // pi's provider/model dimensions aggregate independently of the claude bucket's
+        expect(all.providers.map((p) => p.provider)).toEqual(["anthropic", "openai-codex"]);
+        const piProvider = all.providers.find((p) => p.provider === "openai-codex");
+        expect(piProvider?.models.map((m) => m.model)).toEqual(["gpt-5.5"]);
+        // the harness filter isolates pi buckets (chips still come from the unfiltered set)
+        const piOnly = aggregateBuckets(buckets, now, "pi");
+        expect(piOnly.totals.tokensWindow).toBe(400);
+        expect(piOnly.availableHarnesses).toEqual(["pi", "claude"]);
+        expect(piOnly.totals.tokensWindowByHarness.claude).toBeUndefined();
+    });
 });
 
 describe("foldModels", () => {

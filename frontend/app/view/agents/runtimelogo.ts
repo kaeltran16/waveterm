@@ -8,11 +8,15 @@
 import AntigravityLogo from "@/app/asset/antigravity.svg";
 import ClaudeLogo from "@/app/asset/claude-color.svg";
 import CodexLogo from "@/app/asset/codex.svg";
+import OpenCodeLogo from "@/app/asset/opencode.png";
+import PiLogo from "@/app/asset/pi.svg";
 
 const RUNTIME_LOGO: Record<string, string> = {
     claude: ClaudeLogo,
     codex: CodexLogo,
     antigravity: AntigravityLogo,
+    opencode: OpenCodeLogo,
+    pi: PiLogo,
 };
 
 // The brand mark URL for a runtime author name (case-insensitive), or undefined for humans/jarvis/roster.

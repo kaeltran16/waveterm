@@ -19,6 +19,7 @@ import { motion } from "motion/react";
 import { confirmCloseSession } from "./agentactions";
 import { projectOf, usageLevel, type AgentVM } from "./agentsviewmodel";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 
@@ -108,7 +109,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
                             rt.line
                         )}
                     >
-                        <span className="text-[11px] leading-none">{rt.glyph}</span>
+                        <RuntimeMark runtime={agent.agent} className="text-[11px] leading-none" />
                         {rt.label}
                     </span>
                     <span

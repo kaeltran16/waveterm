@@ -18,6 +18,7 @@ import { jumpToAgent } from "./channelsprimitives";
 import { liveEntriesByIdAtom } from "./livetranscript";
 import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
@@ -50,8 +51,8 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                 className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-surface-hover"
             >
                 <StatusDot state={agent.state} quiet={quiet} pulse={working && !quiet} className="!h-2 !w-2" />
-                <span title={rt.label} className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}>
-                    {rt.glyph}
+                <span title={rt.label} className="shrink-0">
+                    <RuntimeMark runtime={agent.agent} className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)} />
                 </span>
                 <b className="shrink-0 font-mono text-[13px] font-semibold text-primary">{agent.name}</b>
                 {agent.model ? (

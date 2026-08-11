@@ -35,7 +35,8 @@ const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
     { id: "claude", name: "Claude Code", glyph: "✳" },
     { id: "codex", name: "Codex", glyph: "{ }" },
     { id: "antigravity", name: "Antigravity", glyph: "◭" },
-    { id: "opencode", name: "opencode", glyph: "◇" },
+    { id: "opencode", name: "OpenCode", glyph: "◇" },
+    { id: "pi", name: "Pi", glyph: "Pi" },
     { id: "terminal", name: "Terminal", glyph: "›_" },
 ];
 
@@ -469,6 +470,8 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                 )}
                             </AnimatePresence>
                         </div>
+                    ) : runtime !== "terminal" ? (
+                        <div className="text-[11.5px] text-muted">No launch flags available</div>
                     ) : null}
                     {runtimeSupportsWorktree(runtime) ? (
                         <Section label="Worktree">

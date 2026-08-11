@@ -51,3 +51,9 @@ test-results.xml
 /graphify-out
 .graphify_uncached.txt
 /docs/agents/channels-realworld-report
+
+# git worktrees
+.worktrees/
+
+# pi agent local task state
+.pi/

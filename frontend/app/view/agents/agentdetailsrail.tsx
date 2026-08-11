@@ -24,6 +24,7 @@ import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
+import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { subagentsByIdAtom } from "./subagentsstore";
@@ -114,7 +115,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                             label="Runtime"
                             value={
                                 <span className={cn("inline-flex items-center gap-[5px] font-semibold", rt.text)}>
-                                    <span className="text-[11px]">{rt.glyph}</span>
+                                    <RuntimeMark runtime={agent.agent} className="text-[11px]" />
                                     {rt.label}
                                 </span>
                             }

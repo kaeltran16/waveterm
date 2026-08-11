@@ -281,6 +281,9 @@ var opencodePluginTemplate string
 // opencodeLookPath is a var so tests can simulate a machine with or without opencode installed.
 var opencodeLookPath = exec.LookPath
 
+//go:embed pi-status-extension.ts
+var piStatusExtensionTemplate string
+
 //go:embed pi-memory-extension.ts
 var piMemoryExtensionTemplate string
 
@@ -326,6 +329,40 @@ func installOpencodePlugin(home string) error {
 		return fmt.Errorf("replacing %s: %w", path, err)
 	}
 	fmt.Printf("installed opencode status plugin into %s\n", path)
+	return nil
+}
+
+// installPiStatusExtension writes the Wave status extension into pi's global extension directory
+// (~/.pi/agent/extensions/), where pi auto-loads every file. No-op when pi is not installed.
+// Idempotent: rewrites only when the installed copy differs (the wsh path changes when the app
+// install moves), so re-running on every launch self-heals without churn. Mirrors the OpenCode
+// installer: the complete quoted "__WSH_PATH__" placeholder is replaced with a JSON string literal
+// of the current wsh executable path.
+func installPiStatusExtension(home string) error {
+	if _, err := piLookPath("pi"); err != nil {
+		return nil // pi not installed; nothing to hook
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving wsh path: %w", err)
+	}
+	want := strings.ReplaceAll(piStatusExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "waveterm-status.ts")
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
+		return nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(want), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	fmt.Printf("installed pi status extension into %s\n", path)
 	return nil
 }
 
@@ -419,6 +456,9 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		fmt.Printf("installed Arc agent hooks into %s\n", path)
 	}
 	if err := installOpencodePlugin(home); err != nil {
+		return err
+	}
+	if err := installPiStatusExtension(home); err != nil {
 		return err
 	}
 	if err := installPiMemoryExtension(home); err != nil {

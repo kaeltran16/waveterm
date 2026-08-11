@@ -33,7 +33,9 @@ func Run(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(st
 }
 
 // runPipe spawns the CLI with stdout piped. With a ParseLine it reads JSONL events line-by-line and
-// emits the text each reply event carries; without one it emits raw stdout chunks verbatim.
+// emits the text each reply event carries; without one it emits raw stdout chunks verbatim. It drains
+// stdout to EOF (a Complete/settlement event does not stop the drain) and only then reaps the process,
+// so a runtime that never emits a settlement marker still returns on process exit.
 func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(string)) (string, error) {
 	cmd, stderr, err := startCmd(ctx, spec, cwd, prompt)
 	if err != nil {
@@ -59,6 +61,7 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 		}
 	}()
 	var full strings.Builder
+	var parseErr error
 	if spec.ParseLine != nil {
 		// claude/codex hook and init events can be far larger than bufio.Scanner's 64KB token cap,
 		// so read with a growing Reader instead.
@@ -66,9 +69,13 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 		for {
 			line, rerr := r.ReadBytes('\n')
 			if len(line) > 0 {
-				if text, isReply := spec.ParseLine(line); isReply {
-					full.WriteString(text)
-					emit(text)
+				ev := spec.ParseLine(line)
+				if ev.Err != nil && parseErr == nil {
+					parseErr = ev.Err
+				}
+				if ev.Text != "" {
+					full.WriteString(ev.Text)
+					emit(ev.Text)
 				}
 			}
 			if rerr != nil {
@@ -95,6 +102,9 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 			msg = werr.Error()
 		}
 		return full.String(), fmt.Errorf("%s", msg)
+	}
+	if parseErr != nil {
+		return full.String(), fmt.Errorf("%s: %w", spec.Bin, parseErr)
 	}
 	return full.String(), nil
 }

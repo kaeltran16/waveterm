@@ -327,16 +327,18 @@ type UsageBucket struct {
 }
 
 type SessionInfo struct {
-	ID            string `json:"id"`
-	Runtime       string `json:"runtime"`
-	ProjectPath   string `json:"projectpath"`
-	ProjectName   string `json:"projectname"`
-	Branch        string `json:"branch"`
-	Task          string `json:"task"`
-	Model         string `json:"model"`
-	TokensTotal   int    `json:"tokenstotal"`
-	LastActiveTs  int64  `json:"lastactivets"`
-	ResumeCommand string `json:"resumecommand"`
+	ID             string   `json:"id"`
+	Runtime        string   `json:"runtime"`
+	ProjectPath    string   `json:"projectpath"`
+	ProjectName    string   `json:"projectname"`
+	Branch         string   `json:"branch"`
+	Task           string   `json:"task"`
+	Model          string   `json:"model"`
+	TokensTotal    int      `json:"tokenstotal"`
+	LastActiveTs   int64    `json:"lastactivets"`
+	ResumeCommand  string   `json:"resumecommand"`
+	TranscriptPath string   `json:"transcriptpath"`
+	ResumeArgs     []string `json:"resumeargs,omitempty"`
 }
 
 type SessionEvent struct {
@@ -356,6 +358,7 @@ type SessionActivity struct {
 	TokensTotal    int            `json:"tokenstotal"`
 	LastActiveTs   int64          `json:"lastactivets"`
 	ResumeCommand  string         `json:"resumecommand"`
+	ResumeArgs     []string       `json:"resumeargs,omitempty"`
 	TranscriptPath string         `json:"transcriptpath"`
 	Status         string         `json:"status"`
 	StartedTs      int64          `json:"startedts"`

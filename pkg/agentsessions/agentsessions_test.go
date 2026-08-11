@@ -4,8 +4,12 @@
 package agentsessions
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -260,5 +264,159 @@ func TestExtractSession_opencode(t *testing.T) {
 	}
 	if s == nil || s.ID != "ses_abc" {
 		t.Fatalf("want ses_abc, got %+v", s)
+	}
+}
+
+// buildPiTree writes a Pi v3 session file under a deliberately misleading encoded-cwd directory and
+// returns its full path. The directory name looks like it decodes to a cwd, but that encoding is lossy
+// and must never be decoded — the v3 session header's cwd is authoritative.
+func buildPiTree(t *testing.T, root string) string {
+	t.Helper()
+	// decoded this would read "C:\Users\Bob\not-the-repo" — wrong; the header's cwd wins.
+	enc := filepath.Join(root, "C_Users_Bob_not_the_repo")
+	if err := os.MkdirAll(enc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return writeJSONL(t, enc, "session-uuid.jsonl",
+		`{"type":"session","version":3,"id":"session-uuid","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\Users\\Jane Doe\\IdeaProjects\\waveterm"}`,
+		`{"type":"session_info","id":"i1","parentId":null,"name":"older title"}`,
+		`{"type":"session_info","id":"i2","parentId":"i1","name":"Pi session title"}`,
+		`{"type":"message","id":"u1","parentId":"i2","message":{"role":"user","content":"implement the thing"}}`,
+		`{"type":"message","id":"a1","parentId":"u1","provider":"openai-codex","modelId":"gpt-5.5","usage":{"input":10,"output":5,"totalTokens":15},"message":{"role":"assistant","content":"done"}}`,
+	)
+}
+
+func TestScanProvider_PiDiscoversSessionUnderEncodedDir(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "pi", "agent", "sessions")
+	path := buildPiTree(t, root)
+
+	got := scanProvider(piProvider(root), 0, 10)
+	if len(got) != 1 {
+		t.Fatalf("want 1 pi session, got %d", len(got))
+	}
+	s := got[0]
+	if s.ID != "session-uuid" {
+		t.Errorf("ID = %q, want session-uuid (header id, never the encoded dir)", s.ID)
+	}
+	if s.ProjectPath != `C:\Users\Jane Doe\IdeaProjects\waveterm` {
+		t.Errorf("projectPath = %q, want the header cwd (encoded dir must not be decoded)", s.ProjectPath)
+	}
+	if s.ProjectName != "waveterm" {
+		t.Errorf("projectName = %q, want waveterm", s.ProjectName)
+	}
+	if s.TranscriptPath != path {
+		t.Errorf("transcriptPath = %q, want %q", s.TranscriptPath, path)
+	}
+	if !reflect.DeepEqual(s.ResumeArgs, []string{"--session", path}) {
+		t.Errorf("resumeArgs = %v, want [--session %q]", s.ResumeArgs, path)
+	}
+	if wantCmd := "pi --session " + strconv.Quote(path); s.ResumeCommand != wantCmd {
+		t.Errorf("resumeCommand = %q, want %q", s.ResumeCommand, wantCmd)
+	}
+	if s.Task != "Pi session title" {
+		t.Errorf("task = %q, want the latest active session_info.name", s.Task)
+	}
+	if s.Model != "openai-codex/gpt-5.5" {
+		t.Errorf("model = %q, want openai-codex/gpt-5.5", s.Model)
+	}
+	if s.TokensTotal != 15 {
+		t.Errorf("tokensTotal = %d, want 15 (sum of billed records)", s.TokensTotal)
+	}
+}
+
+func TestScanProvider_PiFallsBackToFirstActiveUserText(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "pi", "agent", "sessions")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONL(t, root, "s.jsonl",
+		`{"type":"session","version":3,"id":"s1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}`,
+		`{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"fix the auth race"}}`,
+		`{"type":"message","id":"a1","parentId":"u1","provider":"openai","modelId":"gpt-5.5","message":{"role":"assistant","content":"ok"}}`,
+	)
+	got := scanProvider(piProvider(root), 0, 10)
+	if len(got) != 1 {
+		t.Fatalf("want 1 pi session, got %d", len(got))
+	}
+	if got[0].Task != "fix the auth race" {
+		t.Errorf("task = %q, want the first active user text (no session_info.name)", got[0].Task)
+	}
+}
+
+func TestScanProvider_PiIgnoresAbandonedBranch(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "pi", "agent", "sessions")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// the last entry (active) continues from root; the session_info + model on the abandoned fork must
+	// never become this session's task/model.
+	writeJSONL(t, root, "s.jsonl",
+		`{"type":"session","version":3,"id":"s1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}`,
+		`{"type":"message","id":"root","parentId":null,"message":{"role":"user","content":"real task"}}`,
+		`{"type":"message","id":"ab1","parentId":"root","provider":"openai","modelId":"gpt-old","message":{"role":"assistant","content":"abandoned answer"}}`,
+		`{"type":"session_info","id":"abInfo","parentId":"ab1","name":"abandoned title"}`,
+		`{"type":"message","id":"act1","parentId":"root","provider":"openai-codex","modelId":"gpt-5.5","message":{"role":"assistant","content":"active answer"}}`,
+	)
+	got := scanProvider(piProvider(root), 0, 10)
+	if len(got) != 1 {
+		t.Fatalf("want 1 pi session, got %d", len(got))
+	}
+	s := got[0]
+	if s.Task != "real task" {
+		t.Errorf("task = %q, want the active-branch user text (abandoned title must not leak)", s.Task)
+	}
+	if s.Model != "openai-codex/gpt-5.5" {
+		t.Errorf("model = %q, want the active-branch model (abandoned branch must not win)", s.Model)
+	}
+}
+
+func TestScanProvider_PiPartialFinalRecordSurvives(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "pi", "agent", "sessions")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// the final record is truncated mid-write (no trailing newline): pisession drops it silently and
+	// the session survives.
+	content := `{"type":"session","version":3,"id":"s1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}` + "\n" +
+		`{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"keep me"}}` + "\n" +
+		`{"type":"message","id":"half"`
+	if err := os.WriteFile(filepath.Join(root, "s.jsonl"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := scanProvider(piProvider(root), 0, 10)
+	if len(got) != 1 {
+		t.Fatalf("want 1 pi session, got %d", len(got))
+	}
+	if got[0].Task != "keep me" {
+		t.Errorf("task = %q, want keep me", got[0].Task)
+	}
+}
+
+func TestScanProvider_PiSkipsMalformedFilesAndKeepsValidSibling(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "pi", "agent", "sessions")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONL(t, root, "bad-version.jsonl", `{"type":"session","version":4,"id":"future","cwd":"C:\\repo"}`)
+	writeJSONL(t, root, "garbage.jsonl", `not json at all`)
+	writeJSONL(t, root, "good.jsonl",
+		`{"type":"session","version":3,"id":"good","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}`,
+		`{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"fine"}}`,
+	)
+	var buf bytes.Buffer
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(orig)
+
+	got := scanProvider(piProvider(root), 0, 10)
+	if len(got) != 1 || got[0].ID != "good" {
+		t.Fatalf("want only the valid good session, got %+v", got)
+	}
+	logged := buf.String()
+	if !strings.Contains(logged, "bad-version.jsonl") {
+		t.Errorf("malformed pi file not logged with path context; log:\n%s", logged)
+	}
+	if !strings.Contains(logged, "garbage.jsonl") {
+		t.Errorf("garbage pi file not logged with path context; log:\n%s", logged)
 	}
 }

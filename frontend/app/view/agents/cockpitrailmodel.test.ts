@@ -15,7 +15,8 @@ describe("providerLabel", () => {
     it("maps known providers to display names", () => {
         expect(providerLabel("claude")).toBe("Claude");
         expect(providerLabel("codex")).toBe("Codex");
-        expect(providerLabel("opencode")).toBe("opencode");
+        expect(providerLabel("opencode")).toBe("OpenCode");
+        expect(providerLabel("pi")).toBe("Pi");
     });
     it("falls back to the raw provider id when unknown", () => {
         expect(providerLabel("gemini")).toBe("gemini");
@@ -27,6 +28,7 @@ describe("providerDot", () => {
         expect(providerDot("claude")).toBe("bg-provider-claude");
         expect(providerDot("codex")).toBe("bg-provider-codex");
         expect(providerDot("opencode")).toBe("bg-provider-opencode");
+        expect(providerDot("pi")).toBe("bg-provider-pi");
     });
     it("falls back to bg-muted when unknown", () => {
         expect(providerDot("gemini")).toBe("bg-muted");

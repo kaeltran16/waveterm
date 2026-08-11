@@ -5,6 +5,7 @@ const harnesses: HarnessInfo[] = [
     { runtime: "claude", label: "Claude Code", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "codex", label: "Codex", installed: false, consultcapable: true, runworkercapable: true },
     { runtime: "opencode", label: "OpenCode", installed: true, consultcapable: true, runworkercapable: true },
+    { runtime: "pi", label: "Pi", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "antigravity", label: "Antigravity", installed: true, consultcapable: true, runworkercapable: true },
 ];
 
@@ -18,7 +19,7 @@ describe("harnessPickerItems", () => {
 
     it("gives every row a stable order and a label", () => {
         const items = harnessPickerItems(harnesses, "", "consult");
-        expect(items.map((x) => x.runtime)).toEqual(["claude", "codex", "opencode", "antigravity"]);
+        expect(items.map((x) => x.runtime)).toEqual(["claude", "codex", "opencode", "pi", "antigravity"]);
         for (const item of items) {
             expect(item.label.length).toBeGreaterThan(0);
         }

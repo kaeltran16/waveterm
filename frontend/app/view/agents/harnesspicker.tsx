@@ -13,6 +13,7 @@ import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions,
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import { harnessPreferenceAtom, harnessesAtom, setPreferredHarness } from "./harnessstore";
+import { RuntimeMark } from "./runtimemark";
 
 export type HarnessOperation = "consult" | "run-worker";
 
@@ -151,6 +152,7 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                                     item.selected ? "bg-surface-raised" : "bg-transparent"
                                 )}
                             >
+                                <RuntimeMark runtime={item.runtime} className="mt-[2px] h-4 w-4 flex-none" />
                                 <span className="min-w-0 flex-1">
                                     <span
                                         className={cn(

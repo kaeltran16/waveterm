@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,15 @@ type apiBackend interface {
 	Run(ctx context.Context, spec RuntimeSpec, prompt string, emit func(string)) (string, error)
 }
 
+// ParsedEvent is one decoded JSONL event from a runtime's stream. Text carries reply text (empty for
+// non-reply events), Complete marks a runtime's settlement/completion signal (pi agent_settled), and
+// Err surfaces a runtime-reported assistant error. At most one of Text/Complete/Err is meaningful.
+type ParsedEvent struct {
+	Text     string
+	Complete bool
+	Err      error
+}
+
 // RuntimeSpec is how to invoke a runtime in one-shot/print mode.
 //
 // Output handling (see Run in exec.go):
@@ -47,7 +57,7 @@ type RuntimeSpec struct {
 	BaseArgs       []string
 	PromptViaStdin bool
 	UsePty         bool
-	ParseLine      func(line []byte) (text string, isReply bool)
+	ParseLine      func(line []byte) ParsedEvent
 	ApiBackend     apiBackend // if set, Run() calls the API instead of shelling out
 	Model          string     // model id for API backends
 }
@@ -67,12 +77,13 @@ var runtimeSpecs = map[string]RuntimeSpec{
 	"codex":       {Bin: "codex", BaseArgs: []string{"exec", "--json"}, PromptViaStdin: true, ParseLine: codexParseLine},
 	"antigravity": {Bin: "agy", BaseArgs: []string{"-p"}, PromptViaStdin: false, UsePty: true},
 	"opencode":    {Bin: "opencode", BaseArgs: []string{"run", "--format", "json"}, PromptViaStdin: false, ParseLine: opencodeParseLine},
+	"pi":          {Bin: "pi", BaseArgs: []string{"--mode", "json", "--no-session", "--no-extensions"}, PromptViaStdin: false, ParseLine: piParseLine},
 	"openrouter":  {ApiBackend: &openrouterBackend{}},
 }
 
 // codexParseLine extracts assistant text from a `codex exec --json` JSONL event. The reply arrives as
 // item.completed events whose item.type is "agent_message"; reasoning/thread/turn events are skipped.
-func codexParseLine(line []byte) (string, bool) {
+func codexParseLine(line []byte) ParsedEvent {
 	var ev struct {
 		Type string `json:"type"`
 		Item struct {
@@ -81,18 +92,18 @@ func codexParseLine(line []byte) (string, bool) {
 		} `json:"item"`
 	}
 	if json.Unmarshal(line, &ev) != nil {
-		return "", false
+		return ParsedEvent{}
 	}
 	if ev.Type == "item.completed" && ev.Item.Type == "agent_message" && ev.Item.Text != "" {
-		return ev.Item.Text, true
+		return ParsedEvent{Text: ev.Item.Text}
 	}
-	return "", false
+	return ParsedEvent{}
 }
 
 // claudeParseLine extracts assistant text from a `claude -p --output-format stream-json` JSONL event.
 // The reply arrives as assistant events carrying text content blocks; system/hook/init, rate-limit,
 // and the redundant final result events are skipped (accumulating assistant text is the reply).
-func claudeParseLine(line []byte) (string, bool) {
+func claudeParseLine(line []byte) ParsedEvent {
 	var ev struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -103,10 +114,10 @@ func claudeParseLine(line []byte) (string, bool) {
 		} `json:"message"`
 	}
 	if json.Unmarshal(line, &ev) != nil {
-		return "", false
+		return ParsedEvent{}
 	}
 	if ev.Type != "assistant" {
-		return "", false
+		return ParsedEvent{}
 	}
 	var b strings.Builder
 	for _, c := range ev.Message.Content {
@@ -115,16 +126,16 @@ func claudeParseLine(line []byte) (string, bool) {
 		}
 	}
 	if b.Len() == 0 {
-		return "", false
+		return ParsedEvent{}
 	}
-	return b.String(), true
+	return ParsedEvent{Text: b.String()}
 }
 
 // opencodeParseLine extracts assistant text from an `opencode run --format json` JSONL event.
 // Verified 2026-08-07: run --format json emits one event per line; assistant text arrives as a
 // `text` event whose part.type is "text". step_start/step_finish/reasoning/tool events carry no
 // reply text and are skipped. Streaming is incremental — each text event carries its own delta.
-func opencodeParseLine(line []byte) (string, bool) {
+func opencodeParseLine(line []byte) ParsedEvent {
 	var ev struct {
 		Type string `json:"type"`
 		Part struct {
@@ -133,15 +144,52 @@ func opencodeParseLine(line []byte) (string, bool) {
 		} `json:"part"`
 	}
 	if json.Unmarshal(line, &ev) != nil {
-		return "", false
+		return ParsedEvent{}
 	}
 	if ev.Type != "text" || ev.Part.Type != "text" {
-		return "", false
+		return ParsedEvent{}
 	}
 	if strings.TrimSpace(ev.Part.Text) == "" {
-		return "", false
+		return ParsedEvent{}
 	}
-	return ev.Part.Text, true
+	return ParsedEvent{Text: ev.Part.Text}
+}
+
+// piParseLine extracts Pi's stream from a `pi --mode json --no-session --no-extensions` session.
+// Assistant text arrives in message_end events with text content blocks; the final agent_settled
+// event marks completion, and a message_end with stopReason "error" carries the failure message.
+func piParseLine(line []byte) ParsedEvent {
+	var ev struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role         string `json:"role"`
+			StopReason   string `json:"stopReason"`
+			ErrorMessage string `json:"errorMessage"`
+			Content      []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(line, &ev); err != nil {
+		return ParsedEvent{}
+	}
+	if ev.Type == "agent_settled" {
+		return ParsedEvent{Complete: true}
+	}
+	if ev.Type != "message_end" || ev.Message.Role != "assistant" {
+		return ParsedEvent{}
+	}
+	if ev.Message.StopReason == "error" {
+		return ParsedEvent{Err: fmt.Errorf("Pi assistant error: %s", ev.Message.ErrorMessage)}
+	}
+	var text strings.Builder
+	for _, block := range ev.Message.Content {
+		if block.Type == "text" {
+			text.WriteString(block.Text)
+		}
+	}
+	return ParsedEvent{Text: text.String()}
 }
 
 // SpecFor resolves a one-shot runtime spec, falling back to the shared harness catalog for the

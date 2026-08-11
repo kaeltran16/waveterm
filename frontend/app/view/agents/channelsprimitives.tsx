@@ -15,6 +15,7 @@ import { AnswerBar } from "./answerbar";
 import { avatarColor } from "./channelderive";
 import type { WorkerState } from "./jarvisderive";
 import { runtimeLogo } from "./runtimelogo";
+import { runtimeMeta } from "./runtimemeta";
 import { StatusDot } from "./statusdot";
 
 // CHANNEL_COL lived here — one centered measure for the channel centre column, at 760px. It had the right
@@ -54,11 +55,12 @@ export function Avatar({ name }: { name: string }) {
     }
     const logo = runtimeLogo(name);
     if (logo) {
+        const label = runtimeMeta(name).label;
         return (
             <img
                 src={logo}
-                alt={name}
-                title={name}
+                alt={label}
+                title={label}
                 className="h-8 w-8 flex-none rounded-[9px] border border-edge-mid bg-white object-contain p-1.5"
             />
         );

@@ -31,6 +31,9 @@ var (
 	agentStatusModel      string
 	agentStatusTitle      string
 	agentStatusTranscript string
+	agentStatusCwd        string
+	agentStatusSessionID  string
+	agentStatusProvider   string
 
 	agentUsageFlag       bool
 	agentUsageContext    float64
@@ -46,10 +49,13 @@ func init() {
 	rootCmd.AddCommand(agentStatusCmd)
 	agentStatusCmd.Flags().StringVar(&agentStatusState, "state", "", "agent state: working | waiting | idle")
 	agentStatusCmd.Flags().StringVar(&agentStatusDetail, "detail", "", "activity detail line (e.g. \"editing foo.go\")")
-	agentStatusCmd.Flags().StringVar(&agentStatusAgent, "agent", "", "agent identity (claude | codex)")
+	agentStatusCmd.Flags().StringVar(&agentStatusAgent, "agent", "", "agent identity (claude | codex | opencode | pi | antigravity)")
 	agentStatusCmd.Flags().StringVar(&agentStatusModel, "model", "", "resolved model id (e.g. claude-sonnet-4-6)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTitle, "title", "", "agent ai-title / task summary (used as the sidebar tab label)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTranscript, "transcript", "", "path to the agent's transcript JSONL (for previous-info projection)")
+	agentStatusCmd.Flags().StringVar(&agentStatusCwd, "cwd", "", "current working directory of the agent session")
+	agentStatusCmd.Flags().StringVar(&agentStatusSessionID, "session-id", "", "agent session id")
+	agentStatusCmd.Flags().StringVar(&agentStatusProvider, "provider", "", "model provider (e.g. openai-codex)")
 	agentStatusCmd.Flags().BoolVar(&agentUsageFlag, "usage", false, "report a usage-only delta from the statusLine JSON (no --state)")
 	agentStatusCmd.Flags().Float64Var(&agentUsageContext, "context-pct", 0, "context window used percentage")
 	agentStatusCmd.Flags().IntVar(&agentUsageContextMax, "context-max", 0, "context window size in tokens (200000 | 1000000)")
@@ -62,6 +68,28 @@ func init() {
 
 func validAgentState(s string) bool {
 	return s == baseds.AgentState_Working || s == baseds.AgentState_Waiting || s == baseds.AgentState_Idle
+}
+
+// buildAgentStatusData is the pure builder for an AgentStatusData event payload so tests can
+// exercise it without Cobra flag globals. The Pi extension drives every field except ts.
+func buildAgentStatusData(
+	oref *waveobj.ORef,
+	state, detail, agent, cwd, transcriptPath, sessionID, title, provider, model string,
+	ts int64,
+) baseds.AgentStatusData {
+	return baseds.AgentStatusData{
+		ORef:           oref.String(),
+		State:          state,
+		Detail:         detail,
+		Agent:          agent,
+		Cwd:            cwd,
+		TranscriptPath: transcriptPath,
+		SessionID:      sessionID,
+		Title:          title,
+		Provider:       provider,
+		Model:          model,
+		Ts:             ts,
+	}
 }
 
 func buildAgentStatusEvent(oref *waveobj.ORef, data baseds.AgentStatusData, persist int) wps.WaveEvent {
@@ -99,16 +127,9 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("--state must be one of working, waiting, idle (got %q)", agentStatusState)
 	}
 
-	eventData := baseds.AgentStatusData{
-		ORef:           oref.String(),
-		State:          agentStatusState,
-		Detail:         agentStatusDetail,
-		Agent:          agentStatusAgent,
-		Model:          agentStatusModel,
-		Title:          agentStatusTitle,
-		TranscriptPath: agentStatusTranscript,
-		Ts:             time.Now().UnixMilli(),
-	}
+	eventData := buildAgentStatusData(oref, agentStatusState, agentStatusDetail, agentStatusAgent,
+		agentStatusCwd, agentStatusTranscript, agentStatusSessionID, agentStatusTitle, agentStatusProvider,
+		agentStatusModel, time.Now().UnixMilli())
 
 	err = publishAgentStatusData(oref, eventData, 1)
 	if err != nil {

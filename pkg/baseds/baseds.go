@@ -61,6 +61,9 @@ type AgentStatusData struct {
 	Detail         string      `json:"detail,omitempty"`
 	Agent          string      `json:"agent,omitempty"`
 	Model          string      `json:"model,omitempty"`
+	Cwd            string      `json:"cwd,omitempty"`
+	SessionID      string      `json:"sessionid,omitempty"`
+	Provider       string      `json:"provider,omitempty"`
 	Title          string      `json:"title,omitempty"` // agent's ai-title (task summary), used as the sidebar label
 	TranscriptPath string      `json:"transcriptpath,omitempty"`
 	Ts             int64       `json:"ts"`

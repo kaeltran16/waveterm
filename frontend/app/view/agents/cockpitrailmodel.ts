@@ -11,8 +11,14 @@ const PROVIDER_DOT: Record<string, string> = {
     claude: "bg-provider-claude",
     codex: "bg-provider-codex",
     opencode: "bg-provider-opencode",
+    pi: "bg-provider-pi",
 };
-const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
+const PROVIDER_LABEL: Record<string, string> = {
+    claude: "Claude",
+    codex: "Codex",
+    opencode: "OpenCode",
+    pi: "Pi",
+};
 
 export function providerLabel(provider: string): string {
     return PROVIDER_LABEL[provider] ?? provider;

@@ -65,12 +65,21 @@ wshrpc commands: `ConsultCommand`, `ConsultRuntimesCommand`, `CreateChannelComma
   a useful signal when triage disagrees.
 - **`agy` positional quirk.** Antigravity dispatch must use `agy -i <task>`; a bare positional prompt
   is ignored by the `agy` CLI (handled in `buildLaunchMeta`).
-- **opencode consult is JSONL.** `ask @opencode` runs `opencode run --format json`, whose stdout is
+- **OpenCode consult is JSONL.** `ask @opencode` runs `opencode run --format json`, whose stdout is
   one event per line; assistant text arrives as `text` events and everything else is skipped. The
   worker's shadow transcript lives at `~/.local/share/opencode/waveterm/<sessionID>.jsonl` (the
   filename stem is the resume id, `opencode -s <id>`). The status plugin is auto-installed by
   `wsh install-agent-hooks` into `~/.config/opencode/plugins/` — no `opencode.json` edit; the config
   `plugin` array is npm-only and is never touched.
+- **Pi consult is native JSONL.** `ask @pi` runs `pi --mode json --no-session --no-extensions`, whose
+  stdout is one native v3 event per line; assistant text arrives on `message_end` and `agent_settled`
+  marks completion. Pi is discovered from `pi` on PATH. `wsh install-agent-hooks` installs the live
+  status extension into `~/.pi/agent/extensions/waveterm-status.ts` (working/idle states, title,
+  provider/model, context pct). Pi sessions remain authoritative under `~/.pi/agent/sessions`; Wave
+  reads them directly and resumes with `pi --session` plus the exact native path as one argument.
+  Launching Pi with `--no-extensions` disables live status reporting but not history, usage, or
+  resume. Channel syntax mirrors the other runtimes: `@pi <prompt>` dispatches a persistent worker,
+  `ask @pi <prompt>` runs the one-shot consult above and replies inline.
 - **Worker auto-titles are paraphrases.** Roster rows are labeled by the ai-title reporter, which
   paraphrases the task (goal "reply with token DELEG8" → title "Provide delegation token"). Derived,
   not a stuck prompt — see [`tab-auto-naming.md`](tab-auto-naming.md).

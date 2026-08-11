@@ -1,0 +1,176 @@
+import { describe, expect, it, vi } from "vitest";
+import wavetermStatus, { registerWavetermStatus } from "./pi-status-extension";
+
+type Handler = (event: any, ctx: any) => void;
+
+const LIFECYCLE_EVENTS = [
+    "session_start",
+    "session_info_changed",
+    "model_select",
+    "agent_start",
+    "tool_execution_start",
+    "message_end",
+    "agent_settled",
+    "session_shutdown",
+];
+
+function fakePi() {
+    const handlers = new Map<string, Handler[]>();
+    const exec = vi.fn(async () => {});
+    return {
+        on: (event: string, fn: Handler) => {
+            handlers.set(event, [...(handlers.get(event) ?? []), fn]);
+        },
+        exec,
+        handlers,
+    };
+}
+
+function sessionCtx(over: Record<string, unknown> = {}) {
+    return {
+        cwd: "C:\\Users\\Jane Doe\\proj",
+        sessionManager: {
+            getSessionFile: () => "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl",
+            getSessionId: () => "session-1",
+            getSessionName: () => "fix the bug",
+        },
+        model: { provider: "openai-codex", id: "gpt-5.5" },
+        ...over,
+    };
+}
+
+function usageCtx(over: Record<string, unknown> = {}) {
+    return {
+        ...sessionCtx(),
+        getContextUsage: () => ({ percent: 42.5, contextWindow: 200000 }),
+        ...over,
+    };
+}
+
+function statusArgs(over: Record<string, string> = {}) {
+    return {
+        agentstatus: "agentstatus",
+        "--agent": "pi",
+        "--state": "",
+        "--cwd": "C:\\Users\\Jane Doe\\proj",
+        "--transcript": "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl",
+        "--session-id": "session-1",
+        "--title": "fix the bug",
+        "--provider": "openai-codex",
+        "--model": "gpt-5.5",
+        ...over,
+    };
+}
+
+function assertStatusExec(pi: ReturnType<typeof fakePi>, wshPath: string, over: Record<string, string> = {}) {
+    const want = statusArgs(over);
+    expect(pi.exec).toHaveBeenCalledWith(wshPath, expect.arrayContaining(Object.entries(want).flat()));
+}
+
+describe("registerWavetermStatus", () => {
+    it("registers every lifecycle event", () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        for (const ev of LIFECYCLE_EVENTS) {
+            expect(pi.handlers.get(ev)?.length).toBeGreaterThan(0);
+        }
+    });
+
+    it("reports idle on session_start", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("session_start")![0]({}, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "idle" });
+    });
+
+    it("reports working on agent_start", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("agent_start")![0]({}, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "working" });
+    });
+
+    it("reports working with tool detail on tool_execution_start", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("tool_execution_start")![0]({ toolName: "bash" }, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "working", "--detail": "bash" });
+    });
+
+    it("clamps detail to 160 chars", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        const long = "x".repeat(500);
+        await pi.handlers.get("tool_execution_start")![0]({ toolName: long }, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "working", "--detail": "x".repeat(160) });
+    });
+
+    it("reports idle on agent_settled and session_shutdown", async () => {
+        for (const ev of ["agent_settled", "session_shutdown"]) {
+            const pi = fakePi();
+            registerWavetermStatus(pi, "wsh");
+            await pi.handlers.get(ev)![0]({}, sessionCtx());
+            assertStatusExec(pi, "wsh", { "--state": "idle" });
+        }
+    });
+
+    it("message_end reports current state then usage", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        const handler = pi.handlers.get("message_end")![0];
+        await handler({}, usageCtx());
+        assertStatusExec(pi, "wsh", { "--state": "idle" });
+        expect(pi.exec).toHaveBeenLastCalledWith("wsh", [
+            "agentstatus",
+            "--usage",
+            "--context-pct",
+            "42.5",
+            "--context-max",
+            "200000",
+        ]);
+    });
+
+    it("message_end without usage reports state only", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("message_end")![0]({}, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "idle" });
+        const all = pi.exec.mock.calls.map((c) => c[1]);
+        expect(all).toHaveLength(1);
+    });
+
+    it("swallows exec errors (best-effort live reporting)", async () => {
+        const pi = fakePi();
+        pi.exec.mockRejectedValue(new Error("boom"));
+        registerWavetermStatus(pi, "wsh");
+        await expect(pi.handlers.get("agent_start")![0]({}, sessionCtx())).resolves.toBeUndefined();
+    });
+
+    it("falls back to empty strings when optional ctx fields are absent", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        // the extension contract requires ctx.sessionManager with getSessionFile/getSessionId;
+        // everything else (cwd, model, session name) is optional and falls back to "".
+        const ctx = { sessionManager: { getSessionFile: () => "", getSessionId: () => "" } };
+        await pi.handlers.get("agent_start")![0]({}, ctx);
+        assertStatusExec(pi, "wsh", {
+            "--state": "working",
+            "--cwd": "",
+            "--transcript": "",
+            "--session-id": "",
+            "--title": "",
+            "--provider": "",
+            "--model": "",
+        });
+    });
+});
+
+describe("default export", () => {
+    it("wires registerWavetermStatus with the placeholder wsh path", async () => {
+        const pi = fakePi();
+        wavetermStatus(pi);
+        expect(pi.handlers.get("session_start")?.length).toBe(1);
+        await pi.handlers.get("agent_start")![0]({}, sessionCtx());
+        assertStatusExec(pi, "__WSH_PATH__", { "--state": "working" });
+    });
+});

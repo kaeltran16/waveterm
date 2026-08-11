@@ -2307,6 +2307,36 @@ const buildUsageFixture = () => {
         reportedcostusd: 1.25,
         msgs: 5,
     });
+    // Pi/OpenAI-Codex: the same model id as Codex's openai bucket but a DISTINCT provider, so the
+    // harness and provider dimensions stay separate (pi -> openai-codex, codex -> openai).
+    buckets.push({
+        harness: "pi",
+        provider: "openai-codex",
+        model: "gpt-5.5",
+        day: dayAgo(1),
+        input: 900,
+        output: 200,
+        reasoning: 300,
+        cacheread: 1200,
+        cachecreate: 400,
+        cachecreate1h: 100,
+        reportedcostusd: 0.42,
+        msgs: 4,
+    });
+    buckets.push({
+        harness: "pi",
+        provider: "openai-codex",
+        model: "gpt-5.5",
+        day: dayAgo(2),
+        input: 400,
+        output: 90,
+        reasoning: 120,
+        cacheread: 600,
+        cachecreate: 150,
+        cachecreate1h: 0,
+        reportedcostusd: 0.18,
+        msgs: 2,
+    });
     return buckets;
 };
 
@@ -2374,7 +2404,7 @@ const usageCharts = {
         // these are the pre-existing design-system tokens, so a rename would break the fills silently)
         const palette = await h.ev(`(() => {
             const cs = getComputedStyle(document.documentElement);
-            const names = ["--color-cacheread","--color-accent","--color-warning","--color-success","--color-accent-200","--color-accent-800","--color-accent-300","--color-rt-opencode"];
+            const names = ["--color-cacheread","--color-accent","--color-warning","--color-success","--color-accent-200","--color-accent-800","--color-accent-300","--color-rt-opencode","--color-rt-pi"];
             return Object.fromEntries(names.map((n) => [n, cs.getPropertyValue(n).trim()]));
         })()`);
         rec(
@@ -2462,13 +2492,13 @@ const usageCharts = {
 
         const chipLabels = await h.ev(`(() => {
             const chips = [...document.querySelectorAll("button")].filter(
-                (b) => ["All", "Claude Code", "Codex", "OpenCode"].includes((b.textContent || "").trim())
+                (b) => ["All", "Claude Code", "Codex", "OpenCode", "Pi"].includes((b.textContent || "").trim())
             );
             return chips.map((b) => (b.textContent || "").trim());
         })()`);
         rec(
-            "7. harness filter chips include All, Claude Code, Codex, and OpenCode",
-            ["All", "Claude Code", "Codex", "OpenCode"].every((l) => chipLabels.includes(l)),
+            "7. harness filter chips include All, Claude Code, Codex, OpenCode, and Pi",
+            ["All", "Claude Code", "Codex", "OpenCode", "Pi"].every((l) => chipLabels.includes(l)),
             JSON.stringify(chipLabels)
         );
 
@@ -2571,6 +2601,54 @@ const usageCharts = {
             "14. the app bar has no usage signal and keeps native window controls",
             appBar.found && appBar.usageArcs === 0 && !appBar.hasLimitText && appBar.min && appBar.max && appBar.close,
             JSON.stringify(appBar)
+        );
+
+        // Reset the filter to All (the OpenCode filter survived the surface switch above), then read the
+        // DailyChart legend: each harness's swatch is a 9px span whose inline background resolves to its
+        // runtime token, followed by its label span. OpenCode and Pi must both appear with local marks.
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "All");
+            if (b) b.click();
+        })()`);
+        await settle(400);
+        const legend = await h.ev(`(() => {
+            const swatches = [...document.querySelectorAll("span[style]")].filter((s) => {
+                const bg = s.style && s.style.background ? s.style.background : "";
+                return bg.includes("--color-rt-opencode") || bg.includes("--color-rt-pi");
+            });
+            const labels = swatches.map((s) => (s.nextElementSibling ? (s.nextElementSibling.textContent || "").trim() : ""));
+            return { count: swatches.length, labels };
+        })()`);
+        rec(
+            "15. the chart legend names OpenCode and Pi",
+            legend.count >= 2 && legend.labels.includes("OpenCode") && legend.labels.includes("Pi"),
+            JSON.stringify(legend)
+        );
+
+        // click the Pi chip, then assert only Pi history remains and its provider/model stays distinct
+        // from Codex's openai bucket and OpenCode's opencode-go bucket.
+        const clickedPi = await h.ev(`(() => {
+            const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === "Pi");
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await settle(400);
+        const piState = await h.ev(`(() => {
+            const h3s = [...document.querySelectorAll("h3")].map((x) => (x.textContent || "").trim());
+            const body = document.body.textContent || "";
+            return {
+                hasPiProvider: body.includes("openai-codex"),
+                hasPiModelRow: body.includes("openai-codex/gpt-5.5"),
+                noCodexCard: !body.includes("openai/gpt-5.5"),
+                noOpenCodeCard: !body.includes("opencode-go"),
+                noAnthropicHeading: !h3s.includes("anthropic"),
+            };
+        })()`);
+        rec(
+            "16. selecting Pi leaves only Pi model cards with a provider/model distinct from Codex and OpenCode",
+            clickedPi && piState.hasPiProvider && piState.hasPiModelRow && piState.noCodexCard && piState.noOpenCodeCard && piState.noAnthropicHeading,
+            JSON.stringify(piState)
         );
 
         return steps;
@@ -3625,7 +3703,25 @@ const harnessPicker = {
             }));
             return opts;
         })()`);
-        rec("4. picker lists catalog rows, uninstalled disabled", Array.isArray(rows) && rows.length >= 3 && rows.some((r) => r.disabled), JSON.stringify(rows));
+        rec("4. picker lists catalog rows incl. pi, uninstalled disabled", Array.isArray(rows) && rows.length >= 3 && rows.some((r) => r.disabled) && rows.some((r) => r.runtime === "pi"), JSON.stringify(rows));
+
+        // every catalog row renders its brand mark as a LOCAL bundled asset (same-origin in dev), and
+        // the OpenCode and Pi marks must actually decode (naturalWidth > 0), not be dead srcs.
+        const marks = await h.ev(`(() => {
+            const imgs = [...document.querySelectorAll('[data-testid^="harness-option-"] img')];
+            const sameOrigin = (src) => { try { return new URL(src).origin === location.origin; } catch { return false; } };
+            return {
+                count: imgs.length,
+                opencode: imgs.some((i) => i.src.includes("opencode") && i.naturalWidth > 0),
+                pi: imgs.some((i) => i.src.includes("pi.svg") && i.naturalWidth > 0),
+                remote: imgs.filter((i) => !sameOrigin(i.src)).length,
+            };
+        })()`);
+        rec(
+            "5. picker rows render local loaded runtime marks for OpenCode and Pi",
+            marks.count >= 2 && marks.opencode && marks.pi && marks.remote === 0,
+            JSON.stringify(marks)
+        );
         const picked = await h.ev(`(() => {
             const o = document.querySelector('[data-testid="harness-option-opencode"]');
             if (!o) return false;
@@ -3634,7 +3730,7 @@ const harnessPicker = {
         })()`);
         await settle(600); // wait for SetConfigCommand to persist
         const afterOpen = await picker("run-worker");
-        rec("5. selecting OpenCode persists it as the shared preference", picked && afterOpen != null && afterOpen.runtime === "opencode", JSON.stringify(afterOpen));
+        rec("6. selecting OpenCode persists it as the shared preference", picked && afterOpen != null && afterOpen.runtime === "opencode", JSON.stringify(afterOpen));
 
         // bare ask uses the preferred runtime; an explicit @ask override is one-off
         const ta = () =>
@@ -3652,7 +3748,7 @@ const harnessPicker = {
             const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
             return shell ? shell.textContent.trim() : '';
         })()`);
-        rec("6. bare goal footer names the preferred harness", footerText.includes("OpenCode"), `footer=${footerText.slice(0, 80)}`);
+        rec("7. bare goal footer names the preferred harness", footerText.includes("OpenCode"), `footer=${footerText.slice(0, 80)}`);
         const oneOff = await h.ev(`(() => {
             const t = document.querySelector('[data-jarvis-composer] textarea');
             const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
@@ -3665,7 +3761,39 @@ const harnessPicker = {
             const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
             return shell ? shell.textContent.trim() : '';
         })()`);
-        rec("7. explicit @ask shows Codex · one-off, preference unchanged", oneOff && footerOneOff.includes("one-off") && footerOneOff.includes("OpenCode") && !footerOneOff.includes("preferred codex"), `footer=${footerOneOff.slice(0, 100)}`);
+        rec("8. explicit @ask shows Codex · one-off, preference unchanged", oneOff && footerOneOff.includes("one-off") && footerOneOff.includes("OpenCode") && !footerOneOff.includes("preferred codex"), `footer=${footerOneOff.slice(0, 100)}`);
+
+        // Pi selection is conditional on installation: the row always exists (step 4), but selecting it
+        // only when pi is on PATH. Restore OpenCode afterward so the remaining steps keep their
+        // expected preference.
+        const piRow = await h.ev(`(() => {
+            const o = document.querySelector('[data-testid="harness-option-pi"]');
+            return o ? { disabled: o.disabled } : null;
+        })()`);
+        let piPicked = null;
+        if (piRow != null && !piRow.disabled) {
+            await h.ev(`(() => {
+                const o = document.querySelector('[data-testid="harness-option-pi"]');
+                o.click();
+                return true;
+            })()`);
+            await settle(600); // wait for SetConfigCommand to persist
+            piPicked = await picker("run-worker");
+            const restored = await h.ev(`(() => {
+                const o = document.querySelector('[data-testid="harness-option-opencode"]');
+                if (!o) return false;
+                o.click();
+                return true;
+            })()`);
+            await settle(600);
+            rec(
+                "9. selecting Pi persists it as the shared preference when installed",
+                piPicked != null && piPicked.runtime === "pi" && restored,
+                JSON.stringify({ picked: piPicked, restored })
+            );
+        } else {
+            rec("9. selecting Pi persists it as the shared preference when installed", piRow != null, "pi uninstalled — row asserted only");
+        }
 
         // blocked submission preserves draft + attachment: attach a file, submit, then assert both remain
         await h.ev(`(() => {
@@ -3689,7 +3817,7 @@ const harnessPicker = {
         })()`);
         await settle(300);
         const draftAfter = await h.ev(`document.querySelector('[data-jarvis-composer] textarea')?.value || ''`);
-        rec("8. a blocked dispatch preserves the draft", draftBefore.includes("this must not dispatch") && draftAfter === draftBefore, `before=${draftBefore.length} after=${draftAfter.length}`);
+        rec("10. a blocked dispatch preserves the draft", draftBefore.includes("this must not dispatch") && draftAfter === draftBefore, `before=${draftBefore.length} after=${draftAfter.length}`);
 
         // legacy label: inject a Run object with no runtime via eventpublish, then assert the header label
         const legacyId = "00000000-0000-0000-0000-0000000000ff";
@@ -3711,7 +3839,7 @@ const harnessPicker = {
             const el = document.querySelector('[data-testid="run-runtime"]');
             return el ? { label: el.textContent.trim(), legacy: el.getAttribute('data-run-legacy') } : null;
         })()`);
-        rec("9. a missing-runtime Run renders Claude · legacy", legacy != null && legacy.label.includes("Claude · legacy") && legacy.legacy === "true", JSON.stringify(legacy));
+        rec("11. a missing-runtime Run renders Claude · legacy", legacy != null && legacy.label.includes("Claude · legacy") && legacy.legacy === "true", JSON.stringify(legacy));
 
         return steps;
     },

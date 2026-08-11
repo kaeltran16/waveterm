@@ -226,6 +226,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                 subtitle: [s.projectname, s.branch || "—", s.model || "—"].join(" · "),
                 hint: formatAge(now - s.lastactivets),
                 run: () => {
+                    const piResume =
+                        s.runtime === "pi" && s.resumeargs?.length
+                            ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath }
+                            : {};
                     fireAndForget(() =>
                         launchAgent(model, {
                             runtime: s.runtime as Runtime,
@@ -233,6 +237,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             task: "",
                             projectPath: s.projectpath,
                             projectName: s.projectname || "agent",
+                            ...piResume,
                         })
                     );
                     close();

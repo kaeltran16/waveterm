@@ -47,7 +47,16 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
     }
     const projector = projectorFor(agent, path);
     const project = projector.project;
-    const gen = RpcApi.StreamAgentTranscriptCommand(TabRpcClient, { path, taillines: STREAM_TAIL_LINES }, { timeout: STREAM_TIMEOUT_MS });
+    // Pi's parent-linked active branch cannot be reconstructed from a bounded tail, so it is the
+    // only runtime that requests the complete file (taillines -1) and keeps every streamed line
+    // while the session is open. Every other runtime tails STREAM_TAIL_LINES and caps retention.
+    const isPi = agent?.toLowerCase() === "pi" || path.replace(/\\/g, "/").includes("/.pi/agent/sessions/");
+    const tailLines = isPi ? -1 : STREAM_TAIL_LINES;
+    const gen = RpcApi.StreamAgentTranscriptCommand(
+        TabRpcClient,
+        { path, taillines: tailLines },
+        { timeout: STREAM_TIMEOUT_MS }
+    );
     let cancelled = false;
     const handle: StreamHandle = {
         path,
@@ -69,7 +78,7 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
                     continue;
                 }
                 lines.push(...chunk.lines);
-                lines = capLines(lines, MAX_RETAINED_LINES);
+                lines = isPi ? lines : capLines(lines, MAX_RETAINED_LINES);
                 const entries = project(lines);
                 globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
                 globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });

@@ -78,6 +78,9 @@ declare global {
         detail?: string;
         agent?: string;
         model?: string;
+        cwd?: string;
+        sessionid?: string;
+        provider?: string;
         title?: string;
         transcriptpath?: string;
         ts: number;
@@ -2517,6 +2520,7 @@ declare global {
         tokenstotal: number;
         lastactivets: number;
         resumecommand: string;
+        resumeargs?: string[];
         transcriptpath: string;
         status: string;
         startedts: number;
@@ -2543,6 +2547,8 @@ declare global {
         tokenstotal: number;
         lastactivets: number;
         resumecommand: string;
+        transcriptpath: string;
+        resumeargs?: string[];
     };
 
     // wconfig.SettingsType

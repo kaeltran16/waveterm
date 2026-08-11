@@ -75,6 +75,7 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
 			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
 			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand,
+			TranscriptPath: s.TranscriptPath, ResumeArgs: s.ResumeArgs,
 		}
 	}
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
@@ -94,8 +95,9 @@ func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc
 		out[i] = wshrpc.SessionActivity{
 			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
 			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
-			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand, TranscriptPath: s.TranscriptPath,
-			Status: s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
+			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand, ResumeArgs: s.ResumeArgs,
+			TranscriptPath: s.TranscriptPath,
+			Status:         s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
 		}
 	}
 	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out}, nil

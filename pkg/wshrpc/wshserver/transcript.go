@@ -49,15 +49,18 @@ func readTranscriptLines(path string) ([]string, error) {
 }
 
 // readTranscriptTail returns the last maxLines non-empty lines of the transcript at path.
+// maxLines == 0 keeps the default tail size; a negative maxLines returns every line (the
+// full-history read Pi alone requests — its parent-linked active branch can't be reconstructed
+// from a bounded tail).
 func readTranscriptTail(path string, maxLines int) ([]string, error) {
 	lines, err := readTranscriptLines(path)
 	if err != nil {
 		return nil, err
 	}
-	if maxLines <= 0 {
+	if maxLines == 0 {
 		maxLines = defaultTranscriptTailLines
 	}
-	if len(lines) > maxLines {
+	if maxLines > 0 && len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
 	}
 	return lines, nil
@@ -133,14 +136,15 @@ func (t *transcriptTailer) readNew(path string) ([]string, error) {
 	return lines, nil
 }
 
-// streamTranscript emits the transcript backlog (last tailLines) then watches the
-// containing directory and pushes newly-appended lines as they arrive. Returns when
-// ctx is cancelled or on a fatal error (the caller forwards the error onto the channel).
+// streamTranscript emits the transcript backlog (last tailLines, or the whole file for a negative
+// tailLines — Pi's full-history stream) then watches the containing directory and pushes
+// newly-appended lines as they arrive. Returns when ctx is cancelled or on a fatal error (the
+// caller forwards the error onto the channel).
 func streamTranscript(ctx context.Context, path string, tailLines int, ch chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate]) error {
 	if path == "" {
 		return fmt.Errorf("transcript path is required")
 	}
-	if tailLines <= 0 {
+	if tailLines == 0 {
 		tailLines = defaultTranscriptTailLines
 	}
 
@@ -164,7 +168,7 @@ func streamTranscript(ctx context.Context, path string, tailLines int, ch chan w
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("reading transcript: %w", err)
 	}
-	if len(backlog) > tailLines {
+	if tailLines > 0 && len(backlog) > tailLines {
 		backlog = backlog[len(backlog)-tailLines:]
 	}
 	ch <- wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate]{Response: wshrpc.AgentTranscriptUpdate{Lines: backlog}}

@@ -28,12 +28,14 @@ const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i
     string
 >;
 
-// Runtimes with a flag catalog (terminal has none) — the flag editor only lists these.
+// Runtimes the flag editor lists. Terminal stays out (it isn't an agent); pi is included even though
+// its catalog is empty so its no-flags state renders in the editor instead of the row vanishing.
 const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
     { id: "claude", name: "Claude Code" },
     { id: "codex", name: "Codex" },
     { id: "antigravity", name: "Antigravity" },
-    { id: "opencode", name: "opencode" },
+    { id: "opencode", name: "OpenCode" },
+    { id: "pi", name: "Pi" },
 ];
 
 export function SettingsSurface(_props: { model: AgentsViewModel }) {
@@ -466,46 +468,50 @@ function NewAgentDefaultsSection() {
                 transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                 className="rounded-[14px] border border-border bg-surface px-4 py-1.5"
             >
-                {catalog.map((f, i) => {
-                    const on = !!runtimeFlags[f.id];
-                    return (
-                        <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => setFlag(f.id, !on)}
-                            className={cn(
-                                "flex w-full cursor-pointer items-center gap-3 py-3 text-left",
-                                i > 0 && "border-t border-edge-faint"
-                            )}
-                        >
-                            <span
+                {catalog.length === 0 ? (
+                    <div className="py-3 text-[12px] text-muted">No launch flags available</div>
+                ) : (
+                    catalog.map((f, i) => {
+                        const on = !!runtimeFlags[f.id];
+                        return (
+                            <button
+                                key={f.id}
+                                type="button"
+                                onClick={() => setFlag(f.id, !on)}
                                 className={cn(
-                                    "flex h-[17px] w-[17px] flex-none items-center justify-center rounded-[5px] border-[1.5px] text-background",
-                                    on ? "border-accent bg-accent" : "border-edge-strong"
+                                    "flex w-full cursor-pointer items-center gap-3 py-3 text-left",
+                                    i > 0 && "border-t border-edge-faint"
                                 )}
                             >
-                                {on ? <CheckIcon /> : null}
-                            </span>
-                            <span
-                                className={cn(
-                                    "flex-none font-mono text-[12.5px] font-semibold",
-                                    on ? "text-accent" : "text-primary"
-                                )}
-                            >
-                                {f.flag}
-                            </span>
-                            <span className="flex-1" />
-                            <span
-                                className={cn(
-                                    "text-right text-[12px] font-medium",
-                                    on ? "text-accent-soft" : "text-muted"
-                                )}
-                            >
-                                {f.desc}
-                            </span>
-                        </button>
-                    );
-                })}
+                                <span
+                                    className={cn(
+                                        "flex h-[17px] w-[17px] flex-none items-center justify-center rounded-[5px] border-[1.5px] text-background",
+                                        on ? "border-accent bg-accent" : "border-edge-strong"
+                                    )}
+                                >
+                                    {on ? <CheckIcon /> : null}
+                                </span>
+                                <span
+                                    className={cn(
+                                        "flex-none font-mono text-[12.5px] font-semibold",
+                                        on ? "text-accent" : "text-primary"
+                                    )}
+                                >
+                                    {f.flag}
+                                </span>
+                                <span className="flex-1" />
+                                <span
+                                    className={cn(
+                                        "text-right text-[12px] font-medium",
+                                        on ? "text-accent-soft" : "text-muted"
+                                    )}
+                                >
+                                    {f.desc}
+                                </span>
+                            </button>
+                        );
+                    })
+                )}
             </motion.div>
         </div>
     );

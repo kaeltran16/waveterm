@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testWsh = `C:\a\bin\wsh-0.14.5-windows.x64.exe`
@@ -294,6 +295,8 @@ func TestInstallOpencodePlugin_skipsWhenOpencodeMissing(t *testing.T) {
 	}
 }
 
+// fakeWshPath is the wsh executable path the pi extension installer embeds. It equals
+// the running test binary, matching what installPiStatusExtension resolves via os.Executable().
 func fakeWshPath(t *testing.T) string {
 	t.Helper()
 	exe, err := os.Executable()
@@ -303,11 +306,106 @@ func fakeWshPath(t *testing.T) string {
 	return exe
 }
 
+func piExtensionPath(home string) string {
+	return filepath.Join(home, ".pi", "agent", "extensions", "waveterm-status.ts")
+}
+
 func stubPiLookPath(t *testing.T) {
 	t.Helper()
 	orig := piLookPath
 	piLookPath = func(string) (string, error) { return "pi", nil }
 	t.Cleanup(func() { piLookPath = orig })
+}
+
+func TestInstallPiStatusExtension_writesSubstitutedExtension(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	if err := installPiStatusExtension(home); err != nil {
+		t.Fatalf("installPiStatusExtension error: %v", err)
+	}
+	path := piExtensionPath(home)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading installed extension: %v", err)
+	}
+	if strings.Contains(string(body), `registerWavetermStatus(pi, "__WSH_PATH__")`) {
+		t.Fatalf("placeholder not substituted in emitted call:\n%s", string(body))
+	}
+	if !strings.Contains(string(body), jsonString(fakeWshPath(t))) {
+		t.Fatalf("installed extension missing the wsh path %s:\n%s", jsonString(fakeWshPath(t)), string(body))
+	}
+	if !strings.Contains(string(body), "registerWavetermStatus(pi, "+jsonString(fakeWshPath(t))+")") {
+		t.Fatalf("installed extension has malformed registerWavetermStatus call:\n%s", string(body))
+	}
+}
+
+func TestInstallPiStatusExtension_skipsWhenPiMissing(t *testing.T) {
+	orig := piLookPath
+	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	defer func() { piLookPath = orig }()
+
+	home := t.TempDir()
+	if err := installPiStatusExtension(home); err != nil {
+		t.Fatalf("missing pi must not error, got %v", err)
+	}
+	if _, err := os.Stat(piExtensionPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("extension should not be written when pi is absent")
+	}
+}
+
+func TestInstallPiStatusExtension_equalBytesPreserveMtime(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	if err := installPiStatusExtension(home); err != nil {
+		t.Fatalf("installPiStatusExtension error: %v", err)
+	}
+	path := piExtensionPath(home)
+	info1, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after first install: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if err := installPiStatusExtension(home); err != nil {
+		t.Fatalf("installPiStatusExtension error: %v", err)
+	}
+	info2, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after second install: %v", err)
+	}
+	if !info2.ModTime().Equal(info1.ModTime()) {
+		t.Fatalf("mtime changed on no-op reinstall: %v -> %v", info1.ModTime(), info2.ModTime())
+	}
+}
+
+func TestInstallPiStatusExtension_rewritesChangedPath(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating extension dir: %v", err)
+	}
+	path := filepath.Join(dir, "waveterm-status.ts")
+	stale := strings.ReplaceAll(piStatusExtensionTemplate, `"__WSH_PATH__"`, jsonString(`C:\old\bin\wsh-0.14.4-windows.x64.exe`))
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatalf("seeding stale extension: %v", err)
+	}
+
+	if err := installPiStatusExtension(home); err != nil {
+		t.Fatalf("installPiStatusExtension error: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading rewritten extension: %v", err)
+	}
+	if strings.Contains(string(body), "0.14.4") {
+		t.Fatalf("stale wsh path still present after reinstall:\n%s", string(body))
+	}
+	if !strings.Contains(string(body), jsonString(fakeWshPath(t))) {
+		t.Fatalf("new wsh path not written:\n%s", string(body))
+	}
 }
 
 func piMemoryExtensionPath(home string) string {

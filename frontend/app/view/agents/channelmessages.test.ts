@@ -86,6 +86,16 @@ describe("planMessage", () => {
             text: "does this race?",
         });
     });
+    it("dispatches to pi by leading mention", () => {
+        expect(planMessage("@pi investigate", [])).toEqual({ kind: "dispatch", runtime: "pi", text: "investigate" });
+    });
+    it("consults pi after ask", () => {
+        expect(planMessage("ask @pi review this", [])).toEqual({
+            kind: "consult",
+            runtimes: ["pi"],
+            text: "review this",
+        });
+    });
 });
 
 // "jarvis" was a reserved manager handle routing to a fleet summary or a delegator dispatch. The

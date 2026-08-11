@@ -8,6 +8,7 @@ import {
     deriveBranch,
     resumeArgsForClaude,
     resumeArgsForOpencode,
+    resumeArgsForPi,
     RUNTIME_FLAGS,
     runtimeLaunchLabel,
     runtimeCreatesAgentPanel,
@@ -23,7 +24,12 @@ describe("runtime helpers", () => {
         expect(runtimeStartupCommand("claude")).toBe("claude");
         expect(runtimeStartupCommand("codex")).toBe("codex");
         expect(runtimeStartupCommand("opencode")).toBe("opencode");
+        expect(runtimeStartupCommand("pi")).toBe("pi");
         expect(runtimeStartupCommand("terminal")).toBe("");
+    });
+    it("catalogs pi with no launch flags", () => {
+        expect(RUNTIME_FLAGS.pi).toEqual([]);
+        expect(composeStartupCommand("pi", "pi", { auto: true })).toBe("pi");
     });
     it("catalogs opencode's boolean launch flags", () => {
         expect(RUNTIME_FLAGS.opencode.map((f) => f.flag)).toEqual(["--auto", "--pure", "-c"]);
@@ -140,6 +146,11 @@ describe("buildLaunchMeta", () => {
         expect(m).toMatchObject({ cmd: "opencode", "cmd:args": ["refactor auth"], "cmd:shell": false, "cmd:cwd": "/x" });
         expect(m["agent:baseargs"]).toEqual([]);
     });
+    it("passes the pi task positionally like claude/codex", () => {
+        const m = buildLaunchMeta({ runtime: "pi", startupCommand: "pi", task: "audit auth", cwd: "C:\\repo" });
+        expect(m).toMatchObject({ cmd: "pi", "cmd:args": ["audit auth"], "cmd:shell": false, "cmd:cwd": "C:\\repo" });
+        expect(m["agent:baseargs"]).toEqual([]);
+    });
     it("passes the antigravity task via -i (agy ignores a bare positional prompt)", () => {
         const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "do the thing", cwd: "/x" });
         expect(m["cmd"]).toBe("agy");
@@ -161,6 +172,28 @@ describe("buildLaunchMeta", () => {
     it("stores empty agent:baseargs for a bare launch", () => {
         const m = buildLaunchMeta({ runtime: "claude", startupCommand: "claude", task: "go", cwd: "/x" });
         expect(m["agent:baseargs"]).toEqual([]);
+    });
+    it("passes startupArgs verbatim (pi session resume — a path, never re-tokenized)", () => {
+        expect(
+            buildLaunchMeta({
+                runtime: "pi",
+                startupCommand: "pi",
+                startupArgs: ["--session", "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl"],
+                task: "",
+                cwd: "C:\\repo",
+            })["cmd:args"]
+        ).toEqual(["--session", "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl"]);
+    });
+    it("carries startupArgs through agent:baseargs so resume-on-reopen can recompose them", () => {
+        const m = buildLaunchMeta({
+            runtime: "pi",
+            startupCommand: "pi",
+            startupArgs: ["--session", "C:\\old\\s.jsonl", "--model", "x"],
+            task: "",
+            cwd: "C:\\repo",
+        });
+        expect(m["cmd:args"]).toEqual(["--session", "C:\\old\\s.jsonl", "--model", "x"]);
+        expect(m["agent:baseargs"]).toEqual(["--session", "C:\\old\\s.jsonl", "--model", "x"]);
     });
 });
 
@@ -214,5 +247,29 @@ describe("resumeArgsForOpencode", () => {
     });
     it("handles empty base args", () => {
         expect(resumeArgsForOpencode("s1", [])).toEqual(["-s", "s1"]);
+    });
+});
+
+describe("resumeArgsForPi", () => {
+    it("prepends --session <full path> and keeps launch flags", () => {
+        expect(resumeArgsForPi("C:\\new path\\s.jsonl", ["--model", "x"])).toEqual([
+            "--session",
+            "C:\\new path\\s.jsonl",
+            "--model",
+            "x",
+        ]);
+    });
+    it("replaces a prior --session <path> with the new path (never stacks two resume directives)", () => {
+        expect(resumeArgsForPi("C:\\new path\\s.jsonl", ["--session", "C:\\old path\\s.jsonl", "--model", "x"])).toEqual([
+            "--session",
+            "C:\\new path\\s.jsonl",
+            "--model",
+            "x",
+        ]);
+    });
+    it("keeps the path with spaces as one argv element", () => {
+        const args = resumeArgsForPi("C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl");
+        expect(args).toEqual(["--session", "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl"]);
+        expect(args.filter((a) => a.includes(" "))).toHaveLength(1);
     });
 });

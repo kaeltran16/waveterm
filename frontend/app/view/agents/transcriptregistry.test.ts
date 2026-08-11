@@ -3,7 +3,10 @@ import { projectorFor } from "./transcriptregistry";
 
 // A line each format understands; the other format projects it to nothing — so which entries come
 // back tells us which projector the resolver picked, without coupling to the registry internals.
-const codexLine = JSON.stringify({ type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "hi" }] } });
+const codexLine = JSON.stringify({
+    type: "response_item",
+    payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "hi" }] },
+});
 const claudeLine = JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } });
 const MSG = [{ kind: "message", text: "hi" }];
 
@@ -35,6 +38,49 @@ describe("projectorFor", () => {
 
     it("routes by explicit agent: opencode", () => {
         expect(projectorFor("opencode", "/no/such/path").project).toBeDefined();
+    });
+
+    it("routes by explicit agent: pi", () => {
+        // a line only the Pi projector renders (parent-linked v3 message record)
+        const piLine = JSON.stringify({
+            type: "message",
+            id: "m1",
+            parentId: null,
+            message: { role: "assistant", content: "hi" },
+        });
+        expect(projectorFor("pi").project([piLine])).toEqual(MSG);
+    });
+
+    it("falls back to the pi projector for a native sessions path (POSIX)", () => {
+        const piLine = JSON.stringify({
+            type: "message",
+            id: "m1",
+            parentId: null,
+            message: { role: "assistant", content: "hi" },
+        });
+        expect(projectorFor(undefined, "/home/u/.pi/agent/sessions/proj/s.jsonl").project([piLine])).toEqual(MSG);
+    });
+
+    it("falls back to the pi projector for a native sessions path (Windows)", () => {
+        const piLine = JSON.stringify({
+            type: "message",
+            id: "m1",
+            parentId: null,
+            message: { role: "assistant", content: "hi" },
+        });
+        expect(projectorFor(undefined, "C:\\Users\\u\\.pi\\agent\\sessions\\proj\\s.jsonl").project([piLine])).toEqual(
+            MSG
+        );
+    });
+
+    it("does not route a project path merely containing 'pi'", () => {
+        const piLine = JSON.stringify({
+            type: "message",
+            id: "m1",
+            parentId: null,
+            message: { role: "assistant", content: "hi" },
+        });
+        expect(projectorFor(undefined, "/home/u/repo-pi/proj/x.jsonl").project([piLine])).toEqual([]);
     });
 
     it("falls back to opencode for a shadow path", () => {

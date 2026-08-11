@@ -8,6 +8,7 @@
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
 import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
 import { extractOpencodeTitle, projectOpencodeTranscript } from "./opencodetranscriptprojection";
+import { extractPiTitle, projectPiTranscript } from "./pitranscriptprojection";
 import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
 
 export interface TranscriptProjector {
@@ -22,6 +23,7 @@ const PROJECTORS: Record<string, TranscriptProjector> = {
     claude: { project: projectTranscript, extractTitle: extractAiTitle, extractTasks },
     codex: { project: projectCodexTranscript, extractTasks: extractCodexTasks },
     opencode: { project: projectOpencodeTranscript, extractTitle: extractOpencodeTitle },
+    pi: { project: projectPiTranscript, extractTitle: extractPiTitle },
 };
 
 const DEFAULT_AGENT = "claude";
@@ -29,18 +31,23 @@ const DEFAULT_AGENT = "claude";
 // Fallback when the agent identity is missing/unknown: infer the format from the transcript path.
 // `.claude` is checked first because a Claude transcript path always contains it but may also
 // contain `.codex` (e.g. Claude working on codex tooling); a Codex rollout path never contains
-// `.claude`, so this ordering disambiguates correctly.
+// `.claude`, so this ordering disambiguates correctly. Separators are normalized to `/` before
+// matching so a Windows `.pi/agent/sessions/` path resolves the same as a POSIX one.
 function agentFromPath(path?: string): string | undefined {
     if (!path) {
         return undefined;
     }
-    if (path.includes(".claude")) {
+    const norm = path.replace(/\\/g, "/");
+    if (norm.includes(".claude")) {
         return "claude";
     }
-    if (path.includes(".codex")) {
+    if (norm.includes(".codex")) {
         return "codex";
     }
-    if (path.includes("opencode")) {
+    if (norm.includes("/.pi/agent/sessions/")) {
+        return "pi";
+    }
+    if (norm.includes("opencode")) {
         return "opencode";
     }
     return undefined;

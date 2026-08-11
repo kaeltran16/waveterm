@@ -31,6 +31,7 @@ type RunWorkerSpec struct {
 //   - claude: --dangerously-skip-permissions <prompt>
 //   - codex:  --dangerously-bypass-approvals-and-sandbox <prompt> (interactive, not `exec`)
 //   - opencode: --auto --prompt <prompt> (interactive, not `run`)
+//   - pi: <prompt> (positional; --mode json --no-session --no-extensions are baked into the interactive CLI)
 //   - antigravity: --dangerously-skip-permissions -i <prompt>
 func RunWorkerSpecFor(runtime, prompt string) (RunWorkerSpec, bool) {
 	h, ok := harness.Lookup(runtime)
@@ -44,6 +45,8 @@ func RunWorkerSpecFor(runtime, prompt string) (RunWorkerSpec, bool) {
 		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-bypass-approvals-and-sandbox", prompt}}, true
 	case "opencode":
 		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--auto", "--prompt", prompt}}, true
+	case "pi":
+		return RunWorkerSpec{Bin: h.Bin, Args: []string{prompt}}, true
 	case "antigravity":
 		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-skip-permissions", "-i", prompt}}, true
 	default:

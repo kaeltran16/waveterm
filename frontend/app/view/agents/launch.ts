@@ -1,13 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-export type Runtime = "claude" | "codex" | "antigravity" | "opencode" | "terminal";
+export type Runtime = "claude" | "codex" | "antigravity" | "opencode" | "pi" | "terminal";
 
 const RUNTIME_CMD: Record<Runtime, string> = {
     claude: "claude",
     codex: "codex",
     antigravity: "agy",
     opencode: "opencode",
+    pi: "pi",
     terminal: "",
 };
 
@@ -51,6 +52,7 @@ export const RUNTIME_FLAGS: Record<Runtime, FlagDef[]> = {
         { id: "pure", flag: "--pure", desc: "Run without external plugins" },
         { id: "continue", flag: "-c", desc: "Resume the last session" },
     ],
+    pi: [],
     terminal: [],
 };
 
@@ -113,13 +115,15 @@ export function worktreeOutcome(args: { branch: string; currentBranch: string; b
 export interface LaunchMetaSpec {
     runtime: Runtime;
     startupCommand: string; // resolved command (defaults to the runtime cmd; user-editable)
+    startupArgs?: string[]; // exact argv to launch with (pi session resume); used verbatim, never split
     task: string;
     cwd: string;
 }
 
 // Build the CreateBlock meta. Terminal -> default shell block. Agent runtimes -> cmd block with the
 // task passed as a single positional arg (arg array avoids all shell-quoting issues). The startup
-// command is tokenized on whitespace (best-effort if the user adds flags).
+// command is tokenized on whitespace (best-effort if the user adds flags) — unless startupArgs is
+// given, in which case it is used verbatim because a pi resume path can never survive re-tokenizing.
 export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
     if (spec.runtime === "terminal") {
         const meta: Record<string, unknown> = { view: "term", controller: "shell" };
@@ -128,13 +132,15 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
         }
         return meta;
     }
-    const tokens = spec.startupCommand.trim().split(/\s+/).filter(Boolean);
-    const cmd = tokens[0] ?? "claude";
-    const args = tokens.slice(1);
+    const startupTokens = spec.startupCommand.trim().split(/\s+/).filter(Boolean);
+    const cmd = startupTokens[0] ?? "claude";
     // the launch flags/options before the task prompt, kept verbatim so resume-on-reopen can recompose
     // the command as `<cmd> --resume <id> <baseArgs>` without having to guess which arg was the prompt
-    // (users can type value-taking options like `--model opus`, so parsing it back out is unsafe).
-    const baseArgs = [...args];
+    // (users can type value-taking options like `--model opus`, so parsing it back out is unsafe). A
+    // pi resume passes its exact argv via startupArgs instead — the whole --session <path> pair is a
+    // launch flag and must never be re-tokenized or parsed back out of a command string.
+    const baseArgs = spec.startupArgs != null ? [...spec.startupArgs] : startupTokens.slice(1);
+    const args = [...baseArgs];
     const task = spec.task.trim();
     if (task) {
         // agy ignores a bare positional prompt (unlike claude/codex); -i runs the initial prompt and
@@ -213,4 +219,19 @@ export function resumeArgsForOpencode(sessionId: string, baseArgs: string[]): st
         kept.push(a);
     }
     return ["-s", sessionId, ...kept];
+}
+
+// Recompose a pi launch as a resume: `pi --session <full transcript path> <baseArgs>`. Pi's resume
+// key is the native file path (never an id), so it is passed whole — never decoded or re-tokenized.
+// A prior --session <path> is stripped so a repeated resume cannot stack two directives.
+export function resumeArgsForPi(transcriptPath: string, baseArgs: string[] = []): string[] {
+    const kept: string[] = [];
+    for (let i = 0; i < baseArgs.length; i++) {
+        if (baseArgs[i] === "--session") {
+            i++; // also skip its path value
+            continue;
+        }
+        kept.push(baseArgs[i]);
+    }
+    return ["--session", transcriptPath, ...kept];
 }

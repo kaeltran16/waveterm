@@ -36,6 +36,7 @@ var specs = []Spec{
 	{Runtime: "claude", Bin: "claude", Label: "Claude Code", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: true},
+	{Runtime: "pi", Bin: "pi", Label: "Pi", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "antigravity", Bin: "agy", Label: "Antigravity", ConsultCapable: true, RunWorkerCapable: true},
 }
 

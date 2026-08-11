@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+	"github.com/wavetermdev/waveterm/pkg/pisession"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -359,6 +360,7 @@ const (
 	scanClaude scanKind = iota
 	scanCodex
 	scanOpencode
+	scanPi
 )
 
 // scanFile is one transcript to parse, tagged with the parser it needs. cutoff is the authoritative
@@ -437,7 +439,8 @@ func walkOpencodeFiles(root string, cutoff time.Time) []scanFile {
 // cores is the bulk of the speedup. Result order is unspecified — callers dedupe + bucket, both
 // order-independent. Codex files are read whole (the model lives on a turn_context line, so they
 // can't be pre-filtered); Claude files skip lines that can't carry usage (readClaudeLines). OpenCode
-// files are whole-file JSON with the message timestamp as the window.
+// files are whole-file JSON with the message timestamp as the window, and Pi files are whole
+// v3 sessions read via pisession with the entry timestamp as the window.
 func parseFiles(files []scanFile) []Record {
 	workers := runtime.NumCPU()
 	if workers < 1 {
@@ -467,6 +470,12 @@ func parseFiles(files []scanFile) []Record {
 				if f.cutoff.IsZero() || !rec.TS.Before(f.cutoff) {
 					results[i] = []Record{rec}
 				}
+			case scanPi:
+				file, err := pisession.Read(f.path)
+				if err != nil {
+					return
+				}
+				results[i] = extractPi(file, f.cutoff)
 			default:
 				results[i] = extractClaude(readClaudeLines(f.path))
 			}
@@ -480,10 +489,10 @@ func parseFiles(files []scanFile) []Record {
 	return records
 }
 
-// scanRoots walks the Claude, Codex, and OpenCode transcript roots, prunes Claude/Codex files by
-// modtime to the window (with a 1-day margin), applies the exact timestamp cutoff for OpenCode,
-// parses + dedups the records, and returns buckets. Missing roots yield nothing.
-func scanRoots(claudeRoot, codexRoot, opencodeRoot string, windowDays int) []Bucket {
+// scanRoots walks the Claude, Codex, OpenCode, and Pi transcript roots, prunes Claude/Codex files by
+// modtime to the window (with a 1-day margin), applies the exact timestamp cutoff for OpenCode and
+// Pi, parses + dedups the records, and returns buckets. Missing roots yield nothing.
+func scanRoots(claudeRoot, codexRoot, opencodeRoot, piRoot string, windowDays int) []Bucket {
 	var cutoff time.Time
 	var opencodeCutoff time.Time
 	if windowDays > 0 {
@@ -492,17 +501,19 @@ func scanRoots(claudeRoot, codexRoot, opencodeRoot string, windowDays int) []Buc
 	}
 	files := append(walkClaudeFiles(claudeRoot, cutoff), walkCodexFiles(codexRoot, cutoff)...)
 	files = append(files, walkOpencodeFiles(opencodeRoot, opencodeCutoff)...)
+	files = append(files, walkPiFiles(piRoot, opencodeCutoff)...)
 	return bucket(dedupe(parseFiles(files)))
 }
 
-// ScanUsage aggregates usage from the user's Claude, Codex, and OpenCode transcripts within the
-// last windowDays (0 = all-time). It is the only exported entry point.
+// ScanUsage aggregates usage from the user's Claude, Codex, OpenCode, and Pi transcripts within
+// the last windowDays (0 = all-time). It is the only exported entry point.
 func ScanUsage(windowDays int) ([]Bucket, error) {
 	home := wavebase.GetHomeDir()
 	return scanRoots(
 		filepath.Join(home, ".claude", "projects"),
 		filepath.Join(home, ".codex", "sessions"),
 		filepath.Join(home, ".local", "share", "opencode", "storage", "message"),
+		filepath.Join(home, ".pi", "agent", "sessions"),
 		windowDays,
 	), nil
 }
@@ -556,6 +567,15 @@ func transcriptRecords(path string) []Record {
 	// understand — route them to the opencode parser before the claude/codex attempts run.
 	if isOpencodeShadowPath(path) {
 		return extractOpencodeShadow(lines)
+	}
+	// native Pi sessions are their own versioned JSONL shape that neither the claude nor codex
+	// heuristics can parse — route them to the Pi parser before those fallbacks run.
+	if isPiTranscriptPath(path) {
+		file, err := pisession.Read(path)
+		if err != nil {
+			return nil
+		}
+		return extractPi(file, time.Time{})
 	}
 	// Claude parse runs on the usage-filtered subset; the Codex fallback needs the full lines (its
 	// model + token counts live on non-usage lines), so filterUsageLines must not mutate `lines`.

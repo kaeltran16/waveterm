@@ -10,12 +10,13 @@ import {
     type ResolveComposerDispatchInput,
 } from "./composercommand";
 
-const ids = new Set(["claude", "codex", "opencode", "antigravity"]);
+const ids = new Set(["claude", "codex", "opencode", "pi", "antigravity"]);
 
 const harnesses: HarnessInfo[] = [
     { runtime: "claude", label: "Claude Code", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "codex", label: "Codex", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "opencode", label: "OpenCode", installed: true, consultcapable: true, runworkercapable: true },
+    { runtime: "pi", label: "Pi", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "antigravity", label: "Antigravity", installed: true, consultcapable: true, runworkercapable: true },
 ];
 
@@ -52,6 +53,13 @@ describe("parseComposerCommand", () => {
         expect(parseComposerCommand("@ask opencode audit the auth path", ids)).toEqual({
             mode: "ask",
             runtime: "opencode",
+            body: "audit the auth path",
+        });
+    });
+    it("accepts pi as an @ask runtime override", () => {
+        expect(parseComposerCommand("@ask pi audit the auth path", ids)).toEqual({
+            mode: "ask",
+            runtime: "pi",
             body: "audit the auth path",
         });
     });

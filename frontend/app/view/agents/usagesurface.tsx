@@ -27,7 +27,12 @@ import type { ClassUsage, ProviderUsage, UsageStats } from "./usagestats";
 import { allUsageStatsAtom, loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageWindowAtom } from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
-const PROVIDER_LABEL: Record<string, string> = { claude: "Claude", codex: "Codex", opencode: "opencode" };
+const PROVIDER_LABEL: Record<string, string> = {
+    claude: "Claude",
+    codex: "Codex",
+    opencode: "OpenCode",
+    pi: "Pi",
+};
 const RING: Record<"ok" | "warn" | "hot", string> = {
     ok: "var(--color-success)",
     warn: "var(--color-warning)",
@@ -49,7 +54,12 @@ function pctStr(n: number): string {
 }
 
 // Filter-chip labels for known harnesses; unknown ones render their raw id.
-const HARNESS_CHIP_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
+const HARNESS_CHIP_LABEL: Record<string, string> = {
+    claude: "Claude Code",
+    codex: "Codex",
+    opencode: "OpenCode",
+    pi: "Pi",
+};
 
 // "claude 1.2K · opencode 300" for the token summary-card secondary line.
 function harnessSub(byHarness: Record<string, number>): string {

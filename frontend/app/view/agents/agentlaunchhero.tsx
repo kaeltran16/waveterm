@@ -27,7 +27,11 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
     // project/runtime/task — rather than launching a bare `claude` in an empty cwd.
     const launchFresh = () => globalStore.set(model.newAgentOpenAtom, true);
 
-    const resume = (s: SessionInfo) =>
+    const resume = (s: SessionInfo) => {
+        const piResume =
+            s.runtime === "pi" && s.resumeargs?.length
+                ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath }
+                : {};
         fireAndForget(() =>
             launchAgent(model, {
                 runtime: s.runtime as Runtime,
@@ -35,8 +39,10 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
                 task: "",
                 projectPath: s.projectpath,
                 projectName: s.projectname || "agent",
+                ...piResume,
             })
         );
+    };
 
     const now = Date.now();
     return (

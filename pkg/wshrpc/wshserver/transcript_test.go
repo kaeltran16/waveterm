@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,6 +48,73 @@ func TestReadTranscriptTail(t *testing.T) {
 	}
 	if _, err := readTranscriptTail(dir, 0); err == nil {
 		t.Fatal("expected error when path is a directory")
+	}
+}
+
+// taillines/maxlines -1 requests complete history: every complete line comes back, while a positive
+// limit still tails (the bounded behavior all other runtimes use). Pi alone requests the full read.
+func TestReadTranscriptTailNegativeIsAllLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	var b strings.Builder
+	for i := 0; i < defaultTranscriptTailLines+25; i++ {
+		b.WriteString(fmt.Sprintf("line-%d\n", i))
+	}
+	writeFile(t, path, b.String())
+
+	all, err := readTranscriptTail(path, -1)
+	if err != nil {
+		t.Fatalf("readTranscriptTail(-1): %v", err)
+	}
+	if len(all) != defaultTranscriptTailLines+25 {
+		t.Fatalf("want all %d lines, got %d", defaultTranscriptTailLines+25, len(all))
+	}
+
+	tail, err := readTranscriptTail(path, defaultTranscriptTailLines)
+	if err != nil {
+		t.Fatalf("readTranscriptTail(default): %v", err)
+	}
+	if len(tail) != defaultTranscriptTailLines {
+		t.Fatalf("want default %d tail lines, got %d", defaultTranscriptTailLines, len(tail))
+	}
+}
+
+// streamTranscript with tailLines -1 sends the whole backlog; a positive tailLines still truncates.
+func TestStreamTranscriptNegativeTailSendsAllBacklog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.jsonl")
+	var b strings.Builder
+	for i := 0; i < defaultTranscriptTailLines+10; i++ {
+		b.WriteString(fmt.Sprintf("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"l%d\"}]}}\n", i))
+	}
+	writeFile(t, path, b.String())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 16)
+	done := make(chan struct{})
+	go func() {
+		_ = streamTranscript(ctx, path, -1, ch)
+		close(done)
+	}()
+
+	select {
+	case msg := <-ch:
+		if msg.Error != nil {
+			t.Fatalf("backlog error: %v", msg.Error)
+		}
+		if len(msg.Response.Lines) != defaultTranscriptTailLines+10 {
+			t.Fatalf("want all %d backlog lines, got %d", defaultTranscriptTailLines+10, len(msg.Response.Lines))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for backlog")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("streamTranscript did not return after cancel")
 	}
 }
 

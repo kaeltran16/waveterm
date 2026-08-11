@@ -13,10 +13,12 @@ import { buildLaunchMeta, runtimeCreatesAgentPanel, type Runtime } from "@/app/v
 export interface LaunchAgentOpts {
     runtime: Runtime;
     startupCommand: string;
+    startupArgs?: string[]; // exact argv (pi resume path); forwarded verbatim when present
     task: string;
     projectPath: string;
     projectName: string; // labels the roster row + carries project scope
     branch?: string;
+    resumePath?: string; // pi transcript path; preflighted before any worktree/tab is created
 }
 
 // Launch a runtime as its OWN session tab. Agent runtimes get a pending roster row; terminals only
@@ -25,6 +27,15 @@ export interface LaunchAgentOpts {
 // default term block is reconfigured via SetMeta before it renders, so meta is honored at controller
 // start (the backend starts controllers lazily on the first terminal-view resync).
 export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string> {
+    // Pi --session creates a session when the path is missing; a stale archived entry must never reach
+    // that behavior, so a resumePath that no longer exists on disk aborts before anything is created.
+    if (opts.resumePath) {
+        try {
+            await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: opts.resumePath } });
+        } catch {
+            throw new Error(`Pi session no longer exists: ${opts.resumePath}`);
+        }
+    }
     const isTerminal = opts.runtime === "terminal";
     let cwd = opts.projectPath;
     if (!isTerminal && opts.branch?.trim()) {
@@ -55,6 +66,7 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         meta: buildLaunchMeta({
             runtime: opts.runtime,
             startupCommand: opts.startupCommand,
+            startupArgs: opts.startupArgs,
             task: opts.task,
             cwd,
         }),

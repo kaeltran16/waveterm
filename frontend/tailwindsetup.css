@@ -72,6 +72,7 @@
     --color-provider-claude: #d97757;
     --color-provider-codex: #96aacd;
     --color-provider-opencode: #a78bfa;
+    --color-provider-pi: #ececec; /* monochrome mark (pi.svg #09090b), inverted like codex */
     --color-success-soft: #bfe6d6; /* working activity line */
     --color-error-soft: #f0a9a4; /* danger CTA label on tinted fill (Canvas-13 confirm dialog) */
     --color-warning-soft: #f0d79f; /* warning accent, lightened */
@@ -111,6 +112,9 @@
     --color-rt-opencode: #a78bfa;
     --color-rt-opencode-soft: rgba(167, 139, 250, 0.13);
     --color-rt-opencode-line: rgba(167, 139, 250, 0.34);
+    --color-rt-pi: #ececec; /* pi.svg is also a monochrome mark (#09090b), inverted to near-white */
+    --color-rt-pi-soft: rgba(236, 236, 236, 0.13);
+    --color-rt-pi-line: rgba(236, 236, 236, 0.32);
     --color-rt-antigravity: #8ecdf0;
     --color-rt-antigravity-soft: rgba(142, 205, 240, 0.13);
     --color-rt-antigravity-line: rgba(142, 205, 240, 0.34);

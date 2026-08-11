@@ -10,14 +10,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
+	"github.com/wavetermdev/waveterm/pkg/pisession"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -86,7 +89,7 @@ func sessionTitle(raw string) string {
 // SessionInfo is one resumable past agent session.
 type SessionInfo struct {
 	ID            string // runtime resume key
-	Runtime       string // "claude" | "codex" | "opencode"
+	Runtime       string // "claude" | "codex" | "opencode" | "pi"
 	ProjectPath   string // cwd
 	ProjectName   string // last path segment of cwd
 	Branch        string
@@ -94,8 +97,9 @@ type SessionInfo struct {
 	Model         string // last assistant model seen
 	TokensTotal   int
 	CostUsd       float64
-	LastActiveTs  int64  // file mtime, UnixMilli
-	ResumeCommand string // runtime resume invocation; empty means not resumable
+	LastActiveTs  int64    // file mtime, UnixMilli
+	ResumeCommand string   // runtime resume invocation; empty means not resumable
+	ResumeArgs    []string // exact argv to resume, when a tokenized command would not survive (pi)
 
 	TranscriptPath string // on-disk JSONL path; FE matches this against the live roster
 	Status         string // "done" | "failed" | "waiting" (FE overlays "running" for live)
@@ -658,10 +662,10 @@ func storageRootOf(path string) string {
 }
 
 type opencodeMsg struct {
-	ID         string `json:"id"`
-	Role       string `json:"role"`
-	ProviderID string `json:"providerID"`
-	ModelID    string `json:"modelID"`
+	ID         string  `json:"id"`
+	Role       string  `json:"role"`
+	ProviderID string  `json:"providerID"`
+	ModelID    string  `json:"modelID"`
 	Cost       float64 `json:"cost"`
 	Tokens     struct {
 		Input     int `json:"input"`
@@ -855,6 +859,152 @@ func extractOpencodeEvents(path string, _ []string) sessionEvents {
 	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
 }
 
+// piProvider scans Pi's native session storage. root is …/pi/agent/sessions; scanProvider walks its
+// per-project encoded-cwd subdirs. The encoded directory name is lossy and must never be decoded — the
+// v3 session header's cwd is authoritative. The full native file path is the resume key, so ResumeArgs
+// (not ResumeCommand, whose quoted form is display-only) carries the exact argv.
+func piProvider(root string) provider {
+	return provider{
+		runtime:   "pi",
+		root:      root,
+		matches:   func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
+		extract:   extractPiSession,
+		resumeCmd: func(s *SessionInfo) string { return "pi --session " + strconv.Quote(s.TranscriptPath) },
+		events:    extractPiEvents,
+	}
+}
+
+// extractPiSession folds one Pi v3 session file into a SessionInfo. The header is authoritative for
+// id/cwd/timestamp. The task/model come from the active parent branch only — abandoned siblings never
+// win — with the latest active session_info.name taking priority over the first active user text.
+// TokensTotal sums every billed record (usage present), abandoned branches included. Malformed or
+// unsupported files are logged with path context and skipped (nil), leaving valid siblings intact.
+func extractPiSession(path, _ string, _ []string) *SessionInfo {
+	file, err := pisession.Read(path)
+	if err != nil {
+		log.Printf("agentsessions: skipping malformed pi session %q: %v", path, err)
+		return nil
+	}
+	branch, err := file.ActiveBranch()
+	if err != nil {
+		log.Printf("agentsessions: skipping pi session %q: %v", path, err)
+		return nil
+	}
+	s := &SessionInfo{
+		ID:             file.Header.ID,
+		Runtime:        "pi",
+		ProjectPath:    file.Header.Cwd,
+		ProjectName:    filepath.Base(file.Header.Cwd),
+		TranscriptPath: path,
+		ResumeCommand:  "pi --session " + strconv.Quote(path),
+		ResumeArgs:     []string{"--session", path},
+	}
+	title, firstUser := piBranchMeta(branch)
+	task := title
+	if task == "" {
+		task = firstUser
+	}
+	if task == "" {
+		return nil // no human task: nothing worth resuming
+	}
+	s.Task = trimTo(task, maxTaskLen)
+	for _, e := range file.Entries {
+		if e.Usage == nil {
+			continue
+		}
+		s.TokensTotal += e.Usage.TotalTokens
+	}
+	for _, e := range branch {
+		if e.ModelID == "" {
+			continue
+		}
+		if e.Provider != "" {
+			s.Model = e.Provider + "/" + e.ModelID // last active model wins
+		} else {
+			s.Model = e.ModelID
+		}
+	}
+	return s
+}
+
+// piBranchMeta folds the active parent chain into a display task: the latest session_info.name wins,
+// else the first active user message's text. Both are only ever read off the active branch, so an
+// abandoned sibling's title or text cannot leak into this session's task.
+func piBranchMeta(branch []pisession.Entry) (title, firstUser string) {
+	for _, e := range branch {
+		if e.Type == "session_info" && strings.TrimSpace(e.Name) != "" {
+			title = strings.TrimSpace(e.Name)
+		}
+	}
+	if title != "" {
+		return title, ""
+	}
+	for _, e := range branch {
+		if txt := piUserText(e.Message); txt != "" {
+			return "", txt
+		}
+	}
+	return "", ""
+}
+
+// piUserText returns the first human text of a Pi message record, or "" when the record is not a user
+// message (tool results, assistant turns). Content may be a plain string or an array of blocks.
+func piUserText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(raw, &m) != nil || m.Role != "user" {
+		return ""
+	}
+	var str string
+	if json.Unmarshal(m.Content, &str) == nil {
+		return strings.TrimSpace(str)
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(m.Content, &blocks) != nil {
+		return ""
+	}
+	for _, b := range blocks {
+		if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+			return strings.TrimSpace(b.Text)
+		}
+	}
+	return ""
+}
+
+// extractPiEvents derives lifecycle events from a Pi session file. Pi v3 carries no lifecycle event
+// stream, so the surface gets a synthetic "started" anchored on the header timestamp.
+func extractPiEvents(path string, _ []string) sessionEvents {
+	file, err := pisession.Read(path)
+	if err != nil {
+		return sessionEvents{}
+	}
+	branch, err := file.ActiveBranch()
+	if err != nil {
+		return sessionEvents{}
+	}
+	title, firstUser := piBranchMeta(branch)
+	startedText := "started session"
+	if title != "" {
+		startedText = clipText(title)
+	} else if firstUser != "" {
+		startedText = clipText(firstUser)
+	}
+	ts := parseTs(file.Header.Timestamp)
+	var events []SessionEvent
+	if ts > 0 {
+		events = append(events, SessionEvent{Type: "started", Ts: ts, Text: startedText})
+	}
+	return sessionEvents{Events: events, Status: "done", StartedTs: ts}
+}
+
 // scanProvider returns up to limit sessions from one provider's root, newest-first. It reads
 // content only for the newest candidates, just enough to fill limit valid sessions.
 func scanProvider(p provider, windowDays, limit int) []SessionInfo {
@@ -930,6 +1080,8 @@ func ExtractSession(path, runtime string) (*SessionInfo, error) {
 		p = codexProvider("")
 	case "opencode":
 		p = opencodeProvider("")
+	case "pi":
+		p = piProvider("")
 	default:
 		return nil, fmt.Errorf("agentsessions: unknown runtime %q", runtime)
 	}
@@ -966,6 +1118,7 @@ func ScanSessions(windowDays, limit int) ([]SessionInfo, error) {
 		claudeProvider(filepath.Join(home, ".claude", "projects")),
 		codexProvider(filepath.Join(home, ".codex", "sessions")),
 		opencodeProvider(opencodeRoot),
+		piProvider(filepath.Join(home, ".pi", "agent", "sessions")),
 	}
 	var all []SessionInfo
 	for _, p := range providers {

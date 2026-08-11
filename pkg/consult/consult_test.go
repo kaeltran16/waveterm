@@ -118,16 +118,16 @@ func TestCodexParseLine_extractsAgentMessage(t *testing.T) {
 		`{"type":"item.completed","item":{"type":"reasoning","text":"thinking..."}}`,
 	}
 	for _, line := range skip {
-		if txt, ok := codexParseLine([]byte(line)); ok || txt != "" {
-			t.Errorf("expected skip for %q, got %q", line, txt)
+		if ev := codexParseLine([]byte(line)); ev.Text != "" || ev.Complete || ev.Err != nil {
+			t.Errorf("expected skip for %q, got %+v", line, ev)
 		}
 	}
 	reply := `{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"pong"}}`
-	txt, ok := codexParseLine([]byte(reply))
-	if !ok || txt != "pong" {
-		t.Errorf("expected agent_message text 'pong', got %q ok=%v", txt, ok)
+	ev := codexParseLine([]byte(reply))
+	if ev.Text != "pong" {
+		t.Errorf("expected agent_message text 'pong', got %+v", ev)
 	}
-	if _, ok := codexParseLine([]byte("not json")); ok {
+	if ev := codexParseLine([]byte("not json")); ev.Text != "" {
 		t.Error("garbage line should not parse as a reply")
 	}
 }
@@ -141,14 +141,14 @@ func TestClaudeParseLine_extractsAssistantText(t *testing.T) {
 		`{"type":"result","subtype":"success","result":"pong"}`, // final result is redundant with the assistant delta
 	}
 	for _, line := range skip {
-		if txt, ok := claudeParseLine([]byte(line)); ok || txt != "" {
-			t.Errorf("expected skip for %q, got %q", line, txt)
+		if ev := claudeParseLine([]byte(line)); ev.Text != "" || ev.Complete || ev.Err != nil {
+			t.Errorf("expected skip for %q, got %+v", line, ev)
 		}
 	}
 	reply := `{"type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"text","text":"pong"}]},"session_id":"b16"}`
-	txt, ok := claudeParseLine([]byte(reply))
-	if !ok || txt != "pong" {
-		t.Errorf("expected assistant text 'pong', got %q ok=%v", txt, ok)
+	ev := claudeParseLine([]byte(reply))
+	if ev.Text != "pong" {
+		t.Errorf("expected assistant text 'pong', got %+v", ev)
 	}
 }
 
@@ -160,16 +160,16 @@ func TestOpencodeParseLine_extractsText(t *testing.T) {
 		`{"type":"step_finish","timestamp":1786080036726,"sessionID":"ses_x","part":{"id":"p3","messageID":"m1","sessionID":"ses_x","type":"step-finish","reason":"stop","cost":0,"tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}`,
 	}
 	for _, line := range skip {
-		if txt, ok := opencodeParseLine([]byte(line)); ok || txt != "" {
-			t.Errorf("expected skip for %q, got %q", line, txt)
+		if ev := opencodeParseLine([]byte(line)); ev.Text != "" || ev.Complete || ev.Err != nil {
+			t.Errorf("expected skip for %q, got %+v", line, ev)
 		}
 	}
 	reply := `{"type":"text","timestamp":1786080036000,"sessionID":"ses_x","part":{"id":"p4","messageID":"m1","sessionID":"ses_x","type":"text","text":"pong"}}`
-	txt, ok := opencodeParseLine([]byte(reply))
-	if !ok || txt != "pong" {
-		t.Errorf("expected text part 'pong', got %q ok=%v", txt, ok)
+	ev := opencodeParseLine([]byte(reply))
+	if ev.Text != "pong" {
+		t.Errorf("expected text part 'pong', got %+v", ev)
 	}
-	if _, ok := opencodeParseLine([]byte("not json")); ok {
+	if ev := opencodeParseLine([]byte("not json")); ev.Text != "" {
 		t.Error("garbage line should not parse as a reply")
 	}
 }

@@ -13,7 +13,7 @@ export type HarnessFilter = "all" | string;
 export interface UsageRecord {
     id?: string; // `${message.id}:${requestId}` dedup key; undefined when either is absent
     ts: number; // epoch ms
-    harness: string; // the application that ran the session ("claude" | "codex" | "opencode")
+    harness: string; // the application that ran the session ("claude" | "codex" | "opencode" | "pi")
     provider: string; // upstream model provider ("anthropic" | "openai" | ...)
     model: string; // raw model id
     inputTokens: number;

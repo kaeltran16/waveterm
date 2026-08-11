@@ -20,7 +20,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { formatAge, formatTokens } from "./agentsviewmodel";
-import { projectCodexTranscript } from "./codextranscriptprojection";
 import type { Runtime } from "./launch";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
@@ -37,7 +36,7 @@ import {
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
-import { projectTranscript } from "./transcriptprojection";
+import { projectorFor } from "./transcriptregistry";
 
 const EVENT_COLOR: Record<string, string> = {
     started: "var(--color-success)",
@@ -77,6 +76,10 @@ function runSessionPrimary(model: AgentsViewModel, session: LiveSession) {
         return;
     }
     if (session.resumecommand) {
+        const piResume =
+            session.runtime === "pi" && session.resumeargs?.length
+                ? { startupArgs: session.resumeargs, resumePath: session.transcriptpath }
+                : {};
         fireAndForget(() =>
             launchAgent(model, {
                 runtime: session.runtime as Runtime,
@@ -84,6 +87,7 @@ function runSessionPrimary(model: AgentsViewModel, session: LiveSession) {
                 task: "",
                 projectPath: session.projectpath,
                 projectName: session.projectname || "agent",
+                ...piResume,
             })
         );
     }
@@ -352,9 +356,12 @@ function SessionDetail({ model, session, now }: { model: AgentsViewModel; sessio
         }
         fireAndForget(async () => {
             try {
-                const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path: session.transcriptpath, maxlines: 2000 });
+                // Pi's parent-linked active branch needs the complete file; other runtimes tail
+                // the recent window as before.
+                const maxlines = session.runtime === "pi" ? -1 : 2000;
+                const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path: session.transcriptpath, maxlines });
                 const lines = rtn.lines ?? [];
-                const projected = session.runtime === "codex" ? projectCodexTranscript(lines) : projectTranscript(lines);
+                const projected = projectorFor(session.runtime, session.transcriptpath).project(lines);
                 if (!cancelled) {
                     setEntries(projected);
                 }

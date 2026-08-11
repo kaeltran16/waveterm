@@ -10,8 +10,10 @@ describe("runtimeMeta", () => {
         expect(runtimeMeta("Codex").id).toBe("codex");
         expect(runtimeMeta("claude").glyph).toBe("✳");
         expect(runtimeMeta("opencode").id).toBe("opencode");
-        expect(runtimeMeta("opencode").label).toBe("opencode");
+        expect(runtimeMeta("opencode").label).toBe("OpenCode");
         expect(runtimeMeta("Opencode").id).toBe("opencode");
+        expect(runtimeMeta("pi").id).toBe("pi");
+        expect(runtimeMeta("PI").label).toBe("Pi");
         expect(runtimeMeta("antigravity").id).toBe("antigravity");
         expect(runtimeMeta("antigravity").label).toBe("Antigravity");
     });

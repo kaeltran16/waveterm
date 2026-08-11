@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"os/exec"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -11,8 +12,8 @@ import (
 
 func TestListExcludesAPIBackends(t *testing.T) {
 	got := List()
-	if len(got) != 4 {
-		t.Fatalf("len(List()) = %d, want 4", len(got))
+	if len(got) != 5 {
+		t.Fatalf("len(List()) = %d, want 5", len(got))
 	}
 	for _, spec := range got {
 		if spec.Runtime == "openrouter" {
@@ -22,11 +23,29 @@ func TestListExcludesAPIBackends(t *testing.T) {
 }
 
 func TestLookupCapabilities(t *testing.T) {
-	for _, runtime := range []string{"claude", "codex", "opencode", "antigravity"} {
+	for _, runtime := range []string{"claude", "codex", "opencode", "pi", "antigravity"} {
 		spec, ok := Lookup(runtime)
 		if !ok || !spec.ConsultCapable || !spec.RunWorkerCapable || spec.Bin == "" {
 			t.Fatalf("invalid %s spec: %+v, ok=%v", runtime, spec, ok)
 		}
+	}
+}
+
+func TestCatalogOrderAndPiCapabilities(t *testing.T) {
+	var runtimes []string
+	for _, spec := range List() {
+		runtimes = append(runtimes, spec.Runtime)
+	}
+	want := []string{"claude", "codex", "opencode", "pi", "antigravity"}
+	if !reflect.DeepEqual(runtimes, want) {
+		t.Fatalf("runtimes = %v, want %v", runtimes, want)
+	}
+	pi, ok := Lookup("pi")
+	if !ok {
+		t.Fatal("expected pi to be in the catalog")
+	}
+	if pi.Bin != "pi" || pi.Label != "Pi" || !pi.ConsultCapable || !pi.RunWorkerCapable {
+		t.Fatalf("pi spec = %+v", pi)
 	}
 }
 
