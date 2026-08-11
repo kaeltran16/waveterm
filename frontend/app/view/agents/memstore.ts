@@ -3,7 +3,10 @@
 
 // Memory-surface state + loaders. Module-level jotai atoms written by async loaders via globalStore,
 // mirroring filesstore.ts. Read path: loadMemory() scans the vault. Detail: selectNote() reads body.
-// Mutations rescan so the graph/list stay consistent (no live fsnotify watch in this phase).
+// Single-item removals (delete/dismiss/prune) update the atoms locally — a full MemoryScanCommand
+// on every one was the surface's latency (the backend walks + parses the whole vault). Mutations
+// that change a note's shape (create/save/keep/restore) still rescan so the graph/list stay
+// consistent (no live fsnotify watch in this phase).
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
@@ -57,6 +60,30 @@ export function advanceSelection(
     const next = remaining[idx] ?? remaining[idx - 1] ?? remaining[0];
     if (next) return { pendingPath: next, savedId: null };
     return { pendingPath: null, savedId: firstSavedId };
+}
+
+// Next saved-note selection after `removedId` leaves the list: the note that shifts into its index,
+// else the previous, else the first. Pure so it unit-tests without RPC. Mirrors advanceSelection
+// (which drives the pending queue) so both paths pick the same "who fills the gap" rule.
+export function advanceSavedSelection(ids: string[], removedId: string): string | null {
+    const idx = ids.indexOf(removedId);
+    if (idx < 0) return null; // removed id not in the list — nothing shifts
+    const remaining = ids.filter((id) => id !== removedId);
+    const next = remaining[idx] ?? remaining[idx - 1] ?? remaining[0];
+    return next ?? null;
+}
+
+// Drop a note (and every edge touching it) from the in-memory scan result after a confirmed delete,
+// so the list can update without a full vault rescan. Pure so it unit-tests without RPC.
+export function removeNoteFromGraph(
+    notes: MemNote[],
+    edges: MemEdge[],
+    removedIds: ReadonlySet<string>
+): { notes: MemNote[]; edges: MemEdge[] } {
+    return {
+        notes: notes.filter((n) => !removedIds.has(n.id)),
+        edges: edges.filter((e) => !removedIds.has(e.from) && !removedIds.has(e.to)),
+    };
 }
 export const memBodyAtom = atom<{ body: string; mtime: number } | null>(null) as PrimitiveAtom<{
     body: string;
@@ -157,9 +184,23 @@ export async function harvestMemory(cwd: string): Promise<{ ingested: number; sk
 export async function deleteNote(path: string): Promise<void> {
     globalStore.set(memReflowAnimatedAtom, true); // the removed row should play its exit
     await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
-    globalStore.set(memSelectedIdAtom, null);
-    globalStore.set(memBodyAtom, null);
-    await loadMemory();
+    // no rescan: a delete only removes a known note, so filter it (and its edges) out of the
+    // in-memory scan result directly. a full MemoryScanCommand here walks + parses the whole vault.
+    const notes = globalStore.get(memNotesAtom);
+    const removed = notes.find((n) => n.path === path);
+    if (!removed) return; // not in the loaded list; nothing local to update
+    const { notes: nextNotes, edges: nextEdges } = removeNoteFromGraph(notes, globalStore.get(memEdgesAtom), new Set([removed.id]));
+    globalStore.set(memNotesAtom, nextNotes);
+    globalStore.set(memEdgesAtom, nextEdges);
+    const sel = globalStore.get(memSelectedIdAtom);
+    if (sel !== removed.id) return; // selection untouched, body still valid
+    const nextId = advanceSavedSelection(notes.map((n) => n.id), removed.id);
+    globalStore.set(memSelectedIdAtom, nextId);
+    if (nextId) {
+        void selectNote(nextId); // load the shifted-in note's body
+    } else {
+        globalStore.set(memBodyAtom, null);
+    }
 }
 
 // Confirm before deleting a note — shared by the memory list context menu and the
@@ -223,7 +264,9 @@ export async function dismissPending(path: string): Promise<void> {
     const next = nextAfterPending(path);
     await RpcApi.MemoryDeleteCommand(TabRpcClient, { path });
     globalStore.set(memReflowAnimatedAtom, true);
-    await Promise.all([loadReview(), loadMemory()]);
+    // no rescan: a dismiss only removes a known pending candidate, so drop it locally instead of
+    // re-reading the pending dir (and re-scanning the vault) just to see the same list minus one.
+    globalStore.set(memPendingAtom, (prev) => prev.filter((p) => p.path !== path));
     applyPendingSelection(next.pendingPath, next.savedId);
 }
 
@@ -244,7 +287,7 @@ export async function dismissAllPending(): Promise<void> {
     }
     globalStore.set(memReflowAnimatedAtom, true);
     globalStore.set(memSelectedPendingPathAtom, null);
-    await Promise.all([loadReview(), loadMemory()]);
+    globalStore.set(memPendingAtom, []);
 }
 
 // Cleanup queue: hub notes the distiller flagged as superseded (strong) or stale (weak).
@@ -270,14 +313,15 @@ export async function loadPrune(): Promise<boolean> {
     }
 }
 
-// Confirmed removal (human action). Reuses deleteNote (rescans the graph) then refreshes the queue.
+// Confirmed removal (human action). deleteNote now updates the list locally (no rescan), so the
+// prune queue only needs the candidate filtered out as well.
 export async function prune(path: string): Promise<void> {
     await deleteNote(path);
-    await loadPrune();
+    globalStore.set(memPruneAtom, (prev) => prev.filter((c) => c.path !== path));
 }
 
-// Bulk removal of every superseded candidate. Deletes all first, then rescans once (deleteNote's
-// per-item rescan would be wasteful here). Mirrors dismissAllPending.
+// Bulk removal of every superseded candidate. Deletes all first, then removes them from the
+// in-memory scan result once (a rescan would re-walk the whole vault). Mirrors dismissAllPending.
 export async function pruneAllSuperseded(): Promise<void> {
     const paths = globalStore
         .get(memPruneAtom)
@@ -287,9 +331,22 @@ export async function pruneAllSuperseded(): Promise<void> {
         await RpcApi.MemoryDeleteCommand(TabRpcClient, { path: p });
     }
     globalStore.set(memReflowAnimatedAtom, true);
-    globalStore.set(memSelectedIdAtom, null);
-    globalStore.set(memBodyAtom, null);
-    await Promise.all([loadMemory(), loadPrune()]);
+    const notes = globalStore.get(memNotesAtom);
+    const removedIds = new Set(notes.filter((n) => paths.includes(n.path)).map((n) => n.id));
+    const { notes: nextNotes, edges: nextEdges } = removeNoteFromGraph(notes, globalStore.get(memEdgesAtom), removedIds);
+    globalStore.set(memNotesAtom, nextNotes);
+    globalStore.set(memEdgesAtom, nextEdges);
+    const sel = globalStore.get(memSelectedIdAtom);
+    if (sel && removedIds.has(sel)) {
+        const nextId = nextNotes[0]?.id ?? null;
+        globalStore.set(memSelectedIdAtom, nextId);
+        if (nextId) {
+            void selectNote(nextId);
+        } else {
+            globalStore.set(memBodyAtom, null);
+        }
+    }
+    globalStore.set(memPruneAtom, (prev) => prev.filter((c) => c.reason !== "superseded"));
 }
 
 // Bulk clear is many irreversible deletes at once, so it confirms first (single-row Remove stays
