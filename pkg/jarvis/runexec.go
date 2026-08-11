@@ -10,25 +10,64 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// SpawnClaudeWorker creates a background tab running `claude --dangerously-skip-permissions <prompt>` in
-// cwd and returns its tab oref ("tab:<id>"). Mirrors the frontend launchAgent path for the claude runtime,
-// but the permission-skip flag is mandatory here (opt-in in the launcher): a run worker is headless with no
-// human attached, so without it claude blocks forever on the folder-trust dialog / per-tool prompts —
-// alive but never running, never firing the hooks that report agent:status (the "worker never starts"
-// symptom). Configure the new tab's default block as a cmd worker, tag the tab for the roster, and
-// force-start the controller (controllers otherwise start lazily on a frontend terminal resync —
-// force=true launches it headlessly).
+// RunWorkerSpec is the unattended launch form for one harness's run worker: the executable plus the
+// argument prefix that goes before the prompt. The prompt travels positionally (claude) or as a flag
+// value (opencode --prompt, agy -i); codex appends it positionally in interactive mode (never `exec`).
+type RunWorkerSpec struct {
+	Bin  string
+	Args []string
+}
+
+// RunWorkerSpecFor resolves the unattended worker launch form for a run-worker-capable harness. The
+// capability check comes from the shared catalog, so an unverified harness is never launched. The
+// flag forms are the documented unattended modes (see the harness-neutral headless design):
+//   - claude: --dangerously-skip-permissions <prompt>
+//   - codex:  --dangerously-bypass-approvals-and-sandbox <prompt> (interactive, not `exec`)
+//   - opencode: --auto --prompt <prompt> (interactive, not `run`)
+//   - antigravity: --dangerously-skip-permissions -i <prompt>
+func RunWorkerSpecFor(runtime, prompt string) (RunWorkerSpec, bool) {
+	h, ok := harness.Lookup(runtime)
+	if !ok || !h.RunWorkerCapable {
+		return RunWorkerSpec{}, false
+	}
+	switch runtime {
+	case "claude":
+		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-skip-permissions", prompt}}, true
+	case "codex":
+		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-bypass-approvals-and-sandbox", prompt}}, true
+	case "opencode":
+		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--auto", "--prompt", prompt}}, true
+	case "antigravity":
+		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-skip-permissions", "-i", prompt}}, true
+	default:
+		return RunWorkerSpec{}, false
+	}
+}
+
+// SpawnRunWorker creates a background tab running the runtime's unattended worker form in cwd and
+// returns its tab oref ("tab:<id>"). Mirrors the frontend launchAgent path, but the permission-skip
+// flag is mandatory here (opt-in in the launcher): a run worker is headless with no human attached, so
+// without it the agent blocks forever on the folder-trust dialog / per-tool prompts — alive but never
+// running, never firing the hooks that report agent:status (the "worker never starts" symptom).
+// Configure the new tab's default block as a cmd worker, tag the tab for the roster, and force-start
+// the controller (controllers otherwise start lazily on a frontend terminal resync — force=true
+// launches it headlessly).
 //
 // It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
-var SpawnClaudeWorker = func(ctx context.Context, workspaceId, projectName, cwd, prompt string) (string, error) {
+var SpawnRunWorker = func(ctx context.Context, runtime, workspaceId, projectName, cwd, prompt string) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
+	}
+	spec, ok := RunWorkerSpecFor(runtime, prompt)
+	if !ok {
+		return "", fmt.Errorf("no unattended run worker adapter for runtime %q", runtime)
 	}
 	tabId, err := wcore.CreateTab(ctx, workspaceId, projectName, false, false)
 	if err != nil {
@@ -46,8 +85,8 @@ var SpawnClaudeWorker = func(ctx context.Context, workspaceId, projectName, cwd,
 	blockMeta := waveobj.MetaMapType{
 		waveobj.MetaKey_View:       "term",
 		waveobj.MetaKey_Controller: "cmd",
-		waveobj.MetaKey_Cmd:        "claude",
-		waveobj.MetaKey_CmdArgs:    []string{"--dangerously-skip-permissions", prompt},
+		waveobj.MetaKey_Cmd:        spec.Bin,
+		waveobj.MetaKey_CmdArgs:    spec.Args,
 		waveobj.MetaKey_CmdShell:   false,
 		waveobj.MetaKey_CmdJwt:     true,
 	}
@@ -60,7 +99,7 @@ var SpawnClaudeWorker = func(ctx context.Context, workspaceId, projectName, cwd,
 	// Tab meta: put the worker in the agent roster (and route the external status reporter). These keys
 	// have no generated constants; the literals match the frontend (see launchAgent).
 	tabMeta := waveobj.MetaMapType{
-		"session:agent":   "claude",
+		"session:agent":   runtime,
 		"session:project": projectName,
 	}
 	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
@@ -73,15 +112,15 @@ var SpawnClaudeWorker = func(ctx context.Context, workspaceId, projectName, cwd,
 	// otherwise arrives only from the external reporter hook — unreliable for a headless worker (the
 	// hook may be owned by a coexisting install and route to the wrong wavesrv). A real hook event
 	// later refines this (detail/model, idle-on-stop).
-	wps.Broker.Publish(initialWorkerStatusEvent(blockId, time.Now().UnixMilli()))
+	wps.Broker.Publish(initialWorkerStatusEvent(blockId, runtime, time.Now().UnixMilli()))
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String(), nil
 }
 
 // initialWorkerStatusEvent is the retained agent:status the backend emits at spawn so a run worker
 // enters the cockpit roster without waiting on the external reporter hook. Delegates to the shared
 // constructor so spawn (working) and exit (idle) events share one shape.
-func initialWorkerStatusEvent(blockId string, ts int64) wps.WaveEvent {
-	return blockcontroller.AgentStatusEvent(blockId, baseds.AgentState_Working, "claude", ts)
+func initialWorkerStatusEvent(blockId, runtime string, ts int64) wps.WaveEvent {
+	return blockcontroller.AgentStatusEvent(blockId, baseds.AgentState_Working, runtime, ts)
 }
 
 // priorArtifacts collects the artifacts of all phases before idx (in order).
@@ -106,10 +145,16 @@ func phasePrompt(run *waveobj.Run, idx int) string {
 	return BuildPhasePrompt(p, run.Goal, priorArtifacts(run, idx), run.Principles)
 }
 
-// EnsureWorkers spawns a claude worker for each running phase that has none yet, returning the phase
+// EnsureWorkers spawns a worker for each running phase that has none yet, returning the phase
 // index -> tab oref it created. It does not mutate/persist the run; the caller attaches the orefs.
-// On a spawn error it returns what it has so far plus the error (the caller still persists partial work).
+// The runtime comes from the persisted run; an empty runtime (legacy Run) resolves to Claude, the
+// historical worker implementation. On a spawn error it returns what it has so far plus the error
+// (the caller still persists partial work).
 func EnsureWorkers(ctx context.Context, run *waveobj.Run, projectName string) (map[int]string, error) {
+	runtime := run.Runtime
+	if runtime == "" {
+		runtime = "claude"
+	}
 	spawned := map[int]string{}
 	for i := range run.Phases {
 		p := run.Phases[i]
@@ -117,7 +162,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, projectName string) (m
 			continue
 		}
 		prompt := phasePrompt(run, i)
-		oref, err := SpawnClaudeWorker(ctx, run.WorkspaceId, projectName, run.ProjectPath, prompt)
+		oref, err := SpawnRunWorker(ctx, runtime, run.WorkspaceId, projectName, run.ProjectPath, prompt)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}

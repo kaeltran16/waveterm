@@ -323,6 +323,9 @@
         },
         "debug:webglstatus": {
           "type": "boolean"
+        },
+        "harness:preferredruntime": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

@@ -7,6 +7,7 @@
 // that actually differs per run.
 
 import { fmtDuration } from "@/app/view/agents/runcompletion";
+import { runRuntimeView } from "@/app/view/agents/runmodel";
 import { ageLabel } from "./recallderive";
 
 export interface RunRow {
@@ -29,14 +30,15 @@ function changeStat(ev: RunEvidence): string | null {
     return `+${ev.addtotal ?? 0}/−${ev.deltotal ?? 0} across ${n} file${n === 1 ? "" : "s"}`;
 }
 
-export function runRow(run: Run, recordObjective: string, now: number): RunRow {
+export function runRow(run: Run, recordObjective: string, now: number, harnesses: HarnessInfo[]): RunRow {
     const ev = run.evidence;
     const summary = ev?.summary?.trim() ?? "";
     const headline = summary !== "" ? summary : norm(run.goal) === norm(recordObjective) ? null : run.goal;
 
     // every part is omitted rather than defaulted: an unsealed run has no duration and no change set, and
-    // a zero would assert one.
-    const meta = [ageLabel(Math.max(0, now - (run.createdts ?? now)))];
+    // a zero would assert one. The runtime label comes from the strict runRuntimeView — legacy labels
+    // Claude · legacy, an unknown value labels itself.
+    const meta = [runRuntimeView(run, harnesses).label, ageLabel(Math.max(0, now - (run.createdts ?? now)))];
     if (ev != null && (ev.durationms ?? 0) > 0) {
         meta.push(fmtDuration(ev.durationms));
     }

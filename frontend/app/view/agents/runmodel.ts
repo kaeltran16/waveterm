@@ -30,6 +30,28 @@ export function runStatusView(status: string): { label: string; tone: RunStatusT
     }
 }
 
+export interface RunRuntimeView {
+    runtime: string;
+    label: string;
+    legacy: boolean;
+    valid: boolean;
+}
+
+// Strict runtime derivation for a Run: only the persisted run.runtime and the harness catalog. A
+// missing or empty runtime means a legacy Claude-only Run (Claude was its historical worker
+// implementation); an explicit runtime names the catalog label. An unknown value renders visibly as
+// invalid — never as Claude.
+export function runRuntimeView(run: Run, harnesses: HarnessInfo[]): RunRuntimeView {
+    if (run.runtime == null || run.runtime === "") {
+        return { runtime: "claude", label: "Claude · legacy", legacy: true, valid: true };
+    }
+    const h = harnesses.find((x) => x.runtime === run.runtime);
+    if (h == null) {
+        return { runtime: run.runtime, label: `Unknown: ${run.runtime}`, legacy: false, valid: false };
+    }
+    return { runtime: h.runtime, label: h.label, legacy: false, valid: true };
+}
+
 export type PhaseTone = "pending" | "running" | "blocked" | "done" | "failed" | "skipped";
 
 export function phaseStateView(state: string): { icon: string; label: string; tone: PhaseTone } {

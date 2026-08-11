@@ -11,7 +11,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/bgagents"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
-	"github.com/wavetermdev/waveterm/pkg/tasksharpen"
 	"github.com/wavetermdev/waveterm/pkg/usagestats"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
@@ -126,19 +125,6 @@ func (ws *WshServer) GetTranscriptUsageCommand(ctx context.Context, data wshrpc.
 		}
 	}
 	return &wshrpc.CommandGetTranscriptUsageRtnData{Buckets: out}, nil
-}
-
-func (ws *WshServer) SharpenTaskCommand(ctx context.Context, data wshrpc.CommandSharpenTaskData) (*wshrpc.CommandSharpenTaskRtnData, error) {
-	res, err := tasksharpen.Sharpen(ctx, tasksharpen.Input{
-		Task:        data.Task,
-		ProjectName: data.ProjectName,
-		Runtime:     data.Runtime,
-		Mode:        data.Mode,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &wshrpc.CommandSharpenTaskRtnData{Task: res.Task, Model: res.Model}, nil
 }
 
 func (ws *WshServer) GetCacheStatusCommand(ctx context.Context, data wshrpc.CommandGetCacheStatusData) (*wshrpc.CommandGetCacheStatusRtnData, error) {

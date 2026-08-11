@@ -113,6 +113,7 @@ export function ComposerShell({
                     {footerRight}
                     <button
                         type="button"
+                        data-testid="composer-action"
                         onClick={onSubmit}
                         disabled={sendDisabled ?? disabled}
                         className="shrink-0 cursor-pointer rounded bg-accent px-[15px] py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover disabled:opacity-50"

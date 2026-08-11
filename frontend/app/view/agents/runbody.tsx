@@ -23,6 +23,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
+import { harnessesAtom } from "./harnessstore";
 import { steerWorker } from "./channelactions";
 import { runAtom } from "./channelsstore";
 import { jumpToAgent } from "./channelsprimitives";
@@ -47,6 +48,7 @@ import {
     phaseThread,
     phaseWorkers,
     recordedWorkerTabs,
+    runRuntimeView,
     runStatusView,
     steerTarget,
 } from "./runmodel";
@@ -142,12 +144,22 @@ export function RunHeader({
 }) {
     const target = steerTarget(run, agents);
     const [goalExpanded, setGoalExpanded] = useState(false);
+    const runtimeHarnesses = useAtomValue(harnessesAtom);
+    const runtimeView = runRuntimeView(run, runtimeHarnesses);
     return (
         <>
             <div className="mb-4 flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                     <div className="mb-1.5 flex items-center gap-2">
                         <StatusPill status={run.status} survivorCount={cancelSurvivors(run, agents).length} />
+                        <span
+                            data-testid="run-runtime"
+                            data-run-legacy={runtimeView.legacy ? "true" : "false"}
+                            className="inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-muted"
+                        >
+                            <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
+                            {runtimeView.label}
+                        </span>
                         <AmbientTags oref={sourceRefForRun(run).oref} />
                     </div>
                     {/* the collapsed goal is a two-line heading and takes the width; expanded it becomes real

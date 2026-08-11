@@ -175,6 +175,8 @@ type SettingsType struct {
 	DebugPprofPort           *int `json:"debug:pprofport,omitempty"`
 	DebugPprofMemProfileRate *int `json:"debug:pprofmemprofilerate,omitempty"`
 	DebugWebGlStatus         bool `json:"debug:webglstatus,omitempty"`
+
+	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
 }
 
 func (s *SettingsType) GetAiSettings() *AiSettingsType {

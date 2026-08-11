@@ -12,11 +12,13 @@ describe("runtimeMeta", () => {
         expect(runtimeMeta("opencode").id).toBe("opencode");
         expect(runtimeMeta("opencode").label).toBe("opencode");
         expect(runtimeMeta("Opencode").id).toBe("opencode");
+        expect(runtimeMeta("antigravity").id).toBe("antigravity");
+        expect(runtimeMeta("antigravity").label).toBe("Antigravity");
     });
 
-    it("falls back to claude for unknown/undefined providers", () => {
-        expect(runtimeMeta(undefined).id).toBe("claude");
-        expect(runtimeMeta("antigravity").id).toBe("claude");
-        expect(runtimeMeta("").id).toBe("claude");
+    it("returns an unknown record for unknown/empty providers instead of claude", () => {
+        expect(runtimeMeta(undefined).id).toBe("unknown");
+        expect(runtimeMeta("mystery").id).toBe("unknown");
+        expect(runtimeMeta("").id).toBe("unknown");
     });
 });

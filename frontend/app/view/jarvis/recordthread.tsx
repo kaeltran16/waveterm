@@ -5,6 +5,7 @@
 // runs attributed to it and the decisions appended to it.
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { harnessesAtom } from "@/app/view/agents/harnessstore";
 import { runStatusView } from "@/app/view/agents/runmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -35,6 +36,7 @@ export function RecordThread({ detail, model }: { detail: DossierDetail | null; 
     const byRecord = useAtomValue(recordRunsAtom);
     const convIdBySource = useAtomValue(sourceConversationAtom);
     const convsById = useAtomValue(conversationsByIdAtom);
+    const harnesses = useAtomValue(harnessesAtom);
     const runs = detail != null ? (byRecord[detail.id] ?? []) : [];
     // a record's thread is the one attached to its own oref — the same key askAboutRecord writes.
     const conversation = detail != null ? convsById[convIdBySource["task:" + detail.id] ?? ""] : undefined;
@@ -75,7 +77,7 @@ export function RecordThread({ detail, model }: { detail: DossierDetail | null; 
                                 <div className="flex flex-col gap-1.5">
                                     {runs.map((r) => {
                                         const view = runStatusView(r.status);
-                                        const row = runRow(r, detail.objective ?? "", Date.now());
+                                        const row = runRow(r, detail.objective ?? "", Date.now(), harnesses);
                                         return (
                                             <div
                                                 key={r.id}

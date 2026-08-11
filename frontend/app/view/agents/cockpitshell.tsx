@@ -3,12 +3,14 @@
 
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import { getSettingsKeyAtom } from "@/app/store/global";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, type PrimitiveAtom } from "jotai";
 import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import { AgentSurface } from "./agentsurface";
 import { primeChannels } from "./channelsstore";
+import { initHarnessPreference, loadHarnesses } from "./harnessstore";
 import { CodeSurface } from "@/app/view/code/codesurface";
 import { CockpitSurface } from "./cockpitsurface";
 import { FilesSurface } from "./filessurface";
@@ -19,6 +21,16 @@ import { RadarSurface } from "./radarsurface";
 import { SessionsSurface } from "./sessionssurface";
 import { SettingsSurface } from "./settingssurface";
 import { UsageSurface } from "./usagesurface";
+
+// One always-mounted synchronization hook: seed the shared preferred-harness state from the persisted
+// setting and load the harness catalog once at boot, so every surface reads the same selection.
+function useHarnessPreference() {
+    useEffect(() => {
+        const persisted = (globalStore.get(getSettingsKeyAtom("harness:preferredruntime")) as string) ?? "";
+        initHarnessPreference(persisted);
+        fireAndForget(loadHarnesses);
+    }, []);
+}
 
 // Clears a pending launch once it's no longer "booting": its real roster row arrived (tabId in the
 // base roster) OR its tab was closed (was present in the workspace, now gone). The seen-present ref
@@ -80,6 +92,7 @@ function useResetAnswerDraftsOnAskChange(model: AgentsViewModel) {
 export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     usePrunePendingLaunches(model);
     useResetAnswerDraftsOnAskChange(model);
+    useHarnessPreference();
     // prime the channel snapshot at boot so the nav-rail needs-you badge + Cockpit counters dedup
     // correctly even before the Channels surface is first opened.
     useEffect(() => {

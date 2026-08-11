@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The process-running half of pkg/consult: stream a headless CLI's reply to a callback while
-// capturing the full text, and probe whether a runtime's binary is installed. Three read strategies,
-// selected by RuntimeSpec: raw stdout, JSONL-parsed stdout, or a pty (see RuntimeSpec docs).
+// capturing the full text. Three read strategies, selected by RuntimeSpec: raw stdout, JSONL-parsed
+// stdout, or a pty (see RuntimeSpec docs). Installation probing lives in pkg/harness, the single
+// catalog all runtime identity flows through.
 
 package consult
 
@@ -15,7 +16,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/creack/pty"
 )
@@ -234,24 +234,4 @@ func stripBoxDrawing(s string) string {
 		}
 		return r
 	}, s)
-}
-
-// probe reports whether bin resolves on PATH and its best-effort --version output.
-func probe(ctx context.Context, bin string) (bool, string) {
-	if _, err := exec.LookPath(bin); err != nil {
-		return false, ""
-	}
-	vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	out, _ := exec.CommandContext(vctx, bin, "--version").CombinedOutput()
-	return true, strings.TrimSpace(string(out))
-}
-
-// ProbeInstalled reports install state + version for a known runtime identifier.
-func ProbeInstalled(ctx context.Context, runtime string) (bool, string) {
-	spec, ok := runtimeSpecs[runtime]
-	if !ok {
-		return false, ""
-	}
-	return probe(ctx, spec.Bin)
 }

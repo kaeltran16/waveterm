@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -143,9 +144,17 @@ func opencodeParseLine(line []byte) (string, bool) {
 	return ev.Part.Text, true
 }
 
+// SpecFor resolves a one-shot runtime spec, falling back to the shared harness catalog for the
+// executable name. The OpenRouter entry is API-only and stays out of the catalog.
 func SpecFor(runtime string) (RuntimeSpec, bool) {
-	s, ok := runtimeSpecs[runtime]
-	return s, ok
+	spec, ok := runtimeSpecs[runtime]
+	if !ok {
+		return RuntimeSpec{}, false
+	}
+	if h, found := harness.Lookup(runtime); found {
+		spec.Bin = h.Bin
+	}
+	return spec, true
 }
 
 // Tier is the model class for a one-shot call, ordered by task difficulty: cheap for mechanical
@@ -162,8 +171,8 @@ const (
 )
 
 // The claude aliases each tier selects. Exported so callers that need the alias itself rather than a
-// tiered spec (tasksharpen and reporadar build their own --model args) share these definitions
-// instead of re-hardcoding the strings.
+// tiered spec (reporadar builds its own --model args) share these definitions instead of re-hardcoding
+// the strings.
 const (
 	// CheapModel is the cheap tier's alias. Haiku 4.5 is the cheapest current alias (~1/5 of Opus
 	// per input token). Note "fable" is not a small model despite the naming — Claude Fable 5 prices
@@ -249,10 +258,6 @@ func CorpusModel(cheapModel, longModel, corpus string) string {
 		return longModel
 	}
 	return cheapModel
-}
-
-func SupportedRuntimes() []string {
-	return []string{"claude", "codex", "antigravity", "opencode", "openrouter"}
 }
 
 // OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A

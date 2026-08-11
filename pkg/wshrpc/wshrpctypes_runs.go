@@ -23,6 +23,7 @@ type CommandCreateRunData struct {
 	ChannelId   string                  `json:"channelid"`
 	WorkspaceId string                  `json:"workspaceid"` // where phase-worker tabs are created
 	Goal        string                  `json:"goal"`
+	Runtime     string                  `json:"runtime"` // the harness that runs every phase and child run; immutable after Start
 	PlaybookId  string                  `json:"playbookid,omitempty"`
 	Mode        string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
 	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default

@@ -4,6 +4,7 @@
 package jarvis
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -11,6 +12,25 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 )
+
+func TestRunWorkerSpecFor(t *testing.T) {
+	tests := []struct {
+		runtime string
+		bin     string
+		args    []string
+	}{
+		{"claude", "claude", []string{"--dangerously-skip-permissions", "do work"}},
+		{"codex", "codex", []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
+		{"opencode", "opencode", []string{"--auto", "--prompt", "do work"}},
+		{"antigravity", "agy", []string{"--dangerously-skip-permissions", "-i", "do work"}},
+	}
+	for _, tt := range tests {
+		spec, ok := RunWorkerSpecFor(tt.runtime, "do work")
+		if !ok || spec.Bin != tt.bin || !reflect.DeepEqual(spec.Args, tt.args) {
+			t.Errorf("%s spec = %+v, ok=%v", tt.runtime, spec, ok)
+		}
+	}
+}
 
 func TestPhasePrompt_ModeAware(t *testing.T) {
 	orch := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Orchestrator, DefaultOrchestratorPlaybook(true), 1)
@@ -29,7 +49,7 @@ func TestPhasePrompt_ModeAware(t *testing.T) {
 }
 
 func TestInitialWorkerStatusEvent(t *testing.T) {
-	ev := initialWorkerStatusEvent("abc", 1717000000000)
+	ev := initialWorkerStatusEvent("abc", "claude", 1717000000000)
 	if ev.Event != wps.Event_AgentStatus {
 		t.Fatalf("event = %q, want %q", ev.Event, wps.Event_AgentStatus)
 	}

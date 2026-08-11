@@ -6,16 +6,27 @@
 // render through the shared ComposerShell and drive their vocabulary from composercommand.
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useAtomValue } from "jotai";
 import { type AgentVM } from "./agentsviewmodel";
 import { activeMentionQuery } from "./channelderive";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
 import { ComposerShell } from "./composer-shell";
 import { type UseComposerAttachments } from "./composerattachments";
-import { LAUNCH_COMMANDS, parseComposerCommand, runFooterFor, type LaunchMode } from "./composercommand";
+import {
+    LAUNCH_COMMANDS,
+    parseComposerCommand,
+    resolveComposerDispatch,
+    runFooterFor,
+    type LaunchMode,
+} from "./composercommand";
+import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
+import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
+import { runtimeMeta } from "./runtimemeta";
 
 // Launch face: a plain goal input driven by typed @quick/@run/@ask commands (a bare goal defaults to
 // @run). Typing a leading `@` opens an autocomplete of the three; a mid-text `@` is left as-is. The
-// footer surfaces what the parsed mode will do — @run's strategy comes from the channel's ⚙ profile.
+// footer surfaces what the parsed mode will do — @run's strategy comes from the channel's ⚙ profile —
+// plus the visible harness picker (run-worker operation for runs, consult for ask).
 export function LaunchComposer({
     value,
     onChange,
@@ -24,6 +35,7 @@ export function LaunchComposer({
     channelName,
     pending,
     attach,
+    harnessOpenRequest = 0,
 }: {
     value: string;
     onChange: (next: string) => void;
@@ -32,13 +44,24 @@ export function LaunchComposer({
     channelName: string;
     pending: boolean;
     attach: UseComposerAttachments;
+    harnessOpenRequest?: number;
 }) {
     const taRef = useRef<HTMLTextAreaElement>(null);
     const pendingCaret = useRef<number | null>(null);
     const [sugg, setSugg] = useState<{ query: string; start: number } | null>(null);
     const [sel, setSel] = useState(0);
+    const pref = useAtomValue(harnessPreferenceAtom);
+    const harnesses = useAtomValue(harnessesAtom);
 
-    const mode: LaunchMode = pending ? "run" : parseComposerCommand(value).mode;
+    const cmd = parseComposerCommand(value, harnessRuntimeIds(harnesses));
+    const mode: LaunchMode = pending ? "run" : cmd.mode;
+    const dispatch = resolveComposerDispatch({
+        command: cmd,
+        preferredRuntime: pref.runtime,
+        preferenceSaving: pref.saving,
+        harnesses,
+    });
+    const blocked = dispatch.kind === "blocked";
     // only a leading `@` token is a command — mid-text `@` (start > 0) is not
     const matches =
         sugg && sugg.start === 0
@@ -97,19 +120,28 @@ export function LaunchComposer({
         }
     };
 
-    const footer =
+    const behavior =
         pending || mode === "run"
             ? runFooterFor(profile)
             : mode === "quick"
               ? `→ spawns one worker in #${channelName}`
               : "→ no worker · answer lands in Consults";
+    // An explicit `@ask <runtime>` is a one-off: show the effective harness and that the preference is
+    // unchanged. Bare ask uses the preferred harness, so no one-off copy is needed.
+    const oneOffRuntime = mode === "ask" && cmd.runtime != null ? cmd.runtime : undefined;
+    const askFooter =
+        oneOffRuntime != null
+            ? `${runtimeMeta(oneOffRuntime).label} · one-off — preferred ${pref.runtime ? runtimeMeta(pref.runtime).label : "harness"} unchanged`
+            : behavior;
+    const footer = mode === "ask" ? askFooter : behavior;
     const sendLabel = mode === "ask" ? "Ask" : "Run ⏎";
+    const sendDisabled = blocked || (!value.trim() && attach.readyCount === 0) || attach.uploading || pref.saving;
 
     return (
         <ComposerShell
             onSubmit={onSubmit}
             sendLabel={sendLabel}
-            sendDisabled={(!value.trim() && attach.readyCount === 0) || attach.uploading}
+            sendDisabled={sendDisabled}
             onPaste={attach.dnd.onPaste}
             onDrop={attach.dnd.onDrop}
             onDragOver={attach.dnd.onDragOver}
@@ -161,10 +193,15 @@ export function LaunchComposer({
             }
             footerLeft={
                 <>
-                    <AttachButton onFiles={attach.add} />
+                    <HarnessPicker
+                        operation={mode === "ask" ? "consult" : "run-worker"}
+                        placement="top-start"
+                        openRequest={harnessOpenRequest}
+                    />
                     <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
                 </>
             }
+            footerRight={<AttachButton testId="composer-attachment" onFiles={attach.add} />}
         />
     );
 }

@@ -822,12 +822,6 @@ export class RpcApiType {
         return client.wshRpcCall("listbranches", data, opts);
     }
 
-    // command "listconsultruntimes" [call]
-    ListConsultRuntimesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListConsultRuntimesRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listconsultruntimes", null, opts);
-        return client.wshRpcCall("listconsultruntimes", null, opts);
-    }
-
     // command "listdetachededges" [call]
     ListDetachedEdgesCommand(client: WshClient, data: CommandListDetachedEdgesData, opts?: RpcOpts): Promise<CommandListDetachedEdgesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listdetachededges", data, opts);
@@ -838,6 +832,12 @@ export class RpcApiType {
     ListDossiersCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListDossiersRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listdossiers", null, opts);
         return client.wshRpcCall("listdossiers", null, opts);
+    }
+
+    // command "listharnesses" [call]
+    ListHarnessesCommand(client: WshClient, opts?: RpcOpts): Promise<CommandListHarnessesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "listharnesses", null, opts);
+        return client.wshRpcCall("listharnesses", null, opts);
     }
 
     // command "listjarvisconversations" [call]
@@ -1252,12 +1252,6 @@ export class RpcApiType {
     SetVarCommand(client: WshClient, data: CommandVarData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setvar", data, opts);
         return client.wshRpcCall("setvar", data, opts);
-    }
-
-    // command "sharpentask" [call]
-    SharpenTaskCommand(client: WshClient, data: CommandSharpenTaskData, opts?: RpcOpts): Promise<CommandSharpenTaskRtnData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "sharpentask", data, opts);
-        return client.wshRpcCall("sharpentask", data, opts);
     }
 
     // command "startjob" [call]

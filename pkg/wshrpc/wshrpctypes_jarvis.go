@@ -32,7 +32,7 @@ type JarvisCommands interface {
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                    // write the global Jarvis profile to jarvis-profile.json
-	ListConsultRuntimesCommand(ctx context.Context) (*CommandListConsultRuntimesRtnData, error)
+	ListHarnessesCommand(ctx context.Context) (*CommandListHarnessesRtnData, error)                                                       // installed coding-agent harnesses (catalog); excludes API-only backends like OpenRouter
 	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                              // is semantic recall actually working right now: ok | off | stale, and why
 	EmbedReconcileCommand(ctx context.Context) error                                                                                        // start catching the embedding index up to the vault; returns as soon as the work is dispatched
 	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error)  // recent persisted "I found nothing" verdicts from proactive recall, with their causes
@@ -202,8 +202,19 @@ type CommandArchiveJarvisConversationData struct {
 	ConversationId string `json:"conversationid"`
 	Archived       bool   `json:"archived"`
 }
-type CommandListConsultRuntimesRtnData struct {
-	Runtimes []ConsultRuntimeInfo `json:"runtimes"`
+// HarnessInfo is one installed coding-agent harness in the shared catalog. OpenRouter is deliberately
+// absent: it is an API-backed utility runtime, not an installable harness an operator chooses for Runs.
+type HarnessInfo struct {
+	Runtime          string `json:"runtime"`
+	Label            string `json:"label"`
+	Installed        bool   `json:"installed"`
+	Version          string `json:"version,omitempty"`
+	ConsultCapable   bool   `json:"consultcapable"`
+	RunWorkerCapable bool   `json:"runworkercapable"`
+}
+
+type CommandListHarnessesRtnData struct {
+	Harnesses []HarnessInfo `json:"harnesses"`
 }
 
 // SpaceSummary is one focusable task (Presence C). Objective is the human label; Ticket a secondary tag.

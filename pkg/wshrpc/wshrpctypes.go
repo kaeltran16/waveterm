@@ -336,12 +336,6 @@ type SessionInfo struct {
 	ResumeCommand string `json:"resumecommand"`
 }
 
-type ConsultRuntimeInfo struct {
-	Runtime   string `json:"runtime"`
-	Installed bool   `json:"installed"`
-	Version   string `json:"version,omitempty"`
-}
-
 type SessionEvent struct {
 	Type string `json:"type"`
 	Ts   int64  `json:"ts"`
