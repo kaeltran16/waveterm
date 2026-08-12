@@ -57,3 +57,4 @@ test-results.xml
 
 # pi agent local task state
 .pi/
+/.pi-subagents

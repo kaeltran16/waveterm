@@ -97,6 +97,46 @@ describe("registerWavetermStatus", () => {
         assertStatusExec(pi, "wsh", { "--state": "working", "--detail": "bash" });
     });
 
+    it("extracts the file path for read/edit/write", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        const cases: [string, any, string][] = [
+            ["read", { path: "src/foo.ts" }, "reading foo.ts"],
+            ["edit", { path: "C:\\Users\\Jane Doe\\main.go" }, "editing main.go"],
+            ["write", { path: "/home/jane/new.rs" }, "writing new.rs"],
+            // Claude Code-style file_path key works too
+            ["write", { file_path: "out.md" }, "writing out.md"],
+        ];
+        for (const [toolName, args, detail] of cases) {
+            await pi.handlers.get("tool_execution_start")![0]({ toolName, args }, sessionCtx());
+        }
+        const details = pi.exec.mock.calls.map((c) => {
+            const idx = c[1].indexOf("--detail");
+            return idx >= 0 ? c[1][idx + 1] : undefined;
+        });
+        expect(details).toEqual(cases.map(([, , detail]) => detail));
+    });
+
+    it("reports the bash command and truncates it to 60 chars", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("tool_execution_start")![0](
+            { toolName: "bash", args: { command: "ls -la" } },
+            sessionCtx()
+        );
+        assertStatusExec(pi, "wsh", { "--state": "working", "--detail": "running ls -la" });
+        const long = "npm test -- --runInBand ".repeat(10);
+        await pi.handlers.get("tool_execution_start")![0]({ toolName: "Bash", args: { command: long } }, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "working", "--detail": "running " + long.slice(0, 60) });
+    });
+
+    it("falls back to the tool name when no path is present", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("tool_execution_start")![0]({ toolName: "Read", args: {} }, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "working", "--detail": "read" });
+    });
+
     it("clamps detail to 160 chars", async () => {
         const pi = fakePi();
         registerWavetermStatus(pi, "wsh");

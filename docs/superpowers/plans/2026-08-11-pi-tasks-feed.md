@@ -837,12 +837,12 @@ function TasksSection({ tasks, now }: { tasks: PiTask[]; now: number }) {
 Run: `node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit` — expected exit 0.
 Run: `npx prettier --check frontend/app/view/agents/agentdetailsrail.tsx frontend/app/view/agents/railicons.tsx` — fix with `--write` if flagged, then re-check.
 
-- [ ] **Step 6: Render smoke** — NOT RUN: no dev app on :9222 (surface-smoke attaches to the live dev app; see Task 5)
+- [ ] **Step 6: Render smoke** — SKIPPED BY DECISION (2026-08-12): user opted to skip CDP verification for this workstream. Surface-smoke will be re-run as part of the next full cockpit pass.
 
 Run: `task verify:ui -- surface-smoke`
 Expected: PASS (the cockpit boots and renders; the new section is conditional, so it cannot break the smoke).
 
-- [ ] **Step 7: Visual verification (CDP)** — NOT RUN: requires `task dev` + a launched agent whose cwd resolves to the fixture project; recorded as next action
+- [ ] **Step 7: Visual verification (CDP)** — SKIPPED BY DECISION (2026-08-12): requires `task dev` + a launched agent whose cwd resolves to the fixture project; user opted to skip. The fixture setup below is retained for a future pass.
 
 The repo has no jsdom render tests — verify the rendered rail against the live dev app:
 
