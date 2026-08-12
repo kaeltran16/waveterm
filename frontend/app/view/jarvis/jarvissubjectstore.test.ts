@@ -11,6 +11,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 import { globalStore } from "@/app/store/jotaiStore";
 import type { JarvisConversation, JarvisScope } from "./jarviscontract";
 import { conversationsByIdAtom, setConversation } from "./jarvisstore";
+import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import {
     activeRunIdAtom,
     activeSubjectAtom,
@@ -167,6 +168,75 @@ describe("setActiveRunId", () => {
         setActiveRunId("chan-a", "run-1");
         setActiveRunId("chan-b", "run-2");
         expect(globalStore.get(activeRunIdAtom)).toEqual({ "chan-a": "run-1", "chan-b": "run-2" });
+    });
+});
+
+// leaving a channel with a finished run selected clears that selection, so returning to the channel
+// lands on the fresh-run state instead of the finished run (the reported "navigating to the channel
+// shows the last finished run" friction). A live run's selection survives — it is the default anyway.
+describe("selectSubject clears a cold run selection on leaving its channel", () => {
+    const run = (over: Partial<Run>) =>
+        ({
+            otype: "run",
+            oid: "r",
+            version: 1,
+            meta: {},
+            id: "r",
+            goal: "g",
+            workspaceid: "w",
+            projectpath: "/p",
+            status: "done",
+            phases: [],
+            createdts: 1,
+            ...over,
+        }) as Run;
+
+    beforeEach(() => {
+        globalStore.set(activeSubjectAtom, null);
+        globalStore.set(activeRunIdAtom, {});
+        globalStore.set(activeChannelRunsAtom, []);
+    });
+
+    it("drops a finished run selection when leaving the channel", () => {
+        setActiveRunId("c1", "run-1");
+        globalStore.set(activeChannelRunsAtom, [run({ id: "run-1", status: "done" })]);
+        globalStore.set(activeSubjectAtom, { kind: "channel", id: "c1" });
+
+        selectSubject({ kind: "conversation", id: "v1" });
+
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBeUndefined();
+    });
+
+    it("keeps a live run selection when leaving the channel", () => {
+        setActiveRunId("c1", "run-live");
+        globalStore.set(activeChannelRunsAtom, [run({ id: "run-live", status: "executing" })]);
+        globalStore.set(activeSubjectAtom, { kind: "channel", id: "c1" });
+
+        selectSubject({ kind: "conversation", id: "v1" });
+
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("run-live");
+    });
+
+    it("re-selecting the channel you are on is not leaving, so the selection stays", () => {
+        setActiveRunId("c1", "run-1");
+        globalStore.set(activeChannelRunsAtom, [run({ id: "run-1", status: "done" })]);
+        globalStore.set(activeSubjectAtom, { kind: "channel", id: "c1" });
+
+        selectSubject({ kind: "channel", id: "c1" });
+
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("run-1");
+    });
+
+    it("leaves other channels' selections alone", () => {
+        setActiveRunId("c1", "run-1");
+        setActiveRunId("c2", "run-2");
+        globalStore.set(activeChannelRunsAtom, [run({ id: "run-1", status: "done" })]);
+        globalStore.set(activeSubjectAtom, { kind: "channel", id: "c1" });
+
+        selectSubject({ kind: "channel", id: "c2" });
+
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBeUndefined();
+        expect(globalStore.get(activeRunIdAtom)["c2"]).toBe("run-2");
     });
 });
 

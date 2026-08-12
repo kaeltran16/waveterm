@@ -107,9 +107,11 @@ describe("isTerminal / defaultView / defaultRunId", () => {
         const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "executing" })];
         expect(defaultRunId(runs)).toBe("b");
     });
-    it("defaultRunId falls back to the most-recent run when all terminal", () => {
+    // a finished run is never the default: a channel with nothing live lands on the fresh-run state,
+    // and a finished run only shows once the user picks it explicitly.
+    it("defaultRunId is undefined when all runs are terminal", () => {
         const runs = [run({ id: "a", createdts: 1, status: "done" }), run({ id: "b", createdts: 2, status: "cancelled" })];
-        expect(defaultRunId(runs)).toBe("b");
+        expect(defaultRunId(runs)).toBeUndefined();
     });
     it("defaultRunId is undefined for no runs", () => {
         expect(defaultRunId([])).toBeUndefined();

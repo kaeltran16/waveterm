@@ -9,7 +9,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { activeChannelAtom, activeChannelRunsAtom, selectChannel } from "@/app/view/agents/channelsstore";
-import { resolveActiveRunId } from "@/app/view/agents/runmodel";
+import { resolveActiveRunId, isTerminal } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
@@ -80,6 +80,20 @@ function pruneOnLeave(next: ActiveSubject): void {
 
 export function selectSubject(subject: ActiveSubject): void {
     pruneOnLeave(subject);
+    // leaving a channel drops a run selection that has gone cold, so coming back to it lands on live
+    // work or the fresh-run state — never the finished run that was selected last time. A live run's
+    // selection survives (it is the default anyway), and re-selecting the channel you are on is not
+    // leaving, so a re-click keeps the run it is showing.
+    const prev = globalStore.get(activeSubjectAtom);
+    if (prev != null && prev.kind === "channel" && (subject.kind !== "channel" || subject.id !== prev.id)) {
+        const cur = globalStore.get(activeRunIdAtom)[prev.id];
+        if (cur != null) {
+            const run = globalStore.get(activeChannelRunsAtom).find((r) => r.id === cur);
+            if (run != null && isTerminal(run.status)) {
+                setActiveRunId(prev.id, undefined);
+            }
+        }
+    }
     globalStore.set(activeSubjectAtom, subject);
     globalStore.set(persistedSubjectAtom, subject);
     if (subject.kind === "channel") {

@@ -143,15 +143,16 @@ export function defaultView(runsLen: number): "runs" | "chat" {
     return runsLen > 0 ? "runs" : "chat";
 }
 
-// Most-recent non-terminal run (so the user lands on live work), else the most-recent run.
+// Most-recent non-terminal run, so the user lands on live work. Undefined when nothing is live — a
+// channel's default view is then the fresh-run state ("Start a run"), not the last finished run; a
+// finished run only shows when the user picks it explicitly.
 export function defaultRunId(runs: Run[] | undefined): string | undefined {
     const list = runs ?? [];
     if (list.length === 0) {
         return undefined;
     }
     const sorted = [...list].sort((a, b) => b.createdts - a.createdts);
-    const active = sorted.find((r) => !isTerminal(r.status));
-    return (active ?? sorted[0]).id;
+    return sorted.find((r) => !isTerminal(r.status))?.id;
 }
 
 export function phaseWorkers(phase: RunPhase, agents: AgentVM[]): AgentVM[] {
@@ -243,7 +244,8 @@ export function planDirty(edited: string, saved: string): boolean {
 }
 
 // The run id to select given the currently-visible tabs: keep the current selection if it is still
-// visible, else land on the default (most-recent non-terminal).
+// visible, else land on the default (most-recent non-terminal). A finished run therefore only shows
+// while explicitly selected — the default view of a channel with nothing live is the fresh-run state.
 // NOTE: undefined does NOT mean "no run" — it means "pick one for me", and with a live run present it
 // picks that one. Callers wanting an explicit new-run state need their own flag (composingRunAtom); this
 // comment used to claim the opposite, which is how "＋ New run" shipped as a no-op.
