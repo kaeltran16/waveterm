@@ -4,7 +4,8 @@
 // Cleanup queue (Wave "Memory upkeep options" design, option A): saved notes the distiller flagged as
 // outdated. A calm maintenance section below the Saved groups — quieter than the amber Pending band.
 // superseded (strong) sorts before stale (weak) and reads slightly more prominent. Removal is one
-// click but always a human action; "Clear all superseded" confirms first. Hidden when empty.
+// click but always a human action; the bulk buttons ("Clean up all", "Clear all superseded") confirm
+// first. Hidden when empty.
 
 import { composerReveal } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
@@ -12,7 +13,7 @@ import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { confirmPruneAllSuperseded, memPruneAtom, prune, takePendingMemoryFocus } from "./memstore";
+import { confirmPruneAllNotes, confirmPruneAllSuperseded, memPruneAtom, prune, takePendingMemoryFocus } from "./memstore";
 import { reasonMeta, typeMeta } from "./memtypes";
 
 const COLLAPSED = 5;
@@ -102,6 +103,12 @@ export function CleanupQueue() {
                     </span>
                 </button>
                 <div className="flex-1" />
+                <button
+                    onClick={() => confirmPruneAllNotes(candidates.length)}
+                    className="flex-none rounded-[7px] border border-error/45 px-[11px] py-[5px] text-[11px] font-semibold text-error hover:border-error hover:bg-error/10"
+                >
+                    Clean up all
+                </button>
                 {supersededCount > 0 && (
                     <button
                         onClick={() => confirmPruneAllSuperseded(supersededCount)}

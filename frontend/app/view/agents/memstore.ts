@@ -320,13 +320,9 @@ export async function prune(path: string): Promise<void> {
     globalStore.set(memPruneAtom, (prev) => prev.filter((c) => c.path !== path));
 }
 
-// Bulk removal of every superseded candidate. Deletes all first, then removes them from the
-// in-memory scan result once (a rescan would re-walk the whole vault). Mirrors dismissAllPending.
-export async function pruneAllSuperseded(): Promise<void> {
-    const paths = globalStore
-        .get(memPruneAtom)
-        .filter((c) => c.reason === "superseded")
-        .map((c) => c.path);
+// Shared bulk removal: deletes every given path, then rewrites the notes graph and prune queue
+// once (a rescan would re-walk the whole vault). Mirrors dismissAllPending.
+async function prunePaths(paths: string[]): Promise<void> {
     for (const p of paths) {
         await RpcApi.MemoryDeleteCommand(TabRpcClient, { path: p });
     }
@@ -346,19 +342,43 @@ export async function pruneAllSuperseded(): Promise<void> {
             globalStore.set(memBodyAtom, null);
         }
     }
-    globalStore.set(memPruneAtom, (prev) => prev.filter((c) => c.reason !== "superseded"));
+    const removedPaths = new Set(paths);
+    globalStore.set(memPruneAtom, (prev) => prev.filter((c) => !removedPaths.has(c.path)));
 }
 
-// Bulk clear is many irreversible deletes at once, so it confirms first (single-row Remove stays
+// Bulk removal of every superseded candidate.
+export async function pruneAllSuperseded(): Promise<void> {
+    const paths = globalStore
+        .get(memPruneAtom)
+        .filter((c) => c.reason === "superseded")
+        .map((c) => c.path);
+    await prunePaths(paths);
+}
+
+// Bulk removal of every candidate in the queue, whatever its reason.
+export async function pruneAll(): Promise<void> {
+    await prunePaths(globalStore.get(memPruneAtom).map((c) => c.path));
+}
+
+// Bulk clears are many irreversible deletes at once, so they confirm first (single-row Remove stays
 // one-click). Mirrors confirmDeleteNote.
-export function confirmPruneAllSuperseded(count: number): void {
+function confirmPruneAll(count: number, reason: string | null, action: () => Promise<void>): void {
+    const label = reason ? `${count} ${reason} note${count === 1 ? "" : "s"}` : `${count} note${count === 1 ? "" : "s"} from the cleanup queue`;
     modalsModel.pushModal("ConfirmModal", {
-        title: "Clear superseded notes",
-        message: `Remove ${count} superseded note${count === 1 ? "" : "s"}? This deletes the files and can't be undone.`,
+        title: reason ? "Clear superseded notes" : "Clean up all notes",
+        message: `Remove ${label}? This deletes the files and can't be undone.`,
         confirmLabel: "Remove all",
         destructive: true,
-        onConfirm: () => fireAndForget(() => pruneAllSuperseded()),
+        onConfirm: () => fireAndForget(action),
     });
+}
+
+export function confirmPruneAllSuperseded(count: number): void {
+    confirmPruneAll(count, "superseded", () => pruneAllSuperseded());
+}
+
+export function confirmPruneAllNotes(count: number): void {
+    confirmPruneAll(count, null, () => pruneAll());
 }
 
 // Archived view: notes the gardener auto-archived (recoverable). MemoryArchivedNote is an ambient
