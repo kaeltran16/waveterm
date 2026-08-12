@@ -8,7 +8,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import { formatAge, projectOf, recentActions, summarizeActions, usageLevel, type AgentVM } from "./agentsviewmodel";
@@ -16,8 +16,6 @@ import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } f
 import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
-import { capTasks, edgeSummary, groupTasks } from "./pitasks";
-import { loadTasksForAgent, tasksAtom } from "./pitasksstore";
 import { RAIL_ICON } from "./railicons";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
 import { RuntimeMark } from "./runtimemark";
@@ -25,7 +23,6 @@ import { runtimeMeta } from "./runtimemeta";
 import { subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
 import { loadSessionUsage } from "./transcriptusagestore";
-import { steerData } from "./pi-control";
 
 const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
     ok: "bg-accent",
@@ -34,7 +31,6 @@ const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
 };
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; overflow folds into "+N more"
-const TaskCap = 8; // a 296px rail can't show a large backlog; overflow folds into "+N more"
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
     return (
@@ -49,90 +45,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
 }
 
-function SteerInput({ sessionId }: { sessionId: string }): React.JSX.Element {
-    const [draft, setDraft] = useState("");
-    const [sending, setSending] = useState(false);
-    const submit = async () => {
-        const content = draft.trim();
-        if (!content || sending) return;
-        setSending(true);
-        try {
-            await RpcApi.PiSendControlCommand(TabRpcClient, steerData(sessionId, content));
-            setDraft("");
-        } finally {
-            setSending(false);
-        }
-    };
-    return (
-        <div className="flex items-center gap-2">
-            <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === "Enter") void submit();
-                }}
-                placeholder="Steer this Pi session…"
-                className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-primary outline-none focus:border-accent"
-            />
-            <button
-                type="button"
-                onClick={() => void submit()}
-                disabled={sending || !draft.trim()}
-                className="rounded-md bg-accent px-2 py-1 text-xs text-background disabled:opacity-50"
-            >
-                Steer
-            </button>
-        </div>
-    );
-}
-
-function TasksSection({ tasks, now }: { tasks: PiTask[]; now: number }) {
-    const { groups, more } = capTasks(groupTasks(tasks), TaskCap);
-    return (
-        <div>
-            <div className="mb-[11px]">
-                <SectionLabel>Tasks</SectionLabel>
-            </div>
-            <div className="flex flex-col gap-[7px]">
-                {groups.map((g) =>
-                    g.tasks.map((t) => {
-                        const edges = edgeSummary(t);
-                        return (
-                            <div
-                                key={t.id}
-                                className="flex items-center gap-[10px] rounded-[10px] border border-border bg-surface px-[11px] py-[9px]"
-                            >
-                                <span
-                                    className={cn(
-                                        "h-[6px] w-[6px] shrink-0 rounded-full",
-                                        t.status === "in_progress"
-                                            ? "bg-accent"
-                                            : t.status === "pending"
-                                              ? "bg-warning"
-                                              : "bg-success"
-                                    )}
-                                />
-                                <div className="min-w-0 flex-1">
-                                    <div className="truncate font-mono text-[11.5px] font-semibold text-secondary">
-                                        {t.subject}
-                                    </div>
-                                    {edges != null ? (
-                                        <div className="truncate text-[10px] text-muted">{edges}</div>
-                                    ) : null}
-                                </div>
-                                <span className="whitespace-nowrap font-mono text-[9.5px] font-medium text-muted">
-                                    {formatAge(now - t.updatedat)}
-                                </span>
-                            </div>
-                        );
-                    })
-                )}
-                {more > 0 ? <div className="px-[5px] py-[3px] text-[11px] text-muted">+{more} more</div> : null}
-            </div>
-        </div>
-    );
-}
-
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
@@ -145,16 +57,13 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const railState = useAtomValue(railStateAtom);
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
-    const tasks = useAtomValue(tasksAtom);
 
     useEffect(() => {
         fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
         fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath));
         fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
-        fireAndForget(() => loadTasksForAgent(agent.id, agent.transcriptPath, agent.blockId));
         const refresh = setInterval(() => {
             fireAndForget(() => loadSessionUsage(agent.id, agent.transcriptPath, { silent: true }));
-            fireAndForget(() => loadTasksForAgent(agent.id, agent.transcriptPath, agent.blockId));
         }, 15_000);
         return () => clearInterval(refresh);
     }, [agent.id, agent.transcriptPath, agent.blockId]);
@@ -210,11 +119,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         <DetailRow label="Branch" value={railState?.branch || "—"} />
                         <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
                         {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
-                        {agent.agent === "pi" && agent.sessionId ? (
-                            <div className="pt-[10px]">
-                                <SteerInput sessionId={agent.sessionId} />
-                            </div>
-                        ) : null}
                     </div>
                 </div>
             ),
@@ -361,18 +265,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                 </div>
             ),
         },
-        ...(tasks != null && tasks.length > 0
-            ? [
-                  {
-                      id: "tasks",
-                      label: "Tasks",
-                      icon: RAIL_ICON.tasks,
-                      content: <TasksSection tasks={tasks} now={now} />,
-                  } as RailSection,
-              ]
-            : []),
     ];
-
     return (
         <CollapsibleRail
             openAtom={railVisibleAtom}
