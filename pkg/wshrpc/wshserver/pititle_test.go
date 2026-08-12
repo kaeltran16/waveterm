@@ -1,0 +1,177 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package wshserver
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/wps"
+)
+
+func writePiSession(t *testing.T, lines []string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.jsonl")
+	data := ""
+	for _, l := range lines {
+		data += l + "\n"
+	}
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func piStatusEvent(oref, state, title, transcript, sessionID string) *wps.WaveEvent {
+	return &wps.WaveEvent{
+		Event:  wps.Event_AgentStatus,
+		Scopes: []string{oref},
+		Data: baseds.AgentStatusData{
+			ORef:           oref,
+			State:          state,
+			Agent:          "pi",
+			Title:          title,
+			TranscriptPath: transcript,
+			SessionID:      sessionID,
+			Ts:             time.Now().UnixMilli(),
+		},
+	}
+}
+
+func TestPiFirstUserMessage(t *testing.T) {
+	cases := []struct {
+		name  string
+		lines []string
+		want  string
+	}{
+		{"string content", []string{
+			`{"type":"session","id":"s1"}`,
+			`{"type":"message","id":"m1","message":{"role":"user","content":"first prompt"}}`,
+		}, "first prompt"},
+		{"text block content", []string{
+			`{"type":"message","id":"m1","message":{"role":"user","content":[{"type":"text","text":"block text"}]}}`,
+		}, "block text"},
+		{"skips tool_result-only turns", []string{
+			`{"type":"message","id":"m1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`,
+			`{"type":"message","id":"m2","message":{"role":"user","content":"the real ask"}}`,
+		}, "the real ask"},
+		{"skips assistant turns", []string{
+			`{"type":"message","id":"m1","message":{"role":"assistant","content":"hi"}}`,
+		}, ""},
+		{"no user message", []string{`{"type":"session","id":"s1"}`}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := piFirstUserMessage(writePiSession(t, tc.lines)); got != tc.want {
+				t.Errorf("piFirstUserMessage = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := piFirstUserMessage(filepath.Join(t.TempDir(), "missing.jsonl")); got != "" {
+		t.Errorf("missing file: got %q, want \"\"", got)
+	}
+}
+
+func TestPiHeadTitle(t *testing.T) {
+	if got := piHeadTitle(""); got != "" {
+		t.Errorf("empty: got %q", got)
+	}
+	if got := piHeadTitle("\n\n  real task\nmore lines\n"); got != "real task" {
+		t.Errorf("head line: got %q", got)
+	}
+	long := "x"
+	for i := 0; i < 100; i++ {
+		long += "y"
+	}
+	if got := piHeadTitle(long); len([]rune(got)) != 72 {
+		t.Errorf("truncate: got %d runes, want 72", len([]rune(got)))
+	}
+}
+
+func TestPiTitlePrompt(t *testing.T) {
+	p := piTitlePrompt("fix the flicker")
+	if p == "" || len(p) < 10 {
+		t.Errorf("prompt too short: %q", p)
+	}
+	if !strings.Contains(p, "fix the flicker") {
+		t.Errorf("prompt should embed the task text: %q", p)
+	}
+}
+
+func TestPiTitleProviderGeneratesOncePerTranscript(t *testing.T) {
+	calls := 0
+	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
+		calls++
+		return "Fix agent tab flicker", nil
+	})
+	path := writePiSession(t, []string{`{"type":"message","id":"m1","message":{"role":"user","content":"why does the tab flicker"}}`})
+	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "", path, "sess-1"))
+	if p.Result(path, time.Second) != "Fix agent tab flicker" {
+		t.Fatalf("title not generated")
+	}
+	// a second event must not regenerate (cache hit)
+	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "", path, "sess-1"))
+	if calls != 1 {
+		t.Fatalf("expected 1 LLM call, got %d", calls)
+	}
+	// the event is enriched synchronously on cache hit
+	out := piStatusEvent("block:uuid-1", "idle", "", path, "sess-1")
+	p.NoteEvent(out)
+	if title := out.Data.(baseds.AgentStatusData).Title; title != "Fix agent tab flicker" {
+		t.Fatalf("cache-hit enrichment missing title: %q", title)
+	}
+}
+
+func TestPiTitleProviderFallsBackToHeadText(t *testing.T) {
+	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
+		return "", nil // LLM returned nothing
+	})
+	path := writePiSession(t, []string{`{"type":"message","id":"m1","message":{"role":"user","content":"  real task line\nmore"}}`})
+	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "", path, "sess-1"))
+	if got := p.Result(path, time.Second); got != "real task line" {
+		t.Fatalf("fallback title = %q, want %q", got, "real task line")
+	}
+}
+
+func TestPiTitleProviderSkipsTitledAndNonPiEvents(t *testing.T) {
+	calls := 0
+	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
+		calls++
+		return "t", nil
+	})
+	// explicit title: no generation
+	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "user given name", "", "sess-1"))
+	// non-pi agent: no generation
+	ev := piStatusEvent("block:uuid-2", "working", "", "", "sess-2")
+	d := ev.Data.(baseds.AgentStatusData)
+	d.Agent = "claude"
+	ev.Data = d
+	p.NoteEvent(ev)
+	// no transcript: no generation
+	p.NoteEvent(piStatusEvent("block:uuid-3", "working", "", "", "sess-3"))
+	if calls != 0 {
+		t.Fatalf("expected 0 LLM calls, got %d", calls)
+	}
+}
+
+func TestPiTitleProviderTracksLatestState(t *testing.T) {
+	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
+		return "t", nil
+	})
+	path := writePiSession(t, []string{`{"type":"message","id":"m1","message":{"role":"user","content":"why"}}`})
+	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "", path, "sess-1"))
+	p.NoteEvent(piStatusEvent("block:uuid-1", "idle", "", path, "sess-1"))
+	p.mu.Lock()
+	state := p.lastState["block:uuid-1"]
+	p.mu.Unlock()
+	if state != "idle" {
+		t.Fatalf("lastState = %q, want idle", state)
+	}
+}

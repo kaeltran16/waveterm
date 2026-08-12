@@ -176,6 +176,9 @@ func (ws *WshServer) EventPublishCommand(ctx context.Context, data wps.WaveEvent
 	if data.Sender == "" {
 		data.Sender = rpcSource
 	}
+	if data.Event == wps.Event_AgentStatus {
+		PiTitleProviderInstance.NoteEvent(&data)
+	}
 	wps.Broker.Publish(data)
 	return nil
 }
