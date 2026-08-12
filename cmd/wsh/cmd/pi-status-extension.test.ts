@@ -214,80 +214,34 @@ describe("registerWavetermStatus", () => {
 });
 
 describe("sessionTitle", () => {
-    function sm(entries: any[], name?: string) {
-        return { getSessionName: () => name ?? "", getEntries: () => entries };
+    function sm(over: Record<string, unknown> = {}) {
+        return { getSessionName: () => "", ...over };
     }
 
-    it("prefers the explicit session name over the first message", () => {
-        expect(
-            sessionTitle(sm([{ type: "message", message: { role: "user", content: "first prompt" } }], "my name"))
-        ).toBe("my name");
+    it("returns the explicit session name", () => {
+        expect(sessionTitle(sm({ getSessionName: () => "my name" }))).toBe("my name");
     });
 
-    it("falls back to the first user message's head text", () => {
-        expect(
-            sessionTitle(
-                sm([
-                    { type: "model_change", provider: "x", modelId: "y" },
-                    {
-                        type: "message",
-                        message: { role: "assistant", content: "not this" },
-                    },
-                    {
-                        type: "message",
-                        message: { role: "user", content: [{ type: "text", text: "first prompt" }] },
-                    },
-                ])
-            )
-        ).toBe("first prompt");
+    it("trims the explicit session name", () => {
+        expect(sessionTitle(sm({ getSessionName: () => "  my name  " }))).toBe("my name");
     });
 
-    it("reads string content and takes the first non-empty line", () => {
-        expect(
-            sessionTitle(
-                sm([
-                    {
-                        type: "message",
-                        message: { role: "user", content: "\n\n  real task\nmore lines\n" },
-                    },
-                ])
-            )
-        ).toBe("real task");
-    });
-
-    it("skips tool_result-only user turns", () => {
-        expect(
-            sessionTitle(
-                sm([
-                    {
-                        type: "message",
-                        message: {
-                            role: "user",
-                            content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
-                        },
-                    },
-                    {
-                        type: "message",
-                        message: { role: "user", content: "the real ask" },
-                    },
-                ])
-            )
-        ).toBe("the real ask");
-    });
-
-    it("truncates a long head text to 72 runes", () => {
-        expect(sessionTitle(sm([{ type: "message", message: { role: "user", content: "x".repeat(200) } }]))).toBe(
-            "x".repeat(72)
-        );
-    });
-
-    it("returns empty when the session has no user message", () => {
-        expect(sessionTitle(sm([]))).toBe("");
-        expect(sessionTitle(sm([{ type: "message", message: { role: "assistant", content: "hi" } }]))).toBe("");
+    it("returns empty when the session has no explicit name (the backend generates auto titles)", () => {
+        expect(sessionTitle(sm())).toBe("");
         expect(sessionTitle(undefined)).toBe("");
+        // a first user message is NOT a title — the backend PiTitleProvider summarizes it
+        expect(
+            sessionTitle(
+                sm({
+                    getEntries: () => [
+                        { type: "message", message: { role: "user", content: "first prompt" } },
+                    ],
+                })
+            )
+        ).toBe("");
     });
 
-    it("reports the first-message fallback title through agentstatus", async () => {
+    it("reports an empty title through agentstatus for a nameless session", async () => {
         const pi = fakePi();
         registerWavetermStatus(pi, "wsh");
         const ctx = sessionCtx({
@@ -304,7 +258,7 @@ describe("sessionTitle", () => {
             },
         });
         await pi.handlers.get("agent_start")![0]({}, ctx);
-        assertStatusExec(pi, "wsh", { "--state": "working", "--title": "rename me to this" });
+        assertStatusExec(pi, "wsh", { "--state": "working", "--title": "" });
     });
 });
 

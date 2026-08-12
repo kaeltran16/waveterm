@@ -135,15 +135,6 @@ func NewPiTitleProvider(gen titleGenerator) *PiTitleProvider {
 	}
 }
 
-// Reset clears all state (tests).
-func (p *PiTitleProvider) Reset() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.cache = make(map[string]string)
-	p.inFlight = make(map[string]bool)
-	p.lastState = make(map[string]string)
-}
-
 // NoteEvent observes one agent:status event. With an explicit title the event passes through
 // untouched (a user rename wins over any cached title). Otherwise a cached title is attached
 // synchronously; a cache miss kicks off async generation.
