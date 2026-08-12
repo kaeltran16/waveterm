@@ -3,6 +3,25 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Pi Part B — wave_create_widget tool + `wsh widget` vdom CLI deferred to v2 (2026-08-12)
+
+Designing the bidirectional pi↔arc integration (meta Part B, spec
+`docs/superpowers/specs/2026-08-12-pi-partb-bidirectional-design.md`), we kept four wave_* tools in
+scope (wave_run_command, wave_open_file, wave_query_sessions, wave_notify) and deferred the fifth:
+
+- **`wave_create_widget` (pi tool) and its `wsh widget` CLI wrapper** — the only tool needing new
+  server surface: it would wrap `VDomCreateContextCommand` / `VDomRenderCommand`
+  (`pkg/wshrpc/wshrpctypes_vdom.go`) behind a new wsh subcommand. Deferred because vdom
+  async-initiation / render-stream semantics deserve their own care and there is no concrete
+  consumer yet (YAGNI).
+- **How to resume:** when a concrete consumer appears, add `wsh widget create <name> <json>` /
+  `wsh widget update <oref> <json>` wrapping the two vdom commands, register `wave_create_widget`
+  in `pi/extensions/waveterm-tools.ts` (Typebox params: name/data for create, oref/data for
+  update), and extend the Part B plan's tool tests.
+
+Also confirmed NOT deferred (deliberately included in v1 after review): control-channel
+`new_session` / `switch_session` commands, despite the documented session-replacement footguns.
+
 ## Diff surface — Review mode's backend orphaned by its deletion (2026-07-31)
 
 - **Git revert backend is orphaned.** Deleting Review mode from the Diff surface left `GitRevertCommand`
