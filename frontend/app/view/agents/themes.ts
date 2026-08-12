@@ -54,7 +54,7 @@ export const THEMES: ThemeDef[] = [
             bg: "#0c0e11", surface: "#0e1116", surfaceRaised: "#13171d", surfaceHover: "#171c22",
             surfaceSelected: "#1a222c", code: "#0b0d10", border: "#1c2128", edgeMid: "#20262e",
             edgeStrong: "#2a313a", edgeFaint: "#161a20", text: "#e6e9ed", secondary: "#cfd5db",
-            muted: "#7f858b", inkFaint: "#646a72", accent: "#7c95ff", success: "#54c79a",
+            muted: "#7f858b", inkFaint: "#646a72", accent: "#5e9cff", success: "#54c79a",
             warning: "#e6b450", error: "#e0726c",
         },
     },
@@ -122,9 +122,10 @@ export const THEMES: ThemeDef[] = [
 
 export const PICKER_THEMES: ThemeDef[] = THEMES.filter((t) => t.dark);
 
-// Accent quick-picks for the Custom colors card (ports the mockup accentPalette).
+// Accent quick-picks for the Custom colors card (ports the mockup accentPalette; the first
+// entry tracks the current default accent, midnight's cc-dark blue).
 export const ACCENT_SWATCHES: string[] = [
-    "#7c95ff", "#4d9fff", "#66d9ef", "#2fb8a0", "#a6e22e",
+    "#5e9cff", "#4d9fff", "#66d9ef", "#2fb8a0", "#a6e22e",
     "#e6b450", "#e08a4f", "#f92672", "#b57cff", "#e0726c",
 ];
 

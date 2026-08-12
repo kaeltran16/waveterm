@@ -37,8 +37,8 @@ describe("buildThemeVars — Midnight parity", () => {
         "--color-edge-mid": "#20262e",
         "--color-edge-strong": "#2a313a",
         "--color-edge-faint": "#161a20",
-        "--color-accent": "#7c95ff",
-        "--color-accentbg": "rgba(124, 149, 255, 0.12)",
+        "--color-accent": "#5e9cff",
+        "--color-accentbg": "rgba(94, 156, 255, 0.12)",
         "--color-error": "#e0726c",
         "--color-warning": "#e6b450",
         "--color-asking": "#e6b450",
@@ -74,7 +74,7 @@ describe("helpers", () => {
     });
     it("colorOf prefers override over palette", () => {
         const p = activePalette("midnight");
-        expect(colorOf(p, {}, "accent")).toBe("#7c95ff");
+        expect(colorOf(p, {}, "accent")).toBe("#5e9cff");
         expect(colorOf(p, { accent: "#123456" }, "accent")).toBe("#123456");
     });
     it("PICKER_THEMES excludes the light (paper) theme", () => {
@@ -84,7 +84,7 @@ describe("helpers", () => {
     });
     it("ACCENT_SWATCHES has 10 hex values", () => {
         expect(ACCENT_SWATCHES).toHaveLength(10);
-        expect(ACCENT_SWATCHES[0]).toBe("#7c95ff");
+        expect(ACCENT_SWATCHES[0]).toBe("#5e9cff");
     });
     it("applyThemeVars sets each var on the root style", () => {
         const set: Record<string, string> = {};
@@ -212,12 +212,12 @@ describe("deriveAnsi — Midnight golden set", () => {
             brightGreen: "#7fd5b3",
             yellow: "#e6b450",
             brightYellow: "#ecc77c",
-            blue: "#7c95ff",
-            brightBlue: "#9db0ff",
-            magenta: "#ff70fa",
-            brightMagenta: "#ff94fb",
-            cyan: "#70f1ff",
-            brightCyan: "#94f5ff",
+            blue: "#5e9cff",
+            brightBlue: "#86b5ff",
+            magenta: "#ff5cfa",
+            brightMagenta: "#ff85fb",
+            cyan: "#5cefff",
+            brightCyan: "#85f3ff",
             white: "#e6e9ed",
             brightWhite: "#eceff2",
         });
@@ -245,7 +245,7 @@ describe("deriveTermTheme", () => {
     it("maps foreground, cursor, cursorAccent and selection from palette roles", () => {
         const t = deriveTermTheme(midnight, {});
         expect(t.foreground).toBe("#e6e9ed"); // text
-        expect(t.cursor).toBe("#7c95ff"); // accent
+        expect(t.cursor).toBe("#5e9cff"); // accent
         expect(t.cursorAccent).toBe("#0c0e11"); // bg — the glyph under a block cursor
         expect(t.selectionBackground).toBe("#1a222c"); // surfaceSelected
     });

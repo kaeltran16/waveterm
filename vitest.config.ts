@@ -20,9 +20,10 @@ export default defineConfig({
         },
     },
     test: {
-        // git worktrees under .claude/ carry a full copy of the suite; vitest's default glob
-        // walks the repo root, so without this it runs every sibling session's tests too.
-        exclude: [...configDefaults.exclude, "**/.claude/**"],
+        // git worktrees under .claude/ or .worktrees/ carry a full copy of the suite; vitest's
+        // default glob walks the repo root, so without this it runs every sibling session's tests
+        // too (a stale copy of a just-edited file produces silently misleading green runs).
+        exclude: [...configDefaults.exclude, "**/.claude/**", "**/.worktrees/**"],
         reporters: ["verbose", "junit"],
         outputFile: {
             junit: "test-results.xml",

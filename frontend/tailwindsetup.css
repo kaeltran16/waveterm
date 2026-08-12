@@ -41,21 +41,21 @@
     --color-edge-strong: #2a313a;
     --color-edge-faint: #161a20; /* faint dividers — handoff transcript tool-box rows */
 
-    /* Accent (periwinkle; anchors #aebfff/#8da3ff/#7c95ff/#5f74e0 from handoff, rest interpolated) */
+    /* Accent (main accent follows pi's cc-dark blue #5e9cff; the ramp keeps the handoff periwinkle anchors #aebfff/#8da3ff/#7c95ff/#5f74e0, rest interpolated) */
     --color-accent-50: #e8ecff;
     --color-accent-100: #cdd6ff;
     --color-accent-200: #aebfff;
     --color-accent-300: #8da3ff;
-    --color-accent-400: #7c95ff; /* main accent color */
+    --color-accent-400: #5e9cff; /* main accent color (pi cc-dark) */
     --color-accent-500: #5f74e0;
     --color-accent-600: #4f61c4;
     --color-accent-700: #3f4ea0;
     --color-accent-800: #2f3b7a;
     --color-accent-900: #232c5c;
-    --color-accent: #7c95ff;
+    --color-accent: #5e9cff;
     --color-accenthover: #8da3ff;
     --color-accent-soft: #aebfff;
-    --color-accentbg: rgba(124, 149, 255, 0.12);
+    --color-accentbg: rgba(94, 156, 255, 0.12);
     /* skill invocation chip */
     --color-skill: #c58cff;
     --color-skill-soft: #dcc0ff;
