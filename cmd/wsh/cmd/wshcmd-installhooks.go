@@ -287,6 +287,9 @@ var piStatusExtensionTemplate string
 //go:embed pi-memory-extension.ts
 var piMemoryExtensionTemplate string
 
+//go:embed arc-theme.json
+var arcThemeTemplate string
+
 // piLookPath is a var so tests can simulate a machine with or without pi installed.
 var piLookPath = exec.LookPath
 
@@ -397,6 +400,116 @@ func installPiMemoryExtension(home string) error {
 	return nil
 }
 
+// installPiTheme writes the arc theme into pi's global theme directory (~/.pi/agent/themes/), where
+// pi hot-reloads custom theme files. No-op when pi is not installed. Idempotent: rewrites only when
+// the installed copy differs (self-heals if the user edits it away; their edits to a present file
+// are respected because the rewrite compares against the authored template).
+func installPiTheme(home string) error {
+	if _, err := piLookPath("pi"); err != nil {
+		return nil // pi not installed; nothing to hook
+	}
+	dir := filepath.Join(home, ".pi", "agent", "themes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "arc.json")
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == arcThemeTemplate {
+		return nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(arcThemeTemplate), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	fmt.Printf("installed pi arc theme into %s\n", path)
+	return nil
+}
+
+// arcPackageEntry is the settings.packages entry provisioning adds so pi loads the arc package
+// (extensions/skills/prompts/themes declared in the pi manifest).
+const arcPackageEntry = "git:github.com/kaeltran16/waveterm"
+
+// mergePiSettingsDefaults writes pi settings defaults only when keys are absent: the arc theme and
+// the arc package entry. provider/model/thinking defaults are deliberately not written (arc defines
+// no canonical values; pi's built-ins apply on fresh installs). Never clobbers existing values.
+// Returns what was installed and what was skipped for the idempotent report.
+func mergePiSettingsDefaults(home string) (installed []string, skipped []string, err error) {
+	path := filepath.Join(home, ".pi", "agent", "settings.json")
+	settings := map[string]any{}
+	if b, rerr := os.ReadFile(path); rerr == nil && len(strings.TrimSpace(string(b))) > 0 {
+		if uerr := json.Unmarshal(b, &settings); uerr != nil {
+			return nil, nil, fmt.Errorf("parsing %s: %w", path, uerr)
+		}
+	}
+	if _, ok := settings["theme"]; !ok {
+		settings["theme"] = "arc"
+		installed = append(installed, "theme")
+	} else {
+		skipped = append(skipped, "theme")
+	}
+	if pkgs, _ := settings["packages"].([]any); !containsString(pkgs, arcPackageEntry) {
+		settings["packages"] = append(pkgs, arcPackageEntry)
+		installed = append(installed, "packages")
+	} else {
+		skipped = append(skipped, "packages")
+	}
+	out, merr := json.MarshalIndent(settings, "", "  ")
+	if merr != nil {
+		return nil, nil, fmt.Errorf("encoding settings: %w", merr)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, nil, fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return nil, nil, fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return nil, nil, fmt.Errorf("replacing %s: %w", path, err)
+	}
+	return installed, skipped, nil
+}
+
+func containsString(items []any, want string) bool {
+	for _, it := range items {
+		if s, ok := it.(string); ok && s == want {
+			return true
+		}
+	}
+	return false
+}
+
+// installPiKeybindings writes a minimal arc-aligned keybindings.json only when no user file exists.
+// User bindings always win; the four entries mirror the known-good pi 0.84.1 ids (editor history +
+// alt-screen navigation). A model-picker binding is deferred until pi's binding id is confirmed.
+func installPiKeybindings(home string) (bool, error) {
+	path := filepath.Join(home, ".pi", "agent", "keybindings.json")
+	if _, err := os.Stat(path); err == nil {
+		return false, nil // user file exists; never merge over it
+	}
+	content := `{
+  "tui.editor.historyPrevious": "up",
+  "tui.editor.historyNext": "down",
+  "tui.altScreen.top": "ctrl+home",
+  "tui.altScreen.bottom": "ctrl+end"
+}
+`
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		return false, fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return false, fmt.Errorf("replacing %s: %w", path, err)
+	}
+	fmt.Printf("installed pi arc keybindings into %s\n", path)
+	return true, nil
+}
+
 var installAgentHooksCmd = &cobra.Command{
 	Use:                   "install-agent-hooks",
 	Short:                 "install Arc's Claude Code hooks into ~/.claude/settings.json (idempotent)",
@@ -463,6 +576,27 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 	}
 	if err := installPiMemoryExtension(home); err != nil {
 		return err
+	}
+	if err := installPiTheme(home); err != nil {
+		return err
+	}
+	// settings defaults + keybindings are pi config; skip entirely when pi is absent (the extension
+	// and theme installers above self-gate the same way)
+	if _, perr := piLookPath("pi"); perr == nil {
+		installed, skipped, err := mergePiSettingsDefaults(home)
+		if err != nil {
+			return err
+		}
+		kbInstalled, err := installPiKeybindings(home)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("pi settings: installed %v, skipped %v\n", installed, skipped)
+		if kbInstalled {
+			fmt.Println("pi keybindings: installed (no existing file)")
+		} else {
+			fmt.Println("pi keybindings: skipped (user file present)")
+		}
 	}
 	return nil
 }
