@@ -123,6 +123,34 @@ func TestActiveBranch_CycleError(t *testing.T) {
 	}
 }
 
+// Real pi v3 sessions write billed usage in two places: message entries carry it nested inside the
+// message payload (entry.message.usage), while compaction/branch_summary entries carry it top-level
+// (entry.usage). Both must land on Entry.Usage so consumers read one shape.
+func TestParseReadsNestedMessageUsageAndTopLevelCompactionUsage(t *testing.T) {
+	data := []byte(`{"type":"session","version":3,"id":"s","cwd":"/repo"}` + "\n" +
+		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:00Z","message":{"role":"assistant","content":"x","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":2,"cacheWrite":3,"totalTokens":15,"cost":{"input":0.004,"output":0.003,"cacheRead":0.002,"cacheWrite":0.001,"total":0.01}}}}` + "\n" +
+		`{"type":"compaction","id":"c1","parentId":"a1","timestamp":"2026-08-11T03:00:01Z","usage":{"input":4,"output":1,"totalTokens":5,"cost":{"total":0}}}` + "\n")
+	file, err := Parse("nested.jsonl", data)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(file.Entries) != 2 {
+		t.Fatalf("len(Entries) = %d, want 2", len(file.Entries))
+	}
+	msg := file.Entries[0]
+	if msg.Usage == nil {
+		t.Fatal("message entry Usage = nil, want the nested message.usage")
+	}
+	if msg.Usage.Input != 10 || msg.Usage.Output != 5 || msg.Usage.Reasoning != 1 ||
+		msg.Usage.CacheRead != 2 || msg.Usage.CacheWrite != 3 || msg.Usage.TotalTokens != 15 || msg.Usage.Cost.Total != 0.01 {
+		t.Errorf("message usage = %+v, want the nested fields", msg.Usage)
+	}
+	comp := file.Entries[1]
+	if comp.Usage == nil || comp.Usage.Input != 4 || comp.Usage.TotalTokens != 5 {
+		t.Errorf("compaction usage = %+v, want the top-level 4/5", comp.Usage)
+	}
+}
+
 func TestRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	content := []byte(`{"type":"session","version":3,"id":"s","cwd":"/repo"}` + "\n" +

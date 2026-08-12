@@ -17,14 +17,15 @@ import (
 
 // piFixture is one Pi v3 session carrying an active assistant, an abandoned assistant, a
 // tool-result, a compaction, and a branch-summary — the five usage sources the extractor must bill.
-// The final record is intentionally not newline-terminated (a live partial write) yet well-formed,
-// so pisession keeps it.
+// Message entries carry usage nested inside the message payload (entry.message.usage, the real pi
+// shape); compaction/branch_summary carry it top-level. The final record is intentionally not
+// newline-terminated (a live partial write) yet well-formed, so pisession keeps it.
 const piFixture = `{"type":"session","version":3,"id":"s1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}` + "\n" +
 	`{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
 	`{"type":"message","id":"u1","parentId":null,"timestamp":"2026-08-11T03:00:02Z","message":{"role":"user","content":"implement it"}}` + "\n" +
-	`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-08-11T03:00:03Z","usage":{"input":100,"output":50,"reasoning":20,"cacheRead":10,"cacheWrite":5,"cacheWrite1h":3,"totalTokens":165,"cost":{"total":0.01}},"message":{"role":"assistant","content":"active answer"}}` + "\n" +
-	`{"type":"message","id":"ab1","parentId":"u1","timestamp":"2026-08-11T03:00:04Z","usage":{"input":40,"output":12,"reasoning":4,"cacheRead":0,"cacheWrite":2,"totalTokens":54,"cost":{"total":0.005}},"message":{"role":"assistant","content":"abandoned answer"}}` + "\n" +
-	`{"type":"message","id":"t1","parentId":"a1","timestamp":"2026-08-11T03:00:05Z","usage":{"input":5,"output":8,"reasoning":0,"cacheRead":0,"cacheWrite":0,"totalTokens":13,"cost":{"total":0.001}},"message":{"role":"toolResult","content":"ls output"}}` + "\n" +
+	`{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-08-11T03:00:03Z","message":{"role":"assistant","content":"active answer","usage":{"input":100,"output":50,"reasoning":20,"cacheRead":10,"cacheWrite":5,"cacheWrite1h":3,"totalTokens":165,"cost":{"input":0.004,"output":0.003,"cacheRead":0.001,"cacheWrite":0.002,"total":0.01}}}}` + "\n" +
+	`{"type":"message","id":"ab1","parentId":"u1","timestamp":"2026-08-11T03:00:04Z","message":{"role":"assistant","content":"abandoned answer","usage":{"input":40,"output":12,"reasoning":4,"cacheRead":0,"cacheWrite":2,"totalTokens":54,"cost":{"total":0.005}}}}` + "\n" +
+	`{"type":"message","id":"t1","parentId":"a1","timestamp":"2026-08-11T03:00:05Z","message":{"role":"toolResult","content":"ls output","usage":{"input":5,"output":8,"reasoning":0,"cacheRead":0,"cacheWrite":0,"totalTokens":13,"cost":{"total":0.001}}}}` + "\n" +
 	`{"type":"compaction","id":"c1","parentId":"t1","timestamp":"2026-08-11T03:01:00Z","usage":{"input":300,"output":1,"reasoning":0,"cacheRead":200,"cacheWrite":0,"totalTokens":501,"cost":{"total":0.05}}}` + "\n" +
 	`{"type":"branch_summary","id":"bs1","parentId":"c1","timestamp":"2026-08-11T03:02:00Z","usage":{"input":15,"output":3,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":18,"cost":{"total":0.002}}}`
 
@@ -108,13 +109,13 @@ func TestExtractPi_OneFixtureBillsAllSources(t *testing.T) {
 	}
 }
 
-// model_change switches the tracked provider/model for records that carry none of their own; a
-// later assistant message restates identity and wins for itself.
-func TestExtractPi_TracksProviderModelFromModelChangeAndAssistant(t *testing.T) {
+// model_change entries drive the tracked provider/model for records that carry none of their own —
+// real pi message entries carry neither, so the tracking comes from the model_change stream.
+func TestExtractPi_TracksProviderModelFromModelChange(t *testing.T) {
 	content := `{"type":"session","version":3,"id":"s2","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}` + "\n" +
 		`{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
-		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:02Z","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":14,"cost":{"total":0}},"message":{"role":"assistant","content":"x"}}` + "\n" +
-		`{"type":"message","id":"t1","parentId":"a1","timestamp":"2026-08-11T03:00:03Z","usage":{"input":1,"output":1,"reasoning":0,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"total":0}},"message":{"role":"toolResult","content":"out"}}` + "\n" +
+		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:02Z","message":{"role":"assistant","content":"x","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":14,"cost":{"total":0}}}}` + "\n" +
+		`{"type":"message","id":"t1","parentId":"a1","timestamp":"2026-08-11T03:00:03Z","message":{"role":"toolResult","content":"out","usage":{"input":1,"output":1,"reasoning":0,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"total":0}}}}` + "\n" +
 		`{"type":"model_change","id":"mc2","parentId":"t1","timestamp":"2026-08-11T03:00:04Z","provider":"anthropic","modelId":"claude-sonnet-4-6"}` + "\n" +
 		`{"type":"compaction","id":"c1","parentId":"t1","timestamp":"2026-08-11T03:00:05Z","usage":{"input":2,"output":2,"reasoning":0,"cacheRead":0,"cacheWrite":0,"totalTokens":4,"cost":{"total":0}}}`
 	records := extractPi(parsePiFixture(t, content), time.Time{})
@@ -139,9 +140,9 @@ func TestExtractPi_TracksProviderModelFromModelChangeAndAssistant(t *testing.T) 
 func TestExtractPiBucketsSeparateProviderModelAndDay(t *testing.T) {
 	content := `{"type":"session","version":3,"id":"s3","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}` + "\n" +
 		`{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
-		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:03Z","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":14,"cost":{"total":0}},"message":{"role":"assistant","content":"x"}}` + "\n" +
+		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:03Z","message":{"role":"assistant","content":"x","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":14,"cost":{"total":0}}}}` + "\n" +
 		`{"type":"model_change","id":"mc2","parentId":"a1","timestamp":"2026-08-11T03:10:00Z","provider":"anthropic","modelId":"claude-sonnet-4-6"}` + "\n" +
-		`{"type":"message","id":"a2","parentId":"a1","timestamp":"2026-08-12T03:00:00Z","usage":{"input":20,"output":6,"reasoning":2,"cacheRead":0,"cacheWrite":0,"totalTokens":24,"cost":{"total":0}},"message":{"role":"assistant","content":"y"}}`
+		`{"type":"message","id":"a2","parentId":"a1","timestamp":"2026-08-12T03:00:00Z","message":{"role":"assistant","content":"y","usage":{"input":20,"output":6,"reasoning":2,"cacheRead":0,"cacheWrite":0,"totalTokens":24,"cost":{"total":0}}}}`
 	got := bucket(extractPi(parsePiFixture(t, content), time.Time{}))
 	if len(got) != 2 {
 		t.Fatalf("want 2 buckets, got %d: %+v", len(got), got)
@@ -240,7 +241,7 @@ func TestTranscriptUsagePiPartialFinalRecord(t *testing.T) {
 	}
 	content := `{"type":"session","version":3,"id":"s1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\repo"}` + "\n" +
 		`{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
-		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:03Z","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":14,"cost":{"total":0}},"message":{"role":"assistant","content":"x"}}` + "\n" +
+		`{"type":"message","id":"a1","parentId":null,"timestamp":"2026-08-11T03:00:03Z","message":{"role":"assistant","content":"x","usage":{"input":10,"output":5,"reasoning":1,"cacheRead":0,"cacheWrite":0,"totalTokens":14,"cost":{"total":0}}}}` + "\n" +
 		`{"type":"message","id":"half"`
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)

@@ -281,8 +281,9 @@ func buildPiTree(t *testing.T, root string) string {
 		`{"type":"session","version":3,"id":"session-uuid","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\\Users\\Jane Doe\\IdeaProjects\\waveterm"}`,
 		`{"type":"session_info","id":"i1","parentId":null,"name":"older title"}`,
 		`{"type":"session_info","id":"i2","parentId":"i1","name":"Pi session title"}`,
-		`{"type":"message","id":"u1","parentId":"i2","message":{"role":"user","content":"implement the thing"}}`,
-		`{"type":"message","id":"a1","parentId":"u1","provider":"openai-codex","modelId":"gpt-5.5","usage":{"input":10,"output":5,"totalTokens":15},"message":{"role":"assistant","content":"done"}}`,
+		`{"type":"model_change","id":"mc1","parentId":"i2","timestamp":"2026-08-11T03:00:00Z","provider":"openai-codex","modelId":"gpt-5.5"}`,
+		`{"type":"message","id":"u1","parentId":"mc1","message":{"role":"user","content":"implement the thing"}}`,
+		`{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","content":"done","usage":{"input":10,"output":5,"totalTokens":15,"cost":{"total":0}}}}`,
 	)
 }
 

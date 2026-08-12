@@ -165,6 +165,17 @@ func (f *File) parseRecord(lineNo int, line string, tolerant bool, seenID map[st
 		return fmt.Errorf("%s:%d: duplicate Pi session entry id %q", f.Path, lineNo, rec.ID)
 	}
 	seenID[rec.ID] = true
+	// pi writes billed usage in two places: message entries carry it nested inside the message payload
+	// (entry.message.usage), while compaction/branch_summary entries carry it top-level (entry.usage).
+	// Normalize to Entry.Usage so consumers never see the split.
+	if rec.Usage == nil && len(rec.Message) > 0 {
+		var msg struct {
+			Usage *Usage `json:"usage"`
+		}
+		if json.Unmarshal(rec.Message, &msg) == nil {
+			rec.Usage = msg.Usage
+		}
+	}
 	f.Entries = append(f.Entries, Entry{
 		Type:      rec.Type,
 		ID:        rec.ID,
