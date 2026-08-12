@@ -127,6 +127,9 @@ type VolunteerData struct {
 type AgentAskOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+	// Preview is a markdown string rendered beside the option list (pi's rpiv-shaped
+	// preview panels). CC never sends it; the cockpit ask UI renders it when present.
+	Preview string `json:"preview,omitempty"`
 }
 
 type AgentAskQuestion struct {

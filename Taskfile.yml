@@ -176,16 +176,22 @@ tasks:
             - cmd: cp pi/themes/arc.json cmd/wsh/cmd/arc-theme.json
             - cmd: cp pi/extensions/waveterm-tools.ts cmd/wsh/cmd/pi-tools-extension.ts
             - cmd: cp pi/extensions/waveterm-tools-core.ts cmd/wsh/cmd/pi-tools-core-extension.ts
+            - cmd: cp pi/extensions/waveterm-ask.ts cmd/wsh/cmd/pi-ask-extension.ts
+            - cmd: cp pi/extensions/waveterm-ask-core.ts cmd/wsh/cmd/pi-ask-core-extension.ts
         sources:
             - pi/extensions/waveterm-status.ts
             - pi/themes/arc.json
             - pi/extensions/waveterm-tools.ts
             - pi/extensions/waveterm-tools-core.ts
+            - pi/extensions/waveterm-ask.ts
+            - pi/extensions/waveterm-ask-core.ts
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
             - cmd/wsh/cmd/arc-theme.json
             - cmd/wsh/cmd/pi-tools-extension.ts
             - cmd/wsh/cmd/pi-tools-core-extension.ts
+            - cmd/wsh/cmd/pi-ask-extension.ts
+            - cmd/wsh/cmd/pi-ask-core-extension.ts
 
     build:server:internal:
         deps:
@@ -440,4 +446,3 @@ tasks:
     godoc:
         desc: Start the Go documentation server for the root module
         cmd: $(go env GOPATH)/bin/pkgsite -http=:6060
-

@@ -48,3 +48,17 @@ func TestEmbeddedArcThemeMatchesPackage(t *testing.T) {
 		t.Fatalf("arcThemeTemplate != pi/themes/arc.json\nrun: task sync:piartifacts")
 	}
 }
+
+func TestEmbeddedPiAskExtensionMatchesPackage(t *testing.T) {
+	want := readRepoFile(t, "pi/extensions/waveterm-ask.ts")
+	if piAskExtensionTemplate != want {
+		t.Fatalf("piAskExtensionTemplate != pi/extensions/waveterm-ask.ts\nrun: task sync:piartifacts")
+	}
+}
+
+func TestEmbeddedPiAskCoreExtensionMatchesPackage(t *testing.T) {
+	want := readRepoFile(t, "pi/extensions/waveterm-ask-core.ts")
+	if piAskCoreExtensionTemplate != want {
+		t.Fatalf("piAskCoreExtensionTemplate != pi/extensions/waveterm-ask-core.ts\nrun: task sync:piartifacts")
+	}
+}

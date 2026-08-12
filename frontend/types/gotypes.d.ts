@@ -61,6 +61,7 @@ declare global {
     type AgentAskOption = {
         label: string;
         description?: string;
+        preview?: string;
     };
 
     // baseds.AgentAskQuestion
@@ -129,6 +130,8 @@ declare global {
     // wshrpc.AskRtnData
     type AskRtnData = {
         askid: string;
+        answers?: AgentAnswerItem[];
+        cancelled?: boolean;
     };
 
     // wshrpc.AttentionItem
@@ -334,6 +337,7 @@ declare global {
     type CommandAskData = {
         oref: string;
         questions: AgentAskQuestion[];
+        wait?: boolean;
     };
 
     // wshrpc.CommandAuthenticateJobManagerData

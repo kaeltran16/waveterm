@@ -5,8 +5,11 @@
 // fleet worker row, and small worker-resolution helpers. One copy, so every surface that shows a worker or
 // an ask shows the same treatment.
 
-import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { PanelRight, X } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
@@ -95,6 +98,9 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
     const answerSel = useAtomValue(model.answerSelAtom);
     const answerText = useAtomValue(model.answerTextAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
+    const dismiss = agent.ask?.oref
+        ? () => fireAndForget(() => RpcApi.AgentAskClearCommand(TabRpcClient, agent.ask!.oref!))
+        : undefined;
     return (
         <div className="rounded-[9px] border border-edge-mid bg-lane p-3">
             <AnswerBar
@@ -106,6 +112,7 @@ export function AskRow({ model, agent }: { model: AgentsViewModel; agent: AgentV
                 onToggle={(qi, oi) => model.toggleAnswer(agent.id, qi, oi)}
                 onText={(qi, value) => model.setAnswerText(agent.id, qi, value)}
                 onSubmit={() => model.submitAnswer(agent.id)}
+                onDismiss={dismiss}
             />
         </div>
     );
@@ -183,7 +190,7 @@ export function WorkerRow({
                     </button>
                 )}
             </div>
-            {(w.outcome?.summary || w.dispatchTask || w.task) ? (
+            {w.outcome?.summary || w.dispatchTask || w.task ? (
                 <div
                     title={w.outcome?.summary || w.dispatchTask || w.task}
                     className="mt-0.5 truncate pl-4 text-[11px] text-muted"
