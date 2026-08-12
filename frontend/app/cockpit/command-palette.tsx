@@ -15,7 +15,7 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
-import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
+import { harnessPreferenceAtom, harnessesAtom, resolveDefaultRuntime } from "@/app/view/agents/harnessstore";
 import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
@@ -273,7 +273,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         // Run sends no mode — the channel's profile is the server's to resolve (resolveRunPlan takes any
         // non-empty mode as an override, so a stale prefetch here would beat the channel's own setting).
         // A missing preferred runtime blocks before any RPC: the goal stays in the palette, nothing dispatches.
-        const runtime = pref.runtime && harnesses.some((h) => h.runtime === pref.runtime && h.installed && h.runworkercapable) ? pref.runtime : "";
+        const runtime = resolveDefaultRuntime(pref.runtime, harnesses);
         const guarded = (goal: string, action: (rt: string) => Promise<unknown>) => {
             if (!runtime) {
                 return; // no valid harness — do not call CreateRun

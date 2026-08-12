@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
+import { launchPiTab } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
@@ -184,6 +185,13 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             group: "Global",
             label: "New agent",
             run: () => globalStore.set(model.newAgentOpenAtom, true),
+        },
+        {
+            id: "launch:pi",
+            keys: "Ctrl:Shift:n",
+            group: "Global",
+            label: "Launch Pi tab",
+            run: () => void launchPiTab(model),
         },
         {
             id: "cycle-agent-next",

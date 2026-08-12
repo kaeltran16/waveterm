@@ -29,6 +29,7 @@ import {
     type Runtime,
 } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
+import { harnessPreferenceAtom, harnessesAtom, resolveDefaultRuntime } from "./harnessstore";
 import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projectsstore";
 
 const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
@@ -64,6 +65,21 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [error, setError] = useState<string | null>(null);
     const reqIdRef = useRef(0);
     const taskRef = useRef<HTMLTextAreaElement>(null);
+    const defaultAppliedRef = useRef(false);
+    // Default the modal's runtime to the resolved harness preference on first open (Part A: Pi wins
+    // for fresh installs / new sessions). Later opens keep whatever the user last picked in this modal.
+    useEffect(() => {
+        if (!open || defaultAppliedRef.current) {
+            return;
+        }
+        defaultAppliedRef.current = true;
+        const pref = globalStore.get(harnessPreferenceAtom).runtime;
+        const chosen = resolveDefaultRuntime(pref, globalStore.get(harnessesAtom));
+        if (chosen) {
+            setRuntime(chosen as Runtime);
+            setStartup(runtimeStartupCommand(chosen as Runtime));
+        }
+    }, [open]);
     // Launcher targets mirror the project switcher: registered projects ∪ live-derived ones.
     const candidates = useMemo(() => launchCandidates(registry, liveProjectsForLaunch(agents)), [registry, agents]);
     const pathFor = (c: LaunchCandidate | undefined): string => (c ? c.path || resolvedPaths[c.name] || "" : "");

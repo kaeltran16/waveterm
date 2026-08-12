@@ -23,7 +23,7 @@ func TestListExcludesAPIBackends(t *testing.T) {
 }
 
 func TestLookupCapabilities(t *testing.T) {
-	for _, runtime := range []string{"claude", "codex", "opencode", "pi", "antigravity"} {
+	for _, runtime := range []string{"pi", "claude", "codex", "opencode", "antigravity"} {
 		spec, ok := Lookup(runtime)
 		if !ok || !spec.ConsultCapable || !spec.RunWorkerCapable || spec.Bin == "" {
 			t.Fatalf("invalid %s spec: %+v, ok=%v", runtime, spec, ok)
@@ -36,7 +36,7 @@ func TestCatalogOrderAndPiCapabilities(t *testing.T) {
 	for _, spec := range List() {
 		runtimes = append(runtimes, spec.Runtime)
 	}
-	want := []string{"claude", "codex", "opencode", "pi", "antigravity"}
+	want := []string{"pi", "claude", "codex", "opencode", "antigravity"}
 	if !reflect.DeepEqual(runtimes, want) {
 		t.Fatalf("runtimes = %v, want %v", runtimes, want)
 	}

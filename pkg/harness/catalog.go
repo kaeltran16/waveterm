@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Package harness is the catalog of installed coding-agent harnesses (Claude Code, Codex, OpenCode,
+// Package harness is the catalog of installed coding-agent harnesses (Pi, Claude Code, Codex, OpenCode,
 // Antigravity). It owns identity, capabilities, executable lookup, and installation probing so that
 // consult (pkg/consult) and Run workers (pkg/jarvis) share one source of truth and never silently
 // fall back to another harness. OpenRouter is an API-backed utility runtime and intentionally lives
@@ -33,10 +33,10 @@ type Spec struct {
 }
 
 var specs = []Spec{
+	{Runtime: "pi", Bin: "pi", Label: "Pi", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "claude", Bin: "claude", Label: "Claude Code", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "codex", Bin: "codex", Label: "Codex", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "opencode", Bin: "opencode", Label: "OpenCode", ConsultCapable: true, RunWorkerCapable: true},
-	{Runtime: "pi", Bin: "pi", Label: "Pi", ConsultCapable: true, RunWorkerCapable: true},
 	{Runtime: "antigravity", Bin: "agy", Label: "Antigravity", ConsultCapable: true, RunWorkerCapable: true},
 }
 

@@ -16,10 +16,11 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { AgentsViewModel } from "./agents";
 import { DailyChart } from "./dailychart";
 import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
+import { harnessesAtom } from "./harnessstore";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
 import { CLASS_FILL, fmt, foldModels, modelGridClass, usd } from "./usagestats";
@@ -344,7 +345,16 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const hasHistory = stats.providers.length > 0 || stats.totals.tokensWeek > 0;
     const revealHistory = useDidBecomeTrue(hasHistory);
 
-    const chartHarnesses = harnessFilter === "all" ? allStats.availableHarnesses : [harnessFilter];
+    const harnesses = useAtomValue(harnessesAtom);
+    // catalog order wins for display; keep pi first even before usage data exists
+    const orderedHarnesses = useMemo(() => {
+        const cat = harnesses.map((h) => h.runtime);
+        return [...allStats.availableHarnesses].sort(
+            (a, b) => cat.indexOf(a) - cat.indexOf(b) || (a < b ? -1 : 1)
+        );
+    }, [allStats.availableHarnesses, harnesses]);
+
+    const chartHarnesses = harnessFilter === "all" ? orderedHarnesses : [harnessFilter];
 
     const cardForReported = (
         present: boolean,
@@ -458,7 +468,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                 >
                                     All
                                 </button>
-                                {allStats.availableHarnesses.map((h) => (
+                                {orderedHarnesses.map((h) => (
                                     <button
                                         key={h}
                                         type="button"

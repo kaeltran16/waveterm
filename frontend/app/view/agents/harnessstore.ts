@@ -27,6 +27,18 @@ export const harnessPreferenceAtom = atom<HarnessPreferenceState>(emptyHarnessPr
 
 export const harnessesAtom = atom<HarnessInfo[]>([]);
 
+// resolveDefaultRuntime picks the runtime to pre-select for launch paths. An explicit preference
+// wins when its harness is installed and run-worker-capable; otherwise pi when installed; otherwise
+// the first installed run-worker-capable harness; otherwise "" so the caller blocks (mirrors the
+// current "no valid harness" guard).
+export function resolveDefaultRuntime(pref: string, harnesses: HarnessInfo[]): string {
+    if (pref && harnesses.some((h) => h.runtime === pref && h.installed && h.runworkercapable)) {
+        return pref;
+    }
+    const first = harnesses.find((h) => h.installed && h.runworkercapable);
+    return first ? first.runtime : "";
+}
+
 // beginSave flips the shared state into saving for a new selection. The runtime updates immediately
 // (both pickers stay synchronized) while persistedRuntime is untouched until the write succeeds.
 export function beginSave(state: HarnessPreferenceState, runtime: string): HarnessPreferenceState {
