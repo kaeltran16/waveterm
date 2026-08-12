@@ -24,6 +24,8 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jobcontroller"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
 	"github.com/wavetermdev/waveterm/pkg/memgarden"
+	"github.com/wavetermdev/waveterm/pkg/memroots"
+	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
@@ -591,6 +593,14 @@ func main() {
 	blockcontroller.InitBlockController()
 	memdistill.RegisterSweepHook(memgarden.Sweep)
 	memdistill.RegisterSweepHook(jarvisvolunteer.SweepLooseEnds)
+	memdistill.RegisterSweepHook(func() {
+		if _, _, err := memroots.MigrateVaultToConfiguredRoot(); err != nil {
+			log.Printf("memory vault-path migration: %v", err)
+		}
+		if _, _, err := memvault.HarvestAll(); err != nil {
+			log.Printf("memory harvest sweep: %v", err)
+		}
+	})
 	memdistill.Start(context.Background())
 	err = wcore.InitBadgeStore()
 	if err != nil {

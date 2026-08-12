@@ -33,13 +33,10 @@ func ParseRecalledSlugs(transcript string) []string {
 }
 
 // RecordRecall reads a finished transcript, extracts recalled slugs, and stamps real last_referenced
-// on each in cwd's Claude hub. Fail-safe: missing files / empty cwd touch nothing. Returns the count.
+// on each in the vault (recalled slugs match vault note names, which the fold preserves). Fail-safe:
+// missing files / empty cwd touch nothing. Returns the count.
 func RecordRecall(cwd, transcriptPath string, now time.Time) int {
-	hub := HubDirForCwd(cwd)
-	if hub == "" {
-		return 0
-	}
-	return recordRecallInto(hub, transcriptPath, now)
+	return recordRecallInto(DefaultVaultPath(), transcriptPath, now)
 }
 
 // recordRecallInto is the testable core: parse transcriptPath and TouchReferenced each slug in hubDir.

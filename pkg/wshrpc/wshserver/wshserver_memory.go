@@ -58,11 +58,7 @@ func (ws *WshServer) MemoryWriteCommand(ctx context.Context, data wshrpc.Command
 }
 
 func (ws *WshServer) MemoryCreateCommand(ctx context.Context, data wshrpc.CommandMemoryCreateData) (*wshrpc.CommandMemoryCreateRtnData, error) {
-	vaultDir := memvault.DefaultVaultPath()
-	if hub := memvault.HubDirForCwd(data.Cwd); hub != "" {
-		vaultDir = hub
-	}
-	path, err := memvault.CreateNote(vaultDir, data.Name, data.Type, data.Scope, data.Body)
+	path, err := memvault.CreateNote(memvault.DefaultVaultPath(), data.Name, data.Type, data.Scope, data.Body)
 	if err != nil {
 		return nil, fmt.Errorf("creating note: %w", err)
 	}

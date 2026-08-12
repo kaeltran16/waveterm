@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package memroots is the single registry of durable-knowledge locations: the Wave Vault root, its
-// memory collection (the one write target), the external agent-native memory dirs federated in as
-// read-only mirrors, and the project-label/scope derivation both scanners share. Leaf package —
-// pkg/memvault and pkg/wavevault both import it, neither imports the other.
+// memory collection (the one write target), and the project-label/scope derivation both scanners
+// share. Leaf package — pkg/memvault and pkg/wavevault both import it, neither imports the other.
 package memroots
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -31,10 +31,15 @@ const (
 	memoryColl    = "memory"
 )
 
-// VaultRoot resolves the Wave Vault root from config (jarvis:vaultpath) + home.
+// VaultRoot resolves the Wave Vault root from config + home. memory:vaultpath is the single SoT
+// setting (the key Settings > Memory edits); jarvis:vaultpath remains as a legacy fallback so
+// existing jarvis setups keep working; otherwise the default ~/.waveterm/vault.
 func VaultRoot() string {
 	root := filepath.Join(wavebase.GetHomeDir(), vaultSubpath)
-	if cfg := wconfig.GetWatcher().GetFullConfig(); cfg.Settings.JarvisVaultPath != "" {
+	cfg := wconfig.GetWatcher().GetFullConfig()
+	if cfg.Settings.MemoryVaultPath != "" {
+		root = wavebase.ExpandHomeDirSafe(cfg.Settings.MemoryVaultPath)
+	} else if cfg.Settings.JarvisVaultPath != "" {
 		root = wavebase.ExpandHomeDirSafe(cfg.Settings.JarvisVaultPath)
 	}
 	return root
@@ -50,44 +55,25 @@ func LegacyRoot() string {
 	return filepath.Join(wavebase.GetHomeDir(), legacySubpath)
 }
 
-// customLegacyRoot is a memory:vaultpath override, or "" when unset/default. A user-chosen directory
-// is never migrated — it stays a mirror and is read in place.
-func customLegacyRoot() string {
-	cfg := wconfig.GetWatcher().GetFullConfig()
-	if cfg.Settings.MemoryVaultPath == "" {
-		return ""
-	}
-	p := wavebase.ExpandHomeDirSafe(cfg.Settings.MemoryVaultPath)
-	if filepath.Clean(p) == filepath.Clean(LegacyRoot()) {
-		return "" // the default location; the migrator handles it
-	}
-	return p
-}
-
-// buildMirrors is the pure core of Mirrors: the external, read-only roots.
+// buildMirrors returns the external scan roots. None by design: claude hubs / codex / pi-memory
+// are derived sync surfaces (harvested into the vault), not independent memory sources — scanning
+// them is what produced the duplicate memory rows. Kept as a function for the composition test.
 func buildMirrors(home, customLegacy string) []Mirror {
-	out := []Mirror{
-		{Path: filepath.Join(home, ".claude", "projects"), Source: "claude"},
-		{Path: filepath.Join(home, ".codex", "memories"), Source: "codex"},
-	}
-	if customLegacy != "" {
-		out = append(out, Mirror{Path: customLegacy, Source: "vault"})
-	}
-	return out
+	return nil
 }
 
-// Mirrors are the external roots federated into the memory collection. Excludes MemoryRoot so the
-// vault's own walk of <root>/memory is not duplicated.
+// Mirrors are the external roots federated into the memory collection. None: every external
+// agent-native memory dir is a derived sync surface, not a scan root.
 func Mirrors() []Mirror {
-	return buildMirrors(wavebase.GetHomeDir(), customLegacyRoot())
+	return buildMirrors(wavebase.GetHomeDir(), "")
 }
 
 func buildAllRoots(memoryRoot string, mirrors []Mirror) []Mirror {
 	return append([]Mirror{{Path: memoryRoot, Source: "vault"}}, mirrors...)
 }
 
-// AllRoots is every durable-knowledge root, the vault's own memory collection first (it wins id
-// conflicts). This is memvault's scan-root view.
+// AllRoots is every durable-knowledge scan root: the vault's own memory collection only. This is
+// memvault's scan-root view.
 func AllRoots() []Mirror {
 	return buildAllRoots(MemoryRoot(), Mirrors())
 }
@@ -130,6 +116,29 @@ func LabelFromHash(hash string, projects map[string]string) string {
 // ScopeForHubDir labels a Claude per-project hub dir against the live Projects registry.
 func ScopeForHubDir(hubDir string) string {
 	return LabelFromHash(hubDir, RegistryProjects())
+}
+
+// RegistryPathForLabel resolves a project label back to its registered path via live config.
+func RegistryPathForLabel(label string) string {
+	return registryPathForLabel(label, RegistryProjects())
+}
+
+// registryPathForLabel is the pure core (testable without config). The label is either a registry
+// name or a leaf folder; ambiguous leaf matches resolve deterministically to the alphabetically
+// first registered path.
+func registryPathForLabel(label string, projects map[string]string) string {
+	names := make([]string, 0, len(projects))
+	for name := range projects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		p := projects[name]
+		if name == label || filepath.Base(filepath.Clean(p)) == label {
+			return p
+		}
+	}
+	return ""
 }
 
 // ScopeForPath derives a note's cluster: the first path segment below rootPath (a Claude hub dir is

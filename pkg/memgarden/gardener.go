@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/memdistill"
+	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -35,14 +36,13 @@ type gardener struct {
 
 	lastLLMSweep map[string]time.Time
 
-	hubDirsFn   func() []string
-	hubNotesFn  func(hubDir string) []memvault.NoteWithBody
-	repoPathFn  func(hubDir string) string
-	repoIndexFn func(repoPath string) map[string]bool
-	archiveFn   func(path, reason string, now time.Time) (string, error)
-	flagFn      func(path, reason string) error
+	vaultNotesFn  func() []memvault.NoteWithBody
+	repoPathFn    func(scope string) string
+	repoIndexFn   func(repoPath string) map[string]bool
+	archiveFn     func(path, reason string, now time.Time) (string, error)
+	flagFn        func(path, reason string) error
 
-	gardenFn func(hubDir string)                               // indirection so sweep single-flight tests in isolation
+	gardenFn func(scope string, notes []memvault.NoteWithBody)   // indirection so sweep single-flight tests in isolation
 	llmFn    func(model, prompt, corpus string) (string, bool) // used by Tasks 11-12
 }
 
@@ -54,15 +54,14 @@ func newGardener() *gardener {
 		maxArchives:  maxArchivesPerPass,
 		cooldownMins: gardenerCooldownMins(),
 		lastLLMSweep: map[string]time.Time{},
-		hubDirsFn:    memvault.ClaudeHubDirs,
-		hubNotesFn:   memvault.HubNotes,
-		repoPathFn:   memvault.RepoPathForHubDir,
+		vaultNotesFn: memvault.VaultNotes,
+		repoPathFn:   memroots.RegistryPathForLabel,
 		repoIndexFn:  buildRepoIndex,
 		archiveFn:    memvault.Archive,
 		flagFn:       memvault.FlagNote,
 		llmFn:        runGardenLLM,
 	}
-	g.gardenFn = g.gardenProject
+	g.gardenFn = g.gardenScope
 	return g
 }
 
@@ -83,10 +82,10 @@ func gardenerCooldownMins() int {
 	return 120
 }
 
-// gardenProject runs the pillars for one hub, honoring the per-pass archive cap. Every auto-action is
-// logged (the visible action log; the Archived view is the reversibility surface).
-func (g *gardener) gardenProject(hubDir string) {
-	notes := g.hubNotesFn(hubDir)
+// gardenScope runs the pillars for one project scope's vault notes, honoring the per-pass archive
+// cap. Every auto-action is logged (the visible action log; the Archived view is the reversibility
+// surface).
+func (g *gardener) gardenScope(scope string, notes []memvault.NoteWithBody) {
 	plain := make([]memvault.Note, len(notes))
 	for i, n := range notes {
 		plain[i] = n.Note
@@ -94,6 +93,7 @@ func (g *gardener) gardenProject(hubDir string) {
 	now := g.now()
 	archivedThisPass := 0
 	archivedPaths := map[string]bool{}
+	repoPath := g.repoPathFn(scope)
 
 	archive := func(path, reason string) {
 		if archivedThisPass >= g.maxArchives {
@@ -105,7 +105,7 @@ func (g *gardener) gardenProject(hubDir string) {
 		}
 		archivedThisPass++
 		archivedPaths[path] = true
-		log.Printf("[memgarden] archived %s reason=%s hub=%s\n", path, reason, hubDir)
+		log.Printf("[memgarden] archived %s reason=%s scope=%s\n", path, reason, scope)
 	}
 
 	// Pillar 1: decay (recall + age).
@@ -118,7 +118,6 @@ func (g *gardener) gardenProject(hubDir string) {
 	}
 
 	// Pillar 2: dead-ref freshness (deterministic). Machine notes whose refs are all gone -> archive.
-	repoPath := g.repoPathFn(hubDir)
 	if repoPath != "" {
 		index := g.repoIndexFn(repoPath)
 		for _, n := range notes {
@@ -131,38 +130,39 @@ func (g *gardener) gardenProject(hubDir string) {
 		}
 	}
 
-	g.runLLMPillars(hubDir, notes, repoPath) // no-op until Tasks 11-12
+	g.runLLMPillars(scope, notes, repoPath)
 
-	// Announce only what this pass actually removed. A pass that changed nothing has nothing to say, and
-	// announcing every hourly no-op is how an ambient signal becomes noise. Flags are deliberately not
-	// announced: the cleanup queue's depth is a level someone reads, not a transition worth interrupting
-	// for — and the LLM pillars flag through g.flagFn directly, so any count here would under-report.
+	// Announce only what this pass actually removed. A pass that changed nothing has nothing to say,
+	// and announcing every hourly no-op is how an ambient signal becomes noise. Flags are deliberately
+	// not announced: the cleanup queue's depth is a level someone reads, not a transition worth
+	// interrupting for — and the LLM pillars flag through g.flagFn directly, so any count here would
+	// under-report.
 	if archivedThisPass > 0 {
 		memdistill.PublishActivity(baseds.MemoryActivityData{
 			Kind:     baseds.MemoryActivity_Sweep,
-			Cwd:      hubDir,
+			Cwd:      scope,
 			Archived: archivedThisPass,
 		})
 	}
 }
 
 // runLLMPillars runs the flag-only LLM pillars: soft-drift (freshness) + near-dup (dedup).
-// Gated by a per-hub cooldown so rapid note/file changes during active development don't
+// Gated by a per-scope cooldown so rapid note/file changes during active development don't
 // trigger an LLM call on every hourly sweep. Deterministic pillars always run unthrottled.
-func (g *gardener) runLLMPillars(hubDir string, notes []memvault.NoteWithBody, repoPath string) {
+func (g *gardener) runLLMPillars(scope string, notes []memvault.NoteWithBody, repoPath string) {
 	now := g.now()
 	if g.cooldownMins > 0 {
 		g.mu.Lock()
-		last := g.lastLLMSweep[hubDir]
+		last := g.lastLLMSweep[scope]
 		g.mu.Unlock()
 		if now.Sub(last) < time.Duration(g.cooldownMins)*time.Minute {
 			return
 		}
 	}
 	g.checkSoftDrift(repoPath, notes)
-	g.checkDedup(hubDir, notes)
+	g.checkDedup(scope, notes)
 	g.mu.Lock()
-	g.lastLLMSweep[hubDir] = now
+	g.lastLLMSweep[scope] = now
 	g.mu.Unlock()
 }
 
@@ -197,27 +197,35 @@ func runGardenAPI(spec consult.RuntimeSpec, prompt string) (string, bool) {
 	return full, true
 }
 
-// sweep enumerates hubs and launches a single-flight background garden per project.
+// sweep groups the vault's notes by scope and launches a single-flight background garden per scope.
 func (g *gardener) sweep() {
-	for _, hub := range g.hubDirsFn() {
+	groups := map[string][]memvault.NoteWithBody{}
+	for _, n := range g.vaultNotesFn() {
+		scope := n.Note.Scope
+		if scope == "" {
+			scope = "shared"
+		}
+		groups[scope] = append(groups[scope], n)
+	}
+	for scope, notes := range groups {
 		g.mu.Lock()
-		busy := g.inflight[hub]
+		busy := g.inflight[scope]
 		if !busy {
-			g.inflight[hub] = true
+			g.inflight[scope] = true
 		}
 		g.mu.Unlock()
 		if busy {
 			continue
 		}
-		go func(h string) {
+		go func(s string, ns []memvault.NoteWithBody) {
 			defer func() {
-				panichandler.PanicHandler("memgarden.gardenProject", recover())
+				panichandler.PanicHandler("memgarden.gardenScope", recover())
 				g.mu.Lock()
-				delete(g.inflight, h)
+				delete(g.inflight, s)
 				g.mu.Unlock()
 			}()
-			g.gardenFn(h)
-		}(hub)
+			g.gardenFn(s, ns)
+		}(scope, notes)
 	}
 }
 
@@ -230,7 +238,7 @@ func ensure() {
 	startOnce.Do(func() { defaultGardener = newGardener() })
 }
 
-// Sweep is the coordinator hook entry: garden every project hub once (single-flight, non-blocking).
+// Sweep is the coordinator hook entry: garden every project scope once (single-flight, non-blocking).
 func Sweep() {
 	ensure()
 	defaultGardener.sweep()

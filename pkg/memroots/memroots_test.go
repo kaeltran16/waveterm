@@ -4,42 +4,23 @@
 package memroots
 
 import (
+	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
-func TestBuildMirrorsExternalsOnly(t *testing.T) {
-	got := buildMirrors("/home/u", "")
-	want := []Mirror{
-		{Path: filepath.Join("/home/u", ".claude", "projects"), Source: "claude"},
-		{Path: filepath.Join("/home/u", ".codex", "memories"), Source: "codex"},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("buildMirrors = %v, want %v", got, want)
-	}
-}
-
-func TestBuildMirrorsKeepsCustomLegacyRoot(t *testing.T) {
+func TestMirrorsEmpty(t *testing.T) {
 	got := buildMirrors("/home/u", "/custom/notes")
-	if len(got) != 3 {
-		t.Fatalf("len = %d, want 3: %v", len(got), got)
-	}
-	last := got[len(got)-1]
-	if last.Path != "/custom/notes" || last.Source != "vault" {
-		t.Fatalf("custom legacy mirror = %+v, want {/custom/notes vault}", last)
+	if len(got) != 0 {
+		t.Fatalf("buildMirrors = %v, want none (claude/codex are derived sync surfaces now)", got)
 	}
 }
 
-func TestBuildAllRootsPutsMemoryRootFirst(t *testing.T) {
+func TestAllRootsVaultOnly(t *testing.T) {
 	got := buildAllRoots("/home/u/.waveterm/vault/memory", buildMirrors("/home/u", ""))
-	var sources []string
-	for _, m := range got {
-		sources = append(sources, m.Source)
-	}
-	want := []string{"vault", "claude", "codex"}
-	if !reflect.DeepEqual(sources, want) {
-		t.Fatalf("sources = %v, want %v", sources, want)
+	want := []string{"vault"}
+	if len(got) != len(want) || got[0].Source != "vault" {
+		t.Fatalf("buildAllRoots = %v, want vault root only", got)
 	}
 	if got[0].Path != "/home/u/.waveterm/vault/memory" {
 		t.Fatalf("memory root = %q", got[0].Path)
@@ -84,3 +65,90 @@ func TestIndexFileConst(t *testing.T) {
 		t.Fatalf("IndexFile = %q", IndexFile)
 	}
 }
+
+func TestRegistryPathForLabel(t *testing.T) {
+	// registry name match
+	if p := registryPathForLabel("Krypton API", map[string]string{"Krypton API": `C:\Users\k\krypton`}); p != `C:\Users\k\krypton` {
+		t.Fatalf("name match = %q", p)
+	}
+	// leaf folder match
+	if p := registryPathForLabel("waveterm", map[string]string{"Krypton API": `C:\Users\k\krypton`}); p != "" {
+		t.Fatalf("unregistered leaf should resolve empty, got %q", p)
+	}
+	// ambiguous leaves: first registered path wins
+	if p := registryPathForLabel("app", map[string]string{"a": `C:\x\app`, "b": `C:\y\app`}); p != `C:\x\app` {
+		t.Fatalf("ambiguous leaf = %q, want first", p)
+	}
+}
+
+func TestMigrateVaultToConfiguredRootCopies(t *testing.T) {
+	src := t.TempDir()
+	dstRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(src, "memory", "a.md"), []byte("---\nname: a\n---\n\nfact a\n"), 0o644)
+	os.WriteFile(filepath.Join(src, "memory", "b.md"), []byte("---\nname: b\n---\n\nfact b\n"), 0o644)
+
+	copied, skipped, err := copyRootNotes(filepath.Join(src, "memory"), filepath.Join(dstRoot, "memory"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 2 || skipped != 0 {
+		t.Fatalf("copied=%d skipped=%d, want 2/0", copied, skipped)
+	}
+	if _, err := os.Stat(filepath.Join(dstRoot, "memory", "a.md")); err != nil {
+		t.Fatalf("note not copied: %v", err)
+	}
+	// copy, never move: the source survives
+	if _, err := os.Stat(filepath.Join(src, "memory", "a.md")); err != nil {
+		t.Fatalf("source removed — migration must copy, not move: %v", err)
+	}
+	// idempotent: a second run copies nothing new
+	copied2, _, err := copyRootNotes(filepath.Join(src, "memory"), filepath.Join(dstRoot, "memory"))
+	if err != nil || copied2 != 0 {
+		t.Fatalf("second run copied=%d err=%v, want 0/nil", copied2, err)
+	}
+}
+
+func TestMigrateVaultToConfiguredRootUnset(t *testing.T) {
+	if copied, skipped, err := MigrateVaultToConfiguredRoot(); err != nil || copied != 0 || skipped != 0 {
+		t.Fatalf("no root switch should no-op, got copied=%d skipped=%d err=%v", copied, skipped, err)
+	}
+}
+
+func TestMigrateVaultRootSwitch(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(src, "memory", "a.md"), []byte("---\nname: a\n---\n\nfact a\n"), 0o644)
+
+	// configured -> configured switch copies the old root's notes
+	copied, skipped, err := migrateVaultRoot(src, dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 1 || skipped != 0 {
+		t.Fatalf("copied=%d skipped=%d, want 1/0", copied, skipped)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "memory", "a.md")); err != nil {
+		t.Fatalf("note not copied: %v", err)
+	}
+	// source kept intact (copy, not move)
+	if _, err := os.Stat(filepath.Join(src, "memory", "a.md")); err != nil {
+		t.Fatalf("source removed: %v", err)
+	}
+	// idempotent: second run copies nothing
+	copied2, _, err := migrateVaultRoot(src, dst)
+	if err != nil || copied2 != 0 {
+		t.Fatalf("second run copied=%d err=%v, want 0/nil", copied2, err)
+	}
+	// same root -> no-op even with content
+	copied3, _, err := migrateVaultRoot(src, src)
+	if err != nil || copied3 != 0 {
+		t.Fatalf("same-root run copied=%d err=%v, want 0/nil", copied3, err)
+	}
+}
+

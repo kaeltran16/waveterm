@@ -102,9 +102,8 @@ func frontmatterScope(fm map[string]any) string {
 	return ""
 }
 
-// load walks the scope's collection directories — the physical collection boundary — plus, for the
-// memory collection, the external mirror roots. Mirrors are read-only by construction: resolvePath
-// and Commit are both v.Root-scoped, so nothing here can be written or committed.
+// load walks the scope's collection directories — the physical collection boundary. Every note is
+// read-only by construction: resolvePath and Commit are both v.Root-scoped.
 func (r *Retriever) load() error {
 	if r.loaded {
 		return nil
@@ -159,11 +158,6 @@ func (r *Retriever) load() error {
 
 	for _, coll := range r.scope.Collections {
 		walk(filepath.Join(r.v.Root, coll), coll, "vault")
-		if coll == CollMemory && r.v.mirrors != nil {
-			for _, m := range r.v.mirrors() {
-				walk(m.Path, CollMemory, m.Source)
-			}
-		}
 	}
 
 	for _, id := range g.order {

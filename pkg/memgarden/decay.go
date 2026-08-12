@@ -23,7 +23,15 @@ type DecayAction struct {
 	Archive bool
 }
 
-func isMachine(source string) bool { return source == "agent" || source == "codex" }
+// isMachine reports whether a note was machine-authored (harvested or distilled) rather than
+// hand-written. Hand-written vault notes carry source "vault" (or none).
+func isMachine(source string) bool {
+	switch source {
+	case "agent", "codex", "claude", "pi":
+		return true
+	}
+	return false
+}
 
 // beforeCutoff reports whether an RFC3339 timestamp parses and precedes cutoff.
 func beforeCutoff(ts string, cutoff time.Time) bool {

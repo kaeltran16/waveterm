@@ -50,14 +50,12 @@ func TestGardenProjectAnnouncesWhatItArchived(t *testing.T) {
 	oldCap := now.AddDate(0, 0, -40).Format(time.RFC3339)
 	var archived []string
 	g := inertGardener(now, &archived)
-	g.hubNotesFn = func(string) []memvault.NoteWithBody {
-		return []memvault.NoteWithBody{
-			{Note: memvault.Note{ID: "a", Path: "/h/a.md", Source: "agent", CapturedAt: oldCap}},
-			{Note: memvault.Note{ID: "b", Path: "/h/b.md", Source: "agent", CapturedAt: oldCap}},
-		}
+	notes := []memvault.NoteWithBody{
+		{Note: memvault.Note{ID: "a", Path: "/h/a.md", Source: "agent", CapturedAt: oldCap}},
+		{Note: memvault.Note{ID: "b", Path: "/h/b.md", Source: "agent", CapturedAt: oldCap}},
 	}
 
-	g.gardenProject("/h")
+	g.gardenScope("proj", notes)
 
 	if len(archived) != 2 {
 		t.Fatalf("premise broken: archived %v, want 2", archived)
@@ -66,7 +64,7 @@ func TestGardenProjectAnnouncesWhatItArchived(t *testing.T) {
 		t.Fatalf("events = %+v, want one sweep", *got)
 	}
 	ev := (*got)[0]
-	if ev.Kind != baseds.MemoryActivity_Sweep || ev.Cwd != "/h" || ev.Archived != 2 {
+	if ev.Kind != baseds.MemoryActivity_Sweep || ev.Cwd != "proj" || ev.Archived != 2 {
 		t.Fatalf("sweep event = %+v", ev)
 	}
 	if ev.Id == "" || ev.Ts == 0 {
@@ -74,21 +72,19 @@ func TestGardenProjectAnnouncesWhatItArchived(t *testing.T) {
 	}
 }
 
-// The gardener runs hourly on every hub. A pass that removed nothing has nothing to say, and announcing
-// it anyway is how an ambient signal becomes noise nobody reads.
+// The gardener runs hourly on every scope. A pass that removed nothing has nothing to say, and
+// announcing it anyway is how an ambient signal becomes noise nobody reads.
 func TestGardenProjectStaysSilentWhenNothingWasArchived(t *testing.T) {
 	got := captureActivity(t)
 	now := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	var archived []string
 	g := inertGardener(now, &archived)
-	g.hubNotesFn = func(string) []memvault.NoteWithBody {
+	notes := []memvault.NoteWithBody{
 		// fresh, human-sourced: neither pillar touches it
-		return []memvault.NoteWithBody{
-			{Note: memvault.Note{ID: "a", Path: "/h/a.md", Source: "human", CapturedAt: now.Format(time.RFC3339)}},
-		}
+		{Note: memvault.Note{ID: "a", Path: "/h/a.md", Source: "human", CapturedAt: now.Format(time.RFC3339)}},
 	}
 
-	g.gardenProject("/h")
+	g.gardenScope("proj", notes)
 
 	if len(archived) != 0 {
 		t.Fatalf("premise broken: archived %v, want none", archived)

@@ -176,7 +176,7 @@ func TestCreateNoteWritesToVault(t *testing.T) {
 	data, _ := os.ReadFile(p)
 	s := string(data)
 	if !strings.Contains(s, "name: my-note") || !strings.Contains(s, "type: project") ||
-		!strings.Contains(s, "scope: shared") || !strings.Contains(s, "the body") {
+		!strings.Contains(s, "scope: shared") || !strings.Contains(s, "source_hash:") || !strings.Contains(s, "the body") {
 		t.Fatalf("frontmatter/body wrong:\n%s", s)
 	}
 }

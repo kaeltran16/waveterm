@@ -35,12 +35,9 @@ func AllScope() Scope    { return Scope{Collections: []string{CollMemory, CollTa
 func WorkerScope() Scope { return Scope{Collections: []string{CollMemory, CollDecisions}} }
 
 // Vault is a handle to one on-disk git-backed vault. machineFiles records, per absolute path, the
-// content hash Jarvis last wrote — Commit uses it to author machine-only changes as Jarvis. mirrors
-// resolves the external read-only roots federated into the memory collection; nil means none, which
-// is what keeps fixture vaults out of the developer's ~/.claude and ~/.codex.
+// content hash Jarvis last wrote — Commit uses it to author machine-only changes as Jarvis.
 type Vault struct {
 	Root         string
-	mirrors      func() []memroots.Mirror
 	mu           sync.Mutex
 	machineFiles map[string]string
 }
@@ -55,8 +52,8 @@ func DefaultVaultRoot() string {
 var migrateOnce sync.Once
 
 // OpenVault opens (creating + git-initializing if needed) the configured vault. It is also the only
-// path that federates the external memory mirrors and, on the first call of the process, folds the
-// legacy ~/.waveterm/memory root into the vault's memory collection — openVaultAt stays hermetic.
+// path that, on the first call of the process, folds the legacy ~/.waveterm/memory root into the
+// vault's memory collection — openVaultAt stays hermetic.
 func OpenVault(ctx context.Context) (*Vault, error) {
 	// after openVaultAt deliberately: it scaffolds <root>/memory, the migration's destination
 	v, err := openVaultAt(ctx, DefaultVaultRoot())
@@ -68,7 +65,6 @@ func OpenVault(ctx context.Context) (*Vault, error) {
 			log.Printf("wavevault: legacy memory migration failed: %v", mErr) // non-fatal: the legacy root stays a readable mirror
 		}
 	})
-	v.mirrors = memroots.Mirrors
 	return v, nil
 }
 

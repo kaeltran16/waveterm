@@ -139,19 +139,15 @@ func pendingCapturedAt(filename string) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// AcceptPending commits a queued candidate into its recorded project hub (or the default vault when
-// no cwd), then removes the pending file. Returns the created note path.
+// AcceptPending commits a queued candidate into the vault, then removes the pending file. Returns
+// the created note path.
 func AcceptPending(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
 	n, body := parseNote(path, data, "pending")
-	target := DefaultVaultPath()
-	if hub := HubDirForCwd(pendingCwd(data)); hub != "" {
-		target = hub
-	}
-	return acceptPendingInto(PendingNote{Path: path, Type: n.Type, Scope: n.Scope, Body: strings.TrimSpace(body)}, target)
+	return acceptPendingInto(PendingNote{Path: path, Type: n.Type, Scope: n.Scope, Body: strings.TrimSpace(body)}, DefaultVaultPath())
 }
 
 // acceptPendingInto is the testable core: create the note in targetDir, then remove the pending file.

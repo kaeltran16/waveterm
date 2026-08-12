@@ -58,3 +58,28 @@ func TestMarkSupersededAndTouch(t *testing.T) {
 		t.Fatalf("body dropped:\n%s", string(data))
 	}
 }
+
+func TestRouteLearningsTargetsVault(t *testing.T) {
+	isolateHome(t)
+	vaultDir := t.TempDir()
+	orig := DefaultVaultPath
+	DefaultVaultPath = func() string { return vaultDir }
+	defer func() { DefaultVaultPath = orig }()
+	res, err := RouteLearnings("C:\\proj\\x", []LearnCandidate{
+		{Type: "learning", Scope: "x", Body: "always use pnpm here", IsCorrection: true},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Committed != 1 {
+		t.Fatalf("Committed = %d, want 1", res.Committed)
+	}
+	entries, _ := os.ReadDir(vaultDir)
+	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".md") {
+		t.Fatalf("vault dir = %v, want exactly one note file", entries)
+	}
+	data, _ := os.ReadFile(filepath.Join(vaultDir, entries[0].Name()))
+	if !strings.Contains(string(data), "source_hash:") {
+		t.Fatalf("note missing source_hash:\n%s", data)
+	}
+}

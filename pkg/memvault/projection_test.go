@@ -112,7 +112,7 @@ func TestProjectToSteeringFiles(t *testing.T) {
 	pi := filepath.Join(tmp, "PI.md")
 
 	targets := []steeringTarget{{runtime: "codex", path: codex}, {runtime: "pi", path: pi}}
-	if err := projectHubToTargets(hub, "krypton", targets); err != nil {
+	if err := projectHubToTargets("krypton", readHubNotes(hub), targets); err != nil {
 		t.Fatalf("projectHubToTargets: %v", err)
 	}
 
@@ -153,5 +153,54 @@ func TestHubDirForCwd(t *testing.T) {
 	}
 	if HubDirForCwd("") != "" {
 		t.Fatalf("empty cwd must yield empty hub dir")
+	}
+}
+
+func TestProjectExportSkipsClaudeEcho(t *testing.T) {
+	hubDir := t.TempDir()
+	exported, skipped, err := exportToHub(hubDir, []NoteWithBody{
+		{Note: Note{ID: "human-note", Scope: "proj", Source: "vault", Type: "learning"}, Body: "human fact"},
+		{Note: Note{ID: "claude-note", Scope: "proj", Source: "claude", Type: "learning"}, Body: "claude fact"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported != 1 || skipped != 1 {
+		t.Fatalf("exported=%d skipped=%d, want 1/1", exported, skipped)
+	}
+	entries, _ := os.ReadDir(hubDir)
+	if len(entries) != 1 || entries[0].Name() != "human-note.md" {
+		t.Fatalf("hub = %v, want only human-note.md", entries)
+	}
+}
+
+func TestVaultNotesForProjectFilter(t *testing.T) {
+	vaultDir := t.TempDir()
+	orig := DefaultVaultPath
+	DefaultVaultPath = func() string { return vaultDir }
+	defer func() { DefaultVaultPath = orig }()
+	notes := []struct {
+		name  string
+		scope string
+	}{
+		{"registry-name.md", "rw-test-checkpoint"},
+		{"leaf.md", "waveterm"},
+		{"shared.md", "shared"},
+		{"unscoped.md", ""},
+		{"other.md", "SIEM"},
+	}
+	for _, n := range notes {
+		fm := "---\nname: " + strings.TrimSuffix(n.name, ".md") + "\n"
+		if n.scope != "" {
+			fm += "metadata:\n  scope: " + n.scope + "\n"
+		}
+		fm += "---\n\nbody\n"
+		os.WriteFile(filepath.Join(vaultDir, n.name), []byte(fm), 0o644)
+	}
+	// cwd's leaf (waveterm) and the registry label (rw-test-checkpoint) each match their own scope;
+	// shared/empty always match; the other project's scope is excluded.
+	got := vaultNotesForProject("C:/Users/kael02/IdeaProjects/waveterm", "rw-test-checkpoint")
+	if len(got) != 4 {
+		t.Fatalf("vaultNotesForProject = %d notes, want 4 (registry + leaf + shared + empty)", len(got))
 	}
 }

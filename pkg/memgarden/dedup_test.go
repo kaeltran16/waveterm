@@ -26,7 +26,6 @@ func TestCheckDedupFlagsNonCanonicalAndGates(t *testing.T) {
 	var calls int
 	flagged := map[string]bool{}
 	g := newGardener()
-	g.hubNotesFn = func(string) []memvault.NoteWithBody { return notes }
 	g.llmFn = func(model, prompt, corpus string) (string, bool) {
 		calls++
 		return `{"clusters": [["a","b"]]}`, true

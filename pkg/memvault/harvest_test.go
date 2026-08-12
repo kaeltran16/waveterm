@@ -157,3 +157,106 @@ func TestHarvestEmptyCwd(t *testing.T) {
 		t.Fatalf("Harvest(\"\") must error")
 	}
 }
+
+func TestHarvestClaudeHubsFoldsIntoVault(t *testing.T) {
+	vaultDir := t.TempDir()
+	hub := filepath.Join(t.TempDir(), "C--Users-u-proj", "memory")
+	os.MkdirAll(hub, 0o755)
+	notePath := filepath.Join(hub, "old-gotcha.md")
+	body := "---\nname: old-gotcha\nmetadata:\n  type: learning\n---\n\nold project gotcha\n"
+	os.WriteFile(notePath, []byte(body), 0o644)
+
+	orig := DefaultVaultPath
+	DefaultVaultPath = func() string { return vaultDir }
+	defer func() { DefaultVaultPath = orig }()
+	origDirs := ClaudeHubDirs
+	ClaudeHubDirs = func() []string { return []string{hub} }
+	defer func() { ClaudeHubDirs = origDirs }()
+
+	ingested, skipped, err := HarvestClaudeHubs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ingested != 1 || skipped != 0 {
+		t.Fatalf("ingested=%d skipped=%d, want 1/0", ingested, skipped)
+	}
+	entries, _ := os.ReadDir(vaultDir)
+	if len(entries) != 1 || entries[0].Name() != "old-gotcha.md" {
+		t.Fatalf("vault = %v, want old-gotcha.md (slug preserved)", entries)
+	}
+	data, _ := os.ReadFile(filepath.Join(vaultDir, entries[0].Name()))
+	s := string(data)
+	for _, want := range []string{"name: old-gotcha", "scope:", "source: \"claude\"", "source_hash:"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("vault note missing %q:\n%s", want, s)
+		}
+	}
+	// idempotent: a second run folds nothing new
+	ingested2, _, err := HarvestClaudeHubs()
+	if err != nil || ingested2 != 0 {
+		t.Fatalf("second fold ingested=%d err=%v, want 0/nil", ingested2, err)
+	}
+}
+
+func TestHarvestIntoVault(t *testing.T) {
+	vaultDir := t.TempDir()
+	md := "applies_to: cwd=C:\\proj\\x; reuse_rule=safe\n\n## Reusable knowledge\n\n- pnpm is the package manager here\n"
+	if _, _, err := harvestInto(md, "C:\\proj\\x", vaultDir); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(vaultDir)
+	if len(entries) != 1 {
+		t.Fatalf("vault dir = %v, want 1 note", entries)
+	}
+	data, _ := os.ReadFile(filepath.Join(vaultDir, entries[0].Name()))
+	s := string(data)
+	for _, want := range []string{"source: codex", "scope: x", "source_hash:"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("note missing %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestParsePiMemoryAndHarvest(t *testing.T) {
+	md := "<!-- 2026-06-07 10:12:03 [a1b2c3d4] -->\n#preference [[package-manager]] Always use pnpm in this repo, never npm.\n\n<!-- 2026-06-08 09:00:00 [b2c3d4e5] -->\n#decision [[database-choice]] PostgreSQL for all backend services.\n"
+	entries := parsePiMemory(md)
+	if len(entries) != 2 {
+		t.Fatalf("parsePiMemory = %d entries, want 2", len(entries))
+	}
+	vaultDir := t.TempDir()
+	ingested, skipped, err := harvestPiMemoryInto(vaultDir, md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ingested != 2 || skipped != 0 {
+		t.Fatalf("ingested=%d skipped=%d, want 2/0", ingested, skipped)
+	}
+	// dedup: same file again adds nothing
+	ingested2, _, err := harvestPiMemoryInto(vaultDir, md)
+	if err != nil || ingested2 != 0 {
+		t.Fatalf("second pass ingested=%d err=%v, want 0/nil", ingested2, err)
+	}
+}
+
+func TestHarvestAllAggregates(t *testing.T) {
+	vaultDir := t.TempDir()
+	hub := filepath.Join(t.TempDir(), "C--Users-u-proj", "memory")
+	os.MkdirAll(hub, 0o755)
+	os.WriteFile(filepath.Join(hub, "a.md"), []byte("---\nname: a\n---\n\nfact a\n"), 0o644)
+
+	origVault, origDirs, origPi := DefaultVaultPath, ClaudeHubDirs, piMemoryPath
+	DefaultVaultPath = func() string { return vaultDir }
+	ClaudeHubDirs = func() []string { return []string{hub} }
+	piMemoryPath = func() string { return filepath.Join(t.TempDir(), "no-such-MEMORY.md") }
+	defer func() {
+		DefaultVaultPath, ClaudeHubDirs, piMemoryPath = origVault, origDirs, origPi
+	}()
+
+	ingested, skipped, err := HarvestAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ingested != 1 || skipped != 0 {
+		t.Fatalf("ingested=%d skipped=%d, want 1/0", ingested, skipped)
+	}
+}

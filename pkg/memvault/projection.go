@@ -96,14 +96,15 @@ type steeringTarget struct {
 	path    string
 }
 
-// steeringTargets are the home-level steering files for each lackey runtime. Global (home) files
-// only — never repo-tracked files. Paths mirror the spike findings. pi reads ~/.pi/agent/AGENTS.md
-// as its global guidelines, so projecting there is what makes the vault's memory reach pi sessions.
+// steeringTargets include opencode: it reads AGENTS.md from its config dir, so the projection
+// reaches opencode sessions the same way it reaches codex/pi. Global (home) files only — never
+// repo-tracked files.
 func steeringTargets() []steeringTarget {
 	home := wavebase.GetHomeDir()
 	return []steeringTarget{
 		{runtime: "codex", path: filepath.Join(home, ".codex", "AGENTS.md")},
 		{runtime: "pi", path: filepath.Join(home, ".pi", "agent", "AGENTS.md")},
+		{runtime: "opencode", path: filepath.Join(home, ".config", "opencode", "AGENTS.md")},
 	}
 }
 
@@ -129,9 +130,59 @@ func readHubNotes(hubDir string) []NoteWithBody {
 	return out
 }
 
-// projectHubToTargets renders the hub notes and writes each target's steering region.
-func projectHubToTargets(hubDir, label string, targets []steeringTarget) error {
-	notes := readHubNotes(hubDir)
+// vaultNotesForProject filters the vault's notes to those belonging to cwd's project: the registry
+// label, the leaf folder, and the hub-dir-derived label (covers registry renames after the fold
+// baked old labels into frontmatter), plus global notes (empty/shared).
+func vaultNotesForProject(cwd, label string) []NoteWithBody {
+	leaf := filepath.Base(filepath.Clean(cwd))
+	hubLabel := memroots.LabelFromHash(memroots.ProjectHash(filepath.Clean(cwd)), memroots.RegistryProjects())
+	out := []NoteWithBody{}
+	for _, nw := range readHubNotes(DefaultVaultPath()) {
+		switch nw.Note.Scope {
+		case label, leaf, hubLabel, "", "shared":
+			out = append(out, nw)
+		}
+	}
+	return out
+}
+
+// exportToHub writes the vault notes into hubDir as source: vault notes, skipping claude-source
+// ones (echo rule: don't send claude its own facts back). Deduped by body hash against the hub.
+func exportToHub(hubDir string, notes []NoteWithBody) (int, int, error) {
+	if hubDir == "" {
+		return 0, 0, nil
+	}
+	if err := os.MkdirAll(hubDir, 0o755); err != nil {
+		return 0, 0, err
+	}
+	existing := existingHashes(hubDir)
+	exported, skipped := 0, 0
+	for _, nw := range notes {
+		if nw.Note.Source == "claude" {
+			skipped++
+			continue
+		}
+		h := factHash(nw.Body)
+		if existing[h] {
+			skipped++
+			continue
+		}
+		wrote, werr := writeSourcedNote(hubDir, boundedSlug(nw.Note.ID, "note"), nw.Note.Type, nw.Note.Scope, "vault", h, nw.Body)
+		if werr != nil {
+			return exported, skipped, fmt.Errorf("exporting note: %w", werr)
+		}
+		existing[h] = true
+		if wrote {
+			exported++
+		} else {
+			skipped++
+		}
+	}
+	return exported, skipped, nil
+}
+
+// projectHubToTargets renders the notes and writes each target's steering region.
+func projectHubToTargets(label string, notes []NoteWithBody, targets []steeringTarget) error {
 	for _, tgt := range targets {
 		var existing string
 		if data, err := os.ReadFile(tgt.path); err == nil {
@@ -157,15 +208,20 @@ func HubDirForCwd(cwd string) string {
 	return filepath.Join(wavebase.GetHomeDir(), ".claude", "projects", memroots.ProjectHash(cwd), "memory")
 }
 
-// Project renders cwd's Claude hub memory into all lackey steering files. This is the public
-// entry point called by the MemoryProjectCommand RPC at agent launch (and the manual button).
+// Project renders the vault's memory for cwd's project into the steering files + the project hub.
+// This is the public entry point called by the MemoryProjectCommand RPC at agent launch (and the
+// manual button).
 func Project(cwd string) error {
 	if cwd == "" {
 		return fmt.Errorf("cwd is required")
 	}
-	hubDir := HubDirForCwd(cwd)
 	label := projectLabel(cwd, memroots.RegistryProjects())
-	return projectHubToTargets(hubDir, label, steeringTargets())
+	notes := vaultNotesForProject(cwd, label)
+	hubDir := HubDirForCwd(cwd)
+	if _, _, err := exportToHub(hubDir, notes); err != nil {
+		return fmt.Errorf("exporting to hub: %w", err)
+	}
+	return projectHubToTargets(label, notes, steeringTargets())
 }
 
 var projectionMarkerRe = regexp.MustCompile(`<!-- ARC-MEMORY:BEGIN project=(.+?) \(generated`)
@@ -192,8 +248,8 @@ func ProjectionStatus() map[string]string {
 }
 
 // ClaudeHubDirs enumerates every existing Claude per-project memory hub (~/.claude/projects/*/memory).
-// This is the gardener's sweep universe.
-func ClaudeHubDirs() []string {
+// A var so tests can stub it.
+var ClaudeHubDirs = func() []string {
 	root := filepath.Join(wavebase.GetHomeDir(), ".claude", "projects")
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -232,4 +288,9 @@ func repoPathForHubDir(hubDir string, projects map[string]string) string {
 // HubNotes reads every note (with body) directly under hubDir. Exported for the gardener.
 func HubNotes(hubDir string) []NoteWithBody {
 	return readHubNotes(hubDir)
+}
+
+// VaultNotes reads every note (with body) in the vault memory collection. Exported for the gardener.
+func VaultNotes() []NoteWithBody {
+	return readHubNotes(DefaultVaultPath())
 }

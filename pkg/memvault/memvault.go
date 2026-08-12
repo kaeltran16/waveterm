@@ -180,10 +180,9 @@ func VaultRoots() []Root {
 	return memroots.AllRoots()
 }
 
-// DefaultVaultPath is the write target for cockpit-created notes.
-func DefaultVaultPath() string {
-	return memroots.MemoryRoot()
-}
+// DefaultVaultPath is the write target for every cockpit memory write; a var so tests can point it
+// at a temp dir.
+var DefaultVaultPath = func() string { return memroots.MemoryRoot() }
 
 // NoteWithBody is a note plus its markdown body (ReadNote only).
 type NoteWithBody struct {
@@ -243,12 +242,15 @@ func CreateNote(vaultDir, name, noteType, scope, body string) (string, error) {
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("name: " + slug + "\n")
-	if noteType != "" {
-		b.WriteString("metadata:\n  type: " + noteType + "\n")
-		if scope != "" {
-			b.WriteString("  scope: " + scope + "\n")
-		}
+	if noteType == "" {
+		noteType = "learning"
 	}
+	b.WriteString("metadata:\n")
+	b.WriteString("  type: " + noteType + "\n")
+	if scope != "" {
+		b.WriteString("  scope: " + scope + "\n")
+	}
+	b.WriteString("  source_hash: " + factHash(body) + "\n")
 	b.WriteString("---\n\n")
 	b.WriteString(body)
 	if !strings.HasSuffix(body, "\n") {

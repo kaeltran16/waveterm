@@ -24,9 +24,9 @@ func TestClassifyDecay(t *testing.T) {
 		// machine, old-referenced but young capture -> leave alone (not old enough)
 		{ID: "m-young", Path: "/h/m4.md", Source: "agent", CapturedAt: freshCap, LastReferenced: oldRef},
 		// human, never referenced, old -> flag (never auto-archive)
-		{ID: "h-neverref-old", Path: "/h/h1.md", Source: "claude", CapturedAt: oldCap},
+		{ID: "h-neverref-old", Path: "/h/h1.md", Source: "vault", CapturedAt: oldCap},
 		// human, referenced-stale -> left to classifyPrune, NOT flagged by decay
-		{ID: "h-staleref", Path: "/h/h2.md", Source: "claude", CapturedAt: oldCap, LastReferenced: oldRef},
+		{ID: "h-staleref", Path: "/h/h2.md", Source: "vault", CapturedAt: oldCap, LastReferenced: oldRef},
 		// superseded machine -> left to superseded queue
 		{ID: "m-superseded", Path: "/h/m5.md", Source: "agent", CapturedAt: oldCap, SupersededBy: "x"},
 	}
@@ -48,5 +48,16 @@ func TestClassifyDecay(t *testing.T) {
 		if _, ok := byID[id]; ok {
 			t.Fatalf("%s should be left alone, got %+v", id, byID[id])
 		}
+	}
+}
+
+func TestIsMachineSources(t *testing.T) {
+	for _, src := range []string{"agent", "codex", "claude", "pi"} {
+		if !isMachine(src) {
+			t.Errorf("isMachine(%q) = false, want true (harvested source)", src)
+		}
+	}
+	if isMachine("vault") || isMachine("") {
+		t.Errorf("isMachine(human source) = true, want false")
 	}
 }

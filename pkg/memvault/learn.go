@@ -120,18 +120,14 @@ type RouteResult struct {
 	Written   []WrittenNote
 }
 
-// RouteLearnings writes distilled candidates into memory: corrections auto-commit into the project
-// hub (or the default vault when cwd has no hub), everything else lands in the review tray. Supersedes
-// and references are applied against the hub. Shared by MemoryLearnCommand and batch distillation.
+// RouteLearnings writes distilled candidates into the vault: corrections auto-commit, everything
+// else lands in the review tray. Supersedes and references are applied against the vault. Shared by
+// MemoryLearnCommand and batch distillation.
 func RouteLearnings(cwd string, candidates []LearnCandidate, references []string) (RouteResult, error) {
-	hub := HubDirForCwd(cwd)
+	target := DefaultVaultPath()
 	var res RouteResult
 	for _, cand := range candidates {
 		if cand.IsCorrection {
-			target := hub
-			if target == "" {
-				target = DefaultVaultPath()
-			}
 			wrote, slug, err := WriteLearning(target, cand)
 			if err != nil {
 				return res, fmt.Errorf("writing learning: %w", err)
@@ -149,16 +145,14 @@ func RouteLearnings(cwd string, candidates []LearnCandidate, references []string
 			res.Queued++
 		}
 	}
-	if hub != "" {
-		for _, cand := range candidates {
-			if cand.Supersedes != "" {
-				_, slug, _ := WriteLearning(hub, LearnCandidate{Type: cand.Type, Scope: cand.Scope, Body: cand.Body})
-				_ = MarkSuperseded(hub, cand.Supersedes, slug)
-			}
+	for _, cand := range candidates {
+		if cand.Supersedes != "" {
+			_, slug, _ := WriteLearning(target, LearnCandidate{Type: cand.Type, Scope: cand.Scope, Body: cand.Body})
+			_ = MarkSuperseded(target, cand.Supersedes, slug)
 		}
-		if len(references) > 0 {
-			_ = TouchReferenced(hub, references, time.Now().UTC().Format(time.RFC3339))
-		}
+	}
+	if len(references) > 0 {
+		_ = TouchReferenced(target, references, time.Now().UTC().Format(time.RFC3339))
 	}
 	return res, nil
 }
