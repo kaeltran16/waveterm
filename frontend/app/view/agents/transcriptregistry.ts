@@ -8,7 +8,7 @@
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
 import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
 import { extractOpencodeTitle, projectOpencodeTranscript } from "./opencodetranscriptprojection";
-import { extractPiTitle, projectPiTranscript } from "./pitranscriptprojection";
+import { extractPiTasks, extractPiTitle, projectPiTranscript } from "./pitranscriptprojection";
 import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
 
 export interface TranscriptProjector {
@@ -23,7 +23,7 @@ const PROJECTORS: Record<string, TranscriptProjector> = {
     claude: { project: projectTranscript, extractTitle: extractAiTitle, extractTasks },
     codex: { project: projectCodexTranscript, extractTasks: extractCodexTasks },
     opencode: { project: projectOpencodeTranscript, extractTitle: extractOpencodeTitle },
-    pi: { project: projectPiTranscript, extractTitle: extractPiTitle },
+    pi: { project: projectPiTranscript, extractTitle: extractPiTitle, extractTasks: extractPiTasks },
 };
 
 const DEFAULT_AGENT = "claude";
