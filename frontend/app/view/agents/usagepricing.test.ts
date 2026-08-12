@@ -38,6 +38,40 @@ describe("priceFor", () => {
     it("prefers gpt-5.5 over the gpt-5 base family", () => {
         expect(priceFor("gpt-5.5")?.input).toBe(5);
     });
+    it("prices deepseek-v4-flash and -pro at the DeepSeek API rates", () => {
+        expect(priceFor("deepseek-v4-flash")?.input).toBe(0.14);
+        expect(priceFor("deepseek-v4-flash")?.output).toBe(0.28);
+        expect(priceFor("deepseek-v4-flash")?.cacheRead).toBe(0.0028);
+        expect(priceFor("deepseek-v4-pro")?.input).toBe(0.435);
+        expect(priceFor("deepseek-v4-pro")?.output).toBe(0.87);
+        expect(priceFor("deepseek-v4-pro")?.cacheRead).toBe(0.003625);
+    });
+    it("matches the OpenRouter provider/model form used by headless config", () => {
+        expect(priceFor("deepseek/deepseek-v4-flash")?.output).toBe(0.28);
+        expect(priceFor("deepseek/deepseek-v4-pro")?.input).toBe(0.435);
+    });
+    it("prices the opencode go lineup at the go rate card", () => {
+        expect(priceFor("opencode-go/grok-4.5")?.input).toBe(2);
+        expect(priceFor("opencode-go/grok-4.5")?.output).toBe(6);
+        expect(priceFor("opencode-go/grok-4.5")?.cacheRead).toBe(0.3);
+        expect(priceFor("opencode-go/gpt-5.6-luna")?.input).toBe(0.2); // beats the gpt-5 base
+        expect(priceFor("opencode-go/gpt-5.6-luna")?.output).toBe(1.2);
+        expect(priceFor("opencode-go/glm-5.2")?.input).toBe(1.4);
+        expect(priceFor("opencode-go/glm-5.1")?.input).toBe(1.4);
+        expect(priceFor("opencode-go/kimi-k3")?.input).toBe(3);
+        expect(priceFor("opencode-go/kimi-k3")?.output).toBe(15);
+        expect(priceFor("opencode-go/kimi-k2.7-code")?.input).toBe(0.95);
+        expect(priceFor("opencode-go/kimi-k2.6")?.input).toBe(0.95);
+        expect(priceFor("opencode-go/mimo-v2.5-pro")?.input).toBe(0.435); // beats the mimo-v2.5 base
+        expect(priceFor("opencode-go/mimo-v2.5")?.input).toBe(0.14);
+        expect(priceFor("opencode-go/minimax-m3")?.input).toBe(0.3);
+        expect(priceFor("opencode-go/minimax-m2.7")?.cacheWrite5m).toBe(0.375);
+        expect(priceFor("opencode-go/qwen3.8-max")?.input).toBe(2);
+        expect(priceFor("opencode-go/qwen3.7-max")?.input).toBe(2.5);
+        expect(priceFor("opencode-go/qwen3.7-plus")?.input).toBe(0.4);
+        expect(priceFor("opencode-go/qwen3.6-plus")?.input).toBe(0.5);
+        expect(priceFor("opencode-go/hy3")?.output).toBe(0.58);
+    });
     it("returns undefined for unknown models", () => {
         expect(priceFor("gemini-2.5-pro")).toBeUndefined();
     });
@@ -63,6 +97,23 @@ describe("spendOf", () => {
             rec({ provider: "codex", model: "gpt-5.5", inputTokens: 1000, outputTokens: 100, cacheReadTokens: 5000 })
         );
         expect(s).toBeCloseTo(0.0105, 6);
+    });
+    it("prices deepseek tokens with no cache-write charge", () => {
+        // 1e6*0.435 + 1e6*0.87 + 1e6*0.003625 + cache writes free = 1.308625
+        const s = spendOf(
+            rec({
+                model: "deepseek-v4-pro",
+                inputTokens: 1e6,
+                outputTokens: 1e6,
+                cacheReadTokens: 1e6,
+                cacheCreateTokens: 1e6,
+            })
+        );
+        expect(s).toBeCloseTo(1.308625, 6);
+    });
+    it("prices opencode go cache writes at the go rate", () => {
+        // 1e6 cache-create at qwen3.7-plus cached-write $0.50 => 0.5
+        expect(spendOf(rec({ model: "opencode-go/qwen3.7-plus", cacheCreateTokens: 1e6 }))).toBeCloseTo(0.5, 6);
     });
     it("returns 0 for unknown models (tokens still counted elsewhere)", () => {
         expect(spendOf(rec({ model: "gemini-2.5-pro", inputTokens: 1000 }))).toBe(0);

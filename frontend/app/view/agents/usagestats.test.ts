@@ -160,8 +160,21 @@ describe("aggregateBuckets", () => {
     it("derives harnesses, reported cost, coverage, and upstream providers", () => {
         const buckets = [
             bkt({ harness: "claude", provider: "anthropic", input: 100 }),
-            bkt({ harness: "opencode", provider: "openai", model: "gpt-5.5", input: 200, reasoning: 50, reportedcostusd: 0 }),
-            bkt({ harness: "opencode", provider: "opencode-go", model: "deepseek-v4-pro", input: 700, reportedcostusd: 1.25 }),
+            bkt({
+                harness: "opencode",
+                provider: "openai",
+                model: "gpt-5.5",
+                input: 200,
+                reasoning: 50,
+                reportedcostusd: 0,
+            }),
+            bkt({
+                harness: "opencode",
+                provider: "opencode-go",
+                model: "gemini-2.5-pro",
+                input: 700,
+                reportedcostusd: 1.25,
+            }),
         ];
 
         const all = aggregateBuckets(buckets, now, "all");
@@ -185,7 +198,11 @@ describe("aggregateBuckets", () => {
         expect(empty.totals.reportedCostWindowPresent).toBe(false);
         expect(empty.totals.reportedCostWindowUsd).toBe(0);
 
-        const zeroed = aggregateBuckets([bkt({ harness: "opencode", provider: "openai", model: "gpt-5.5", reportedcostusd: 0 })], now, "all");
+        const zeroed = aggregateBuckets(
+            [bkt({ harness: "opencode", provider: "openai", model: "gpt-5.5", reportedcostusd: 0 })],
+            now,
+            "all"
+        );
         expect(zeroed.totals.reportedCostWindowPresent).toBe(true);
         expect(zeroed.totals.reportedCostWindowUsd).toBe(0);
         expect(zeroed.totals.reportedCostWindowHarnesses).toEqual(["opencode"]);
