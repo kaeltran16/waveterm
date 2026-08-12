@@ -3,6 +3,59 @@
 // __WSH_PATH__ substituted for the absolute wsh path. pi auto-loads every file in that directory.
 // A bare pi outside a Wave block is fully inert: nothing runs without WAVETERM_BLOCKID + JWT.
 
+const TITLE_MAX = 72; // matches the Claude hook's head-text fallback cap (wshcmd-agenthook.go titleMax)
+
+/** Text of a pi message entry: a bare string, or the joined text blocks. Mirrors pi's own
+ *  extractTextContent (session-manager.js) so tool_result-only user turns yield "". */
+function messageText(message: any): string {
+    const content = message?.content;
+    if (typeof content === "string") {
+        return content;
+    }
+    if (Array.isArray(content)) {
+        return content
+            .filter((b: any) => b?.type === "text")
+            .map((b: any) => b?.text ?? "")
+            .join(" ");
+    }
+    return "";
+}
+
+/** First non-empty line of a message, rune-truncated — the Claude hook's titleFromPrompt shape. */
+function headLine(text: string): string {
+    for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed) {
+            return [...trimmed].slice(0, TITLE_MAX).join("");
+        }
+    }
+    return "";
+}
+
+/** Session title for the cockpit row: the explicit name (pi's getSessionName), else the first user
+ *  message's head text — the same "name or first message" display pi's own session selector uses.
+ *  Mirrors the Claude hook's ai-title-then-prompt-fallback (wshcmd-agenthook.go). */
+export function sessionTitle(sm: any): string {
+    const name = sm?.getSessionName?.()?.trim();
+    if (name) {
+        return name;
+    }
+    for (const entry of sm?.getEntries?.() ?? []) {
+        if (entry?.type !== "message") {
+            continue;
+        }
+        const msg = entry.message;
+        if (msg?.role !== "user") {
+            continue;
+        }
+        const text = messageText(msg);
+        if (text) {
+            return headLine(text);
+        }
+    }
+    return "";
+}
+
 export function registerWavetermStatus(pi: any, wshPath: string): void {
     let state: "working" | "idle" = "idle";
     const report = async (ctx: any, next: "working" | "idle", detail = "") => {
@@ -20,7 +73,7 @@ export function registerWavetermStatus(pi: any, wshPath: string): void {
             "--session-id",
             ctx.sessionManager.getSessionId() ?? "",
             "--title",
-            ctx.sessionManager.getSessionName?.() ?? "",
+            sessionTitle(ctx.sessionManager),
             "--provider",
             ctx.model?.provider ?? "",
             "--model",

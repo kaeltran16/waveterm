@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import wavetermStatus, { registerWavetermStatus } from "./pi-status-extension";
+import wavetermStatus, { registerWavetermStatus, sessionTitle } from "./pi-status-extension";
 
 type Handler = (event: any, ctx: any) => void;
 
@@ -33,6 +33,7 @@ function sessionCtx(over: Record<string, unknown> = {}) {
             getSessionFile: () => "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl",
             getSessionId: () => "session-1",
             getSessionName: () => "fix the bug",
+            getEntries: () => [],
         },
         model: { provider: "openai-codex", id: "gpt-5.5" },
         ...over,
@@ -190,7 +191,7 @@ describe("registerWavetermStatus", () => {
         const pi = fakePi();
         registerWavetermStatus(pi, "wsh");
         // the extension contract requires ctx.sessionManager with getSessionFile/getSessionId;
-        // everything else (cwd, model, session name) is optional and falls back to "".
+        // everything else (cwd, model, session name, entries) is optional and falls back to "".
         const ctx = { sessionManager: { getSessionFile: () => "", getSessionId: () => "" } };
         await pi.handlers.get("agent_start")![0]({}, ctx);
         assertStatusExec(pi, "wsh", {
@@ -202,6 +203,108 @@ describe("registerWavetermStatus", () => {
             "--provider": "",
             "--model": "",
         });
+    });
+
+    it("reports the explicit session name as the title", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        await pi.handlers.get("agent_start")![0]({}, sessionCtx());
+        assertStatusExec(pi, "wsh", { "--state": "working", "--title": "fix the bug" });
+    });
+});
+
+describe("sessionTitle", () => {
+    function sm(entries: any[], name?: string) {
+        return { getSessionName: () => name ?? "", getEntries: () => entries };
+    }
+
+    it("prefers the explicit session name over the first message", () => {
+        expect(
+            sessionTitle(sm([{ type: "message", message: { role: "user", content: "first prompt" } }], "my name"))
+        ).toBe("my name");
+    });
+
+    it("falls back to the first user message's head text", () => {
+        expect(
+            sessionTitle(
+                sm([
+                    { type: "model_change", provider: "x", modelId: "y" },
+                    {
+                        type: "message",
+                        message: { role: "assistant", content: "not this" },
+                    },
+                    {
+                        type: "message",
+                        message: { role: "user", content: [{ type: "text", text: "first prompt" }] },
+                    },
+                ])
+            )
+        ).toBe("first prompt");
+    });
+
+    it("reads string content and takes the first non-empty line", () => {
+        expect(
+            sessionTitle(
+                sm([
+                    {
+                        type: "message",
+                        message: { role: "user", content: "\n\n  real task\nmore lines\n" },
+                    },
+                ])
+            )
+        ).toBe("real task");
+    });
+
+    it("skips tool_result-only user turns", () => {
+        expect(
+            sessionTitle(
+                sm([
+                    {
+                        type: "message",
+                        message: {
+                            role: "user",
+                            content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+                        },
+                    },
+                    {
+                        type: "message",
+                        message: { role: "user", content: "the real ask" },
+                    },
+                ])
+            )
+        ).toBe("the real ask");
+    });
+
+    it("truncates a long head text to 72 runes", () => {
+        expect(sessionTitle(sm([{ type: "message", message: { role: "user", content: "x".repeat(200) } }]))).toBe(
+            "x".repeat(72)
+        );
+    });
+
+    it("returns empty when the session has no user message", () => {
+        expect(sessionTitle(sm([]))).toBe("");
+        expect(sessionTitle(sm([{ type: "message", message: { role: "assistant", content: "hi" } }]))).toBe("");
+        expect(sessionTitle(undefined)).toBe("");
+    });
+
+    it("reports the first-message fallback title through agentstatus", async () => {
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        const ctx = sessionCtx({
+            sessionManager: {
+                getSessionFile: () => "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl",
+                getSessionId: () => "session-1",
+                getSessionName: () => "",
+                getEntries: () => [
+                    {
+                        type: "message",
+                        message: { role: "user", content: "rename me to this" },
+                    },
+                ],
+            },
+        });
+        await pi.handlers.get("agent_start")![0]({}, ctx);
+        assertStatusExec(pi, "wsh", { "--state": "working", "--title": "rename me to this" });
     });
 });
 
