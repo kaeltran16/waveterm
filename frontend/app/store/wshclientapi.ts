@@ -972,10 +972,22 @@ export class RpcApiType {
         return client.wshRpcCall("message", data, opts);
     }
 
+    // command "notify" [call]
+    NotifyCommand(client: WshClient, data: NotifyCommandData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "notify", data, opts);
+        return client.wshRpcCall("notify", data, opts);
+    }
+
     // command "path" [call]
     PathCommand(client: WshClient, data: PathCommandData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "path", data, opts);
         return client.wshRpcCall("path", data, opts);
+    }
+
+    // command "pisendcontrol" [call]
+    PiSendControlCommand(client: WshClient, data: PiControlCommandData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "pisendcontrol", data, opts);
+        return client.wshRpcCall("pisendcontrol", data, opts);
     }
 
     // command "postchannelmessage" [call]

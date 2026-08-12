@@ -91,6 +91,7 @@ export interface AgentVM {
     kind?: "agent" | "terminal" | "background"; // undefined = agent (roster); "terminal" = plain shell; "background" = detached claude agent
     needsInput?: boolean; // background agent parked on input (claude state "blocked") — drives the needs-input badge
     cwd?: string; // background agent working dir — the resume target for Attach
+    sessionId?: string; // pi control-channel session id (agentstatus --session-id)
 }
 
 // Per-card ephemeral layout prefs (full-width span + dragged height). Not persisted this pass.
@@ -442,6 +443,7 @@ export interface LiveAgentInput {
     transcriptPath?: string;
     blockId?: string;
     project?: string; // launch-time project name (session:project); groups the roster without the lossy path derivation
+    sessionId?: string; // pi control-channel session id (agentstatus --session-id)
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -463,6 +465,7 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
         transcriptPath: input.transcriptPath,
         blockId: input.blockId,
         project: input.project,
+        sessionId: input.sessionId,
     };
     if (state === "working") {
         vm.activeMs = age;

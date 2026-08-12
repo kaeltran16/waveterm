@@ -8,7 +8,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget, stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import { formatAge, projectOf, recentActions, summarizeActions, usageLevel, type AgentVM } from "./agentsviewmodel";
@@ -25,6 +25,7 @@ import { runtimeMeta } from "./runtimemeta";
 import { subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
 import { loadSessionUsage } from "./transcriptusagestore";
+import { steerData } from "./pi-control";
 
 const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
     ok: "bg-accent",
@@ -46,6 +47,43 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
     return <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[.1em] text-ink-mid">{children}</h3>;
+}
+
+function SteerInput({ sessionId }: { sessionId: string }): React.JSX.Element {
+    const [draft, setDraft] = useState("");
+    const [sending, setSending] = useState(false);
+    const submit = async () => {
+        const content = draft.trim();
+        if (!content || sending) return;
+        setSending(true);
+        try {
+            await RpcApi.PiSendControlCommand(TabRpcClient, steerData(sessionId, content));
+            setDraft("");
+        } finally {
+            setSending(false);
+        }
+    };
+    return (
+        <div className="flex items-center gap-2">
+            <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter") void submit();
+                }}
+                placeholder="Steer this Pi session…"
+                className="min-w-0 flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-primary outline-none focus:border-accent"
+            />
+            <button
+                type="button"
+                onClick={() => void submit()}
+                disabled={sending || !draft.trim()}
+                className="rounded-md bg-accent px-2 py-1 text-xs text-background disabled:opacity-50"
+            >
+                Steer
+            </button>
+        </div>
+    );
 }
 
 function TasksSection({ tasks, now }: { tasks: PiTask[]; now: number }) {
@@ -172,6 +210,11 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                         <DetailRow label="Branch" value={railState?.branch || "—"} />
                         <DetailRow label="Model" value={agent.model ? prettyModel(agent.model) : "—"} />
                         {isClaude ? <DetailRow label="Cache expires" value={cacheCountdown} /> : null}
+                        {agent.agent === "pi" && agent.sessionId ? (
+                            <div className="pt-[10px]">
+                                <SteerInput sessionId={agent.sessionId} />
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             ),

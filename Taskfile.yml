@@ -174,12 +174,18 @@ tasks:
         cmds:
             - cmd: cp pi/extensions/waveterm-status.ts cmd/wsh/cmd/pi-status-extension.ts
             - cmd: cp pi/themes/arc.json cmd/wsh/cmd/arc-theme.json
+            - cmd: cp pi/extensions/waveterm-tools.ts cmd/wsh/cmd/pi-tools-extension.ts
+            - cmd: cp pi/extensions/waveterm-tools-core.ts cmd/wsh/cmd/pi-tools-core-extension.ts
         sources:
             - pi/extensions/waveterm-status.ts
             - pi/themes/arc.json
+            - pi/extensions/waveterm-tools.ts
+            - pi/extensions/waveterm-tools-core.ts
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
             - cmd/wsh/cmd/arc-theme.json
+            - cmd/wsh/cmd/pi-tools-extension.ts
+            - cmd/wsh/cmd/pi-tools-core-extension.ts
 
     build:server:internal:
         deps:

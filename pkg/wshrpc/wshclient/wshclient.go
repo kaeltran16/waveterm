@@ -966,10 +966,22 @@ func MessageCommand(w *wshutil.WshRpc, data wshrpc.CommandMessageData, opts *wsh
 	return err
 }
 
+// command "notify", wshserver.NotifyCommand
+func NotifyCommand(w *wshutil.WshRpc, data wshrpc.NotifyCommandData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "notify", data, opts)
+	return err
+}
+
 // command "path", wshserver.PathCommand
 func PathCommand(w *wshutil.WshRpc, data wshrpc.PathCommandData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "path", data, opts)
 	return resp, err
+}
+
+// command "pisendcontrol", wshserver.PiSendControlCommand
+func PiSendControlCommand(w *wshutil.WshRpc, data wshrpc.PiControlCommandData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "pisendcontrol", data, opts)
+	return err
 }
 
 // command "postchannelmessage", wshserver.PostChannelMessageCommand

@@ -23,6 +23,7 @@ declare global {
         | "block:jobstatus"
         | "badge"
         | "agent:status"
+        | "notify"
         | "agent:ask"
         | "memory:activity"
         | "jarvis:volunteer"
@@ -51,6 +52,7 @@ declare global {
         { event: "block:jobstatus"; data?: BlockJobStatusData; } | 
         { event: "badge"; data?: BadgeEvent; } | 
         { event: "agent:status"; data?: AgentStatusData; } | 
+        { event: "notify"; data?: NotifyCommandData; } | 
         { event: "agent:ask"; data?: AgentAskData; } | 
         { event: "memory:activity"; data?: MemoryActivityData; } | 
         { event: "jarvis:volunteer"; data?: VolunteerData; }

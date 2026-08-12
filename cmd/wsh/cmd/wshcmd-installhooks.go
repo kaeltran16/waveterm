@@ -284,6 +284,12 @@ var opencodeLookPath = exec.LookPath
 //go:embed pi-status-extension.ts
 var piStatusExtensionTemplate string
 
+//go:embed pi-tools-extension.ts
+var piToolsExtensionTemplate string
+
+//go:embed pi-tools-core-extension.ts
+var piToolsCoreExtensionTemplate string
+
 //go:embed pi-memory-extension.ts
 var piMemoryExtensionTemplate string
 
@@ -366,6 +372,31 @@ func installPiStatusExtension(home string) error {
 		return fmt.Errorf("replacing %s: %w", path, err)
 	}
 	fmt.Printf("installed pi status extension into %s\n", path)
+	return nil
+}
+
+// installPiToolsExtension writes the Wave tools + steering extension pair into pi's global
+// extension directory, where pi auto-loads every file. Same contract as
+// installPiStatusExtension: __WSH_PATH__ is replaced with the absolute wsh exe path.
+func installPiToolsExtension(home string) error {
+	if _, err := piLookPath("pi"); err != nil {
+		return nil // pi not installed; nothing to hook
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving wsh path: %w", err)
+	}
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating pi extensions dir: %w", err)
+	}
+	tools := strings.ReplaceAll(piToolsExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	if err := os.WriteFile(filepath.Join(dir, "waveterm-tools.ts"), []byte(tools), 0o644); err != nil {
+		return fmt.Errorf("writing waveterm-tools.ts: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "waveterm-tools-core.ts"), []byte(piToolsCoreExtensionTemplate), 0o644); err != nil {
+		return fmt.Errorf("writing waveterm-tools-core.ts: %w", err)
+	}
 	return nil
 }
 
@@ -572,6 +603,9 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := installPiStatusExtension(home); err != nil {
+		return err
+	}
+	if err := installPiToolsExtension(home); err != nil {
 		return err
 	}
 	if err := installPiMemoryExtension(home); err != nil {

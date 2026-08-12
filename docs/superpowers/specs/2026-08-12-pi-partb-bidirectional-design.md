@@ -80,8 +80,8 @@ All tools:
   boolean fetches a truncated tail via `wsh termscrollback <blockid>` using the existing
   truncation utilities, capped so it never floods model context.
 - `wave_open_file` requires an existing file (wsh editor stat-checks and errors with "file
-  does not exist"). Optional `line` parameter; the exact meta key the edit view uses for a
-  line number is confirmed at implementation time.
+  does not exist"). Optional `line` parameter is **deferred from v1** — `wsh editor` has no
+  confirmed line-number meta key; add it when the edit view supports it.
 - `wave_query_sessions` filters to useful defaults (term + edit blocks) and caps result
   length.
 - `wave_create_widget` is **deferred to v2** — vdom async-initiation / render-stream
@@ -141,9 +141,7 @@ already reports via `agentstatus --session-id`); the extension watches, executes
 
 ### Writer (wavesrv)
 
-New `PiSendControlCommand{SessionId, Command, Args}` on wshserver. Validates the session is
-a known pi agent session — the status extension already reports session IDs into the agents
-table via `agentstatus --session-id` — then writes `<dir>/<sessionId>.json` **atomically**
+New `PiSendControlCommand{SessionId, Command, Args}` on wshserver. Validates the session id is non-empty and the command is in the known set — shape only, not "known pi agent session": there is no reliable server-side registry keyed by pi session id (the cockpit roster lives in the wstore agents table; `agentsessions.ScanSessions` parses only claude/codex transcripts). The extension is the authority — it only consumes files matching its own session id — and stale files are bounded because the frontend only sends session ids it saw from real `agentstatus` reports — then writes `<dir>/<sessionId>.json` **atomically**
 (temp file + rename). The frontend calls it from the steer UI.
 
 ### Reader (extension)

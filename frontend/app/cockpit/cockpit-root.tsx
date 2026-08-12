@@ -31,6 +31,8 @@ import "./cockpit.scss";
 import { ShortcutsCheatSheet } from "./shortcuts-cheatsheet";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
 import { HintsFooter } from "./hints-footer";
+import { setupNotificationSubscription } from "./notificationstore";
+import { NotificationToasts } from "./notificationtoasts";
 
 const AgentsBlockId = "cockpit-agents";
 
@@ -67,6 +69,9 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     useApplyCockpitTheme();
     useApplyCockpitFonts();
     useEffect(() => initKeybindingDispatcher(model), [model]);
+    useEffect(() => {
+        setupNotificationSubscription();
+    }, []);
     // Kill the native browser context menu app-wide so it never leaks on elements without a themed
     // handler (e.g. navrail items). Themed menus (ContextMenuModel) render via portal and are
     // unaffected — preventDefault only suppresses the native menu. Native stays only inside editable
@@ -107,6 +112,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <PetView model={model} />
             <ModalsRenderer />
             <ContextMenuHost />
+            <NotificationToasts />
         </div>
     );
 }

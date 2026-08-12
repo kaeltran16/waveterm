@@ -11,7 +11,9 @@
     ],
     "pi": {
         "extensions": [
-            "./extensions/waveterm-status.ts"
+            "./extensions/waveterm-status.ts",
+            "./extensions/waveterm-tools.ts",
+            "./extensions/waveterm-tools-core.ts"
         ],
         "skills": [
             "./skills"

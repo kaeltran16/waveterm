@@ -53,6 +53,7 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
                 transcriptPath: status.transcriptpath,
                 blockId: row.termBlockOref?.split(":")[1],
                 project: row.projectLabel,
+                sessionId: status.sessionid,
             },
             now
         );

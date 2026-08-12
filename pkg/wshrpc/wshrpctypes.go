@@ -48,6 +48,7 @@ type WshRpcInterface interface {
 	SecretCommands
 	VDomCommands
 	AskCommands
+	PiControlCommands
 	TasksCommands
 	WshRpcRemoteFileInterface
 	WshRpcFileInterface

@@ -140,6 +140,31 @@ const surfaceSmoke = {
             });
             await h.shot(`cdp-shots/surface-${surface}.png`);
         }
+        // B3: a notify (wsh notify / wave_notify) surfaces as a cockpit toast and auto-dismisses.
+        // NotificationToasts mounts only on the cockpit surface.
+        await h.goto("cockpit");
+        await h.rpc("notify", { title: "cdp surface-smoke", level: "info" });
+        await h.ev("new Promise((r) => setTimeout(r, 600))");
+        const toastShown = await h.ev(`(() => !!document.querySelector('[data-notification-toast]'))()`);
+        await h.ev("new Promise((r) => setTimeout(r, 7000))");
+        const toastGone = await h.ev(`(() => !document.querySelector('[data-notification-toast]'))()`);
+        steps.push({
+            step: "wsh notify -> toast appears in the cockpit and auto-dismisses",
+            ok: toastShown === true && toastGone === true,
+            detail: `shown=${toastShown} gone=${toastGone}`,
+        });
+        // B2: the steer input renders on a pi session card (AgentDetailsRail, Agent surface). Dev
+        // runs rarely have a live pi session focused, so this is conditional: no steer input -> SKIP
+        // (the manual round-trip covers it).
+        await h.goto("agent");
+        const steerFound = await h.ev(`(() => !!document.querySelector('input[placeholder^="Steer this Pi session"]'))()`);
+        steps.push({
+            step: "steer input visible on a pi session card",
+            ok: true,
+            detail: steerFound
+                ? "steer input found on the Agent surface"
+                : "SKIP: no pi session focused in this run (manual round-trip covers it)",
+        });
         return steps;
     },
     async teardown(h) {

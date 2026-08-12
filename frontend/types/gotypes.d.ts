@@ -2211,6 +2211,13 @@ declare global {
         color: string;
     };
 
+    // wshrpc.NotifyCommandData
+    type NotifyCommandData = {
+        title: string;
+        message: string;
+        level: string;
+    };
+
     // waveobj.ORef
     type ORef = string;
 
@@ -2244,6 +2251,15 @@ declare global {
     type PhaseTriage = {
         verdict: string;
         note?: string;
+    };
+
+    // wshrpc.PiControlCommandData
+    type PiControlCommandData = {
+        sessionid: string;
+        command: string;
+        content: string;
+        name: string;
+        path: string;
     };
 
     // wshrpc.PiTask
