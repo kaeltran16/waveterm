@@ -3,6 +3,7 @@ import type { GroundingCard, JarvisConversation } from "./jarviscontract";
 import {
     buildSubjectGroups,
     filterSubjectGroups,
+    firstVisibleChannel,
     recordStatusBucket,
     runGoalMatches,
     subjectMark,
@@ -285,5 +286,37 @@ describe("buildSubjectGroups", () => {
         });
         expect(groups.find((g) => g.key === "dossiers")!.items).toHaveLength(2);
         expect(groups.find((g) => g.key === "threads")!.items).toHaveLength(2);
+    });
+});
+
+describe("firstVisibleChannel", () => {
+    it("returns null for an unloaded or empty list", () => {
+        expect(firstVisibleChannel(null, null, false)).toBeNull();
+        expect(firstVisibleChannel([], null, false)).toBeNull();
+    });
+
+    it("picks the first non-archived channel, preserving list order", () => {
+        const channels = [ch("c2", "rate-limits", "platform", true), ch("c1", "checkout-revamp", "payments")];
+        expect(firstVisibleChannel(channels, null, false)?.oid).toBe("c1");
+    });
+
+    it("returns null when every channel is archived", () => {
+        const channels = [ch("c1", "checkout-revamp", "payments", true), ch("c2", "rate-limits", "platform", true)];
+        expect(firstVisibleChannel(channels, null, false)).toBeNull();
+    });
+
+    it("honors the Space scope", () => {
+        const channels = [ch("c1", "checkout-revamp", "payments"), ch("c2", "rate-limits", "platform")];
+        const scope = { channeloids: ["c2"], tabids: [], runorefs: [] } as unknown as SpaceScope;
+        expect(firstVisibleChannel(channels, scope, false)?.oid).toBe("c2");
+        // scoped out entirely -> nothing visible
+        expect(firstVisibleChannel(channels, { ...scope, channeloids: [] }, false)).toBeNull();
+    });
+
+    it("passes everything through when the Space is revealed", () => {
+        const channels = [ch("c2", "rate-limits", "platform"), ch("c1", "checkout-revamp", "payments")];
+        const scope = { channeloids: ["c1"], tabids: [], runorefs: [] } as unknown as SpaceScope;
+        // revealed ignores the scope, so the first *active* channel wins, not the scoped-in one
+        expect(firstVisibleChannel(channels, scope, true)?.oid).toBe("c2");
     });
 });

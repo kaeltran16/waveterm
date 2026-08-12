@@ -76,6 +76,21 @@ export function runGoalMatches(channel: Channel, query: string): Run[] {
     return (channel.runs ?? []).filter((r) => (r.goal ?? "").toLowerCase().includes(q));
 }
 
+// The "nothing selected yet" landing: the first channel the Subjects column actually shows. Must apply the
+// same scoping and archiving as buildSubjectGroups or the Stage can land on a channel the column hides.
+// Null when nothing is visible, so the caller can keep the empty Stage's guidance instead.
+export function firstVisibleChannel(
+    channels: Channel[] | null,
+    scope: SpaceScope | null,
+    revealed: boolean
+): Channel | null {
+    const scoped = filterChannelsBySpace(channels, scope, revealed);
+    if (scoped == null || scoped.length === 0) {
+        return null;
+    }
+    return partitionChannels(scoped).active[0] ?? null;
+}
+
 export function filterSubjectGroups(
     groups: SubjectGroup[],
     query: string,

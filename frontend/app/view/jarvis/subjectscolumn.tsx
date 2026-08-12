@@ -65,6 +65,7 @@ import { restoreDecision } from "./subjectrestore";
 import {
     buildSubjectGroups,
     filterSubjectGroups,
+    firstVisibleChannel,
     recordStatusBucket,
     runGoalMatches,
     subjectMark,
@@ -216,13 +217,30 @@ export function SubjectsColumn({
         if (decision.action === "wait") {
             return;
         }
-        restoredRef.current = true;
         if (decision.action === "select") {
+            restoredRef.current = true;
             selectSubject(decision.subject);
             return;
         }
+        // nothing stored (or the stored subject is gone). The surface's entry rule is "absent rather than
+        // empty": land on the first visible channel with the new-run composer ready, so typing starts a
+        // run instead of meeting the empty Stage. Wait for the channel list — latching the empty Stage
+        // before it loads would stick even when channels then appear.
+        if (channels != null) {
+            const first = firstVisibleChannel(channels, spaceScope, revealed);
+            if (first != null) {
+                restoredRef.current = true;
+                selectSubject({ kind: "channel", id: first.oid });
+                setComposingRun(first.oid, true);
+                return;
+            }
+        }
+        if (channels == null) {
+            return; // channel list still loading — decide when it lands
+        }
+        restoredRef.current = true;
         setStored(null);
-    }, [stored, channels, dossiers, conversations, summaries, active, setStored]);
+    }, [stored, channels, dossiers, conversations, summaries, active, spaceScope, revealed, setStored]);
 
     // a channel's project name: the registered project bound to its path, else the path's own tail.
     const projectNameFor = (channel: Channel) => {
