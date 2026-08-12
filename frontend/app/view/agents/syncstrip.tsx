@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { harvestMemory } from "./memstore";
 import { projectLabel } from "./projectlabel";
 
-const RUNTIME_LABEL: Record<string, string> = { codex: "Codex", antigravity: "Antigravity" };
+const RUNTIME_LABEL: Record<string, string> = { codex: "Codex" };
 
 // Codex rewrites MEMORY.md rarely (on session summarization); a low-frequency sweep with the
 // backend mtime-guard means most ticks are no-ops. Frontend-hosted so it can scope to focusedCwd.
@@ -73,7 +73,7 @@ export function SyncStrip({ focusedCwd }: { focusedCwd: string | null }) {
     }, [focusedCwd, pullNow]);
 
     const label = projectLabel(focusedCwd ?? "", config?.projects ?? {});
-    const runtimes = ["codex", "antigravity"];
+    const runtimes = ["codex"];
 
     return (
         <div className="flex items-center gap-[12px] border-b border-edge-faint px-[16px] py-[9px] text-[12px]">

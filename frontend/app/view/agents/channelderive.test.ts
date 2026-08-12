@@ -36,7 +36,7 @@ describe("avatarColor", () => {
             "var(--color-avatar-6)",
         ]);
         expect(palette.has(avatarColor("claude"))).toBe(true);
-        expect(palette.has(avatarColor("antigravity"))).toBe(true);
+        expect(palette.has(avatarColor("pi"))).toBe(true);
     });
 });
 

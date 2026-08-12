@@ -46,13 +46,11 @@ describe("runtime helpers", () => {
     it("creates pending agent panels for agent runtimes only", () => {
         expect(runtimeCreatesAgentPanel("claude")).toBe(true);
         expect(runtimeCreatesAgentPanel("codex")).toBe(true);
-        expect(runtimeCreatesAgentPanel("antigravity")).toBe(true);
         expect(runtimeCreatesAgentPanel("terminal")).toBe(false);
     });
     it("supports worktrees for every runtime except terminal", () => {
         expect(runtimeSupportsWorktree("claude")).toBe(true);
         expect(runtimeSupportsWorktree("codex")).toBe(true);
-        expect(runtimeSupportsWorktree("antigravity")).toBe(true);
         expect(runtimeSupportsWorktree("terminal")).toBe(false);
     });
 });
@@ -150,19 +148,6 @@ describe("buildLaunchMeta", () => {
         const m = buildLaunchMeta({ runtime: "pi", startupCommand: "pi", task: "audit auth", cwd: "C:\\repo" });
         expect(m).toMatchObject({ cmd: "pi", "cmd:args": ["audit auth"], "cmd:shell": false, "cmd:cwd": "C:\\repo" });
         expect(m["agent:baseargs"]).toEqual([]);
-    });
-    it("passes the antigravity task via -i (agy ignores a bare positional prompt)", () => {
-        const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "do the thing", cwd: "/x" });
-        expect(m["cmd"]).toBe("agy");
-        expect(m["cmd:args"]).toEqual(["-i", "do the thing"]);
-    });
-    it("keeps antigravity flags before the -i task", () => {
-        const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy --yolo", task: "go", cwd: "/x" });
-        expect(m["cmd:args"]).toEqual(["--yolo", "-i", "go"]);
-    });
-    it("omits -i for a no-task antigravity launch (stays a bare interactive agy)", () => {
-        const m = buildLaunchMeta({ runtime: "antigravity", startupCommand: "agy", task: "  ", cwd: "/x" });
-        expect(m["cmd:args"]).toEqual([]);
     });
     it("stores agent:baseargs (launch flags before the task) for resume-on-reopen", () => {
         const m = buildLaunchMeta({ runtime: "claude", startupCommand: "claude --model opus", task: "go", cwd: "/x" });

@@ -30,9 +30,8 @@ describe("shouldPersistResume", () => {
         expect(shouldPersistResume("pi", false)).toBe(false);
     });
 
-    it("never resumes codex/antigravity/unknown providers", () => {
+    it("never resumes codex or unknown providers", () => {
         expect(shouldPersistResume("codex", true)).toBe(false);
-        expect(shouldPersistResume("antigravity", true)).toBe(false);
         expect(shouldPersistResume(undefined, true)).toBe(false);
     });
 

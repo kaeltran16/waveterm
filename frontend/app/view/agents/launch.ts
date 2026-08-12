@@ -1,12 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-export type Runtime = "claude" | "codex" | "antigravity" | "opencode" | "pi" | "terminal";
+export type Runtime = "claude" | "codex" | "opencode" | "pi" | "terminal";
 
 const RUNTIME_CMD: Record<Runtime, string> = {
     claude: "claude",
     codex: "codex",
-    antigravity: "agy",
     opencode: "opencode",
     pi: "pi",
     terminal: "",
@@ -41,11 +40,6 @@ export const RUNTIME_FLAGS: Record<Runtime, FlagDef[]> = {
         { id: "quiet", flag: "--quiet", desc: "Hide reasoning logs" },
         { id: "search", flag: "--search", desc: "Enable web search" },
         { id: "json", flag: "--json", desc: "Machine-readable output" },
-    ],
-    antigravity: [
-        { id: "yolo", flag: "--yolo", desc: "Auto-approve file edits" },
-        { id: "verbose", flag: "--verbose", desc: "Stream every tool call" },
-        { id: "no-telemetry", flag: "--no-telemetry", desc: "Disable usage reporting" },
     ],
     opencode: [
         { id: "auto", flag: "--auto", desc: "Auto-approve non-denied permissions (dangerous)" },
@@ -143,13 +137,7 @@ export function buildLaunchMeta(spec: LaunchMetaSpec): Record<string, unknown> {
     const args = [...baseArgs];
     const task = spec.task.trim();
     if (task) {
-        // agy ignores a bare positional prompt (unlike claude/codex); -i runs the initial prompt and
-        // keeps the session alive so the worker stays steerable via ControllerInput.
-        if (spec.runtime === "antigravity") {
-            args.push("-i", task);
-        } else {
-            args.push(task);
-        }
+        args.push(task);
     }
     const meta: Record<string, unknown> = {
         view: "term",

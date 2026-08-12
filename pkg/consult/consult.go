@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Package consult runs a one-shot, headless CLI agent (claude -p / codex exec / agy -p) and returns
+// Package consult runs a one-shot, headless CLI agent (claude -p / codex exec) and returns
 // its reply. It is the backend primitive behind the Channels "ask @runtime" gesture and the future
 // orchestrator's review tool. This file holds the pure (process-free) parts: the per-runtime argv map
 // and the capped-context prompt builder.
@@ -47,7 +47,7 @@ type ParsedEvent struct {
 //   - ParseLine != nil => the CLI emits JSONL events on stdout; scan line-by-line and emit the text
 //     each reply event carries. This is real incremental streaming (claude stream-json, codex --json).
 //   - UsePty => the CLI only renders to a terminal and drops stdout under a pipe/subprocess. Spawn it
-//     under a pty and clean the TUI stream. This is the agy non-TTY workaround (antigravity-cli#76).
+//     under a pty and clean the TUI stream.
 //   - neither => read raw stdout chunks verbatim (used by tests / plain tools).
 //
 // PromptViaStdin true => pipe the prompt over stdin; false => append it as the final positional arg.
@@ -62,23 +62,18 @@ type RuntimeSpec struct {
 	Model          string     // model id for API backends
 }
 
-// runtimeSpecs is keyed by the FE Runtime identifier. Note antigravity's binary is "agy", not
-// "antigravity" (verified 2026-07-01; the latter does not resolve on PATH).
+// runtimeSpecs is keyed by the FE Runtime identifier.
 //
 // Why each streams the way it does (verified 2026-07-01 by reproducing the exact invocations):
 //   - claude/codex plain modes write progress to stderr and only the final answer to stdout at the
 //     very end — no incremental streaming. Their JSONL modes (--output-format stream-json / --json)
 //     emit structured reply events on stdout as they go, so we parse those.
-//   - agy has a known upstream bug (antigravity-cli#76): --print silently drops stdout under any
-//     non-TTY. The only capture path is a pty, so agy runs under one and its prompt is positional
-//     (its -p flag takes the prompt as its argument value).
 var runtimeSpecs = map[string]RuntimeSpec{
-	"claude":      {Bin: "claude", BaseArgs: []string{"-p", "--output-format", "stream-json", "--verbose"}, PromptViaStdin: true, ParseLine: claudeParseLine},
-	"codex":       {Bin: "codex", BaseArgs: []string{"exec", "--json"}, PromptViaStdin: true, ParseLine: codexParseLine},
-	"antigravity": {Bin: "agy", BaseArgs: []string{"-p"}, PromptViaStdin: false, UsePty: true},
-	"opencode":    {Bin: "opencode", BaseArgs: []string{"run", "--format", "json"}, PromptViaStdin: false, ParseLine: opencodeParseLine},
-	"pi":          {Bin: "pi", BaseArgs: []string{"--mode", "json", "--no-session", "--no-extensions"}, PromptViaStdin: false, ParseLine: piParseLine},
-	"openrouter":  {ApiBackend: &openrouterBackend{}},
+	"claude":     {Bin: "claude", BaseArgs: []string{"-p", "--output-format", "stream-json", "--verbose"}, PromptViaStdin: true, ParseLine: claudeParseLine},
+	"codex":      {Bin: "codex", BaseArgs: []string{"exec", "--json"}, PromptViaStdin: true, ParseLine: codexParseLine},
+	"opencode":   {Bin: "opencode", BaseArgs: []string{"run", "--format", "json"}, PromptViaStdin: false, ParseLine: opencodeParseLine},
+	"pi":         {Bin: "pi", BaseArgs: []string{"--mode", "json", "--no-session", "--no-extensions"}, PromptViaStdin: false, ParseLine: piParseLine},
+	"openrouter": {ApiBackend: &openrouterBackend{}},
 }
 
 // codexParseLine extracts assistant text from a `codex exec --json` JSONL event. The reply arrives as

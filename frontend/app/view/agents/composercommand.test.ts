@@ -10,14 +10,13 @@ import {
     type ResolveComposerDispatchInput,
 } from "./composercommand";
 
-const ids = new Set(["claude", "codex", "opencode", "pi", "antigravity"]);
+const ids = new Set(["claude", "codex", "opencode", "pi"]);
 
 const harnesses: HarnessInfo[] = [
     { runtime: "claude", label: "Claude Code", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "codex", label: "Codex", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "opencode", label: "OpenCode", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "pi", label: "Pi", installed: true, consultcapable: true, runworkercapable: true },
-    { runtime: "antigravity", label: "Antigravity", installed: true, consultcapable: true, runworkercapable: true },
 ];
 
 function dispatchInput(partial: Partial<ResolveComposerDispatchInput>): ResolveComposerDispatchInput {

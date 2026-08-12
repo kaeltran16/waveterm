@@ -123,7 +123,7 @@ func waitCmd(ctx context.Context, cmd *exec.Cmd) error {
 	}
 }
 
-// runPty spawns the CLI under a pseudo-terminal so a TUI-only CLI (agy) actually emits output, then
+// runPty spawns the CLI under a pseudo-terminal so a TUI-only CLI actually emits output, then
 // cleans the raw terminal stream. The fully-cleaned capture is authoritative; per-chunk emits are
 // best-effort liveness (the persisted consult-reply supersedes the live stream on the FE).
 func runPty(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func(string)) (string, error) {
@@ -137,7 +137,7 @@ func runPty(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func
 		return "", fmt.Errorf("starting %s under pty: %w", spec.Bin, err)
 	}
 	defer f.Close()
-	// closing the pty master when ctx fires unblocks a stuck Read (e.g. agy leaves a language-server
+	// closing the pty master when ctx fires unblocks a stuck Read (e.g. a CLI that leaves a language-server
 	// child that holds the pty open after the print run finishes)
 	stop := make(chan struct{})
 	defer close(stop)

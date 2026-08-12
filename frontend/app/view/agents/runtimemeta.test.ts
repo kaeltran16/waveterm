@@ -14,8 +14,6 @@ describe("runtimeMeta", () => {
         expect(runtimeMeta("Opencode").id).toBe("opencode");
         expect(runtimeMeta("pi").id).toBe("pi");
         expect(runtimeMeta("PI").label).toBe("Pi");
-        expect(runtimeMeta("antigravity").id).toBe("antigravity");
-        expect(runtimeMeta("antigravity").label).toBe("Antigravity");
     });
 
     it("returns an unknown record for unknown/empty providers instead of claude", () => {

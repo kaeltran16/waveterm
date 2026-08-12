@@ -8,7 +8,7 @@
 // literals so Tailwind's source scanner emits the utilities.
 
 export interface RuntimeMeta {
-    id: "claude" | "codex" | "opencode" | "pi" | "antigravity" | "terminal" | "unknown";
+    id: "claude" | "codex" | "opencode" | "pi" | "terminal" | "unknown";
     label: string;
     glyph: string;
     text: string; // text-color utility (glyph/label tint)
@@ -48,14 +48,6 @@ const RUNTIMES: Record<string, RuntimeMeta> = {
         text: "text-rt-pi",
         softBg: "bg-rt-pi-soft",
         line: "border-rt-pi-line",
-    },
-    antigravity: {
-        id: "antigravity",
-        label: "Antigravity",
-        glyph: "△",
-        text: "text-rt-antigravity",
-        softBg: "bg-rt-antigravity-soft",
-        line: "border-rt-antigravity-line",
     },
     terminal: {
         id: "terminal",

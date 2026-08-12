@@ -6,7 +6,7 @@
 // view mounts. But that replay is a *fresh* session — it re-runs the original task prompt. As a running
 // Claude agent reports its live transcript via agent:status, we bake that session's `--resume <id>`
 // into the block's persisted cmd:args, so the very same relaunch reattaches to the session instead of
-// starting over. FE-only, no backend change; codex/antigravity keep restarting fresh.
+// starting over. FE-only, no backend change; codex keeps restarting fresh.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -20,8 +20,8 @@ const bakedResumeId = new Map<string, string>();
 
 // Pure: resume-on-reopen is Claude-, opencode-, and Pi-only, gated on the user's "Remember flags" New
 // Agent default. When that setting is off the user wants a clean slate, so the agent relaunches
-// fresh on reopen; when on (the default) reopening reattaches to the live session. codex and
-// antigravity always restart fresh.
+// fresh on reopen; when on (the default) reopening reattaches to the live session. codex
+// always restarts fresh.
 export function shouldPersistResume(provider: string | undefined, rememberFlags: boolean): boolean {
     const p = (provider ?? "").toLowerCase();
     return (p === "claude" || p === "opencode" || p === "pi") && rememberFlags === true;

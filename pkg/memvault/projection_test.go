@@ -54,10 +54,10 @@ func TestRenderFacts(t *testing.T) {
 	if strings.Contains(got, "Codex learned") {
 		t.Fatalf("echo rule violated — codex note projected back to codex:\n%s", got)
 	}
-	// same notes projected to agy DO include the codex-sourced note
-	agy := renderFacts("Krypton API", notes, "antigravity")
-	if !strings.Contains(agy, "Codex learned") {
-		t.Fatalf("codex note should project to agy:\n%s", agy)
+	// same notes projected to another lackey (pi) DO include the codex-sourced note
+	pi := renderFacts("Krypton API", notes, "pi")
+	if !strings.Contains(pi, "Codex learned") {
+		t.Fatalf("codex note should project to pi:\n%s", pi)
 	}
 }
 
@@ -109,9 +109,9 @@ func TestProjectToSteeringFiles(t *testing.T) {
 	if err := os.WriteFile(codex, []byte("# user steering\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	agy := filepath.Join(tmp, "GEMINI.md")
+	pi := filepath.Join(tmp, "PI.md")
 
-	targets := []steeringTarget{{runtime: "codex", path: codex}, {runtime: "antigravity", path: agy}}
+	targets := []steeringTarget{{runtime: "codex", path: codex}, {runtime: "pi", path: pi}}
 	if err := projectHubToTargets(hub, "krypton", targets); err != nil {
 		t.Fatalf("projectHubToTargets: %v", err)
 	}
@@ -120,9 +120,9 @@ func TestProjectToSteeringFiles(t *testing.T) {
 	if !strings.Contains(string(cb), "Prefer Postgres") || !strings.Contains(string(cb), "# user steering") {
 		t.Fatalf("codex steering wrong:\n%s", cb)
 	}
-	ab, err := os.ReadFile(agy) // agy file did not exist -> created
-	if err != nil || !strings.Contains(string(ab), "project=krypton") {
-		t.Fatalf("agy steering not created/written: err=%v\n%s", err, ab)
+	pb, err := os.ReadFile(pi) // pi file did not exist -> created
+	if err != nil || !strings.Contains(string(pb), "project=krypton") {
+		t.Fatalf("pi steering not created/written: err=%v\n%s", err, pb)
 	}
 }
 
@@ -130,13 +130,13 @@ func TestProjectionStatus(t *testing.T) {
 	tmp := t.TempDir()
 	codex := filepath.Join(tmp, "AGENTS.md")
 	os.WriteFile(codex, applySteeringRegionSeed("krypton"), 0o644)
-	agy := filepath.Join(tmp, "GEMINI.md") // absent
+	pi := filepath.Join(tmp, "PI.md") // absent
 
-	st := projectionStatusFor([]steeringTarget{{runtime: "codex", path: codex}, {runtime: "antigravity", path: agy}})
+	st := projectionStatusFor([]steeringTarget{{runtime: "codex", path: codex}, {runtime: "pi", path: pi}})
 	if st["codex"] != "krypton" {
 		t.Fatalf("codex status = %q, want krypton", st["codex"])
 	}
-	if _, ok := st["antigravity"]; ok {
+	if _, ok := st["pi"]; ok {
 		t.Fatalf("absent steering file should not appear in status")
 	}
 }

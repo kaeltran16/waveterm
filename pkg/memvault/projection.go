@@ -92,7 +92,7 @@ func applySteeringRegion(existing, label, body string) string {
 }
 
 type steeringTarget struct {
-	runtime string // "codex" | "antigravity" | "pi"
+	runtime string // "codex" | "pi"
 	path    string
 }
 
@@ -103,7 +103,6 @@ func steeringTargets() []steeringTarget {
 	home := wavebase.GetHomeDir()
 	return []steeringTarget{
 		{runtime: "codex", path: filepath.Join(home, ".codex", "AGENTS.md")},
-		{runtime: "antigravity", path: filepath.Join(home, ".gemini", "GEMINI.md")},
 		{runtime: "pi", path: filepath.Join(home, ".pi", "agent", "AGENTS.md")},
 	}
 }

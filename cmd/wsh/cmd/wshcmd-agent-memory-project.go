@@ -13,7 +13,7 @@ import (
 )
 
 // agentMemoryProjectCmd projects cwd's hub memory into the home-level steering files (codex /
-// antigravity / pi AGENTS.md + GEMINI.md). Called from the pi extension at session start so a pi
+// pi AGENTS.md). Called from the pi extension at session start so a pi
 // session always runs with the current project's memory projected; the FE also triggers it at
 // agent launch and from the manual sync button. Fail-safe like the memory hook: outside WaveTerm
 // (no JWT) it no-ops.

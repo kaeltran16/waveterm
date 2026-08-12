@@ -35,7 +35,6 @@ import { launchCandidates, projectsAtom, type LaunchCandidate } from "./projects
 const RUNTIMES: { id: Runtime; name: string; glyph: string }[] = [
     { id: "claude", name: "Claude Code", glyph: "✳" },
     { id: "codex", name: "Codex", glyph: "{ }" },
-    { id: "antigravity", name: "Antigravity", glyph: "◭" },
     { id: "opencode", name: "OpenCode", glyph: "◇" },
     { id: "pi", name: "Pi", glyph: "Pi" },
     { id: "terminal", name: "Terminal", glyph: "›_" },

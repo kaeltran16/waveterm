@@ -47,8 +47,8 @@ const h = (runtime: string, installed = true, runworkercapable = true): HarnessI
     ({ runtime, label: runtime, installed, consultcapable: true, runworkercapable }) as HarnessInfo;
 
 describe("resolveDefaultRuntime", () => {
-    // catalog order (harness.List() -> ListHarnessesCommand) — pi first after Task 1
-    const harnesses = [h("pi"), h("claude"), h("codex"), h("opencode"), h("antigravity")];
+    // catalog order (harness.List() -> ListHarnessesCommand) — pi first
+    const harnesses = [h("pi"), h("claude"), h("codex"), h("opencode")];
 
     it("prefers an explicit installed preference", () => {
         expect(resolveDefaultRuntime("codex", harnesses)).toBe("codex");

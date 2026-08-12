@@ -63,8 +63,6 @@ wshrpc commands: `ConsultCommand`, `ConsultRuntimesCommand`, `CreateChannelComma
 - **Two transports.** Consult and Jarvis ride the **websocket** (`TabRpcClient`); dispatch's
   `CreateTab` is an **HTTP** service call. A half-dead backend can serve consults but fail dispatch —
   a useful signal when triage disagrees.
-- **`agy` positional quirk.** Antigravity dispatch must use `agy -i <task>`; a bare positional prompt
-  is ignored by the `agy` CLI (handled in `buildLaunchMeta`).
 - **OpenCode consult is JSONL.** `ask @opencode` runs `opencode run --format json`, whose stdout is
   one event per line; assistant text arrives as `text` events and everything else is skipped. The
   worker's shadow transcript lives at `~/.local/share/opencode/waveterm/<sessionID>.jsonl` (the

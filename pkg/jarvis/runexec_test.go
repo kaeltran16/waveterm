@@ -23,7 +23,6 @@ func TestRunWorkerSpecFor(t *testing.T) {
 		{"codex", "codex", []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
 		{"opencode", "opencode", []string{"--auto", "--prompt", "do work"}},
 		{"pi", "pi", []string{"do work"}},
-		{"antigravity", "agy", []string{"--dangerously-skip-permissions", "-i", "do work"}},
 	}
 	for _, tt := range tests {
 		spec, ok := RunWorkerSpecFor(tt.runtime, "do work")

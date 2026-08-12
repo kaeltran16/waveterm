@@ -99,7 +99,7 @@ Three things to read here:
 | `@run <goal>` | the same, explicit |
 | `@quick <goal>` | one worker, no phases |
 | `@ask <goal>` | one-shot consult, **no run** — lands in the rail's **Consults** |
-| `@ask codex <goal>` | same, runtime override (`claude` / `codex` / `antigravity`) |
+| `@ask codex <goal>` | same, runtime override (`claude` / `codex` / `opencode` / `pi`) |
 
 `Run ⏎` or `Enter` dispatches. **Not pictured:** once the run has a live worker the composer flips itself
 to the **Talk** face, the chip turns green and reads `<worker> · run <id>`, and typing injects a follow-up

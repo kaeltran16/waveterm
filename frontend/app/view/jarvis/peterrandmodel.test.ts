@@ -5,7 +5,6 @@ const harnesses: HarnessInfo[] = [
     { runtime: "claude", label: "Claude Code", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "codex", label: "Codex", installed: true, consultcapable: true, runworkercapable: true },
     { runtime: "opencode", label: "OpenCode", installed: true, consultcapable: true, runworkercapable: true },
-    { runtime: "antigravity", label: "Antigravity", installed: true, consultcapable: true, runworkercapable: true },
 ];
 
 describe("petErrandState", () => {

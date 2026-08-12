@@ -43,7 +43,7 @@ export function timeLabel(ts: number, now: number): string {
 }
 
 // 32px rounded avatar. Jarvis (the manager) gets a diamond glyph on an accent gradient; a runtime
-// author (claude/codex/antigravity) gets its real brand mark on a white logo-tile (initials are
+// author (claude/codex) gets its real brand mark on a white logo-tile (initials are
 // ambiguous — claude and codex both start with "C"); everyone else gets a deterministically-colored initial.
 export function Avatar({ name }: { name: string }) {
     if (name.toLowerCase() === "jarvis") {

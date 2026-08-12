@@ -18,7 +18,6 @@ func TestSpecFor_knownRuntimes(t *testing.T) {
 	}{
 		"claude":      {"claude", "-p"},
 		"codex":       {"codex", "exec"},
-		"antigravity": {"agy", "-p"},
 		"opencode":    {"opencode", "run"},
 	}
 	for rt, want := range cases {
@@ -175,7 +174,7 @@ func TestOpencodeParseLine_extractsText(t *testing.T) {
 }
 
 func TestCleanTUI_stripsAnsiAndBoxDrawing(t *testing.T) {
-	// agy renders a repainting TUI over a pty: ANSI CSI, OSC, box-drawing, CR repaints.
+	// a TUI-style runtime repaints: ANSI CSI, OSC, box-drawing, CR repaints.
 	raw := "\x1b[2J\x1b[H┌────────┐\r\n│ working…│\r\x1b[32mpong\x1b[0m\r\n└────────┘"
 	got := cleanTUI(raw)
 	if !strings.Contains(got, "pong") {
@@ -197,10 +196,6 @@ func TestSpecFor_streamingModes(t *testing.T) {
 	claude, _ := SpecFor("claude")
 	if claude.ParseLine == nil {
 		t.Error("claude should use JSONL line parsing (stream-json)")
-	}
-	agy, _ := SpecFor("antigravity")
-	if !agy.UsePty {
-		t.Error("agy must run under a pty (upstream non-TTY stdout bug antigravity-cli#76)")
 	}
 
 	opencode, _ := SpecFor("opencode")
@@ -243,7 +238,7 @@ func TestSpecForTier_neverMutatesTheSharedSpec(t *testing.T) {
 
 func TestSpecForTier_nonClaudeRuntimesAreUnchanged(t *testing.T) {
 	// only claude has a --model contract here; a tier must not invent flags for the others.
-	for _, rt := range []string{"codex", "antigravity", "opencode"} {
+	for _, rt := range []string{"codex", "opencode"} {
 		base, _ := SpecFor(rt)
 		spec, ok := SpecForTier(rt, TierCheap)
 		if !ok {

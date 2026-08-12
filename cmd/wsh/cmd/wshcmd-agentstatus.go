@@ -49,7 +49,7 @@ func init() {
 	rootCmd.AddCommand(agentStatusCmd)
 	agentStatusCmd.Flags().StringVar(&agentStatusState, "state", "", "agent state: working | waiting | idle")
 	agentStatusCmd.Flags().StringVar(&agentStatusDetail, "detail", "", "activity detail line (e.g. \"editing foo.go\")")
-	agentStatusCmd.Flags().StringVar(&agentStatusAgent, "agent", "", "agent identity (claude | codex | opencode | pi | antigravity)")
+	agentStatusCmd.Flags().StringVar(&agentStatusAgent, "agent", "", "agent identity (claude | codex | opencode | pi)")
 	agentStatusCmd.Flags().StringVar(&agentStatusModel, "model", "", "resolved model id (e.g. claude-sonnet-4-6)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTitle, "title", "", "agent ai-title / task summary (used as the sidebar tab label)")
 	agentStatusCmd.Flags().StringVar(&agentStatusTranscript, "transcript", "", "path to the agent's transcript JSONL (for previous-info projection)")

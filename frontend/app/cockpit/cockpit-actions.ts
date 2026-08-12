@@ -83,7 +83,7 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     // current brain and any just-harvested facts also reach the other lackeys. One fire-and-forget
     // chain — never blocks the launch; each step is independently guarded. Terminals have no memory
     // and claude IS the hub, so neither is synced here.
-    if (opts.runtime === "codex" || opts.runtime === "antigravity") {
+    if (opts.runtime === "codex") {
         void (async () => {
             try {
                 await RpcApi.MemoryHarvestCommand(TabRpcClient, { cwd });

@@ -33,7 +33,6 @@ const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i
 const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
     { id: "claude", name: "Claude Code" },
     { id: "codex", name: "Codex" },
-    { id: "antigravity", name: "Antigravity" },
     { id: "opencode", name: "OpenCode" },
     { id: "pi", name: "Pi" },
 ];
