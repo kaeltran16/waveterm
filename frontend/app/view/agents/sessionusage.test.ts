@@ -28,6 +28,29 @@ describe("aggregateSessionUsage", () => {
         expect(s.classes.map((c) => c.cls)).toEqual(["cacheRead", "reasoning", "output", "cacheWrite", "input"]);
     });
 
+    it("reportedTotalUsd is undefined when no bucket reports cost", () => {
+        const s = aggregateSessionUsage([
+            bkt({ input: 1_000_000, output: 1_000_000, cacheread: 1_000_000, cachecreate: 1_000_000 }),
+        ]);
+        expect(s.reportedTotalUsd).toBeUndefined();
+        // headline falls back to the estimate
+        expect(s.totalSpendUsd).toBeCloseTo(5 + 25 + 0.5 + 6.25, 5);
+    });
+
+    it("sums reported cost across buckets (pi/opencode records) and keeps the estimate separate", () => {
+        const s = aggregateSessionUsage([
+            bkt({ harness: "pi", provider: "anthropic", model: "claude-opus-4-8", input: 1_000_000, output: 1_000_000, reportedcostusd: 8.4 }),
+            bkt({ harness: "pi", provider: "anthropic", model: "claude-sonnet-4-5", input: 1_000_000, reportedcostusd: 1.6 }),
+        ]);
+        expect(s.reportedTotalUsd).toBeCloseTo(10, 5);
+        expect(s.totalSpendUsd).toBeGreaterThan(0); // estimate still computed for bars/insight
+    });
+
+    it("keeps a reported zero distinct from absent (pi priced the model at 0)", () => {
+        const s = aggregateSessionUsage([bkt({ input: 1_000_000, reportedcostusd: 0 })]);
+        expect(s.reportedTotalUsd).toBe(0);
+    });
+
     it("folds one model: per-class tokens + opus-priced spend + derived insight", () => {
         // opus prices ($/MTok): input 5, output 25, cacheRead 0.5, cacheWrite5m 6.25
         const s = aggregateSessionUsage([

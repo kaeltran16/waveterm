@@ -23,7 +23,8 @@ export interface SessionInsight {
 
 export interface SessionUsage {
     totalTokens: number;
-    totalSpendUsd: number;
+    totalSpendUsd: number; // client-side estimate (usagepricing table); bars/insight use this
+    reportedTotalUsd?: number; // summed reported cost from transcripts that carry one (pi/opencode); undefined when none
     classes: ClassUsage[]; // fixed CLASS_ORDER
     models: SessionModelUsage[]; // desc by tokens
     insight: SessionInsight | null; // null when the session has no tokens
@@ -36,9 +37,13 @@ function zeroClasses(): Record<TokenClass, number> {
 export function aggregateSessionUsage(buckets: UsageBucket[]): SessionUsage {
     const tok = zeroClasses();
     const spd = zeroClasses();
+    let reportedTotal: number | undefined;
     const byModel = new Map<string, { tokens: number; spend: number; classes: Record<TokenClass, number> }>();
 
     for (const b of buckets) {
+        if (b.reportedcostusd !== undefined) {
+            reportedTotal = (reportedTotal ?? 0) + b.reportedcostusd;
+        }
         const sb = spendBreakdown({
             ts: 0,
             harness: b.harness,
@@ -97,5 +102,5 @@ export function aggregateSessionUsage(buckets: UsageBucket[]): SessionUsage {
         };
     }
 
-    return { totalTokens, totalSpendUsd, classes, models, insight };
+    return { totalTokens, totalSpendUsd, reportedTotalUsd: reportedTotal, classes, models, insight };
 }

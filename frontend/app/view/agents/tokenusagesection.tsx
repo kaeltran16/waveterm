@@ -47,9 +47,11 @@ export function TokenUsageSection() {
         );
     }
 
-    const { classes, models, insight, totalTokens, totalSpendUsd } = usage;
+    const { classes, models, insight, totalTokens, totalSpendUsd, reportedTotalUsd } = usage;
     const single = models.length === 1;
     const topLabel = insight ? classes.find((c) => c.cls === insight.topCostClass)?.label ?? "" : "";
+    const headlineUsd = reportedTotalUsd !== undefined ? usd(reportedTotalUsd) : `≈ ${usd(totalSpendUsd)}`;
+    const headlineCaption = reportedTotalUsd !== undefined ? "reported" : "API-equivalent";
 
     return (
         <div>
@@ -65,8 +67,8 @@ export function TokenUsageSection() {
                     <div className="mt-[4px] font-mono text-[10px] text-muted">total tokens</div>
                 </div>
                 <div className="text-right">
-                    <div className="font-mono text-[22px] font-bold leading-none text-success">≈ {usd(totalSpendUsd)}</div>
-                    <div className="mt-[4px] font-mono text-[10px] text-muted">API-equivalent</div>
+                    <div className="font-mono text-[22px] font-bold leading-none text-success">{headlineUsd}</div>
+                    <div className="mt-[4px] font-mono text-[10px] text-muted">{headlineCaption}</div>
                 </div>
             </div>
 
