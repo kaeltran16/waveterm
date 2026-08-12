@@ -41,7 +41,7 @@ Package selection for the pi agent, decided 2026-08-11, all installed into
 | `pi-subagents` (nicopreme) | Standalone delegation (scout/worker/reviewer/oracle) | No — standalone capability; TaskExecute intentionally unused (Arc brings orchestration) |
 | `pi-web-access` | Web research for the model | No |
 | `pi-lens` | LSP/lint/type-check feedback | No |
-| `@juicesharp/rpiv-ask-user-question` | Questionnaire tool | **Yes — ask bridge replaces its terminal rendering in-arc** |
+| `@juicesharp/rpiv-ask-user-question` | Questionnaire tool | **Yes — ask bridge intercepts its tool call in-arc** (rpiv keeps the single `ask_user_question`; Arc's `tool_call` intercept blocks with the Wave answer as the reason — no duplicate-tool conflict) |
 
 Why pi-tasks over rpiv-todo (the popular alternative): rpiv-todo's state is rebuilt from
 the conversation branch with no disk writes — structurally unintegrable; pi-tasks'
@@ -85,9 +85,12 @@ Findings (grounded in source, 2026-08-11):
   rpiv-ask-user-question tool is the template.
 
 **Shape:** an Arc-side blocking answer return (e.g., `wsh ask --wait`: register, block
-until answered, emit answers as JSON on stdout) plus a pi extension tool that calls it via
-`pi.exec()`. The extension lives in the repo's `pi/` package (Part D) and is provisioned
-by `wsh install-agent-hooks`.
+until answered, emit answers as JSON on stdout) plus a pi extension `tool_call` intercept
+(pi's PreToolUse analog) that calls it via `pi.exec()` and blocks the rpiv package's
+`ask_user_question` call with the Wave answer as the reason. The extension lives in the
+repo's `pi/` package (Part D) and is provisioned by `wsh install-agent-hooks`. Note:
+pi **hard-fails on duplicate tool names** (verified 2026-08-12), so Arc must NOT register
+its own `ask_user_question` — the intercept is the only conflict-free shape.
 
 **Open questions for the F spec:**
 - wait-mode delivery: parallel resolve path for waiters vs extending `DeliverAnswer`

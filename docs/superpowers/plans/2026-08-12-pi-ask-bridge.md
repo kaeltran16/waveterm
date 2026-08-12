@@ -4,9 +4,9 @@
 
 **Goal:** Route pi's `ask_user_question` tool calls through the cockpit attention list — questions surface in the Wave Agents panel, answers/dismiss/abort return to the tool call — with previews rendered end-to-end and a dismiss button on the answer surface.
 
-**Architecture:** `pkg/agentask` gains a waiter registry (askId → buffered chan). `wsh ask --wait` registers the pending ask (existing flow) plus a waiter, then blocks on the RPC until resolved or the context dies. `DeliverAnswer` claims as today, then resolves the waiter instead of injecting keystrokes when one exists (pi has no native picker); no waiter → the CC keystroke path is untouched. `AgentAskClearCommand` resolves waiters as cancelled (dismiss path). A pi extension registers the canonical `ask_user_question` tool, invokes `pi.exec(wsh, ["ask","--wait","--questions-json",payload], {signal})` (argv because pi's exec stdin is ignored), and maps the JSON result onto the rpiv-shaped tool envelope. Previews flow baseds → generated bindings → VM → answerbar side-by-side layout.
+**Architecture:** `pkg/agentask` gains a waiter registry (askId → buffered chan). `wsh ask --wait` registers the pending ask (existing flow) plus a waiter, then blocks on the RPC until resolved or the context dies. `DeliverAnswer` claims as today, then resolves the waiter instead of injecting keystrokes when one exists (pi has no native picker); no waiter → the CC keystroke path is untouched. `AgentAskClearCommand` resolves waiters as cancelled (dismiss path). The rpiv-ask-user-question package owns the single `ask_user_question` tool; Arc's `pi/extensions/waveterm-ask.ts` registers **no tool** and instead intercepts `pi.on("tool_call")` (pi's PreToolUse analog): in a Wave block it invokes `pi.exec(wsh, ["ask","--wait","--questions-json",payload], {signal})` (argv because pi's exec stdin is ignored) and returns `{block:true, reason:<answer envelope>}` so the call becomes an error tool result carrying the answers — CC deny+reason parity, no duplicate-tool load failure; outside a Wave block it returns `undefined` and rpiv's terminal questionnaire renders. Previews flow baseds → generated bindings → VM → answerbar side-by-side layout.
 
-**Tech Stack:** Go (wavesrv + wsh, `task generate` for bindings), React 19 + jotai (answerbar.tsx), pi extension API (`pi.registerTool`/`pi.exec`), vitest for pure logic, `task verify:ui` for visuals.
+**Tech Stack:** Go (wavesrv + wsh, `task generate` for bindings), React 19 + jotai (answerbar.tsx), pi extension API (`pi.on("tool_call")` intercept + `pi.exec`), vitest for pure logic, `task verify:ui` for visuals.
 
 ## Global Constraints
 
@@ -945,8 +945,8 @@ Expected: clean (run `npx prettier --write` on those files if not).
 - Modify: `pi/package.json` (`pi.extensions`)
 
 **Interfaces:**
-- Consumes: Task 3's CLI contract (`wsh ask --wait --questions-json <json>` → stdout `{"answers":[…],"cancelled":bool}`); `pi.registerTool`, `pi.exec` (returns `{stdout, stderr, code, killed}`, accepts `{signal}`).
-- Produces (used by Task 7): the `ask_user_question` tool (canonical name — arc's global-extension copy shadows rpiv via first-wins load order); core exports `buildAskPayload(questions): string`, `parseAskResult(stdout): AskResult`, `buildAskEnvelope(result, questions)`, `DECLINE_MESSAGE`/`ENVELOPE_PREFIX`/`ENVELOPE_SUFFIX`.
+- Consumes: Task 3's CLI contract (`wsh ask --wait --questions-json <json>` → stdout `{"answers":[…],"cancelled":bool}`); `pi.on("tool_call")` intercept (returns `{block:true, reason}` or `undefined`), `pi.exec` (returns `{stdout, stderr, code, killed}`, accepts `{signal}`).
+- Produces (used by Task 7): the `tool_call` interceptor (no tool registration — rpiv keeps the single `ask_user_question`); core exports `buildAskPayload(questions): string`, `parseAskResult(stdout): AskResult`, `buildAskEnvelope(result, questions)`, `DECLINE_MESSAGE`/`ENVELOPE_PREFIX`/`ENVELOPE_SUFFIX`.
 
 - [ ] **Step 1: Write the failing tests** — `pi/extensions/waveterm-ask-core.test.ts` (mirrors `waveterm-tools-core.test.ts` style — plain vitest, no imports outside the module):
 
@@ -1138,101 +1138,58 @@ export default function wavetermAskCore(): void {
 Run: `npx vitest run pi/extensions/waveterm-ask-core.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Write the extension** — `pi/extensions/waveterm-ask.ts` (mirrors `waveterm-tools.ts`'s structure; `__WSH_PATH__` is substituted at install time):
+- [ ] **Step 5: Write the extension** — `pi/extensions/waveterm-ask.ts` (event-handler structure mirrors `waveterm-status.ts`; `__WSH_PATH__` is substituted at install time). **Does NOT register a tool** — the rpiv package owns the single `ask_user_question` (registering a second would make pi hard-fail with a duplicate-tool conflict). Instead it intercepts `pi.on("tool_call")` (pi's PreToolUse analog) and blocks with the Wave answer as the reason:
 
 ```ts
 // pi extension: the ask bridge (workstream F). Installed by `wsh install-agent-hooks` into
 // ~/.pi/agent/extensions/waveterm-ask.ts with __WSH_PATH__ substituted for the absolute wsh
-// path. Registers the canonical ask_user_question tool; questions surface in the Wave Agents
-// panel (attention list) instead of pi's terminal questionnaire. Bare pi outside a Wave block
-// fails closed with a plain-text fallback instruction.
-import { Type } from "typebox";
+// path.
+//
+// This extension does NOT register a tool. The @juicesharp/rpiv-ask-user-question package owns
+// the single `ask_user_question` tool (its terminal questionnaire is the bare-pi fallback, the
+// way Claude Code's built-in AskUserQuestion prompt is the fallback there). Registering a second
+// `ask_user_question` would make pi hard-fail on the duplicate name.
+//
+// Instead it intercepts the `tool_call` event — pi's analog of Claude Code's PreToolUse hook.
+// When running inside a Wave block (WAVETERM_BLOCKID set), it runs `wsh ask --wait` and returns
+// `{ block: true, reason: <answer envelope> }`: the call becomes an error tool result whose text
+// is the reason, the rpiv tool's own execute never runs, and the terminal questionnaire never
+// renders. Outside a Wave block it returns `undefined`, so the rpiv terminal questionnaire runs
+// untouched.
 import { buildAskEnvelope, buildAskPayload, parseAskResult } from "./waveterm-ask-core";
 
-export function registerAskTool(pi: any, wshPath: string): void {
-    pi.registerTool({
-        name: "ask_user_question",
-        label: "Ask User Question (Wave)",
-        description: `Ask the user one or more structured questions during execution. Use when you need to:
-1. Gather user preferences or requirements
-2. Clarify ambiguous instructions
-3. Get decisions on implementation choices as you work
-4. Offer choices to the user about what direction to take
+export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
 
-The questions surface in the Wave Agents panel; the user answers there and the tool resumes with the answers.
-
-Usage notes:
-- Each question MUST have 2-4 options. Every option requires a concise label (1-5 words) and a description explaining what the choice means or its trade-offs. The user can additionally type a custom answer via the automatically appended "Type something." row on every question, or dismiss the ask (which returns a decline). Do NOT author "Other" or "Type something." labels yourself.
-- Use multiSelect: true when multiple answers are valid. Provide an options[].preview markdown string when an option benefits from richer side-by-side context (mockups, code snippets, diagrams, configs) — single-select only; the preview panel shows the focused option.
-- Do not stack multiple ask_user_question calls back-to-back — group all clarifying questions into one invocation.`,
-        promptSnippet:
-            "Ask the user up to 4 structured questions (2-4 options each) when requirements are ambiguous",
-        promptGuidelines: [
-            "Use ask_user_question whenever the user's request is underspecified and you cannot proceed without concrete decisions.",
-            "Questions render in the Wave Agents panel, not the terminal questionnaire.",
-            "preview is supported for single-select questions only; the panel shows the focused option's preview.",
-        ],
-        parameters: Type.Object({
-            questions: Type.Array(
-                Type.Object({
-                    question: Type.String({ description: "The complete question to ask" }),
-                    header: Type.Optional(
-                        Type.String({ description: "Short tag shown next to the question (max 16 chars)" })
-                    ),
-                    multiSelect: Type.Optional(
-                        Type.Boolean({ description: "Allow multiple answers (default false)" })
-                    ),
-                    options: Type.Array(
-                        Type.Object({
-                            label: Type.String({ description: "Concise label (1-5 words, max 60 chars)" }),
-                            description: Type.Optional(
-                                Type.String({ description: "What this choice means or its trade-offs" })
-                            ),
-                            preview: Type.Optional(
-                                Type.String({
-                                    description:
-                                        "Markdown content shown beside the option list (single-select only)",
-                                })
-                            ),
-                        }),
-                        { minItems: 2, maxItems: 4 }
-                    ),
-                }),
-                { minItems: 1, maxItems: 4 }
-            ),
-        }),
-        async execute(_toolCallId: string, params: any, signal: AbortSignal): Promise<unknown> {
-            const payload = buildAskPayload(params.questions);
-            try {
-                const { stdout, killed } = await pi.exec(
-                    wshPath,
-                    ["ask", "--wait", "--questions-json", payload],
-                    { signal }
-                );
-                if (killed) {
-                    // user aborted the tool call (Esc) — same decline signal as dismissing
-                    return buildAskEnvelope({ answers: [], cancelled: true }, params.questions);
-                }
-                return buildAskEnvelope(parseAskResult(stdout), params.questions);
-            } catch (e) {
-                // not in a Wave block, wsh missing, RPC failure — fail closed: the user never
-                // saw the questions, so the model must re-ask them as plain chat text.
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Error: Wave ask unavailable (${String(e)}). The user never saw the questions — do NOT treat this as a decline. Ask the questions as plain chat text instead.`,
-                        },
-                    ],
-                    details: { answers: [], cancelled: true },
-                };
-            }
-        },
+export function registerAskIntercept(pi: any, wshPath: string): void {
+    pi.on("tool_call", async (event: any, ctx: any) => {
+        if (event?.toolName !== ASK_USER_QUESTION_TOOL_NAME) return undefined;
+        // Bare pi outside a Wave block: let the rpiv terminal questionnaire run.
+        if (!process.env.WAVETERM_BLOCKID) return undefined;
+        const questions = event?.input?.questions;
+        if (!Array.isArray(questions) || questions.length === 0) return undefined;
+        const payload = buildAskPayload(questions);
+        try {
+            const { stdout, killed } = await pi.exec(wshPath, ["ask", "--wait", "--questions-json", payload], {
+                signal: ctx?.signal,
+            });
+            const result = killed ? { answers: [], cancelled: true } : parseAskResult(stdout);
+            const envelope = buildAskEnvelope(result, questions);
+            // block + reason = the model receives the answers as the tool result (CC deny+reason
+            // parity). The "Error:" prefix the terminal adds is parsed as an answer, same as CC.
+            return { block: true, reason: envelope.content[0].text };
+        } catch (e) {
+            // In a Wave block but wsh/RPC failed — fail closed: the user never saw the
+            // questions, so the model must re-ask them as plain chat text.
+            return {
+                block: true,
+                reason: `Error: Wave ask unavailable (${String(e)}). The user never saw the questions — do NOT treat this as a decline. Ask the questions as plain chat text instead.`,
+            };
+        }
     });
 }
 
 export default function wavetermAsk(pi: any): void {
-    registerAskTool(pi, "__WSH_PATH__");
+    registerAskIntercept(pi, "__WSH_PATH__");
 }
 ```
 
@@ -1269,7 +1226,7 @@ Expected: exit 0.
 
 **Interfaces:**
 - Consumes: Task 6's `pi/extensions/waveterm-ask.ts` + `waveterm-ask-core.ts`.
-- Produces: `wsh install-agent-hooks` installs `~/.pi/agent/extensions/waveterm-ask.ts` (+ core) with the wsh path substituted — the arc tool shadows rpiv's `ask_user_question` via pi's global-extensions-first load order.
+- Produces: `wsh install-agent-hooks` installs `~/.pi/agent/extensions/waveterm-ask.ts` (+ core) with the wsh path substituted — the `tool_call` intercept sits beside the rpiv package's tool registration (no name conflict).
 
 - [ ] **Step 1: Taskfile sync entries** — in `Taskfile.yml` `sync:piartifacts`, add to `cmds` (after the existing four `cp` lines):
 
@@ -1388,7 +1345,7 @@ Expected: exit 0.
 
 - [ ] **Step 2: Live round-trip (requires `task dev` + pi installed)**
 
-In a Wave block, run a pi session and prompt it to call `ask_user_question` (or run a scratch session with the extension loaded). Verify: the question appears in the Agents panel attention list; answering resumes the tool with the envelope text; dismissing returns `User declined to answer questions`; Esc during the tool call cancels; with `@juicesharp/rpiv-ask-user-question` also installed, the arc tool wins (first-wins load order — the panel shows the ask, not pi's TUI overlay). Report what was and wasn't verified.
+In a Wave block, run a pi session and prompt it to call `ask_user_question` (or run a scratch session with the extension loaded). Verify: the question appears in the Agents panel attention list; answering resumes the tool with the envelope text; dismissing returns `User declined to answer questions`; Esc during the tool call cancels; with `@juicesharp/rpiv-ask-user-question` also installed, pi starts with no duplicate-tool load failure and the panel shows the ask (the `tool_call` intercept blocks it, not pi's TUI overlay); bare pi → rpiv's terminal questionnaire renders. Report what was and wasn't verified.
 
 - [ ] **Step 3: Self-review the diff**
 

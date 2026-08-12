@@ -14,8 +14,9 @@
 When a pi agent running inside a Wave block calls its `ask_user_question` tool, the
 questions surface in the cockpit attention list (the existing `agent:ask` overlay), the
 human answers or dismisses there, and the tool call resumes with the answers — no
-terminal questionnaire. Bare pi (outside a Wave block) fails closed with a plain-text
-fallback. Claude Code's existing ask flow is untouched.
+terminal questionnaire. Bare pi (outside a Wave block) keeps the rpiv package's terminal
+questionnaire — the CC model, where Wave's hook intercepts only when present and the
+built-in prompt is the fallback. Claude Code's existing ask flow is untouched.
 
 ## 2. Ground truth (verified against source, 2026-08-12)
 
@@ -41,13 +42,12 @@ options, header ≤16 chars, label ≤60 chars (`tool/types.ts`).
   (`dist/core/exec.js`) — **stdin is ignored**, so the tool payload cannot be piped; it
   travels as an argv flag (`--questions-json`). Real asks (~2–4KB) are far under the 32K
   Windows argv ceiling.
-- pi resolves duplicate tool names **first-registration-wins** across extensions
-  (`dist/core/extensions/runner.js` `getAllRegisteredTools`), and loads
-  **project-local `.pi/extensions/` → global `~/.pi/agent/extensions/` → configured
-  paths (settings.packages)** in that order (`dist/core/extensions/loader.js`
-  `discoverAndLoadExtensions`). Arc's installed global extension therefore shadows the
-  rpiv package's `ask_user_question` wherever both exist — the "replaces terminal
-  rendering in-arc" goal falls out of load order, no configuration needed.
+- pi **hard-fails on a duplicate tool name** across extensions — the loader rejects the
+  second registrant with `Tool "X" conflicts with <path>` (verified 2026-08-12 against
+  0.84.1: the original arc-tool-registers-`ask_user_question` design never loaded when
+  the rpiv package was also installed). Arc's extension therefore **must not register a
+  tool**; it intercepts instead (see §7). rpiv stays the single owner of
+  `ask_user_question`.
 - The wshrpc ask model (`pkg/wshrpc/wshrpctypes_ask.go`, `pkg/baseds/baseds.go:127`)
   has **no preview field** on `AgentAskOption` (CC parity), and the cockpit answer
   surface (`frontend/app/view/agents/answerbar.tsx`) has **no dismiss control** — both
@@ -60,7 +60,7 @@ options, header ≤16 chars, label ≤60 chars (`tool/types.ts`).
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Tool name | `ask_user_question` (canonical) | Arc's global-extension copy loads before packages, so first-wins shadowing gives the replacement behavior; rpiv stays reachable in bare pi |
+| Tool name | `ask_user_question` (single owner: rpiv) | Arc registers **no tool**. Arc intercepts the `tool_call` event (pi's PreToolUse analog): in a Wave block it blocks the call with the Wave answer as the reason (`{block:true, reason}` → the call becomes an error tool result whose text is the reason, the tool's own `execute` never runs — CC deny+reason parity); outside a Wave block it returns `undefined` and rpiv's terminal questionnaire renders |
 | Previews | **carry end-to-end** | `preview` on options flows through wshrpc → generated bindings → answerbar side-by-side layout (rpiv rule: single-select only) |
 | Cockpit cancel | **dismiss button** on the answer surface | Clears the panel via `AgentAskClearCommand`; a pi waiter resolves as cancelled; CC's terminal picker is unaffected |
 | Wait-mode delivery | **waiter registry consulted inside `DeliverAnswer`** | Single delivery decision point preserves claim/idempotence; Gatekeeper deliveries resolve waiters too (it calls `DeliverAnswer`) |
@@ -144,15 +144,19 @@ Then `task generate` (wshrpc domain change → regenerated `wshclientapi.ts`,
 
 ## 7. Pi extension + provisioning
 
-`pi/extensions/waveterm-ask.ts` — registers `ask_user_question` (rpiv-compatible
-`QuestionParamsSchema` shape including `preview`; adapted promptSnippet/promptGuidelines
-stating questions surface in the Wave Agents panel, previews are single-select only).
-`execute`: build the payload via the core module → `pi.exec(wshPath, ["ask", "--wait",
-"--questions-json", payload], {signal})` → parse stdout → rpiv-shaped envelope. Failure
-modes mirror `waveterm-tools.ts`'s fail-closed pattern: not in a Wave block / RPC error
-→ error text telling the model to ask the questions as plain chat text instead;
-`signal` abort (user Esc's the tool call) → killed child → cancelled envelope
-("User declined to answer questions", `{answers: [], cancelled: true}`).
+`pi/extensions/waveterm-ask.ts` — **intercepts, does not register a tool.** The rpiv
+package owns the single `ask_user_question` tool (its terminal questionnaire is the bare-pi
+fallback). This extension registers `pi.on("tool_call", ...)` (pi's PreToolUse analog) that,
+when `event.toolName === "ask_user_question"` and `WAVETERM_BLOCKID` is set, builds the payload
+via the core module → `pi.exec(wshPath, ["ask", "--wait", "--questions-json", payload],
+{signal})` → parses stdout → returns `{block: true, reason: <envelope text>}`. The call becomes
+an error tool result whose text is the reason, so the model receives the answers exactly as CC's
+deny+reason hook delivers them (the "Error:" prefix parses as the answer). `signal` abort (user
+Esc's the tool call) → killed child → cancelled envelope ("User declined to answer questions",
+`{answers: [], cancelled: true}`). Failure modes mirror `waveterm-tools.ts`'s fail-closed
+pattern: in a Wave block but wsh/RPC failed → block with error text telling the model to ask the
+questions as plain chat text instead. Outside a Wave block (no `WAVETERM_BLOCKID`) → return
+`undefined`, letting the rpiv terminal questionnaire run untouched.
 
 `pi/extensions/waveterm-ask-core.ts` — pure functions, vitest-tested beside the file
 (pattern: `waveterm-tools-core.ts` + its `.test.ts`):
@@ -198,8 +202,9 @@ Provisioning (Part D pattern):
   dismiss control via `task verify:ui` (contact sheet in `cdp-shots/index.html`).
 - Live round-trip (needs `task dev` + a pi session in a Wave block): ask → answer in
   the panel → tool resumes with answers; dismiss → declined envelope; Esc abort →
-  declined envelope; both rpiv + arc installed → arc's tool wins; bare pi → plain-text
-  fallback.
+  declined envelope; both rpiv + arc installed → no duplicate-tool load failure, the
+  panel shows the ask (intercept fires), not pi's TUI overlay; bare pi → rpiv's
+  terminal questionnaire renders.
 
 ## 10. Sequencing
 
