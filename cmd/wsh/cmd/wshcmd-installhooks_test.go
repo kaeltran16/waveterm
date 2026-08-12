@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -472,5 +473,117 @@ func TestInstallPiMemoryExtension_rewritesChangedPath(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "registerWavetermMemory(pi, "+jsonString(fakeWshPath(t))+")") {
 		t.Fatalf("new wsh path not written:\n%s", string(body))
+	}
+}
+
+func TestInstallPiTheme(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	if err := installPiTheme(home); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	path := filepath.Join(home, ".pi", "agent", "themes", "arc.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("theme not written: %v", err)
+	}
+	var theme map[string]any
+	if err := json.Unmarshal(b, &theme); err != nil {
+		t.Fatalf("theme not valid json: %v", err)
+	}
+	if theme["name"] != "arc" {
+		t.Fatalf("theme name = %v, want arc", theme["name"])
+	}
+	// idempotent: second run rewrites nothing and reports no error
+	if err := installPiTheme(home); err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+}
+
+func TestMergePiSettingsDefaults(t *testing.T) {
+	home := t.TempDir()
+	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	// pre-existing user config: theme already set, packages carry a user entry but not arc's,
+	// defaultProvider preserved.
+	os.WriteFile(settingsPath, []byte(`{"theme": "cc-dark", "packages": ["npm:pi-tasks"], "defaultProvider": "opencode-go"}`), 0o644)
+
+	installed, skipped, err := mergePiSettingsDefaults(home)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if len(skipped) != 1 || skipped[0] != "theme" {
+		t.Fatalf("skipped = %v, want [theme] (packages gets the arc entry appended)", skipped)
+	}
+	if len(installed) != 1 || installed[0] != "packages" {
+		t.Fatalf("installed = %v, want [packages]", installed)
+	}
+	got, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	var s struct {
+		Theme           string   `json:"theme"`
+		DefaultProvider string   `json:"defaultProvider"`
+		Packages        []string `json:"packages"`
+	}
+	if err := json.Unmarshal(got, &s); err != nil {
+		t.Fatalf("parse settings: %v", err)
+	}
+	if s.Theme != "cc-dark" {
+		t.Fatalf("theme clobbered: %v", s.Theme)
+	}
+	if s.DefaultProvider != "opencode-go" {
+		t.Fatalf("defaultProvider clobbered: %v", s.DefaultProvider)
+	}
+	// user entry preserved; arc entry appended once
+	if len(s.Packages) != 2 || s.Packages[0] != "npm:pi-tasks" || s.Packages[1] != arcPackageEntry {
+		t.Fatalf("packages = %v, want [npm:pi-tasks %s]", s.Packages, arcPackageEntry)
+	}
+
+	// second run is a full no-op: theme and packages are now both present
+	installed2, skipped2, err := mergePiSettingsDefaults(home)
+	if err != nil {
+		t.Fatalf("re-merge: %v", err)
+	}
+	if len(installed2) != 0 {
+		t.Fatalf("second run installed %v, want nothing", installed2)
+	}
+	if len(skipped2) != 2 {
+		t.Fatalf("second run skipped = %v, want [theme packages]", skipped2)
+	}
+}
+
+func TestInstallPiKeybindingsOnlyWhenAbsent(t *testing.T) {
+	home := t.TempDir()
+	installed, err := installPiKeybindings(home)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if !installed {
+		t.Fatal("expected keybindings installed on empty home")
+	}
+	path := filepath.Join(home, ".pi", "agent", "keybindings.json")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("keybindings not written: %v", err)
+	}
+	if !strings.Contains(string(got), "tui.altScreen.top") {
+		t.Fatalf("keybindings missing alt-screen entry: %s", got)
+	}
+	// existing user file is never overwritten
+	userFile := `{"tui.editor.historyPrevious": "ctrl+up"}`
+	os.WriteFile(path, []byte(userFile), 0o644)
+	installed, err = installPiKeybindings(home)
+	if err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	if installed {
+		t.Fatal("keybindings rewritten over existing user file")
+	}
+	got, _ = os.ReadFile(path)
+	if string(got) != userFile {
+		t.Fatalf("user keybindings clobbered: %s", got)
 	}
 }
