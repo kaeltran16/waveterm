@@ -3,7 +3,12 @@
 
 package cmd
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+)
 
 func TestParseAskQuestionsDirectShape(t *testing.T) {
 	raw := []byte(`{"questions":[{"question":"Q1?","header":"H","multiSelect":true,"options":[{"label":"A","description":"da"},{"label":"B"}]}]}`)
@@ -36,5 +41,32 @@ func TestParseAskQuestionsEmpty(t *testing.T) {
 	}
 	if _, err := parseAskQuestions([]byte(`not json`)); err == nil {
 		t.Fatal("expected error for invalid json")
+	}
+}
+
+func TestFormatAskResult(t *testing.T) {
+	rtn := wshrpc.AskRtnData{AskId: "a1", Answers: []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}, {Text: "custom"}}}
+	got, err := formatAskResult(rtn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"answers":[{"selectedindexes":[1]},{"text":"custom"}],"cancelled":false}`
+	if string(got) != want {
+		t.Fatalf("want %s, got %s", want, got)
+	}
+	cancelled, _ := formatAskResult(wshrpc.AskRtnData{AskId: "a1", Cancelled: true})
+	if string(cancelled) != `{"answers":null,"cancelled":true}` {
+		t.Fatalf("cancelled shape: %s", cancelled)
+	}
+}
+
+func TestParseAskQuestionsKeepsPreview(t *testing.T) {
+	raw := []byte(`{"questions":[{"question":"Q?","options":[{"label":"A","preview":"mockup A"},{"label":"B"}]}]}`)
+	qs, err := parseAskQuestions(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qs[0].Options[0].Preview != "mockup A" || qs[0].Options[1].Preview != "" {
+		t.Fatalf("preview not carried: %#v", qs[0].Options)
 	}
 }

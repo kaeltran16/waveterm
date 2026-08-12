@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn } from "@/util/util";
+import { useState } from "react";
 import { answerHint, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
+import { activePreview, previewMode } from "./answerbarpreview";
+import { MarkdownMessage } from "./markdownmessage";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
 // cockpit passes accent = stateColor — asking → amber, else → periwinkle). So an asking agent's
@@ -65,6 +68,80 @@ function QuestionGroup({
     // stay as compact wrapping chips. Number badges (1-9) map to the keyboard shortcut; the parent
     // renders only the keyboard-target question, so badges always belong to the rendered group.
     const stacked = options.some((o) => o.description);
+    // preview mode (pi): a single-select question with preview markdown renders side-by-side, the
+    // panel showing the hovered/focused option (rpiv's rule: single-select only).
+    const withPreview = previewMode(question);
+    const [focusIndex, setFocusIndex] = useState(0);
+    const preview = withPreview ? activePreview(question, focusIndex) : undefined;
+    const optionList = (
+        <div className="flex flex-col gap-1.5">
+            {options.map((opt, oi) => {
+                const isSelected = selections.has(oi);
+                const isRecommended = isRec(opt.label);
+                const showNum = numbered && oi < 9;
+                return (
+                    <button
+                        key={oi}
+                        type="button"
+                        onClick={() => onClickOption(oi)}
+                        onMouseEnter={() => setFocusIndex(oi)}
+                        onFocus={() => setFocusIndex(oi)}
+                        className={cn(
+                            "flex w-full cursor-pointer items-start gap-2.5 rounded border px-3 py-2 text-left",
+                            isSelected
+                                ? accent.selected
+                                : isRecommended
+                                  ? accent.rec
+                                  : "border-border hover:bg-white/[0.04]"
+                        )}
+                    >
+                        {showNum ? (
+                            <span
+                                className={cn(
+                                    "mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] font-mono text-[10px]",
+                                    isSelected ? accent.numSel : "bg-black/30 text-secondary"
+                                )}
+                            >
+                                {oi + 1}
+                            </span>
+                        ) : null}
+                        <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2">
+                                <span className="text-[12.5px] font-semibold text-primary">
+                                    {cleanLabel(opt.label)}
+                                </span>
+                                {isRecommended ? (
+                                    <span
+                                        className={cn(
+                                            "shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[8.5px] font-semibold uppercase tracking-wide",
+                                            accent.pill
+                                        )}
+                                    >
+                                        recommended
+                                    </span>
+                                ) : null}
+                            </span>
+                            {opt.description ? (
+                                <span
+                                    className={cn(
+                                        "mt-0.5 block text-[11px] leading-[1.45]",
+                                        isSelected ? "text-primary/75" : "text-secondary"
+                                    )}
+                                >
+                                    {opt.description}
+                                </span>
+                            ) : null}
+                        </span>
+                        {isSelected ? (
+                            <span className={cn("mt-0.5 shrink-0 text-[13px]", accent.check)}>
+                                {question.multiSelect ? "✓" : "●"}
+                            </span>
+                        ) : null}
+                    </button>
+                );
+            })}
+        </div>
+    );
     return (
         <div className={hideQuestion ? "" : "mt-3"}>
             {!hideQuestion && question.header ? (
@@ -72,75 +149,20 @@ function QuestionGroup({
                     {question.header}
                 </div>
             ) : null}
-            {!hideQuestion ? (
-                <div className="text-[13px] font-semibold text-primary">{question.question}</div>
-            ) : null}
-            {options.length === 0 ? null : stacked ? (
-                <div className="mt-2.5 flex flex-col gap-1.5">
-                    {options.map((opt, oi) => {
-                        const isSelected = selections.has(oi);
-                        const isRecommended = isRec(opt.label);
-                        const showNum = numbered && oi < 9;
-                        return (
-                            <button
-                                key={oi}
-                                type="button"
-                                onClick={() => onClickOption(oi)}
-                                className={cn(
-                                    "flex w-full cursor-pointer items-start gap-2.5 rounded border px-3 py-2 text-left",
-                                    isSelected
-                                        ? accent.selected
-                                        : isRecommended
-                                          ? accent.rec
-                                          : "border-border hover:bg-white/[0.04]"
-                                )}
-                            >
-                                {showNum ? (
-                                    <span
-                                        className={cn(
-                                            "mt-px inline-flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-[4px] font-mono text-[10px]",
-                                            isSelected ? accent.numSel : "bg-black/30 text-secondary"
-                                        )}
-                                    >
-                                        {oi + 1}
-                                    </span>
-                                ) : null}
-                                <span className="min-w-0 flex-1">
-                                    <span className="flex items-center gap-2">
-                                        <span className="text-[12.5px] font-semibold text-primary">
-                                            {cleanLabel(opt.label)}
-                                        </span>
-                                        {isRecommended ? (
-                                            <span
-                                                className={cn(
-                                                    "shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[8.5px] font-semibold uppercase tracking-wide",
-                                                    accent.pill
-                                                )}
-                                            >
-                                                recommended
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                    {opt.description ? (
-                                        <span
-                                            className={cn(
-                                                "mt-0.5 block text-[11px] leading-[1.45]",
-                                                isSelected ? "text-primary/75" : "text-secondary"
-                                            )}
-                                        >
-                                            {opt.description}
-                                        </span>
-                                    ) : null}
-                                </span>
-                                {isSelected ? (
-                                    <span className={cn("mt-0.5 shrink-0 text-[13px]", accent.check)}>
-                                        {question.multiSelect ? "✓" : "●"}
-                                    </span>
-                                ) : null}
-                            </button>
-                        );
-                    })}
+            {!hideQuestion ? <div className="text-[13px] font-semibold text-primary">{question.question}</div> : null}
+            {options.length === 0 ? null : withPreview ? (
+                <div className="mt-2.5 flex gap-3">
+                    <div className="min-w-0 flex-1">{optionList}</div>
+                    <div className="hidden w-[min(46%,340px)] shrink-0 rounded border border-border bg-black/20 p-3 md:block">
+                        {preview ? (
+                            <MarkdownMessage text={preview} className="text-[11.5px] leading-[1.5]" />
+                        ) : (
+                            <div className="text-[11px] text-muted">No preview</div>
+                        )}
+                    </div>
                 </div>
+            ) : stacked ? (
+                <div className="mt-2.5">{optionList}</div>
             ) : (
                 <div className="mt-2.5 flex flex-wrap gap-2">
                     {options.map((opt, oi) => {
@@ -209,6 +231,7 @@ export function AnswerBar({
     onText,
     onSubmit,
     onSelectQuestion,
+    onDismiss,
     className,
 }: {
     agent: AgentVM;
@@ -222,6 +245,7 @@ export function AnswerBar({
     onText?: (qi: number, value: string) => void;
     onSubmit: () => void;
     onSelectQuestion?: (qi: number) => void;
+    onDismiss?: () => void;
     className?: string;
 }) {
     const questions = agent.ask?.questions ?? [];
@@ -229,6 +253,20 @@ export function AnswerBar({
     if (questions.length === 0) {
         return null;
     }
+    // dismiss control: clears the pending ask (pi: cancels the blocked ask tool).
+    // Only rendered when the parent wires it (agent row + channel rows).
+    const dismissControl = onDismiss ? (
+        <div className="mb-1 flex justify-end">
+            <button
+                type="button"
+                onClick={onDismiss}
+                title="Dismiss this question (pi: cancels the ask; claude: closes the panel copy)"
+                className="cursor-pointer rounded-sm px-1.5 py-0.5 text-[11px] text-muted hover:bg-white/[0.04] hover:text-secondary"
+            >
+                ✕
+            </button>
+        </div>
+    ) : null;
     if (sent) {
         const chosen = questions
             .flatMap((q, qi) => {
@@ -277,6 +315,7 @@ export function AnswerBar({
         const hint = answerHint(questions, selections, !!numbered);
         return (
             <div className={className}>
+                {dismissControl}
                 {renderGroup(0)}
                 {hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
             </div>
@@ -287,6 +326,7 @@ export function AnswerBar({
     const hint = answerHint(questions, selections, !!numbered);
     return (
         <div className={className}>
+            {dismissControl}
             <div className="flex flex-wrap gap-1.5">
                 {questions.map((q, qi) => {
                     const answered = (selections[qi]?.size ?? 0) > 0 || (texts?.[qi] ?? "").trim() !== "";

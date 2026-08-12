@@ -19,10 +19,15 @@ type AskCommands interface {
 type CommandAskData struct {
 	ORef      string                    `json:"oref"`
 	Questions []baseds.AgentAskQuestion `json:"questions"`
+	// Wait blocks the RPC until the ask is answered (Answers) or cleared/cancelled
+	// (Cancelled=true). Fire-and-forget when false (Claude Code hook path).
+	Wait bool `json:"wait,omitempty"`
 }
 
 type AskRtnData struct {
-	AskId string `json:"askid"`
+	AskId     string                   `json:"askid"`
+	Answers   []baseds.AgentAnswerItem `json:"answers,omitempty"`
+	Cancelled bool                     `json:"cancelled,omitempty"`
 }
 
 type CommandAnswerAgentData struct {

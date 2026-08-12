@@ -13,7 +13,9 @@
         "extensions": [
             "./extensions/waveterm-status.ts",
             "./extensions/waveterm-tools.ts",
-            "./extensions/waveterm-tools-core.ts"
+            "./extensions/waveterm-tools-core.ts",
+            "./extensions/waveterm-ask.ts",
+            "./extensions/waveterm-ask-core.ts"
         ],
         "skills": [
             "./skills"

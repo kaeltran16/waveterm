@@ -32,6 +32,12 @@ func DeliverAnswer(oref, askid string, answers []baseds.AgentAnswerItem) (bool, 
 	if !ok {
 		return false, nil
 	}
+	// waiter path (pi ask bridge): a --wait caller registered on this ask — resolve it
+	// directly. pi has no native picker to drive, so keystrokes would type into the
+	// session; the waiter is the delivery. No waiter -> CC path (keystroke injection).
+	if GlobalRegistry.ResolveWaiter(pending.AskId, WaitResult{Answers: answers}) {
+		return true, nil
+	}
 	keys, err := EncodeAnswer(pending.Questions, answers)
 	if err != nil {
 		GlobalRegistry.Set(oref, pending) // nothing sent yet — safe to restore for retry

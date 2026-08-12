@@ -1,14 +1,16 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { ContextMenuModel } from "@/app/store/contextmenu";
-import { cn } from "@/util/util";
-import { useAtomValue, type Atom } from "jotai";
-import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
-import { Copy, GitCompare, Minimize2, PanelRight, Scaling, SquareTerminal, X } from "lucide-react";
 import { Meter } from "@/app/element/meter";
 import { cardVariants, composerReveal, resizeSpring } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { ContextMenuModel } from "@/app/store/contextmenu";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { cn, fireAndForget } from "@/util/util";
+import { useAtomValue, type Atom } from "jotai";
+import { Copy, GitCompare, Minimize2, PanelRight, Scaling, SquareTerminal, X } from "lucide-react";
+import { motion, useReducedMotion, useSpring, type MotionValue } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { confirmCloseSession } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
@@ -32,17 +34,17 @@ import {
     type CardRect,
     type CardTask,
 } from "./agentsviewmodel";
-import { AttentionBanner, BannerChip } from "./attentioncard";
 import { AnswerBar } from "./answerbar";
+import { AttentionBanner, BannerChip } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import { activityAtomFor, entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
+import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 import { StatusDot } from "./statusdot";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { subagentsByIdAtom } from "./subagentsstore";
-import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
@@ -87,7 +89,9 @@ function TaskPopover({
     return (
         <div onClick={(e) => e.stopPropagation()}>
             <div className="mb-2.5 flex items-center gap-2">
-                <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-muted">Task list</span>
+                <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-muted">
+                    Task list
+                </span>
                 <span className="rounded-[5px] border border-edge-mid bg-surface px-1.5 py-px font-mono text-[9.5px] text-secondary">
                     {done}/{total}
                 </span>
@@ -108,7 +112,9 @@ function TaskPopover({
                         <span
                             className={cn(
                                 "mt-px flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px]",
-                                t.done ? "border-success/40 bg-success/15 text-success" : "border-edge-mid bg-surface text-muted"
+                                t.done
+                                    ? "border-success/40 bg-success/15 text-success"
+                                    : "border-edge-mid bg-surface text-muted"
                             )}
                         >
                             {t.done ? "✓" : ""}
@@ -154,8 +160,13 @@ function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void 
                 <div className="flex flex-col gap-1">
                     {subs.map((s) => (
                         <div key={s.id} className="flex items-center gap-2">
-                            <span className="h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: SUB_COLOR[s.state] }} />
-                            <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">{s.type || "subagent"}</span>
+                            <span
+                                className="h-[5px] w-[5px] shrink-0 rounded-full"
+                                style={{ background: SUB_COLOR[s.state] }}
+                            />
+                            <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-secondary">
+                                {s.type || "subagent"}
+                            </span>
                             <span className="font-mono text-[9px] text-muted">{s.state}</span>
                         </div>
                     ))}
@@ -375,7 +386,10 @@ export const AgentRow = memo(function AgentRow({
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
                 <QuietDot nowAtom={nowAtom} agentId={agent.id} state={agent.state} />
                 <span title={rt.label} className="shrink-0">
-                    <RuntimeMark runtime={agent.agent} className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)} />
+                    <RuntimeMark
+                        runtime={agent.agent}
+                        className={cn("shrink-0 font-mono text-[10px] leading-none", rt.text)}
+                    />
                 </span>
                 <b className="min-w-[30px] flex-1 truncate font-mono text-[13.5px] font-semibold text-primary">
                     {agent.name}
@@ -502,87 +516,101 @@ export const AgentRow = memo(function AgentRow({
                 when it overflows. Header + asking band stay pinned above. The relative wrapper anchors
                 the jump-to-latest pill to the viewport bottom (it must not scroll with the feed). */}
             <div className="relative flex min-h-0 flex-1 flex-col">
-            <div
-                ref={scrollRef}
-                onScroll={onScroll}
-                className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden"
-            >
-                {/* feed */}
-                <div className="shrink-0 grow px-3 py-1.5">
-                    {working && agent.activity ? (
-                        <div className="mb-1.5 flex items-center gap-2 border-b border-edge-mid pb-1.5">
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
-                            <span
-                                title={agent.activity}
-                                className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"
-                            >
-                                {agent.activity}
-                            </span>
-                            {prog ? (
-                                <TaskChip done={prog.done} total={prog.total} onClick={() => setTasksOpen((v) => !v)} />
-                            ) : null}
-                        </div>
+                <div
+                    ref={scrollRef}
+                    onScroll={onScroll}
+                    className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden"
+                >
+                    {/* feed */}
+                    <div className="shrink-0 grow px-3 py-1.5">
+                        {working && agent.activity ? (
+                            <div className="mb-1.5 flex items-center gap-2 border-b border-edge-mid pb-1.5">
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" />
+                                <span
+                                    title={agent.activity}
+                                    className="min-w-0 flex-1 truncate font-mono text-[12px] leading-[1.4] text-success-soft"
+                                >
+                                    {agent.activity}
+                                </span>
+                                {prog ? (
+                                    <TaskChip
+                                        done={prog.done}
+                                        total={prog.total}
+                                        onClick={() => setTasksOpen((v) => !v)}
+                                    />
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {entries.length > 0 ? (
+                            <NarrationTimeline entries={entries} accentLatest active={!idle} />
+                        ) : null}
+                    </div>
+
+                    {/* structured answer band */}
+                    {asking && hasQuestions ? (
+                        <AnswerBar
+                            agent={agent}
+                            selections={selections}
+                            texts={texts}
+                            sent={sent}
+                            numbered
+                            hideQuestion
+                            activeQuestion={activeQuestion}
+                            onToggle={onToggleAnswer}
+                            onText={onAnswerText}
+                            onSubmit={onSubmitAnswer}
+                            onSelectQuestion={onSelectQuestion}
+                            onDismiss={
+                                agent.ask?.oref
+                                    ? () =>
+                                          fireAndForget(() =>
+                                              RpcApi.AgentAskClearCommand(TabRpcClient, agent.ask!.oref!)
+                                          )
+                                    : undefined
+                            }
+                            className="shrink-0 border-t border-edge-mid px-3 py-2"
+                        />
                     ) : null}
-                    {entries.length > 0 ? <NarrationTimeline entries={entries} accentLatest active={!idle} /> : null}
-                </div>
 
-                {/* structured answer band */}
-                {asking && hasQuestions ? (
-                    <AnswerBar
-                        agent={agent}
-                        selections={selections}
-                        texts={texts}
-                        sent={sent}
-                        numbered
-                        hideQuestion
-                        activeQuestion={activeQuestion}
-                        onToggle={onToggleAnswer}
-                        onText={onAnswerText}
-                        onSubmit={onSubmitAnswer}
-                        onSelectQuestion={onSelectQuestion}
-                        className="shrink-0 border-t border-edge-mid px-3 py-2"
-                    />
-                ) : null}
-
-                {/* footer: the composer collapses to a slim "+ message… R" row by default and expands
+                    {/* footer: the composer collapses to a slim "+ message… R" row by default and expands
                     on R / click. The structured AnswerBar above is the single suggestion affordance —
                     the free-form reply chips were removed so an ask never shows two suggestion rows. */}
-                <div className="shrink-0 border-t border-edge-mid">
-                    {showComposer ? (
-                        <motion.div
-                            variants={composerReveal}
-                            initial="initial"
-                            animate="animate"
-                            className="flex flex-col gap-1.5 overflow-hidden px-3 py-2"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <AgentComposer
-                                ref={composerRef}
-                                blockId={agent.blockId}
-                                placeholder={`message ${agent.name}…`}
-                                onEscape={onComposerEscape}
-                                className="border-t-0 px-0 py-0"
-                            />
-                        </motion.div>
-                    ) : (
-                        <div
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onOpenComposer();
-                            }}
-                            className="flex cursor-text items-center gap-2 px-3 py-1.5 hover:bg-surface-hover"
-                        >
-                            <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
-                                +
-                            </span>
-                            <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{`message ${agent.name}…`}</span>
-                            <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
-                                R
-                            </span>
-                        </div>
-                    )}
+                    <div className="shrink-0 border-t border-edge-mid">
+                        {showComposer ? (
+                            <motion.div
+                                variants={composerReveal}
+                                initial="initial"
+                                animate="animate"
+                                className="flex flex-col gap-1.5 overflow-hidden px-3 py-2"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <AgentComposer
+                                    ref={composerRef}
+                                    blockId={agent.blockId}
+                                    placeholder={`message ${agent.name}…`}
+                                    onEscape={onComposerEscape}
+                                    className="border-t-0 px-0 py-0"
+                                />
+                            </motion.div>
+                        ) : (
+                            <div
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenComposer();
+                                }}
+                                className="flex cursor-text items-center gap-2 px-3 py-1.5 hover:bg-surface-hover"
+                            >
+                                <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[5px] border border-edge-mid text-[10px] leading-none text-muted">
+                                    +
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{`message ${agent.name}…`}</span>
+                                <span className="shrink-0 rounded-[5px] border border-edge-mid px-1.5 py-0.5 font-mono text-[9.5px] text-muted">
+                                    R
+                                </span>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
                 {!atBottom ? <JumpToLatestPill onClick={jumpToBottom} /> : null}
             </div>
 
@@ -622,4 +650,3 @@ export const AgentRow = memo(function AgentRow({
         </motion.div>
     );
 });
-

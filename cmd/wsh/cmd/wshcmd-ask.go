@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -16,6 +17,12 @@ import (
 )
 
 var askClear bool
+var askWait bool
+var askQuestionsJson string
+
+// askWaitTimeout is the RPC ceiling for a blocked ask; the pi tool's own abort path
+// (signal -> killed child -> ctx cancel) covers the "user gave up" case before this.
+const askWaitTimeout = 30 * time.Minute
 
 var askCmd = &cobra.Command{
 	Use:                   "ask",
@@ -29,6 +36,8 @@ var askCmd = &cobra.Command{
 
 func init() {
 	askCmd.Flags().BoolVar(&askClear, "clear", false, "clear the pending ask for this block (PostToolUse)")
+	askCmd.Flags().BoolVar(&askWait, "wait", false, "block until answered and print the answers as JSON (pi ask bridge)")
+	askCmd.Flags().StringVar(&askQuestionsJson, "questions-json", "", "questions container as inline JSON instead of stdin (pi ask bridge; pi.exec stdin is ignored)")
 	rootCmd.AddCommand(askCmd)
 }
 
@@ -44,6 +53,10 @@ func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("resolving block: %w", err)
 	}
 
+	if askClear && askWait {
+		return fmt.Errorf("--clear and --wait are mutually exclusive")
+	}
+
 	if askClear {
 		return wshclient.AgentAskClearCommand(RpcClient, oref.String(), &wshrpc.RpcOpts{Timeout: 5000})
 	}
@@ -52,13 +65,39 @@ func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)
 	}
+	if askQuestionsJson != "" {
+		raw = []byte(askQuestionsJson)
+	}
 	questions, err := parseAskQuestions(raw)
 	if err != nil {
 		return err
 	}
 
-	_, err = wshclient.AskCommand(RpcClient, wshrpc.CommandAskData{ORef: oref.String(), Questions: questions}, &wshrpc.RpcOpts{Timeout: 5000})
-	return err
+	timeout := int64(5000)
+	if askWait {
+		timeout = int64(askWaitTimeout / time.Millisecond)
+	}
+	rtn, err := wshclient.AskCommand(RpcClient, wshrpc.CommandAskData{ORef: oref.String(), Questions: questions, Wait: askWait}, &wshrpc.RpcOpts{Timeout: timeout})
+	if err != nil {
+		return err
+	}
+	if askWait {
+		out, merr := formatAskResult(rtn)
+		if merr != nil {
+			return merr
+		}
+		fmt.Println(string(out))
+	}
+	return nil
+}
+
+// formatAskResult renders the wait-mode reply as one JSON line. Cancelled is a legitimate
+// outcome (dismissed/aborted), not an error: exit stays 0 either way.
+func formatAskResult(rtn wshrpc.AskRtnData) ([]byte, error) {
+	return json.Marshal(struct {
+		Answers   []baseds.AgentAnswerItem `json:"answers"`
+		Cancelled bool                     `json:"cancelled"`
+	}{Answers: rtn.Answers, Cancelled: rtn.Cancelled})
 }
 
 func parseAskQuestions(raw []byte) ([]baseds.AgentAskQuestion, error) {
@@ -79,6 +118,7 @@ func parseAskQuestions(raw []byte) ([]baseds.AgentAskQuestion, error) {
 			Options     []struct {
 				Label       string `json:"label"`
 				Description string `json:"description"`
+				Preview     string `json:"preview"`
 			} `json:"options"`
 		} `json:"questions"`
 	}
@@ -93,7 +133,7 @@ func parseAskQuestions(raw []byte) ([]baseds.AgentAskQuestion, error) {
 	for i, q := range in.Questions {
 		opts := make([]baseds.AgentAskOption, len(q.Options))
 		for j, o := range q.Options {
-			opts[j] = baseds.AgentAskOption{Label: o.Label, Description: o.Description}
+			opts[j] = baseds.AgentAskOption{Label: o.Label, Description: o.Description, Preview: o.Preview}
 		}
 		questions[i] = baseds.AgentAskQuestion{
 			Question:    q.Question,

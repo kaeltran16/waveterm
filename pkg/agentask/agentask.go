@@ -26,6 +26,7 @@ type PendingAsk struct {
 type Registry struct {
 	lock    sync.Mutex
 	pending map[string]PendingAsk
+	waits   waiters
 }
 
 func MakeRegistry() *Registry {

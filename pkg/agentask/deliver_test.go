@@ -104,3 +104,33 @@ func TestDeliverAnswer_ConcurrentInjectsOnce(t *testing.T) {
 		t.Fatalf("keystroke writes = %d, want 2 (one full sequence)", writes)
 	}
 }
+
+func TestDeliverAnswerResolvesWaiterWithoutKeystrokes(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", PendingAsk{AskId: "a1", BlockId: "b1", Questions: oneQuestion()})
+	var writes int
+	orig := sendInput
+	sendInput = func(string, []byte) error { writes++; return nil }
+	defer func() { sendInput = orig }()
+	ch := GlobalRegistry.RegisterWaiter("a1")
+
+	delivered, err := DeliverAnswer("tab:t1", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}})
+	if err != nil || !delivered {
+		t.Fatalf("want (true,nil), got (%v,%v)", delivered, err)
+	}
+	if writes != 0 {
+		t.Fatalf("waiter path must not inject keystrokes, got %d writes", writes)
+	}
+	select {
+	case res := <-ch:
+		if res.Cancelled || len(res.Answers) != 1 {
+			t.Fatalf("bad waiter result: %#v", res)
+		}
+	default:
+		t.Fatal("waiter must be resolved")
+	}
+	// claim semantics preserved: the pending ask is gone after delivery
+	if _, ok := GlobalRegistry.Get("tab:t1"); ok {
+		t.Fatal("pending ask must be claimed")
+	}
+}

@@ -290,6 +290,12 @@ var piToolsExtensionTemplate string
 //go:embed pi-tools-core-extension.ts
 var piToolsCoreExtensionTemplate string
 
+//go:embed pi-ask-extension.ts
+var piAskExtensionTemplate string
+
+//go:embed pi-ask-core-extension.ts
+var piAskCoreExtensionTemplate string
+
 //go:embed pi-memory-extension.ts
 var piMemoryExtensionTemplate string
 
@@ -396,6 +402,32 @@ func installPiToolsExtension(home string) error {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "waveterm-tools-core.ts"), []byte(piToolsCoreExtensionTemplate), 0o644); err != nil {
 		return fmt.Errorf("writing waveterm-tools-core.ts: %w", err)
+	}
+	return nil
+}
+
+// installPiAskExtension writes the Wave ask-bridge extension pair into pi's global extension
+// directory, where pi auto-loads every file. Same contract as installPiToolsExtension:
+// __WSH_PATH__ is replaced with the absolute wsh exe path on the tool file; the core module
+// has no placeholder.
+func installPiAskExtension(home string) error {
+	if _, err := piLookPath("pi"); err != nil {
+		return nil // pi not installed; nothing to hook
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving wsh path: %w", err)
+	}
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating pi extensions dir: %w", err)
+	}
+	tool := strings.ReplaceAll(piAskExtensionTemplate, `"__WSH_PATH__"`, jsonString(exe))
+	if err := os.WriteFile(filepath.Join(dir, "waveterm-ask.ts"), []byte(tool), 0o644); err != nil {
+		return fmt.Errorf("writing waveterm-ask.ts: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "waveterm-ask-core.ts"), []byte(piAskCoreExtensionTemplate), 0o644); err != nil {
+		return fmt.Errorf("writing waveterm-ask-core.ts: %w", err)
 	}
 	return nil
 }
@@ -606,6 +638,9 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := installPiToolsExtension(home); err != nil {
+		return err
+	}
+	if err := installPiAskExtension(home); err != nil {
 		return err
 	}
 	if err := installPiMemoryExtension(home); err != nil {

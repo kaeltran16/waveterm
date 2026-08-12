@@ -1,8 +1,8 @@
 // Pure view-model logic for the Agents view. No React, no Wave runtime imports.
 
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
-import { projectNameFromTranscriptPath } from "./projectname";
 import { sessionIdFromTranscript } from "./launch";
+import { projectNameFromTranscriptPath } from "./projectname";
 
 export type AgentState = "asking" | "working" | "idle";
 
@@ -55,6 +55,7 @@ export type AgentEntry =
 export interface AgentAskOption {
     label: string;
     description?: string;
+    preview?: string;
 }
 
 export interface AgentAskQuestion {
@@ -452,7 +453,11 @@ export interface LiveAgentInput {
  *  live agent:ask arrives; working age -> activeMs. task/ask filled later (async). */
 export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     const state: AgentState =
-        input.status === "asking" ? "asking" : input.status === "working" || input.status === "waiting" ? "working" : "idle";
+        input.status === "asking"
+            ? "asking"
+            : input.status === "working" || input.status === "waiting"
+              ? "working"
+              : "idle";
     const age = input.ts != null ? Math.max(0, now - input.ts) : undefined;
     const vm: AgentVM = {
         id: input.id,
@@ -530,7 +535,12 @@ export function mergeOrder(prev: string[], ids: string[]): string[] {
 /** pure: apply stored card order without hiding agents that appeared before orderAtom updated. */
 export function applyAgentOrder(order: string[], agents: AgentVM[]): AgentVM[] {
     const byId = new Map(agents.map((a) => [a.id, a]));
-    return mergeOrder(order, agents.map((a) => a.id)).map((id) => byId.get(id)).filter(Boolean) as AgentVM[];
+    return mergeOrder(
+        order,
+        agents.map((a) => a.id)
+    )
+        .map((id) => byId.get(id))
+        .filter(Boolean) as AgentVM[];
 }
 
 /** Pure: split working-state agents into the active set (rendered in the working region) and the
@@ -637,11 +647,7 @@ export function toggleSelection(
 /** Pure: map a 1-9 keyboard digit to the (question, option) it toggles for an asking agent, given the
  *  active question tab. Returns null when the agent isn't asking or the digit has no matching option.
  *  Shared by the cockpit grid keymap and the Channels ask rows so both number keys behave identically. */
-export function answerDigitTarget(
-    agent: AgentVM,
-    activeTab: number,
-    digit: number
-): { qi: number; oi: number } | null {
+export function answerDigitTarget(agent: AgentVM, activeTab: number, digit: number): { qi: number; oi: number } | null {
     if (agent.state !== "asking") {
         return null;
     }
@@ -730,7 +736,9 @@ export function isRecentlyIdle(agent: AgentVM, now: number, graceMs = IDLE_GRACE
  *  agents keep rendering during the idle grace window, so their stream stays open too; otherwise a
  *  fast final Codex/Claude write can race the stop event and never reach the panel. */
 export function streamableTranscriptAgents(agents: AgentVM[], now: number): AgentVM[] {
-    return agents.filter((a) => a.transcriptPath && (a.state === "asking" || a.state === "working" || isRecentlyIdle(a, now)));
+    return agents.filter(
+        (a) => a.transcriptPath && (a.state === "asking" || a.state === "working" || isRecentlyIdle(a, now))
+    );
 }
 
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
@@ -764,7 +772,7 @@ export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): Age
                 question: q.question,
                 header: q.header,
                 multiSelect: q.multiselect,
-                options: q.options?.map((o) => ({ label: o.label, description: o.description })),
+                options: q.options?.map((o) => ({ label: o.label, description: o.description, preview: o.preview })),
             })),
             askId: ask.askid,
             oref: ask.oref,
@@ -859,13 +867,13 @@ export function topFiveHourPct(agents: AgentVM[]): number | undefined {
 // Grid layout geometry lives in cardgridlayout.ts (extracted). Re-exported here so existing call sites
 // (agentrow, cockpitsurface, usecardresize) keep importing from ./agentsviewmodel unchanged.
 export {
+    computeGridLayout,
+    distributeColumns,
     FULLWIDTH_DRAG_THRESHOLD_PX,
     FULLWIDTH_MAX_VIEWPORT_FRAC,
     GRID_MIN_ROW_PX,
     GRID_PAGE_ROWS,
     GRID_ROW_GAP_PX,
-    computeGridLayout,
-    distributeColumns,
     nextFullWidth,
     normalizeWeights,
     resizeRowWeights,
@@ -953,8 +961,6 @@ export function backgroundAgentToVM(bg: BackgroundAgentData, projectName: string
  *  session id is the stem of its transcript filename (sessionIdFromTranscript); a background agent's
  *  id IS its session id. Same id => same session => show it once (the live, richer one wins). */
 export function dedupBackgroundAgents(background: AgentVM[], liveAgents: AgentVM[]): AgentVM[] {
-    const liveSessionIds = new Set(
-        liveAgents.map((a) => sessionIdFromTranscript(a.transcriptPath)).filter(Boolean)
-    );
+    const liveSessionIds = new Set(liveAgents.map((a) => sessionIdFromTranscript(a.transcriptPath)).filter(Boolean));
     return background.filter((b) => !liveSessionIds.has(b.id));
 }
