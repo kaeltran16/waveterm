@@ -14,6 +14,29 @@ function invertPct(pct: number | undefined): number | undefined {
     return Math.max(0, Math.min(100, 100 - pct));
 }
 
+// Stable identity/context fields carried on some events but not others (the Claude hook omits
+// title+model on Notification/AskUserQuestion; the backend worker emitters carry only state+agent).
+// State events are deltas, so an omitted field means "unchanged", not "cleared" — a full replacement
+// would wipe the retained title and drop the row label back to the project name until the next
+// titled event, i.e. the rename flicker. detail/ts are always transient (current activity / event
+// time) and are never retained.
+const RETAINED_FIELDS = ["title", "model", "agent", "provider", "cwd", "transcriptpath", "sessionid"] as const;
+
+/** Pure: fold a state-delta event onto the previous status, keeping last-known values for fields the
+ *  event omits. null prev (first event) passes through unchanged. */
+export function mergeAgentStatusData(prev: AgentStatusData | null, next: AgentStatusData): AgentStatusData {
+    if (!prev) {
+        return next;
+    }
+    const merged: AgentStatusData = { ...next };
+    for (const field of RETAINED_FIELDS) {
+        if (!merged[field]) {
+            merged[field] = prev[field];
+        }
+    }
+    return merged;
+}
+
 export function normalizeAgentUsage(provider: string, usage: AgentUsage): AgentUsage {
     if (provider.toLowerCase() !== "codex") {
         return usage;
@@ -91,7 +114,8 @@ export function setupAgentStatusSubscription() {
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
-                globalStore.set(getAgentStatusAtom(data.oref), data);
+                const prev = globalStore.get(getAgentStatusAtom(data.oref));
+                globalStore.set(getAgentStatusAtom(data.oref), mergeAgentStatusData(prev, data));
                 // resume-on-reopen: bake this session's resume key into the block's launch command
                 void persistResume(data.oref, data.agent, data.transcriptpath);
                 if (data.state === "idle") {
