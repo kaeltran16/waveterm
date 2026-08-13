@@ -120,7 +120,8 @@ type PiTitleProvider struct {
 	gen titleGenerator
 
 	mu sync.Mutex
-	// transcriptPath -> settled title ("" marks "nothing to title"); inFlight guards concurrent generation
+	// transcriptPath -> settled title (only non-empty; an empty transcript stays un-cached
+	// so a later event can retry once the first user message exists); inFlight guards concurrent generation
 	cache     map[string]string
 	inFlight  map[string]bool
 	lastState map[string]string // block oref -> most recent state, for the generated event
@@ -190,8 +191,13 @@ func (p *PiTitleProvider) generate(data baseds.AgentStatusData) {
 			title = piHeadTitle(task)
 		}
 	}
+	// cache only a settled (non-empty) title. An empty transcript means the first user
+	// message has not been written yet (session_start fires at pi boot) — leave the path
+	// un-cached so a later event retries once the message exists.
 	p.mu.Lock()
-	p.cache[data.TranscriptPath] = title
+	if title != "" {
+		p.cache[data.TranscriptPath] = title
+	}
 	state := p.lastState[data.ORef]
 	p.mu.Unlock()
 	if title == "" || state == "" {

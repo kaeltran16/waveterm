@@ -333,8 +333,21 @@ export function loomBinOrDefault(configVal?: string): string {
     return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_LOOM_BIN;
 }
 
-/** Launch-relevant block meta keys copied from a source terminal block to reproduce its session in a clone. */
-const DUPLICATE_META_KEYS = ["controller", "cmd", "cmd:args", "cmd:cwd", "cmd:interactive", "connection"];
+/** Launch-relevant block meta keys copied from a source terminal block to reproduce its session in a clone.
+ *  cmd:shell/cmd:jwt are agent launch flags — dropping them would relaunch the clone without the
+ *  injected JWT env (WAVETERM_JWT/BLOCKID), silently killing agent-status reporting; agent:baseargs
+ *  keeps resume-on-reopen working for the clone. */
+const DUPLICATE_META_KEYS = [
+    "controller",
+    "cmd",
+    "cmd:args",
+    "cmd:cwd",
+    "cmd:interactive",
+    "connection",
+    "cmd:shell",
+    "cmd:jwt",
+    "agent:baseargs",
+];
 
 /** Pure: build the new block-def meta for a duplicated session from the source term block's meta.
  *  Always a terminal; copies only the launch-relevant keys that are present on the source so the clone

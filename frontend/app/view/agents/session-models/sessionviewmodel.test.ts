@@ -559,6 +559,19 @@ describe("buildDuplicateBlockMeta", () => {
         const src = { view: "term", controller: "cmd", cmd: "codex", "cmd:args": ["--flag"], "cmd:cwd": "/x" };
         expect(buildDuplicateBlockMeta(src)["cmd:args"]).toEqual(["--flag"]);
     });
+    it("keeps the agent launch flags (cmd:shell/cmd:jwt/agent:baseargs) so the clone still gets the JWT env", () => {
+        const src = {
+            view: "term",
+            controller: "cmd",
+            cmd: "pi",
+            "cmd:args": ["--session", "/x/session.jsonl"],
+            "cmd:cwd": "/x",
+            "cmd:shell": false,
+            "cmd:jwt": true,
+            "agent:baseargs": ["--session", "/x/session.jsonl"],
+        };
+        expect(buildDuplicateBlockMeta(src)).toEqual({ ...src });
+    });
     it("drops non-launch keys (labels, fontsize, view override)", () => {
         const src = { view: "preview", controller: "shell", "cmd:cwd": "/x", "session:label": "L", "term:fontsize": 14 };
         const out = buildDuplicateBlockMeta(src);

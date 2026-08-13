@@ -161,6 +161,34 @@ func TestPiTitleProviderSkipsTitledAndNonPiEvents(t *testing.T) {
 	}
 }
 
+func TestPiTitleProviderRetriesUntilFirstUserMessage(t *testing.T) {
+	calls := 0
+	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
+		calls++
+		return "Fix the flicker", nil
+	})
+	// boot: the transcript exists but the first user message has not been written yet
+	path := writePiSession(t, []string{`{"type":"session","id":"s1"}`})
+	p.NoteEvent(piStatusEvent("block:uuid-1", "idle", "", path, "sess-1"))
+	if got := p.Result(path, 200*time.Millisecond); got != "" {
+		t.Fatalf("empty transcript must not settle a title, got %q", got)
+	}
+	if calls != 0 {
+		t.Fatalf("no LLM call expected for an empty transcript, got %d", calls)
+	}
+	// the first user message arrives; a later event must retry and generate
+	if err := os.WriteFile(path, []byte(`{"type":"session","id":"s1"}`+"\n"+`{"type":"message","id":"m1","message":{"role":"user","content":"fix the flicker"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "", path, "sess-1"))
+	if got := p.Result(path, time.Second); got != "Fix the flicker" {
+		t.Fatalf("title not generated after the first message: %q", got)
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 LLM call, got %d", calls)
+	}
+}
+
 func TestPiTitleProviderTracksLatestState(t *testing.T) {
 	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
 		return "t", nil
