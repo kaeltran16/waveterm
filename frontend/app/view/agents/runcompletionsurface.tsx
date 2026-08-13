@@ -26,7 +26,7 @@ import {
     verifCounts,
     verifTone,
 } from "./runcompletion";
-import { STAGE_GUTTER, STAGE_PROSE, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
+import { STAGE_GUTTER, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
 import { cn } from "@/util/util";
 
 function openPath(projectPath: string, rel: string) {
@@ -135,8 +135,10 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                     <div className="mb-1.5 flex items-center gap-2">
                                         <span className="rounded border border-edge-mid bg-background px-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.07em] text-ink-mid">final response</span>
                                     </div>
-                                    {/* the one paragraph of real prose on this surface; the tables around it fill */}
-                                    <p className={cn(STAGE_PROSE, "text-[13.5px] leading-[1.62] text-secondary")}>
+                                    {/* fills the card like the tables around it: this is a snapshot-dashboard section,
+                                        not body prose, and the 72ch prose measure left the summary a half-width
+                                        column beside empty card */}
+                                    <p className="text-[13.5px] leading-[1.62] text-secondary">
                                         {ev.summary}
                                     </p>
                                 </div>
