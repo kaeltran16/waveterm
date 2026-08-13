@@ -33,7 +33,9 @@ function listFor(kind: SubjectKind, lists: SubjectListState): string[] | null {
 }
 
 export function restoreDecision(stored: StoredSubject | null, lists: SubjectListState): RestoreAction {
-    if (stored == null) {
+    // briefing is never a stored subject; treat it as absent rather than waiting on a list that
+    // will never load.
+    if (stored == null || stored.kind === "briefing") {
         return { action: "clear" };
     }
     const list = listFor(stored.kind, lists);

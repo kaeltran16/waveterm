@@ -6,15 +6,19 @@
 // production builds (import.meta.env.DEV is statically false there). Remove when Plan 2 lands real data.
 
 import { cn } from "@/util/util";
-import { useAtom, useSetAtom } from "jotai";
+import { globalStore } from "@/app/store/jotaiStore";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { activeFixtureAtom, stageRailOpenAtom } from "./jarvisstore";
 import { FIXTURE_STATES } from "./jarvisfixtures";
+import { BRIEFING_FIXTURES, setBriefingAskFixtureForDev, type BriefingFixtureName } from "./briefingfixtures";
+import { briefingFixtureAtom } from "./briefingstore";
 import { selectSubject } from "./jarvissubjectstore";
 
 export function JarvisFixtureBar() {
     if (!import.meta.env.DEV) return null;
     const [active, setActive] = useAtom(activeFixtureAtom);
     const setRailOpen = useSetAtom(stageRailOpenAtom);
+    const briefingActive = useAtomValue(briefingFixtureAtom);
     return (
         <div
             data-testid="jarvis-fixture-bar"
@@ -41,6 +45,40 @@ export function JarvisFixtureBar() {
                     {s}
                 </button>
             ))}
+            <div data-testid="jarvis-briefing-fixture-bar" className="flex flex-wrap items-center gap-1">
+                <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted">briefing</span>
+                {(Object.keys(BRIEFING_FIXTURES) as BriefingFixtureName[]).map((s) => (
+                    <button
+                        key={s}
+                        type="button"
+                        data-briefing-fixture={s}
+                        onClick={() => {
+                            globalStore.set(briefingFixtureAtom, s);
+                            selectSubject({ kind: "briefing", id: "all" });
+                        }}
+                        className={cn(
+                            "cursor-pointer rounded-[6px] px-2 py-0.5 text-[11px]",
+                            briefingActive === s ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:bg-surface-hover"
+                        )}
+                    >
+                        {s}
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    data-briefing-fixture="ask"
+                    onClick={() => {
+                        // the answer needs a snapshot to hang on; the ask fixture seeds the normal state
+                        // so the ask section renders beside the answer.
+                        globalStore.set(briefingFixtureAtom, "normal");
+                        setBriefingAskFixtureForDev();
+                        selectSubject({ kind: "briefing", id: "all" });
+                    }}
+                    className="cursor-pointer rounded-[6px] px-2 py-0.5 text-[11px] text-ink-mid hover:bg-surface-hover"
+                >
+                    ask
+                </button>
+            </div>
         </div>
     );
 }

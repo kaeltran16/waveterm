@@ -27,6 +27,8 @@ import { AnimatePresence } from "motion/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef } from "react";
 import { ConversationView } from "./conversationview";
+import { BriefingView } from "./briefingview";
+import { briefingStateAtom, refreshBriefing } from "./briefingstore";
 import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
@@ -70,6 +72,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const profiles = useAtomValue(resolvedProfileAtom);
     const profileChannelId = subject?.kind === "channel" ? subject.id : null;
     const profile = profileChannelId != null ? profiles[profileChannelId] : undefined;
+    const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
 
     useEffect(() => ensureAmbient(), []);
 
@@ -175,12 +178,15 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const tier = tierFromMeta(meta);
     const mode = (meta["delegator:mode"] as string) ?? "report";
     const title =
-        subject.kind === "channel"
-            ? (channel?.name ?? "")
-            : subject.kind === "dossier"
-              ? (detail?.objective ?? "")
-              : conversation.title;
-    const subtitle = subject.kind === "channel" ? (channel?.projectpath ?? "") : "";
+        subject.kind === "briefing"
+            ? "Work briefing"
+            : subject.kind === "channel"
+              ? (channel?.name ?? "")
+              : subject.kind === "dossier"
+                ? (detail?.objective ?? "")
+                : conversation.title;
+    const subtitle =
+        subject.kind === "channel" ? (channel?.projectpath ?? "") : subject.kind === "briefing" ? "All work" : "";
 
     const bandDetail =
         subject.kind === "dossier" ? detail : bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null;
@@ -196,9 +202,12 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 tier={tier}
                 mode={mode}
                 onOpenGraph={() => setGraphOpen(true)}
+                snapshotTimeMs={subject.kind === "briefing" ? (briefingSnapshot?.queryStartedAt ?? null) : null}
+                onRefresh={subject.kind === "briefing" ? refreshBriefing : null}
             />
-            {/* absent rather than empty: the band speaks about "this run", and a draft has none yet */}
-            {composing ? null : (
+            {/* absent rather than empty: the band speaks about "this run", and a draft has none yet;
+                Briefing has neither a run nor a record band. */}
+            {composing || comp.recordBand === "none" ? null : (
                 <RecordBand
                     kind={subject.kind}
                     tags={tags}
@@ -223,6 +232,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     )
                 ) : comp.thread === "record" ? (
                     <RecordThread detail={detail} model={model} />
+                ) : comp.thread === "briefing" ? (
+                    <BriefingView model={model} />
                 ) : (
                     <div className={cn(STAGE_SCROLLER, "min-h-0 flex-1")}>
                         <ConversationView conversation={conversation} model={model} />

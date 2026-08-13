@@ -23,7 +23,7 @@ import { harnessesAtom } from "@/app/view/agents/harnessstore";
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot } from "@/app/view/agents/jarvisderive";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
-import { confirmCancelRun } from "@/app/view/agents/runactions";
+import { confirmCancelRun, pendingRunDraftAtom, pendingRunFocusAtom } from "@/app/view/agents/runactions";
 import {
     isTerminal,
     liveWorkers,
@@ -62,7 +62,9 @@ import {
 import { STAGE_HEADER_BAND } from "./stagemeasure";
 import { createCommitScheduler, type CommitScheduler } from "./subjectcursor";
 import { restoreDecision } from "./subjectrestore";
+import { briefingLandingConsumed, consumeBriefingLanding, refreshBriefing } from "./briefingstore";
 import {
+    BRIEFING_SUBJECT,
     buildSubjectGroups,
     filterSubjectGroups,
     firstVisibleChannel,
@@ -122,11 +124,15 @@ function CollapsedSubjects({
     groups,
     isActive,
     signalsFor,
+    briefingActive,
+    onBriefingClick,
 }: {
     widthPx: number;
     groups: VisibleGroup[];
     isActive: (s: Subject) => boolean;
     signalsFor: (s: Subject) => { asking: boolean; working: number } | null;
+    briefingActive: boolean;
+    onBriefingClick: () => void;
 }) {
     return (
         <div
@@ -134,6 +140,19 @@ function CollapsedSubjects({
             style={{ width: widthPx }}
             className="flex flex-none flex-col items-center gap-1 overflow-y-auto border-r border-border bg-background py-2"
         >
+            <button
+                type="button"
+                data-jarvis-subject-kind="briefing"
+                title="Briefing · All work"
+                aria-label="Briefing · All work"
+                onClick={onBriefingClick}
+                className={cn(
+                    "relative flex h-8 w-8 flex-none cursor-pointer items-center justify-center rounded-[8px] font-mono text-[12px] transition-colors duration-[140ms] hover:bg-surface-hover",
+                    briefingActive ? "bg-accentbg text-accent-soft" : "text-muted"
+                )}
+            >
+                {subjectMark("briefing")}
+            </button>
             {groups.flatMap((g) =>
                 g.items.map((s) => {
                     const signals = signalsFor(s);
@@ -207,7 +226,23 @@ export function SubjectsColumn({
     const restoredRef = useRef(false);
     useEffect(() => {
         if (restoredRef.current || active != null) {
+            // an explicitly selected subject owns the entry; the guard never lands Briefing on top.
+            consumeBriefingLanding();
             return;
+        }
+        if (!briefingLandingConsumed()) {
+            // pending run focus / radar draft are explicit navigation: consume the guard silently
+            // and fall through to the ordinary restore — the Stage's own effects land them.
+            const explicitPending =
+                globalStore.get(pendingRunFocusAtom) != null || globalStore.get(pendingRunDraftAtom) != null;
+            consumeBriefingLanding();
+            if (!explicitPending) {
+                // first neutral Jarvis entry of this launch: Briefing is the landing. There is no
+                // Briefing flash — the guard is consumed at decision time, before any data loads.
+                restoredRef.current = true;
+                selectSubject({ kind: BRIEFING_SUBJECT.kind, id: BRIEFING_SUBJECT.id });
+                return;
+            }
         }
         const decision = restoreDecision(stored, {
             channels: channels?.map((c) => c.oid) ?? null,
@@ -289,8 +324,9 @@ export function SubjectsColumn({
     useEffect(() => setCursorKey(activeKey), [activeKey]);
 
     // j/k over the whole column, all three kinds in render order — the Channels rail published the same
-    // cursor for its channel list, and the merged column is the only list left to move through.
-    const navIds = useMemo(() => shown.flatMap((g) => g.items.map((s) => `${s.kind}:${s.id}`)), [shown]);
+    // cursor for its channel list, and the merged column is the only list left to move through. Briefing
+    // is first: the pinned row is the column's first entry, so j/k start from it.
+    const navIds = useMemo(() => ["briefing:all", ...shown.flatMap((g) => g.items.map((s) => `${s.kind}:${s.id}`))], [shown]);
     const listNav = useMemo<ListNavController>(
         () => ({
             surface: "jarvis",
@@ -309,6 +345,7 @@ export function SubjectsColumn({
     useSurfaceListNav(listNav);
 
     const isActive = (s: Subject) => (cursorKey ?? activeKey) === `${s.kind}:${s.id}`;
+    const isBriefingActive = (cursorKey ?? activeKey) === "briefing:all";
     // the same resolution the Stage does, so the highlighted row is the run the Stage is showing. A draft
     // run selected: no real run is highlighted, because the Stage is not showing one either.
     const activeRunId =
@@ -474,6 +511,15 @@ export function SubjectsColumn({
                     const ch = s.kind === "channel" ? channels?.find((c) => c.oid === s.id) : undefined;
                     return ch != null ? channelSignals(ch) : null;
                 }}
+                briefingActive={isBriefingActive}
+                onBriefingClick={() => {
+                    commitRef.current?.cancel();
+                    if (isBriefingActive) {
+                        refreshBriefing();
+                    } else {
+                        selectSubject({ kind: BRIEFING_SUBJECT.kind, id: BRIEFING_SUBJECT.id });
+                    }
+                }}
             />
         );
     }
@@ -590,6 +636,46 @@ export function SubjectsColumn({
                         )}
                     </div>
                 ) : null}
+            </div>
+            {/* the pinned Briefing row: always first, above the Space banner and every group, immune
+                to Space scope, text filtering and group collapse. Clicking the row while it is
+                already selected refreshes it. */}
+            <div className="px-2 pt-2">
+                <button
+                    type="button"
+                    data-jarvis-subject-kind="briefing"
+                    aria-label="Briefing · All work"
+                    onClick={() => {
+                        commitRef.current?.cancel();
+                        if (isBriefingActive) {
+                            refreshBriefing();
+                        } else {
+                            selectSubject({ kind: BRIEFING_SUBJECT.kind, id: BRIEFING_SUBJECT.id });
+                        }
+                    }}
+                    className={cn(
+                        "flex w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover",
+                        isBriefingActive && "bg-accentbg"
+                    )}
+                >
+                    <span
+                        className={cn(
+                            "w-[9px] flex-none font-mono text-[12px]",
+                            isBriefingActive ? "text-accent-soft" : "text-muted"
+                        )}
+                    >
+                        {subjectMark("briefing")}
+                    </span>
+                    <span
+                        className={cn(
+                            "min-w-0 flex-1 truncate text-[12.5px]",
+                            isBriefingActive ? "font-semibold text-primary" : "font-medium text-secondary"
+                        )}
+                    >
+                        Briefing
+                    </span>
+                    <span className="flex-none font-mono text-[9.5px] text-muted">All work</span>
+                </button>
             </div>
             {activeSpace != null ? (
                 <div className="px-2 pt-2">

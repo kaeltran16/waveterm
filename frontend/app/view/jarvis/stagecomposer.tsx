@@ -21,6 +21,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { resolveComposerTarget } from "./composertarget";
+import { askAcrossWork, briefingAskStateAtom, briefingStateAtom } from "./briefingstore";
 import type { ScopeChip } from "./jarviscontract";
 import { activeConversationAtom, activeConversationIdAtom, submitJarvisQuery } from "./jarvisstore";
 import {
@@ -157,6 +158,45 @@ function JarvisAsk({
     );
 }
 
+// The Briefing face: one plain all-work ask. No dispatch legend — a dispatch needs a channel, and
+// Briefing has none. Disabled while an ask is in flight or the work state is known-partial.
+function BriefingAsk({
+    draft,
+    onChange,
+    onSubmit,
+    pending,
+    disabled,
+}: {
+    draft: string;
+    onChange: (next: string) => void;
+    onSubmit: () => void;
+    pending: boolean;
+    disabled: boolean;
+}) {
+    return (
+        <div className="flex items-center gap-2 rounded-[10px] border border-edge-mid bg-surface px-3.5 py-2.5">
+            <input
+                value={draft}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !disabled) {
+                        e.preventDefault();
+                        onSubmit();
+                    }
+                }}
+                placeholder="ALL WORK · Ask across your work…"
+                disabled={disabled}
+                className="min-w-0 flex-1 bg-transparent text-[14px] text-secondary placeholder:text-muted focus:outline-none disabled:opacity-50"
+            />
+            {pending ? (
+                <span className="flex-none rounded-[6px] border border-accent/40 bg-accentbg px-2 py-[3px] font-mono text-[10px] font-semibold text-accent-soft">
+                    Answering…
+                </span>
+            ) : null}
+        </div>
+    );
+}
+
 export function StageComposer({
     model,
     comp,
@@ -195,6 +235,12 @@ export function StageComposer({
     const harnesses = useAtomValue(harnessesAtom);
     const runtimeIds = harnessRuntimeIds(harnesses);
     const [harnessOpenRequest, setHarnessOpenRequest] = useState(0);
+
+    const briefingAskState = useAtomValue(briefingAskStateAtom);
+    const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
+    const briefingPending = briefingAskState === "pending";
+    // known-partial work state disables the composer until a complete refresh succeeds
+    const briefingDisabled = briefingSnapshot != null && !briefingSnapshot.complete;
 
     // The Radar draft is one global value (one investigation at a time), but it belongs to the channel its
     // finding's project resolves to. Ungated it followed the user onto every other channel: the banner and
@@ -338,6 +384,10 @@ export function StageComposer({
             return;
         }
         setDraft("");
+        if (comp.composerTarget === "jarvis-briefing") {
+            askAcrossWork(text);
+            return;
+        }
         if (comp.composerTarget === "jarvis-record" && recordId != null) {
             askAboutRecord(recordId, recordObjective, text);
             return;
@@ -426,6 +476,14 @@ export function StageComposer({
                         />
                     </>
                 )
+            ) : comp.composerTarget === "jarvis-briefing" ? (
+                <BriefingAsk
+                    draft={draft}
+                    onChange={setDraft}
+                    onSubmit={askJarvis}
+                    pending={briefingPending}
+                    disabled={briefingPending || briefingDisabled}
+                />
             ) : (
                 <JarvisAsk
                     draft={draft}

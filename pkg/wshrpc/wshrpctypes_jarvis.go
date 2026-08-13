@@ -423,12 +423,13 @@ type ProjectWork struct {
 
 // ActiveWorkItem is one thing the operator might want surfaced about in-flight work.
 type ActiveWorkItem struct {
-	Project   string `json:"project"`
-	Kind      string `json:"kind"` // "run" | "session" | "attention" | "blocker"
-	Title     string `json:"title"`
-	Detail    string `json:"detail,omitempty"`
-	Ts        int64  `json:"ts"`
-	NavTarget string `json:"navtarget,omitempty"` // "run:<oid>" | "vault:<id>"
+	Project     string   `json:"project"`
+	Kind        string   `json:"kind"` // "run" | "session" | "attention" | "blocker"
+	Title       string   `json:"title"`
+	Detail      string   `json:"detail,omitempty"`
+	Ts          int64    `json:"ts"`
+	NavTarget   string   `json:"navtarget,omitempty"` // "run:<oid>" | "vault:<id>"
+	WorkerORefs []string `json:"workerorefs,omitempty"` // run rows only: sorted deduped phase worker orefs ("tab:<id>")
 }
 
 // ShippedItem is one completed, evidence-sealed run within the window.

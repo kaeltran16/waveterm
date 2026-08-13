@@ -4130,6 +4130,122 @@ const harnessPicker = {
     },
 };
 
+// --- jarvis: the landing briefing (once-per-launch pinned all-work subject) -----------------------
+const jarvisBriefing = {
+    name: "jarvis-briefing",
+    surface: "jarvis",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const briefingRow = `document.querySelector('[data-jarvis-subject-kind="briefing"]')`;
+        const briefingActive = `(() => { const b = ${briefingRow}; return !!b && b.classList.contains('bg-accentbg'); })()`;
+        // 1. first neutral Jarvis entry opens Briefing on a fresh profile. The once-per-launch guard is
+        // in-memory, so "fresh" means a real page reload — localStorage.clear() alone cannot reset a
+        // guard the app session's boot already consumed.
+        await h.cdp("Page.reload", {});
+        await h.ev("new Promise((r) => setTimeout(r, 1500))");
+        await h.ev("(() => { localStorage.clear(); return true; })()");
+        await h.goto("jarvis");
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        steps.push({ step: "first neutral entry opens Briefing", ok: (await h.ev(briefingActive)) === true });
+        // 2. Briefing stays pinned under a nonmatching text filter
+        await h.ev(`(() => {
+            const input = document.querySelector('[data-jarvis-region="subjects"] input[type="text"]');
+            if (!input) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, 'zzz-no-match');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 150))");
+        steps.push({
+            step: "Briefing stays pinned under a nonmatching filter",
+            ok: (await h.ev(`(() => { const b = ${briefingRow}; return !!b && b.offsetParent !== null; })()`)) === true,
+        });
+        await h.ev(`(() => {
+            const input = document.querySelector('[data-jarvis-region="subjects"] input[type="text"]');
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, '');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        // 3. fixture states render honestly
+        for (const s of ["normal", "attention", "empty", "partial", "failed"]) {
+            const clicked = await h.ev(`(() => {
+                const b = [...document.querySelectorAll('[data-testid="jarvis-briefing-fixture-bar"] button')]
+                    .find((x) => x.getAttribute('data-briefing-fixture') === ${JSON.stringify(s)});
+                if (!b) return false;
+                b.click();
+                return true;
+            })()`);
+            await h.ev("new Promise((r) => setTimeout(r, 300))");
+            const sections = await h.ev(
+                `document.querySelectorAll('[data-jarvis-briefing-section]').length + (document.querySelector('[data-jarvis-briefing-error]') ? 1 : 0)`
+            );
+            steps.push({
+                step: `briefing fixture "${s}" -> sections render`,
+                ok: clicked === true && sections > 0,
+                detail: `clicked=${clicked} sections=${sections}`,
+            });
+            await h.shot(`cdp-shots/jarvis-briefing-${s}.png`);
+        }
+        // 4. inline ask answer + source buttons (button-capable run oref, cited-text memory oref). The
+        // ask fixture seeds a snapshot too — the loop above ends on "failed", which has no snapshot to
+        // hang the answer on.
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[data-testid="jarvis-briefing-fixture-bar"] button')]
+                .find((x) => x.getAttribute('data-briefing-fixture') === 'ask');
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+        const askOk = await h.ev(`(() => {
+            const ask = document.querySelector('[data-jarvis-briefing-section="ask"]');
+            return ask ? { len: (ask.textContent || '').trim().length, buttons: ask.querySelectorAll('button').length } : null;
+        })()`);
+        steps.push({
+            step: "inline ask renders answer + a source button",
+            ok: askOk != null && askOk.len > 0 && askOk.buttons >= 1,
+            detail: JSON.stringify(askOk),
+        });
+        // 5. a navigable row leaves Briefing for its subject
+        const navOk = await h.ev(`(() => {
+            const row = document.querySelector('[data-jarvis-briefing-row][data-row-kind="blocker"]');
+            if (!row) return false;
+            row.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+        steps.push({
+            step: "navigable row leaves Briefing",
+            ok: navOk === true && (await h.ev(briefingActive)) === false,
+        });
+        // 6. manual re-click of the pinned row returns to Briefing and refreshes
+        await h.ev(`(() => { const b = ${briefingRow}; if (b) b.click(); return true; })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+        steps.push({ step: "pinned row re-selects Briefing", ok: (await h.ev(briefingActive)) === true });
+        // 7. no Briefing-only control on ordinary subjects
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('[data-testid="jarvis-fixture-bar"] button')]
+                .find((x) => x.getAttribute('data-fixture') === 'active');
+            if (b) b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 200))");
+        steps.push({
+            step: "no Refresh control on ordinary subjects",
+            ok: (await h.ev(`document.querySelector('[data-jarvis-briefing-refresh]') == null`)) === true,
+        });
+        await h.shot("cdp-shots/jarvis-briefing-ordinary-subject.png");
+        return steps;
+    },
+    async teardown(h) {
+        await h.goto("cockpit");
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     terminalTheme,
@@ -4139,6 +4255,7 @@ export const SCENARIOS = [
     codeSearch,
     jarvisAvatar,
     jarvisStates,
+    jarvisBriefing,
     jarvisFleet,
     jarvisAsk,
     jarvisContextual,

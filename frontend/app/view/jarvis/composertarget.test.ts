@@ -79,3 +79,10 @@ describe("resolveComposerTarget", () => {
         ).toBe(true);
     });
 });
+
+describe("briefing composer target", () => {
+    it("treats the briefing composer as a plain jarvis ask with no dispatch", () => {
+        const t = resolveComposerTarget({ composerTarget: "jarvis-briefing", draft: "@quick fix it" });
+        expect(t).toEqual({ audience: "jarvis", label: "All work", needsChannelPicker: false });
+    });
+});

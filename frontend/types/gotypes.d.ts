@@ -50,6 +50,7 @@ declare global {
         detail?: string;
         ts: number;
         navtarget?: string;
+        workerorefs?: string[];
     };
 
     // baseds.AgentAnswerItem
