@@ -4,6 +4,7 @@
 package agentask
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -38,7 +39,13 @@ func DeliverAnswer(oref, askid string, answers []baseds.AgentAnswerItem) (bool, 
 	if GlobalRegistry.ResolveWaiter(pending.AskId, WaitResult{Answers: answers}) {
 		return true, nil
 	}
-	keys, err := EncodeAnswer(pending.Questions, answers)
+	var keys [][]byte
+	var err error
+	if pending.Prose {
+		keys, err = deliverProseAnswer(pending, answers)
+	} else {
+		keys, err = EncodeAnswer(pending.Questions, answers)
+	}
 	if err != nil {
 		GlobalRegistry.Set(oref, pending) // nothing sent yet — safe to restore for retry
 		return false, err
@@ -52,4 +59,34 @@ func DeliverAnswer(oref, askid string, answers []baseds.AgentAnswerItem) (bool, 
 		}
 	}
 	return true, nil
+}
+
+// deliverProseAnswer encodes a prose ask's answer as plain terminal text. Prose asks have
+// no native picker, so an index answer resolves to the option label and the text is typed
+// verbatim (text + enter). Error semantics match EncodeAnswer: no keystrokes are produced
+// on failure, so the caller can restore the pending ask and retry safely.
+func deliverProseAnswer(pending PendingAsk, answers []baseds.AgentAnswerItem) ([][]byte, error) {
+	if len(pending.Questions) != 1 {
+		return nil, fmt.Errorf("prose ask expects exactly one question, got %d", len(pending.Questions))
+	}
+	if len(answers) != 1 {
+		return nil, fmt.Errorf("prose ask expects exactly one answer, got %d", len(answers))
+	}
+	a := answers[0]
+	text := a.Text
+	if text == "" {
+		if len(a.SelectedIndexes) != 1 {
+			return nil, fmt.Errorf("prose answer must be text or a single option index")
+		}
+		idx := a.SelectedIndexes[0]
+		opts := pending.Questions[0].Options
+		if idx < 0 || idx >= len(opts) {
+			return nil, fmt.Errorf("selected index %d out of range (%d options)", idx, len(opts))
+		}
+		text = opts[idx].Label
+	}
+	if err := validateFreeText(text); err != nil {
+		return nil, err
+	}
+	return proseTextKeys(text), nil
 }

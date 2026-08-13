@@ -134,3 +134,61 @@ func TestDeliverAnswerResolvesWaiterWithoutKeystrokes(t *testing.T) {
 		t.Fatal("pending ask must be claimed")
 	}
 }
+
+func prosePending() PendingAsk {
+	return PendingAsk{AskId: "p1", BlockId: "b1", Prose: true, Questions: oneQuestion()}
+}
+
+func TestDeliverAnswer_ProseTypesText(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", prosePending())
+	var got [][]byte
+	orig := sendInput
+	sendInput = func(blockId string, data []byte) error { got = append(got, data); return nil }
+	defer func() { sendInput = orig }()
+
+	delivered, err := DeliverAnswer("tab:t1", "", []baseds.AgentAnswerItem{{Text: "B"}})
+	if err != nil || !delivered {
+		t.Fatalf("want (true,nil), got (%v,%v)", delivered, err)
+	}
+	// prose: raw text + enter, NO arrow prefix
+	if len(got) != 2 || string(got[0]) != "B" || got[1][0] != enter {
+		t.Fatalf("want [B, enter], got %q", got)
+	}
+}
+
+func TestDeliverAnswer_ProseResolvesIndexToLabel(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", prosePending())
+	var got [][]byte
+	orig := sendInput
+	sendInput = func(blockId string, data []byte) error { got = append(got, data); return nil }
+	defer func() { sendInput = orig }()
+
+	delivered, err := DeliverAnswer("tab:t1", "", []baseds.AgentAnswerItem{{SelectedIndexes: []int{1}}})
+	if err != nil || !delivered {
+		t.Fatalf("want (true,nil), got (%v,%v)", delivered, err)
+	}
+	if len(got) != 2 || string(got[0]) != "B" {
+		t.Fatalf("want typed label B, got %q", got)
+	}
+}
+
+func TestDeliverAnswer_ProseRejectsInvalidAnswers(t *testing.T) {
+	GlobalRegistry = MakeRegistry()
+	GlobalRegistry.Set("tab:t1", prosePending())
+	cases := [][]baseds.AgentAnswerItem{
+		{{Text: ""}},                     // empty text, no index
+		{{Text: "a\x01b"}},               // control char
+		{{SelectedIndexes: []int{9}}},    // out of range
+		{{SelectedIndexes: []int{0, 1}}}, // multi-select shape
+		{},                              // no answers
+	}
+	for _, answers := range cases {
+		GlobalRegistry = MakeRegistry()
+		GlobalRegistry.Set("tab:t1", prosePending())
+		if _, err := DeliverAnswer("tab:t1", "", answers); err == nil {
+			t.Fatalf("want error for answers %+v", answers)
+		}
+	}
+}

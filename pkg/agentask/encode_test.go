@@ -331,3 +331,10 @@ func TestEncodeMultiQuestionFreeTextThenSelect(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+func TestProseTextKeysTypesVerbatimNoArrows(t *testing.T) {
+	keys := proseTextKeys("B")
+	if len(keys) != 2 || string(keys[0]) != "B" || keys[1][0] != enter {
+		t.Fatalf("want [B enter], got %q", keys)
+	}
+}

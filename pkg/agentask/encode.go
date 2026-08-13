@@ -119,6 +119,15 @@ func freeTextKeys(nOpts int, text string) [][]byte {
 	return keys
 }
 
+// proseTextKeys types a prose answer verbatim into the block terminal: no picker exists
+// for a projected prose question, so unlike freeTextKeys there is no arrow prefix — just
+// the text and an enter to submit it as the next user message.
+func proseTextKeys(text string) [][]byte {
+	keys := make([][]byte, 0, len([]rune(text))+1)
+	keys = append(keys, typeBytes(text)...)
+	return append(keys, []byte{enter})
+}
+
 // singleSelectKeys moves the highlight from option 0 down to idx and presses enter.
 func singleSelectKeys(idx int) [][]byte {
 	keys := make([][]byte, 0, idx+1)
