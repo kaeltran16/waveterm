@@ -715,6 +715,12 @@ func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrp
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
 }
 
+// command "jarvisask", wshserver.JarvisAskCommand
+func JarvisAskCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisAskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisAskRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisAskRtnData](w, "jarvisask", data, opts)
+	return resp, err
+}
+
 // command "jarvisconverse", wshserver.JarvisConverseCommand
 func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisConverseChunk](w, "jarvisconverse", data, opts)
@@ -723,6 +729,18 @@ func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseD
 // command "jarvisdecompose", wshserver.JarvisDecomposeCommand
 func JarvisDecomposeCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDecomposeData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisDecomposeRtnData](w, "jarvisdecompose", data, opts)
+	return resp, err
+}
+
+// command "jarvisstate", wshserver.JarvisStateCommand
+func JarvisStateCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisStateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisStateRtnData](w, "jarvisstate", data, opts)
+	return resp, err
+}
+
+// command "jarvisstatus", wshserver.JarvisStatusCommand
+func JarvisStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisStatusRtnData](w, "jarvisstatus", data, opts)
 	return resp, err
 }
 

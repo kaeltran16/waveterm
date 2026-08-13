@@ -95,3 +95,32 @@ func TestSweepRunsRegisteredHooks(t *testing.T) {
 		t.Fatalf("hook not run: %d", n)
 	}
 }
+
+func TestFlush_StampsLastPass(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queue.json")
+	enqueueAt := mkTime("2026-07-15T11:00:00Z").UTC().Format(time.RFC3339)
+	st := queueState{Buckets: map[string][]pendingSession{"/p": {{TranscriptPath: "/t/x.jsonl", EnqueuedAt: enqueueAt}}}}
+	if err := saveQueue(path, st); err != nil {
+		t.Fatalf("saveQueue: %v", err)
+	}
+	d := newDistiller(path)
+	d.routeFn = func(cwd string, cands []memvault.LearnCandidate, refs []string) (memvault.RouteResult, error) {
+		return memvault.RouteResult{Committed: 1, Queued: 0}, nil
+	}
+	d.distillFn = func(ctx context.Context, s consult.RuntimeSpec, corpus string) (string, bool) {
+		return `{"candidates":[{"type":"learning","body":"b"}],"references":[]}`, true
+	}
+	d.flush("/p") // flush(cwd) builds the spec itself; the stubbed distillFn/routeFn never touch the model
+	sums, err := queueSummaryAt(path)
+	if err != nil || len(sums) != 1 {
+		t.Fatalf("queueSummaryAt: sums=%+v err=%v", sums, err)
+	}
+	got := sums[0]
+	if got.Cwd != "/p" || got.Pending != 0 {
+		t.Fatalf("sum=%+v want cwd /p with empty bucket", got)
+	}
+	if got.LastPass == nil || got.LastPass.Sessions != 1 || got.LastPass.Committed != 1 {
+		t.Fatalf("sum=%+v want last pass stamped with the flush's counts", got)
+	}
+}

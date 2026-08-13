@@ -63,6 +63,10 @@ func Converse(ctx context.Context, scope ScopeArgs, priorTurns []waveobj.JarvisC
 	}
 	emit(stepChunk("retrieve", "Searched runs, radar, and memory", "done"))
 
+	// The judge is part of the shared core: it removes wrong memories before synthesis. Failure
+	// degrades to keep-and-log (judgeCandidates), so a dead judge is a slower answer, never none.
+	cands = judgeCandidates(ctx, scopeCwd(scope), prompt, cands)
+
 	cards := buildCards(cands, time.Now().UnixMilli())
 	for i := range cards {
 		card := cards[i]

@@ -56,6 +56,17 @@ export function notifyArgs(title: string, opts: { message?: string; level?: stri
     return args;
 }
 
+// wave_vault_ask shells out to `wsh jarvis ask` (the stateless work-ledger question). --json keeps
+// the tool's answer parseable; the flag order (positional question first) matches cobra's
+// flags-after-args tolerance.
+export function vaultAskArgs(question: string, cwd?: string): string[] {
+    const args = ["jarvis", "ask", question, "--json"];
+    if (cwd) {
+        args.push("--cwd", cwd);
+    }
+    return args;
+}
+
 export function parseControlCommand(raw: string): PiControlCommand | null {
     let j: unknown;
     try {

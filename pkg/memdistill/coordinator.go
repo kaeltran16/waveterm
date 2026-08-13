@@ -141,6 +141,12 @@ func (d *distiller) flush(cwd string) {
 	} else {
 		st.Buckets[cwd] = kept
 	}
+	// Stamp the pass in the same locked save that clears the bucket — the durable "did it skip my
+	// session" record, independent of the in-memory activity feed.
+	if st.LastPass == nil {
+		st.LastPass = map[string]PassRecord{}
+	}
+	st.LastPass[cwd] = PassRecord{Ts: time.Now().UnixMilli(), Sessions: len(sessions), Committed: res.Committed, Queued: res.Queued}
 	if err := saveQueue(d.path, st); err != nil {
 		log.Printf("[memdistill] save queue after flush: %v\n", err)
 	}

@@ -39,7 +39,8 @@ const (
 const batchDistillPrompt = DistillSentinel + " multiple finished coding sessions from one project, " +
 	"concatenated and separated by lines like '===== SESSION n ====='. Merge and dedup learnings across " +
 	`them. Output ONLY a JSON object: {"candidates":[{"type","scope","body","iscorrection","supersedes"}],"references":[]}. ` +
-	"type is one of: feedback | learning | project | reference. " +
+	"type is one of: feedback | learning | project | reference | decision. " +
+	`Emit type "decision" ONLY when a session ends with an explicit choice, naming the alternative considered. ` +
 	`Set iscorrection=true ONLY for an explicit correction the user gave ("no, do it this way"). ` +
 	"supersedes: the slug of an existing memory this learning replaces, or omit. " +
 	"references: slugs of existing memories the sessions clearly relied on. " +
