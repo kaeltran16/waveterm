@@ -715,6 +715,12 @@ func JarvisCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisData, opts *wshrp
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisChunk](w, "jarvis", data, opts)
 }
 
+// command "jarvisask", wshserver.JarvisAskCommand
+func JarvisAskCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisAskData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisAskRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisAskRtnData](w, "jarvisask", data, opts)
+	return resp, err
+}
+
 // command "jarvisconverse", wshserver.JarvisConverseCommand
 func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisConverseChunk](w, "jarvisconverse", data, opts)

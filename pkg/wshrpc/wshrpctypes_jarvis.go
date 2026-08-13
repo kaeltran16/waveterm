@@ -37,6 +37,7 @@ type JarvisCommands interface {
 	EmbedReconcileCommand(ctx context.Context) error                                                                                       // start catching the embedding index up to the vault; returns as soon as the work is dispatched
 	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)                               // work-ledger query: per-project active/shipped/timeline/delta + source health
 	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)                            // capture accounting: note counts, index availability, distill queue
+	JarvisAskCommand(ctx context.Context, data CommandJarvisAskData) (*CommandJarvisAskRtnData, error)                                       // stateless ask: ledger facts + judged prose recall, one answer
 	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error) // recent persisted "I found nothing" verdicts from proactive recall, with their causes
 	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                    // the newest rest-transition narrative across all runs — "where we were" at launch
 }
@@ -488,4 +489,16 @@ type PassRecordWire struct {
 
 type CommandJarvisStatusRtnData struct {
 	Status CaptureStatus `json:"status"`
+}
+
+// CommandJarvisAskData is one stateless ask. Cwd resolves the project scope ("" = all projects).
+type CommandJarvisAskData struct {
+	Prompt string `json:"prompt"`
+	Cwd    string `json:"cwd,omitempty"`
+}
+
+type CommandJarvisAskRtnData struct {
+	Answer   string                         `json:"answer"`
+	Sources  []waveobj.JarvisConvoSourceRef `json:"sources,omitempty"`
+	Terminal string                         `json:"terminal"`
 }

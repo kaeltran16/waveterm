@@ -922,3 +922,43 @@ func (ws *WshServer) JarvisStatusCommand(ctx context.Context, data wshrpc.Comman
 	}
 	return &wshrpc.CommandJarvisStatusRtnData{Status: st}, nil
 }
+
+// JarvisAskCommand answers one stateless question from the work ledger + judged prose recall. The
+// ledger closure maps a routed kind to the matching FetchWorkState derivation, so the recall
+// package stays ledger-agnostic. Note: this runs two model calls (judge + synthesize) inside the
+// handler — the CLI must pass a raised RpcOpts.Timeout (the 5s default would EC-TIME).
+func (ws *WshServer) JarvisAskCommand(ctx context.Context, data wshrpc.CommandJarvisAskData) (*wshrpc.CommandJarvisAskRtnData, error) {
+	scope := jarvisrecall.ScopeArgs{Mode: "all"}
+	if data.Cwd != "" {
+		scope = jarvisrecall.ScopeArgs{Mode: "project", ProjectPath: data.Cwd}
+	}
+	ledgerFn := func(ctx context.Context, kind string, windowMs int64) ([]jarvisrecall.LedgerFact, error) {
+		state, err := jarvisstate.FetchWorkState(ctx, scope.ProjectPath, windowMs)
+		if err != nil {
+			return nil, err
+		}
+		var facts []jarvisrecall.LedgerFact
+		for _, p := range state.Projects {
+			switch kind {
+			case jarvisrecall.AskKindStatus:
+				for _, a := range p.Active {
+					facts = append(facts, jarvisrecall.LedgerFact{SourceType: "status", Title: a.Title, Snippet: a.Detail, NavTarget: a.NavTarget, Ts: a.Ts})
+				}
+			case jarvisrecall.AskKindHistory:
+				for _, s := range p.Shipped {
+					facts = append(facts, jarvisrecall.LedgerFact{SourceType: "shipped", Title: s.Goal, Snippet: s.Summary, NavTarget: "run:" + s.RunOID, Ts: s.CompletedTs})
+				}
+			case jarvisrecall.AskKindDelta:
+				for _, e := range p.Delta {
+					facts = append(facts, jarvisrecall.LedgerFact{SourceType: "delta", Title: e.Title, Snippet: e.Detail, NavTarget: e.NavTarget, Ts: e.Ts})
+				}
+			}
+		}
+		return facts, nil
+	}
+	res, err := jarvisrecall.Ask(ctx, scope, data.Prompt, ledgerFn)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandJarvisAskRtnData{Answer: res.Answer, Sources: res.Sources, Terminal: res.Terminal}, nil
+}

@@ -224,3 +224,40 @@ func TestJarvisStatusCommandReturnsSections(t *testing.T) {
 		t.Fatalf("status=%+v want non-nil distill queue (may be empty)", rtn.Status)
 	}
 }
+
+func TestJarvisAskCommandAttachesLedgerFacts(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	ch, err := wstore.CreateChannel(ctx, "rpc", "/p/one")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if err := wstore.AppendRun(ctx, ch.OID, waveobj.Run{OID: "r-ask-1", ID: "r-ask-1", Goal: "the ask bridge", Status: "executing", ProjectPath: "/p/one", CreatedTs: 100}); err != nil {
+		t.Fatalf("append run: %v", err)
+	}
+	// "all" is the documented keep-all judge reply (no digits → ambiguous → keep everything). The
+	// plan's "1" only works when prose retrieval returns nothing; the real vault returns candidates
+	// that would outrank the appended ledger fact.
+	restoreJ := jarvisrecall.SetJudgeForTest(func(_ context.Context, _, _ string) (string, error) { return "all", nil })
+	defer restoreJ()
+	restoreS := jarvisrecall.SetSynthesizeForTest(func(_ context.Context, _, _ string, _ func(string)) (string, error) {
+		return "the ask bridge is executing [1]", nil
+	})
+	defer jarvisrecall.SetSynthesizeForTest(restoreS)
+	rtn, err := ws.JarvisAskCommand(ctx, wshrpc.CommandJarvisAskData{Prompt: "what is the status of the ask bridge", Cwd: "/p/one"})
+	if err != nil {
+		t.Fatalf("JarvisAskCommand: %v", err)
+	}
+	if rtn.Answer != "the ask bridge is executing [1]" {
+		t.Fatalf("answer=%q want the stub synthesize output", rtn.Answer)
+	}
+	var foundLedger bool
+	for _, s := range rtn.Sources {
+		if s.SourceType == "status" && s.ORef == "run:r-ask-1" {
+			foundLedger = true
+		}
+	}
+	if !foundLedger {
+		t.Fatalf("sources=%+v want the ledger fact from FetchWorkState", rtn.Sources)
+	}
+}

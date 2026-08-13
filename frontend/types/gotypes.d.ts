@@ -940,6 +940,19 @@ declare global {
         patch?: string;
     };
 
+    // wshrpc.CommandJarvisAskData
+    type CommandJarvisAskData = {
+        prompt: string;
+        cwd?: string;
+    };
+
+    // wshrpc.CommandJarvisAskRtnData
+    type CommandJarvisAskRtnData = {
+        answer: string;
+        sources?: JarvisConvoSourceRef[];
+        terminal: string;
+    };
+
     // wshrpc.CommandJarvisConverseData
     type CommandJarvisConverseData = {
         conversationid: string;
