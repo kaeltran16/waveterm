@@ -47,6 +47,7 @@ const (
 	MetaKey_CmdRunOnce                       = "cmd:runonce"
 	MetaKey_CmdCloseOnExit                   = "cmd:closeonexit"
 	MetaKey_CmdCloseOnExitForce              = "cmd:closeonexitforce"
+	MetaKey_CmdKeepOnExit                   = "cmd:keeponexit"
 	MetaKey_CmdCloseOnExitDelay              = "cmd:closeonexitdelay"
 	MetaKey_CmdNoWsh                         = "cmd:nowsh"
 	MetaKey_CmdArgs                          = "cmd:args"

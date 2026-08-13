@@ -53,3 +53,31 @@ func TestIdleOnExitEvent(t *testing.T) {
 		t.Errorf("non-agent block should emit nothing, got %#v", ev)
 	}
 }
+
+func TestAgentShouldCloseOnExit(t *testing.T) {
+	agentTab := waveobj.MetaMapType{"session:agent": "claude"}
+	plainTab := waveobj.MetaMapType{}
+	tests := []struct {
+		name     string
+		block    waveobj.MetaMapType
+		tab      waveobj.MetaMapType
+		exitCode int
+		want     bool
+	}{
+		{"agent clean exit closes", waveobj.MetaMapType{}, agentTab, 0, true},
+		{"agent nonzero exit closes", waveobj.MetaMapType{}, agentTab, 1, true},
+		{"agent keeponexit keeps", waveobj.MetaMapType{"cmd:keeponexit": true}, agentTab, 0, false},
+		{"agent keeponexit keeps on nonzero too", waveobj.MetaMapType{"cmd:keeponexit": true}, agentTab, 1, false},
+		{"agent force closes over keeponexit", waveobj.MetaMapType{"cmd:keeponexit": true, "cmd:closeonexitforce": true}, agentTab, 1, true},
+		{"plain terminal no flags keeps", waveobj.MetaMapType{}, plainTab, 0, false},
+		{"plain closeonexit clean exit closes", waveobj.MetaMapType{"cmd:closeonexit": true}, plainTab, 0, true},
+		{"plain closeonexit nonzero keeps", waveobj.MetaMapType{"cmd:closeonexit": true}, plainTab, 1, false},
+		{"plain force closes", waveobj.MetaMapType{"cmd:closeonexitforce": true}, plainTab, 1, true},
+	}
+	for _, tc := range tests {
+		got := agentShouldCloseOnExit(tc.block, tc.tab, tc.exitCode)
+		if got != tc.want {
+			t.Errorf("%s: agentShouldCloseOnExit(%v, %v, %d) = %v, want %v", tc.name, tc.block, tc.tab, tc.exitCode, got, tc.want)
+		}
+	}
+}

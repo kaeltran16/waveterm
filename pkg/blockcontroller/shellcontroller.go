@@ -693,6 +693,20 @@ func emitAgentIdleOnExit(blockId string) {
 	}
 }
 
+// agentShouldCloseOnExit reports whether an exited block should be deleted. Agent-session
+// blocks (tab meta session:agent) close on any exit code unless the block opts out with
+// cmd:keeponexit. Non-agent blocks keep the historical opt-in semantics. Pure: no I/O.
+func agentShouldCloseOnExit(blockMeta waveobj.MetaMapType, tabMeta waveobj.MetaMapType, exitCode int) bool {
+	if blockMeta.GetBool(waveobj.MetaKey_CmdCloseOnExitForce, false) {
+		return true
+	}
+	if tabMeta.GetString(waveobj.MetaKey_SessionAgent, "") != "" {
+		return !blockMeta.GetBool(waveobj.MetaKey_CmdKeepOnExit, false)
+	}
+	closeOnExit := blockMeta.GetBool(waveobj.MetaKey_CmdCloseOnExit, false)
+	return closeOnExit && exitCode == 0
+}
+
 func checkCloseOnExit(blockId string, exitCode int) {
 	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancelFn()
