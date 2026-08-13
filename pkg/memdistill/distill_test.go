@@ -63,3 +63,14 @@ func TestParseDistillOutput_NoJSON(t *testing.T) {
 		t.Errorf("expected ok=false when there is no JSON object")
 	}
 }
+
+func TestParseDistillOutput_DecisionCandidate(t *testing.T) {
+	raw := `{"candidates":[{"type":"decision","body":"we chose X over Y, rejecting Z","iscorrection":false}],"references":[]}`
+	cands, _, ok := parseDistillOutput(raw)
+	if !ok || len(cands) != 1 || cands[0].Type != "decision" || cands[0].Body != "we chose X over Y, rejecting Z" {
+		t.Fatalf("parse failed: ok=%v cands=%+v", ok, cands)
+	}
+	if cands[0].IsCorrection {
+		t.Error("a decision candidate is not a correction; it must land in the review band")
+	}
+}
