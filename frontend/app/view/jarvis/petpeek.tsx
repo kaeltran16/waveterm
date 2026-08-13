@@ -369,6 +369,22 @@ export function PetPeek({
         return () => window.removeEventListener("keydown", onKey);
     }, [close, open]);
 
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        // FloatingFocusManager's return-focus cleanup can fire while the peek is still
+        // open (its effect re-runs on floating-ui-internal state) and yank focus back
+        // to the anchor; while open, the dialog must hold focus, so steal it back.
+        const onFocusIn = (event: FocusEvent) => {
+            if (event.target === anchor && panelRef.current != null) {
+                panelRef.current.focus();
+            }
+        };
+        document.addEventListener("focusin", onFocusIn);
+        return () => document.removeEventListener("focusin", onFocusIn);
+    }, [open, anchor]);
+
     const noteExists = (id: string): boolean | undefined =>
         memLoaded ? memNotes.some((note) => note.id === id) : undefined;
     const rateLimit = signals.rateLimit;
@@ -456,9 +472,14 @@ export function PetPeek({
                         origin={ORIGIN[corner]}
                         className="flex max-h-[calc(100vh-16px)] w-[calc(100vw-16px)] max-w-[420px] flex-col overflow-hidden rounded-[12px] border border-border bg-surface-raised shadow-popover"
                     >
+                        {/* mark the dialog as the focus-managed element: without it FloatingFocusManager
+                            resolves its focus element to the harness picker's always-mounted
+                            data-floating-ui-focusable wrapper inside this tree, and the tab trap
+                            silently empties (tabbable() of an empty 0x0 div is []) */}
                         <div
                             ref={panelRef}
                             data-pet-peek="1"
+                            data-floating-ui-focusable
                             role="dialog"
                             aria-modal="true"
                             aria-labelledby={titleId}
