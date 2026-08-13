@@ -70,6 +70,7 @@ export interface AgentAsk {
     askId?: string;
     oref?: string;
     replySuggestions?: string[]; // free-form quick-replies (populated by test-data scenarios; undefined on the live path)
+    prose?: boolean; // projected prose question (pi bridge): chips submit as text answers
 }
 
 export interface AgentVM {
@@ -608,12 +609,21 @@ export function cycleId(ids: string[], current: string | undefined, delta: numbe
 export function buildAskAnswers(
     questions: AgentAskQuestion[],
     selections: Record<number, Set<number>>,
-    texts: Record<number, string> = {}
+    texts: Record<number, string> = {},
+    prose = false
 ): AgentAnswerItem[] {
     return questions.map((_, qi) => {
         const text = (texts[qi] ?? "").trim();
         if (text !== "") {
             return { text };
+        }
+        if (prose) {
+            // prose cards have no native picker: a chip click means "type this label".
+            const idxs = Array.from(selections[qi] ?? []);
+            if (idxs.length !== 1) {
+                return { text: "" };
+            }
+            return { text: questions[qi].options?.[idxs[0]]?.label ?? "" };
         }
         return { selectedindexes: Array.from(selections[qi] ?? []).sort((a, b) => a - b) };
     });
@@ -776,6 +786,7 @@ export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): Age
             })),
             askId: ask.askid,
             oref: ask.oref,
+            prose: ask.prose,
         },
     };
 }

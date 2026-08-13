@@ -999,3 +999,47 @@ describe("edit-burst grouping", () => {
         expect(burst.dels).toBe(2);
     });
 });
+
+describe("buildAskAnswers prose", () => {
+    const q = (): AgentAskQuestion => ({ question: "q", options: [{ label: "a" }, { label: "b" }] });
+
+    it("submits the chip label as text", () => {
+        expect(buildAskAnswers([q()], { 0: new Set([1]) }, {}, true)).toEqual([{ text: "b" }]);
+    });
+
+    it("lets typed text win over a chip", () => {
+        expect(buildAskAnswers([q()], { 0: new Set([1]) }, { 0: "  custom  " }, true)).toEqual([
+            { text: "custom" },
+        ]);
+    });
+
+    it("emits empty text for an unanswered prose question", () => {
+        expect(buildAskAnswers([q()], {}, {}, true)).toEqual([{ text: "" }]);
+    });
+
+    it("keeps index answers when prose is off", () => {
+        expect(buildAskAnswers([q()], { 0: new Set([1]) })).toEqual([{ selectedindexes: [1] }]);
+    });
+});
+
+describe("withAsk prose", () => {
+    const NOW = 1_000_000;
+    const baseWorking = (): AgentVM => ({
+        id: "tab-1",
+        name: "waveterm",
+        task: "",
+        state: "working",
+        activity: "go test ./…",
+        activeMs: 5_000,
+    });
+
+    it("maps the prose flag onto the VM ask", () => {
+        const vm = withAsk(baseWorking(), { oref: "block:x", askid: "a1", prose: true, questions: [] }, NOW);
+        expect(vm.ask?.prose).toBe(true);
+    });
+
+    it("leaves prose unset when the ask is not prose", () => {
+        const vm = withAsk(baseWorking(), { oref: "block:x", askid: "a1", questions: [] }, NOW);
+        expect(vm.ask?.prose).toBeUndefined();
+    });
+});

@@ -195,7 +195,7 @@ export class AgentsViewModel implements ViewModel {
         if (!canSubmitAsk(qs, sel, txt) || !oref) {
             return;
         }
-        fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers: buildAskAnswers(qs, sel, txt) }));
+        fireAndForget(() => RpcApi.AnswerAgentCommand(TabRpcClient, { oref, answers: buildAskAnswers(qs, sel, txt, agent.ask?.prose ?? false) }));
         globalStore.set(this.sentIdsAtom, new Set(sent).add(askKey));
         // advance triage to the next asking agent so answering keeps moving without a separate `n` press
         // (T2). The just-answered agent is still in `asking` (state flips later), so nextAskId cycles past
