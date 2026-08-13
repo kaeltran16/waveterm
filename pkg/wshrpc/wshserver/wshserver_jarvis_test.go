@@ -172,3 +172,55 @@ func TestDossierEdgeCommandsRequireBothIds(t *testing.T) {
 		t.Fatal("accept without a runoref must be rejected")
 	}
 }
+
+func TestJarvisStateCommandReturnsFixtureRun(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	ch, err := wstore.CreateChannel(ctx, "rpc", "/p/one")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if err := wstore.AppendRun(ctx, ch.OID, waveobj.Run{OID: "r-ledger-1", ID: "r-ledger-1", Goal: "ship the ledger", Status: "done", ProjectPath: "/p/one", CreatedTs: 100}); err != nil {
+		t.Fatalf("append run: %v", err)
+	}
+	// Seal evidence the way the server does at completion.
+	if err := wstore.UpdateRun(ctx, ch.OID, "r-ledger-1", func(r *waveobj.Run) error {
+		r.CompletedTs = 500
+		r.Evidence = &waveobj.RunEvidence{Summary: "ledger shipped", Files: []waveobj.EvidenceFile{{Path: "a.go", Stat: "M", Add: 3, Del: 1}}}
+		return nil
+	}); err != nil {
+		t.Fatalf("update run: %v", err)
+	}
+	rtn, err := ws.JarvisStateCommand(ctx, wshrpc.CommandJarvisStateData{})
+	if err != nil {
+		t.Fatalf("JarvisStateCommand: %v", err)
+	}
+	if !rtn.State.Sources.Runs {
+		t.Fatalf("sources=%+v want runs leg healthy", rtn.State.Sources)
+	}
+	var found bool
+	for _, p := range rtn.State.Projects {
+		for _, s := range p.Shipped {
+			if s.RunOID == "r-ledger-1" && s.Summary == "ledger shipped" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("state=%+v want the fixture run in Shipped", rtn.State)
+	}
+}
+
+func TestJarvisStatusCommandReturnsSections(t *testing.T) {
+	ws := &WshServer{}
+	rtn, err := ws.JarvisStatusCommand(context.Background(), wshrpc.CommandJarvisStatusData{})
+	if err != nil {
+		t.Fatalf("JarvisStatusCommand: %v", err)
+	}
+	if rtn.Status.NoteCounts == nil {
+		t.Fatalf("status=%+v want non-nil note counts (may be empty)", rtn.Status)
+	}
+	if rtn.Status.DistillQueue == nil {
+		t.Fatalf("status=%+v want non-nil distill queue (may be empty)", rtn.Status)
+	}
+}

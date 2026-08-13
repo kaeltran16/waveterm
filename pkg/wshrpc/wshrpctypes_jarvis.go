@@ -10,33 +10,35 @@ import (
 )
 
 type JarvisCommands interface {
-	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                        // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
-	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                           // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
-	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]   // recall shim: streams working-steps + grounding + prose + terminal
-	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                     // list persisted recall conversations, newest-first
-	DeleteJarvisConversationCommand(ctx context.Context, data CommandDeleteJarvisConversationData) error                    // delete one recall conversation
-	ArchiveJarvisConversationCommand(ctx context.Context, data CommandArchiveJarvisConversationData) error                  // hide a conversation from the active Threads list; reversible
-	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                          // list focusable task dossiers (active|paused), newest-updated first
-	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
-	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                             // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
-	ResolveDossierEdgesCommand(ctx context.Context, data CommandResolveDossierEdgesData) (*CommandResolveDossierEdgesRtnData, error) // a dossier's attributed run nodes + typed attribution edges (U3 focus bloom)
-	ResolveAmbientCommand(ctx context.Context) (*CommandResolveAmbientRtnData, error)                                              // whole-vault ambient attribution: every dossier, its attributed run orefs, and its decisions
-	GetDossierCommand(ctx context.Context, data CommandGetDossierData) (*DossierDetail, error)                              // read one task dossier + its decisions for the Tasks surface
-	ListTaskDossiersCommand(ctx context.Context) (*CommandListTaskDossiersRtnData, error)                                  // list ALL task dossiers (any status) for the Tasks surface, newest-updated first
+	ConsultCommand(ctx context.Context, data CommandConsultData) chan RespOrErrorUnion[ConsultChunk]                                       // one-shot headless CLI consult; streams reply chunks, posts a consult-reply on completion
+	JarvisCommand(ctx context.Context, data CommandJarvisData) chan RespOrErrorUnion[JarvisChunk]                                          // Jarvis (observe-only manager): headless claude summary of a channel's fleet; streams chunks, posts a jarvis-reply on completion
+	JarvisConverseCommand(ctx context.Context, data CommandJarvisConverseData) chan RespOrErrorUnion[JarvisConverseChunk]                  // recall shim: streams working-steps + grounding + prose + terminal
+	ListJarvisConversationsCommand(ctx context.Context) (*CommandListJarvisConversationsRtnData, error)                                    // list persisted recall conversations, newest-first
+	DeleteJarvisConversationCommand(ctx context.Context, data CommandDeleteJarvisConversationData) error                                   // delete one recall conversation
+	ArchiveJarvisConversationCommand(ctx context.Context, data CommandArchiveJarvisConversationData) error                                 // hide a conversation from the active Threads list; reversible
+	ListDossiersCommand(ctx context.Context) (*CommandListDossiersRtnData, error)                                                          // list focusable task dossiers (active|paused), newest-updated first
+	ResolveSpaceScopeCommand(ctx context.Context, data CommandResolveSpaceScopeData) (*SpaceScope, error)                                  // resolve a task's attributed scope bundle (runs -> channels + worker tabs) for Presence C
+	VaultGraphCommand(ctx context.Context) (*CommandVaultGraphRtnData, error)                                                              // whole-vault wikilink graph (U3 base canvas): all vault nodes + resolved [[links]], no runs/attribution
+	ResolveDossierEdgesCommand(ctx context.Context, data CommandResolveDossierEdgesData) (*CommandResolveDossierEdgesRtnData, error)       // a dossier's attributed run nodes + typed attribution edges (U3 focus bloom)
+	ResolveAmbientCommand(ctx context.Context) (*CommandResolveAmbientRtnData, error)                                                      // whole-vault ambient attribution: every dossier, its attributed run orefs, and its decisions
+	GetDossierCommand(ctx context.Context, data CommandGetDossierData) (*DossierDetail, error)                                             // read one task dossier + its decisions for the Tasks surface
+	ListTaskDossiersCommand(ctx context.Context) (*CommandListTaskDossiersRtnData, error)                                                  // list ALL task dossiers (any status) for the Tasks surface, newest-updated first
 	AppendDossierDecisionCommand(ctx context.Context, data CommandAppendDossierDecisionData) (*CommandAppendDossierDecisionRtnData, error) // human-append a decision to a dossier (user-attributed) + commit
 	SetDossierStatusCommand(ctx context.Context, data CommandSetDossierStatusData) error                                                   // set a dossier's status (active|paused|completed|archived) + commit
 	DetachDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-reject a dossier<->run attribution; suppressed durably via the override log
 	AcceptDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-confirm a dossier<->run attribution and harden it into canonical refs; also restores a detached edge and attaches an unattributed run
 	ListDetachedEdgesCommand(ctx context.Context, data CommandListDetachedEdgesData) (*CommandListDetachedEdgesRtnData, error)             // the human-suppressed edges for one dossier or one run, so a detach can be undone
-	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)    // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
-	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error) // read a channel's Jarvis profile (global + per-project override + resolved)
-	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                            // read the global Jarvis profile (builtins if unset)
-	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                    // write the global Jarvis profile to jarvis-profile.json
-	ListHarnessesCommand(ctx context.Context) (*CommandListHarnessesRtnData, error)                                                       // installed coding-agent harnesses (catalog); excludes API-only backends like OpenRouter
-	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                              // is semantic recall actually working right now: ok | off | stale, and why
-	EmbedReconcileCommand(ctx context.Context) error                                                                                        // start catching the embedding index up to the vault; returns as soon as the work is dispatched
-	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error)  // recent persisted "I found nothing" verdicts from proactive recall, with their causes
-	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                     // the newest rest-transition narrative across all runs — "where we were" at launch
+	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)                   // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
+	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error)                // read a channel's Jarvis profile (global + per-project override + resolved)
+	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                                           // read the global Jarvis profile (builtins if unset)
+	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to jarvis-profile.json
+	ListHarnessesCommand(ctx context.Context) (*CommandListHarnessesRtnData, error)                                                        // installed coding-agent harnesses (catalog); excludes API-only backends like OpenRouter
+	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                             // is semantic recall actually working right now: ok | off | stale, and why
+	EmbedReconcileCommand(ctx context.Context) error                                                                                       // start catching the embedding index up to the vault; returns as soon as the work is dispatched
+	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)                               // work-ledger query: per-project active/shipped/timeline/delta + source health
+	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)                            // capture accounting: note counts, index availability, distill queue
+	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error) // recent persisted "I found nothing" verdicts from proactive recall, with their causes
+	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                    // the newest rest-transition narrative across all runs — "where we were" at launch
 }
 
 // EmbedIndexStatus mirrors jarvisembed.IndexStatus. State is ok | off | stale: off means recall cannot
@@ -202,6 +204,7 @@ type CommandArchiveJarvisConversationData struct {
 	ConversationId string `json:"conversationid"`
 	Archived       bool   `json:"archived"`
 }
+
 // HarnessInfo is one installed coding-agent harness in the shared catalog. OpenRouter is deliberately
 // absent: it is an API-backed utility runtime, not an installable harness an operator chooses for Runs.
 type HarnessInfo struct {
@@ -456,4 +459,33 @@ type SourceHealth struct {
 	Sessions  bool   `json:"sessions"`
 	Dossiers  bool   `json:"dossiers"`
 	Attention string `json:"attention"` // "ok" | "volatile" | "error"
+}
+
+// CommandJarvisStatusData is an empty request: the response is capture-pipeline accounting.
+type CommandJarvisStatusData struct{}
+
+// CaptureStatus is the observability answer to "did it skip my session?": vault note counts per
+// collection, embedding index availability, and the distill queue state per cwd.
+type CaptureStatus struct {
+	NoteCounts     map[string]int `json:"notecounts,omitempty"`
+	IndexAvailable bool           `json:"indexavailable"`
+	IndexError     string         `json:"indexerror,omitempty"`
+	DistillQueue   []CwdQueueWire `json:"distillqueue,omitempty"`
+}
+
+type CwdQueueWire struct {
+	Cwd      string          `json:"cwd"`
+	Pending  int             `json:"pending"`
+	LastPass *PassRecordWire `json:"lastpass,omitempty"`
+}
+
+type PassRecordWire struct {
+	Ts        int64 `json:"ts"`
+	Sessions  int   `json:"sessions"`
+	Committed int   `json:"committed"`
+	Queued    int   `json:"queued"`
+}
+
+type CommandJarvisStatusRtnData struct {
+	Status CaptureStatus `json:"status"`
 }

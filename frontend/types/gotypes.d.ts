@@ -42,6 +42,16 @@ declare global {
         configs: {[key: string]: AIModeConfigType};
     };
 
+    // wshrpc.ActiveWorkItem
+    type ActiveWorkItem = {
+        project: string;
+        kind: string;
+        title: string;
+        detail?: string;
+        ts: number;
+        navtarget?: string;
+    };
+
     // baseds.AgentAnswerItem
     type AgentAnswerItem = {
         selectedindexes?: number[];
@@ -252,6 +262,14 @@ declare global {
     type BranchInfo = {
         name: string;
         age: string;
+    };
+
+    // wshrpc.CaptureStatus
+    type CaptureStatus = {
+        notecounts?: {[key: string]: number};
+        indexavailable: boolean;
+        indexerror?: string;
+        distillqueue?: CwdQueueWire[];
     };
 
     // waveobj.Channel
@@ -950,6 +968,25 @@ declare global {
         subtasks: string[];
     };
 
+    // wshrpc.CommandJarvisStateData
+    type CommandJarvisStateData = {
+        project?: string;
+        sincems?: number;
+    };
+
+    // wshrpc.CommandJarvisStateRtnData
+    type CommandJarvisStateRtnData = {
+        state: WorkState;
+    };
+
+    // wshrpc.CommandJarvisStatusData
+    type CommandJarvisStatusData = object;
+
+    // wshrpc.CommandJarvisStatusRtnData
+    type CommandJarvisStatusRtnData = {
+        status: CaptureStatus;
+    };
+
     // wshrpc.CommandJobCmdExitedData
     type CommandJobCmdExitedData = {
         jobid: string;
@@ -1618,6 +1655,13 @@ declare global {
         text: string;
     };
 
+    // wshrpc.CwdQueueWire
+    type CwdQueueWire = {
+        cwd: string;
+        pending: number;
+        lastpass?: PassRecordWire;
+    };
+
     // wshrpc.DecisionCard
     type DecisionCard = {
         id: string;
@@ -2243,6 +2287,14 @@ declare global {
         "waveai:maxoutputtokens"?: number;
     };
 
+    // wshrpc.PassRecordWire
+    type PassRecordWire = {
+        ts: number;
+        sessions: number;
+        committed: number;
+        queued: number;
+    };
+
     // wshrpc.PathCommandData
     type PathCommandData = {
         pathtype: string;
@@ -2324,6 +2376,15 @@ declare global {
     // wconfig.ProjectKeywords
     type ProjectKeywords = {
         path?: string;
+    };
+
+    // wshrpc.ProjectWork
+    type ProjectWork = {
+        project: string;
+        active?: ActiveWorkItem[];
+        shipped?: ShippedItem[];
+        events?: TimelineEvent[];
+        delta?: TimelineEvent[];
     };
 
     // waveobj.RadarDisposition
@@ -2700,6 +2761,25 @@ declare global {
         "harness:preferredruntime"?: string;
     };
 
+    // wshrpc.ShippedItem
+    type ShippedItem = {
+        project: string;
+        runoid: string;
+        goal: string;
+        summary?: string;
+        files?: EvidenceFile[];
+        verifs?: EvidenceVerif[];
+        completedts: number;
+    };
+
+    // wshrpc.SourceHealth
+    type SourceHealth = {
+        runs: boolean;
+        sessions: boolean;
+        dossiers: boolean;
+        attention: string;
+    };
+
     // wshrpc.SpaceScope
     type SpaceScope = {
         runorefs: string[];
@@ -2961,6 +3041,16 @@ declare global {
     type TimeSeriesData = {
         ts: number;
         values: {[key: string]: number};
+    };
+
+    // wshrpc.TimelineEvent
+    type TimelineEvent = {
+        ts: number;
+        kind: string;
+        project?: string;
+        title: string;
+        detail?: string;
+        navtarget?: string;
     };
 
     // waveobj.UIContext
@@ -3379,6 +3469,12 @@ declare global {
     type WinSize = {
         width: number;
         height: number;
+    };
+
+    // wshrpc.WorkState
+    type WorkState = {
+        projects?: ProjectWork[];
+        sources: SourceHealth;
     };
 
     // waveobj.Workspace

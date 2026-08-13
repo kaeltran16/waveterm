@@ -726,6 +726,18 @@ func JarvisDecomposeCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDecompos
 	return resp, err
 }
 
+// command "jarvisstate", wshserver.JarvisStateCommand
+func JarvisStateCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisStateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisStateRtnData](w, "jarvisstate", data, opts)
+	return resp, err
+}
+
+// command "jarvisstatus", wshserver.JarvisStatusCommand
+func JarvisStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisStatusRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisStatusRtnData](w, "jarvisstatus", data, opts)
+	return resp, err
+}
+
 // command "jobcmdexited", wshserver.JobCmdExitedCommand
 func JobCmdExitedCommand(w *wshutil.WshRpc, data wshrpc.CommandJobCmdExitedData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "jobcmdexited", data, opts)

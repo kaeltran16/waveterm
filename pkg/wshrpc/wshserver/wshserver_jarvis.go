@@ -18,6 +18,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
 	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
+	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
@@ -900,4 +901,24 @@ func buildAmbient(dossiers []wshrpc.SpaceSummary, byDossier map[string][]jarvisa
 	}
 	sort.SliceStable(out.Decisions, func(i, j int) bool { return out.Decisions[i].Created > out.Decisions[j].Created })
 	return out
+}
+
+// JarvisStateCommand is the work-ledger query: per-project active/shipped/timeline/delta plus
+// per-leg source health. Stateless and read-only.
+func (ws *WshServer) JarvisStateCommand(ctx context.Context, data wshrpc.CommandJarvisStateData) (*wshrpc.CommandJarvisStateRtnData, error) {
+	state, err := jarvisstate.FetchWorkState(ctx, data.Project, data.SinceMs)
+	if err != nil {
+		return nil, fmt.Errorf("fetching work state: %w", err)
+	}
+	return &wshrpc.CommandJarvisStateRtnData{State: state}, nil
+}
+
+// JarvisStatusCommand is the capture accounting: vault note counts, index availability, distill
+// queue state. Every section degrades to "unavailable" inside FetchCaptureStatus.
+func (ws *WshServer) JarvisStatusCommand(ctx context.Context, data wshrpc.CommandJarvisStatusData) (*wshrpc.CommandJarvisStatusRtnData, error) {
+	st, err := jarvisstate.FetchCaptureStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandJarvisStatusRtnData{Status: st}, nil
 }
