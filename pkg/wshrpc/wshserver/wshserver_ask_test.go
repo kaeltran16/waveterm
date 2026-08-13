@@ -36,7 +36,9 @@ func TestAskCommandWaitResolvesViaAnswer(t *testing.T) {
 	go func() {
 		rtn, err := ws.AskCommand(context.Background(), askData(oref, true))
 		rtnCh <- rtn
-		errCh <- err
+		if err != nil {
+			errCh <- err
+		}
 	}()
 	// wait until the pending ask is registered, then answer it
 	deadline := time.Now().Add(2 * time.Second)

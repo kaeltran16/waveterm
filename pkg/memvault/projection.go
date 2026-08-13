@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -92,20 +93,62 @@ func applySteeringRegion(existing, label, body string) string {
 }
 
 type steeringTarget struct {
-	runtime string // "codex" | "pi"
+	runtime string // "codex" | "pi" | "opencode"
 	path    string
 }
 
-// steeringTargets include opencode: it reads AGENTS.md from its config dir, so the projection
-// reaches opencode sessions the same way it reaches codex/pi. Global (home) files only — never
-// repo-tracked files.
+// steeringTargets are the static home-level steering files for runtimes that only ingest AGENTS.md
+// (codex, opencode). pi's leg of the projection is NOT a steering file: it is the per-project
+// reference file under the pi-memory store (see piProjectionTarget), which pi-memory's qmd index
+// makes searchable instead of ambient context. Global (home) files only — never repo-tracked files.
 func steeringTargets() []steeringTarget {
 	home := wavebase.GetHomeDir()
 	return []steeringTarget{
 		{runtime: "codex", path: filepath.Join(home, ".codex", "AGENTS.md")},
-		{runtime: "pi", path: filepath.Join(home, ".pi", "agent", "AGENTS.md")},
 		{runtime: "opencode", path: filepath.Join(home, ".config", "opencode", "AGENTS.md")},
 	}
+}
+
+// piProjectsDir is the per-project projection store inside pi-memory's directory
+// (~/.pi/agent/memory/projects). pi-memory's ambient injection only ever reads MEMORY.md, the daily
+// log, and the scratchpad, and HarvestPiMemory only parses MEMORY.md — so these files are pull-only:
+// qmd indexes the whole memory dir (memory_search finds them) and nothing ever echoes them back into
+// the vault. A var so tests can stub it.
+var piProjectsDir = func() string {
+	return filepath.Join(wavebase.GetHomeDir(), ".pi", "agent", "memory", "projects")
+}
+
+// sanitizeLabel maps a project label onto a filesystem-safe stem: Windows-invalid filename
+// characters become '-', trailing dots/spaces are trimmed, and the result is capped at 80 runes.
+func sanitizeLabel(label string) string {
+	var b strings.Builder
+	for _, r := range label {
+		switch r {
+		case '<', '>', ':', '"', '/', '\\', '|', '?', '*':
+			b.WriteByte('-')
+		default:
+			if r < 0x20 {
+				b.WriteByte('-')
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	runes := []rune(strings.Trim(b.String(), " ."))
+	if len(runes) == 0 {
+		return "project"
+	}
+	if len(runes) > 80 {
+		runes = runes[:80]
+	}
+	return string(runes)
+}
+
+// piProjectionTarget is pi's projection target: one delimited-region file per project inside the
+// pi-memory store. The label is embedded in both the filename and the region marker, so
+// piProjectionStatus can read it back without trusting the filename.
+func piProjectionTarget(label string) steeringTarget {
+	return steeringTarget{runtime: "pi", path: filepath.Join(piProjectsDir(), sanitizeLabel(label)+".md")}
 }
 
 // readHubNotes reads every .md note (with body) directly under hubDir. Missing dir -> empty slice.
@@ -221,7 +264,8 @@ func Project(cwd string) error {
 	if _, _, err := exportToHub(hubDir, notes); err != nil {
 		return fmt.Errorf("exporting to hub: %w", err)
 	}
-	return projectHubToTargets(label, notes, steeringTargets())
+	targets := append(steeringTargets(), piProjectionTarget(label))
+	return projectHubToTargets(label, notes, targets)
 }
 
 var projectionMarkerRe = regexp.MustCompile(`<!-- ARC-MEMORY:BEGIN project=(.+?) \(generated`)
@@ -242,9 +286,44 @@ func projectionStatusFor(targets []steeringTarget) map[string]string {
 	return out
 }
 
+// piProjectionStatus reads the per-project files back: the label of the newest file carrying a
+// valid region marker (the active project), or ("", false) when none exists yet.
+func piProjectionStatus() (string, bool) {
+	entries, err := os.ReadDir(piProjectsDir())
+	if err != nil {
+		return "", false
+	}
+	var (
+		newest    string
+		newestMod time.Time
+	)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(piProjectsDir(), e.Name()))
+		if err != nil {
+			continue
+		}
+		m := projectionMarkerRe.FindStringSubmatch(string(data))
+		if m == nil {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().After(newestMod) {
+			newestMod = info.ModTime()
+			newest = m[1]
+		}
+	}
+	return newest, newest != ""
+}
+
 // ProjectionStatus is the public status entry point for the RPC.
 func ProjectionStatus() map[string]string {
-	return projectionStatusFor(steeringTargets())
+	out := projectionStatusFor(steeringTargets())
+	if label, ok := piProjectionStatus(); ok {
+		out["pi"] = label
+	}
+	return out
 }
 
 // ClaudeHubDirs enumerates every existing Claude per-project memory hub (~/.claude/projects/*/memory).

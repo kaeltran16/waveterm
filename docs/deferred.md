@@ -3,6 +3,30 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+## Jarvis Briefing — generic cross-project progress and durable milestones (2026-08-13)
+
+Deferred during the Axis 2 landing-briefing design. The briefing can generically identify active work
+across projects, but Wave does not yet own a trustworthy project- or workstream-progress denominator.
+
+- **What is available now:** Wave-owned Run status/phases and runtime task plans from agent transcripts
+  (Claude `TodoWrite`, Codex `update_plan`, Pi `TaskCreate`/`TaskUpdate`/`TaskList`), associated with a
+  project through `Run.ProjectPath` / `agentsessions.SessionInfo.ProjectPath`. These describe one run's
+  execution progress only. They may be absent, replaced, or cleared by the runtime.
+- **What is deferred:** a generic progress model that persists across runs and can honestly answer how
+  far a larger workstream has advanced. Dossiers have status and acceptance prose but no checked
+  milestones; arbitrary repository trackers, Jira, and GitHub Projects have no common contract. Do not
+  parse project-specific Markdown or relabel a current run's `done/total` as whole-project progress.
+- **Why:** milestone identity, ownership, weighting, update authority, and stale-report behavior need a
+  dedicated product/data-model session. Folding them into the landing briefing would overfit one project
+  and invite fabricated percentages.
+- **Where it plugs in:** a Wave-owned workstream/milestone contract (likely adjacent to dossiers), an
+  agent reporting path, and then a source-identified progress projection in `pkg/jarvisstate` and the
+  Briefing subject. Runtime task plans remain a possible run-level fallback, not the durable source.
+- **To resume:** define workstream identity across runs; milestone lifecycle and who may update it;
+  deterministic progress semantics (including unequal or unknown work); source health and staleness;
+  runtime-normalized task-plan fallback; and UI wording that distinguishes run execution from durable
+  workstream progress.
+
 ## Pi Part B — wave_create_widget tool + `wsh widget` vdom CLI deferred to v2 (2026-08-12)
 
 Designing the bidirectional pi↔arc integration (meta Part B, spec

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 )
@@ -138,6 +139,67 @@ func TestProjectionStatus(t *testing.T) {
 	}
 	if _, ok := st["pi"]; ok {
 		t.Fatalf("absent steering file should not appear in status")
+	}
+}
+
+func TestSanitizeLabel(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"waveterm", "waveterm"},
+		{"Krypton API", "Krypton API"},
+		{`C:\weird/name:*?`, "C--weird-name---"},
+		{"trailing. ", "trailing"},
+		{"", "project"},
+		{"\x01bad", "-bad"},
+	}
+	for _, c := range cases {
+		if got := sanitizeLabel(c.in); got != c.want {
+			t.Errorf("sanitizeLabel(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestPiProjectionTargetPath(t *testing.T) {
+	orig := piProjectsDir
+	dir := filepath.Join(t.TempDir(), "projects")
+	piProjectsDir = func() string { return dir }
+	defer func() { piProjectsDir = orig }()
+
+	got := piProjectionTarget("Krypton API")
+	if got.runtime != "pi" {
+		t.Fatalf("runtime = %q, want pi", got.runtime)
+	}
+	if want := filepath.Join(dir, "Krypton API.md"); got.path != want {
+		t.Fatalf("path = %q, want %q", got.path, want)
+	}
+}
+
+func TestPiProjectionStatus(t *testing.T) {
+	orig := piProjectsDir
+	dir := filepath.Join(t.TempDir(), "projects")
+	piProjectsDir = func() string { return dir }
+	defer func() { piProjectsDir = orig }()
+
+	if _, ok := piProjectionStatus(); ok {
+		t.Fatal("piProjectionStatus should be empty when no files exist")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(dir, "old.md")
+	new := filepath.Join(dir, "new.md")
+	if err := os.WriteFile(old, applySteeringRegionSeed("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(old, time.Unix(1, 0), time.Unix(1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(new, applySteeringRegionSeed("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	label, ok := piProjectionStatus()
+	if !ok || label != "new" {
+		t.Fatalf("piProjectionStatus = %q, %v; want \"new\", true", label, ok)
 	}
 }
 
