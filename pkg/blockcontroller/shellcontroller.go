@@ -715,9 +715,14 @@ func checkCloseOnExit(blockId string, exitCode int) {
 		log.Printf("error getting block data: %v\n", err)
 		return
 	}
-	closeOnExit := blockData.Meta.GetBool(waveobj.MetaKey_CmdCloseOnExit, false)
-	closeOnExitForce := blockData.Meta.GetBool(waveobj.MetaKey_CmdCloseOnExitForce, false)
-	if !closeOnExitForce && !(closeOnExit && exitCode == 0) {
+	tabMeta := waveobj.MetaMapType{}
+	tabId, tabErr := wstore.DBFindTabForBlockId(ctx, blockId)
+	if tabErr == nil {
+		if tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId); err == nil {
+			tabMeta = tab.Meta
+		}
+	}
+	if !agentShouldCloseOnExit(blockData.Meta, tabMeta, exitCode) {
 		return
 	}
 	delayMs := blockData.Meta.GetFloat(waveobj.MetaKey_CmdCloseOnExitDelay, 2000)
