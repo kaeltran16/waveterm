@@ -221,15 +221,27 @@ func TestPublishedEventIsScopelessAndReplayable(t *testing.T) {
 }
 
 func TestProducersForSelectsByTriggerKind(t *testing.T) {
-	cases := []struct{ kind, want string }{
-		{TriggerRunCreated, ClassRecall},
-		{TriggerRunRest, ClassConnection},
-		{TriggerSweep, ClassLooseEnd},
+	cases := []struct {
+		kind string
+		want []string
+	}{
+		{TriggerRunCreated, []string{ClassRecall, ClassLedger}},
+		{TriggerRunRest, []string{ClassConnection, ClassLedger}},
+		{TriggerSweep, []string{ClassLooseEnd}},
 	}
 	for _, c := range cases {
 		ps := producersFor(&Trigger{Kind: c.kind})
-		if len(ps) != 1 || ps[0].Name() != c.want {
-			t.Fatalf("trigger %q selected %v, want a single %q producer", c.kind, ps, c.want)
+		var names []string
+		for _, p := range ps {
+			names = append(names, p.Name())
+		}
+		if len(names) != len(c.want) {
+			t.Fatalf("trigger %q selected %v, want %v", c.kind, names, c.want)
+		}
+		for i := range c.want {
+			if names[i] != c.want[i] {
+				t.Fatalf("trigger %q selected %v, want %v", c.kind, names, c.want)
+			}
 		}
 	}
 }

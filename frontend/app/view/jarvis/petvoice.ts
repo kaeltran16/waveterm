@@ -33,7 +33,8 @@ export interface PetEvent {
         // volunteered knowledge: what Jarvis knows about your work, not what the system did
         | "recall"
         | "connection"
-        | "loose-end";
+        | "loose-end"
+        | "ledger";
     text: string;
     reportedAsCondition?: boolean;
     // Set on any utterance that has products to open: volunteered knowledge carries one, a distillation

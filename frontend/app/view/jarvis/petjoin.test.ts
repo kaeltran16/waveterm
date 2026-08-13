@@ -233,6 +233,22 @@ describe("eventFromVolunteer", () => {
         expect(eventFromVolunteer(null)).toBeNull();
         expect(eventFromVolunteer(undefined)).toBeNull();
     });
+
+    // the ledger register reports the state of your work, so its payload carries a run source
+    it("maps the ledger class to an utterance with a run source", () => {
+        const ev = eventFromVolunteer({
+            class: "ledger",
+            id: "shipped:run-1",
+            at: 900,
+            title: "shipped: ask bridge",
+            text: "landed, changed 12 files",
+            sourcetype: "run",
+            ref: "run:run-1",
+        });
+        expect(ev?.kind).toBe("ledger");
+        expect(ev?.text).toBe("shipped: ask bridge - landed, changed 12 files");
+        expect(ev?.sources?.[0].ref).toBe("run:run-1");
+    });
 });
 
 describe("passFromActivity", () => {

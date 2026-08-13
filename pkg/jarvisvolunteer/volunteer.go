@@ -39,9 +39,9 @@ func SetPublishSinkForTest(fn func(wps.WaveEvent)) (restore func()) {
 var producersFor = func(t *Trigger) []Producer {
 	switch t.Kind {
 	case TriggerRunCreated:
-		return []Producer{NewRecallProducer()}
+		return []Producer{NewRecallProducer(), NewLedgerProducer()}
 	case TriggerRunRest:
-		return []Producer{NewConnectionProducer()}
+		return []Producer{NewConnectionProducer(), NewLedgerProducer()}
 	default:
 		return []Producer{NewLooseEndProducer()}
 	}

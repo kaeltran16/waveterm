@@ -8,11 +8,12 @@ package jarvisvolunteer
 
 import "context"
 
-// The three knowledge classes. Each reads an engine that already computes; none adds a retrieval pass.
+// The four knowledge classes. Each reads an engine that already computes; none adds a retrieval pass.
 const (
 	ClassRecall     = "recall"     // a relevant past item, already judged at dispatch
 	ClassConnection = "connection" // an attribution edge that just formed
 	ClassLooseEnd   = "loose-end"  // a dossier going quiet
+	ClassLedger     = "ledger"     // the state of your work: shipped runs, needs-you items
 )
 
 // Every terminal path names its reason. Returning nothing on failure is what made six distinct failures

@@ -34,6 +34,7 @@ const KIND_LABEL: Record<PetEvent["kind"], string> = {
     recall: "You have been here before",
     connection: "This just connected",
     "loose-end": "Still open",
+    ledger: "Work state",
 };
 
 export function PetBubble({
