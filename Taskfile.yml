@@ -189,6 +189,7 @@ tasks:
             - cmd: cp pi/extensions/waveterm-tools-core.ts cmd/wsh/cmd/pi-tools-core-extension.ts
             - cmd: cp pi/extensions/waveterm-ask.ts cmd/wsh/cmd/pi-ask-extension.ts
             - cmd: cp pi/extensions/waveterm-ask-core.ts cmd/wsh/cmd/pi-ask-core-extension.ts
+            - cmd: cp pi/extensions/waveterm-prose-core.ts cmd/wsh/cmd/pi-prose-core-extension.ts
         sources:
             - pi/extensions/waveterm-status.ts
             - pi/themes/arc.json
@@ -196,6 +197,7 @@ tasks:
             - pi/extensions/waveterm-tools-core.ts
             - pi/extensions/waveterm-ask.ts
             - pi/extensions/waveterm-ask-core.ts
+            - pi/extensions/waveterm-prose-core.ts
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
             - cmd/wsh/cmd/arc-theme.json
@@ -203,6 +205,7 @@ tasks:
             - cmd/wsh/cmd/pi-tools-core-extension.ts
             - cmd/wsh/cmd/pi-ask-extension.ts
             - cmd/wsh/cmd/pi-ask-core-extension.ts
+            - cmd/wsh/cmd/pi-prose-core-extension.ts
 
     build:server:internal:
         deps:

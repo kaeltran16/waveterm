@@ -296,6 +296,9 @@ var piAskExtensionTemplate string
 //go:embed pi-ask-core-extension.ts
 var piAskCoreExtensionTemplate string
 
+//go:embed pi-prose-core-extension.ts
+var piProseCoreExtensionTemplate string
+
 //go:embed pi-memory-extension.ts
 var piMemoryExtensionTemplate string
 
@@ -428,6 +431,9 @@ func installPiAskExtension(home string) error {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "waveterm-ask-core.ts"), []byte(piAskCoreExtensionTemplate), 0o644); err != nil {
 		return fmt.Errorf("writing waveterm-ask-core.ts: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "waveterm-prose-core.ts"), []byte(piProseCoreExtensionTemplate), 0o644); err != nil {
+		return fmt.Errorf("writing waveterm-prose-core.ts: %w", err)
 	}
 	return nil
 }
