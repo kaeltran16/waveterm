@@ -52,11 +52,10 @@ export const EXPRESSION_RANK: Record<PetExpression["kind"], number> = {
     "at-rest": 4,
 };
 
-// Tiredness starts where the cockpit's own usage bands stop being "ok" (>60%), so the creature droops at
-// the same reading that turns the app-bar gauge amber. A second threshold here would let the two disagree
-// about the same number.
-function isTired(pct: number): boolean {
-    return usageLevel(pct) !== "ok";
+// tiredness starts where the cockpit's own usage bands stop being "ok" (>60%), so every consumer reports
+// the same window honestly even when a higher-priority expression owns the creature.
+export function isWindowConstrained(rateLimit: PetSignals["rateLimit"]): boolean {
+    return rateLimit != null && usageLevel(rateLimit.pct) !== "ok";
 }
 
 // A live vault always has a note or two flagged; that is tended, not drifting. The band is where the
@@ -69,7 +68,7 @@ export function expressionFor(signals: PetSignals): PetExpression {
         return { kind: "cannot-see", reason: index };
     }
     const rl = signals.rateLimit;
-    if (rl != null && isTired(rl.pct)) {
+    if (rl != null && isWindowConstrained(rl)) {
         return { kind: "tired", provider: rl.provider, pct: rl.pct, resetAt: rl.resetAt };
     }
     const decay = signals.decay;

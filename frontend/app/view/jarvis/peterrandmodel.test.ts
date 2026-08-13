@@ -8,42 +8,128 @@ const harnesses: HarnessInfo[] = [
 ];
 
 describe("petErrandState", () => {
-    it("blocks without a persisted consult harness", () => {
+    it("locks both controls when there is no channel", () => {
         expect(
-            petErrandState({ channel: true, draft: "ask", busy: false, runtime: "", saving: false, harnesses })
-        ).toMatchObject({
-            disabled: true,
+            petErrandState({
+                channel: false,
+                draft: "ask",
+                busy: false,
+                runtime: "opencode",
+                saving: false,
+                harnesses,
+            })
+        ).toEqual({
+            inputDisabled: true,
+            submitDisabled: true,
+            reason: "no channel active",
+            runtime: "opencode",
+        });
+    });
+
+    it("locks both controls while a reply is streaming", () => {
+        expect(
+            petErrandState({
+                channel: true,
+                draft: "ask",
+                busy: true,
+                runtime: "opencode",
+                saving: false,
+                harnesses,
+            })
+        ).toEqual({
+            inputDisabled: true,
+            submitDisabled: true,
+            reason: "busy",
+            runtime: "opencode",
+        });
+    });
+
+    it("keeps an empty draft editable while blocking only submission", () => {
+        expect(
+            petErrandState({
+                channel: true,
+                draft: "  ",
+                busy: false,
+                runtime: "opencode",
+                saving: false,
+                harnesses,
+            })
+        ).toEqual({
+            inputDisabled: false,
+            submitDisabled: true,
+            reason: "empty draft",
+            runtime: "opencode",
+        });
+    });
+
+    it("keeps the draft editable while the harness choice is unresolved", () => {
+        expect(
+            petErrandState({
+                channel: true,
+                draft: "ask",
+                busy: false,
+                runtime: "",
+                saving: false,
+                harnesses,
+            })
+        ).toEqual({
+            inputDisabled: false,
+            submitDisabled: true,
             reason: "Choose a harness",
+            runtime: "",
         });
-    });
 
-    it("allows the selected installed consult harness", () => {
-        expect(
-            petErrandState({ channel: true, draft: "ask", busy: false, runtime: "opencode", saving: false, harnesses })
-        ).toMatchObject({
-            disabled: false,
-        });
-    });
-
-    it("blocks while the preference write is in flight", () => {
-        expect(
-            petErrandState({ channel: true, draft: "ask", busy: false, runtime: "opencode", saving: true, harnesses })
-        ).toMatchObject({ disabled: true, reason: "saving harness preference…" });
-    });
-
-    it("blocks a saved-but-uninstalled harness rather than falling to first-installed", () => {
         const notInstalled = harnesses.map((h) => (h.runtime === "opencode" ? { ...h, installed: false } : h));
         expect(
-            petErrandState({ channel: true, draft: "ask", busy: false, runtime: "opencode", saving: false, harnesses: notInstalled })
-        ).toMatchObject({ disabled: true, reason: "Choose a harness" });
+            petErrandState({
+                channel: true,
+                draft: "ask",
+                busy: false,
+                runtime: "opencode",
+                saving: false,
+                harnesses: notInstalled,
+            })
+        ).toEqual({
+            inputDisabled: false,
+            submitDisabled: true,
+            reason: "Choose a harness",
+            runtime: "opencode",
+        });
     });
 
-    it("blocks with no channel and on an empty draft", () => {
+    it("keeps the draft editable while the harness preference is saving", () => {
         expect(
-            petErrandState({ channel: false, draft: "ask", busy: false, runtime: "opencode", saving: false, harnesses })
-        ).toMatchObject({ disabled: true, reason: "no channel active" });
+            petErrandState({
+                channel: true,
+                draft: "ask",
+                busy: false,
+                runtime: "opencode",
+                saving: true,
+                harnesses,
+            })
+        ).toEqual({
+            inputDisabled: false,
+            submitDisabled: true,
+            reason: "saving harness preference…",
+            runtime: "opencode",
+        });
+    });
+
+    it("enables both controls for a non-empty draft and valid harness", () => {
         expect(
-            petErrandState({ channel: true, draft: "  ", busy: false, runtime: "opencode", saving: false, harnesses })
-        ).toMatchObject({ disabled: true, reason: "empty draft" });
+            petErrandState({
+                channel: true,
+                draft: "ask",
+                busy: false,
+                runtime: "opencode",
+                saving: false,
+                harnesses,
+            })
+        ).toEqual({
+            inputDisabled: false,
+            submitDisabled: false,
+            reason: null,
+            runtime: "opencode",
+        });
     });
 });

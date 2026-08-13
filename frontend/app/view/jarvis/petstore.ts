@@ -196,13 +196,6 @@ export function recordPass(pass: PetPass): void {
     }
 }
 
-// CDP scenarios drive the creature by pushing an event directly: a real volunteered utterance needs a
-// headless CLI judge run (up to 90s) plus a rate gate with a 45-minute quiet window, neither of which a
-// scenario can arrange. Dev-only, so it is compiled out of `cargo tauri build`.
-if (import.meta.env.DEV) {
-    (globalThis as Record<string, unknown>).__wavePetStore = { pushPetEvent };
-}
-
 // No pocket atom here on purpose. The Concierge floor's "it holds" (design §6) needs the carry/drop
 // gestures and this store together; an atom with a reader and no writer made the peek's Pocket section
 // unreachable, which is worse than absent — it cannot be tested and it reads as shipped. Build both
@@ -219,3 +212,19 @@ export interface PetErrand {
 // when you reopen it; session-scoped and unpersisted because the durable copy is the channel message the
 // backend posts, which is where a reply worth keeping belongs.
 export const petErrandAtom = atom<PetErrand | null>(null) as PrimitiveAtom<PetErrand | null>;
+
+// cdp drives inputs that are either too expensive to arrange through production (a volunteer judge) or
+// must be deterministic (the empty peek). This is compiled out of production builds.
+if (import.meta.env.DEV) {
+    (globalThis as Record<string, unknown>).__wavePetStore = {
+        pushPetEvent,
+        resetPeek: () => {
+            globalStore.set(petEventsAtom, []);
+            globalStore.set(petSaidAtom, []);
+            globalStore.set(petBubbleAtom, null);
+            globalStore.set(petUnreadAtom, false);
+            globalStore.set(petActStateAtom, {});
+            globalStore.set(petErrandAtom, null);
+        },
+    };
+}

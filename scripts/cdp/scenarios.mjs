@@ -3123,6 +3123,243 @@ const jarvisAvatar = {
     },
 };
 
+const jarvisPeek = {
+    name: "jarvis-peek",
+    surface: "cockpit",
+    async arrange(h) {
+        // petSaidAtom is session-scoped. Reloading gives this scenario a deterministic empty feed while
+        // the persisted watermark still prevents old backend facts from speaking again.
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 2500))");
+        const reset = await h.ev(`(() => {
+            const store = globalThis.__wavePetStore;
+            if (typeof store?.resetPeek !== 'function') return false;
+            store.resetPeek();
+            return true;
+        })()`);
+        return { reset };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const press = async (key, code, windowsVirtualKeyCode, modifiers = 0) => {
+            for (const type of ["keyDown", "keyUp"]) {
+                await h.cdp("Input.dispatchKeyEvent", {
+                    type,
+                    key,
+                    code,
+                    windowsVirtualKeyCode,
+                    modifiers,
+                });
+            }
+            await settle(350);
+        };
+
+        const creatureFocused = await h.ev(`(() => {
+            const creature = document.querySelector('[aria-label="Jarvis condition"]');
+            if (!creature) return false;
+            creature.focus();
+            return document.activeElement === creature;
+        })()`);
+        await press("Enter", "Enter", 13);
+
+        const structure = await h.ev(`(() => {
+            const panel = document.querySelector('[data-pet-peek]');
+            if (!panel) return null;
+            const labelledBy = panel.getAttribute('aria-labelledby');
+            const label = labelledBy ? document.getElementById(labelledBy)?.textContent?.trim() : null;
+            const sections = [...panel.querySelectorAll('[data-pet-section]')]
+                .map((section) => section.getAttribute('data-pet-section'));
+            const updates = panel.querySelector('[data-pet-section="updates"]');
+            const input = panel.querySelector('[data-pet-errand-input]');
+            const health = panel.querySelector('[data-pet-health]')?.textContent?.trim() ?? null;
+            return {
+                role: panel.getAttribute('role'),
+                label,
+                sections,
+                health,
+                close: panel.querySelector('button[aria-label="Close Jarvis panel"]') != null,
+                panelFocused: document.activeElement === panel,
+                emptyUpdates: (updates?.innerText || '').includes('No updates yet'),
+                inputDisabled: input?.disabled ?? null,
+                inputPlaceholder: input?.getAttribute('placeholder') ?? null,
+            };
+        })()`);
+        rec(
+            "1. keyboard open renders a labelled three-section dialog and focuses its container",
+            creatureFocused === true &&
+                structure?.role === "dialog" &&
+                structure?.label === "Jarvis" &&
+                JSON.stringify(structure?.sections) === JSON.stringify(["status", "updates", "ask"]) &&
+                ["Needs attention", "Window constrained", "Vault needs review", "Needs you", "All quiet"].includes(
+                    structure?.health
+                ) &&
+                structure?.close === true &&
+                structure?.panelFocused === true,
+            JSON.stringify({ creatureFocused, structure })
+        );
+
+        await press("Tab", "Tab", 9);
+        const firstTab = await h.ev(`(() => ({
+            text: (document.activeElement?.innerText || '').trim(),
+            inside: document.querySelector('[data-pet-peek]')?.contains(document.activeElement) ?? false,
+        }))()`);
+        await press("Tab", "Tab", 9, 8);
+        const wrappedInside = await h.ev(
+            `document.querySelector('[data-pet-peek]')?.contains(document.activeElement) ?? false`
+        );
+        rec(
+            "2. Tab starts at Open full view and reverse traversal stays inside the dialog",
+            firstTab.inside === true && firstTab.text === "Open full view" && wrappedInside === true,
+            JSON.stringify({ firstTab, wrappedInside })
+        );
+        rec(
+            "3. the empty/no-channel state is explicit without inventing activity",
+            ctx.reset === true &&
+                structure?.emptyUpdates === true &&
+                structure?.inputDisabled === true &&
+                structure?.inputPlaceholder === "Select a channel to ask Jarvis",
+            JSON.stringify(structure)
+        );
+        await h.shot("cdp-shots/jarvis-peek-empty.png");
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", {
+            width: 440,
+            height: 420,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
+        await settle(450);
+        const narrow = await h.ev(`(() => {
+            const panel = document.querySelector('[data-pet-peek]');
+            const header = document.querySelector('[data-pet-peek-header]');
+            const body = document.querySelector('[data-pet-peek-body]');
+            if (!panel || !header || !body) return null;
+            const rect = panel.getBoundingClientRect();
+            const headerTop = Math.round(header.getBoundingClientRect().top);
+            body.scrollTop = body.scrollHeight;
+            const headerAfterScroll = Math.round(header.getBoundingClientRect().top);
+            return {
+                left: Math.round(rect.left),
+                right: Math.round(rect.right),
+                top: Math.round(rect.top),
+                bottom: Math.round(rect.bottom),
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+                horizontalOverflow: panel.scrollWidth - panel.clientWidth,
+                bodyScrollable: body.scrollHeight > body.clientHeight,
+                headerStayed: headerTop === headerAfterScroll,
+            };
+        })()`);
+        await h.shot("cdp-shots/jarvis-peek-narrow.png");
+
+        const pickerOpened = await h.ev(`(() => {
+            const picker = document.querySelector('[data-pet-peek] [data-testid="harness-picker"]');
+            if (!picker) return false;
+            picker.click();
+            return true;
+        })()`);
+        await settle(350);
+        const pickerVisibility = await h.ev(`(() => {
+            const options = [...document.querySelectorAll('[data-testid^="harness-option-"]')];
+            const viewport = { width: window.innerWidth, height: window.innerHeight };
+            const visible = options.length > 0 && options.every((option) => {
+                const rect = option.getBoundingClientRect();
+                const x = Math.round(rect.left + rect.width / 2);
+                const y = Math.round(rect.top + rect.height / 2);
+                const hit = document.elementFromPoint(x, y);
+                return rect.left >= 0 && rect.right <= viewport.width && rect.top >= 0 && rect.bottom <= viewport.height &&
+                    (hit === option || option.contains(hit));
+            });
+            return {
+                count: options.length,
+                visible,
+                rects: options.map((option) => {
+                    const rect = option.getBoundingClientRect();
+                    return { left: Math.round(rect.left), right: Math.round(rect.right), top: Math.round(rect.top), bottom: Math.round(rect.bottom) };
+                }),
+            };
+        })()`);
+        await h.ev(`document.querySelector('[data-pet-peek] [data-testid="harness-picker"]')?.click()`);
+        await settle(350);
+        rec(
+            "4. the narrow panel stays bounded with a fixed header, no horizontal overflow, and an unclipped harness picker",
+            narrow != null &&
+                narrow.left >= 8 &&
+                narrow.right <= narrow.viewportWidth - 8 &&
+                narrow.top >= 8 &&
+                narrow.bottom <= narrow.viewportHeight - 8 &&
+                narrow.horizontalOverflow <= 0 &&
+                narrow.bodyScrollable === true &&
+                narrow.headerStayed === true &&
+                pickerOpened === true &&
+                pickerVisibility?.visible === true,
+            JSON.stringify({ narrow, pickerOpened, pickerVisibility })
+        );
+
+        await press("Escape", "Escape", 27);
+        const escapeDismissed = await h.ev(`(() => ({
+            panelGone: document.querySelector('[data-pet-peek]') == null,
+            focusReturned: document.activeElement?.getAttribute('aria-label') === 'Jarvis condition',
+        }))()`);
+
+        await press("Enter", "Enter", 13);
+        const closeClicked = await h.ev(`(() => {
+            const close = document.querySelector('button[aria-label="Close Jarvis panel"]');
+            if (!close) return false;
+            close.click();
+            return true;
+        })()`);
+        await settle(350);
+        const closeDismissed = await h.ev(`(() => ({
+            panelGone: document.querySelector('[data-pet-peek]') == null,
+            focusReturned: document.activeElement?.getAttribute('aria-label') === 'Jarvis condition',
+        }))()`);
+
+        await press("Enter", "Enter", 13);
+        const backdropClicked = await h.ev(`(() => {
+            const backdrop = document.querySelector('[data-pet-peek-backdrop]');
+            if (!backdrop) return false;
+            backdrop.click();
+            return true;
+        })()`);
+        await settle(350);
+        const backdropDismissed = await h.ev(`(() => ({
+            panelGone: document.querySelector('[data-pet-peek]') == null,
+            focusReturned: document.activeElement?.getAttribute('aria-label') === 'Jarvis condition',
+        }))()`);
+        rec(
+            "5. Escape, close, and backdrop dismiss only the peek and return focus to the creature",
+            escapeDismissed.panelGone === true &&
+                escapeDismissed.focusReturned === true &&
+                closeClicked === true &&
+                closeDismissed.panelGone === true &&
+                closeDismissed.focusReturned === true &&
+                backdropClicked === true &&
+                backdropDismissed.panelGone === true &&
+                backdropDismissed.focusReturned === true,
+            JSON.stringify({ escapeDismissed, closeClicked, closeDismissed, backdropClicked, backdropDismissed })
+        );
+        const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
+        rec("6. dismissing the global peek stays on the current surface", stayed, String(stayed));
+        return steps;
+    },
+    async teardown(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", {
+            width: 1600,
+            height: 950,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
+        await h.ev(`(() => {
+            document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
+            return true;
+        })()`);
+        await h.goto("cockpit");
+    },
+};
+
 // --- jarvis volunteer: the volunteered-knowledge delivery chain ---------------------------------
 // The unit tests cover each hop in isolation; what they structurally cannot see is a bad hop BETWEEN
 // atoms, which is the defect class this surface's findings keep landing in. So this drives the whole
@@ -3147,8 +3384,7 @@ const jarvisVolunteer = {
         // fails depending on what the previous run left behind, which is the one thing a regression net
         // must never do.
         await h.ev(`(() => {
-            const esc = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === 'Esc');
-            if (esc) esc.click();
+            document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
             return true;
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 200))");
@@ -3161,7 +3397,7 @@ const jarvisVolunteer = {
                 at: Date.now(),
                 kind: "loose-end",
                 text: "CDP probe - untouched for 21 days",
-                source: { ref: "task:cdp-probe", title: "CDP probe", sourceType: "dossier" },
+                sources: [{ ref: "task:cdp-probe", title: "CDP probe", sourceType: "dossier" }],
             });
             return true;
         })()`);
@@ -3188,12 +3424,9 @@ const jarvisVolunteer = {
             return true;
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
-        // assert the peek is actually OPEN, not merely that the click did not throw: its own close
-        // control is the marker. Without this the step passes on a click that toggled it shut, and step 6
-        // ("peek closed on navigation") then passes vacuously too.
-        const peekOpen = await h.ev(
-            `[...document.querySelectorAll('button')].some((b) => (b.innerText || '').trim() === 'Esc')`
-        );
+        // assert the peek is actually OPEN, not merely that the click did not throw. Without this the step
+        // passes on a click that toggled it shut, and the close assertion then passes vacuously too.
+        const peekOpen = await h.ev(`document.querySelector('[data-pet-peek]') != null`);
         steps.push({
             step: "peek opens from the creature",
             ok: opened === true && peekOpen === true,
@@ -3202,8 +3435,11 @@ const jarvisVolunteer = {
         await h.shot("cdp-shots/jarvis-volunteer-peek.png");
 
         const verbs = await h.ev(`(() => {
-            const btns = [...document.querySelectorAll('button')].map((b) => (b.innerText || '').trim());
-            return { open: btns.includes('Open'), ask: btns.includes('Ask') };
+            const panel = document.querySelector('[data-pet-peek]');
+            return {
+                open: panel?.querySelector('[data-pet-act$=":open"]') != null,
+                ask: panel?.querySelector('[data-pet-act$=":ask"]') != null,
+            };
         })()`);
         steps.push({
             step: "peek row offers Open and Ask",
@@ -3212,9 +3448,9 @@ const jarvisVolunteer = {
         });
 
         const clicked = await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.innerText || '').trim() === 'Open');
-            if (!b) return "no Open control";
-            b.click();
+            const button = document.querySelector('[data-pet-peek] [data-pet-act$=":open"]');
+            if (!button) return "no Open control";
+            button.click();
             return true;
         })()`);
         await h.ev("new Promise((r) => setTimeout(r, 500))");
@@ -3228,9 +3464,7 @@ const jarvisVolunteer = {
 
         // and it closes the peek on the way out: an overlay anchored to the creature, left open over a
         // surface it just navigated away from, is stranded
-        const peekClosed = await h.ev(
-            `![...document.querySelectorAll('button')].some((b) => (b.innerText || '').trim() === 'Esc')`
-        );
+        const peekClosed = await h.ev(`document.querySelector('[data-pet-peek]') == null`);
         steps.push({ step: "peek closed on navigation", ok: peekClosed === true, detail: String(peekClosed) });
 
         return steps;
@@ -3240,8 +3474,7 @@ const jarvisVolunteer = {
             // close the peek if a failed run left it open, and drop the watermark the injected utterance
             // advanced -- that key is persisted, so leaving it moved is a side effect on the user's own
             // creature rather than a test
-            const esc = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === 'Esc');
-            if (esc) esc.click();
+            document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
             try {
                 globalThis.localStorage?.removeItem("wave:pet.watermark");
             } catch {}
@@ -3920,6 +4153,7 @@ export const SCENARIOS = [
     jarvisCollapseOrder,
     jarvisNarrow,
     jarvisMeasure,
+    jarvisPeek,
     jarvisVolunteer,
     usageCharts,
     attentionCrossChannel,

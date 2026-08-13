@@ -4,6 +4,7 @@ import {
     DRIFT_QUEUE_BAND,
     EXPRESSION_RANK,
     expressionFor,
+    isWindowConstrained,
     postureFor,
     postureLine,
     type PetSignals,
@@ -35,6 +36,13 @@ describe("expressionFor — each rank fires in isolation", () => {
 });
 
 describe("expressionFor — strict precedence", () => {
+    it("keeps the underlying window constraint available when recall wins the expression", () => {
+        expect(expressionFor({ index: OFF, rateLimit: HOT }).kind).toBe("cannot-see");
+        expect(isWindowConstrained(HOT)).toBe(true);
+        expect(isWindowConstrained({ provider: "claude", pct: 60 })).toBe(false);
+        expect(isWindowConstrained(undefined)).toBe(false);
+    });
+
     it("cannot-see beats every lower rank present at the same time", () => {
         expect(expressionFor({ index: OFF, rateLimit: HOT }).kind).toBe("cannot-see");
         expect(expressionFor({ index: OFF, decay: QUEUE }).kind).toBe("cannot-see");
@@ -78,9 +86,7 @@ describe("postureFor", () => {
     it("prefers a gate, then an escalation, then a blocked worker", () => {
         expect(postureFor({ attention: { reviewGates: 1, escalations: 1, blockedWorkers: 1 } })).toBe("review-gate");
         expect(postureFor({ attention: { reviewGates: 0, escalations: 1, blockedWorkers: 1 } })).toBe("escalation");
-        expect(postureFor({ attention: { reviewGates: 0, escalations: 0, blockedWorkers: 1 } })).toBe(
-            "blocked-worker"
-        );
+        expect(postureFor({ attention: { reviewGates: 0, escalations: 0, blockedWorkers: 1 } })).toBe("blocked-worker");
     });
 
     it("is none with nothing waiting, and none with no attention signal at all", () => {
@@ -91,7 +97,11 @@ describe("postureFor", () => {
     // posture is independent of condition: the two registers answer different questions, and the
     // precedence in expressionFor must not silence what is waiting.
     it("is unaffected by the condition signals", () => {
-        const signals: PetSignals = { index: OFF, rateLimit: HOT, attention: { reviewGates: 0, escalations: 2, blockedWorkers: 0 } };
+        const signals: PetSignals = {
+            index: OFF,
+            rateLimit: HOT,
+            attention: { reviewGates: 0, escalations: 2, blockedWorkers: 0 },
+        };
         expect(expressionFor(signals).kind).toBe("cannot-see");
         expect(postureFor(signals)).toBe("escalation");
     });
@@ -143,9 +153,7 @@ describe("wording", () => {
         expect(conditionLine({ kind: "tired", provider: "claude", pct: 100, resetAt: 1_800_003_600 }, now)).toBe(
             "Claude's window is spent — back in 1h 0m."
         );
-        expect(conditionLine({ kind: "tired", provider: "claude", pct: 100 }, now)).toBe(
-            "Claude's window is spent."
-        );
+        expect(conditionLine({ kind: "tired", provider: "claude", pct: 100 }, now)).toBe("Claude's window is spent.");
     });
 
     it("gives every expression and every posture a line", () => {

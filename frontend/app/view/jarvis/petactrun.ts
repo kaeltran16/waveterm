@@ -90,9 +90,10 @@ async function perform(act: PetAct & { verb: "do" }): Promise<void> {
         return;
     }
     if (op.kind === "clear-superseded") {
-        // the confirm modal owns the outcome from here, and pruneAllSuperseded reloads the queue itself, so
-        // this act keeps no state: a lingering "done" would outlive a cancelled confirmation
+        // the confirmation owns focus from here. Close only after pushModal succeeds so a missing modal host
+        // can still report beside this act instead of disappearing with the peek.
         confirmPruneAllSuperseded(op.count);
+        globalStore.set(petPeekOpenAtom, false);
         clearActState(act.id);
         return;
     }

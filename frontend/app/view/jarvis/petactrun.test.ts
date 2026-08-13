@@ -55,6 +55,7 @@ afterEach(() => {
     globalStore.set(petActStateAtom, {});
     globalStore.set(pendingMemoryFocusAtom, null);
     globalStore.set(pendingSettingsSectionAtom, null);
+    globalStore.set(petPeekOpenAtom, false);
 });
 
 describe("runAct — escorts", () => {
@@ -103,19 +104,24 @@ describe("runAct — ask", () => {
 });
 
 describe("runAct — clear superseded", () => {
-    it("hands off to the existing confirm modal and keeps no state of its own", async () => {
+    it("opens the existing confirm modal, then closes the peek so focus scopes do not compete", async () => {
+        globalStore.set(petPeekOpenAtom, true);
         const act: PetAct = {
             id: "vault:clear-superseded",
             verb: "do",
             label: "Clear 2 superseded",
             op: { kind: "clear-superseded", count: 2 },
         };
+
         await runAct(model, act);
+
         expect(confirmPruneAllSuperseded).toHaveBeenCalledWith(2);
+        expect(globalStore.get(petPeekOpenAtom)).toBe(false);
         expect(globalStore.get(petActStateAtom)["vault:clear-superseded"]).toBeUndefined();
     });
 
-    it("records a failure on the act that caused it, never silently", async () => {
+    it("keeps the peek open and reports the failure when the confirm modal cannot open", async () => {
+        globalStore.set(petPeekOpenAtom, true);
         confirmPruneAllSuperseded.mockImplementation(() => {
             throw new Error("modal host missing");
         });
@@ -125,7 +131,10 @@ describe("runAct — clear superseded", () => {
             label: "Clear 1 superseded",
             op: { kind: "clear-superseded", count: 1 },
         };
+
         await runAct(model, act);
+
+        expect(globalStore.get(petPeekOpenAtom)).toBe(true);
         expect(globalStore.get(petActStateAtom)["vault:clear-superseded"]).toEqual({
             status: "error",
             text: "modal host missing",
