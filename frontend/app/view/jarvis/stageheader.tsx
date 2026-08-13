@@ -18,6 +18,8 @@ export function StageHeader({
     tier,
     mode,
     onOpenGraph,
+    snapshotTimeMs,
+    onRefresh,
 }: {
     comp: StageComposition;
     title: string;
@@ -26,6 +28,8 @@ export function StageHeader({
     tier: JarvisTier;
     mode: string;
     onOpenGraph: () => void;
+    snapshotTimeMs: number | null;
+    onRefresh: (() => void) | null;
 }) {
     return (
         // the rule spans the Stage; the row inside it sits in the shared gutter, so the title starts on the
@@ -71,14 +75,32 @@ export function StageHeader({
                 ) : null}
                 {/* no ⚙ here: the channel profile's trigger sits in the context rail's icon slot, beside
                     the edge its drawer actually opens from (see stagerail / RailExtraIcon). */}
-                <button
-                    type="button"
-                    onClick={onOpenGraph}
-                    title="Peek the vault graph around this subject"
-                    className="flex-none cursor-pointer rounded-[7px] border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-primary"
-                >
-                    Graph
-                </button>
+                {comp.showGraph ? (
+                    <button
+                        type="button"
+                        onClick={onOpenGraph}
+                        title="Peek the vault graph around this subject"
+                        className="flex-none cursor-pointer rounded-[7px] border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-primary"
+                    >
+                        Graph
+                    </button>
+                ) : snapshotTimeMs != null ? (
+                    <>
+                        <span className="flex-none rounded-[7px] border border-border bg-surface px-2.5 py-1 font-mono text-[10.5px] text-muted">
+                            As of{" "}
+                            {new Date(snapshotTimeMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                        <button
+                            type="button"
+                            data-jarvis-briefing-refresh
+                            onClick={onRefresh ?? undefined}
+                            title="Reload the work briefing"
+                            className="flex-none cursor-pointer rounded-[7px] border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-primary"
+                        >
+                            Refresh
+                        </button>
+                    </>
+                ) : null}
             </div>
         </div>
     );

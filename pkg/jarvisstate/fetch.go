@@ -26,6 +26,35 @@ const (
 	sessionLimit      = 200
 )
 
+// fetchSeams names every leg reader FetchWorkState uses, so tests can point individual legs at
+// boundary failures without a broken database or vault (same discipline as jarvisrecall.SetOpenVaultForTest).
+type fetchSeams struct {
+	getChannels     func(ctx context.Context) ([]*waveobj.Channel, error)
+	getChannelRuns  func(ctx context.Context, channelId string) ([]*waveobj.Run, error)
+	scanSessions    func(days, limit int) ([]agentsessions.SessionInfo, error)
+	gatherAttention func(ctx context.Context) ([]wshrpc.AttentionItem, error)
+	openVault       func(ctx context.Context) (*wavevault.Vault, error)
+	loadDossier     func(r *wavevault.Retriever, id string) (*jarvisdossier.Dossier, error)
+	loadDecision    func(r *wavevault.Retriever, id string) (*jarvisdossier.Decision, error)
+}
+
+var defaultSeams = fetchSeams{
+	getChannels:     wstore.GetChannels,
+	getChannelRuns:  wstore.GetChannelRuns,
+	scanSessions:    agentsessions.ScanSessions,
+	gatherAttention: jarvis.GatherAttention,
+	openVault:       wavevault.OpenVault,
+	loadDossier:     jarvisdossier.LoadDossier,
+	loadDecision:    jarvisdossier.LoadDecision,
+}
+
+// SetFetchSeamsForTest replaces every leg reader; returns a restore func the caller defers.
+func SetFetchSeamsForTest(s fetchSeams) func() {
+	old := defaultSeams
+	defaultSeams = s
+	return func() { defaultSeams = old }
+}
+
 // FetchWorkState fetches every ledger leg and derives the per-project work state. Each leg's read
 // failure degrades that leg to empty and is reported in Sources — the "never ran vs ran and found
 // nothing" discipline applied to the ledger; a leg failure never fails the whole query.
@@ -33,56 +62,65 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 	st := wshrpc.WorkState{Sources: wshrpc.SourceHealth{Attention: "volatile"}}
 
 	var runs []*waveobj.Run
-	chans, err := wstore.GetChannels(ctx)
-	if err == nil {
+	runsHealthy := true
+	chans, err := defaultSeams.getChannels(ctx)
+	if err != nil {
+		runsHealthy = false
+	} else {
 		for _, ch := range chans {
-			cr, cerr := wstore.GetChannelRuns(ctx, ch.OID)
+			cr, cerr := defaultSeams.getChannelRuns(ctx, ch.OID)
 			if cerr != nil {
-				continue // one bad channel must not sink the leg
+				runsHealthy = false // one bad channel read voids completeness but keeps the rest
+				continue
 			}
 			runs = append(runs, cr...)
 		}
-		st.Sources.Runs = true
 	}
-	if err != nil {
-		st.Sources.Runs = false
-	}
+	st.Sources.Runs = runsHealthy
 
 	var sessions []agentsessions.SessionInfo
-	if s, serr := agentsessions.ScanSessions(sessionWindowDays, sessionLimit); serr == nil {
+	if s, serr := defaultSeams.scanSessions(sessionWindowDays, sessionLimit); serr == nil {
 		sessions = s
 		st.Sources.Sessions = true
 	}
 
 	var attention []wshrpc.AttentionItem
-	if a, aerr := jarvis.GatherAttention(ctx); aerr == nil {
+	if a, aerr := defaultSeams.gatherAttention(ctx); aerr == nil {
 		attention = a
+	} else {
+		st.Sources.Attention = "error"
 	}
 
 	var dossiers []jarvisdossier.Dossier
 	var decisions []DecisionEntry
-	if v, verr := wavevault.OpenVault(ctx); verr == nil {
+	dossiersHealthy := false
+	if v, verr := defaultSeams.openVault(ctx); verr == nil {
 		r := v.Retriever(wavevault.AllScope())
 		if nodes, qerr := r.Query(wavevault.Filter{}); qerr == nil {
+			dossiersHealthy = true
 			for _, n := range nodes {
 				switch n.Collection {
 				case wavevault.CollTasks:
-					if d, derr := jarvisdossier.LoadDossier(r, n.ID); derr == nil {
+					if d, derr := defaultSeams.loadDossier(r, n.ID); derr == nil {
 						dossiers = append(dossiers, *d)
+					} else {
+						dossiersHealthy = false // keep the healthy vault data; the leg is incomplete
 					}
 				case wavevault.CollDecisions:
-					if d, derr := jarvisdossier.LoadDecision(r, n.ID); derr == nil {
+					if d, derr := defaultSeams.loadDecision(r, n.ID); derr == nil {
 						decisions = append(decisions, DecisionEntry{ID: d.ID, Summary: d.Summary, CreatedTs: d.Created})
+					} else {
+						dossiersHealthy = false
 					}
 				}
 			}
-			st.Sources.Dossiers = true
 		}
 	}
+	st.Sources.Dossiers = dossiersHealthy
 
 	active := ActiveWork(runs, sessions, attention, dossiers)
-	shipped := Shipped(runs, 0)
-	timeline := Timeline(runs, sessions, decisions, dossiers, 0)
+	shipped := Shipped(runs, sinceMs)
+	timeline := Timeline(runs, sessions, decisions, dossiers, sinceMs)
 	delta := Delta(sinceMs, runs, sessions, decisions, attention, dossiers)
 
 	byProject := map[string]*wshrpc.ProjectWork{}

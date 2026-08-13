@@ -20,6 +20,7 @@ import {
     channelPickingAtom,
     conversationForSource,
     jarvisDraftAtom,
+    persistedSubjectAtom,
     selectSubject,
     setActiveRunId,
     setChannelPicking,
@@ -300,5 +301,23 @@ describe("askAboutSource", () => {
         askAboutSource("weird:w1", "weird", "Something", "q");
         const convId = globalStore.get(sourceConversationAtom)["weird:w1"];
         expect(globalStore.get(conversationsByIdAtom)[convId].scope.chips[0].label).toBe("This source");
+    });
+});
+
+describe("briefing subject persistence", () => {
+    beforeEach(() => {
+        globalStore.set(persistedSubjectAtom, null);
+    });
+
+    it("does not persist the briefing subject", () => {
+        selectSubject({ kind: "briefing", id: "all" });
+        expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "briefing", id: "all" });
+        expect(globalStore.get(persistedSubjectAtom)).toBeNull();
+    });
+
+    it("persists an ordinary subject selected after briefing", () => {
+        selectSubject({ kind: "briefing", id: "all" });
+        selectSubject({ kind: "conversation", id: "c-after-briefing" });
+        expect(globalStore.get(persistedSubjectAtom)).toEqual({ kind: "conversation", id: "c-after-briefing" });
     });
 });

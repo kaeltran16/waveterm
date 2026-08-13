@@ -157,7 +157,7 @@ export function StageRail({
                         <div className="flex items-center gap-2 rounded-[10px] border border-border bg-background px-3 py-2.5">
                             <span className="h-[7px] w-[7px] flex-none rounded-full bg-success" />
                             <span className="text-[12px] leading-[1.4] text-secondary">
-                                All clear — Jarvis is handling routine asks.
+                                No pending asks reported.
                             </span>
                         </div>
                     ) : (

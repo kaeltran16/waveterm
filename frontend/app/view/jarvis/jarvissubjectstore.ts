@@ -95,7 +95,11 @@ export function selectSubject(subject: ActiveSubject): void {
         }
     }
     globalStore.set(activeSubjectAtom, subject);
-    globalStore.set(persistedSubjectAtom, subject);
+    // Briefing is a synthetic subject: selecting it must not overwrite the last meaningful subject,
+    // which is what the next launch restores.
+    if (subject.kind !== "briefing") {
+        globalStore.set(persistedSubjectAtom, subject);
+    }
     if (subject.kind === "channel") {
         fireAndForget(() => selectChannel(subject.id));
         return;
@@ -103,6 +107,9 @@ export function selectSubject(subject: ActiveSubject): void {
     // the ⚙ drawer is channel-only and the Stage header drops its trigger off-channel, so leaving it open
     // strands it: no control closes it, and its forceCollapsed keeps "Needs you" hidden the whole time.
     globalStore.set(profileRailOpenAtom, false);
+    if (subject.kind === "briefing") {
+        return;
+    }
     if (subject.kind === "dossier") {
         loadRecordDetail(subject.id);
         loadRecordScope(subject.id);

@@ -168,3 +168,26 @@ func TestDeltaAddsAttentionSince(t *testing.T) {
 		}
 	}
 }
+
+func TestActiveWorkRunWorkerOrefsSortedDeduped(t *testing.T) {
+	r := trun("r1", "executing", 100, 0, nil)
+	r.Phases = []waveobj.RunPhase{
+		{Kind: "plan", WorkerOrefs: []string{"tab:b", "tab:a"}},
+		{Kind: "execute", WorkerOrefs: []string{"tab:a"}},
+	}
+	items := ActiveWork([]*waveobj.Run{r}, nil, nil, nil)
+	if len(items) != 1 {
+		t.Fatalf("items=%+v want the one run", items)
+	}
+	got := items[0].WorkerORefs
+	if len(got) != 2 || got[0] != "tab:a" || got[1] != "tab:b" {
+		t.Fatalf("workerorefs=%v want [tab:a tab:b] sorted + deduped", got)
+	}
+}
+
+func TestActiveWorkRunWithoutPhasesHasNoWorkerOrefs(t *testing.T) {
+	items := ActiveWork([]*waveobj.Run{trun("r1", "executing", 100, 0, nil)}, nil, nil, nil)
+	if items[0].WorkerORefs != nil {
+		t.Fatalf("workerorefs=%v want nil (omitted on the wire)", items[0].WorkerORefs)
+	}
+}

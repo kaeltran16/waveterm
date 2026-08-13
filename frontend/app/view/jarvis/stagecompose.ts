@@ -13,12 +13,13 @@ export interface StageComposition {
     showProfile: boolean;
     reachText: string | null; // static statement of grounding reach; not a control (Spaces own scoping)
     absenceChip: string | null;
-    recordBand: "attributed" | "subject" | "mentions";
+    recordBand: "attributed" | "subject" | "mentions" | "none";
     showPipeline: boolean;
-    thread: "run" | "record" | "turns";
-    composerTarget: "worker-or-jarvis" | "jarvis-record" | "jarvis-thread";
+    thread: "run" | "record" | "turns" | "briefing";
+    composerTarget: "worker-or-jarvis" | "jarvis-record" | "jarvis-thread" | "jarvis-briefing";
     showFleet: boolean;
     fleetTitle: string | null;
+    showGraph: boolean;
 }
 
 const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
@@ -33,6 +34,7 @@ const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
         composerTarget: "worker-or-jarvis",
         showFleet: true,
         fleetTitle: "Fleet",
+        showGraph: true,
     },
     dossier: {
         showAutonomy: false,
@@ -45,6 +47,7 @@ const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
         composerTarget: "jarvis-record",
         showFleet: true,
         fleetTitle: "Fleet · on this record",
+        showGraph: true,
     },
     conversation: {
         showAutonomy: false,
@@ -57,6 +60,20 @@ const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
         composerTarget: "jarvis-thread",
         showFleet: false,
         fleetTitle: null,
+        showGraph: true,
+    },
+    briefing: {
+        showAutonomy: false,
+        showProfile: false,
+        reachText: null, // the header's subtitle carries the reach ("All work")
+        absenceChip: null,
+        recordBand: "none",
+        showPipeline: false,
+        thread: "briefing",
+        composerTarget: "jarvis-briefing",
+        showFleet: false,
+        fleetTitle: null,
+        showGraph: false,
     },
 };
 

@@ -23,6 +23,24 @@ var runTerminalStatuses = map[string]bool{"done": true, "cancelled": true}
 // (Status is "done"/"failed" only after the transcript finished), attention items (project resolved
 // through the run they wait on), and dossier blockers (dossiers carry no project label — they group
 // under "").
+// workerORefsFor returns the sorted, deduplicated union of a run's phase worker orefs. Runs carry no
+// identity for their workers elsewhere on the wire; this is what lets the frontend suppress a live
+// agent already represented by its Run.
+func workerORefsFor(r *waveobj.Run) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, p := range r.Phases {
+		for _, oref := range p.WorkerOrefs {
+			if oref != "" && !seen[oref] {
+				seen[oref] = true
+				out = append(out, oref)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func ActiveWork(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, attention []wshrpc.AttentionItem, dossiers []jarvisdossier.Dossier) []wshrpc.ActiveWorkItem {
 	var out []wshrpc.ActiveWorkItem
 	for _, r := range runs {
@@ -32,6 +50,7 @@ func ActiveWork(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, atten
 		out = append(out, wshrpc.ActiveWorkItem{
 			Project: r.ProjectPath, Kind: "run", Title: r.Goal,
 			Detail: "status: " + r.Status, Ts: r.CreatedTs, NavTarget: "run:" + r.OID,
+			WorkerORefs: workerORefsFor(r),
 		})
 	}
 	runByID := make(map[string]*waveobj.Run, len(runs))

@@ -45,6 +45,11 @@ export function resolveComposerTarget(input: TargetInput): ComposerTarget {
             needsChannelPicker: false,
         };
     }
+    if (input.composerTarget === "jarvis-briefing") {
+        // a dispatch has no channel on Briefing; the box is a plain ask, and the syntax hint is
+        // hidden — @quick/@run cannot do anything here.
+        return { audience: "jarvis", label: "All work", needsChannelPicker: false };
+    }
     // off-channel subjects have no channel to dispatch into, so a dispatch must pick one first.
     const label = input.composerTarget === "jarvis-record" ? "Jarvis · scoped to this record" : "Jarvis · this thread";
     return { audience: "jarvis", label, needsChannelPicker: dispatching };

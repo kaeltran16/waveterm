@@ -9,8 +9,12 @@ import { filterChannelsBySpace } from "@/app/view/agents/spacescope";
 import type { JarvisConversation } from "./jarviscontract";
 import { mentionedDossierIds } from "./mentions";
 
-export type SubjectKind = "channel" | "dossier" | "conversation";
-export type SubjectMark = "#" | "▤" | "~";
+export type SubjectKind = "channel" | "dossier" | "conversation" | "briefing";
+export type SubjectMark = "#" | "▤" | "~" | "◈";
+
+// the pinned all-work subject: a real SubjectKind for selection and Stage composition, never a
+// persisted content subject.
+export const BRIEFING_SUBJECT = { kind: "briefing", id: "all" } as const;
 
 export type Subject =
     | { kind: "channel"; id: string; label: string; projectName: string }
@@ -39,6 +43,7 @@ const MARKS: Record<SubjectKind, SubjectMark> = {
     channel: "#",
     dossier: "▤",
     conversation: "~",
+    briefing: "◈",
 };
 
 export function subjectMark(kind: SubjectKind): SubjectMark {
