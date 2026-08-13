@@ -388,3 +388,72 @@ type CommandSetDossierStatusData struct {
 	DossierId string `json:"dossierid"`
 	Status    string `json:"status"`
 }
+
+// --- Work ledger (Axis 1): wire types for the stateless query surface. --------------------------
+
+// CommandJarvisStateData filters the work-ledger query. Project filters to one project ("" = all);
+// SinceMs windows the timeline/delta (0 = unbounded).
+type CommandJarvisStateData struct {
+	Project string `json:"project,omitempty"`
+	SinceMs int64  `json:"sincems,omitempty"`
+}
+
+// CommandJarvisStateRtnData is the ledger query response: per-project derivations plus per-leg
+// source health (the "never ran vs ran and found nothing" discipline).
+type CommandJarvisStateRtnData struct {
+	State WorkState `json:"state"`
+}
+
+type WorkState struct {
+	Projects []ProjectWork `json:"projects,omitempty"`
+	Sources  SourceHealth  `json:"sources"`
+}
+
+type ProjectWork struct {
+	Project string           `json:"project"`
+	Active  []ActiveWorkItem `json:"active,omitempty"`
+	Shipped []ShippedItem    `json:"shipped,omitempty"`
+	Events  []TimelineEvent  `json:"events,omitempty"`
+	Delta   []TimelineEvent  `json:"delta,omitempty"`
+}
+
+// ActiveWorkItem is one thing the operator might want surfaced about in-flight work.
+type ActiveWorkItem struct {
+	Project   string `json:"project"`
+	Kind      string `json:"kind"` // "run" | "session" | "attention" | "blocker"
+	Title     string `json:"title"`
+	Detail    string `json:"detail,omitempty"`
+	Ts        int64  `json:"ts"`
+	NavTarget string `json:"navtarget,omitempty"` // "run:<oid>" | "vault:<id>"
+}
+
+// ShippedItem is one completed, evidence-sealed run within the window.
+type ShippedItem struct {
+	Project     string                  `json:"project"`
+	RunOID      string                  `json:"runoid"`
+	Goal        string                  `json:"goal"`
+	Summary     string                  `json:"summary,omitempty"`
+	Files       []waveobj.EvidenceFile  `json:"files,omitempty"`
+	Verifs      []waveobj.EvidenceVerif `json:"verifs,omitempty"`
+	CompletedTs int64                   `json:"completedts"`
+}
+
+// TimelineEvent is one merged, timestamp-descending "what happened when" event.
+type TimelineEvent struct {
+	Ts        int64  `json:"ts"`
+	Kind      string `json:"kind"` // run-created | run-done | session | decision | dossier | attention
+	Project   string `json:"project,omitempty"`
+	Title     string `json:"title"`
+	Detail    string `json:"detail,omitempty"`
+	NavTarget string `json:"navtarget,omitempty"`
+}
+
+// SourceHealth reports each ledger leg's read status. Attention is always "volatile": the pending-ask
+// registry is server-lifetime (a wavesrv restart empties it until agents re-raise), so an empty
+// attention read after a restart must never read as a confident "nothing needs you".
+type SourceHealth struct {
+	Runs      bool   `json:"runs"`
+	Sessions  bool   `json:"sessions"`
+	Dossiers  bool   `json:"dossiers"`
+	Attention string `json:"attention"` // "ok" | "volatile" | "error"
+}
