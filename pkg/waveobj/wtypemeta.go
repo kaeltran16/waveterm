@@ -46,6 +46,7 @@ type MetaTSType struct {
 	CmdRunOnce          bool     `json:"cmd:runonce,omitempty"`
 	CmdCloseOnExit      bool     `json:"cmd:closeonexit,omitempty"`
 	CmdCloseOnExitForce bool     `json:"cmd:closeonexitforce,omitempty"`
+	CmdKeepOnExit       bool     `json:"cmd:keeponexit,omitempty"` // agent blocks close on exit unless they opt out
 	CmdCloseOnExitDelay float64  `json:"cmd:closeonexitdelay,omitempty"`
 	CmdNoWsh            bool     `json:"cmd:nowsh,omitempty"`
 	CmdArgs             []string `json:"cmd:args,omitempty"`  // args for cmd (only if cmd:shell is false)
@@ -102,8 +103,8 @@ type MetaTSType struct {
 	BgActiveBorderColor string  `json:"bg:activebordercolor,omitempty"` // frame:activebordercolor
 
 	// for workspace
-	LayoutVTabBarWidth      int  `json:"layout:vtabbarwidth,omitempty"`
-	LayoutWidgetsVisible    *bool `json:"layout:widgetsvisible,omitempty"`
+	LayoutVTabBarWidth   int   `json:"layout:vtabbarwidth,omitempty"`
+	LayoutWidgetsVisible *bool `json:"layout:widgetsvisible,omitempty"`
 
 	// for tabs+waveai
 	WaveAiPanelOpen     bool   `json:"waveai:panelopen,omitempty"`
