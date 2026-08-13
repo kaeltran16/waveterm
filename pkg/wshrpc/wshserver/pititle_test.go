@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,6 +184,36 @@ func TestPiTitleProviderRetriesUntilFirstUserMessage(t *testing.T) {
 	p.NoteEvent(piStatusEvent("block:uuid-1", "working", "", path, "sess-1"))
 	if got := p.Result(path, time.Second); got != "Fix the flicker" {
 		t.Fatalf("title not generated after the first message: %q", got)
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 LLM call, got %d", calls)
+	}
+}
+
+func TestPiTitleProviderHandlesWireShapedEvents(t *testing.T) {
+	calls := 0
+	p := NewPiTitleProvider(func(ctx context.Context, prompt string) (string, error) {
+		calls++
+		return "Fix the flicker", nil
+	})
+	path := writePiSession(t, []string{
+		`{"type":"session","id":"s1"}`,
+		`{"type":"message","id":"m1","message":{"role":"user","content":"fix the flicker"}}`,
+	})
+	ev := piStatusEvent("block:uuid-1", "working", "", path, "sess-1")
+	// round-trip through JSON to reproduce the RPC wire shape: WaveEvent.Data has no runtime
+	// type registry, so it decodes as a plain map, not baseds.AgentStatusData.
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wireEv wps.WaveEvent
+	if err := json.Unmarshal(raw, &wireEv); err != nil {
+		t.Fatal(err)
+	}
+	p.NoteEvent(&wireEv)
+	if got := p.Result(path, time.Second); got != "Fix the flicker" {
+		t.Fatalf("wire-shaped event must generate a title, got %q (calls=%d)", got, calls)
 	}
 	if calls != 1 {
 		t.Fatalf("expected exactly 1 LLM call, got %d", calls)

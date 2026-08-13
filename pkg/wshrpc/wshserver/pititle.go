@@ -14,6 +14,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/consult"
+	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 )
 
@@ -140,8 +141,17 @@ func NewPiTitleProvider(gen titleGenerator) *PiTitleProvider {
 // untouched (a user rename wins over any cached title). Otherwise a cached title is attached
 // synchronously; a cache miss kicks off async generation.
 func (p *PiTitleProvider) NoteEvent(ev *wps.WaveEvent) {
-	data, ok := ev.Data.(baseds.AgentStatusData)
-	if !ok || data.Agent != "pi" || data.TranscriptPath == "" {
+	if ev == nil || ev.Event != wps.Event_AgentStatus {
+		return
+	}
+	// events arrive over the RPC wire with Data as a raw JSON map (WaveEvent has no runtime
+	// event-data registry), so decode like wcore/badge.go — a type assertion would only match
+	// in-process events and silently drop every real one.
+	var data baseds.AgentStatusData
+	if err := utilfn.ReUnmarshal(&data, ev.Data); err != nil {
+		return
+	}
+	if data.Agent != "pi" || data.TranscriptPath == "" {
 		return
 	}
 	p.mu.Lock()
