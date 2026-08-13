@@ -536,7 +536,28 @@ func subagentsDir(parentPath string) string {
 	return filepath.Join(filepath.Dir(parentPath), base, "subagents")
 }
 
-// subagentRecords parses every subagent transcript a Claude Code parent spawned into raw records.
+// piSubagentRecords walks the pi-subagents child-session root for a parent session file:
+// <parent-without-.jsonl>/<runId>/run-<idx>/session.jsonl, recursively so a nested subagent (its
+// own children live under its run-0/session dir) is included too. A parent that spawned none has
+// no such dir and yields nothing. Only files that parse as Pi v3 sessions are kept — a run dir can
+// hold other jsonl (status/events logs) that must never bill.
+func piSubagentRecords(parentPath string) []Record {
+	var recs []Record
+	root := strings.TrimSuffix(parentPath, ".jsonl")
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		file, err := pisession.Read(path)
+		if err != nil {
+			return nil
+		}
+		recs = append(recs, extractPi(file, time.Time{})...)
+		return nil
+	})
+	return recs
+}
+
 // Subagents are separate Claude Code transcript files under the parent's subagents dir, walked
 // recursively so a nested subagent (one that itself spawned children) is included too. A parent
 // that spawned none has no such dir and yields nothing. Subagents are a Claude-only concept, so
@@ -569,13 +590,15 @@ func transcriptRecords(path string) []Record {
 		return extractOpencodeShadow(lines)
 	}
 	// native Pi sessions are their own versioned JSONL shape that neither the claude nor codex
-	// heuristics can parse — route them to the Pi parser before those fallbacks run.
+	// heuristics can parse — route them to the Pi parser before those fallbacks run. Like Claude,
+	// the parent's total folds in its subagent sessions (pi-subagents writes them under the parent's
+	// own file stem) so a fan-out session does not under-report.
 	if isPiTranscriptPath(path) {
 		file, err := pisession.Read(path)
 		if err != nil {
 			return nil
 		}
-		return extractPi(file, time.Time{})
+		return append(extractPi(file, time.Time{}), piSubagentRecords(path)...)
 	}
 	// Claude parse runs on the usage-filtered subset; the Codex fallback needs the full lines (its
 	// model + token counts live on non-usage lines), so filterUsageLines must not mutate `lines`.

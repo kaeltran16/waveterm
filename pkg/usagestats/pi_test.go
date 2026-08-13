@@ -308,3 +308,116 @@ func TestScanRootsIncludesPi(t *testing.T) {
 		t.Errorf("pi bucket = %+v", b)
 	}
 }
+
+// pi-subagents writes a parent's child sessions under <parent-without-.jsonl>/<runId>/run-<idx>/session.jsonl
+// (its child-session root). TranscriptUsage must fold those in exactly like Claude's subagents dir —
+// the rail's per-session total would otherwise under-report any pi session that fanned out. A run dir's
+// non-session jsonl (events/status logs) must be skipped, and a parent that spawned no children yields
+// just its own records.
+func TestTranscriptUsageFoldsPiSubagentSessions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".pi", "agent", "sessions", "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Parent pi session: one assistant turn (nested message.usage), openai-codex/gpt-5.5.
+	parent := filepath.Join(dir, "parent.jsonl")
+	parentContent := `{"type":"session","version":3,"id":"p1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\repo"}` + "\n" +
+		`{"type":"model_change","id":"pmc","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
+		`{"type":"message","id":"pa1","parentId":null,"timestamp":"2026-08-11T03:00:02Z","message":{"role":"assistant","content":"x","usage":{"input":100,"output":50,"totalTokens":150,"cost":{"total":0.01}}}}` + "\n"
+	if err := os.WriteFile(parent, []byte(parentContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Child session in the pi-subagents layout, same model+day (merges into one bucket).
+	childDir := filepath.Join(dir, "parent", "runAbc", "run-0")
+	if err := os.MkdirAll(childDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	childContent := `{"type":"session","version":3,"id":"c1","timestamp":"2026-08-11T03:05:00Z","cwd":"C:\repo"}` + "\n" +
+		`{"type":"model_change","id":"cmc","parentId":null,"timestamp":"2026-08-11T03:05:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
+		`{"type":"message","id":"ca1","parentId":null,"timestamp":"2026-08-11T03:05:02Z","message":{"role":"assistant","content":"y","usage":{"input":30,"output":8,"totalTokens":38,"cost":{"total":0.002}}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(childDir, "session.jsonl"), []byte(childContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A parallel child (run-1) on a different model, and a nested child of the first child (its own
+	// child-session root at run-0/session/...) — the recursive walk must include both.
+	parDir := filepath.Join(dir, "parent", "runDef", "run-1")
+	if err := os.MkdirAll(parDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parContent := `{"type":"session","version":3,"id":"c2","timestamp":"2026-08-11T03:06:00Z","cwd":"C:\repo"}` + "\n" +
+		`{"type":"model_change","id":"cmc2","parentId":null,"timestamp":"2026-08-11T03:06:01Z","provider":"anthropic","modelId":"claude-sonnet-4-6"}` + "\n" +
+		`{"type":"message","id":"ca2","parentId":null,"timestamp":"2026-08-11T03:06:02Z","message":{"role":"assistant","content":"z","usage":{"input":15,"output":3,"totalTokens":18,"cost":{"total":0.001}}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(parDir, "session.jsonl"), []byte(parContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(childDir, "session", "runNest", "run-0")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nestedContent := `{"type":"session","version":3,"id":"c3","timestamp":"2026-08-11T03:07:00Z","cwd":"C:\repo"}` + "\n" +
+		`{"type":"model_change","id":"cmc3","parentId":null,"timestamp":"2026-08-11T03:07:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
+		`{"type":"message","id":"ca3","parentId":null,"timestamp":"2026-08-11T03:07:02Z","message":{"role":"assistant","content":"w","usage":{"input":5,"output":1,"totalTokens":6,"cost":{"total":0}}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(nestedDir, "session.jsonl"), []byte(nestedContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A run dir can hold non-session jsonl (status/events logs) — never a bucket.
+	if err := os.WriteFile(filepath.Join(childDir, "events.jsonl"), []byte(`{"type":"status","id":"s1"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := TranscriptUsage(parent)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	byModel := map[string]Bucket{}
+	for _, b := range got {
+		byModel[b.Model] = b
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 buckets (gpt-5.5 merged, claude-sonnet), got %d: %+v", len(got), got)
+	}
+	// parent (100/50) + child (30/8) + nested (5/1) share model+day → one merged bucket.
+	if b := byModel["gpt-5.5"]; b.Provider != "openai-codex" || b.Input != 135 || b.Output != 59 || b.Msgs != 3 {
+		t.Errorf("gpt-5.5 bucket = %+v, want input=135 output=59 msgs=3", b)
+	}
+	if b := byModel["claude-sonnet-4-6"]; b.Provider != "anthropic" || b.Input != 15 || b.Output != 3 || b.Msgs != 1 {
+		t.Errorf("claude-sonnet bucket = %+v", b)
+	}
+
+	// SumTranscript folds parent + all children: 150 + 38 + 18 + 6 = 212.
+	sum, err := SumTranscript(parent)
+	if err != nil || sum != 212 {
+		t.Fatalf("sum = %d, err = %v; want 212", sum, err)
+	}
+}
+
+// A pi session that spawned no subagents has no child-session root: TranscriptUsage must yield its
+// own records unchanged (the sibling <stem>/ dir missing is not an error).
+func TestTranscriptUsagePiNoSubagents(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".pi", "agent", "sessions", "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(dir, "parent.jsonl")
+	content := `{"type":"session","version":3,"id":"p1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\repo"}` + "\n" +
+		`{"type":"model_change","id":"pmc","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
+		`{"type":"message","id":"pa1","parentId":null,"timestamp":"2026-08-11T03:00:02Z","message":{"role":"assistant","content":"x","usage":{"input":100,"output":50,"totalTokens":150,"cost":{"total":0.01}}}}` + "\n"
+	if err := os.WriteFile(parent, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// a same-stem FILE (not dir) must not confuse the walk
+	if err := os.WriteFile(filepath.Join(dir, "parent.extra.jsonl"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := TranscriptUsage(parent)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got) != 1 || got[0].Input != 100 || got[0].Output != 50 || got[0].Msgs != 1 {
+		t.Fatalf("buckets = %+v, want the parent's single 100/50 bucket", got)
+	}
+}
