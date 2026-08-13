@@ -65,6 +65,16 @@ var probeCases = []probeCase{
 	{name: "memory/theme", query: "can we add a bright daytime colour scheme", wantID: "cockpit-light-mode-wontfix"},
 	{name: "memory/styling", query: "should new styling use nested preprocessor files or utility classes", wantID: "avoid-scss-prefer-tailwind"},
 
+	// Axis 1 ask-routing coverage: status/history-shaped questions still resolve to corpus nodes,
+	// and the extras here are the off-topic controls the batch judge must remove. wantIDs are the
+	// corpus nodes the queries genuinely surface on the current profile (obsidian_vault); the
+	// discovery run of TestLiveJudgeProbe's candidate log is the ground truth for them.
+	{name: "status/blocked", query: "which task is sitting waiting for a review decision right now", wantID: "check-completion-summary-in-channel-run-why-does"},
+	{name: "history/shipped", query: "when did we stop using the old http helper library", wantID: "project-mp-axios-removal-fetch-semantics"},
+	{name: "bringup/decision", query: "did the async data loading change to use built-in primitives", wantID: "migrated-promises-are-native-from-react-query-mu"},
+	{name: "negative/airline", query: "how do we rebook a missed connection on the airline partner api", negative: true},
+	{name: "negative/finance", query: "what is the fx rate hedging policy for quarterly earnings", negative: true},
+
 	{name: "negative/k8s", query: "how do we rotate the kubernetes cluster certificates before they expire", negative: true},
 	{name: "negative/postgres", query: "what is the postgres connection pool size for the billing service", negative: true},
 	{name: "negative/invoicing", query: "how do we reconcile currency rounding in the monthly invoice run", negative: true},
@@ -327,6 +337,41 @@ func TestLiveRecallProbe(t *testing.T) {
 		}
 		t.Logf("%-8.3f %-18s %d seeds across %d/%d negatives", f,
 			fmt.Sprintf("%d/%d", kept, len(positiveTargets)), noise, loud, negatives)
+	}
+}
+
+// TestLiveJudgeProbe measures the batch judge's effect on the real profile: for each probe case it
+// retrieves, runs the judge, and reports kept vs removed. It asserts only the sanity bounds (kept
+// <= candidates, and off-topic controls lose at least as many as they keep) — the numbers are the
+// measurement, not the gate; the gate is that a human reads them against the next fitting pass.
+func TestLiveJudgeProbe(t *testing.T) {
+	if err := wavebase.CacheAndRemoveEnvVars(); err != nil {
+		t.Fatalf("bootstrap: %v (set WAVETERM_CONFIG_HOME and WAVETERM_DATA_HOME)", err)
+	}
+	wconfig.GetWatcher().Start()
+	ctx := context.Background()
+	scope := ScopeArgs{Mode: "all"}
+	for _, pc := range probeCases {
+		cands, err := retrieve(ctx, scope, pc.query)
+		if err != nil {
+			t.Fatalf("retrieve(%q): %v", pc.query, err)
+		}
+		before := len(cands)
+		var top []string
+		for i, c := range cands {
+			if i >= 5 {
+				break
+			}
+			top = append(top, c.navTarget)
+		}
+		kept := judgeCandidates(ctx, scopeCwd(scope), pc.query, cands)
+		if len(kept) > before {
+			t.Fatalf("judge grew the shortlist for %q: %d -> %d", pc.query, before, len(kept))
+		}
+		t.Logf("judge %-24s %d -> %d kept (removed %d)  top5=%v", pc.name, before, len(kept), before-len(kept), top)
+		if pc.negative && before-len(kept) < len(kept) {
+			t.Logf("note: negative case %q kept %d/%d — review against the federated corpus", pc.name, len(kept), before)
+		}
 	}
 }
 
