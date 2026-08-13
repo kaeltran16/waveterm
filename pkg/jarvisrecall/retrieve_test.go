@@ -5,6 +5,8 @@ package jarvisrecall
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
@@ -88,5 +90,54 @@ func TestNodeCandidateCarriesScopeAsProject(t *testing.T) {
 	got := nodeCandidate(n, "body text", 0)
 	if got.project != "krypton" {
 		t.Fatalf("project = %q, want krypton", got.project)
+	}
+}
+
+// supersededVault builds a fixture vault with two memory notes that both full-text match "solar":
+// one live, one flagged superseded (WriteLearning's nested metadata shape). Built standalone so no
+// other fixture note can interfere with the keyword match.
+func supersededVault(t *testing.T) *wavevault.Vault {
+	t.Helper()
+	v, err := wavevault.OpenVaultAtForTest(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenVaultAtForTest: %v", err)
+	}
+	write := func(rel, content string) {
+		p := filepath.Join(v.Root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("memory/solar-old.md", "---\nid: solar-old\nmetadata:\n  type: learning\n  superseded_by: solar-live\n---\nold solar panel deployment notes\n")
+	write("memory/solar-live.md", "---\nid: solar-live\nmetadata:\n  type: learning\n---\ncurrent solar panel deployment notes\n")
+	return v
+}
+
+func TestSelectSeedsExcludesSupersededFromKeywordSeeds(t *testing.T) {
+	v := supersededVault(t)
+	r := v.Retriever(wavevault.AllScope())
+	seeds, err := selectSeeds(context.Background(), v, r, "solar panel")
+	if err != nil {
+		t.Fatalf("selectSeeds: %v", err)
+	}
+	if len(seeds) != 1 || seeds[0] != "solar-live" {
+		t.Fatalf("seeds=%v want only the live note", seeds)
+	}
+}
+
+func TestSemanticSeedsExcludesSuperseded(t *testing.T) {
+	v := supersededVault(t)
+	injectIndex(t, &semFake{dims: 3})
+	r := v.Retriever(wavevault.AllScope())
+	// Both notes embed to basis vec 0, so only the superseded filter can separate them.
+	seeds, err := selectSeeds(context.Background(), v, r, "renewable grid")
+	if err != nil {
+		t.Fatalf("selectSeeds: %v", err)
+	}
+	if len(seeds) != 1 || seeds[0] != "solar-live" {
+		t.Fatalf("seeds=%v want only the live note (superseded excluded from the semantic lane too)", seeds)
 	}
 }

@@ -60,6 +60,29 @@ func SetOpenIndexForTest(fn func(context.Context) (*jarvisembed.Index, error)) f
 	return old
 }
 
+// supersededBy returns the superseded_by target from a node's frontmatter, or "" when unset. Vault
+// notes carry it nested under metadata (the WriteLearning shape); harvest-style files may put it at
+// the top level. The memory tab already computes supersession — retrieval just never consulted it.
+func supersededBy(n wavevault.Node) string {
+	if v, ok := n.Frontmatter["superseded_by"]; ok {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	if md, ok := n.Frontmatter["metadata"]; ok {
+		if m, ok := md.(map[string]any); ok {
+			if v, ok := m["superseded_by"]; ok {
+				if s, ok := v.(string); ok {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isSuperseded(n wavevault.Node) bool { return supersededBy(n) != "" }
+
 // semanticSeeds returns node ids from the embedding index (layer 3) in score order, or nil when
 // embeddings are unavailable or error — L3 degrades to L1/L2. The model never searches; this only
 // widens the deterministic seed set. Recall's interactive scope is AllScope today (see
@@ -107,9 +130,20 @@ func semanticSeeds(ctx context.Context, v *wavevault.Vault, q string) []string {
 			}
 		}
 		if len(ids) == before {
-			return ids
+			break
 		}
 	}
+	// The index chunk carries only a node id; read frontmatter to drop superseded nodes. Fail-open:
+	// an unreadable node is kept (a superseded check must never lose an answer).
+	r := v.Retriever(wavevault.AllScope())
+	filtered := ids[:0]
+	for _, id := range ids {
+		if nb, err := r.Read(id); err == nil && isSuperseded(nb.Node) {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	return filtered
 }
 
 var (
@@ -166,6 +200,9 @@ func selectSeeds(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriever
 			return nil, err
 		}
 		for _, n := range nodes {
+			if isSuperseded(n) {
+				continue
+			}
 			add(n.ID, true, n.UpdatedTs)
 		}
 	}
@@ -175,6 +212,9 @@ func selectSeeds(ctx context.Context, v *wavevault.Vault, r *wavevault.Retriever
 			return nil, err
 		}
 		for _, h := range hits {
+			if isSuperseded(h.Node) {
+				continue
+			}
 			add(h.Node.ID, false, h.Node.UpdatedTs)
 		}
 	}
