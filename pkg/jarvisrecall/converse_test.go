@@ -151,3 +151,35 @@ func TestWorkerScopeCannotSeeTasks(t *testing.T) {
 		t.Fatalf("WorkerScope must not see tasks/ dossiers")
 	}
 }
+
+func TestConverseRunsJudgeOnce(t *testing.T) {
+	// The judge runs inside the shared retrieval→judge→synthesize core, so Converse gains it this
+	// cycle too — every conversation turn incurs one cheap-tier call. This test pins that contract
+	// (and the "judge said none → notfound" degradation) so a future refactor cannot silently
+	// re-remove the judge from the thread path.
+	v, _ := seedVault(t)
+	restore := SetOpenVaultForTest(func(context.Context) (*wavevault.Vault, error) { return v, nil })
+	defer SetOpenVaultForTest(restore)
+	judgeCalls := 0
+	restoreJ := SetJudgeForTest(func(_ context.Context, _, _ string) (string, error) {
+		judgeCalls++
+		return "1", nil
+	})
+	defer restoreJ()
+	old := SetSynthesizeForTest(func(ctx context.Context, cwd, prompt string, onChunk func(string)) (string, error) {
+		onChunk("yes [1]")
+		return "yes [1]", nil
+	})
+	defer SetSynthesizeForTest(old)
+	emit := func(wshrpc.JarvisConverseChunk) {}
+	turn, err := Converse(context.Background(), ScopeArgs{Mode: "all"}, nil, "why did we choose the widget approach", emit)
+	if err != nil {
+		t.Fatalf("Converse: %v", err)
+	}
+	if judgeCalls != 1 {
+		t.Fatalf("judge called %d times, want exactly 1", judgeCalls)
+	}
+	if turn.Terminal != "answered" {
+		t.Fatalf("terminal=%q want answered", turn.Terminal)
+	}
+}
