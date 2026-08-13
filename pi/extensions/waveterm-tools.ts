@@ -14,6 +14,7 @@ import {
     parseControlCommand,
     querySessionsArgs,
     runCommandArgs,
+    vaultAskArgs,
     type PiControlCommand,
 } from "./waveterm-tools-core";
 
@@ -72,6 +73,41 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
                 return { content: [{ type: "text", text: `wave_open_file failed: ${r.stderr}` }], details: {} };
             }
             return { content: [{ type: "text", text: r.stdout.trim() }], details: {} };
+        },
+    });
+
+    // --- Axis 1: wave_vault_ask — read past work from the work ledger ---------------------
+
+    pi.registerTool({
+        name: "wave_vault_ask",
+        label: "Ask the Wave Work Ledger",
+        description:
+            "Ask a stateless question about past work, decisions, or project state (status, history, what happened while away). " +
+            "Advisory: verify or cite the returned sources before treating the answer as ground truth.",
+        promptSnippet: "Ask the Wave work ledger about past work",
+        promptGuidelines: [
+            "Use wave_vault_ask when the user asks about past work, decisions, or project state.",
+            "This reads the past; the ask mirror (ask_user_question) asks the user a live question — do not conflate them.",
+        ],
+        parameters: Type.Object({
+            question: Type.String({ description: "The question to answer from the work ledger" }),
+            cwd: Type.Optional(Type.String({ description: "Project directory to scope the question to" })),
+        }),
+        async execute(_toolCallId: string, params: any): Promise<unknown> {
+            const r = await wsh(vaultAskArgs(params.question, params.cwd));
+            if (!r.ok) {
+                return { content: [{ type: "text", text: `wave_vault_ask failed: ${r.stderr}` }], details: {} };
+            }
+            let parsed: { answer?: string; sources?: { oref?: string; title?: string }[] } = {};
+            try {
+                parsed = JSON.parse(r.stdout);
+            } catch {
+                // fall through to the raw output below
+            }
+            const text = parsed.answer ?? r.stdout.trim();
+            const sources = (parsed.sources ?? []).map((s) => `${s.oref} ${s.title ?? ""}`.trim());
+            const content = sources.length ? `${text}\n\nSources:\n${sources.map((s) => `  ${s}`).join("\n")}` : text;
+            return { content: [{ type: "text", text: content }], details: { sources: parsed.sources ?? [] } };
         },
     });
 

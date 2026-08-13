@@ -7,6 +7,7 @@ import {
     parseControlCommand,
     querySessionsArgs,
     runCommandArgs,
+    vaultAskArgs,
 } from "./waveterm-tools-core";
 
 describe("waveterm-tools-core", () => {
@@ -43,5 +44,14 @@ describe("waveterm-tools-core", () => {
         expect(parseControlCommand("not json")).toBeNull();
         expect(parseControlCommand(JSON.stringify({ cmd: "moo" }))).toBeNull();
         expect(parseControlCommand(JSON.stringify({ content: "no cmd" }))).toBeNull();
+    });
+
+    it("builds wsh jarvis ask argv with json and optional cwd", () => {
+        expect(vaultAskArgs("did the ask bridge ship?", "C:\\proj")).toEqual([
+            "jarvis", "ask", "did the ask bridge ship?", "--json", "--cwd", "C:\\proj",
+        ]);
+        expect(vaultAskArgs("did the ask bridge ship?")).toEqual([
+            "jarvis", "ask", "did the ask bridge ship?", "--json",
+        ]);
     });
 });
