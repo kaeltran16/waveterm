@@ -18,6 +18,7 @@ import (
 
 var askClear bool
 var askWait bool
+var askProse bool
 var askQuestionsJson string
 
 // askWaitTimeout is the RPC ceiling for a blocked ask; the pi tool's own abort path
@@ -37,6 +38,7 @@ var askCmd = &cobra.Command{
 func init() {
 	askCmd.Flags().BoolVar(&askClear, "clear", false, "clear the pending ask for this block (PostToolUse)")
 	askCmd.Flags().BoolVar(&askWait, "wait", false, "block until answered and print the answers as JSON (pi ask bridge)")
+	askCmd.Flags().BoolVar(&askProse, "prose", false, "mark the ask as a projected prose question (pi prose bridge)")
 	askCmd.Flags().StringVar(&askQuestionsJson, "questions-json", "", "questions container as inline JSON instead of stdin (pi ask bridge; pi.exec stdin is ignored)")
 	rootCmd.AddCommand(askCmd)
 }
@@ -77,7 +79,7 @@ func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if askWait {
 		timeout = int64(askWaitTimeout / time.Millisecond)
 	}
-	rtn, err := wshclient.AskCommand(RpcClient, wshrpc.CommandAskData{ORef: oref.String(), Questions: questions, Wait: askWait}, &wshrpc.RpcOpts{Timeout: timeout})
+	rtn, err := wshclient.AskCommand(RpcClient, wshrpc.CommandAskData{ORef: oref.String(), Questions: questions, Wait: askWait, Prose: askProse}, &wshrpc.RpcOpts{Timeout: timeout})
 	if err != nil {
 		return err
 	}

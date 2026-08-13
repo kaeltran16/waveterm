@@ -35,12 +35,14 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 		BlockId:   oref.OID,
 		Questions: data.Questions,
 		Ts:        ts,
+		Prose:     data.Prose,
 	})
 	publishAgentAsk(baseds.AgentAskData{
 		ORef:      data.ORef,
 		AskId:     askId,
 		Questions: data.Questions,
 		Ts:        ts,
+		Prose:     data.Prose,
 	})
 	if !data.Wait {
 		return wshrpc.AskRtnData{AskId: askId}, nil

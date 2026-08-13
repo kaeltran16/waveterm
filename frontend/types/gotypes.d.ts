@@ -55,6 +55,7 @@ declare global {
         questions?: AgentAskQuestion[];
         ts?: number;
         cleared?: boolean;
+        prose?: boolean;
     };
 
     // baseds.AgentAskOption
@@ -338,6 +339,7 @@ declare global {
         oref: string;
         questions: AgentAskQuestion[];
         wait?: boolean;
+        prose?: boolean;
     };
 
     // wshrpc.CommandAuthenticateJobManagerData
@@ -2107,6 +2109,7 @@ declare global {
         "cmd:runonce"?: boolean;
         "cmd:closeonexit"?: boolean;
         "cmd:closeonexitforce"?: boolean;
+        "cmd:keeponexit"?: boolean;
         "cmd:closeonexitdelay"?: number;
         "cmd:nowsh"?: boolean;
         "cmd:args"?: string[];

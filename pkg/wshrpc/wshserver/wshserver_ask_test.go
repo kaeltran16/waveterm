@@ -135,3 +135,18 @@ func TestAskCommandClearCancelsWaiter(t *testing.T) {
 		t.Fatal("wait RPC never returned after clear")
 	}
 }
+
+func TestAskCommandThreadsProse(t *testing.T) {
+	ws := &WshServer{}
+	oref := waveobj.MakeORef("block", uuid.NewString()).String()
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	data := askData(oref, false)
+	data.Prose = true
+	if _, err := ws.AskCommand(context.Background(), data); err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	pending, ok := agentask.GlobalRegistry.Get(oref)
+	if !ok || !pending.Prose {
+		t.Fatalf("want prose pending ask, got %+v (ok=%v)", pending, ok)
+	}
+}

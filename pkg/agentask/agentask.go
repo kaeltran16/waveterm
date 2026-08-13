@@ -21,6 +21,8 @@ type PendingAsk struct {
 	// Ts is the UnixMilli the ask was raised, copied from AgentAskData.Ts. Drives the "waiting 41m"
 	// age in the attention list; without it the list can say what is waiting but not for how long.
 	Ts int64
+	// Prose mirrors CommandAskData.Prose: delivery types text instead of picker keystrokes.
+	Prose bool
 }
 
 type Registry struct {

@@ -22,6 +22,9 @@ type CommandAskData struct {
 	// Wait blocks the RPC until the ask is answered (Answers) or cleared/cancelled
 	// (Cancelled=true). Fire-and-forget when false (Claude Code hook path).
 	Wait bool `json:"wait,omitempty"`
+	// Prose marks a projected bare-prose question (pi prose bridge): the answer is typed
+	// into the block terminal as text (no native picker to drive with arrow keys).
+	Prose bool `json:"prose,omitempty"`
 }
 
 type AskRtnData struct {

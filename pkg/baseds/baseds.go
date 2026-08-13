@@ -148,6 +148,9 @@ type AgentAskData struct {
 	Questions []AgentAskQuestion `json:"questions,omitempty"`
 	Ts        int64              `json:"ts,omitempty"` // UnixMilli the ask was raised (for the "asking · 4m" age)
 	Cleared   bool               `json:"cleared,omitempty"`
+	// Prose marks a projected bare-prose question (pi prose bridge); the FE submits chip
+	// labels as text answers instead of picker indexes.
+	Prose bool `json:"prose,omitempty"`
 }
 
 // AgentAnswerItem is one question's answer in a panel-submitted reply. Exactly one of Text or
