@@ -19,6 +19,43 @@ export interface BriefingFixture {
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.now();
 
+// effort leg fixtures: shared by the briefing projection tests and the dev/CDP fixture states
+// (non-UUID oids are fine here — these never flow through ParseORef server-side)
+export const EFFORT_FIXTURES: EffortSummary[] = [
+    {
+        oref: "effort:scenario-gate",
+        title: "Scenario gate clearance",
+        status: "active",
+        done: 2,
+        total: 8,
+        activechunk: "Phase 3",
+        updatedts: NOW - DAY,
+        chunks: [
+            { label: "Phase 1", status: "done" },
+            { label: "Phase 2", status: "done" },
+            { label: "Phase 3", status: "active" },
+            { label: "Phase 4", status: "deferred" },
+            { label: "Phase 5", status: "blocked" },
+            { label: "Phase 6", status: "skipped" },
+            { label: "Phase 7", status: "pending" },
+            { label: "Phase 8", status: "pending" },
+        ],
+    },
+    {
+        oref: "effort:reflux",
+        title: "Reflux state-layer migration",
+        status: "active",
+        done: 0,
+        total: 14,
+        activechunk: "jotai store extraction",
+        updatedts: NOW - 2 * DAY,
+        chunks: Array.from({ length: 14 }, (_, i) => ({
+            label: `slice ${i + 1}`,
+            status: i === 0 ? "active" : "pending",
+        })),
+    },
+];
+
 const agents: AgentVM[] = [
     {
         id: "tab-direct",
@@ -94,6 +131,7 @@ const normalState: WorkState = {
         },
     ],
     sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    efforts: EFFORT_FIXTURES,
 };
 
 const attentionState: WorkState = {
@@ -126,6 +164,7 @@ const attentionState: WorkState = {
         },
     ],
     sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    efforts: EFFORT_FIXTURES,
 };
 
 const partialState: WorkState = {
