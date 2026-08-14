@@ -91,14 +91,17 @@ export async function loadEffortDetail(oref: string): Promise<void> {
     globalStore.set(effortDetailAtom, cache);
 }
 
+export async function expandEffort(oref: string): Promise<void> {
+    await loadEffortDetail(oref);
+    globalStore.set(expandedEffortOrefAtom, oref);
+}
+
 export async function toggleEffort(oref: string): Promise<void> {
-    const cur = globalStore.get(expandedEffortOrefAtom);
-    if (cur === oref) {
+    if (globalStore.get(expandedEffortOrefAtom) === oref) {
         globalStore.set(expandedEffortOrefAtom, null);
         return;
     }
-    await loadEffortDetail(oref);
-    globalStore.set(expandedEffortOrefAtom, oref);
+    await expandEffort(oref);
 }
 
 export async function advanceChunk(oref: string, note?: string): Promise<void> {

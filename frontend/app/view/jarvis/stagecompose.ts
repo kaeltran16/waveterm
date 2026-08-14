@@ -15,7 +15,7 @@ export interface StageComposition {
     absenceChip: string | null;
     recordBand: "attributed" | "subject" | "mentions" | "none";
     showPipeline: boolean;
-    thread: "run" | "record" | "turns" | "briefing" | "effort";
+    thread: "run" | "record" | "turns" | "briefing" | "effort" | "effort-list";
     composerTarget: "worker-or-jarvis" | "jarvis-record" | "jarvis-thread" | "jarvis-briefing";
     showFleet: boolean;
     fleetTitle: string | null;
@@ -83,6 +83,19 @@ const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
         recordBand: "none",
         showPipeline: false,
         thread: "effort",
+        composerTarget: "jarvis-thread",
+        showFleet: false,
+        fleetTitle: null,
+        showGraph: false,
+    },
+    "effort-list": {
+        showAutonomy: false,
+        showProfile: false,
+        reachText: "all efforts",
+        absenceChip: null,
+        recordBand: "none",
+        showPipeline: false,
+        thread: "effort-list",
         composerTarget: "jarvis-thread",
         showFleet: false,
         fleetTitle: null,

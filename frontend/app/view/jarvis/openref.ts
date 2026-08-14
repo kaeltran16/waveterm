@@ -15,6 +15,7 @@ import { runAtom, selectChannel } from "../agents/channelsstore";
 import { selectNote } from "../agents/memstore";
 import { pendingRunFocusAtom } from "../agents/runactions";
 import { selectSubject } from "./jarvissubjectstore";
+import { expandEffort } from "./effortstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
 
 export type OrefNav =
@@ -23,6 +24,7 @@ export type OrefNav =
     | { kind: "task"; oid: string }
     | { kind: "agent"; oid: string }
     | { kind: "memnote"; oid: string }
+    | { kind: "effort"; oid: string }
     | { kind: "unsupported"; otype: string };
 
 // pure + total: classify an oref into a nav plan. Malformed input or an unroutable otype => unsupported.
@@ -32,7 +34,14 @@ export function orefNavPlan(oref: string): OrefNav {
         return { kind: "unsupported", otype: parts[0] ?? "" };
     }
     const [otype, oid] = parts;
-    if (otype === "channel" || otype === "run" || otype === "task" || otype === "agent" || otype === "memnote") {
+    if (
+        otype === "channel" ||
+        otype === "run" ||
+        otype === "task" ||
+        otype === "agent" ||
+        otype === "memnote" ||
+        otype === "effort"
+    ) {
         return { kind: otype, oid };
     }
     return { kind: "unsupported", otype };
@@ -75,5 +84,12 @@ export async function openORef(model: AgentsViewModel, oref: string, anchor?: st
     }
     if (plan.kind === "agent") {
         model.openTerminal(plan.oid);
+    }
+    // an effort address opens the briefing with that effort expanded (spec UI §1): the subjects
+    // column and delta rows point here, and the detail subject is the expanded card's own "details".
+    if (plan.kind === "effort") {
+        selectSubject({ kind: "briefing", id: "all" });
+        await expandEffort("effort:" + plan.oid);
+        globalStore.set(model.surfaceAtom, "jarvis");
     }
 }

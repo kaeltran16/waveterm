@@ -51,6 +51,7 @@ const BASE: SubjectInput = {
     spaceScope: null,
     spaceDossierId: null,
     revealed: false,
+    efforts: [],
 };
 
 describe("subjectMark", () => {
@@ -133,6 +134,38 @@ describe("visibleSubjectGroups", () => {
         const navIds = visibleSubjectGroups(groups, {}, false).flatMap((g) => g.items.map((i) => i.id));
         expect(navIds).not.toContain("task-418");
         expect(navIds).toEqual(["c1", "c2", "v1", "v2"]);
+    });
+});
+
+describe("buildSubjectGroups efforts", () => {
+    it("floats an Efforts group first when efforts exist, with oid ids", () => {
+        const groups = buildSubjectGroups({
+            ...BASE,
+            efforts: [
+                { oref: "effort:eff-1", title: "Scenario gate clearance" },
+                { oref: "effort:eff-2", title: "Reflux migration" },
+            ],
+        });
+        expect(groups[0].key).toBe("efforts");
+        expect(groups[0].items).toEqual([
+            { kind: "effort", id: "eff-1", label: "Scenario gate clearance" },
+            { kind: "effort", id: "eff-2", label: "Reflux migration" },
+        ]);
+    });
+
+    it("omits the group entirely when there are no efforts", () => {
+        expect(buildSubjectGroups(BASE).some((g) => g.key === "efforts")).toBe(false);
+    });
+
+    it("defaults efforts to open and puts them first in keyboard nav", () => {
+        const groups = buildSubjectGroups({
+            ...BASE,
+            efforts: [{ oref: "effort:eff-1", title: "Scenario gate clearance" }],
+        });
+        const shown = visibleSubjectGroups(groups, {}, false);
+        expect(shown[0].collapsed).toBe(false);
+        const navIds = shown.flatMap((g) => g.items.map((i) => i.id));
+        expect(navIds).toEqual(["eff-1", "c1", "c2", "v1", "v2"]);
     });
 });
 

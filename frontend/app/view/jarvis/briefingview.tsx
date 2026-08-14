@@ -12,6 +12,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import { normalizeBriefingNav, projectBriefing, SEVEN_DAYS_MS } from "./briefingmodel";
+import { effortDeltaRow } from "./effortmodel";
 import { EffortCard } from "./effortcard";
 import { EffortCreateForm } from "./effortcreateform";
 import { expandedEffortOrefAtom, toggleEffort } from "./effortstore";
@@ -249,7 +250,10 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                         />
                                     ))}
                                     {model_.effortMore > 0 ? (
-                                        <MoreLink label={`+${model_.effortMore} more`} onClick={() => {}} />
+                                        <MoreLink
+                                            label={`+${model_.effortMore} more`}
+                                            onClick={() => selectSubject({ kind: "effort-list", id: "all" })}
+                                        />
                                     ) : null}
                                 </div>
                             )}
@@ -376,6 +380,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                         </span>
                                     ) : (
                                         model_.delta.map((d) => {
+                                            const eff = effortDeltaRow({ kind: d.kind, title: d.title, detail: d.detail });
                                             const oref =
                                                 d.oref != null &&
                                                 d.oref !== "" &&
@@ -389,8 +394,9 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                                             {d.title}
                                                         </span>
                                                         <span className="mt-[2px] block truncate font-mono text-[9.5px] text-muted">
-                                                            {d.wording}
-                                                            {d.detail != null ? " · " + d.detail : ""}
+                                                            {eff != null
+                                                                ? eff.meta
+                                                                : `${d.wording}${d.detail != null ? " · " + d.detail : ""}`}
                                                         </span>
                                                     </span>
                                                     <span className="flex-none font-mono text-[9.5px] text-muted">

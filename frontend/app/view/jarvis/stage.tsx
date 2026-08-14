@@ -30,6 +30,7 @@ import { ConversationView } from "./conversationview";
 import { BriefingView } from "./briefingview";
 import { briefingStateAtom, refreshBriefing } from "./briefingstore";
 import { EffortDetailView } from "./effortdetailview";
+import { EffortsListView } from "./effortslistview";
 import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
@@ -190,7 +191,9 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 ? (detail?.objective ?? "")
                 : subject.kind === "effort"
                   ? (effort?.title ?? "Effort")
-                  : conversation.title;
+                  : subject.kind === "effort-list"
+                    ? "Efforts"
+                    : conversation.title;
     const subtitle =
         subject.kind === "channel"
             ? (channel?.projectpath ?? "")
@@ -198,7 +201,9 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               ? "All work"
               : subject.kind === "effort"
                 ? "chunks tracker"
-                : "";
+                : subject.kind === "effort-list"
+                  ? "all efforts"
+                  : "";
 
     const bandDetail =
         subject.kind === "dossier" ? detail : bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null;
@@ -248,6 +253,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     <BriefingView model={model} />
                 ) : comp.thread === "effort" ? (
                     <EffortDetailView model={model} />
+                ) : comp.thread === "effort-list" ? (
+                    <EffortsListView model={model} />
                 ) : (
                     <div className={cn(STAGE_SCROLLER, "min-h-0 flex-1")}>
                         <ConversationView conversation={conversation} model={model} />

@@ -99,7 +99,7 @@ export function selectSubject(subject: ActiveSubject): void {
     // Briefing is a synthetic subject: selecting it must not overwrite the last meaningful subject,
     // which is what the next launch restores. Effort subjects are navigations from the briefing, not
     // restore targets — the restore machinery has no effort list to validate a stored id against.
-    if (subject.kind !== "briefing" && subject.kind !== "effort") {
+    if (subject.kind !== "briefing" && subject.kind !== "effort" && subject.kind !== "effort-list") {
         globalStore.set(persistedSubjectAtom, subject);
     }
     if (subject.kind === "channel") {
@@ -116,6 +116,9 @@ export function selectSubject(subject: ActiveSubject): void {
         // warm the detail cache so the Stage header can name the effort while the view mounts.
         fireAndForget(() => loadEffortDetail("effort:" + subject.id));
         return;
+    }
+    if (subject.kind === "effort-list") {
+        return; // the list view fetches on mount; nothing to pre-warm.
     }
     if (subject.kind === "dossier") {
         loadRecordDetail(subject.id);

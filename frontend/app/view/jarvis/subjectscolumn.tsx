@@ -62,7 +62,8 @@ import {
 import { STAGE_HEADER_BAND } from "./stagemeasure";
 import { createCommitScheduler, type CommitScheduler } from "./subjectcursor";
 import { restoreDecision } from "./subjectrestore";
-import { briefingLandingConsumed, consumeBriefingLanding, refreshBriefing } from "./briefingstore";
+import { openORef } from "./openref";
+import { briefingLandingConsumed, consumeBriefingLanding, refreshBriefing, briefingStateAtom } from "./briefingstore";
 import {
     BRIEFING_SUBJECT,
     buildSubjectGroups,
@@ -126,6 +127,7 @@ function CollapsedSubjects({
     signalsFor,
     briefingActive,
     onBriefingClick,
+    onSelect,
 }: {
     widthPx: number;
     groups: VisibleGroup[];
@@ -133,6 +135,7 @@ function CollapsedSubjects({
     signalsFor: (s: Subject) => { asking: boolean; working: number } | null;
     briefingActive: boolean;
     onBriefingClick: () => void;
+    onSelect: (s: Subject) => void;
 }) {
     return (
         <div
@@ -162,7 +165,7 @@ function CollapsedSubjects({
                             type="button"
                             title={s.label}
                             aria-label={s.label}
-                            onClick={() => selectSubject({ kind: s.kind, id: s.id })}
+                            onClick={() => onSelect(s)}
                             className={cn(
                                 "relative flex h-8 w-8 flex-none cursor-pointer items-center justify-center rounded-[8px] font-mono text-[12px] transition-colors duration-[140ms] hover:bg-surface-hover",
                                 isActive(s) ? "bg-accentbg text-accent-soft" : "text-muted"
@@ -194,6 +197,7 @@ export function SubjectsColumn({
     const channels = useAtomValue(channelsAtom);
     const dossiers = useAtomValue(taskListAtom);
     const conversations = useAtomValue(conversationsAtom);
+    const briefing = useAtomValue(briefingStateAtom);
     const projects = useAtomValue(projectsAtom);
     const agents = useAtomValue(model.agentsAtom);
     const runs = useAtomValue(activeChannelRunsAtom);
@@ -294,6 +298,7 @@ export function SubjectsColumn({
         spaceScope,
         spaceDossierId: activeSpace?.id ?? null,
         revealed,
+        efforts: (briefing.snapshot?.state.efforts ?? []).map((e) => ({ oref: e.oref, title: e.title })),
     });
 
     const totalBefore = (channels?.length ?? 0) + (dossiers?.length ?? 0) + conversations.length;
@@ -313,7 +318,14 @@ export function SubjectsColumn({
     if (commitRef.current == null) {
         commitRef.current = createCommitScheduler((key) => {
             const i = key.indexOf(":");
-            selectSubject({ kind: key.slice(0, i) as SubjectKind, id: key.slice(i + 1) });
+            const kind = key.slice(0, i) as SubjectKind;
+            const id = key.slice(i + 1);
+            // an effort row commits to the briefing with that effort expanded, same as its click.
+            if (kind === "effort") {
+                void openORef(model, "effort:" + id);
+                return;
+            }
+            selectSubject({ kind, id });
         });
     }
     useEffect(() => () => commitRef.current?.cancel(), []);
@@ -519,6 +531,14 @@ export function SubjectsColumn({
                     } else {
                         selectSubject({ kind: BRIEFING_SUBJECT.kind, id: BRIEFING_SUBJECT.id });
                     }
+                }}
+                onSelect={(s) => {
+                    commitRef.current?.cancel();
+                    if (s.kind === "effort") {
+                        void openORef(model, "effort:" + s.id);
+                        return;
+                    }
+                    selectSubject({ kind: s.kind, id: s.id });
                 }}
             />
         );
@@ -816,6 +836,10 @@ export function SubjectsColumn({
                                             // a commit still queued from j/k would land after this and move
                                             // the user off the row they clicked
                                             commitRef.current?.cancel();
+                                            if (s.kind === "effort") {
+                                                void openORef(model, "effort:" + s.id);
+                                                return;
+                                            }
                                             selectSubject({ kind: s.kind, id: s.id });
                                         }}
                                         onContextMenu={(ev) => {

@@ -11,6 +11,8 @@ describe("orefNavPlan", () => {
             oid: "11111111-1111-1111-1111-111111111111",
         });
         expect(orefNavPlan("agent:a1")).toEqual({ kind: "agent", oid: "a1" });
+        // an effort address opens the briefing with that effort expanded
+        expect(orefNavPlan("effort:eff-1")).toEqual({ kind: "effort", oid: "eff-1" });
     });
     it("marks types with no clean focus path as unsupported (no throw)", () => {
         for (const ot of ["memory", "radar", "decision", "commit", "session"]) {

@@ -9,7 +9,7 @@ import { filterChannelsBySpace } from "@/app/view/agents/spacescope";
 import type { JarvisConversation } from "./jarviscontract";
 import { mentionedDossierIds } from "./mentions";
 
-export type SubjectKind = "channel" | "dossier" | "conversation" | "briefing" | "effort";
+export type SubjectKind = "channel" | "dossier" | "conversation" | "briefing" | "effort" | "effort-list";
 export type SubjectMark = "#" | "▤" | "~" | "◈" | "✦";
 
 // the pinned all-work subject: a real SubjectKind for selection and Stage composition, never a
@@ -40,6 +40,8 @@ export interface SubjectInput {
     spaceScope: SpaceScope | null;
     spaceDossierId: string | null;
     revealed: boolean;
+    // the briefing's effort leg, oref + title; the group only exists when non-empty.
+    efforts?: { oref: string; title: string }[];
 }
 
 const MARKS: Record<SubjectKind, SubjectMark> = {
@@ -48,6 +50,7 @@ const MARKS: Record<SubjectKind, SubjectMark> = {
     conversation: "~",
     briefing: "◈",
     effort: "✦",
+    "effort-list": "✦",
 };
 
 export function subjectMark(kind: SubjectKind): SubjectMark {
@@ -170,6 +173,21 @@ export function buildSubjectGroups(input: SubjectInput): SubjectGroup[] {
     const { dossiers, conversations } = scopeToRecord(input);
 
     const groups: SubjectGroup[] = [];
+
+    // efforts float first: they are the briefing's top section and the column's next entry after the
+    // pinned Briefing row, so "where is the big task" is one line down.
+    const efforts = input.efforts ?? [];
+    if (efforts.length > 0) {
+        groups.push({
+            key: "efforts",
+            label: "Efforts",
+            items: efforts.map((e) => ({
+                kind: "effort" as const,
+                id: e.oref.replace(/^effort:/, ""),
+                label: e.title,
+            })),
+        });
+    }
 
     // channels group by project, in first-seen order, so the column matches the rail users know.
     const byProject = new Map<string, Subject[]>();

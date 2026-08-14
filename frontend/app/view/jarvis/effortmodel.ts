@@ -78,8 +78,12 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
 
 const EFFORT_DELTA_KINDS = new Set(["effort-created", "chunk-done", "chunk-added", "chunk-status", "effort-status", "effort-note"]);
 
-// delta rows carry Title = effort title, Detail = "<label> · <stamp>" (Task 1 fold)
-export function effortDeltaRow(ev: TimelineEvent): { title: string; meta: string } | null {
+// delta rows carry Title = effort title, Detail = "<label> · <stamp>" (Task 1 fold); the param is
+// structural so both wire TimelineEvents and the briefing's derived DeltaRows can feed it.
+export function effortDeltaRow(ev: { kind: string; title: string; detail?: string | null }): {
+    title: string;
+    meta: string;
+} | null {
     if (!EFFORT_DELTA_KINDS.has(ev.kind)) return null;
     return { title: ev.title, meta: ev.detail ?? "" };
 }
