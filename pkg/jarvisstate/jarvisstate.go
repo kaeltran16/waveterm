@@ -167,7 +167,11 @@ func Timeline(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisio
 			continue
 		}
 		for _, ev := range e.Events {
-			add(wshrpc.TimelineEvent{Ts: ev.Ts, Kind: ev.Kind, Project: e.Project, Title: e.Title, Detail: ev.Text, NavTarget: "effort:" + e.OID})
+			detail := ev.Text
+			if ev.Label != "" {
+				detail = ev.Label + " · " + detail
+			}
+			add(wshrpc.TimelineEvent{Ts: ev.Ts, Kind: ev.Kind, Project: e.Project, Title: e.Title, Detail: detail, NavTarget: "effort:" + e.OID})
 		}
 	}
 	sort.SliceStable(evs, func(i, j int) bool { return evs[i].Ts > evs[j].Ts })
