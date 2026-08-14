@@ -5,6 +5,7 @@ package shellexec
 
 import (
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -34,23 +35,37 @@ type ConnInterface interface {
 }
 
 type CmdWrap struct {
-	Cmd      *exec.Cmd
-	IsShell  bool
-	WaitOnce *sync.Once
-	WaitErr  error
+	Cmd          *exec.Cmd
+	IsShell      bool
+	WaitOnce     *sync.Once
+	WaitErr      error
+	jobHandle    uintptr // windows job object (0 when not attached / not windows)
+	jobCloseOnce *sync.Once
 	pty.Pty
 }
 
 func MakeCmdWrap(cmd *exec.Cmd, cmdPty pty.Pty, isShell bool) CmdWrap {
-	return CmdWrap{
+	cw := CmdWrap{
 		Cmd:      cmd,
 		IsShell:  isShell,
 		WaitOnce: &sync.Once{},
 		Pty:      cmdPty,
 	}
+	// the process is already started by pty.StartWithSize; put it in a job object so
+	// closing the block kills the whole tree (shell + descendants), not just the shell
+	if cmd != nil && cmd.Process != nil {
+		if job, err := attachJobObject(cmd.Process); err != nil {
+			log.Printf("MakeCmdWrap: job attach failed for pid %d: %v", cmd.Process.Pid, err)
+		} else {
+			cw.jobHandle = job
+			cw.jobCloseOnce = &sync.Once{}
+		}
+	}
+	return cw
 }
 
 func (cw CmdWrap) Kill() {
+	killJobTree(cw.jobHandle)
 	cw.Cmd.Process.Kill()
 }
 
@@ -58,6 +73,11 @@ func (cw CmdWrap) Wait() error {
 	cw.WaitOnce.Do(func() {
 		cw.WaitErr = cw.Cmd.Wait()
 	})
+	// the direct process exited; close the job handle so KILL_ON_JOB_CLOSE reaps any
+	// descendants that outlived it (terminal-close semantics for the block's tree)
+	if cw.jobCloseOnce != nil {
+		cw.jobCloseOnce.Do(func() { closeJobObject(cw.jobHandle) })
+	}
 	return cw.WaitErr
 }
 
@@ -91,7 +111,11 @@ func (cw CmdWrap) KillGraceful(timeout time.Duration) {
 		return
 	}
 	if runtime.GOOS == "windows" {
-		cw.Cmd.Process.Kill()
+		killJobTree(cw.jobHandle) // terminates the whole tree when the job is attached
+		cw.Cmd.Process.Kill()     // direct-process fallback if job attach failed
+		if cw.jobCloseOnce != nil {
+			cw.jobCloseOnce.Do(func() { closeJobObject(cw.jobHandle) })
+		}
 		return
 	}
 	if cw.IsShell {
