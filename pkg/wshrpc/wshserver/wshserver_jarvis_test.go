@@ -261,3 +261,29 @@ func TestJarvisAskCommandAttachesLedgerFacts(t *testing.T) {
 		t.Fatalf("sources=%+v want the ledger fact from FetchWorkState", rtn.Sources)
 	}
 }
+
+func TestJarvisStatusIncludesEfforts(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	rtn, err := ws.EffortCreateCommand(ctx, wshrpc.CommandEffortCreateData{
+		Title:  "status-effort",
+		Chunks: []wshrpc.CommandEffortChunkSeed{{Label: "a"}, {Label: "b"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupEffort(t, rtn.EffortOID)
+	if _, err := ws.EffortMutateCommand(ctx, wshrpc.CommandEffortMutateData{
+		EffortOID: rtn.EffortOID,
+		Ops:       []wshrpc.EffortOp{{Op: "setChunkStatus", Chunk: "a", Status: "done"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ws.JarvisStatusCommand(ctx, wshrpc.CommandJarvisStatusData{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Status.Efforts.Active < 1 || st.Status.Efforts.ChunksDone < 1 || st.Status.Efforts.ChunksTotal < 2 {
+		t.Fatalf("efforts accounting: %+v", st.Status.Efforts)
+	}
+}
