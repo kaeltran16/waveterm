@@ -186,3 +186,47 @@ func Delta(sinceMs int64, runs []*waveobj.Run, sessions []agentsessions.SessionI
 	sort.SliceStable(evs, func(i, j int) bool { return evs[i].Ts > evs[j].Ts })
 	return evs
 }
+
+// EffortSummaryOf projects one effort into its ledger shape (no trails; the detail RPC serves those).
+func EffortSummaryOf(e *waveobj.Effort) wshrpc.EffortSummary {
+	s := wshrpc.EffortSummary{
+		ORef: "effort:" + e.OID, Title: e.Title, Project: e.Project, Ticket: e.Ticket,
+		Status: e.Status, ParentOID: e.ParentOID, UpdatedTs: e.UpdatedTs,
+	}
+	for _, c := range e.Chunks {
+		s.Chunks = append(s.Chunks, wshrpc.EffortChunkSummary{
+			Label: c.Label, Status: c.Status, Owner: c.Owner, WorkRefs: c.WorkRefs,
+		})
+		if c.Status == "done" {
+			s.Done++
+		}
+	}
+	s.Total = len(e.Chunks)
+	for _, c := range e.Chunks {
+		if c.Status == "active" {
+			s.ActiveChunk = c.Label
+			break
+		}
+	}
+	if s.ActiveChunk == "" {
+		for _, c := range e.Chunks {
+			if c.Status != "done" && c.Status != "skipped" {
+				s.ActiveChunk = c.Label
+				break
+			}
+		}
+	}
+	return s
+}
+
+// Efforts projects the non-archived efforts, newest-updated first (input already sorted).
+func Efforts(es []*waveobj.Effort) []wshrpc.EffortSummary {
+	var out []wshrpc.EffortSummary
+	for _, e := range es {
+		if e.Status == "archived" {
+			continue
+		}
+		out = append(out, EffortSummaryOf(e))
+	}
+	return out
+}
