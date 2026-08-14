@@ -105,7 +105,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
             <div className={cn(STAGE_GUTTER, "flex flex-col gap-4 py-4")} aria-live="polite">
                 {error != null ? (
                     <div className="flex flex-col gap-2 rounded-[10px] border border-border bg-surface px-4 py-3">
-                        <span className="text-[13px] font-semibold text-primary">Couldn't load this effort.</span>
+                        <span className="text-[13px] font-semibold text-primary">Couldn't load this initiative.</span>
                         <span className="text-[12px] text-secondary">{error}</span>
                         <button
                             type="button"
@@ -271,7 +271,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                                         }
                                     }}
                                     placeholder={
-                                        card.activeChunk != null ? `note on ${card.activeChunk}` : "effort-level note"
+                                        card.activeChunk != null ? `note on ${card.activeChunk}` : "initiative-level note"
                                     }
                                     className="w-64 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
                                 />

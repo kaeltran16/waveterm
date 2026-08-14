@@ -190,9 +190,9 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               : subject.kind === "dossier"
                 ? (detail?.objective ?? "")
                 : subject.kind === "effort"
-                  ? (effort?.title ?? "Effort")
+                  ? (effort?.title ?? "Initiative")
                   : subject.kind === "effort-list"
-                    ? "Efforts"
+                    ? "Initiatives"
                     : conversation.title;
     const subtitle =
         subject.kind === "channel"
@@ -202,7 +202,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               : subject.kind === "effort"
                 ? "chunks tracker"
                 : subject.kind === "effort-list"
-                  ? "all efforts"
+                  ? "all initiatives"
                   : "";
 
     const bandDetail =

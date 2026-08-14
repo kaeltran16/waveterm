@@ -78,7 +78,7 @@ const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
     effort: {
         showAutonomy: false,
         showProfile: false,
-        reachText: "this effort + its chunks",
+        reachText: "this initiative + its chunks",
         absenceChip: null,
         recordBand: "none",
         showPipeline: false,
@@ -91,7 +91,7 @@ const TABLE: Record<SubjectKind, Omit<StageComposition, "mark">> = {
     "effort-list": {
         showAutonomy: false,
         showProfile: false,
-        reachText: "all efforts",
+        reachText: "all initiatives",
         absenceChip: null,
         recordBand: "none",
         showPipeline: false,

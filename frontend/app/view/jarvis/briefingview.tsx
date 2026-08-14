@@ -152,7 +152,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                 {firstLoad ? (
                     <div className="flex flex-col gap-4">
                         {[
-                            ["Efforts", "h-12"],
+                            ["Initiatives", "h-12"],
                             ["Runs", "h-12"],
                             ["Since last visit", "h-16"],
                             ["Recently shipped · 7 days", "h-12"],
@@ -216,7 +216,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                         <section data-jarvis-briefing-section="efforts" className="flex flex-col gap-2">
                             <div className="mb-1 flex items-center gap-2">
                                 <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                    Efforts
+                                    Initiatives
                                 </span>
                                 <span className="rounded-[9px] bg-surface px-1.5 font-mono text-[9.5px] font-semibold text-muted">
                                     {model_.efforts.length + model_.effortMore}
@@ -226,12 +226,12 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                     onClick={() => setShowCreateForm(true)}
                                     className="ml-auto cursor-pointer rounded-[7px] border border-accent/40 bg-accentbg px-2.5 py-1 text-[11px] font-semibold text-accent-soft hover:border-accent/60"
                                 >
-                                    + Effort
+                                    + Initiative
                                 </button>
                             </div>
                             {model_.efforts.length === 0 ? (
                                 <div className="rounded-[10px] border border-dashed border-edge-strong px-4 py-4 text-center text-[12px] text-muted">
-                                    <span className="font-medium text-secondary">No efforts yet.</span> Big tasks — a
+                                    <span className="font-medium text-secondary">No initiatives yet.</span> Big tasks — a
                                     migration, an enablement, a multi-week refactor — get a tracker here. Paste your
                                     phase list once, then tick chunks as work lands.
                                 </div>

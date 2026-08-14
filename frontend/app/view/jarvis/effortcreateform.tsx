@@ -107,7 +107,7 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                 <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10px] font-bold text-accent-soft">
                     ✦
                 </div>
-                <span className="flex-1 text-[15px] font-semibold text-primary">New effort</span>
+                <span className="flex-1 text-[15px] font-semibold text-primary">New initiative</span>
                 <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-muted">
                     ⌘⏎ to save
                 </span>
@@ -135,7 +135,7 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                     </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                    <span className={fieldLabel}>Parent effort (optional)</span>
+                    <span className={fieldLabel}>Parent initiative (optional)</span>
                     <input
                         value={parent}
                         onChange={(e) => setParent(e.target.value)}
@@ -211,7 +211,7 @@ export function EffortCreateForm({ onClose }: { onClose: () => void }) {
                     onClick={() => void submit()}
                     className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40"
                 >
-                    {submitting ? "Creating…" : "Create effort"}
+                    {submitting ? "Creating…" : "Create initiative"}
                 </button>
             </div>
         </ModalShell>

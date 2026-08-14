@@ -376,7 +376,7 @@ export function EffortCard({
                                         placeholder={
                                             model.activeChunk != null
                                                 ? `note on ${model.activeChunk}`
-                                                : "effort-level note"
+                                                : "initiative-level note"
                                         }
                                         className="w-64 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
                                     />

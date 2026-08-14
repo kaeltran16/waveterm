@@ -34,7 +34,7 @@ export function EffortsListView({ model }: { model: AgentsViewModel }) {
             <div className={cn(STAGE_GUTTER, "flex flex-col gap-4 py-4")} aria-live="polite">
                 {error != null ? (
                     <div className="flex flex-col gap-2 rounded-[10px] border border-border bg-surface px-4 py-3">
-                        <span className="text-[13px] font-semibold text-primary">Couldn't load efforts.</span>
+                        <span className="text-[13px] font-semibold text-primary">Couldn't load initiatives.</span>
                         <span className="text-[12px] text-secondary">{error}</span>
                         <button
                             type="button"
@@ -55,8 +55,8 @@ export function EffortsListView({ model }: { model: AgentsViewModel }) {
                 {efforts != null ? (
                     efforts.length === 0 ? (
                         <div className="rounded-[10px] border border-dashed border-edge-strong px-4 py-4 text-center text-[12px] text-muted">
-                            <span className="font-medium text-secondary">No efforts yet.</span> Create one from the
-                            briefing's + Effort button, or with <span className="font-mono">wsh effort create</span>.
+                            <span className="font-medium text-secondary">No initiatives yet.</span> Create one from the
+                            briefing's + Initiative button, or with <span className="font-mono">wsh effort create</span>.
                         </div>
                     ) : (
                         <div className="flex flex-col gap-1">

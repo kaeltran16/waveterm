@@ -180,7 +180,7 @@ export function buildSubjectGroups(input: SubjectInput): SubjectGroup[] {
     if (efforts.length > 0) {
         groups.push({
             key: "efforts",
-            label: "Efforts",
+            label: "Initiatives",
             items: efforts.map((e) => ({
                 kind: "effort" as const,
                 id: e.oref.replace(/^effort:/, ""),
