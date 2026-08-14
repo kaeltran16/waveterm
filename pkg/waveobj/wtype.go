@@ -36,6 +36,7 @@ const (
 	OType_Run                = "run"
 	OType_ChannelMessage     = "channelmessage"
 	OType_JarvisConversation = "jarvisconversation"
+	OType_Effort             = "effort"
 )
 
 var ValidOTypes = map[string]bool{
@@ -53,6 +54,7 @@ var ValidOTypes = map[string]bool{
 	OType_Run:                true,
 	OType_ChannelMessage:     true,
 	OType_JarvisConversation: true,
+	OType_Effort:             true,
 }
 
 type WaveObjUpdate struct {
@@ -317,6 +319,55 @@ type RunRadarOrigin struct {
 	ReportID    string `json:"reportid"`
 	FindingID   string `json:"findingid"`
 	Fingerprint string `json:"fingerprint"`
+}
+
+// Effort is a Wave-owned tracker for work too big for one Run: ordered chunks with statuses,
+// owners, an append-only note trail, and a lightweight event log that drives ledger delta events.
+// The trail is the record; Events are the delta source — never the reverse.
+type Effort struct {
+	OID       string        `json:"oid"`
+	Version   int           `json:"version"`
+	Title     string        `json:"title"`
+	Project   string        `json:"project,omitempty"`  // free string; "" = unscoped
+	Ticket    string        `json:"ticket,omitempty"`
+	Status    string        `json:"status"`             // active | paused | done | archived
+	ParentOID string        `json:"parentoid,omitempty"`
+	Chunks    []EffortChunk `json:"chunks"`             // ordered; may be empty (agents create first, plan chunks after)
+	Notes     []EffortNote  `json:"notes,omitempty"`
+	Events    []EffortEvent `json:"events,omitempty"`   // delta-source event log (six kinds)
+	CreatedTs int64         `json:"createdts"`
+	UpdatedTs int64         `json:"updatedts"`
+	Meta      MetaMapType   `json:"meta"`
+}
+
+func (*Effort) GetOType() string { return OType_Effort }
+
+type EffortChunk struct {
+	Label     string         `json:"label"`              // unique within the effort; reference key
+	Status    string         `json:"status"`             // pending | active | done | deferred | blocked | skipped
+	Owner     string         `json:"owner,omitempty"`
+	WorkRefs  []ChunkWorkRef `json:"workrefs,omitempty"` // runs/agent sessions currently working this chunk (populated by Task 9+)
+	Notes     []EffortNote   `json:"notes,omitempty"`    // append-only trail
+	UpdatedTs int64          `json:"updatedts"`
+}
+
+// ChunkWorkRef links live work to a chunk. Advisory, never causal: nothing auto-ticks on detach.
+type ChunkWorkRef struct {
+	Kind string `json:"kind"` // "run" | "agent"
+	ORef string `json:"oref"` // "run:<oid>" | "agent:<tabid>"
+	Ts   int64  `json:"ts"`
+}
+
+type EffortNote struct {
+	Ts   int64  `json:"ts"`
+	Text string `json:"text"`
+}
+
+type EffortEvent struct {
+	Ts    int64  `json:"ts"`
+	Kind  string `json:"kind"`  // effort-created | chunk-done | chunk-added | chunk-status | effort-status | effort-note
+	Label string `json:"label,omitempty"` // chunk label for chunk-level events, "" for effort-level
+	Text  string `json:"text,omitempty"`
 }
 
 // JarvisProfile is a resolved (or the global) Jarvis profile: the playbook (phase pipeline) and the
@@ -634,6 +685,7 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&Run{}),
 		reflect.TypeOf(&ChannelMessage{}),
 		reflect.TypeOf(&JarvisConvo{}),
+		reflect.TypeOf(&Effort{}),
 	}
 }
 
