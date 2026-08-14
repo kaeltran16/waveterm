@@ -113,7 +113,7 @@ func TestTimelineMergesAndSortsDesc(t *testing.T) {
 	sessions := []agentsessions.SessionInfo{sess("s1", "/p/one", "done", 200)}
 	decisions := []DecisionEntry{{ID: "d1", Summary: "chose sqlite", CreatedTs: 400}}
 	dossiers := []jarvisdossier.Dossier{{ID: "dd", Objective: "ship ledger", Status: "active", Updated: 600}}
-	evs := Timeline(runs, sessions, decisions, dossiers, 0)
+	evs := Timeline(runs, sessions, decisions, dossiers, nil, 0)
 	if len(evs) != 6 {
 		t.Fatalf("evs=%+v want 6 events", evs)
 	}
@@ -135,7 +135,7 @@ func TestTimelineWindowFilter(t *testing.T) {
 		trun("r1", "done", 100, 500, ev("x")),
 		trun("r2", "blocked", 300, 0, nil),
 	}
-	evs := Timeline(runs, nil, nil, nil, 250)
+	evs := Timeline(runs, nil, nil, nil, nil, 250)
 	if len(evs) != 2 {
 		t.Fatalf("evs=%+v want only events >= 250", evs)
 	}
@@ -149,7 +149,7 @@ func TestTimelineWindowFilter(t *testing.T) {
 func TestDeltaAddsAttentionSince(t *testing.T) {
 	runs := []*waveobj.Run{trun("r1", "done", 100, 500, ev("x"))}
 	attn := []wshrpc.AttentionItem{{Kind: "ask", Key: "k", RunId: "r1", Source: "worker", Text: "question", Action: "Answer", WaitingSince: 400}}
-	evs := Delta(350, runs, nil, nil, attn, nil)
+	evs := Delta(350, runs, nil, nil, attn, nil, nil)
 	var found bool
 	for _, e := range evs {
 		if e.Kind == "attention" {

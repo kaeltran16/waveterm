@@ -36,6 +36,7 @@ type fetchSeams struct {
 	openVault       func(ctx context.Context) (*wavevault.Vault, error)
 	loadDossier     func(r *wavevault.Retriever, id string) (*jarvisdossier.Dossier, error)
 	loadDecision    func(r *wavevault.Retriever, id string) (*jarvisdossier.Decision, error)
+	getEfforts      func(ctx context.Context) ([]*waveobj.Effort, error)
 }
 
 var defaultSeams = fetchSeams{
@@ -46,6 +47,7 @@ var defaultSeams = fetchSeams{
 	openVault:       wavevault.OpenVault,
 	loadDossier:     jarvisdossier.LoadDossier,
 	loadDecision:    jarvisdossier.LoadDecision,
+	getEfforts:      wstore.GetAllEfforts,
 }
 
 // SetFetchSeamsForTest replaces every leg reader; returns a restore func the caller defers.
@@ -118,10 +120,18 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 	}
 	st.Sources.Dossiers = dossiersHealthy
 
+	var efforts []*waveobj.Effort
+	effortsHealthy := false
+	if es, eerr := defaultSeams.getEfforts(ctx); eerr == nil {
+		efforts = es
+		effortsHealthy = true
+	}
+	st.Sources.Efforts = effortsHealthy
+
 	active := ActiveWork(runs, sessions, attention, dossiers)
 	shipped := Shipped(runs, sinceMs)
-	timeline := Timeline(runs, sessions, decisions, dossiers, sinceMs)
-	delta := Delta(sinceMs, runs, sessions, decisions, attention, dossiers)
+	timeline := Timeline(runs, sessions, decisions, dossiers, efforts, sinceMs)
+	delta := Delta(sinceMs, runs, sessions, decisions, attention, dossiers, efforts)
 
 	byProject := map[string]*wshrpc.ProjectWork{}
 	order := []string{}
@@ -171,6 +181,7 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 	for _, key := range order {
 		st.Projects = append(st.Projects, *byProject[key])
 	}
+	st.Efforts = Efforts(efforts)
 	return st, nil
 }
 

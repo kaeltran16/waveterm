@@ -135,7 +135,7 @@ type DecisionEntry struct {
 // Timeline merges run, session, decision, and dossier events into one timestamp-descending stream,
 // optionally windowed (windowStartMs 0 = unbounded). Status changes are not event-logged anywhere,
 // so a dossier's current status is reported on its UpdatedTs event — the honest shape of the data.
-func Timeline(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisions []DecisionEntry, dossiers []jarvisdossier.Dossier, windowStartMs int64) []wshrpc.TimelineEvent {
+func Timeline(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisions []DecisionEntry, dossiers []jarvisdossier.Dossier, efforts []*waveobj.Effort, windowStartMs int64) []wshrpc.TimelineEvent {
 	var evs []wshrpc.TimelineEvent
 	add := func(ev wshrpc.TimelineEvent) {
 		if windowStartMs > 0 && ev.Ts < windowStartMs {
@@ -162,14 +162,22 @@ func Timeline(runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisio
 	for _, d := range dossiers {
 		add(wshrpc.TimelineEvent{Ts: d.Updated, Kind: "dossier", Title: d.Objective, Detail: "status: " + d.Status, NavTarget: "vault:" + d.ID})
 	}
+	for _, e := range efforts {
+		if e.Status == "archived" {
+			continue
+		}
+		for _, ev := range e.Events {
+			add(wshrpc.TimelineEvent{Ts: ev.Ts, Kind: ev.Kind, Project: e.Project, Title: e.Title, Detail: ev.Text, NavTarget: "effort:" + e.OID})
+		}
+	}
 	sort.SliceStable(evs, func(i, j int) bool { return evs[i].Ts > evs[j].Ts })
 	return evs
 }
 
 // Delta is the bring-up answer: everything new since sinceMs (Timeline windowed) plus attention
 // items raised inside the window — the one leg Timeline does not see.
-func Delta(sinceMs int64, runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisions []DecisionEntry, attention []wshrpc.AttentionItem, dossiers []jarvisdossier.Dossier) []wshrpc.TimelineEvent {
-	evs := Timeline(runs, sessions, decisions, dossiers, sinceMs)
+func Delta(sinceMs int64, runs []*waveobj.Run, sessions []agentsessions.SessionInfo, decisions []DecisionEntry, attention []wshrpc.AttentionItem, dossiers []jarvisdossier.Dossier, efforts []*waveobj.Effort) []wshrpc.TimelineEvent {
+	evs := Timeline(runs, sessions, decisions, dossiers, efforts, sinceMs)
 	runByID := make(map[string]string, len(runs))
 	for _, r := range runs {
 		runByID[r.OID] = r.ProjectPath

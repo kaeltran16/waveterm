@@ -27,6 +27,7 @@ func emptyLegs() fetchSeams {
 		openVault:       func(ctx context.Context) (*wavevault.Vault, error) { return nil, errors.New("no vault") },
 		loadDossier:     jarvisdossier.LoadDossier,
 		loadDecision:    jarvisdossier.LoadDecision,
+		getEfforts:      func(ctx context.Context) ([]*waveobj.Effort, error) { return nil, nil },
 	}
 }
 
