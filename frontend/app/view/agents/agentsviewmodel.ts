@@ -754,11 +754,15 @@ export function streamableTranscriptAgents(agents: AgentVM[], now: number): Agen
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
  *  the reporter's status (a blocked AskCommand RPC may still report "working"); blockedMs is
  *  derived from now - ask.ts. A null/cleared ask leaves the agent untouched. */
-/** Pure: a pending ask is stale once the agent has demonstrably resumed — a newer status update
- *  (statusTs > askTs) reporting working. Idle deliberately does NOT trigger: the pi prose bridge
- *  raises its ask at agent_settled, the same moment the status reporter emits its settle-idle, so a
- *  same-tick idle (ts order is a sub-second race) would kill every prose card before it renders.
+/** Pure: a pending ask is stale once the agent has demonstrably resumed — a working status update
+ *  materially newer than the ask. Idle deliberately does NOT trigger: the pi prose bridge raises its
+ *  ask at agent_settled, the same moment the status reporter emits its settle-idle, so a same-tick
+ *  idle would kill every prose card before it renders. Working gets the same grace: the pi status
+ *  reporter's message_end + tool_execution_start RPCs land in the same instant as the ask mirror RPC
+ *  (a sub-second race), so without ASK_STALE_GRACE_MS every pi card dies before it renders. Real
+ *  "moved on" signals arrive after the ask's tool completes (seconds later, when the clear fires).
  *  The PostToolUse/next-agent_start clear hook is the fast path; this is the fallback. */
+export const ASK_STALE_GRACE_MS = 2000;
 export function isAskStale(askTs: number | undefined, statusTs: number | undefined, statusState: string): boolean {
     if (askTs == null || statusTs == null) {
         return false;
@@ -766,7 +770,7 @@ export function isAskStale(askTs: number | undefined, statusTs: number | undefin
     if (statusState !== "working") {
         return false;
     }
-    return statusTs > askTs;
+    return statusTs - askTs > ASK_STALE_GRACE_MS;
 }
 
 export function withAsk(vm: AgentVM, ask: AgentAskData | null, now: number): AgentVM {

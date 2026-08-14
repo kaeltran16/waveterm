@@ -401,8 +401,11 @@ describe("streamableTranscriptAgents", () => {
 });
 
 describe("isAskStale", () => {
-    it("stale when a newer working status shows the agent resumed", () => {
-        expect(isAskStale(1_000, 2_000, "working")).toBe(true);
+    it("stale when a materially newer working status shows the agent resumed", () => {
+        expect(isAskStale(1_000, 5_000, "working")).toBe(true);
+    });
+    it("not stale on a sub-second working update: the pi status reporter's message_end + tool_execution_start RPCs race the ask mirror RPC, so a same-instant newer status must not kill a just-rendered card", () => {
+        expect(isAskStale(1_000, 1_500, "working")).toBe(false);
     });
     it("not stale on a newer idle status: the pi prose bridge raises its ask at agent_settled, the same moment the status reporter emits settle-idle, so a same-tick idle must not kill the card", () => {
         expect(isAskStale(1_000, 1_010, "idle")).toBe(false);
