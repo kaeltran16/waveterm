@@ -22,7 +22,7 @@ const agent = (over: Partial<AgentVM>): AgentVM => ({
 
 const workState = (projects: ProjectWork[]): WorkState => ({
     projects,
-    sources: { runs: true, sessions: true, dossiers: true, attention: "volatile" },
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
 });
 
 const runItem = (over: Partial<ActiveWorkItem>): ActiveWorkItem => ({
@@ -210,7 +210,7 @@ describe("briefing projection", () => {
         const complete = projectBriefing(input(workState([])));
         expect(complete.health.complete).toBe(true);
         const p = workState([]);
-        p.sources = { runs: false, sessions: true, dossiers: true, attention: "volatile" };
+        p.sources = { runs: false, sessions: true, dossiers: true, efforts: true, attention: "volatile" };
         const m = projectBriefing(input(p));
         expect(m.health.complete).toBe(false);
         expect(m.health.missingLegs).toEqual(["Runs"]);

@@ -409,8 +409,9 @@ type CommandJarvisStateRtnData struct {
 }
 
 type WorkState struct {
-	Projects []ProjectWork `json:"projects,omitempty"`
-	Sources  SourceHealth  `json:"sources"`
+	Projects []ProjectWork   `json:"projects,omitempty"`
+	Efforts  []EffortSummary `json:"efforts,omitempty"`
+	Sources  SourceHealth    `json:"sources"`
 }
 
 type ProjectWork struct {
@@ -460,6 +461,7 @@ type SourceHealth struct {
 	Runs      bool   `json:"runs"`
 	Sessions  bool   `json:"sessions"`
 	Dossiers  bool   `json:"dossiers"`
+	Efforts   bool   `json:"efforts"`
 	Attention string `json:"attention"` // "ok" | "volatile" | "error"
 }
 

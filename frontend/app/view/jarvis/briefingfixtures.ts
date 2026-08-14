@@ -93,7 +93,7 @@ const normalState: WorkState = {
             ],
         },
     ],
-    sources: { runs: true, sessions: true, dossiers: true, attention: "volatile" },
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
 };
 
 const attentionState: WorkState = {
@@ -125,17 +125,17 @@ const attentionState: WorkState = {
             ],
         },
     ],
-    sources: { runs: true, sessions: true, dossiers: true, attention: "volatile" },
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
 };
 
 const partialState: WorkState = {
     projects: normalState.projects,
-    sources: { runs: false, sessions: true, dossiers: true, attention: "volatile" },
+    sources: { runs: false, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
 };
 
 const emptyState: WorkState = {
     projects: [],
-    sources: { runs: true, sessions: true, dossiers: true, attention: "volatile" },
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
 };
 
 const loaded = (state: WorkState): BriefingLoadState => ({

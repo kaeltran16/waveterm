@@ -44,6 +44,7 @@ type WshRpcInterface interface {
 	RunCommands
 	RadarCommands
 	JarvisCommands
+	EffortCommands
 	JobCommands
 	SecretCommands
 	VDomCommands

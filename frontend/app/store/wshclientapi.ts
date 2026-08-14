@@ -318,6 +318,30 @@ export class RpcApiType {
         return client.wshRpcCall("disposesuggestions", data, opts);
     }
 
+    // command "effortcreate" [call]
+    EffortCreateCommand(client: WshClient, data: CommandEffortCreateData, opts?: RpcOpts): Promise<CommandEffortCreateRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "effortcreate", data, opts);
+        return client.wshRpcCall("effortcreate", data, opts);
+    }
+
+    // command "effortget" [call]
+    EffortGetCommand(client: WshClient, data: CommandEffortGetData, opts?: RpcOpts): Promise<CommandEffortGetRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "effortget", data, opts);
+        return client.wshRpcCall("effortget", data, opts);
+    }
+
+    // command "effortlist" [call]
+    EffortListCommand(client: WshClient, data: CommandEffortListData, opts?: RpcOpts): Promise<CommandEffortListRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "effortlist", data, opts);
+        return client.wshRpcCall("effortlist", data, opts);
+    }
+
+    // command "effortmutate" [call]
+    EffortMutateCommand(client: WshClient, data: CommandEffortMutateData, opts?: RpcOpts): Promise<CommandEffortMutateRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "effortmutate", data, opts);
+        return client.wshRpcCall("effortmutate", data, opts);
+    }
+
     // command "electrondecrypt" [call]
     ElectronDecryptCommand(client: WshClient, data: CommandElectronDecryptData, opts?: RpcOpts): Promise<CommandElectronDecryptRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "electrondecrypt", data, opts);

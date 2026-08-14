@@ -43,7 +43,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 const completeState = (): WorkState => ({
     projects: [],
-    sources: { runs: true, sessions: true, dossiers: true, attention: "volatile" },
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
 });
 
 const mockStateRpc = (state: WorkState) => {
@@ -113,7 +113,7 @@ describe("briefing cursor", () => {
         globalStore.set(briefingCursorAtom, T0 - DAY);
         const partial: WorkState = {
             projects: [],
-            sources: { runs: false, sessions: true, dossiers: true, attention: "volatile" },
+            sources: { runs: false, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
         };
         mockStateRpc(partial);
         await loadBriefingAsync();

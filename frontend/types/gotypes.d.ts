@@ -295,6 +295,13 @@ declare global {
         data?: string;
     };
 
+    // waveobj.ChunkWorkRef
+    type ChunkWorkRef = {
+        kind: string;
+        oref: string;
+        ts: number;
+    };
+
     // waveobj.Client
     type Client = WaveObj & {
         windowids: string[];
@@ -555,6 +562,58 @@ declare global {
     type CommandDossierEdgeData = {
         dossierid: string;
         runoref: string;
+    };
+
+    // wshrpc.CommandEffortChunkSeed
+    type CommandEffortChunkSeed = {
+        label: string;
+        owner?: string;
+    };
+
+    // wshrpc.CommandEffortCreateData
+    type CommandEffortCreateData = {
+        title: string;
+        project?: string;
+        ticket?: string;
+        parentoid?: string;
+        chunks?: CommandEffortChunkSeed[];
+    };
+
+    // wshrpc.CommandEffortCreateRtnData
+    type CommandEffortCreateRtnData = {
+        effortoid: string;
+    };
+
+    // wshrpc.CommandEffortGetData
+    type CommandEffortGetData = {
+        effortoid: string;
+    };
+
+    // wshrpc.CommandEffortGetRtnData
+    type CommandEffortGetRtnData = {
+        effort: Effort;
+    };
+
+    // wshrpc.CommandEffortListData
+    type CommandEffortListData = {
+        project?: string;
+    };
+
+    // wshrpc.CommandEffortListRtnData
+    type CommandEffortListRtnData = {
+        efforts: EffortSummary[];
+    };
+
+    // wshrpc.CommandEffortMutateData
+    type CommandEffortMutateData = {
+        effortoid: string;
+        ops: EffortOp[];
+        note?: string;
+    };
+
+    // wshrpc.CommandEffortMutateRtnData
+    type CommandEffortMutateRtnData = {
+        effort: Effort;
     };
 
     // wshrpc.CommandElectronDecryptData
@@ -1716,6 +1775,84 @@ declare global {
         decisions: DecisionCard[];
     };
 
+    // waveobj.Effort
+    type Effort = WaveObj & {
+        title: string;
+        project?: string;
+        ticket?: string;
+        status: string;
+        parentoid?: string;
+        chunks: EffortChunk[];
+        notes?: EffortNote[];
+        events?: EffortEvent[];
+        createdts: number;
+        updatedts: number;
+    };
+
+    // waveobj.EffortChunk
+    type EffortChunk = {
+        label: string;
+        status: string;
+        owner?: string;
+        workrefs?: ChunkWorkRef[];
+        notes?: EffortNote[];
+        updatedts: number;
+    };
+
+    // wshrpc.EffortChunkSummary
+    type EffortChunkSummary = {
+        label: string;
+        status: string;
+        owner?: string;
+        workrefs?: ChunkWorkRef[];
+    };
+
+    // waveobj.EffortEvent
+    type EffortEvent = {
+        ts: number;
+        kind: string;
+        label?: string;
+        text?: string;
+    };
+
+    // waveobj.EffortNote
+    type EffortNote = {
+        ts: number;
+        text: string;
+    };
+
+    // wshrpc.EffortOp
+    type EffortOp = {
+        op: string;
+        title?: string;
+        project?: string;
+        ticket?: string;
+        status?: string;
+        parentoid?: string;
+        chunk?: string;
+        label?: string;
+        at?: number;
+        owner?: string;
+        note?: string;
+        kind?: string;
+        oref?: string;
+    };
+
+    // wshrpc.EffortSummary
+    type EffortSummary = {
+        oref: string;
+        title: string;
+        project?: string;
+        ticket?: string;
+        status: string;
+        parentoid?: string;
+        chunks?: EffortChunkSummary[];
+        done: number;
+        total: number;
+        activechunk?: string;
+        updatedts: number;
+    };
+
     // wshrpc.EmbedIndexStatus
     type EmbedIndexStatus = {
         state: string;
@@ -2794,6 +2931,7 @@ declare global {
         runs: boolean;
         sessions: boolean;
         dossiers: boolean;
+        efforts: boolean;
         attention: string;
     };
 
@@ -3491,6 +3629,7 @@ declare global {
     // wshrpc.WorkState
     type WorkState = {
         projects?: ProjectWork[];
+        efforts?: EffortSummary[];
         sources: SourceHealth;
     };
 

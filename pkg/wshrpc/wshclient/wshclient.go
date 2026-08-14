@@ -315,6 +315,30 @@ func DisposeSuggestionsCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcO
 	return err
 }
 
+// command "effortcreate", wshserver.EffortCreateCommand
+func EffortCreateCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortCreateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandEffortCreateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandEffortCreateRtnData](w, "effortcreate", data, opts)
+	return resp, err
+}
+
+// command "effortget", wshserver.EffortGetCommand
+func EffortGetCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortGetData, opts *wshrpc.RpcOpts) (*wshrpc.CommandEffortGetRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandEffortGetRtnData](w, "effortget", data, opts)
+	return resp, err
+}
+
+// command "effortlist", wshserver.EffortListCommand
+func EffortListCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortListData, opts *wshrpc.RpcOpts) (*wshrpc.CommandEffortListRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandEffortListRtnData](w, "effortlist", data, opts)
+	return resp, err
+}
+
+// command "effortmutate", wshserver.EffortMutateCommand
+func EffortMutateCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortMutateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandEffortMutateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandEffortMutateRtnData](w, "effortmutate", data, opts)
+	return resp, err
+}
+
 // command "electrondecrypt", wshserver.ElectronDecryptCommand
 func ElectronDecryptCommand(w *wshutil.WshRpc, data wshrpc.CommandElectronDecryptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandElectronDecryptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandElectronDecryptRtnData](w, "electrondecrypt", data, opts)
