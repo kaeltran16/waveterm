@@ -375,7 +375,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                 >
                                     <span
                                         className={cn(
-                                            "flex h-[12px] w-[12px] items-center justify-center rounded-[3px] border font-mono text-[8px] font-bold text-background",
+                                            "flex h-[12px] w-[12px] items-center justify-center rounded-[3px] border font-mono text-xxxs font-bold text-background",
                                             remember ? "border-accent bg-accent" : "border-edge-strong"
                                         )}
                                     >

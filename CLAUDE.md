@@ -131,6 +131,8 @@ Frontend structure:
 ### Frontend conventions
 
 - **Testable logic is extracted, not rendered.** The pattern throughout `view/agents` and `view/jarvis` is a pure `foo.ts` (derive/model/reducer) with a `foo.test.ts` beside it, consumed by a thin `foo.tsx`. There are deliberately **no jsdom render/snapshot tests** — "does it render" is covered by the CDP `surface-smoke` scenario. When wiring is risky, extract it to a model and unit-test that.
+- **UI design work follows `DESIGN.md` (repo root)** — design tokens, typography, layout, motion,
+  and the do's and don'ts. Read it before planning or styling new UI.
 - **Colors come from `@theme` tokens in `frontend/tailwindsetup.css`** — never raw hex/rgba in components. Runtime theming (`view/agents/themes.ts` + `themestore.ts`) works by overriding those same `--color-*` custom properties on `document.documentElement`, so a hardcoded color silently opts out of every theme.
 - Prefer Tailwind over new SCSS.
 

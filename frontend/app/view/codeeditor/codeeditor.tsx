@@ -3,8 +3,8 @@
 
 import { useOverrideConfigAtom } from "@/app/store/global";
 import { boundNumber } from "@/util/util";
-import type * as MonacoTypes from "monaco-editor";
 import type * as MonacoModule from "monaco-editor";
+import type * as MonacoTypes from "monaco-editor";
 import React, { useMemo, useRef } from "react";
 
 const MonacoCodeEditor = React.lazy(() =>
@@ -15,7 +15,7 @@ function defaultEditorOptions(): MonacoTypes.editor.IEditorOptions {
     const opts: MonacoTypes.editor.IEditorOptions = {
         scrollBeyondLastLine: false,
         fontSize: 12,
-        fontFamily: "Hack",
+        fontFamily: "var(--font-mono)",
         smoothScrolling: true,
         scrollbar: {
             useShadows: false,

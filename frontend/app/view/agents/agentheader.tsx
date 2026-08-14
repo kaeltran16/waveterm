@@ -98,7 +98,7 @@ export function AgentHeader({ agent }: { agent: AgentVM }) {
             <StatusDot state={agent.state} pulse={agent.state !== "idle"} className="!h-[9px] !w-[9px]" />
             <div className="min-w-0">
                 <div className="flex items-center gap-[9px]">
-                    <span className="whitespace-nowrap font-mono text-[15px] font-semibold text-foreground">
+                    <span className="min-w-0 truncate font-mono text-[15px] font-semibold text-foreground">
                         {agent.name}
                     </span>
                     <span

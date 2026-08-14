@@ -102,7 +102,7 @@ export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded
                     const v = phaseStateView(p.state);
                     return (
                         <div key={i} className="flex flex-1 flex-col items-center gap-1.5 text-center">
-                            <div className={"flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full border border-current font-mono text-[8px] font-bold " + (PHASE_TONE_CLASS[v.tone] ?? "text-muted")}>
+                            <div className={"flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full border border-current font-mono text-xxxs font-bold " + (PHASE_TONE_CLASS[v.tone] ?? "text-muted")}>
                                 {v.icon}
                             </div>
                             <span className="whitespace-nowrap text-[9px] font-semibold text-secondary">{p.kind}</span>
@@ -261,7 +261,7 @@ function DispatchedAgents({ model, leadId }: { model: AgentsViewModel; leadId: s
     return (
         <div className="mt-3 overflow-hidden rounded-[10px] border border-edge-mid bg-background">
             <div className="flex items-center gap-2 border-b border-edge-mid px-3 py-2">
-                <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-muted">Dispatched</span>
+                <span className="font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-muted">Dispatched</span>
                 <span className="font-mono text-[10px] text-secondary">{subs.length}</span>
             </div>
             <div className="sc max-h-[220px] overflow-y-auto py-1">

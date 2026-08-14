@@ -99,7 +99,7 @@ export function AutonomyLadder({ channelId, tier, mode }: { channelId: string; t
                 <PopoverReveal
                     open={open}
                     origin="top right"
-                    className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
+                    className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-popover-md"
                 >
                     <div data-jarvis-autonomy="panel">
                         <div className="px-[9px] pb-1.5 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">

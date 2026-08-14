@@ -58,7 +58,7 @@ export function JumpToLatestPill({ onClick }: { onClick: () => void }) {
                 onClick();
             }}
             title="Jump to latest"
-            className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-edge-strong bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-secondary shadow-[0_10px_28px_rgba(0,0,0,0.5)] hover:border-accent hover:text-primary"
+            className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-edge-strong bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-secondary shadow-popover-sm hover:border-accent hover:text-primary"
         >
             <span className="text-[12px] leading-none">↓</span> Latest
         </button>

@@ -51,71 +51,174 @@ export const THEMES: ThemeDef[] = [
         // Authored to the CURRENT tailwindsetup.css values (not the mockup's Midnight) so the default
         // theme reproduces today's look exactly — guarded by themes.test.ts.
         palette: {
-            bg: "#0c0e11", surface: "#0e1116", surfaceRaised: "#13171d", surfaceHover: "#171c22",
-            surfaceSelected: "#1a222c", code: "#0b0d10", border: "#1c2128", edgeMid: "#20262e",
-            edgeStrong: "#2a313a", edgeFaint: "#161a20", text: "#e6e9ed", secondary: "#cfd5db",
-            muted: "#7f858b", inkFaint: "#646a72", accent: "#5e9cff", success: "#54c79a",
-            warning: "#e6b450", error: "#e0726c",
+            bg: "#0c0e11",
+            surface: "#0e1116",
+            surfaceRaised: "#13171d",
+            surfaceHover: "#171c22",
+            surfaceSelected: "#1a222c",
+            code: "#0b0d10",
+            border: "#1c2128",
+            edgeMid: "#20262e",
+            edgeStrong: "#2a313a",
+            edgeFaint: "#161a20",
+            text: "#e6e9ed",
+            secondary: "#cfd5db",
+            muted: "#7f858b",
+            inkFaint: "#646a72",
+            accent: "#5e9cff",
+            success: "#54c79a",
+            warning: "#e6b450",
+            error: "#e0726c",
         },
     },
     {
-        id: "slate", name: "Slate", dark: true,
+        id: "slate",
+        name: "Slate",
+        dark: true,
         palette: {
-            bg: "#0d1117", surface: "#111722", surfaceRaised: "#161d2b", surfaceHover: "#1b2434",
-            surfaceSelected: "#1e2942", code: "#0a0e15", border: "#1f2733", edgeMid: "#28323f",
-            edgeStrong: "#374252", edgeFaint: "#19212c", text: "#dbe2ec", secondary: "#9fb0c3",
-            muted: "#7f8e9e", inkFaint: "#69707b", accent: "#4d9fff", success: "#3fb98f",
-            warning: "#e0aa3e", error: "#e46b6b",
+            bg: "#0d1117",
+            surface: "#111722",
+            surfaceRaised: "#161d2b",
+            surfaceHover: "#1b2434",
+            surfaceSelected: "#1e2942",
+            code: "#0a0e15",
+            border: "#1f2733",
+            edgeMid: "#28323f",
+            edgeStrong: "#374252",
+            edgeFaint: "#19212c",
+            text: "#dbe2ec",
+            secondary: "#9fb0c3",
+            muted: "#7f8e9e",
+            inkFaint: "#69707b",
+            accent: "#4d9fff",
+            success: "#3fb98f",
+            warning: "#e0aa3e",
+            error: "#e46b6b",
         },
     },
     {
-        id: "carbon", name: "Carbon", dark: true,
+        id: "carbon",
+        name: "Carbon",
+        dark: true,
         palette: {
-            bg: "#0e0e0d", surface: "#141412", surfaceRaised: "#1b1b18", surfaceHover: "#212120",
-            surfaceSelected: "#282824", code: "#0b0b0a", border: "#232320", edgeMid: "#2d2d29",
-            edgeStrong: "#3a3a34", edgeFaint: "#1c1c19", text: "#e5e3db", secondary: "#b3b0a4",
-            muted: "#8c8a83", inkFaint: "#6f6d69", accent: "#e08a4f", success: "#5fb98a",
-            warning: "#d9b24a", error: "#e0726c",
+            bg: "#0e0e0d",
+            surface: "#141412",
+            surfaceRaised: "#1b1b18",
+            surfaceHover: "#212120",
+            surfaceSelected: "#282824",
+            code: "#0b0b0a",
+            border: "#232320",
+            edgeMid: "#2d2d29",
+            edgeStrong: "#3a3a34",
+            edgeFaint: "#1c1c19",
+            text: "#e5e3db",
+            secondary: "#b3b0a4",
+            muted: "#8c8a83",
+            inkFaint: "#6f6d69",
+            accent: "#e08a4f",
+            success: "#5fb98a",
+            warning: "#d9b24a",
+            error: "#e0726c",
         },
     },
     {
-        id: "nocturne", name: "Nocturne", dark: true,
+        id: "nocturne",
+        name: "Nocturne",
+        dark: true,
         palette: {
-            bg: "#0d0b12", surface: "#131019", surfaceRaised: "#191527", surfaceHover: "#201a2e",
-            surfaceSelected: "#241d38", code: "#0a0810", border: "#221d30", edgeMid: "#2c2640",
-            edgeStrong: "#3a3352", edgeFaint: "#1b1728", text: "#e4dff0", secondary: "#b0a6c6",
-            muted: "#89819e", inkFaint: "#6b657a", accent: "#b57cff", success: "#54c79a",
-            warning: "#e6b450", error: "#e0726c",
+            bg: "#0d0b12",
+            surface: "#131019",
+            surfaceRaised: "#191527",
+            surfaceHover: "#201a2e",
+            surfaceSelected: "#241d38",
+            code: "#0a0810",
+            border: "#221d30",
+            edgeMid: "#2c2640",
+            edgeStrong: "#3a3352",
+            edgeFaint: "#1b1728",
+            text: "#e4dff0",
+            secondary: "#b0a6c6",
+            muted: "#89819e",
+            inkFaint: "#6b657a",
+            accent: "#b57cff",
+            success: "#54c79a",
+            warning: "#e6b450",
+            error: "#e0726c",
         },
     },
     {
-        id: "onedark", name: "One Dark", dark: true,
+        id: "onedark",
+        name: "One Dark",
+        dark: true,
         palette: {
-            bg: "#282c34", surface: "#21252b", surfaceRaised: "#2f343d", surfaceHover: "#3a4048",
-            surfaceSelected: "#3e4451", code: "#1e2228", border: "#3a3f4b", edgeMid: "#454b58",
-            edgeStrong: "#565d6b", edgeFaint: "#2c313a", text: "#abb2bf", secondary: "#9298a4",
-            muted: "#a6abb3", inkFaint: "#888c95", accent: "#61afef", success: "#98c379",
-            warning: "#e5c07b", error: "#e06c75",
+            bg: "#282c34",
+            surface: "#21252b",
+            surfaceRaised: "#2f343d",
+            surfaceHover: "#3a4048",
+            surfaceSelected: "#3e4451",
+            code: "#1e2228",
+            border: "#3a3f4b",
+            edgeMid: "#454b58",
+            edgeStrong: "#565d6b",
+            edgeFaint: "#2c313a",
+            text: "#abb2bf",
+            secondary: "#9298a4",
+            muted: "#a6abb3",
+            inkFaint: "#888c95",
+            accent: "#61afef",
+            success: "#98c379",
+            warning: "#e5c07b",
+            error: "#e06c75",
         },
     },
     {
-        id: "monokai", name: "Monokai", dark: true,
+        id: "monokai",
+        name: "Monokai",
+        dark: true,
         palette: {
-            bg: "#272822", surface: "#2d2e28", surfaceRaised: "#33342d", surfaceHover: "#3e4038",
-            surfaceSelected: "#494b40", code: "#1d1e19", border: "#3e4035", edgeMid: "#4d4f43",
-            edgeStrong: "#62654f", edgeFaint: "#2f302a", text: "#cfd0c2", secondary: "#a8aa98",
-            muted: "#adaa9d", inkFaint: "#8a8a83", accent: "#66d9ef", success: "#a6e22e",
-            warning: "#e6db74", error: "#f92672",
+            bg: "#272822",
+            surface: "#2d2e28",
+            surfaceRaised: "#33342d",
+            surfaceHover: "#3e4038",
+            surfaceSelected: "#494b40",
+            code: "#1d1e19",
+            border: "#3e4035",
+            edgeMid: "#4d4f43",
+            edgeStrong: "#62654f",
+            edgeFaint: "#2f302a",
+            text: "#cfd0c2",
+            secondary: "#a8aa98",
+            muted: "#adaa9d",
+            inkFaint: "#8a8a83",
+            accent: "#66d9ef",
+            success: "#a6e22e",
+            warning: "#e6db74",
+            error: "#f92672",
         },
     },
     {
-        id: "paper", name: "Paper", dark: false, // light — kept for the engine, omitted from the v1 picker
+        id: "paper",
+        name: "Paper",
+        dark: false, // light — kept for the engine, omitted from the v1 picker
         palette: {
-            bg: "#f4f5f7", surface: "#ffffff", surfaceRaised: "#eceef2", surfaceHover: "#e2e5ec",
-            surfaceSelected: "#dde3f0", code: "#f1f2f5", border: "#e4e6ec", edgeMid: "#d5d9e1",
-            edgeStrong: "#c2c8d3", edgeFaint: "#ecedf1", text: "#14171d", secondary: "#4e5561",
-            muted: "#606774", inkFaint: "#7e8288", accent: "#4f63c9", success: "#2f9169",
-            warning: "#b5842a", error: "#c9524c",
+            bg: "#f4f5f7",
+            surface: "#ffffff",
+            surfaceRaised: "#eceef2",
+            surfaceHover: "#e2e5ec",
+            surfaceSelected: "#dde3f0",
+            code: "#f1f2f5",
+            border: "#e4e6ec",
+            edgeMid: "#d5d9e1",
+            edgeStrong: "#c2c8d3",
+            edgeFaint: "#ecedf1",
+            text: "#14171d",
+            secondary: "#4e5561",
+            muted: "#606774",
+            inkFaint: "#7e8288",
+            accent: "#4f63c9",
+            success: "#2f9169",
+            warning: "#b5842a",
+            error: "#c9524c",
         },
     },
 ];
@@ -125,15 +228,27 @@ export const PICKER_THEMES: ThemeDef[] = THEMES.filter((t) => t.dark);
 // Accent quick-picks for the Custom colors card (ports the mockup accentPalette; the first
 // entry tracks the current default accent, midnight's cc-dark blue).
 export const ACCENT_SWATCHES: string[] = [
-    "#5e9cff", "#4d9fff", "#66d9ef", "#2fb8a0", "#a6e22e",
-    "#e6b450", "#e08a4f", "#f92672", "#b57cff", "#e0726c",
+    "#5e9cff",
+    "#4d9fff",
+    "#66d9ef",
+    "#2fb8a0",
+    "#a6e22e",
+    "#e6b450",
+    "#e08a4f",
+    "#f92672",
+    "#b57cff",
+    "#e0726c",
 ];
 
 export function activePalette(presetId: string): ThemePalette {
     return (THEMES.find((t) => t.id === presetId) ?? THEMES[0]).palette;
 }
 
-export function colorOf(palette: ThemePalette, overrides: Partial<Record<OverrideRole, string>>, role: OverrideRole): string {
+export function colorOf(
+    palette: ThemePalette,
+    overrides: Partial<Record<OverrideRole, string>>,
+    role: OverrideRole
+): string {
     return overrides[role] ?? palette[role];
 }
 
@@ -147,7 +262,10 @@ function toHex(n: number): string {
 function parseHex(h: string): [number, number, number] {
     let s = h.replace("#", "");
     if (s.length === 3) {
-        s = s.split("").map((c) => c + c).join("");
+        s = s
+            .split("")
+            .map((c) => c + c)
+            .join("");
     }
     return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
 }
@@ -250,10 +368,7 @@ export interface TermPalette extends AnsiPalette {
     selectionBackground: string;
 }
 
-export function deriveTermTheme(
-    palette: ThemePalette,
-    overrides: Partial<Record<OverrideRole, string>>
-): TermPalette {
+export function deriveTermTheme(palette: ThemePalette, overrides: Partial<Record<OverrideRole, string>>): TermPalette {
     const p = { ...palette, ...overrides };
     return {
         background: p.bg,
@@ -267,7 +382,10 @@ export function deriveTermTheme(
 
 // Build the full --color-* override map from a base palette + user overrides. Only the themed "chrome"
 // tokens are emitted; everything else keeps its @theme default.
-export function buildThemeVars(palette: ThemePalette, overrides: Partial<Record<OverrideRole, string>>): Record<string, string> {
+export function buildThemeVars(
+    palette: ThemePalette,
+    overrides: Partial<Record<OverrideRole, string>>
+): Record<string, string> {
     const p = { ...palette, ...overrides };
     const ansi = deriveAnsi(p);
     return {
@@ -314,6 +432,7 @@ export function buildThemeVars(palette: ThemePalette, overrides: Partial<Record<
         "--color-warning": p.warning,
         "--color-asking": p.warning,
         "--color-on-warning": darken(p.warning, 0.9),
+        "--color-askingbg": rgba(p.warning, 0.12),
         "--color-error": p.error,
         // ANSI palette — same derivation the terminal uses (deriveTermTheme), so the CSS side and the
         // live xterm palette cannot drift. Names are lowercase to match the @theme declarations in

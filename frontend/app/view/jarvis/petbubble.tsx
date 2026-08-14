@@ -94,7 +94,7 @@ export function PetBubble({
             <PopoverReveal
                 open={event != null}
                 origin={ORIGIN[corner]}
-                className="w-[268px] rounded-[11px] border border-border bg-surface-raised p-[11px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
+                className="w-[268px] rounded-[11px] border border-border bg-surface-raised p-[11px] shadow-popover-md"
             >
                 {said != null ? (
                     <button

@@ -11,7 +11,7 @@ const MenuButtonComponent = ({ items, className, text, title }: MenuButtonProps)
             <FlyoutMenu items={items} onOpenChange={setIsOpen}>
                 <Button
                     className="grey rounded-[3px] py-[2px] px-[2px]"
-                    style={{ borderColor: isOpen ? "var(--accent-color)" : "transparent" }}
+                    style={{ borderColor: isOpen ? "var(--color-accent)" : "transparent" }}
                     title={title}
                 >
                     <div>{text}</div>

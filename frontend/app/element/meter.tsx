@@ -17,7 +17,7 @@ import { useReducedMotion } from "motion/react";
 import type { CSSProperties, ReactNode } from "react";
 
 // undefined under reduced motion so the value snaps instead of tweening
-function widthTween(reduce: boolean | null): string | undefined {
+export function widthTween(reduce: boolean | null): string | undefined {
     return reduce ? undefined : `width ${MOTION.durMacro}s ${easeFluidCss}`;
 }
 

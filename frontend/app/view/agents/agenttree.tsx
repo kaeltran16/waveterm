@@ -177,7 +177,7 @@ function ParentRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM })
                         title="Toggle subagents"
                         className="flex items-center gap-[3px] rounded-sm border border-edge-mid bg-surface-hover px-[6px] py-[2px] font-mono text-[9.5px] font-semibold text-muted hover:border-accent hover:text-accent-soft"
                     >
-                        <span className="text-[8px] leading-none">{expanded ? "▾" : "▸"}</span>
+                        <span className="text-xxxs leading-none">{expanded ? "▾" : "▸"}</span>
                         {subs.length}
                     </button>
                 ) : null}

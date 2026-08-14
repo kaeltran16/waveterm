@@ -7,7 +7,7 @@ import { cn } from "@/util/util";
 
 const KeyCap = ({ children }: { children: React.ReactNode }) => {
     return (
-        <div className="inline-block px-2 py-1 mx-[1px] font-mono text-[0.85em] text-foreground bg-highlightbg rounded-[3px] border border-gray-700 whitespace-nowrap">
+        <div className="inline-block px-2 py-1 mx-[1px] font-mono text-[0.85em] text-foreground bg-highlightbg rounded-[3px] border border-edge-strong whitespace-nowrap">
             {children}
         </div>
     );

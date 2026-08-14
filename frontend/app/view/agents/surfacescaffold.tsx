@@ -85,7 +85,7 @@ export function SurfaceEmptyState({
                             whileTap={{ y: 0 }}
                             style={{
                                 boxShadow:
-                                    "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), inset 0 1px 0 rgba(255,255,255,0.28)",
+                                    "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight)",
                             }}
                             className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background hover:bg-accenthover"
                         >

@@ -6,9 +6,7 @@ import { boundNumber } from "@/util/util";
 import type * as MonacoTypes from "monaco-editor";
 import { lazy, Suspense, useMemo, useRef } from "react";
 
-const MonacoDiffViewer = lazy(() =>
-    import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer }))
-);
+const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
 
 interface DiffViewerProps {
     blockId: string;
@@ -22,7 +20,7 @@ function defaultDiffEditorOptions(): MonacoTypes.editor.IDiffEditorOptions {
     const opts: MonacoTypes.editor.IDiffEditorOptions = {
         scrollBeyondLastLine: false,
         fontSize: 12,
-        fontFamily: "Hack",
+        fontFamily: "var(--font-mono)",
         smoothScrolling: true,
         scrollbar: {
             useShadows: false,

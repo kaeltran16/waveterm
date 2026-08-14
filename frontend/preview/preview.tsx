@@ -17,9 +17,7 @@ import { installPreviewElectronApi } from "./mock/preview-electron-api";
 import { PreviewContextMenu } from "./preview-contextmenu";
 
 import "overlayscrollbars/overlayscrollbars.css";
-import "../app/app.scss";
 
-// preview.css should come *after* app.scss (don't remove the newline above otherwise prettier will reorder these imports)
 // preview.css re-exports tailwindsetup.css and adds @source "../app" so Tailwind v4 scans frontend/app/** for class names
 import "./preview.css";
 

@@ -93,7 +93,7 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                     ) : (
                         <File size={13} strokeWidth={1.8} className="flex-none opacity-50" />
                     )}
-                    <span className="truncate">{row.name}</span>
+                    <span className="min-w-0 truncate">{row.name}</span>
                     {/* drafts survive an unmount, so unsaved work can exist on a file you are not looking
                         at — the dot is the only thing that says so */}
                     {row.kind === "file" && project != null && drafts.has(draftKey(project, row.path)) ? (

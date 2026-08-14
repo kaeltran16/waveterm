@@ -9,9 +9,18 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
-import { buildEffortCard, CHUNK_CHIP_CLASSES } from "./effortmodel";
 import { Mark } from "./effortcard";
-import { addChunkOp, advanceChunk, appendChunkNote, effortChunkRows, effortDetailAtom, effortSummaryOf, loadEffortDetail, reopenChunk } from "./effortstore";
+import { buildEffortCard, CHUNK_CHIP_CLASSES } from "./effortmodel";
+import {
+    addChunkOp,
+    advanceChunk,
+    appendChunkNote,
+    effortChunkRows,
+    effortDetailAtom,
+    effortSummaryOf,
+    loadEffortDetail,
+    reopenChunk,
+} from "./effortstore";
 import { activeSubjectAtom } from "./jarvissubjectstore";
 import { ProgressBar } from "./progressbar";
 import { STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
@@ -119,7 +128,10 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                 {effort == null && error == null ? (
                     <div className="flex flex-col gap-4">
                         {["chunk", "chunk", "chunk"].map((_, i) => (
-                            <div key={i} className="h-10 animate-pulse rounded-[10px] bg-surface" />
+                            <div
+                                key={i}
+                                className="h-10 animate-pulse motion-reduce:animate-none rounded-[10px] bg-surface"
+                            />
                         ))}
                     </div>
                 ) : null}
@@ -166,7 +178,9 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                                         {r.status === "done" ? (
                                             <button
                                                 type="button"
-                                                onClick={() => void runMutation(() => reopenChunk("effort:" + effort.oid, r.label))}
+                                                onClick={() =>
+                                                    void runMutation(() => reopenChunk("effort:" + effort.oid, r.label))
+                                                }
                                                 className="hidden cursor-pointer rounded-[4px] border border-border px-1.5 py-[1px] font-mono text-[9px] text-muted group-hover:block hover:text-primary"
                                             >
                                                 reopen
@@ -271,14 +285,14 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                                         }
                                     }}
                                     placeholder={
-                                        card.activeChunk != null ? `note on ${card.activeChunk}` : "initiative-level note"
+                                        card.activeChunk != null
+                                            ? `note on ${card.activeChunk}`
+                                            : "initiative-level note"
                                     }
                                     className="w-64 rounded-[7px] border border-edge-mid bg-background px-2 py-1 text-[12px] text-primary outline-none focus:border-accent/60"
                                 />
                             ) : null}
-                            {mutateError != null ? (
-                                <span className="text-[11px] text-error">{mutateError}</span>
-                            ) : null}
+                            {mutateError != null ? <span className="text-[11px] text-error">{mutateError}</span> : null}
                         </div>
                     </>
                 ) : null}

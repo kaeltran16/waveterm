@@ -241,7 +241,7 @@ export function TalkComposer({
                 <>
                     <div className="mb-2.5 flex items-center gap-2 border-b border-edge-mid pb-2.5">
                         <span className="text-[12px] font-bold text-primary">{worker.name}</span>
-                        <span className="rounded-[4px] bg-success/12 px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-[.05em] text-success">
+                        <span className="rounded-[4px] bg-success/12 px-1.5 py-0.5 font-mono text-xxxs font-semibold uppercase tracking-[.05em] text-success">
                             live
                         </span>
                         {phaseLabel ? <span className="text-[11px] text-muted">· {phaseLabel}</span> : null}

@@ -50,7 +50,7 @@ export function NeedsRow({
             <span className="absolute inset-y-0 left-0 w-[3px] bg-asking" />
             <div className="mb-1.5 flex items-center gap-2">
                 <span className="h-[7px] w-[7px] flex-none rounded-full bg-asking" />
-                <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[.07em] text-asking">{kind}</span>
+                <span className="font-mono text-xxxs font-semibold uppercase tracking-[.07em] text-asking">{kind}</span>
                 <div className="flex-1" />
                 <span className="truncate font-mono text-[9.5px] text-muted" style={{ maxWidth: 120 }}>
                     {source}
@@ -140,7 +140,7 @@ function ConsultCard({
             <div className="flex flex-col gap-1.5">
                 {replies.map((r) => (
                     <div key={r.id}>
-                        <span className="mb-0.5 inline-block rounded-[4px] border border-accent/25 bg-accentbg/10 px-1.5 py-px font-mono text-[8px] font-semibold uppercase tracking-[.05em] text-accent-soft">
+                        <span className="mb-0.5 inline-block rounded-[4px] border border-accent/25 bg-accentbg/10 px-1.5 py-px font-mono text-xxxs font-semibold uppercase tracking-[.05em] text-accent-soft">
                             {r.author}
                         </span>
                         <p className="text-[11.5px] leading-[1.5] text-muted">{r.text}</p>
@@ -151,7 +151,7 @@ function ConsultCard({
                     const s = streams[k];
                     return (
                         <div key={k}>
-                            <span className="mb-0.5 inline-block rounded-[4px] border border-accent/25 bg-accentbg/10 px-1.5 py-px font-mono text-[8px] font-semibold uppercase tracking-[.05em] text-accent-soft">
+                            <span className="mb-0.5 inline-block rounded-[4px] border border-accent/25 bg-accentbg/10 px-1.5 py-px font-mono text-xxxs font-semibold uppercase tracking-[.05em] text-accent-soft">
                                 {runtime} {s.status === "streaming" ? "· consulting…" : ""}
                             </span>
                             <p className="text-[11.5px] leading-[1.5] text-muted">{s.text || "…"}</p>

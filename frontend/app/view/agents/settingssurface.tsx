@@ -6,12 +6,18 @@ import { getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import { Folder } from "lucide-react";
 import { useAtom, useAtomValue } from "jotai";
-import { MotionConfig, motion, useReducedMotion } from "motion/react";
+import { Folder } from "lucide-react";
+import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { coerceFontSize, coerceScrollback, startupSurfaceAtom, startupSurfaceOptions, vaultPathError } from "./cockpitprefsstore";
+import {
+    coerceFontSize,
+    coerceScrollback,
+    startupSurfaceAtom,
+    startupSurfaceOptions,
+    vaultPathError,
+} from "./cockpitprefsstore";
 import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
@@ -111,7 +117,7 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
         >
             <span
                 className={cn(
-                    "absolute top-[2px] h-[19px] w-[19px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-all",
+                    "absolute top-[2px] h-[19px] w-[19px] rounded-full bg-white shadow-popover-line transition-all",
                     on ? "left-[21px]" : "left-[2px]"
                 )}
             />
@@ -821,15 +827,12 @@ function EmbeddingsSection() {
             <SectionLabel>Embeddings</SectionLabel>
             <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
                 Semantic recall calls an OpenAI-compatible{" "}
-                <span className="font-mono text-[11.5px] text-secondary">/embeddings</span> endpoint that you supply
-                and pay for — Wave never proxies it. For a local setup, point the base URL at a local server. Off by
+                <span className="font-mono text-[11.5px] text-secondary">/embeddings</span> endpoint that you supply and
+                pay for — Wave never proxies it. For a local setup, point the base URL at a local server. Off by
                 default: with it off, recall behaves exactly as it does today.
             </div>
             <div>
-                <Row
-                    title="Enable semantic recall"
-                    desc="Index the vault and match on meaning, not just wording."
-                >
+                <Row title="Enable semantic recall" desc="Index the vault and match on meaning, not just wording.">
                     <Toggle on={enabled} onToggle={() => write({ "jarvis:embedenabled": !enabled })} />
                 </Row>
                 <ConfigField
@@ -909,14 +912,12 @@ function HeadlessAISection() {
         <div>
             <SectionLabel>Headless AI</SectionLabel>
             <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
-                Models for background AI features (gardener, gatekeeper, recall, etc.).
-                Uses OpenRouter with the{" "}
+                Models for background AI features (gardener, gatekeeper, recall, etc.). Uses OpenRouter with the{" "}
                 <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
                     {hasKey ? "stored" : "missing"}
                 </span>{" "}
-                OpenRouter key from
-                the secret store (same key as Embeddings).
-                Model IDs use the full <code className="font-mono text-[11.5px] text-secondary">provider/model</code> format.
+                OpenRouter key from the secret store (same key as Embeddings). Model IDs use the full{" "}
+                <code className="font-mono text-[11.5px] text-secondary">provider/model</code> format.
             </div>
             <div>
                 <ConfigField

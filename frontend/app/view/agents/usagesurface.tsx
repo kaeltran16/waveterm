@@ -9,23 +9,30 @@
 
 import { ArcMeter, Meter, StackedMeter } from "@/app/element/meter";
 import { useDidBecomeTrue } from "@/app/element/motionhooks";
+import { cardVariants } from "@/app/element/motiontokens";
 import { Segmented } from "@/app/element/segmented";
 import { SkeletonLine } from "@/app/element/skeleton";
-import { cardVariants } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
 import { useEffect, useMemo } from "react";
 import type { AgentsViewModel } from "./agents";
-import { DailyChart } from "./dailychart";
 import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
+import { DailyChart } from "./dailychart";
 import { harnessesAtom } from "./harnessstore";
 import { mergeRateLimitWindows, savedRateLimitsAtom, type ProviderDonuts } from "./ratelimitstore";
 import { SurfaceError, SurfaceHeader } from "./surfacescaffold";
-import { CLASS_FILL, fmt, foldModels, modelGridClass, usd } from "./usagestats";
 import type { ClassUsage, ProviderUsage, UsageStats } from "./usagestats";
-import { allUsageStatsAtom, loadUsage, usageErrorAtom, usageLoadedAtom, usageMetricAtom, usageWindowAtom } from "./usagestore";
+import { CLASS_FILL, fmt, foldModels, modelGridClass, usd } from "./usagestats";
+import {
+    allUsageStatsAtom,
+    loadUsage,
+    usageErrorAtom,
+    usageLoadedAtom,
+    usageMetricAtom,
+    usageWindowAtom,
+} from "./usagestore";
 import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -152,7 +159,9 @@ function LiveLimitCard({
             <div className="w-[94px] flex-none">
                 <div className="mb-[5px] flex items-center gap-[7px]">
                     <span className="h-[7px] w-[7px] flex-none rounded-full" style={{ background: dot }} />
-                    <span className="truncate font-semibold text-[13px] text-primary">{PROVIDER_LABEL[d.provider] ?? d.provider}</span>
+                    <span className="truncate font-semibold text-[13px] text-primary">
+                        {PROVIDER_LABEL[d.provider] ?? d.provider}
+                    </span>
                 </div>
                 <div className="whitespace-nowrap font-mono text-[10px]" style={{ color: dot }}>
                     {label}
@@ -245,7 +254,9 @@ function ModelGroup({ p }: { p: ProviderUsage }) {
         <div className="rounded-[14px] border border-border bg-surface-raised px-[20px] py-[18px]">
             <div className="mb-4 flex items-baseline justify-between">
                 <div className="flex items-center gap-[9px]">
-                    <h3 className="text-[14px] font-bold tracking-[-0.01em] text-primary">{PROVIDER_LABEL[p.provider] ?? p.provider}</h3>
+                    <h3 className="text-[14px] font-bold tracking-[-0.01em] text-primary">
+                        {PROVIDER_LABEL[p.provider] ?? p.provider}
+                    </h3>
                     <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">by model</span>
                 </div>
                 <span className="font-mono text-[12px] font-bold text-secondary">{fmt(p.tokens)}</span>
@@ -349,18 +360,12 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     // catalog order wins for display; keep pi first even before usage data exists
     const orderedHarnesses = useMemo(() => {
         const cat = harnesses.map((h) => h.runtime);
-        return [...allStats.availableHarnesses].sort(
-            (a, b) => cat.indexOf(a) - cat.indexOf(b) || (a < b ? -1 : 1)
-        );
+        return [...allStats.availableHarnesses].sort((a, b) => cat.indexOf(a) - cat.indexOf(b) || (a < b ? -1 : 1));
     }, [allStats.availableHarnesses, harnesses]);
 
     const chartHarnesses = harnessFilter === "all" ? orderedHarnesses : [harnessFilter];
 
-    const cardForReported = (
-        present: boolean,
-        harnesses: string[],
-        value: number
-    ): { value: string; sub: string } => ({
+    const cardForReported = (present: boolean, harnesses: string[], value: number): { value: string; sub: string } => ({
         value: usd(value),
         sub: present && harnesses.length > 0 ? `from ${harnesses.join(" · ")}` : "No source reports cost",
     });
@@ -377,9 +382,9 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                             title="Usage"
                             subtitle={
                                 <span className="max-w-[680px] leading-[1.5]">
-                                    Durable history from transcripts, plus live provider quota while agents run. Reported
-                                    cost is what each agent source recorded; the API-equivalent estimate comes from a bundled
-                                    price table. Neither is a bill.
+                                    Durable history from transcripts, plus live provider quota while agents run.
+                                    Reported cost is what each agent source recorded; the API-equivalent estimate comes
+                                    from a bundled price table. Neither is a bill.
                                 </span>
                             }
                             actions={
@@ -402,12 +407,14 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     <div className="mb-[10px] rounded-[14px] border border-border bg-background px-[18px] py-[15px]">
                         <div className="mb-[14px] flex flex-wrap items-center gap-[11px]">
                             <span className="flex items-center gap-2">
-                                <span className="h-[8px] w-[8px] flex-none animate-[pulseDot_1.6s_infinite] rounded-full bg-success" />
+                                <span className="h-[8px] w-[8px] flex-none animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none rounded-full bg-success" />
                                 <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-secondary">
                                     Provider limits
                                 </span>
                             </span>
-                            <span className="font-mono text-[10.5px] text-muted">ephemeral · known only while a provider agent runs</span>
+                            <span className="font-mono text-[10.5px] text-muted">
+                                ephemeral · known only while a provider agent runs
+                            </span>
                             <div className="flex-1" />
                             <div className="flex items-center gap-[13px] font-mono text-[10px] text-secondary">
                                 <span className="flex items-center gap-[5px]">
@@ -438,13 +445,16 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         )}
                     </div>
                     <p className="mb-8 ml-[2px] font-mono text-[10.5px] leading-[1.5] text-muted">
-                        Each donut keeps its last snapshot per provider — countdowns stay correct off absolute reset times,
-                        rolling to empty once a window passes. Providers without a trustworthy reading are omitted.
+                        Each donut keeps its last snapshot per provider — countdowns stay correct off absolute reset
+                        times, rolling to empty once a window passes. Providers without a trustworthy reading are
+                        omitted.
                     </p>
 
                     {/* HISTORICAL */}
                     <div className="mb-4 flex items-center gap-[11px]">
-                        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">Historical</span>
+                        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                            Historical
+                        </span>
                         <span className="font-mono text-[10.5px] text-muted">durable · every transcript in window</span>
                         <div className="h-px flex-1 bg-border" />
                     </div>
@@ -454,7 +464,11 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     ) : !hasHistory ? (
                         <div className="mt-10 text-center text-[13px] text-muted">No usage yet — start an agent.</div>
                     ) : (
-                        <motion.div variants={cardVariants} initial={revealHistory ? "initial" : false} animate="animate">
+                        <motion.div
+                            variants={cardVariants}
+                            initial={revealHistory ? "initial" : false}
+                            animate="animate"
+                        >
                             <div className="mb-4 flex flex-wrap items-center gap-2">
                                 <button
                                     type="button"
@@ -496,16 +510,20 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                         <StatCard label="Tokens · 7 days" value={fmt(stats.totals.tokensWeek)} />
                                         <StatCard
                                             label="Reported cost · 7 days"
-                                            value={cardForReported(
-                                                stats.totals.reportedCostWeekPresent,
-                                                stats.totals.reportedCostWeekHarnesses,
-                                                stats.totals.reportedCostWeekUsd
-                                            ).value}
-                                            sub={cardForReported(
-                                                stats.totals.reportedCostWeekPresent,
-                                                stats.totals.reportedCostWeekHarnesses,
-                                                stats.totals.reportedCostWeekUsd
-                                            ).sub}
+                                            value={
+                                                cardForReported(
+                                                    stats.totals.reportedCostWeekPresent,
+                                                    stats.totals.reportedCostWeekHarnesses,
+                                                    stats.totals.reportedCostWeekUsd
+                                                ).value
+                                            }
+                                            sub={
+                                                cardForReported(
+                                                    stats.totals.reportedCostWeekPresent,
+                                                    stats.totals.reportedCostWeekHarnesses,
+                                                    stats.totals.reportedCostWeekUsd
+                                                ).sub
+                                            }
                                         />
                                         <StatCard
                                             label="API-equivalent · 7 days"
@@ -522,21 +540,29 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                         />
                                         <StatCard
                                             label="Daily avg"
-                                            value={fmt(stats.totals.activeDays > 0 ? stats.totals.tokensWindow / stats.totals.activeDays : 0)}
+                                            value={fmt(
+                                                stats.totals.activeDays > 0
+                                                    ? stats.totals.tokensWindow / stats.totals.activeDays
+                                                    : 0
+                                            )}
                                             sub={`over ${stats.totals.activeDays} active day${stats.totals.activeDays === 1 ? "" : "s"}`}
                                         />
                                         <StatCard
                                             label="Reported cost · all time"
-                                            value={cardForReported(
-                                                stats.totals.reportedCostWindowPresent,
-                                                stats.totals.reportedCostWindowHarnesses,
-                                                stats.totals.reportedCostWindowUsd
-                                            ).value}
-                                            sub={cardForReported(
-                                                stats.totals.reportedCostWindowPresent,
-                                                stats.totals.reportedCostWindowHarnesses,
-                                                stats.totals.reportedCostWindowUsd
-                                            ).sub}
+                                            value={
+                                                cardForReported(
+                                                    stats.totals.reportedCostWindowPresent,
+                                                    stats.totals.reportedCostWindowHarnesses,
+                                                    stats.totals.reportedCostWindowUsd
+                                                ).value
+                                            }
+                                            sub={
+                                                cardForReported(
+                                                    stats.totals.reportedCostWindowPresent,
+                                                    stats.totals.reportedCostWindowHarnesses,
+                                                    stats.totals.reportedCostWindowUsd
+                                                ).sub
+                                            }
                                         />
                                         <StatCard
                                             label="API-equivalent · all time"

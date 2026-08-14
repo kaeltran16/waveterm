@@ -73,7 +73,7 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                 >
                     open ↗
                 </button>
-                <span className="shrink-0 font-mono text-[8px] text-edge-strong">{open ? "▼" : "▶"}</span>
+                <span className="shrink-0 font-mono text-xxxs text-edge-strong">{open ? "▼" : "▶"}</span>
             </div>
 
             {/* streaming flow bar — a subtle accent sweep while the worker actively narrates */}
@@ -124,7 +124,7 @@ export function RunWorkerCard({ model, agent, now, fill }: { model: AgentsViewMo
                     {prog ? (
                         <div className="border-t border-edge-mid px-3 py-2">
                             <div className="mb-1 flex items-center gap-2">
-                                <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.08em] text-muted">
+                                <span className="font-mono text-xxxs font-bold uppercase tracking-[0.08em] text-muted">
                                     Task
                                 </span>
                                 <div className="flex-1" />
@@ -168,8 +168,8 @@ export function PhaseHistory({ tabIds }: { tabIds: string[] }) {
                 onClick={() => setOpen((o) => !o)}
                 className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-surface-hover"
             >
-                <span className="shrink-0 font-mono text-[8px] text-edge-strong">{open ? "▼" : "▶"}</span>
-                <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.08em] text-muted">History</span>
+                <span className="shrink-0 font-mono text-xxxs text-edge-strong">{open ? "▼" : "▶"}</span>
+                <span className="font-mono text-xxxs font-bold uppercase tracking-[0.08em] text-muted">History</span>
                 <span className="text-[11px] text-secondary">
                     {entries.length} step{entries.length === 1 ? "" : "s"}
                 </span>

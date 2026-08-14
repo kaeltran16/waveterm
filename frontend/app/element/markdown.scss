@@ -15,9 +15,9 @@
         width: 100%;
         overflow: scroll;
         line-height: 1.5;
-        color: var(--main-text-color);
-        font-family: var(--markdown-font-family);
-        font-size: var(--markdown-font-size);
+        color: var(--color-foreground);
+        font-family: var(--font-markdown);
+        font-size: var(--text-default);
         overflow-wrap: break-word;
 
         &.non-scrollable {
@@ -33,19 +33,19 @@
         }
 
         .heading {
-            color: var(--main-text-color);
+            color: var(--color-foreground);
             margin-top: 1.143em;
             margin-bottom: 0.571em;
             font-weight: semibold;
             padding-top: 0.429em;
 
             &.is-1 {
-                border-bottom: 1px solid var(--border-color);
+                border-bottom: 1px solid var(--color-border);
                 padding-bottom: 0.429em;
                 font-size: 2em;
             }
             &.is-2 {
-                border-bottom: 1px solid var(--border-color);
+                border-bottom: 1px solid var(--color-border);
                 padding-bottom: 0.429em;
                 font-size: 1.5em;
             }
@@ -83,11 +83,11 @@
         }
 
         strong {
-            color: var(--main-text-color);
+            color: var(--color-foreground);
         }
 
         a {
-            color: #32afff;
+            color: var(--color-accent);
         }
 
         ul {
@@ -104,12 +104,12 @@
         blockquote {
             margin: 0.286em 0.714em;
             border-radius: 4px;
-            background-color: var(--panel-bg-color);
+            background-color: var(--color-panel);
             padding: 0.143em 0.286em 0.143em 0.429em;
         }
 
         pre.codeblock {
-            background-color: var(--panel-bg-color);
+            background-color: var(--color-panel);
             margin: 0.286em 0.714em;
             padding: 0.4em 0.7em;
             border-radius: 4px;
@@ -145,14 +145,14 @@
         }
 
         code {
-            color: var(--main-text-color);
-            font: var(--fixed-font);
-            font-size: var(--markdown-fixed-font-size);
+            color: var(--color-foreground);
+            font: normal 12px / normal var(--font-mono);
+            font-size: 12px;
             border-radius: 4px;
         }
 
         pre.selected {
-            outline: 2px solid var(--accent-color);
+            outline: 2px solid var(--color-accent);
         }
 
         .waveblock {
@@ -162,8 +162,8 @@
                 display: flex;
                 align-items: center;
                 padding: 0.857em;
-                background-color: var(--highlight-bg-color);
-                border: 1px solid var(--border-color);
+                background-color: var(--color-highlightbg);
+                border: 1px solid var(--color-border);
                 border-radius: 8px;
                 transition: background-color 0.2s ease;
             }
@@ -181,7 +181,7 @@
 
             .wave-block-icon i {
                 font-size: 1.125em;
-                color: var(--secondary-text-color);
+                color: var(--color-secondary);
             }
 
             .wave-block-info {
@@ -192,12 +192,12 @@
             .wave-block-filename {
                 font-size: 1em;
                 font-weight: 500;
-                color: var(--main-text-color);
+                color: var(--color-foreground);
             }
 
             .wave-block-size {
                 font-size: 0.857em;
-                color: var(--secondary-text-color);
+                color: var(--color-secondary);
             }
         }
     }
@@ -206,7 +206,7 @@
         max-width: 40%;
         height: 100%;
         overflow: scroll;
-        border-left: 1px solid var(--border-color);
+        border-left: 1px solid var(--color-border);
         .toc-inner {
             height: fit-content;
             position: sticky;

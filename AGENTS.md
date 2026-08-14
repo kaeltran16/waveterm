@@ -60,6 +60,8 @@ Tauri and pivoted toward an agent-cockpit UI. `main` is the Tauri build. The Go 
 
 - Testable logic is extracted into pure `.ts` files with `.test.ts` beside them; thin `.tsx`
   components render. No jsdom render/snapshot tests — visual checks go through `task verify:ui`.
+- UI design work follows `DESIGN.md` (repo root): design tokens, typography, layout, motion, and
+  the do's and don'ts. Read it before planning or styling new UI.
 - Colors come from `@theme` tokens in `frontend/tailwindsetup.css`; never raw hex in components
   (the pi theme under `pi/themes/arc.json` is the exception — it is a TUI theme file).
 - Comments explain "why", never "what". Prefer short functions, KISS/YAGNI.

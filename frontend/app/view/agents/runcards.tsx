@@ -14,7 +14,14 @@ import type { AgentVM } from "./agentsviewmodel";
 import { AttentionBanner, AttentionCard } from "./attentioncard";
 import { AskRow, jumpToAgent } from "./channelsprimitives";
 import { PlanPreview } from "./planpreview";
-import { approveGate, cancellingRunIdsAtom, confirmCancelRun, sendBackGate, stopRunWorker, stoppingWorkerIdsAtom } from "./runactions";
+import {
+    approveGate,
+    cancellingRunIdsAtom,
+    confirmCancelRun,
+    sendBackGate,
+    stopRunWorker,
+    stoppingWorkerIdsAtom,
+} from "./runactions";
 import { cancelSurvivors, liveWorkers, resolveArtifactPath } from "./runmodel";
 
 export function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string; run: Run; gateIdx: number }) {
@@ -23,13 +30,11 @@ export function ReviewGateCard({ channelId, run, gateIdx }: { channelId: string;
     const flushRef = useRef<() => Promise<void>>(async () => {});
     return (
         <AttentionCard className="mt-3 max-w-[760px]">
-            <AttentionBanner
-                glyph="diamond"
-                label="Review gate — your approval needed"
-                meta={artifact ?? undefined}
-            />
+            <AttentionBanner glyph="diamond" label="Review gate — your approval needed" meta={artifact ?? undefined} />
             <div className="px-3.5 pt-2.5 text-[11.5px] text-ink-mid">
-                {run.mode === "orchestrator" ? "Plan ready — approve to let the lead proceed." : "Approve before execution starts."}
+                {run.mode === "orchestrator"
+                    ? "Plan ready — approve to let the lead proceed."
+                    : "Approve before execution starts."}
             </div>
             {artifact ? (
                 <PlanPreview
@@ -82,7 +87,17 @@ export function AskCard({ model, agent, kind }: { model: AgentsViewModel; agent:
 // The run's Cancel control: confirms before stopping live workers, and shows a transient "Cancelling…"
 // (disabled) while the synchronous CancelRunCommand waits out each worker. `className` carries each call
 // site's own styling; the disabled affordance is shared.
-export function CancelRunButton({ channelId, run, agents, className }: { channelId: string; run: Run; agents: AgentVM[]; className: string }) {
+export function CancelRunButton({
+    channelId,
+    run,
+    agents,
+    className,
+}: {
+    channelId: string;
+    run: Run;
+    agents: AgentVM[];
+    className: string;
+}) {
     const cancelling = useAtomValue(cancellingRunIdsAtom).has(run.id);
     return (
         <button
@@ -100,7 +115,17 @@ export function CancelRunButton({ channelId, run, agents, className }: { channel
 // one, or a resync revived it), the run must not read as a clean cancel. Renders nothing unless there are
 // survivors; otherwise an error-toned card listing each survivor with Take control + a per-worker Stop.
 // Derived from the live roster (cancelSurvivors), so a survivor that exits or is stopped drops out.
-export function CancelSurvivorsCard({ model, channelId, run, agents }: { model: AgentsViewModel; channelId: string; run: Run; agents: AgentVM[] }) {
+export function CancelSurvivorsCard({
+    model,
+    channelId,
+    run,
+    agents,
+}: {
+    model: AgentsViewModel;
+    channelId: string;
+    run: Run;
+    agents: AgentVM[];
+}) {
     const stopping = useAtomValue(stoppingWorkerIdsAtom);
     const survivors = cancelSurvivors(run, agents);
     if (survivors.length === 0) {
@@ -111,17 +136,22 @@ export function CancelSurvivorsCard({ model, channelId, run, agents }: { model: 
         <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
                 <span className="font-mono text-[12px] font-bold text-error">!</span>
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">Cancelled · {n} still running</span>
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">
+                    Cancelled · {n} still running
+                </span>
             </div>
             <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">
-                These workers didn't stop when the run was cancelled. Stop each to finish cancelling, or take control to inspect it.
+                These workers didn't stop when the run was cancelled. Stop each to finish cancelling, or take control to
+                inspect it.
             </p>
             <div className="flex flex-col gap-2">
                 {survivors.map((w) => {
                     const busy = stopping.has(w.id);
                     return (
                         <div key={w.id} className="flex items-center gap-2">
-                            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-secondary">{w.name}</span>
+                            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-secondary">
+                                {w.name}
+                            </span>
                             <button
                                 type="button"
                                 onClick={() => jumpToAgent(model, w.id)}
@@ -145,14 +175,30 @@ export function CancelSurvivorsCard({ model, channelId, run, agents }: { model: 
     );
 }
 
-export function BlockedCard({ model, channelId, run, worker, agents }: { model: AgentsViewModel; channelId: string; run: Run; worker?: AgentVM; agents: AgentVM[] }) {
+export function BlockedCard({
+    model,
+    channelId,
+    run,
+    worker,
+    agents,
+}: {
+    model: AgentsViewModel;
+    channelId: string;
+    run: Run;
+    worker?: AgentVM;
+    agents: AgentVM[];
+}) {
     return (
         <div className="relative mt-3 max-w-[760px] overflow-hidden rounded-lg border border-error/40 bg-error/10 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
                 <span className="font-mono text-[12px] font-bold text-error">!</span>
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">Blocked · worker exited</span>
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-error">
+                    Blocked · worker exited
+                </span>
             </div>
-            <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">The worker for this phase is no longer running. Take control to inspect it, or cancel the run.</p>
+            <p className="mb-3 text-[12.5px] leading-[1.5] text-secondary">
+                The worker for this phase is no longer running. Take control to inspect it, or cancel the run.
+            </p>
             <div className="flex items-center gap-2">
                 {worker ? (
                     <button
@@ -180,7 +226,7 @@ export function BlockedCard({ model, channelId, run, worker, agents }: { model: 
 export function StartingCard() {
     return (
         <div className="mt-2.5 inline-flex items-center gap-2 rounded-[9px] border border-edge-mid bg-background px-3 py-2">
-            <span className="h-[7px] w-[7px] flex-none animate-pulse rounded-full bg-asking" />
+            <span className="h-[7px] w-[7px] flex-none animate-pulse motion-reduce:animate-none rounded-full bg-asking" />
             <span className="text-[12px] text-secondary">Worker starting…</span>
         </div>
     );
@@ -193,7 +239,9 @@ export function TriageChip({ triage }: { triage: PhaseTriage }) {
     const tone = quick ? "text-success border-success/40 bg-success/10" : "text-asking border-asking/40 bg-warning/10";
     return (
         <div className={"mt-2 inline-flex max-w-[760px] items-center gap-2 rounded border px-2.5 py-1.5 " + tone}>
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em]">Triage · {triage.verdict}</span>
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.08em]">
+                Triage · {triage.verdict}
+            </span>
             {triage.note ? <span className="text-[11.5px] leading-[1.4] text-secondary">{triage.note}</span> : null}
         </div>
     );

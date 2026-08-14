@@ -87,7 +87,7 @@ export function PlanPreview({ path, onEditorReady }: { path: string; onEditorRea
         <div className="border-b border-asking/20">
             <div className="flex w-full items-center gap-2 px-3.5 py-2">
                 <button type="button" onClick={() => setOverride(!open)} className="flex min-w-0 flex-1 items-center gap-2 hover:opacity-80">
-                    <span className="font-mono text-[8px] text-asking">{open ? "▼" : "▶"}</span>
+                    <span className="font-mono text-xxxs text-asking">{open ? "▼" : "▶"}</span>
                     <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-asking">Plan</span>
                     <span className="truncate font-mono text-[10.5px] text-muted">
                         {filename}

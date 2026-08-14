@@ -28,7 +28,7 @@ const EXAMINES = [
 function IconTile({ icon: Icon, tone, spin }: { icon: typeof Radar; tone: string; spin?: boolean }) {
     return (
         <div className={cn("flex h-14 w-14 items-center justify-center rounded-2xl border", tone)}>
-            <Icon className={cn("h-7 w-7", spin && "animate-spin")} />
+            <Icon className={cn("h-7 w-7", spin && "animate-spin motion-reduce:animate-none")} />
         </div>
     );
 }
@@ -42,9 +42,16 @@ function CollectorChecklist({ report }: { report: RadarReport | null }) {
                 const glyph = cell === "done" ? "✓" : cell === "failed" ? "✗" : "…";
                 const label = cell === "failed" ? "incomplete" : cell;
                 return (
-                    <li key={c} className="flex items-center gap-3 border-b border-border px-4 py-2.5 text-sm last:border-b-0">
+                    <li
+                        key={c}
+                        className="flex items-center gap-3 border-b border-border px-4 py-2.5 text-sm last:border-b-0"
+                    >
                         <span className={cn("flex w-3 justify-center font-mono text-xs", CELL_TONE[cell])}>
-                            {cell === "running" ? <Loader2 className="h-3 w-3 animate-spin" /> : glyph}
+                            {cell === "running" ? (
+                                <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
+                            ) : (
+                                glyph
+                            )}
                         </span>
                         <span className="text-muted-foreground">{c}</span>
                         <span className="flex-1" />
@@ -84,13 +91,17 @@ export function RadarScanStatePanel({
             return (
                 <Centered>
                     <IconTile icon={Radar} tone={accentTile} />
-                    <h2 className="text-xl font-bold tracking-tight text-primary">This repository hasn't been scanned yet</h2>
+                    <h2 className="text-xl font-bold tracking-tight text-primary">
+                        This repository hasn't been scanned yet
+                    </h2>
                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Radar examines the current tree plus recent engineering activity, converts it into compact signals, and
-                        groups them into evidence-backed findings. Nothing runs until you scan.
+                        Radar examines the current tree plus recent engineering activity, converts it into compact
+                        signals, and groups them into evidence-backed findings. Nothing runs until you scan.
                     </p>
                     <div className="w-full rounded-xl border border-border p-4 text-left">
-                        <div className="mb-3 text-[10px] font-bold uppercase tracking-wider text-muted">What Radar examines</div>
+                        <div className="mb-3 text-[10px] font-bold uppercase tracking-wider text-muted">
+                            What Radar examines
+                        </div>
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             {EXAMINES.map((b) => (
                                 <div key={b} className="flex items-start gap-2">
@@ -116,11 +127,15 @@ export function RadarScanStatePanel({
                     <IconTile icon={Loader2} tone={accentTile} spin />
                     <h2 className="text-xl font-bold tracking-tight text-primary">Collecting deterministic signals</h2>
                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Local collectors are converting the current tree and recent activity into compact signals. No model
-                        budget is spent yet.
+                        Local collectors are converting the current tree and recent activity into compact signals. No
+                        model budget is spent yet.
                     </p>
                     <CollectorChecklist report={report} />
-                    <button type="button" onClick={cancel} className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover">
+                    <button
+                        type="button"
+                        onClick={cancel}
+                        className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover"
+                    >
                         Cancel scan
                     </button>
                 </Centered>
@@ -131,14 +146,18 @@ export function RadarScanStatePanel({
                     <IconTile icon={Loader2} tone={accentTile} spin />
                     <h2 className="text-xl font-bold tracking-tight text-primary">Clustering candidate risks</h2>
                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Signals were collected and compared with the previous scan — a single bounded model call is grouping the
-                        rest into findings.
+                        Signals were collected and compared with the previous scan — a single bounded model call is
+                        grouping the rest into findings.
                     </p>
                     <span className="rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs text-accent-soft">
                         Radar payload · {report?.payloadtokens ?? 0} tokens
                     </span>
                     <CollectorChecklist report={report} />
-                    <button type="button" onClick={cancel} className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover">
+                    <button
+                        type="button"
+                        onClick={cancel}
+                        className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover"
+                    >
                         Cancel scan
                     </button>
                 </Centered>
@@ -149,8 +168,8 @@ export function RadarScanStatePanel({
                     <IconTile icon={CheckCircle2} tone="border-success/25 bg-success/10 text-success" />
                     <h2 className="text-xl font-bold tracking-tight text-primary">No new correctness risks found</h2>
                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Radar clustered the collected signals and found nothing that meets the evidence bar. This is a snapshot of
-                        the current tree, not a guarantee.
+                        Radar clustered the collected signals and found nothing that meets the evidence bar. This is a
+                        snapshot of the current tree, not a guarantee.
                     </p>
                     <button
                         type="button"
@@ -166,16 +185,27 @@ export function RadarScanStatePanel({
             return (
                 <Centered>
                     <IconTile icon={AlertTriangle} tone="border-error/25 bg-error/10 text-error" />
-                    <h2 className="text-xl font-bold tracking-tight text-primary">The model step failed — collected signals were kept</h2>
+                    <h2 className="text-xl font-bold tracking-tight text-primary">
+                        The model step failed — collected signals were kept
+                    </h2>
                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Signals are cached from this scan. Retrying reuses them and only spends budget on clustering, so you won't
-                        re-collect from scratch.
+                        Signals are cached from this scan. Retrying reuses them and only spends budget on clustering, so
+                        you won't re-collect from scratch.
                     </p>
                     <div className="flex gap-2">
-                        <button type="button" onClick={retry} className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-background">
+                        <button
+                            type="button"
+                            onClick={retry}
+                            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-background"
+                        >
                             Retry clustering
                         </button>
-                        <button type="button" onClick={scan} disabled={!scopePath} className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover disabled:opacity-50">
+                        <button
+                            type="button"
+                            onClick={scan}
+                            disabled={!scopePath}
+                            className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-surface-hover disabled:opacity-50"
+                        >
                             Discard signals
                         </button>
                     </div>
@@ -187,8 +217,8 @@ export function RadarScanStatePanel({
                     <IconTile icon={XCircle} tone="border-border bg-surface text-muted" />
                     <h2 className="text-xl font-bold tracking-tight text-primary">Scan cancelled</h2>
                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Signals collected before you cancelled were discarded. Findings from your previous scan are unchanged and
-                        still available.
+                        Signals collected before you cancelled were discarded. Findings from your previous scan are
+                        unchanged and still available.
                     </p>
                     <button
                         type="button"

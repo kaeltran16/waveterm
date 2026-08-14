@@ -56,7 +56,7 @@ function highlightPositions(target: string, positions: number[]): ReactNode[] {
     while (targetIndex < target.length) {
         if (posIndex < positions.length && targetIndex === positions[posIndex]) {
             result.push(
-                <span key={`h-${targetIndex}`} className="text-blue-500 font-bold">
+                <span key={`h-${targetIndex}`} className="text-accent font-bold">
                     {target[targetIndex]}
                 </span>
             );
@@ -152,7 +152,7 @@ function BlockHeaderSuggestionControl(props: BlockHeaderSuggestionControlProps) 
 function SuggestionControlNoResults({ children }: { children?: React.ReactNode }) {
     return (
         <div className="flex items-center justify-center min-h-[120px] p-4">
-            {children ?? <span className="text-gray-500">No Suggestions</span>}
+            {children ?? <span className="text-muted">No Suggestions</span>}
         </div>
     );
 }
@@ -160,7 +160,7 @@ function SuggestionControlNoResults({ children }: { children?: React.ReactNode }
 function SuggestionControlNoData({ children }: { children?: React.ReactNode }) {
     return (
         <div className="flex items-center justify-center min-h-[120px] p-4">
-            {children ?? <span className="text-gray-500">No Suggestions</span>}
+            {children ?? <span className="text-muted">No Suggestions</span>}
         </div>
     );
 }
@@ -291,7 +291,7 @@ function SuggestionControlInner({
     return (
         <div
             className={clsx(
-                "w-96 rounded-lg bg-modalbg shadow-lg border border-gray-700 z-[var(--zindex-typeahead-modal)] absolute",
+                "w-96 rounded-lg bg-modalbg shadow-lg border border-edge-mid z-[var(--zindex-typeahead-modal)] absolute",
                 middlewareData?.offset == null ? "opacity-0" : null,
                 className
             )}
@@ -308,20 +308,20 @@ function SuggestionControlInner({
                         setSelectedIndex(0);
                     }}
                     onKeyDown={handleKeyDown}
-                    className="w-full bg-zinc-900 text-gray-100 px-4 py-2 rounded-md border border-gray-700 focus:outline-none focus:border-accent placeholder-secondary"
+                    className="w-full bg-surface text-foreground px-4 py-2 rounded-md border border-edge-mid focus:outline-none focus:border-accent placeholder-secondary"
                     placeholder={placeholderText}
                 />
             </div>
             {fetched &&
                 (suggestions.length > 0 ? (
-                    <div ref={dropdownRef} className="max-h-96 overflow-y-auto divide-y divide-gray-700">
+                    <div ref={dropdownRef} className="max-h-96 overflow-y-auto divide-y divide-edge-mid">
                         {suggestions.map((suggestion, index) => (
                             <div
                                 key={suggestion.suggestionid}
                                 className={clsx(
                                     "flex items-center gap-3 px-4 py-2 cursor-pointer",
                                     index === selectedIndex ? "bg-accentbg" : "hover:bg-hoverbg",
-                                    "text-gray-100"
+                                    "text-foreground"
                                 )}
                                 onClick={() => {
                                     onSelect(suggestion, query);

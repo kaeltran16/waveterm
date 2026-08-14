@@ -250,7 +250,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                                         {s.task || "(untitled session)"}
                                                     </span>
                                                     <span
-                                                        className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.06em]"
+                                                        className="flex-none rounded-[4px] px-1.5 py-0.5 font-mono text-xxxs font-bold uppercase tracking-[0.06em]"
                                                         style={{ color: st.color, backgroundColor: "color-mix(in srgb, currentColor 14%, transparent)" }}
                                                     >
                                                         {st.label}

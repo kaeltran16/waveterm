@@ -9,7 +9,15 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { cn } from "@/util/util";
-import { autoUpdate, offset, useClick, useDismiss, useFloating, useInteractions, type Placement } from "@floating-ui/react";
+import {
+    autoUpdate,
+    offset,
+    useClick,
+    useDismiss,
+    useFloating,
+    useInteractions,
+    type Placement,
+} from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useState } from "react";
 import { harnessPreferenceAtom, harnessesAtom, setPreferredHarness } from "./harnessstore";
@@ -48,7 +56,11 @@ export function harnessPickerItems(
             label: h.label,
             selected: h.runtime === runtime,
             selectable: h.installed && supported,
-            unavailableReason: !supported ? ("unsupported" as const) : !h.installed ? ("not-installed" as const) : undefined,
+            unavailableReason: !supported
+                ? ("unsupported" as const)
+                : !h.installed
+                  ? ("not-installed" as const)
+                  : undefined,
             disclosure: operation === "run-worker" ? "Can edit files and run commands without approval." : undefined,
         };
     });
@@ -61,7 +73,11 @@ export interface HarnessPickerFace {
 
 // harnessPickerFace derives the chip's face from the current runtime. An empty runtime means no
 // preference exists; an unknown runtime renders its id so the operator sees exactly what is saved.
-export function harnessPickerFace(runtime: string, harnesses: HarnessInfo[], operation: HarnessOperation): HarnessPickerFace {
+export function harnessPickerFace(
+    runtime: string,
+    harnesses: HarnessInfo[],
+    operation: HarnessOperation
+): HarnessPickerFace {
     if (runtime === "") {
         return { label: "Choose harness", valid: false };
     }
@@ -121,7 +137,7 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                     open ? "border-accent-700 text-primary" : "border-border text-secondary hover:text-primary"
                 )}
             >
-                <span className="flex-1 whitespace-nowrap text-left">{face.label}</span>
+                <span className="min-w-0 flex-1 truncate text-left">{face.label}</span>
                 {pref.saving ? (
                     <span className="font-mono text-[10px] font-normal text-muted">saving</span>
                 ) : (
@@ -132,7 +148,7 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                 <PopoverReveal
                     open={open}
                     origin="bottom left"
-                    className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-[0_12px_34px_rgba(0,0,0,0.5)]"
+                    className="w-[300px] rounded-[11px] border border-border bg-surface p-[5px] shadow-popover-md"
                 >
                     <div>
                         <div className="px-[9px] pb-1.5 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">
@@ -148,7 +164,9 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                                 onClick={() => setPreferredHarness(item.runtime)}
                                 className={cn(
                                     "flex w-full items-start gap-2.5 rounded px-[9px] py-2 text-left",
-                                    item.selectable ? "cursor-pointer hover:bg-surface-hover" : "cursor-default opacity-70",
+                                    item.selectable
+                                        ? "cursor-pointer hover:bg-surface-hover"
+                                        : "cursor-default opacity-70",
                                     item.selected ? "bg-surface-raised" : "bg-transparent"
                                 )}
                             >
@@ -164,10 +182,14 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                                     </span>
                                     {item.unavailableReason != null ? (
                                         <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">
-                                            {item.unavailableReason === "not-installed" ? "not installed" : "unsupported for this action"}
+                                            {item.unavailableReason === "not-installed"
+                                                ? "not installed"
+                                                : "unsupported for this action"}
                                         </span>
                                     ) : item.disclosure != null ? (
-                                        <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">{item.disclosure}</span>
+                                        <span className="mt-[3px] block text-[11px] leading-[1.45] text-muted">
+                                            {item.disclosure}
+                                        </span>
                                     ) : null}
                                 </span>
                                 {item.selected ? (
@@ -186,4 +208,3 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
         </div>
     );
 }
-

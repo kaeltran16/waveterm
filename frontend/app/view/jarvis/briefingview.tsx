@@ -12,10 +12,6 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import { normalizeBriefingNav, projectBriefing, SEVEN_DAYS_MS } from "./briefingmodel";
-import { effortDeltaRow } from "./effortmodel";
-import { EffortCard } from "./effortcard";
-import { EffortCreateForm } from "./effortcreateform";
-import { expandedEffortOrefAtom, toggleEffort } from "./effortstore";
 import {
     briefingAnswerAtom,
     briefingAskStateAtom,
@@ -24,6 +20,10 @@ import {
     loadBriefing,
     refreshBriefing,
 } from "./briefingstore";
+import { EffortCard } from "./effortcard";
+import { EffortCreateForm } from "./effortcreateform";
+import { effortDeltaRow } from "./effortmodel";
+import { expandedEffortOrefAtom, toggleEffort } from "./effortstore";
 import { stageRailOpenAtom } from "./jarvisstore";
 import { selectSubject } from "./jarvissubjectstore";
 import { openORef, orefNavPlan } from "./openref";
@@ -161,7 +161,12 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                 <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
                                     {label}
                                 </span>
-                                <div className={cn("animate-pulse rounded-[10px] bg-surface", h)} />
+                                <div
+                                    className={cn(
+                                        "animate-pulse motion-reduce:animate-none rounded-[10px] bg-surface",
+                                        h
+                                    )}
+                                />
                             </div>
                         ))}
                     </div>
@@ -231,8 +236,8 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                             </div>
                             {model_.efforts.length === 0 ? (
                                 <div className="rounded-[10px] border border-dashed border-edge-strong px-4 py-4 text-center text-[12px] text-muted">
-                                    <span className="font-medium text-secondary">No initiatives yet.</span> Big tasks — a
-                                    migration, an enablement, a multi-week refactor — get a tracker here. Paste your
+                                    <span className="font-medium text-secondary">No initiatives yet.</span> Big tasks —
+                                    a migration, an enablement, a multi-week refactor — get a tracker here. Paste your
                                     phase list once, then tick chunks as work lands.
                                 </div>
                             ) : (
@@ -380,7 +385,11 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                         </span>
                                     ) : (
                                         model_.delta.map((d) => {
-                                            const eff = effortDeltaRow({ kind: d.kind, title: d.title, detail: d.detail });
+                                            const eff = effortDeltaRow({
+                                                kind: d.kind,
+                                                title: d.title,
+                                                detail: d.detail,
+                                            });
                                             const oref =
                                                 d.oref != null &&
                                                 d.oref !== "" &&

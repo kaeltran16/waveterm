@@ -68,7 +68,7 @@ function rgba(hex: string, a: number) {
 function useThemeColors() {
     return useMemo(() => {
         const s = getComputedStyle(document.documentElement);
-        const c = (n: string) => s.getPropertyValue(n).trim() || "#888888";
+        const c = (n: string) => s.getPropertyValue(n).trim() || "#9aa3ad"; // --color-ink-mid fallback (canvas cannot take var());
         const mem: Record<string, string> = {
             project: c("--color-mem-project"),
             reference: c("--color-mem-reference"),
@@ -125,10 +125,7 @@ export function MemGraph({
 }) {
     const allEdges = useAtomValue(memEdgesAtom);
     const colors = useThemeColors();
-    const reducedMotion = useMemo(
-        () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
-        []
-    );
+    const reducedMotion = useMemo(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false, []);
     const containerRef = useRef<HTMLDivElement>(null);
     const fgRef = useRef<any>(undefined);
     const camInit = useRef(false); // camera restored/fit once per mount
@@ -160,7 +157,9 @@ export function MemGraph({
         // resize re-renders (and reflows the canvas) even when dimensions are identical
         const ro = new ResizeObserver(() =>
             setSize((prev) =>
-                prev.w === el.clientWidth && prev.h === el.clientHeight ? prev : { w: el.clientWidth, h: el.clientHeight }
+                prev.w === el.clientWidth && prev.h === el.clientHeight
+                    ? prev
+                    : { w: el.clientWidth, h: el.clientHeight }
             )
         );
         ro.observe(el);
@@ -178,7 +177,10 @@ export function MemGraph({
         fireAndForget(async () => {
             const { forceCollide, forceX, forceY } = await import("d3-force-3d");
             if (!live) return;
-            fgApi.d3Force("collide", forceCollide((n: GNode) => nodeRadius(n.deg) + 3));
+            fgApi.d3Force(
+                "collide",
+                forceCollide((n: GNode) => nodeRadius(n.deg) + 3)
+            );
             fgApi.d3Force("charge")?.strength(-100).distanceMax(260);
             fgApi.d3Force("link")?.distance(38);
             fgApi.d3Force("x", forceX(0).strength(0.04));
@@ -484,15 +486,19 @@ export function MemGraph({
                         linkDirectionalParticleWidth={PARTICLE_WIDTH}
                         linkDirectionalParticleColor={particleColor as any}
                         onNodeHover={onNodeHover as any}
-                        onNodeClick={((node: GNode) => {
-                            if (node.pending) selectPending(node.id.slice("pending:".length));
-                            else fireAndForget(() => selectNote(node.id));
-                        }) as any}
+                        onNodeClick={
+                            ((node: GNode) => {
+                                if (node.pending) selectPending(node.id.slice("pending:".length));
+                                else fireAndForget(() => selectNote(node.id));
+                            }) as any
+                        }
                         onNodeDragEnd={(() => savePositions()) as any}
-                        onRenderFramePre={(() => {
-                            labelBoxes.current = []; // reset de-collision boxes at the start of each frame
-                            frameTime.current = performance.now(); // one clock per frame -> in-phase pulse
-                        }) as any}
+                        onRenderFramePre={
+                            (() => {
+                                labelBoxes.current = []; // reset de-collision boxes at the start of each frame
+                                frameTime.current = performance.now(); // one clock per frame -> in-phase pulse
+                            }) as any
+                        }
                         onEngineTick={initCamera}
                         onEngineStop={() => {
                             initCamera();

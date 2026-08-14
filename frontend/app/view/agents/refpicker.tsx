@@ -87,7 +87,7 @@ export function RefPicker({
                 onClick={onEdit}
                 className="flex items-center gap-[8px] rounded-[9px] border border-accent/30 bg-accentbg px-[11px] py-[6px] hover:border-edge-strong"
             >
-                <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
+                <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
                     Compare
                 </span>
                 <span className="font-mono text-[12px] text-ink-hi">
@@ -113,7 +113,7 @@ export function RefPicker({
 
     return (
         <div className="relative flex items-center gap-[8px] rounded-[9px] border border-accent/30 bg-accentbg px-[11px] py-[6px]">
-            <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
+            <span className="font-mono text-xxxs font-semibold uppercase tracking-[0.1em] text-ink-faint">
                 Compare
             </span>
             <div className="relative">

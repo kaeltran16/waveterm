@@ -113,7 +113,7 @@ function QuestionGroup({
                                 {isRecommended ? (
                                     <span
                                         className={cn(
-                                            "shrink-0 rounded-[5px] px-1.5 py-px font-mono text-[8.5px] font-semibold uppercase tracking-wide",
+                                            "shrink-0 rounded-[5px] px-1.5 py-px font-mono text-xxxs font-semibold uppercase tracking-wide",
                                             accent.pill
                                         )}
                                     >

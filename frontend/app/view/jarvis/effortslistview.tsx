@@ -4,12 +4,11 @@
 // The Efforts Stage subject: every effort, newest-updated first, one row each. The briefing's
 // overflow destination — clicking a row jumps to the briefing with that effort expanded.
 
-import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { cn } from "@/util/util";
-import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { cn } from "@/util/util";
+import { useEffect, useState } from "react";
 import { stateRpcTimeoutMs } from "./briefingstore";
 import { buildEffortCard } from "./effortmodel";
 import { openORef } from "./openref";
@@ -48,7 +47,10 @@ export function EffortsListView({ model }: { model: AgentsViewModel }) {
                 {efforts == null && error == null ? (
                     <div className="flex flex-col gap-4">
                         {[0, 1, 2].map((i) => (
-                            <div key={i} className="h-12 animate-pulse rounded-[10px] bg-surface" />
+                            <div
+                                key={i}
+                                className="h-12 animate-pulse motion-reduce:animate-none rounded-[10px] bg-surface"
+                            />
                         ))}
                     </div>
                 ) : null}
@@ -56,7 +58,8 @@ export function EffortsListView({ model }: { model: AgentsViewModel }) {
                     efforts.length === 0 ? (
                         <div className="rounded-[10px] border border-dashed border-edge-strong px-4 py-4 text-center text-[12px] text-muted">
                             <span className="font-medium text-secondary">No initiatives yet.</span> Create one from the
-                            briefing's + Initiative button, or with <span className="font-mono">wsh effort create</span>.
+                            briefing's + Initiative button, or with <span className="font-mono">wsh effort create</span>
+                            .
                         </div>
                     ) : (
                         <div className="flex flex-col gap-1">

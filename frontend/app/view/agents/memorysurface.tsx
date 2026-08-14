@@ -8,27 +8,23 @@
 import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
 import { MOTION, cardVariants, reflowProps, type ReflowProps } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
-import { getSettingsKeyAtom } from "@/app/store/global";
-import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
-import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { getSettingsKeyAtom } from "@/app/store/global";
+import { globalStore } from "@/app/store/jotaiStore";
+import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { AskJarvisButton, sourceRefForMemory } from "@/app/view/jarvis/contextualentry";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { Check, Copy, FolderOpen, Trash2 } from "lucide-react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
-import type { AgentsViewModel } from "./agents";
 import { resolveCwd } from "./agentcwdresolve";
+import type { AgentsViewModel } from "./agents";
+import { AmbientTags, RelevantDecisions } from "./ambientviews";
+import { ArchivedView } from "./archivedview";
+import { CleanupQueue } from "./cleanupqueue";
 import { MarkdownMessage } from "./markdownmessage";
 import { MemGraph } from "./memgraph";
-import { NewMemoryModal } from "./newmemorymodal";
-import { CleanupQueue } from "./cleanupqueue";
-import { ArchivedView } from "./archivedview";
-import { PendingBand } from "./pendingband";
-import { RAIL_ICON } from "./railicons";
-import { SyncStrip } from "./syncstrip";
-import { AskJarvisButton, sourceRefForMemory } from "@/app/view/jarvis/contextualentry";
-import { AmbientTags, RelevantDecisions } from "./ambientviews";
 import {
     confirmDeleteNote,
     dismissPending,
@@ -41,8 +37,8 @@ import {
     memBodyAtom,
     memConflictAtom,
     memDraftAtom,
-    memEditingAtom,
     memEdgesAtom,
+    memEditingAtom,
     memErrorAtom,
     memLoadedAtom,
     memNotesAtom,
@@ -59,7 +55,11 @@ import {
     takePendingMemoryFocus,
 } from "./memstore";
 import { groupByScope, relativeAge, typeMeta, type MemNote } from "./memtypes";
+import { NewMemoryModal } from "./newmemorymodal";
+import { PendingBand } from "./pendingband";
+import { RAIL_ICON } from "./railicons";
 import { SurfaceEmptyState, SurfaceError, SurfaceHeader } from "./surfacescaffold";
+import { SyncStrip } from "./syncstrip";
 
 function Header({ count, pending, onNew }: { count: number; pending: number; onNew: () => void }) {
     const view = useAtomValue(memViewAtom);
@@ -72,7 +72,10 @@ function Header({ count, pending, onNew }: { count: number; pending: number; onN
                 <>
                     What your agents remember · <span className="font-semibold text-primary">{count} saved</span>
                     {pending > 0 && (
-                        <> · <span className="font-semibold text-asking">{pending} pending review</span></>
+                        <>
+                            {" "}
+                            · <span className="font-semibold text-asking">{pending} pending review</span>
+                        </>
                     )}
                 </>
             }
@@ -198,11 +201,28 @@ function ListView({
                                         onContextMenu={(ev) =>
                                             ContextMenuModel.getInstance().showContextMenu(
                                                 [
-                                                    { label: "Open", icon: <FolderOpen size={15} />, click: () => fireAndForget(() => selectNote(n.id)) },
-                                                    { label: "Copy title", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(n.title) },
-                                                    { label: "Copy path", icon: <Copy size={15} />, click: () => void navigator.clipboard.writeText(n.path) },
+                                                    {
+                                                        label: "Open",
+                                                        icon: <FolderOpen size={15} />,
+                                                        click: () => fireAndForget(() => selectNote(n.id)),
+                                                    },
+                                                    {
+                                                        label: "Copy title",
+                                                        icon: <Copy size={15} />,
+                                                        click: () => void navigator.clipboard.writeText(n.title),
+                                                    },
+                                                    {
+                                                        label: "Copy path",
+                                                        icon: <Copy size={15} />,
+                                                        click: () => void navigator.clipboard.writeText(n.path),
+                                                    },
                                                     { type: "separator" },
-                                                    { label: "Delete", icon: <Trash2 size={15} />, danger: true, click: () => confirmDeleteNote(n.path, n.title) },
+                                                    {
+                                                        label: "Delete",
+                                                        icon: <Trash2 size={15} />,
+                                                        danger: true,
+                                                        click: () => confirmDeleteNote(n.path, n.title),
+                                                    },
                                                 ],
                                                 ev
                                             )
@@ -219,7 +239,7 @@ function ListView({
                                                 "min-w-[78px] flex-none rounded-[5px] px-[8px] py-[3px] text-center font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em]",
                                                 m.pillClass
                                             )}
-                                            style={{ background: "rgba(255,255,255,0.05)" }}
+                                            style={{ background: "var(--color-pill)" }}
                                         >
                                             {m.label}
                                         </span>
@@ -286,7 +306,13 @@ function DetailBody({
     return (
         <>
             <div className="mb-[13px] flex items-center gap-[9px]">
-                <span className={cn("rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase", m.pillClass)} style={{ background: "rgba(255,255,255,0.05)" }}>
+                <span
+                    className={cn(
+                        "rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase",
+                        m.pillClass
+                    )}
+                    style={{ background: "var(--color-pill)" }}
+                >
                     {m.label}
                 </span>
                 <AmbientTags links={sel.links} />
@@ -294,7 +320,9 @@ function DetailBody({
                 <span className="font-mono text-[10.5px] text-ink-faint">{sel.scope}</span>
             </div>
             <h2 className="mb-[14px] text-[18px] font-bold leading-[1.3] text-foreground">{sel.title}</h2>
-            <div className="mb-[8px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mid">Content</div>
+            <div className="mb-[8px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mid">
+                Content
+            </div>
             <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                     key={editing ? "edit" : body == null ? "load" : "ready"}
@@ -324,7 +352,10 @@ function DetailBody({
             <div className="mb-[22px] flex gap-[8px]">
                 {editing ? (
                     <>
-                        <button onClick={doSave} className="flex-1 rounded bg-accent py-[8px] text-[12px] font-semibold text-background hover:bg-accenthover">
+                        <button
+                            onClick={doSave}
+                            className="flex-1 rounded bg-accent py-[8px] text-[12px] font-semibold text-background hover:bg-accenthover"
+                        >
                             Save
                         </button>
                         <button
@@ -347,7 +378,10 @@ function DetailBody({
                     </>
                 ) : (
                     <>
-                        <button onClick={startEdit} className="flex-1 rounded border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong">
+                        <button
+                            onClick={startEdit}
+                            className="flex-1 rounded border border-edge-mid bg-surface py-[8px] text-[12px] text-ink-mid hover:border-edge-strong"
+                        >
                             Edit
                         </button>
                         <AskJarvisButton model={model} sourceRef={sourceRefForMemory(sel)} label="Ask Jarvis" />
@@ -404,20 +438,30 @@ function PendingDetail({ note, index, total }: { note: MemoryPendingNote; index:
         <>
             <div className="mb-[15px] flex items-center gap-[8px]">
                 <span className="inline-flex items-center gap-[5px] rounded-[20px] bg-asking px-[9px] py-[3px] font-mono text-[9.5px] font-bold uppercase tracking-[0.06em] text-background">
-                    <span className="text-[8px]">◆</span>Pending review
+                    <span className="text-xxxs">◆</span>Pending review
                 </span>
                 <div className="flex-1" />
-                <span className="font-mono text-[10.5px] text-ink-faint">{index} of {total}</span>
+                <span className="font-mono text-[10.5px] text-ink-faint">
+                    {index} of {total}
+                </span>
             </div>
             <div className="mb-[13px] flex items-center gap-[9px]">
-                <span className={cn("rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase", m.pillClass)} style={{ background: "rgba(255,255,255,0.05)" }}>
+                <span
+                    className={cn(
+                        "rounded-[5px] px-[9px] py-[3px] font-mono text-[9.5px] font-semibold uppercase",
+                        m.pillClass
+                    )}
+                    style={{ background: "var(--color-pill)" }}
+                >
                     {m.label}
                 </span>
                 <div className="flex-1" />
                 <span className="font-mono text-[10.5px] text-ink-faint">{note.scope || "shared"}</span>
             </div>
             <h2 className="mb-[15px] line-clamp-3 text-[18px] font-bold leading-[1.3] text-foreground">{note.title}</h2>
-            <div className="mb-[8px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mid">Content</div>
+            <div className="mb-[8px] font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-mid">
+                Content
+            </div>
             <div className="mb-[14px] rounded-[10px] border border-edge-faint bg-background px-[15px] py-[13px] text-[13.5px] leading-[1.62] text-ink-hi">
                 <MarkdownMessage text={note.body} />
             </div>
@@ -426,7 +470,8 @@ function PendingDetail({ note, index, total }: { note: MemoryPendingNote; index:
                     onClick={() => fireAndForget(() => keepPending(note.path))}
                     className="flex flex-1 items-center justify-center gap-[6px] rounded bg-accent py-[8px] text-[12px] font-semibold text-background hover:bg-accenthover"
                 >
-                    <Check size={13} strokeWidth={2.5} />Keep
+                    <Check size={13} strokeWidth={2.5} />
+                    Keep
                 </button>
                 <button
                     onClick={() => fireAndForget(() => dismissPending(note.path))}
@@ -507,7 +552,10 @@ function MemorySkeleton() {
                             <SkeletonLine className="mb-[9px] h-[11px] w-[86px]" />
                             <div className="space-y-[7px]">
                                 {Array.from({ length: 3 }).map((_, row) => (
-                                    <div key={row} className="rounded-[10px] border border-border bg-surface px-[12px] py-[10px]">
+                                    <div
+                                        key={row}
+                                        className="rounded-[10px] border border-border bg-surface px-[12px] py-[10px]"
+                                    >
                                         <SkeletonLine className="mb-[8px] h-[13px] w-[58%]" />
                                         <SkeletonLine className="h-[11px] w-[82%]" />
                                     </div>
@@ -579,18 +627,14 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
     }, [vaultPath]);
 
     const q = search.trim().toLowerCase();
-    const filtered = q
-        ? notes.filter((n) => (n.title + " " + n.description).toLowerCase().includes(q))
-        : notes;
+    const filtered = q ? notes.filter((n) => (n.title + " " + n.description).toLowerCase().includes(q)) : notes;
     // graph gets the FULL set + a match-id filter: search dims non-matches in place instead of
     // removing them, so typing never restarts the force simulation
     const graphFilterIds = useMemo(
         () =>
             q
                 ? new Set(
-                      notes
-                          .filter((n) => (n.title + " " + n.description).toLowerCase().includes(q))
-                          .map((n) => n.id)
+                      notes.filter((n) => (n.title + " " + n.description).toLowerCase().includes(q)).map((n) => n.id)
                   )
                 : null,
         [q, notes]
@@ -602,7 +646,10 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                 <div className="flex min-w-0 flex-1 flex-col">
                     <Header count={notes.length} pending={pending.length} onNew={() => setNewOpen(true)} />
                     {loadError ? (
-                        <SurfaceError message="Couldn’t scan memory." onRetry={() => fireAndForget(() => loadMemory())} />
+                        <SurfaceError
+                            message="Couldn’t scan memory."
+                            onRetry={() => fireAndForget(() => loadMemory())}
+                        />
                     ) : null}
                     <SyncStrip focusedCwd={focusedCwd} />
                     <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -626,10 +673,20 @@ export function MemorySurface({ model }: { model: AgentsViewModel }) {
                                 >
                                     {view === "list" ? (
                                         <div className="absolute inset-0 overflow-auto">
-                                            <ListView notes={filtered} selectedId={selectedId} rp={rp} mountedEmpty={mountedEmpty} />
+                                            <ListView
+                                                notes={filtered}
+                                                selectedId={selectedId}
+                                                rp={rp}
+                                                mountedEmpty={mountedEmpty}
+                                            />
                                         </div>
                                     ) : (
-                                        <MemGraph notes={notes} pending={pending} filteredIds={graphFilterIds} selectedId={selectedId} />
+                                        <MemGraph
+                                            notes={notes}
+                                            pending={pending}
+                                            filteredIds={graphFilterIds}
+                                            selectedId={selectedId}
+                                        />
                                     )}
                                 </motion.div>
                             </AnimatePresence>

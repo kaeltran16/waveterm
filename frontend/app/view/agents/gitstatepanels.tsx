@@ -30,7 +30,7 @@ export function GitFailurePanel({ failure, onRetry }: { failure: GitFailure; onR
             </div>
             <div className="w-full max-w-[720px] rounded-[8px] border border-edge-mid bg-surface-code px-[12px] py-[10px]">
                 <div className="flex items-center gap-[8px] pb-[6px]">
-                    <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-ink-faint">
+                    <span className="font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-ink-faint">
                         Command
                     </span>
                     <span className="min-w-0 flex-1 select-text truncate font-mono text-[11.5px] text-ink-mid">

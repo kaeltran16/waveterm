@@ -1,10 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { cardVariants } from "@/app/element/motiontokens";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { formatAge, type AgentVM } from "./agentsviewmodel";
-import { cardVariants } from "@/app/element/motiontokens";
 
 // Collapsed lane for still-running agents the user has muted with `b`. Distinct from Idle (finished):
 // clicking a row un-backgrounds it (returns it to the working region) via onRestore.
@@ -41,7 +41,9 @@ export function BackgroundedSection({ agents, onRestore }: { agents: AgentVM[]; 
                             >
                                 <span className="h-2 w-2 shrink-0 rounded-full bg-accent/50" />
                                 <b className="shrink-0 text-[12px] text-secondary">{a.name}</b>
-                                <span className="truncate text-[12px] text-muted">{a.task || a.activity || ""}</span>
+                                <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
+                                    {a.task || a.activity || ""}
+                                </span>
                                 <span className="ml-auto shrink-0 text-[10px] text-muted">{formatAge(a.activeMs)}</span>
                             </motion.div>
                         ))}

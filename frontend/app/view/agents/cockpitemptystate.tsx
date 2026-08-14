@@ -23,7 +23,7 @@ export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
                     also carries a prefers-reduced-motion guard. */}
                 <div className="cockpit-empty-glyph relative mb-7 h-[104px] w-[104px]">
                     <div className="cockpit-empty-glow absolute -inset-5 rounded-full bg-accent/25 blur-2xl" />
-                    <div className="absolute inset-0 flex flex-col overflow-hidden rounded-[22px] border border-edge-mid bg-gradient-to-br from-surface-raised to-surface shadow-[0_24px_56px_rgba(0,0,0,0.55)]">
+                    <div className="absolute inset-0 flex flex-col overflow-hidden rounded-[22px] border border-edge-mid bg-gradient-to-br from-surface-raised to-surface shadow-popover-2xl">
                         <div className="flex shrink-0 items-center gap-[5px] border-b border-border px-[11px] py-[9px]">
                             <span className="h-1.5 w-1.5 rounded-full bg-muted/40" />
                             <span className="h-1.5 w-1.5 rounded-full bg-muted/40" />
@@ -36,12 +36,10 @@ export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
                     </div>
                 </div>
 
-                <h2 className="mb-2.5 text-[25px] font-bold tracking-[-0.02em] text-primary">
-                    No agents running
-                </h2>
+                <h2 className="mb-2.5 text-[25px] font-bold tracking-[-0.02em] text-primary">No agents running</h2>
                 <p className="mb-[30px] max-w-[400px] text-[14px] leading-[1.6] text-muted">
-                    Launch a terminal agent and it lands here as a live lane — watch it work,
-                    answer its questions, and review changes in place.
+                    Launch a terminal agent and it lands here as a live lane — watch it work, answer its questions, and
+                    review changes in place.
                 </p>
 
                 <motion.button
@@ -51,7 +49,7 @@ export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
                     whileTap={{ y: 0 }}
                     style={{
                         boxShadow:
-                            "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), inset 0 1px 0 rgba(255,255,255,0.28)",
+                            "0 14px 34px color-mix(in srgb, var(--color-accent) 34%, transparent), var(--shadow-inset-highlight)",
                     }}
                     className="flex cursor-pointer items-center gap-[11px] rounded-lg bg-accent px-[26px] py-3.5 text-[15px] font-bold text-background hover:bg-accenthover"
                 >

@@ -9,7 +9,16 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { CHUNK_CHIP_CLASSES, type ChunkChip, type ChunkTone, type EffortCardModel } from "./effortmodel";
-import { addChunkOp, advanceChunk, appendChunkNote, effortChunkRows, effortDetailAtom, effortDetailErrorAtom, loadEffortDetail, reopenChunk } from "./effortstore";
+import {
+    addChunkOp,
+    advanceChunk,
+    appendChunkNote,
+    effortChunkRows,
+    effortDetailAtom,
+    effortDetailErrorAtom,
+    loadEffortDetail,
+    reopenChunk,
+} from "./effortstore";
 import { ProgressBar } from "./progressbar";
 
 const MARKS: Record<ChunkTone, string | null> = {
@@ -51,7 +60,7 @@ function Chip({ chip, onClick }: { chip: ChunkChip; onClick: () => void }) {
                 CHUNK_CHIP_CLASSES[chip.tone]
             )}
         >
-            {mark != null ? <span className="text-[8.5px] leading-none">{mark}</span> : null}
+            {mark != null ? <span className="text-xxxs leading-none">{mark}</span> : null}
             {chip.label}
         </span>
     );
@@ -63,9 +72,9 @@ export function Mark({ tone }: { tone: ChunkTone }) {
         tone === "done"
             ? "border-success/40 bg-success/15 text-success"
             : tone === "active"
-              ? "border-accent/60 text-accent-soft shadow-[0_0_0_3px_rgba(94,156,255,0.12)]"
+              ? "border-accent/60 text-accent-soft shadow-[0_0_0_3px_var(--color-accentbg)]"
               : tone === "blocked"
-                ? "border-asking/60 text-asking shadow-[0_0_0_3px_rgba(230,180,80,0.12)]"
+                ? "border-asking/60 text-asking shadow-[0_0_0_3px_var(--color-askingbg)]"
                 : tone === "deferred"
                   ? "border-dashed border-edge-strong text-muted"
                   : tone === "skipped"
@@ -74,7 +83,7 @@ export function Mark({ tone }: { tone: ChunkTone }) {
     return (
         <span
             className={cn(
-                "flex h-[14px] w-[14px] flex-none items-center justify-center rounded-[4px] border text-[8.5px] leading-none",
+                "flex h-[14px] w-[14px] flex-none items-center justify-center rounded-[4px] border text-xxxs leading-none",
                 cls
             )}
         >
@@ -255,7 +264,7 @@ export function EffortCard({
                                 </button>
                             </span>
                         ) : (
-                            <div className="mt-2 h-10 animate-pulse rounded-[8px] bg-surface" />
+                            <div className="mt-2 h-10 animate-pulse motion-reduce:animate-none rounded-[8px] bg-surface" />
                         )
                     ) : (
                         <>
@@ -389,9 +398,7 @@ export function EffortCard({
                     )}
                 </>
             ) : null}
-            {mutateError != null ? (
-                <span className="mt-2 block text-[11px] text-error">{mutateError}</span>
-            ) : null}
+            {mutateError != null ? <span className="mt-2 block text-[11px] text-error">{mutateError}</span> : null}
         </button>
     );
 }

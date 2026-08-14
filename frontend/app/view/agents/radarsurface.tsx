@@ -7,15 +7,16 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { AlertTriangle, ChevronDown } from "lucide-react";
-import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsAtom } from "./projectsstore";
+import { RadarFindingDetail } from "./radarfindingdetail";
+import { RadarFindingsList } from "./radarfindingslist";
 import {
     classifyCoverage,
     classifyScanState,
     coverageEntries,
-    type CoverageCell,
     failedLenses,
     filterByMode,
     findingMode,
@@ -24,17 +25,14 @@ import {
     MODE_META,
     modeFilterOptions,
     projectsWithPath,
-    type RadarMode,
     rescanLabel,
     resolveSelection,
     scanScopeLabel,
     toPendingRunDraft,
+    type CoverageCell,
+    type RadarMode,
 } from "./radarmodel";
-import { pendingRunDraftAtom } from "./runactions";
-import { RadarFindingDetail } from "./radarfindingdetail";
-import { RadarFindingsList } from "./radarfindingslist";
 import { RadarScanStatePanel } from "./radarscanstatepanel";
-import { modeBadge, TONE_DOT } from "./radarstyles";
 import {
     currentReportAtom,
     findNewestScannedProject,
@@ -47,6 +45,8 @@ import {
     startScan,
     type RadarScope,
 } from "./radarstore";
+import { modeBadge, TONE_DOT } from "./radarstyles";
+import { pendingRunDraftAtom } from "./runactions";
 import { SurfaceHeader } from "./surfacescaffold";
 
 // Header coverage row treats an in-progress ("running") or not-yet-reached ("queued") collector as muted
@@ -68,7 +68,7 @@ function ScopeSelector({ scope, onSelect }: { scope: RadarScope | null; onSelect
 
     return (
         <div className="relative flex flex-col gap-1">
-            <span className="pl-0.5 font-mono text-[8px] uppercase tracking-widest text-muted">Scan scope</span>
+            <span className="pl-0.5 font-mono text-xxxs uppercase tracking-widest text-muted">Scan scope</span>
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
@@ -184,168 +184,179 @@ export function RadarSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-        <div className="flex h-full w-full flex-col bg-background">
-            <SurfaceHeader
-                title="Repo Radar"
-                badge={
-                    <span className="rounded border border-accent/25 bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent-soft">
-                        Correctness risk
-                    </span>
-                }
-                subtitle={
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <span className="text-muted">{scanScopeLabel(scope)}</span>
-                        {coverage.length > 0 ? (
-                            <div className="flex items-center gap-2">
-                                <span className="font-mono text-[9px] uppercase tracking-widest text-muted">Coverage</span>
-                                {coverage.map((c) => {
-                                    const cell = classifyCoverage(c.status);
-                                    const glyph = cell === "done" ? "✓" : cell === "failed" ? "✗" : "…";
-                                    return (
-                                        <span
-                                            key={c.collector}
-                                            className={cn("font-mono text-[10px]", HEADER_CELL_TONE[cell])}
-                                        >
-                                            {glyph} {c.collector}
-                                        </span>
-                                    );
-                                })}
-                            </div>
-                        ) : null}
-                    </div>
-                }
-                actions={
-                    <>
-                        <ScopeSelector scope={scope} onSelect={selectScope} />
-                        {isResults && scope ? (
-                            <button
-                                type="button"
-                                onClick={() => fireAndForget(() => startScan(scope.path))}
-                                className="self-end rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
-                            >
-                                {rescanLabel(state)}
-                            </button>
-                        ) : null}
-                    </>
-                }
-            />
-
-            <div className="min-h-0 flex-1">
-                <AnimatePresence mode="wait" initial={false}>
-                {isResults && report ? (
-                    <motion.div
-                        key="results"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                        className="flex h-full flex-col"
-                    >
-                        {/* summary chips + hypotheses disclaimer */}
-                        <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
-                            {modeOptions.length > 1 ? (
-                                <div className="flex items-center gap-1.5">
-                                    {(["all", ...modeOptions] as (RadarMode | "all")[]).map((m) => {
-                                        const on = activeMode === m;
+            <div className="flex h-full w-full flex-col bg-background">
+                <SurfaceHeader
+                    title="Repo Radar"
+                    badge={
+                        <span className="rounded border border-accent/25 bg-accent/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-accent-soft">
+                            Correctness risk
+                        </span>
+                    }
+                    subtitle={
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <span className="text-muted">{scanScopeLabel(scope)}</span>
+                            {coverage.length > 0 ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono text-[9px] uppercase tracking-widest text-muted">
+                                        Coverage
+                                    </span>
+                                    {coverage.map((c) => {
+                                        const cell = classifyCoverage(c.status);
+                                        const glyph = cell === "done" ? "✓" : cell === "failed" ? "✗" : "…";
                                         return (
-                                            <button
-                                                key={m}
-                                                type="button"
-                                                onClick={() => setModeFilter(m)}
-                                                className={cn(
-                                                    "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors duration-150",
-                                                    m === "all"
-                                                        ? on
-                                                            ? "border-accent/40 bg-accent/15 text-accent-soft"
-                                                            : "border-border text-muted hover:text-secondary"
-                                                        : on
-                                                          ? modeBadge(m)
-                                                          : "border-border text-muted hover:text-secondary"
-                                                )}
+                                            <span
+                                                key={c.collector}
+                                                className={cn("font-mono text-[10px]", HEADER_CELL_TONE[cell])}
                                             >
-                                                {m === "all" ? "All" : MODE_META[m].label}
-                                            </button>
+                                                {glyph} {c.collector}
+                                            </span>
                                         );
                                     })}
-                                    <span className="mx-1 h-4 w-px bg-border" />
                                 </div>
                             ) : null}
-                            {groupSummary(findings)
-                                .filter((s) => s.count > 0)
-                                .map((s) => (
-                                    <div key={s.group} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1">
-                                        <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT.new)} />
-                                        <span className="font-mono text-sm font-semibold text-primary">{s.count}</span>
-                                        <span className="text-xs text-muted-foreground">{s.label}</span>
-                                    </div>
-                                ))}
-                            <span className="flex-1" />
-                            <span className="text-[11px] text-muted">
-                                Findings are evidence-backed hypotheses — investigation is a separate, explicit step.
-                            </span>
                         </div>
-
-                        {state === "partial" ? (
-                            <div className="flex items-center gap-2.5 border-b border-border bg-warning/10 px-6 py-2 text-xs text-warning">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                <span>
-                                    <b>Partial scan.</b> Some collectors did not complete — findings that rely on the missing
-                                    evidence may be absent.
-                                </span>
-                            </div>
-                        ) : null}
-
-                        {failedLenses(report).length > 0 ? (
-                            <div className="flex items-center gap-2.5 border-b border-border bg-error/10 px-6 py-2 text-xs text-error">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                <span className="flex-1">
-                                    <b>Lens failed.</b>{" "}
-                                    {failedLenses(report)
-                                        .map((r) => MODE_META[findingMode({ mode: r.mode } as RadarFinding)].label)
-                                        .join(", ")}{" "}
-                                    did not cluster — the other lenses' findings are shown.
-                                </span>
+                    }
+                    actions={
+                        <>
+                            <ScopeSelector scope={scope} onSelect={selectScope} />
+                            {isResults && scope ? (
                                 <button
                                     type="button"
-                                    onClick={() => fireAndForget(() => retryClustering(report.oid))}
-                                    className="shrink-0 rounded border border-error/40 px-2 py-0.5 font-semibold text-error hover:bg-error/15"
+                                    onClick={() => fireAndForget(() => startScan(scope.path))}
+                                    className="self-end rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-background"
                                 >
-                                    Retry
+                                    {rescanLabel(state)}
                                 </button>
-                            </div>
-                        ) : null}
+                            ) : null}
+                        </>
+                    }
+                />
 
-                        <div className="flex min-h-0 flex-1">
-                            <RadarFindingsList
-                                findings={findings}
-                                selectedId={effectiveSelected}
-                                onSelect={setSelectedId}
-                                onActivate={selectedFinding ? startInvestigation : undefined}
-                            />
-                            {selectedFinding ? (
-                                <RadarFindingDetail model={model} report={report} finding={selectedFinding} />
-                            ) : (
-                                <div className="flex flex-1 items-center justify-center text-muted-foreground">
-                                    Select a finding
+                <div className="min-h-0 flex-1">
+                    <AnimatePresence mode="wait" initial={false}>
+                        {isResults && report ? (
+                            <motion.div
+                                key="results"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                className="flex h-full flex-col"
+                            >
+                                {/* summary chips + hypotheses disclaimer */}
+                                <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
+                                    {modeOptions.length > 1 ? (
+                                        <div className="flex items-center gap-1.5">
+                                            {(["all", ...modeOptions] as (RadarMode | "all")[]).map((m) => {
+                                                const on = activeMode === m;
+                                                return (
+                                                    <button
+                                                        key={m}
+                                                        type="button"
+                                                        onClick={() => setModeFilter(m)}
+                                                        className={cn(
+                                                            "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors duration-150",
+                                                            m === "all"
+                                                                ? on
+                                                                    ? "border-accent/40 bg-accent/15 text-accent-soft"
+                                                                    : "border-border text-muted hover:text-secondary"
+                                                                : on
+                                                                  ? modeBadge(m)
+                                                                  : "border-border text-muted hover:text-secondary"
+                                                        )}
+                                                    >
+                                                        {m === "all" ? "All" : MODE_META[m].label}
+                                                    </button>
+                                                );
+                                            })}
+                                            <span className="mx-1 h-4 w-px bg-border" />
+                                        </div>
+                                    ) : null}
+                                    {groupSummary(findings)
+                                        .filter((s) => s.count > 0)
+                                        .map((s) => (
+                                            <div
+                                                key={s.group}
+                                                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1"
+                                            >
+                                                <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT.new)} />
+                                                <span className="font-mono text-sm font-semibold text-primary">
+                                                    {s.count}
+                                                </span>
+                                                <span className="text-xs text-muted-foreground">{s.label}</span>
+                                            </div>
+                                        ))}
+                                    <span className="flex-1" />
+                                    <span className="text-[11px] text-muted">
+                                        Findings are evidence-backed hypotheses — investigation is a separate, explicit
+                                        step.
+                                    </span>
                                 </div>
-                            )}
-                        </div>
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        key="panel"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                        className="h-full"
-                    >
-                        <RadarScanStatePanel state={state} report={report} scopePath={scope?.path} />
-                    </motion.div>
-                )}
-                </AnimatePresence>
+
+                                {state === "partial" ? (
+                                    <div className="flex items-center gap-2.5 border-b border-border bg-warning/10 px-6 py-2 text-xs text-warning">
+                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                        <span>
+                                            <b>Partial scan.</b> Some collectors did not complete — findings that rely
+                                            on the missing evidence may be absent.
+                                        </span>
+                                    </div>
+                                ) : null}
+
+                                {failedLenses(report).length > 0 ? (
+                                    <div className="flex items-center gap-2.5 border-b border-border bg-error/10 px-6 py-2 text-xs text-error">
+                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                        <span className="min-w-0 flex-1">
+                                            <b>Lens failed.</b>{" "}
+                                            {failedLenses(report)
+                                                .map(
+                                                    (r) =>
+                                                        MODE_META[findingMode({ mode: r.mode } as RadarFinding)].label
+                                                )
+                                                .join(", ")}{" "}
+                                            did not cluster — the other lenses' findings are shown.
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => fireAndForget(() => retryClustering(report.oid))}
+                                            className="shrink-0 rounded border border-error/40 px-2 py-0.5 font-semibold text-error hover:bg-error/15"
+                                        >
+                                            Retry
+                                        </button>
+                                    </div>
+                                ) : null}
+
+                                <div className="flex min-h-0 flex-1">
+                                    <RadarFindingsList
+                                        findings={findings}
+                                        selectedId={effectiveSelected}
+                                        onSelect={setSelectedId}
+                                        onActivate={selectedFinding ? startInvestigation : undefined}
+                                    />
+                                    {selectedFinding ? (
+                                        <RadarFindingDetail model={model} report={report} finding={selectedFinding} />
+                                    ) : (
+                                        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+                                            Select a finding
+                                        </div>
+                                    )}
+                                </div>
+                            </motion.div>
+                        ) : (
+                            <motion.div
+                                key="panel"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                                className="h-full"
+                            >
+                                <RadarScanStatePanel state={state} report={report} scopePath={scope?.path} />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
             </div>
-        </div>
         </MotionConfig>
     );
 }

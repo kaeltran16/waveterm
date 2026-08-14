@@ -60,10 +60,10 @@ function StandardSessionContent({ viewModel, onClose }: StandardSessionContentPr
                 programs, and history alive through network changes, computer sleep, and Wave restarts.
             </div>
             <button
-                className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
+                className="bg-surface-raised text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
                 onClick={handleRestartAsDurable}
             >
-                <i className="fa-solid fa-shield text-sky-500" />
+                <i className="fa-solid fa-shield text-accent" />
                 Restart as Durable
             </button>
             <LearnMoreButton />
@@ -79,7 +79,7 @@ function DurableAttachedContent({ onClose }: DurableAttachedContentProps) {
     return (
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
-                <i className="fa-sharp fa-solid fa-shield text-sky-500" />
+                <i className="fa-sharp fa-solid fa-shield text-accent" />
                 Durable Session (Attached)
             </div>
             <div className="text-xs text-secondary leading-relaxed">
@@ -99,7 +99,7 @@ function DurableDetachedContent({ onClose }: DurableDetachedContentProps) {
     return (
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
-                <i className="fa-sharp fa-solid fa-shield text-sky-300" />
+                <i className="fa-sharp fa-solid fa-shield text-accent-soft" />
                 Durable Session (Detached)
             </div>
             <div className="text-xs text-secondary leading-relaxed">
@@ -148,10 +148,10 @@ function DurableAwaitingStart({ connected, viewModel, onClose }: DurableAwaiting
                 Configured for a durable session, but session hasn't started yet. Click below to start it manually.
             </div>
             <button
-                className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
+                className="bg-surface-raised text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
                 onClick={handleStartSession}
             >
-                <i className="fa-solid fa-shield text-sky-500" />
+                <i className="fa-solid fa-shield text-accent" />
                 Start Session
             </button>
             <LearnMoreButton />
@@ -167,7 +167,7 @@ function DurableStartingContent({ onClose }: DurableStartingContentProps) {
     return (
         <div className="flex flex-col gap-2 max-w-[280px]">
             <div className="font-semibold text-sm flex items-center gap-2 text-secondary">
-                <i className="fa-sharp fa-solid fa-shield text-sky-300" />
+                <i className="fa-sharp fa-solid fa-shield text-accent-soft" />
                 Durable Session (Starting)
             </div>
             <div className="text-xs text-secondary leading-relaxed">The durable session is starting.</div>
@@ -222,14 +222,14 @@ function DurableEndedContent({ doneReason, startupError, viewModel, onClose }: D
                     </div>
                 )}
                 <button
-                    className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
+                    className="bg-surface-raised text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
                     onClick={handleRestartSession}
                 >
-                    <i className="fa-solid fa-shield text-sky-500" />
+                    <i className="fa-solid fa-shield text-accent" />
                     Restart Session
                 </button>
                 <button
-                    className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2"
+                    className="bg-surface-raised text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors cursor-pointer flex items-center justify-center gap-2"
                     onClick={handleRestartAsStandard}
                 >
                     <i className="fa-sharp fa-regular fa-shield text-muted" />
@@ -249,10 +249,10 @@ function DurableEndedContent({ doneReason, startupError, viewModel, onClose }: D
             <div className="text-xs text-secondary leading-relaxed">{descriptionText}</div>
             {showRestartButton && (
                 <button
-                    className="bg-zinc-700 text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-zinc-600 transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
+                    className="bg-surface-raised text-foreground rounded px-3 py-1.5 text-xs font-medium hover:bg-surface-hover transition-colors cursor-pointer flex items-center justify-center gap-2 mt-1"
                     onClick={handleRestartSession}
                 >
-                    <i className="fa-solid fa-shield text-sky-500" />
+                    <i className="fa-solid fa-shield text-accent" />
                     Restart Session
                 </button>
             )}
@@ -309,11 +309,11 @@ function getIconProps(jobStatus: BlockJobStatusData, connStatus: ConnStatus, isC
 
     const status = jobStatus?.status;
     if (status === "connected") {
-        color = "text-sky-500";
+        color = "text-accent";
     } else if (status === "disconnected") {
-        color = "text-sky-300";
+        color = "text-accent-soft";
     } else if (status === "init") {
-        color = "text-sky-300";
+        color = "text-accent-soft";
     } else if (status === "done") {
         color = "text-muted";
     } else if (status == null) {
@@ -425,7 +425,7 @@ export function DurableSessionFlyover({
                         }}
                         {...getFloatingProps()}
                         className={cn(
-                            "bg-zinc-800 border border-border rounded-md px-3 py-2.5 text-xs text-foreground shadow-xl z-50"
+                            "bg-surface-raised border border-border rounded-md px-3 py-2.5 text-xs text-foreground shadow-xl z-50"
                         )}
                         onMouseDown={(e) => e.stopPropagation()}
                         onFocusCapture={(e) => e.stopPropagation()}

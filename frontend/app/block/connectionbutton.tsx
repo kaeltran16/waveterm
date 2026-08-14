@@ -28,7 +28,7 @@ export const ConnectionButton = React.memo(
             let showDisconnectedSlash = false;
             let connIconElem: React.ReactNode = null;
             const connColorNum = computeConnColorNum(connStatus);
-            let color = `var(--conn-icon-color-${connColorNum})`;
+            let color = `var(--color-conn-)`;
             const clickHandler = function () {
                 recordTEvent("action:other", { "action:type": "conndropdown", "action:initiator": "mouse" });
                 setConnModalOpen(true);
@@ -63,7 +63,7 @@ export const ConnectionButton = React.memo(
                 let iconName = "arrow-right-arrow-left";
                 let iconSvg = null;
                 if (connStatus?.status == "connecting") {
-                    color = "var(--warning-color)";
+                    color = "var(--color-warning)";
                     titleText = "Connecting to " + connection;
                     shouldSpin = false;
                     iconSvg = (
@@ -72,18 +72,18 @@ export const ConnectionButton = React.memo(
                         </div>
                     );
                 } else if (connStatus?.status == "error") {
-                    color = "var(--error-color)";
+                    color = "var(--color-error)";
                     titleText = "Error connecting to " + connection;
                     if (connStatus?.error != null) {
                         titleText += " (" + connStatus.error + ")";
                     }
                     showDisconnectedSlash = true;
                 } else if (!connStatus?.connected) {
-                    color = "var(--grey-text-color)";
+                    color = "var(--color-muted)";
                     titleText = "Disconnected from " + connection;
                     showDisconnectedSlash = true;
                 } else if (connStatus?.connhealthstatus === "degraded" || connStatus?.connhealthstatus === "stalled") {
-                    color = "var(--warning-color)";
+                    color = "var(--color-warning)";
                     iconName = "signal-bars-slash";
                     if (connStatus.connhealthstatus === "degraded") {
                         titleText = "Connection degraded: " + connection;

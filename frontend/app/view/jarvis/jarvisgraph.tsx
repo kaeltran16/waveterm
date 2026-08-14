@@ -69,7 +69,7 @@ function rgba(hex: string, a: number) {
 function useThemeColors() {
     return useMemo(() => {
         const s = getComputedStyle(document.documentElement);
-        const c = (n: string) => s.getPropertyValue(n).trim() || "#888888";
+        const c = (n: string) => s.getPropertyValue(n).trim() || "#9aa3ad"; // --color-ink-mid fallback (canvas cannot take var());
         const kind: Record<string, string> = {
             task: c("--color-graph-task"),
             decision: c("--color-graph-decision"),

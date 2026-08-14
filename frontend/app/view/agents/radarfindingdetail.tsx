@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { openInCode } from "@/app/view/code/codestore";
+import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowRight, Target } from "lucide-react";
 import type { AgentsViewModel } from "./agents";
+import { ambientRefForFinding } from "./ambient";
+import { AmbientTags, RelevantDecisions } from "./ambientviews";
 import {
     findingMode,
     findingSignalCount,
@@ -16,13 +20,9 @@ import {
     timelineEntries,
     toPendingRunDraft,
 } from "./radarmodel";
+import { setDisposition } from "./radarstore";
 import { collectorText, modeBadge, severityPill, TONE_DOT, TONE_TEXT } from "./radarstyles";
 import { pendingRunDraftAtom, pendingRunFocusAtom } from "./runactions";
-import { setDisposition } from "./radarstore";
-import { openInCode } from "@/app/view/code/codestore";
-import { AskJarvisButton, sourceRefForRadar } from "@/app/view/jarvis/contextualentry";
-import { ambientRefForFinding } from "./ambient";
-import { AmbientTags, RelevantDecisions } from "./ambientviews";
 
 // Diff-renderer decision (plan D3 Step 1): RadarSignal.snippet is a plain unified-diff string, and the
 // repo's diff components both require structured input, not a raw patch. Per the plan we render the
@@ -37,7 +37,9 @@ function Section({ title, meta, children }: { title: string; meta?: string; chil
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
-                {meta ? <span className="rounded-full bg-surface px-2 text-[10px] text-muted-foreground">{meta}</span> : null}
+                {meta ? (
+                    <span className="rounded-full bg-surface px-2 text-[10px] text-muted-foreground">{meta}</span>
+                ) : null}
             </div>
             {children}
         </div>
@@ -51,7 +53,15 @@ function formatDate(ts: number): string {
     return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function RadarFindingDetail({ model, report, finding }: { model: AgentsViewModel; report: RadarReport; finding: RadarFinding }) {
+export function RadarFindingDetail({
+    model,
+    report,
+    finding,
+}: {
+    model: AgentsViewModel;
+    report: RadarReport;
+    finding: RadarFinding;
+}) {
     const referenced = referencedSignals(finding, report);
     const timeline = timelineEntries(finding, report);
     const meta = groupMeta(finding.group);
@@ -82,15 +92,30 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
             {/* status row */}
             <div className="flex flex-col gap-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className={cn("flex items-center gap-1.5 rounded px-2 py-0.5 font-semibold uppercase tracking-wide", TONE_TEXT[meta.tone])}>
+                    <span
+                        className={cn(
+                            "flex items-center gap-1.5 rounded px-2 py-0.5 font-semibold uppercase tracking-wide",
+                            TONE_TEXT[meta.tone]
+                        )}
+                    >
                         <span className={cn("h-1.5 w-1.5 rounded-full", TONE_DOT[meta.tone])} />
                         {meta.label}
                     </span>
-                    <span className={cn("rounded px-2 py-0.5 font-semibold uppercase tracking-wide", severityPill(finding.severity))}>
+                    <span
+                        className={cn(
+                            "rounded px-2 py-0.5 font-semibold uppercase tracking-wide",
+                            severityPill(finding.severity)
+                        )}
+                    >
                         {finding.severity} severity
                     </span>
                     {findingMode(finding) !== "correctness" ? (
-                        <span className={cn("rounded border px-2 py-0.5 font-semibold uppercase tracking-wide", modeBadge(findingMode(finding)))}>
+                        <span
+                            className={cn(
+                                "rounded border px-2 py-0.5 font-semibold uppercase tracking-wide",
+                                modeBadge(findingMode(finding))
+                            )}
+                        >
                             {MODE_META[findingMode(finding)].label}
                         </span>
                     ) : null}
@@ -98,7 +123,10 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                         evidence
                         <span className="flex gap-0.5">
                             {[0, 1, 2].map((i) => (
-                                <span key={i} className={cn("h-2.5 w-1 rounded-[1px]", i < pips ? "bg-accent-soft" : "bg-border")} />
+                                <span
+                                    key={i}
+                                    className={cn("h-2.5 w-1 rounded-[1px]", i < pips ? "bg-accent-soft" : "bg-border")}
+                                />
                             ))}
                         </span>
                         <span className="uppercase tracking-wide">{finding.strength}</span>
@@ -116,12 +144,23 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
 
             <RelevantDecisions {...ambientRefForFinding(finding)} />
 
-            <Section title="Supporting evidence" meta={`${findingSignalCount(finding)} signals · ${findingSourceCount(finding, report)} sources`}>
+            <Section
+                title="Supporting evidence"
+                meta={`${findingSignalCount(finding)} signals · ${findingSourceCount(finding, report)} sources`}
+            >
                 {referenced.length > 0 ? (
                     <div className="flex flex-wrap gap-2">
                         {referenced.map((s) => (
-                            <div key={s.id} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5">
-                                <span className={cn("text-[9px] font-bold uppercase tracking-wide", collectorText(s.collector))}>
+                            <div
+                                key={s.id}
+                                className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5"
+                            >
+                                <span
+                                    className={cn(
+                                        "text-[9px] font-bold uppercase tracking-wide",
+                                        collectorText(s.collector)
+                                    )}
+                                >
                                     {s.collector}
                                 </span>
                                 <div className="min-w-0">
@@ -192,7 +231,9 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                 .map((s) => (
                     <div key={s.id} className="overflow-hidden rounded-md border border-border">
                         <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-1.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wide text-muted">Verbatim diff</span>
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-muted">
+                                Verbatim diff
+                            </span>
                             <span className="font-mono text-[10px] text-muted">{s.sourceref}</span>
                         </div>
                         <pre className="overflow-x-auto p-3 font-mono text-xs text-muted-foreground">{s.snippet}</pre>
@@ -203,10 +244,14 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
             <div className="rounded-md border border-dashed border-accent/40 bg-accent/5 p-4">
                 <div className="mb-2 flex items-center gap-2">
                     <Target className="h-3.5 w-3.5 text-accent-soft" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-accent-soft">Suggested investigation</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-accent-soft">
+                        Suggested investigation
+                    </span>
                 </div>
                 <p className="text-sm leading-relaxed text-foreground">{finding.mission}</p>
-                <p className="mt-2 text-[10px] text-muted">Interpretation generated by Radar — not part of the evidence above.</p>
+                <p className="mt-2 text-[10px] text-muted">
+                    Interpretation generated by Radar — not part of the evidence above.
+                </p>
             </div>
 
             {inv ? (
@@ -215,11 +260,16 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Investigation</span>
                         {inv.status === "executing" ? (
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold text-accent-soft">
-                                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-soft" />
+                                <span className="h-1.5 w-1.5 animate-pulse motion-reduce:animate-none rounded-full bg-accent-soft" />
                                 Investigating…
                             </span>
                         ) : inv.status === "done" ? (
-                            <span className={cn("text-[11px] font-semibold", stillDetected ? TONE_TEXT.recurring : TONE_TEXT.nolonger)}>
+                            <span
+                                className={cn(
+                                    "text-[11px] font-semibold",
+                                    stillDetected ? TONE_TEXT.recurring : TONE_TEXT.nolonger
+                                )}
+                            >
                                 {stillDetected ? "Investigated — still detected" : "Investigated"}
                             </span>
                         ) : (
@@ -238,14 +288,20 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                     </div>
                     {inv.status === "done" ? (
                         <div className="flex flex-wrap items-center gap-3 font-mono text-[11px] text-muted-foreground">
-                            <span>{inv.filestouched ?? 0} {(inv.filestouched ?? 0) === 1 ? "file" : "files"}</span>
+                            <span>
+                                {inv.filestouched ?? 0} {(inv.filestouched ?? 0) === 1 ? "file" : "files"}
+                            </span>
                             <span className="text-accent-soft">+{inv.addtotal ?? 0}</span>
                             <span className="text-muted">−{inv.deltotal ?? 0}</span>
                             <span>{inv.verifspass ?? 0} pass</span>
-                            {(inv.verifsfail ?? 0) > 0 ? <span className={TONE_TEXT.recurring}>{inv.verifsfail} fail</span> : null}
+                            {(inv.verifsfail ?? 0) > 0 ? (
+                                <span className={TONE_TEXT.recurring}>{inv.verifsfail} fail</span>
+                            ) : null}
                         </div>
                     ) : null}
-                    {inv.summary ? <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{inv.summary}</p> : null}
+                    {inv.summary ? (
+                        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{inv.summary}</p>
+                    ) : null}
                 </div>
             ) : null}
 
@@ -297,7 +353,9 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                             {inv?.status === "done" ? (
                                 <button
                                     type="button"
-                                    onClick={() => dispose("dismiss", "Resolved by investigation", `addressed by run ${inv.runid}`)}
+                                    onClick={() =>
+                                        dispose("dismiss", "Resolved by investigation", `addressed by run ${inv.runid}`)
+                                    }
                                     className="mt-2 rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:border-edge-strong hover:text-primary"
                                 >
                                     Addressed by run
@@ -324,8 +382,8 @@ export function RadarFindingDetail({ model, report, finding }: { model: AgentsVi
                 ) : null}
 
                 <p className="text-[11px] leading-relaxed text-muted">
-                    Radar does not edit files, run tests, or launch agents on its own — starting an investigation is the only
-                    action that spins up a Run.
+                    Radar does not edit files, run tests, or launch agents on its own — starting an investigation is the
+                    only action that spins up a Run.
                 </p>
             </div>
         </div>

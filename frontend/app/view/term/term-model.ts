@@ -181,7 +181,7 @@ export class TermViewModel implements ViewModel {
                     rtn.push({
                         elemtype: "iconbutton",
                         icon: "refresh",
-                        iconColor: "var(--success-color)",
+                        iconColor: "var(--color-success)",
                         iconSpin: true,
                         title: "Restarting Command",
                         noAction: true,
@@ -193,7 +193,7 @@ export class TermViewModel implements ViewModel {
                             rtn.push({
                                 elemtype: "iconbutton",
                                 icon: "check",
-                                iconColor: "var(--success-color)",
+                                iconColor: "var(--color-success)",
                                 title: "Command Exited Successfully",
                                 noAction: true,
                             });
@@ -201,7 +201,7 @@ export class TermViewModel implements ViewModel {
                             rtn.push({
                                 elemtype: "iconbutton",
                                 icon: "xmark-large",
-                                iconColor: "var(--error-color)",
+                                iconColor: "var(--color-error)",
                                 title: "Exit Code: " + fullShellProcStatus?.shellprocexitcode,
                                 noAction: true,
                             });
@@ -437,7 +437,7 @@ export class TermViewModel implements ViewModel {
             return {
                 elemtype: "iconbutton",
                 icon: "microchip",
-                iconColor: "var(--error-color)",
+                iconColor: "var(--color-error)",
                 title: "WebGL not supported",
                 noAction: true,
             };
@@ -450,7 +450,7 @@ export class TermViewModel implements ViewModel {
             return {
                 elemtype: "iconbutton",
                 icon: "microchip",
-                iconColor: "var(--success-color)",
+                iconColor: "var(--color-success)",
                 title: "WebGL enabled (click to disable)",
                 click: () => this.toggleWebGl(),
             };
@@ -458,7 +458,7 @@ export class TermViewModel implements ViewModel {
         return {
             elemtype: "iconbutton",
             icon: "microchip",
-            iconColor: "var(--secondary-text-color)",
+            iconColor: "var(--color-secondary)",
             title: "WebGL disabled (click to enable)",
             click: () => this.toggleWebGl(),
         };

@@ -141,7 +141,7 @@ export function RadarFindingsList({
                                               {findingMode(f) !== "correctness" ? (
                                                   <span
                                                       className={cn(
-                                                          "shrink-0 rounded border px-1 py-px text-[8px] font-bold uppercase tracking-wide",
+                                                          "shrink-0 rounded border px-1 py-px text-xxxs font-bold uppercase tracking-wide",
                                                           modeBadge(findingMode(f))
                                                       )}
                                                   >

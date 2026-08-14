@@ -1,11 +1,11 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { cardVariants } from "@/app/element/motiontokens";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { AgentComposer } from "./agentcomposer";
 import { formatAge, projectOf, type AgentVM } from "./agentsviewmodel";
-import { cardVariants } from "@/app/element/motiontokens";
 import { SectionHeader } from "./sectionheader";
 
 export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id: string) => void }) {
@@ -52,7 +52,9 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
                                                 {project}
                                             </span>
                                         ) : null}
-                                        <span className="truncate text-[12px] text-muted">{a.activity}</span>
+                                        <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
+                                            {a.activity}
+                                        </span>
                                         <span className="ml-auto shrink-0 text-[10px] text-muted">
                                             {formatAge(a.activeMs)} idle
                                         </span>

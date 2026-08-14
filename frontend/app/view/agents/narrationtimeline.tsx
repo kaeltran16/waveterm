@@ -87,7 +87,7 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                 ) : null}
                 <div className="flex items-center gap-2 px-[13px] pb-[9px]">
                     <span
-                        className={`rounded-[4px] px-[7px] py-0.5 font-mono text-[8.5px] font-semibold uppercase ${detail.exit ? "bg-error/15 text-error" : "bg-success/15 text-success"}`}
+                        className={`rounded-[4px] px-[7px] py-0.5 font-mono text-xxxs font-semibold uppercase ${detail.exit ? "bg-error/15 text-error" : "bg-success/15 text-success"}`}
                     >
                         exit {detail.exit}
                     </span>
@@ -117,7 +117,7 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                 <div key={i} className="border-b border-lane last:border-b-0">
                     <div className="flex items-center gap-2.5 bg-surface px-[11px] py-[7px]">
                         <span
-                            className={`flex h-[15px] w-[15px] items-center justify-center rounded-[4px] font-mono text-[8.5px] font-bold ${f.badge === "A" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
+                            className={`flex h-[15px] w-[15px] items-center justify-center rounded-[4px] font-mono text-xxxs font-bold ${f.badge === "A" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}
                         >
                             {f.badge}
                         </span>
@@ -181,13 +181,13 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
             >
                 <span
                     className={cn(
-                        "flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] text-[8px]",
+                        "flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] text-xxxs",
                         ok ? "bg-success/15 text-success" : "bg-error/15 text-error"
                     )}
                 >
                     {ok ? "✓" : "✗"}
                 </span>
-                <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.03em] text-feed-label">
+                <span className="shrink-0 font-mono text-xxxs font-semibold uppercase tracking-[0.03em] text-feed-label">
                     {action.verb}
                 </span>
                 <span className="min-w-0 truncate font-mono text-[10.5px] text-feed-summary">{action.target}</span>
@@ -201,7 +201,7 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
                     <span className="shrink-0 font-mono text-[9.5px] text-feed-time">{formatDuration(action.durationMs)}</span>
                 ) : null}
                 {detail ? (
-                    <span className="shrink-0 font-mono text-[8px] text-edge-strong">
+                    <span className="shrink-0 font-mono text-xxxs text-edge-strong">
                         {toModal ? "↗" : open ? "▼" : "▶"}
                     </span>
                 ) : null}
@@ -292,7 +292,7 @@ function CompactionDivider({
                             <span className="text-muted">{trigger}</span>
                         </>
                     ) : null}
-                    {canExpand ? <span className="text-[8px] text-muted">{open ? "▲" : "▼"}</span> : null}
+                    {canExpand ? <span className="text-xxxs text-muted">{open ? "▲" : "▼"}</span> : null}
                 </span>
                 <span className="h-px flex-1 bg-gradient-to-r from-transparent via-accent/30 to-transparent" />
             </button>
@@ -331,17 +331,17 @@ function EditBurstRow({ files, adds, dels }: { files: EditFile[]; adds: number; 
                 onClick={onClick}
                 className="flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-[3px] opacity-[0.72] hover:bg-lane hover:opacity-100"
             >
-                <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] bg-success/15 text-[8px] text-success">
+                <span className="flex h-[13px] w-[13px] shrink-0 items-center justify-center rounded-[3px] bg-success/15 text-xxxs text-success">
                     ✓
                 </span>
-                <span className="shrink-0 font-mono text-[8px] font-semibold uppercase tracking-[0.03em] text-feed-label">
+                <span className="shrink-0 font-mono text-xxxs font-semibold uppercase tracking-[0.03em] text-feed-label">
                     edited
                 </span>
                 <span className="font-mono text-[10.5px] text-feed-summary">{action.target}</span>
                 <span className="shrink-0 font-mono text-[10px] text-success">+{adds}</span>
                 <span className="shrink-0 font-mono text-[10px] text-error">−{dels}</span>
                 <div className="min-w-[6px] flex-1" />
-                <span className="shrink-0 font-mono text-[8px] text-edge-strong">{toModal ? "↗" : open ? "▼" : "▶"}</span>
+                <span className="shrink-0 font-mono text-xxxs text-edge-strong">{toModal ? "↗" : open ? "▼" : "▶"}</span>
             </div>
             <AnimatePresence initial={false}>
                 {open && !toModal ? (
@@ -401,19 +401,19 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
                         canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
                     )}
                 >
-                    <span className="shrink-0 font-mono text-[8.5px] font-semibold uppercase tracking-[0.06em] text-feed-label">Task</span>
+                    <span className="shrink-0 font-mono text-xxxs font-semibold uppercase tracking-[0.06em] text-feed-label">Task</span>
                     <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{summary || "Subagent finished"}</span>
                     {status ? (
                         <span
                             className={cn(
-                                "shrink-0 rounded-[4px] px-[6px] py-0.5 font-mono text-[8.5px] font-semibold uppercase",
+                                "shrink-0 rounded-[4px] px-[6px] py-0.5 font-mono text-xxxs font-semibold uppercase",
                                 ok ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
                             )}
                         >
                             {status}
                         </span>
                     ) : null}
-                    {canExpand ? <span className="shrink-0 font-mono text-[8px] text-edge-strong">{open ? "▼" : "▶"}</span> : null}
+                    {canExpand ? <span className="shrink-0 font-mono text-xxxs text-edge-strong">{open ? "▼" : "▶"}</span> : null}
                 </button>
                 <AnimatePresence initial={false}>
                     {open && result ? (
@@ -511,7 +511,7 @@ export function NarrationTimeline({
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
                             <div className="max-w-[90%] rounded-[11px_11px_4px_11px] border border-accent/25 bg-accent/10 px-2.5 py-1.5">
-                                <div className="mb-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.08em] text-accent-soft">
+                                <div className="mb-0.5 font-mono text-xxxs font-bold uppercase tracking-[0.08em] text-accent-soft">
                                     You
                                 </div>
                                 <p className="text-[12.5px] leading-[1.5] text-primary">{item.text}</p>

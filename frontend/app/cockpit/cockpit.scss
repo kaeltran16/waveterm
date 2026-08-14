@@ -4,8 +4,8 @@
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    background: var(--main-bg-color, #1a1a1a);
-    color: var(--main-text-color, #eee);
+    background: var(--color-background);
+    color: var(--color-foreground);
 }
 .cockpit-focus-pane {
     flex: 1;

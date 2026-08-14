@@ -68,6 +68,12 @@
     --color-cacheread: #5b6675; /* usage split: cache-read segment (low-value, high-volume) */
     /* handoff card-body colors (Wave-cockpit-live.dc.html) */
     --color-on-warning: #1a1306; /* text on the filled needs-you badge */
+    --color-askingbg: rgba(
+        230,
+        180,
+        80,
+        0.12
+    ); /* asking-tint fill (effortcard ring); mirrored per theme in themes.ts like accentbg */
     /* Provider brand identity (not theme-derived; single source for the plan-strip dots) */
     --color-provider-claude: #d97757;
     --color-provider-codex: #96aacd;
@@ -89,6 +95,16 @@
     --color-avatar-4: #e6b450;
     --color-avatar-5: #c98fe6;
     --color-avatar-6: #9aa3ad;
+
+    /* Connection status icon palette (legacy block/connectionbutton; identity, never theme-derived) */
+    --color-conn-1: #53b4ea;
+    --color-conn-2: #aa67ff;
+    --color-conn-3: #fda7fd;
+    --color-conn-4: #ef476f;
+    --color-conn-5: #497bf8;
+    --color-conn-6: #ffa24e;
+    --color-conn-7: #dbde52;
+    --color-conn-8: #58c142;
 
     /* Commit-graph lane palette (positional, never identity — see gitgraph.ts / graphgutter.tsx).
        Distinct from --color-lane, which is the agent-card lane fill and means something else.
@@ -136,6 +152,12 @@
     --color-hover: rgba(255, 255, 255, 0.1);
     --color-hoverbg: rgba(255, 255, 255, 0.2);
     --color-highlightbg: rgba(255, 255, 255, 0.2);
+    --color-pill: rgba(
+        255,
+        255,
+        255,
+        0.05
+    ); /* pill/chip fill — faint overlay for memory-type badges (neutral, like hover/highlightbg) */
 
     --font-sans: "Hanken Grotesk", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", monospace;
@@ -144,6 +166,7 @@
         "Segoe UI Emoji";
 
     --text-xxs: 10px;
+    --text-xxxs: 8.5px; /* micro-label tier — uppercase badges/eyebrows/dots; former text-[8px]/[8.5px] unified here */
     --text-title: 18px;
     --text-default: 14px;
 
@@ -151,6 +174,17 @@
     --radius-sm: 6px;
     --radius-lg: 12px;
     --shadow-popover: 0 20px 56px rgba(0, 0, 0, 0.55);
+    /* Popover shadow recipes tokenized so no rgba literals live in className (audit 2026-08-14).
+       Each preserves the original hand-rolled recipe; new floating chrome should reuse these or
+       --shadow-popover rather than inventing a new recipe. */
+    --shadow-popover-sm: 0 10px 28px rgba(0, 0, 0, 0.5);
+    --shadow-popover-md: 0 12px 34px rgba(0, 0, 0, 0.5);
+    --shadow-popover-lg: 0 14px 36px rgba(0, 0, 0, 0.5);
+    --shadow-popover-xl: 0 18px 44px rgba(0, 0, 0, 0.55);
+    --shadow-popover-2xl: 0 24px 56px rgba(0, 0, 0, 0.55);
+    --shadow-popover-soft: 0 20px 50px rgba(0, 0, 0, 0.35);
+    --shadow-popover-line: 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.28); /* top-edge highlight on filled CTAs */
 
     /* ANSI fallback only. buildThemeVars (view/agents/themes.ts) derives these per theme and writes
        them onto the document root at runtime, so these literals apply only before the first theme
@@ -201,8 +235,8 @@
     --zoomfactor: 1;
     --zoomfactor-inv: 1;
 
-    /* Compat: legacy SCSS modules (modal.scss, typeaheadmodal.scss, search.scss) read these vars,
-       which used to come from the Electron-era theme.scss — not loaded in the cockpit. Without them
+    /* Compat: legacy SCSS modules still in the bundle (search.scss, term.scss) read these vars,
+       which used to come from the Electron-era theme.scss (deleted 2026-08-14). Without them
        a modal's background is transparent and its z-index falls back to auto, painting the dialog
        behind the terminal so its buttons can't be clicked. Map to the @theme tokens. */
     --modal-bg-color: var(--color-surface-raised);
@@ -210,6 +244,9 @@
     --zindex-modal-backdrop: 1;
     --zindex-modal: 2;
     --zindex-modal-wrapper: 500;
+    --zindex-typeahead-modal: 100; /* legacy suggestion/typeahead modal (theme.scss had 100) */
+    --zindex-termstickers: 20; /* legacy term sticker layer (theme.scss had 20) */
+    --modal-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8); /* legacy search-modal shadow; theme.scss value was malformed */
 }
 
 /* Tailwind v4 preflight dropped `button { cursor: pointer }`; restore it app-wide so bespoke
@@ -224,7 +261,7 @@
 
 /* Chart tooltip styling for sysinfo plots */
 svg [aria-label="tip"] g path {
-    color: var(--border-color);
+    color: var(--color-border);
 }
 
 .wide-scrollbar::-webkit-scrollbar {
@@ -377,14 +414,14 @@ svg [aria-label="tip"] g path {
 .agent-md h6 {
     font-size: 0.85em;
     font-weight: 600;
-    color: var(--secondary-text-color);
+    color: var(--color-secondary);
     margin: 0.4em 0 0.15em;
 }
 .agent-md blockquote {
     border-left: 3px solid rgba(255, 255, 255, 0.18);
     padding-left: 12px;
     margin: 0.4em 0;
-    color: var(--secondary-text-color);
+    color: var(--color-secondary);
     font-style: italic;
 }
 /* wide tables scroll inside the panel instead of forcing it wider (see markdownmessage.tsx) */

@@ -42,7 +42,9 @@ function Chip({
             )}
             <span className="max-w-[120px] truncate font-mono">{att.name}</span>
             {att.kind !== "image" ? <span className="text-muted">{fmtSize(att.size)}</span> : null}
-            {isUploading ? <Loader2 size={12} className="shrink-0 animate-spin text-muted" /> : null}
+            {isUploading ? (
+                <Loader2 size={12} className="shrink-0 animate-spin motion-reduce:animate-none text-muted" />
+            ) : null}
             {isError ? (
                 <button
                     type="button"
@@ -88,13 +90,7 @@ export function AttachmentTray({
 
 // The paperclip: a <label> wrapping a hidden multi file input. Resets value after change so re-picking
 // the same file still fires onChange.
-export function AttachButton({
-    onFiles,
-    testId,
-}: {
-    onFiles: (files: FileList) => void;
-    testId?: string;
-}) {
+export function AttachButton({ onFiles, testId }: { onFiles: (files: FileList) => void; testId?: string }) {
     return (
         <label
             title="Attach files"

@@ -243,7 +243,7 @@ export function StageRail({
                     ) : null}
                     {summary != null ? (
                         <div className="mt-2 rounded-[10px] border border-border bg-background px-3 py-2.5">
-                            <div className="mb-1 font-mono text-[8.5px] font-semibold uppercase tracking-[.08em] text-accent-soft">
+                            <div className="mb-1 font-mono text-xxxs font-semibold uppercase tracking-[.08em] text-accent-soft">
                                 Jarvis {summary.status === "streaming" ? "· thinking…" : ""}
                             </div>
                             <div className="whitespace-pre-wrap text-[12px] leading-[1.55] text-secondary">

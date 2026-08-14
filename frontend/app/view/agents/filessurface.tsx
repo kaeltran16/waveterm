@@ -615,7 +615,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                         data-restore-notice
                         className="mx-[18px] mb-[10px] flex flex-none items-center gap-[9px] rounded-[8px] border border-success/25 bg-success/12 px-[11px] py-[7px]"
                     >
-                        <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-graphlane-2">
+                        <span className="font-mono text-xxxs font-bold uppercase tracking-[0.1em] text-graphlane-2">
                             Restored
                         </span>
                         <span className="min-w-0 flex-1 truncate text-[12px] text-ink-mid">{restoreMsg}</span>
