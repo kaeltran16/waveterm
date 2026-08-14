@@ -127,12 +127,13 @@ func TestLoadStateResetsOnVaultSwitch(t *testing.T) {
 	st := &gardenState{
 		VaultRoot:    "/old/vault/memory",
 		DedupFP:      map[string]string{"proj": "stale-fp"},
+		DriftFP:      map[string]string{"/h/n.md": "stale-fp"},
 		LastLLMSweep: map[string]string{"proj": "2026-08-14T00:00:00Z"},
 	}
 	g := testGardener(st)
 	g.vaultRootFn = func() string { return "/new/vault/memory" }
 	got := g.loadState()
-	if len(got.DedupFP) != 0 || len(got.LastLLMSweep) != 0 {
+	if len(got.DedupFP) != 0 || len(got.DriftFP) != 0 || len(got.LastLLMSweep) != 0 {
 		t.Fatalf("vault switch must reset per-scope state: %v", got)
 	}
 	if got.VaultRoot != "/new/vault/memory" {

@@ -70,10 +70,9 @@ func TestCheckSoftDriftFlagsAndGates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "live.go"), []byte("package x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lastRefCheck = map[string]string{} // reset the in-memory gate for a deterministic test
 
 	var calls, flags int
-	g := newGardener()
+	g := testGardener(nil)
 	g.llmFn = func(model, prompt, corpus string) (string, bool) {
 		calls++
 		return `{"drift": true, "reason": "advice contradicts live.go"}`, true
@@ -97,5 +96,47 @@ func TestCheckSoftDriftFlagsAndGates(t *testing.T) {
 	g.checkSoftDrift(repo, notes)
 	if calls != 1 {
 		t.Fatalf("mtime gate failed: expected no new llm calls, got %d", calls)
+	}
+}
+
+func TestCheckSoftDriftPersistsAcrossRestart(t *testing.T) {
+	// the ref-mtime gate must survive a server restart, or every app start re-checks every ref'd
+	// note and pays the LLM cost again (the in-memory gate did exactly that pre-2026-08-14).
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "live.go"), []byte("package x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &gardenState{DedupFP: map[string]string{}, DriftFP: map[string]string{}, LastLLMSweep: map[string]string{}}
+	notes := []memvault.NoteWithBody{
+		{Note: memvault.Note{ID: "n1", Path: "/h/n1.md", Source: "agent"}, Body: "always call live.go the old way"},
+	}
+	mkGardener := func() (*gardener, *int) {
+		calls := 0
+		g := testGardener(st)
+		g.llmFn = func(model, prompt, corpus string) (string, bool) {
+			calls++
+			return `{"drift": true}`, true
+		}
+		g.flagFn = func(path, reason string) error { return nil }
+		return g, &calls
+	}
+	g1, calls1 := mkGardener()
+	g1.checkSoftDrift(repo, notes)
+	if *calls1 != 1 {
+		t.Fatalf("first run must check the note, got %d calls", *calls1)
+	}
+	g2, calls2 := mkGardener() // restart: fresh in-memory state, same persisted state
+	g2.checkSoftDrift(repo, notes)
+	if *calls2 != 0 {
+		t.Fatalf("restart re-checked unchanged notes: %d LLM calls", *calls2)
+	}
+	// a referenced file change after the restart does re-check
+	if err := os.WriteFile(filepath.Join(repo, "live.go"), []byte("package y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g3, calls3 := mkGardener()
+	g3.checkSoftDrift(repo, notes)
+	if *calls3 == 0 {
+		t.Fatalf("referenced file change must re-arm the drift check")
 	}
 }

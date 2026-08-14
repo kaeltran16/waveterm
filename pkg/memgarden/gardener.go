@@ -227,6 +227,7 @@ func (g *gardener) runLLMPillars(scope string, notes []memvault.NoteWithBody, re
 type gardenState struct {
 	VaultRoot    string            `json:"vaultroot"`
 	DedupFP      map[string]string `json:"dedupfp"`      // scope -> corpus fingerprint
+	DriftFP      map[string]string `json:"driftfp"`      // note path -> ref-mtime fingerprint
 	LastLLMSweep map[string]string `json:"lastllmsweep"` // scope -> RFC3339
 }
 
@@ -246,12 +247,16 @@ func (g *gardener) loadState() *gardenState {
 	if st.DedupFP == nil {
 		st.DedupFP = map[string]string{}
 	}
+	if st.DriftFP == nil {
+		st.DriftFP = map[string]string{}
+	}
 	if st.LastLLMSweep == nil {
 		st.LastLLMSweep = map[string]string{}
 	}
 	root := g.vaultRootFn()
 	if st.VaultRoot != "" && st.VaultRoot != root {
 		st.DedupFP = map[string]string{}
+		st.DriftFP = map[string]string{}
 		st.LastLLMSweep = map[string]string{}
 	}
 	st.VaultRoot = root

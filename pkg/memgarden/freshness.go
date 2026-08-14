@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/memvault"
 )
@@ -97,13 +96,6 @@ const (
 		"removed flag, changed behavior). If it is still accurate or you are unsure, drift=false."
 )
 
-// lastRefCheck gates the drift LLM per note by the mtime fingerprint of its referenced files. In-memory
-// (mirrors harvest.go's lastHarvestMtime); a server restart re-checks once. Steady-state: no LLM calls.
-var (
-	lastRefCheckMu sync.Mutex
-	lastRefCheck   = map[string]string{}
-)
-
 // parseDriftVerdict extracts {"drift":bool,"reason":string} from an LLM response. Fail-safe: any parse
 // problem yields drift=false so a note is never flagged on garbage output.
 func parseDriftVerdict(raw string) (bool, string) {
@@ -146,11 +138,14 @@ func refMtimeFingerprint(repoPath string, refs []string) string {
 }
 
 // checkSoftDrift runs the flag-only drift LLM on notes whose referenced files changed, capped per pass.
-// Already-flagged and ref-less notes are skipped. repoPath="" (unknown project) -> no-op.
+// Already-flagged and ref-less notes are skipped. repoPath="" (unknown project) -> no-op. The per-note
+// ref-mtime gate lives in the persisted state (same reason as the dedup fingerprint: an in-memory gate
+// reset on every restart, re-arming a full drift re-check — and its LLM cost — on each app start).
 func (g *gardener) checkSoftDrift(repoPath string, notes []memvault.NoteWithBody) {
 	if repoPath == "" {
 		return
 	}
+	st := g.loadState()
 	checks := 0
 	for _, n := range notes {
 		if n.Note.GardenerFlag != "" {
@@ -167,9 +162,9 @@ func (g *gardener) checkSoftDrift(repoPath string, notes []memvault.NoteWithBody
 			continue // nothing live to compare against (all-dead is the deterministic pillar's job)
 		}
 		fp := refMtimeFingerprint(repoPath, refs)
-		lastRefCheckMu.Lock()
-		unchanged := lastRefCheck[n.Note.Path] == fp
-		lastRefCheckMu.Unlock()
+		g.mu.Lock()
+		unchanged := st.DriftFP[n.Note.Path] == fp
+		g.mu.Unlock()
 		if unchanged {
 			continue // mtime gate: referenced files unchanged since last check
 		}
@@ -181,9 +176,9 @@ func (g *gardener) checkSoftDrift(repoPath string, notes []memvault.NoteWithBody
 		if !ok {
 			continue // LLM failure: retain state, retry next sweep
 		}
-		lastRefCheckMu.Lock()
-		lastRefCheck[n.Note.Path] = fp
-		lastRefCheckMu.Unlock()
+		g.mu.Lock()
+		st.DriftFP[n.Note.Path] = fp
+		g.mu.Unlock()
 		if drift, _ := parseDriftVerdict(raw); drift {
 			if err := g.flagFn(n.Note.Path, "drift"); err != nil {
 				log.Printf("[memgarden] flag drift %s: %v\n", n.Note.Path, err)

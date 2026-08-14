@@ -128,9 +128,9 @@ Mechanics now:
 - **Content fingerprint, not mtime.** `noteSetFingerprint` hashes (id, body) over ALL notes. A flag
   stamp rewrites only the frontmatter, so flagging (and expiry-clearing) never re-arms the next pass;
   adding/removing/editing a note does.
-- **Persisted state.** The per-scope fingerprint and the LLM-sweep cooldown live in
-  `<data>/memgarden-state.json` (vault-root keyed; a vault switch resets all scopes). Restarts can no
-  longer re-arm a sweep against the full corpus.
+- **Persisted state.** The per-scope fingerprint, the per-note drift ref-mtime gate, and the
+  LLM-sweep cooldown live in `<data>/memgarden-state.json` (vault-root keyed; a vault switch resets
+  all scopes). Restarts can no longer re-arm a sweep against the full corpus.
 - **Per-pass flag cap** (`maxFlagsPerDedupPass = 5`) and **chunked verification** (`maxVerifyGroup =
   4`): a 55-member cluster is no longer verified as one wall of look-alike text; unprocessed clusters
   wait for the note set to actually change.
