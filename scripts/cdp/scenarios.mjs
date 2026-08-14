@@ -941,8 +941,8 @@ const PROACTIVE_GOAL = "spawn-test only: do nothing, make no file changes, stop 
 const PROACTIVE_TITLE = "Drop-oldest on overflow";
 const PROACTIVE_SUGGESTION = {
     status: "hit",
-    nodeId: "dec-demo",
-    sourceType: "decision",
+    nodeId: "verify-proactive-nav",
+    sourceType: "memory",
     title: PROACTIVE_TITLE,
     snippet: "chose drop-oldest to bound memory",
     why: "Related to this run",
@@ -1037,6 +1037,54 @@ const jarvisProactive = {
             detail: JSON.stringify({ picked, ...shown }),
         });
         await h.shot("cdp-shots/jarvis-proactive.png");
+
+        // click the card: a memory hit maps to memnote:<id>, so the Memory surface opens. The injected
+        // nodeId need not exist in the vault — selectNote opens the rail with the id selected even when
+        // unresolvable (documented degradation, spec §3); this step verifies the navigation mechanics.
+        const cardClicked = await (async () => {
+            for (let i = 0; i < 20; i++) {
+                const b = await h.ev(`(() => {
+                    const b = [...document.querySelectorAll('button')].find(
+                        (x) => (x.textContent || '').includes(${JSON.stringify(PROACTIVE_TITLE)})
+                    );
+                    if (!b) return false;
+                    b.click();
+                    return true;
+                })()`);
+                if (b) return true;
+                await h.ev("new Promise((r) => setTimeout(r, 500))");
+            }
+            return false;
+        })();
+        steps.push({
+            step: "the suggestion card is present and clickable",
+            ok: cardClicked,
+            detail: JSON.stringify({ cardClicked }),
+        });
+        // the Memory surface header renders a string unique to it ("What your agents remember"), absent
+        // anywhere else — unlike the rail label "Memory". Poll body text for it.
+        let onMemory = false;
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            onMemory = await h.ev(
+                `(() => (document.body.innerText || '').includes('What your agents remember'))()`
+            );
+            if (onMemory) break;
+        }
+        steps.push({
+            step: "clicking the card navigates to the Memory surface (memnote:<id>)",
+            ok: onMemory,
+            detail: JSON.stringify({ onMemory }),
+        });
+        // the click flipped the surface to Memory; come back through the nav rail — atom state survives a
+        // surface flip, so the channel stays selected and the card re-renders for the dismissal steps.
+        await h.goto("jarvis");
+        let reshown = { label: false, title: false, btn: false };
+        for (let i = 0; i < 20; i++) {
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+            reshown = await cardState();
+            if (reshown.label && reshown.title && reshown.btn) break;
+        }
 
         // dismiss -> the card leaves the DOM immediately (optimistic atom). Requires the button to have been
         // there: without this the step would pass vacuously whenever the card never rendered.
