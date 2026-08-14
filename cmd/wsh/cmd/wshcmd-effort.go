@@ -301,6 +301,56 @@ var effortChunkOwnerCmd = &cobra.Command{
 	},
 }
 
+var effortChunkAttachCmd = &cobra.Command{
+	Use:     "attach <effort> <chunk> --run <oid> | --agent <tabid>",
+	Short:   "record that a run or agent session is working this chunk",
+	Args:    cobra.ExactArgs(2),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		kind, oref, err := workRefFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+		op := wshrpc.EffortOp{Op: "attachWork", Kind: kind, ORef: oref}
+		chunkRef(&op, args[1])
+		return mutateOne(args[0], op, isJSON(cmd))
+	},
+}
+
+var effortChunkDetachCmd = &cobra.Command{
+	Use:     "detach <effort> [chunk] --run <oid> | --agent <tabid>",
+	Short:   "remove a run or agent workref (chunk optional: removed from whichever chunk holds it)",
+	Args:    cobra.RangeArgs(1, 2),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		kind, oref, err := workRefFromFlags(cmd)
+		if err != nil {
+			return err
+		}
+		op := wshrpc.EffortOp{Op: "detachWork", Kind: kind, ORef: oref}
+		if len(args) == 2 {
+			chunkRef(&op, args[1])
+		}
+		return mutateOne(args[0], op, isJSON(cmd))
+	},
+}
+
+// workRefFromFlags resolves the mutually-exclusive --run/--agent pair into a kind + oref.
+func workRefFromFlags(cmd *cobra.Command) (string, string, error) {
+	run, _ := cmd.Flags().GetString("run")
+	agent, _ := cmd.Flags().GetString("agent")
+	if run != "" && agent != "" {
+		return "", "", fmt.Errorf("EC-INVALID-ARGS: pass --run or --agent, not both")
+	}
+	if run != "" {
+		return "run", "run:" + run, nil
+	}
+	if agent != "" {
+		return "agent", "agent:" + agent, nil
+	}
+	return "", "", fmt.Errorf("EC-INVALID-ARGS: pass --run <oid> or --agent <tabid>")
+}
+
 // --- shared helpers ---
 
 // mutateOne sends a single-op batch; asJSON prints the post-mutation object when set.
@@ -371,11 +421,16 @@ func init() {
 	effortChunkStatusCmd.Flags().String("note", "", "annotation")
 	effortChunkNoteCmd.Flags().String("note", "", "annotation text (required)")
 	effortChunkNoteCmd.MarkFlagRequired("note")
+	effortChunkAttachCmd.Flags().String("run", "", "run oid")
+	effortChunkAttachCmd.Flags().String("agent", "", "agent tab id")
+	effortChunkDetachCmd.Flags().String("run", "", "run oid")
+	effortChunkDetachCmd.Flags().String("agent", "", "agent tab id")
 
 	effortCmd.AddCommand(effortCreateCmd, effortListCmd, effortShowCmd, effortRenameCmd,
 		effortProjectCmd, effortTicketCmd, effortStatusCmd, effortLinkCmd, effortUnlinkCmd,
 		effortDeleteCmd, effortAdvanceCmd, effortReopenCmd, effortChunkCmd)
 	effortChunkCmd.AddCommand(effortChunkAddCmd, effortChunkRenameCmd, effortChunkMoveCmd,
-		effortChunkRemoveCmd, effortChunkStatusCmd, effortChunkNoteCmd, effortChunkOwnerCmd)
+		effortChunkRemoveCmd, effortChunkStatusCmd, effortChunkNoteCmd, effortChunkOwnerCmd,
+		effortChunkAttachCmd, effortChunkDetachCmd)
 	rootCmd.AddCommand(effortCmd)
 }

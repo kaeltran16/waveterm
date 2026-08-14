@@ -36,3 +36,20 @@ func TestEffortCreateFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestEffortChunkAttachDetachRegistered(t *testing.T) {
+	for _, want := range []string{"attach", "detach"} {
+		if !hasSub(effortChunkCmd, want) {
+			t.Fatalf("`effort chunk %s` subcommand is not registered", want)
+		}
+	}
+}
+
+func TestEffortChunkAttachFlags(t *testing.T) {
+	f := effortChunkAttachCmd.Flags()
+	for _, want := range []string{"run", "agent"} {
+		if f.Lookup(want) == nil {
+			t.Fatalf("missing --%s flag", want)
+		}
+	}
+}
