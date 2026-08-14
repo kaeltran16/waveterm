@@ -401,9 +401,12 @@ describe("streamableTranscriptAgents", () => {
 });
 
 describe("isAskStale", () => {
-    it("stale when a newer working/idle status supersedes the ask", () => {
+    it("stale when a newer working status shows the agent resumed", () => {
         expect(isAskStale(1_000, 2_000, "working")).toBe(true);
-        expect(isAskStale(1_000, 2_000, "idle")).toBe(true);
+    });
+    it("not stale on a newer idle status: the pi prose bridge raises its ask at agent_settled, the same moment the status reporter emits settle-idle, so a same-tick idle must not kill the card", () => {
+        expect(isAskStale(1_000, 1_010, "idle")).toBe(false);
+        expect(isAskStale(1_000, 2_000, "idle")).toBe(false);
     });
     it("not stale while waiting, when status is not newer, or when a ts is missing", () => {
         expect(isAskStale(1_000, 2_000, "waiting")).toBe(false);

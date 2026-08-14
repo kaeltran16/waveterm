@@ -755,14 +755,15 @@ export function streamableTranscriptAgents(agents: AgentVM[], now: number): Agen
  *  the reporter's status (a blocked AskCommand RPC may still report "working"); blockedMs is
  *  derived from now - ask.ts. A null/cleared ask leaves the agent untouched. */
 /** Pure: a pending ask is stale once the agent has demonstrably resumed — a newer status update
- *  (statusTs > askTs) reporting working/idle. A blocked agent emits no fresh working/idle status
- *  until it resumes, so this only fires after the question was resolved by some path (terminal,
- *  panel, or the agent moving on). The PostToolUse clear hook is the fast path; this is the fallback. */
+ *  (statusTs > askTs) reporting working. Idle deliberately does NOT trigger: the pi prose bridge
+ *  raises its ask at agent_settled, the same moment the status reporter emits its settle-idle, so a
+ *  same-tick idle (ts order is a sub-second race) would kill every prose card before it renders.
+ *  The PostToolUse/next-agent_start clear hook is the fast path; this is the fallback. */
 export function isAskStale(askTs: number | undefined, statusTs: number | undefined, statusState: string): boolean {
     if (askTs == null || statusTs == null) {
         return false;
     }
-    if (statusState !== "working" && statusState !== "idle") {
+    if (statusState !== "working") {
         return false;
     }
     return statusTs > askTs;
