@@ -471,10 +471,18 @@ type CommandJarvisStatusData struct{}
 // CaptureStatus is the observability answer to "did it skip my session?": vault note counts per
 // collection, embedding index availability, and the distill queue state per cwd.
 type CaptureStatus struct {
-	NoteCounts     map[string]int `json:"notecounts,omitempty"`
-	IndexAvailable bool           `json:"indexavailable"`
-	IndexError     string         `json:"indexerror,omitempty"`
-	DistillQueue   []CwdQueueWire `json:"distillqueue,omitempty"`
+	NoteCounts     map[string]int     `json:"notecounts,omitempty"`
+	IndexAvailable bool               `json:"indexavailable"`
+	IndexError     string             `json:"indexerror,omitempty"`
+	DistillQueue   []CwdQueueWire     `json:"distillqueue,omitempty"`
+	Efforts        CaptureEffortsStatus `json:"efforts"`
+}
+
+// CaptureEffortsStatus is the tracker accounting for the `wsh jarvis status` efforts line.
+type CaptureEffortsStatus struct {
+	Active      int `json:"active"`
+	ChunksDone  int `json:"chunksdone"`
+	ChunksTotal int `json:"chunkstotal"`
 }
 
 type CwdQueueWire struct {

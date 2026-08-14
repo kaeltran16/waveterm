@@ -97,6 +97,7 @@ func renderCaptureStatus(st wshrpc.CaptureStatus) string {
 	} else {
 		b.WriteString("unavailable\n")
 	}
+	fmt.Fprintf(&b, "efforts: %d active · %d of %d chunks\n", st.Efforts.Active, st.Efforts.ChunksDone, st.Efforts.ChunksTotal)
 	b.WriteString("distill queue:\n")
 	if len(st.DistillQueue) == 0 {
 		b.WriteString("  (empty)\n")

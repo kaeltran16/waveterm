@@ -212,5 +212,19 @@ func FetchCaptureStatus(ctx context.Context) (wshrpc.CaptureStatus, error) {
 			st.DistillQueue = append(st.DistillQueue, wshrpc.CwdQueueWire{Cwd: q.Cwd, Pending: q.Pending, LastPass: last})
 		}
 	}
+	if efforts, err := defaultSeams.getEfforts(ctx); err == nil {
+		for _, e := range efforts {
+			if e.Status == "archived" {
+				continue
+			}
+			st.Efforts.Active++
+			for _, c := range e.Chunks {
+				st.Efforts.ChunksTotal++
+				if c.Status == "done" {
+					st.Efforts.ChunksDone++
+				}
+			}
+		}
+	}
 	return st, nil
 }
