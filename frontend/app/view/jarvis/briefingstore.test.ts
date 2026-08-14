@@ -69,7 +69,7 @@ describe("briefing cursor", () => {
         expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(expect.anything(), {
             project: "",
             sincems: T0 - SEVEN_DAYS_MS,
-        });
+        }, { timeout: 180_000 });
         expect(globalStore.get(briefingCursorAtom)).toBe(T0);
         const st = globalStore.get(briefingStateAtom);
         expect(st.snapshot?.complete).toBe(true);
@@ -88,7 +88,7 @@ describe("briefing cursor", () => {
         expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(expect.anything(), {
             project: "",
             sincems: T0 - SEVEN_DAYS_MS,
-        });
+        }, { timeout: 180_000 });
     });
 
     it("advances from queryStartedAt, never response time", async () => {

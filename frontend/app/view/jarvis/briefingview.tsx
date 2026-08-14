@@ -9,9 +9,10 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import { normalizeBriefingNav, projectBriefing, SEVEN_DAYS_MS } from "./briefingmodel";
+import { EffortCard } from "./effortcard";
 import {
     briefingAnswerAtom,
     briefingAskStateAtom,
@@ -113,6 +114,9 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
             sevenDaysAgo: snapshot.queryStartedAt - SEVEN_DAYS_MS,
         });
     }, [snapshot, fixture, liveAgents]);
+
+    // one effort expanded at a time (the inline tracker); the store takes this over in Task 5.
+    const [expandedEffort, setExpandedEffort] = useState<string | null>(null);
 
     const failedRefresh = error != null && snapshot != null;
     const firstLoad = snapshot == null && loading;
@@ -230,26 +234,14 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                             ) : (
                                 <div className="flex flex-col gap-2">
                                     {model_.efforts.map((e) => (
-                                        // placeholder card — the real EffortCard lands with the inline tracker
-                                        <div
+                                        <EffortCard
                                             key={e.oref}
-                                            className="rounded-[10px] border border-border bg-surface px-[13px] py-[11px]"
-                                        >
-                                            <span className="flex items-baseline gap-2">
-                                                <span className="truncate text-[13px] font-semibold text-primary">
-                                                    {e.title}
-                                                </span>
-                                                <span className="ml-auto flex-none font-mono text-[10px] text-muted">
-                                                    {e.countLine}
-                                                </span>
-                                            </span>
-                                            <div className="mt-2 h-[5px] overflow-hidden rounded-full bg-border">
-                                                <div
-                                                    className="h-full rounded-full bg-accent transition-[width] duration-[300ms]"
-                                                    style={{ width: `${e.progressPct}%` }}
-                                                />
-                                            </div>
-                                        </div>
+                                            model={e}
+                                            expanded={expandedEffort === e.oref}
+                                            onToggle={() =>
+                                                setExpandedEffort((cur) => (cur === e.oref ? null : e.oref))
+                                            }
+                                        />
                                     ))}
                                     {model_.effortMore > 0 ? (
                                         <MoreLink label={`+${model_.effortMore} more`} onClick={() => {}} />
