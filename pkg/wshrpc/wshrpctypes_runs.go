@@ -28,6 +28,8 @@ type CommandCreateRunData struct {
 	Mode        string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
 	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default
 	RadarOrigin *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
+	EffortOID   string                  `json:"effortoid,omitempty"`   // optional effort tracker link (composer picker)
+	ChunkLabel  string                  `json:"chunklabel,omitempty"`
 }
 
 type CommandCreateRunRtnData struct {

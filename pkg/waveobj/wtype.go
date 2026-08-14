@@ -271,7 +271,10 @@ type Run struct {
 	// ParentLeadORef is the tab oref ("tab:<id>") of the orchestrator lead that spawned this child run
 	// via `wsh jarvis run`. Empty for human-started runs. Drives the terminal-status notify-back.
 	ParentLeadORef string      `json:"parentleadoref,omitempty"`
-	Meta           MetaMapType `json:"meta"`
+	// EffortRef links a run to the effort chunk it executes (set by the composer's effort picker or
+	// `wsh effort chunk attach --run`). Advisory: the run never ticks the chunk automatically.
+	EffortRef *RunEffortRef `json:"effortref,omitempty"`
+	Meta       MetaMapType  `json:"meta"`
 }
 
 func (*Run) GetOType() string {
@@ -310,6 +313,12 @@ type EvidenceArtifact struct {
 	Path string `json:"path"`
 	Kind string `json:"kind"` // "doc" | "report" | "image" | "file"
 	Size int64  `json:"size"`
+}
+
+// RunEffortRef links a Run to the Effort chunk it executes.
+type RunEffortRef struct {
+	EffortOID  string `json:"effortoid"`
+	ChunkLabel string `json:"chunklabel"`
 }
 
 // RunRadarOrigin links a Run back to the Radar finding it was started from. The Run lifecycle acts on it:

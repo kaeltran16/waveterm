@@ -266,12 +266,20 @@ declare global {
         age: string;
     };
 
+    // wshrpc.CaptureEffortsStatus
+    type CaptureEffortsStatus = {
+        active: number;
+        chunksdone: number;
+        chunkstotal: number;
+    };
+
     // wshrpc.CaptureStatus
     type CaptureStatus = {
         notecounts?: {[key: string]: number};
         indexavailable: boolean;
         indexerror?: string;
         distillqueue?: CwdQueueWire[];
+        efforts: CaptureEffortsStatus;
     };
 
     // waveobj.Channel
@@ -496,6 +504,8 @@ declare global {
         mode?: string;
         plangate?: boolean;
         radarorigin?: RunRadarOrigin;
+        effortoid?: string;
+        chunklabel?: string;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -2727,6 +2737,13 @@ declare global {
         completedts?: number;
         evidence?: RunEvidence;
         parentleadoref?: string;
+        effortref?: RunEffortRef;
+    };
+
+    // waveobj.RunEffortRef
+    type RunEffortRef = {
+        effortoid: string;
+        chunklabel: string;
     };
 
     // waveobj.RunEvidence

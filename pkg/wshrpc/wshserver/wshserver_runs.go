@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarviscapture"
 	"github.com/wavetermdev/waveterm/pkg/jarviscontinuity"
 	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
+	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -257,6 +258,21 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
 		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
 	}
+	// effortref validated up front so its error path never depends on harness setup
+	var effortRef *waveobj.RunEffortRef
+	if data.EffortOID != "" {
+		eff, err := wstore.GetEffort(ctx, data.EffortOID)
+		if err != nil {
+			return nil, fmt.Errorf("EC-UNKNOWN-EFFORT: %v", err)
+		}
+		if data.ChunkLabel == "" {
+			return nil, fmt.Errorf("EC-UNKNOWN-CHUNK: chunklabel is required when effortoid is set")
+		}
+		if _, err := jarvisstate.ResolveChunkIndex(eff, data.ChunkLabel); err != nil {
+			return nil, err
+		}
+		effortRef = &waveobj.RunEffortRef{EffortOID: data.EffortOID, ChunkLabel: data.ChunkLabel}
+	}
 	// Every new Run needs an explicit, run-worker-capable, installed harness. Validated before any run
 	// is persisted or a worker spawned; an unknown/unsupported/unavailable runtime is rejected outright.
 	if _, err := validateHarness(data.Runtime, harness.OperationRunWorker); err != nil {
@@ -277,6 +293,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		run.BaseCommit = head
 	}
 	run.RadarOrigin = data.RadarOrigin // nil for normal runs; set only from a Radar handoff
+	run.EffortRef = effortRef
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
@@ -284,6 +301,17 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// the dossier capture below links [[run-<oid>]], and S3 excludes that node by the same key.
 	run.OID = run.ID
 	run.ChannelOID = data.ChannelId
+	if effortRef != nil {
+		// non-fatal: the run is already persisted; a failed attach only loses the live marker, the
+		// ref stays on the run itself.
+		proactiveAsync(func() {
+			actx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if aerr := jarvisstate.AttachRunToChunk(actx, effortRef.EffortOID, effortRef.ChunkLabel, "run:"+run.ID); aerr != nil {
+				log.Printf("CreateRun: attaching effort workref failed (non-fatal): %v", aerr)
+			}
+		})
+	}
 	if run.RadarOrigin != nil {
 		inv := reporadar.InvestigationFromRun(&run, data.ChannelId, "executing", run.CreatedTs)
 		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
