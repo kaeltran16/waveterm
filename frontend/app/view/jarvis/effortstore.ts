@@ -40,6 +40,27 @@ export function effortChunkRows(effort: Effort): ChunkRowModel[] {
     });
 }
 
+// rebuild the wire summary from the full record (same derivation as the backend's summary leg) so
+// the detail subject reuses the card math — count line, progress, tones — without a second fetch.
+export function effortSummaryOf(effort: Effort): EffortSummary {
+    const active =
+        effort.chunks.find((c) => c.status === "active")?.label ??
+        effort.chunks.find((c) => c.status !== "done" && c.status !== "skipped")?.label;
+    return {
+        oref: "effort:" + effort.oid,
+        title: effort.title,
+        project: effort.project,
+        ticket: effort.ticket,
+        status: effort.status,
+        parentoid: effort.parentoid,
+        chunks: effort.chunks.map((c) => ({ label: c.label, status: c.status, owner: c.owner })),
+        done: effort.chunks.filter((c) => c.status === "done").length,
+        total: effort.chunks.length,
+        activechunk: active,
+        updatedts: effort.updatedts,
+    };
+}
+
 const effortOid = (oref: string) => oref.replace(/^effort:/, "");
 
 async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
@@ -54,22 +75,29 @@ async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
     void loadBriefingAsync(); // summary leg refresh; failure degrades to the next load
 }
 
+// fetch-once cache fill shared by the card expand, the detail subject, and re-entry paths; a
+// successful mutate has already replaced the cache entry, so callers may skip this.
+export async function loadEffortDetail(oref: string): Promise<void> {
+    if (globalStore.get(effortDetailAtom).has(oref)) {
+        return;
+    }
+    const rtn = await RpcApi.EffortGetCommand(
+        TabRpcClient,
+        { effortoid: effortOid(oref) },
+        { timeout: stateRpcTimeoutMs }
+    );
+    const cache = new Map(globalStore.get(effortDetailAtom));
+    cache.set(oref, rtn.effort);
+    globalStore.set(effortDetailAtom, cache);
+}
+
 export async function toggleEffort(oref: string): Promise<void> {
     const cur = globalStore.get(expandedEffortOrefAtom);
     if (cur === oref) {
         globalStore.set(expandedEffortOrefAtom, null);
         return;
     }
-    if (!globalStore.get(effortDetailAtom).has(oref)) {
-        const rtn = await RpcApi.EffortGetCommand(
-            TabRpcClient,
-            { effortoid: effortOid(oref) },
-            { timeout: stateRpcTimeoutMs }
-        );
-        const cache = new Map(globalStore.get(effortDetailAtom));
-        cache.set(oref, rtn.effort);
-        globalStore.set(effortDetailAtom, cache);
-    }
+    await loadEffortDetail(oref);
     globalStore.set(expandedEffortOrefAtom, oref);
 }
 

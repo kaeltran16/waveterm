@@ -13,6 +13,7 @@ import { resolveActiveRunId, isTerminal } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { loadEffortDetail } from "./effortstore";
 import type { JarvisScope, SourceType } from "./jarviscontract";
 import {
     getConversation,
@@ -96,8 +97,9 @@ export function selectSubject(subject: ActiveSubject): void {
     }
     globalStore.set(activeSubjectAtom, subject);
     // Briefing is a synthetic subject: selecting it must not overwrite the last meaningful subject,
-    // which is what the next launch restores.
-    if (subject.kind !== "briefing") {
+    // which is what the next launch restores. Effort subjects are navigations from the briefing, not
+    // restore targets — the restore machinery has no effort list to validate a stored id against.
+    if (subject.kind !== "briefing" && subject.kind !== "effort") {
         globalStore.set(persistedSubjectAtom, subject);
     }
     if (subject.kind === "channel") {
@@ -108,6 +110,11 @@ export function selectSubject(subject: ActiveSubject): void {
     // strands it: no control closes it, and its forceCollapsed keeps "Needs you" hidden the whole time.
     globalStore.set(profileRailOpenAtom, false);
     if (subject.kind === "briefing") {
+        return;
+    }
+    if (subject.kind === "effort") {
+        // warm the detail cache so the Stage header can name the effort while the view mounts.
+        fireAndForget(() => loadEffortDetail("effort:" + subject.id));
         return;
     }
     if (subject.kind === "dossier") {

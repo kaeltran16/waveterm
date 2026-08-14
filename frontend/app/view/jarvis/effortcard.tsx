@@ -58,7 +58,7 @@ function Chip({ chip, onClick }: { chip: ChunkChip; onClick: () => void }) {
 }
 
 // the per-tone square that leads a chunk row; the active/blocked glows mark the states that need eyes.
-function Mark({ tone }: { tone: ChunkTone }) {
+export function Mark({ tone }: { tone: ChunkTone }) {
     const cls =
         tone === "done"
             ? "border-success/40 bg-success/15 text-success"
@@ -93,11 +93,13 @@ export function EffortCard({
     expanded,
     onToggle,
     onChipClick,
+    onOpenDetail,
 }: {
     model: EffortCardModel;
     expanded: boolean;
     onToggle: () => void;
     onChipClick?: (label: string) => void;
+    onOpenDetail?: () => void;
 }) {
     const oid = model.oref.replace(/^effort:/, "");
     const effort = useAtomValue(effortDetailAtom).get(model.oref);
@@ -198,7 +200,28 @@ export function EffortCard({
                         wsh effort show {oid}
                     </span>
                     <span className="font-mono text-[10px] text-muted">
-                        {expanded ? "▾ collapse" : model.countLine}
+                        {expanded ? (
+                            <span
+                                role="button"
+                                tabIndex={0}
+                                title="open the full record"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenDetail?.();
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                        e.stopPropagation();
+                                        onOpenDetail?.();
+                                    }
+                                }}
+                                className="cursor-pointer text-accent-soft hover:underline"
+                            >
+                                details →
+                            </span>
+                        ) : (
+                            model.countLine
+                        )}
                     </span>
                 </span>
             </span>

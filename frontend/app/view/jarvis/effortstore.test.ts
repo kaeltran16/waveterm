@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { effortChunkRows } from "./effortstore";
+import { effortChunkRows, effortSummaryOf } from "./effortstore";
 
 const effort = {
     oid: "abc",
@@ -29,5 +29,49 @@ describe("effortChunkRows", () => {
         expect(rows[1].latestNote).toBe("resolver seeded");
         expect(rows[1].trail).toHaveLength(2);
         expect(rows[2].tone).toBe("blocked");
+    });
+});
+
+describe("effortSummaryOf", () => {
+    it("re-derives the wire summary from the full record", () => {
+        const full = {
+            oid: "abc",
+            version: 3,
+            title: "Scenario gate clearance",
+            status: "active",
+            updatedts: 5000,
+            chunks: [
+                { label: "P1", status: "done", updatedts: 1 },
+                { label: "P3", status: "active", updatedts: 2 },
+                { label: "P5", status: "skipped", updatedts: 3 },
+                { label: "P7", status: "pending", updatedts: 4 },
+            ],
+        } as unknown as Effort;
+        const s = effortSummaryOf(full);
+        expect(s.oref).toBe("effort:abc");
+        expect(s.done).toBe(1);
+        expect(s.total).toBe(4);
+        expect(s.activechunk).toBe("P3");
+        expect(s.chunks).toEqual([
+            { label: "P1", status: "done", owner: undefined },
+            { label: "P3", status: "active", owner: undefined },
+            { label: "P5", status: "skipped", owner: undefined },
+            { label: "P7", status: "pending", owner: undefined },
+        ]);
+    });
+
+    it("falls back to the first non-done chunk when nothing is active", () => {
+        const full = {
+            oid: "abc",
+            version: 3,
+            title: "t",
+            status: "active",
+            updatedts: 1,
+            chunks: [
+                { label: "P1", status: "done", updatedts: 1 },
+                { label: "P2", status: "pending", updatedts: 2 },
+            ],
+        } as unknown as Effort;
+        expect(effortSummaryOf(full).activechunk).toBe("P2");
     });
 });

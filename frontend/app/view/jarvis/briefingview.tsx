@@ -23,6 +23,7 @@ import {
     refreshBriefing,
 } from "./briefingstore";
 import { stageRailOpenAtom } from "./jarvisstore";
+import { selectSubject } from "./jarvissubjectstore";
 import { openORef, orefNavPlan } from "./openref";
 import { STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 
@@ -240,6 +241,9 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                             expanded={expandedEffort === e.oref}
                                             onToggle={() => void toggleEffort(e.oref)}
                                             onChipClick={() => void toggleEffort(e.oref)}
+                                            onOpenDetail={() =>
+                                                selectSubject({ kind: "effort", id: e.oref.replace(/^effort:/, "") })
+                                            }
                                         />
                                     ))}
                                     {model_.effortMore > 0 ? (

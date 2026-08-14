@@ -9,8 +9,8 @@ import { filterChannelsBySpace } from "@/app/view/agents/spacescope";
 import type { JarvisConversation } from "./jarviscontract";
 import { mentionedDossierIds } from "./mentions";
 
-export type SubjectKind = "channel" | "dossier" | "conversation" | "briefing";
-export type SubjectMark = "#" | "▤" | "~" | "◈";
+export type SubjectKind = "channel" | "dossier" | "conversation" | "briefing" | "effort";
+export type SubjectMark = "#" | "▤" | "~" | "◈" | "✦";
 
 // the pinned all-work subject: a real SubjectKind for selection and Stage composition, never a
 // persisted content subject.
@@ -21,7 +21,10 @@ export type Subject =
     // status + updated ride along so the record row can draw its status chip and age without a second
     // lookup: they are already on the SpaceSummary the list arrives as, and were being discarded here.
     | { kind: "dossier"; id: string; label: string; status: string; updated: number }
-    | { kind: "conversation"; id: string; label: string };
+    | { kind: "conversation"; id: string; label: string }
+    // an effort subject opens the briefing with that effort expanded (spec UI §1); the title rides along
+    // so the column row and the Stage header agree before the detail fetch lands.
+    | { kind: "effort"; id: string; label: string };
 
 export interface SubjectGroup {
     key: string;
@@ -44,6 +47,7 @@ const MARKS: Record<SubjectKind, SubjectMark> = {
     dossier: "▤",
     conversation: "~",
     briefing: "◈",
+    effort: "✦",
 };
 
 export function subjectMark(kind: SubjectKind): SubjectMark {

@@ -29,6 +29,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { ConversationView } from "./conversationview";
 import { BriefingView } from "./briefingview";
 import { briefingStateAtom, refreshBriefing } from "./briefingstore";
+import { EffortDetailView } from "./effortdetailview";
 import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
 import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
@@ -43,6 +44,7 @@ import {
     stageRunAtom,
     toggleRecordBand,
 } from "./jarvissubjectstore";
+import { effortDetailAtom } from "./effortstore";
 import { mentionedDossierIds } from "./mentions";
 import { recordBandCase } from "./recordband";
 import { RecordBand } from "./recordbandview";
@@ -73,6 +75,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const profileChannelId = subject?.kind === "channel" ? subject.id : null;
     const profile = profileChannelId != null ? profiles[profileChannelId] : undefined;
     const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
+    const effortCache = useAtomValue(effortDetailAtom);
 
     useEffect(() => ensureAmbient(), []);
 
@@ -174,6 +177,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const comp = composeStage(subject.kind);
     // one cache, two readers: the record the user selected, and the record a channel's run is attributed to.
     const detail = subject.kind === "dossier" ? (recordDetails[subject.id] ?? null) : null;
+    const effort = subject.kind === "effort" ? (effortCache.get("effort:" + subject.id) ?? null) : null;
     const meta = (channel?.meta as Record<string, unknown> | undefined) ?? {};
     const tier = tierFromMeta(meta);
     const mode = (meta["delegator:mode"] as string) ?? "report";
@@ -184,9 +188,17 @@ export function Stage({ model }: { model: AgentsViewModel }) {
               ? (channel?.name ?? "")
               : subject.kind === "dossier"
                 ? (detail?.objective ?? "")
-                : conversation.title;
+                : subject.kind === "effort"
+                  ? (effort?.title ?? "Effort")
+                  : conversation.title;
     const subtitle =
-        subject.kind === "channel" ? (channel?.projectpath ?? "") : subject.kind === "briefing" ? "All work" : "";
+        subject.kind === "channel"
+            ? (channel?.projectpath ?? "")
+            : subject.kind === "briefing"
+              ? "All work"
+              : subject.kind === "effort"
+                ? "chunks tracker"
+                : "";
 
     const bandDetail =
         subject.kind === "dossier" ? detail : bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null;
@@ -234,6 +246,8 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     <RecordThread detail={detail} model={model} />
                 ) : comp.thread === "briefing" ? (
                     <BriefingView model={model} />
+                ) : comp.thread === "effort" ? (
+                    <EffortDetailView model={model} />
                 ) : (
                     <div className={cn(STAGE_SCROLLER, "min-h-0 flex-1")}>
                         <ConversationView conversation={conversation} model={model} />
