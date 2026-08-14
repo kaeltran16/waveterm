@@ -644,6 +644,13 @@ func (ws *WshServer) SealRunEvidenceCommand(ctx context.Context, data wshrpc.Com
 	}); uerr != nil {
 		return fmt.Errorf("persisting evidence: %w", uerr)
 	}
+	if run.EffortRef != nil {
+		// a sealed run no longer claims its chunk; the workref is advisory, so a failure here only
+		// leaves a stale marker, and the next seal attempt (idempotent backfill) re-runs the detach.
+		if derr := jarvisstate.DetachRunFromChunk(ctx, run.EffortRef.EffortOID, "run:"+run.ID); derr != nil {
+			log.Printf("SealRunEvidence: detaching effort workref failed (non-fatal): %v", derr)
+		}
+	}
 	if run.RadarOrigin != nil {
 		inv := reporadar.InvestigationFromRun(run, data.ChannelId, "done", run.CompletedTs)
 		if rerr := reporadar.RecordInvestigation(ctx, run.ProjectPath, run.RadarOrigin.Fingerprint, inv); rerr != nil {
