@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readProactiveSuggestion } from "./proactive";
+import { proactiveNavOref, readProactiveSuggestion, type ProactiveVM } from "./proactive";
 
 function run(meta: Record<string, unknown>): Run {
     return { oid: "run-1", meta } as unknown as Run;
@@ -48,5 +48,35 @@ describe("readProactiveSuggestion", () => {
                 })
             )
         ).toBeNull();
+    });
+});
+
+function vm(over: Partial<ProactiveVM> = {}): ProactiveVM {
+    return { nodeId: "n-1", sourceType: "memory", title: "t", snippet: "s", why: "w", ...over };
+}
+
+describe("proactiveNavOref", () => {
+    it("maps a dossier hit to task:<nodeId>", () => {
+        expect(proactiveNavOref(vm({ sourceType: "dossier" }))).toBe("task:n-1");
+    });
+
+    it("maps a memory hit to memnote:<nodeId>", () => {
+        expect(proactiveNavOref(vm({ sourceType: "memory" }))).toBe("memnote:n-1");
+    });
+
+    it("returns null for a decision hit (no open path)", () => {
+        expect(proactiveNavOref(vm({ sourceType: "decision" }))).toBeNull();
+    });
+
+    it("returns null for an empty nodeId", () => {
+        expect(proactiveNavOref(vm({ nodeId: "" }))).toBeNull();
+    });
+
+    it("returns null for an unknown sourceType", () => {
+        expect(proactiveNavOref(vm({ sourceType: "weird" }))).toBeNull();
+    });
+
+    it("returns null for a null vm", () => {
+        expect(proactiveNavOref(null)).toBeNull();
     });
 });
