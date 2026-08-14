@@ -155,6 +155,36 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			}
 		case "setProject", "setTicket", "link", "advance":
 			// no chunk-level validation
+		case "attachWork":
+			if op.Kind != "run" && op.Kind != "agent" {
+				return fmt.Errorf("EC-INVALID-KIND: %q not one of run|agent", op.Kind)
+			}
+			if strings.TrimSpace(op.ORef) == "" {
+				return fmt.Errorf("EC-INVALID-OREF: oref cannot be empty")
+			}
+			idx, err := ResolveChunkIndex(e, op.Chunk)
+			if err != nil {
+				return err
+			}
+			for i, c := range e.Chunks {
+				if i == idx {
+					continue
+				}
+				for _, w := range c.WorkRefs {
+					if w.ORef == op.ORef {
+						return fmt.Errorf("EC-REF-ALREADY-ATTACHED: %s is already attached to chunk %q", op.ORef, c.Label)
+					}
+				}
+			}
+		case "detachWork":
+			if strings.TrimSpace(op.ORef) == "" {
+				return fmt.Errorf("EC-INVALID-OREF: oref cannot be empty")
+			}
+			if op.Chunk != "" {
+				if _, err := ResolveChunkIndex(e, op.Chunk); err != nil {
+					return err
+				}
+			}
 		default:
 			return fmt.Errorf("EC-UNKNOWN-OP: %q", op.Op)
 		}
@@ -241,6 +271,47 @@ func ApplyEffortOps(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, no
 			}
 			e.Chunks[idx].Status = "active"
 			chunkNote(e, idx, "reopened"+noteSuffix(note), now)
+		case "attachWork":
+			idx, _ := ResolveChunkIndex(e, op.Chunk)
+			ref := waveobj.ChunkWorkRef{Kind: op.Kind, ORef: op.ORef, Ts: now}
+			replaced := false
+			for i := range e.Chunks[idx].WorkRefs {
+				if e.Chunks[idx].WorkRefs[i].ORef == op.ORef {
+					e.Chunks[idx].WorkRefs[i] = ref // refresh ts; idempotent
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				e.Chunks[idx].WorkRefs = append(e.Chunks[idx].WorkRefs, ref)
+			}
+			chunkNote(e, idx, op.Kind+" attached: "+op.ORef, now)
+		case "detachWork":
+			removeRef := func(idx int) bool {
+				out := e.Chunks[idx].WorkRefs[:0]
+				removed := false
+				for _, w := range e.Chunks[idx].WorkRefs {
+					if w.ORef == op.ORef {
+						removed = true
+						continue
+					}
+					out = append(out, w)
+				}
+				e.Chunks[idx].WorkRefs = out
+				return removed
+			}
+			if op.Chunk != "" {
+				idx, _ := ResolveChunkIndex(e, op.Chunk)
+				if removeRef(idx) {
+					chunkNote(e, idx, "detached: "+op.ORef, now)
+				}
+			} else {
+				for i := range e.Chunks {
+					if removeRef(i) {
+						chunkNote(e, i, "detached: "+op.ORef, now)
+					}
+				}
+			}
 		}
 	}
 	return nil

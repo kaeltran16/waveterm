@@ -180,3 +180,89 @@ func TestApplyOpsCmdNoteAppendedToEffort(t *testing.T) {
 }
 
 func intPtr(i int) *int { return &i }
+
+func TestApplyOpsAttachWork(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Chunks[1].WorkRefs) != 1 || e.Chunks[1].WorkRefs[0].ORef != "agent:tab-1" || e.Chunks[1].WorkRefs[0].Kind != "agent" {
+		t.Fatalf("workrefs: %+v", e.Chunks[1].WorkRefs)
+	}
+	if len(e.Chunks[1].Notes) != 1 {
+		t.Fatalf("auto-stamp missing: %+v", e.Chunks[1].Notes)
+	}
+	if len(e.Events) != 0 {
+		t.Fatalf("attach must not emit delta events: %+v", e.Events)
+	}
+}
+
+func TestApplyOpsAttachWorkIdempotentSameChunk(t *testing.T) {
+	e := mkEffort()
+	for i := 0; i < 2; i++ {
+		err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(e.Chunks[1].WorkRefs) != 1 {
+		t.Fatalf("duplicate refs: %+v", e.Chunks[1].WorkRefs)
+	}
+}
+
+func TestApplyOpsAttachWorkConflictOtherChunk(t *testing.T) {
+	e := mkEffort()
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}}, "", now); err != nil {
+		t.Fatal(err)
+	}
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 3", Kind: "agent", ORef: "agent:tab-1"}}, "", now)
+	expectErrCode(t, err, "EC-REF-ALREADY-ATTACHED")
+}
+
+func TestApplyOpsAttachWorkInvalidKind(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 2", Kind: "bogus", ORef: "run:x"}}, "", now)
+	expectErrCode(t, err, "EC-INVALID-KIND")
+}
+
+func TestApplyOpsDetachWork(t *testing.T) {
+	e := mkEffort()
+	op := wshrpc.EffortOp{Op: "attachWork", Chunk: "Phase 2", Kind: "agent", ORef: "agent:tab-1"}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{op}, "", now); err != nil {
+		t.Fatal(err)
+	}
+	// chunk-scoped detach
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", Chunk: "Phase 2", ORef: "agent:tab-1"}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Chunks[1].WorkRefs) != 0 {
+		t.Fatalf("refs remain: %+v", e.Chunks[1].WorkRefs)
+	}
+}
+
+func TestApplyOpsDetachWorkAnyChunk(t *testing.T) {
+	e := mkEffort()
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "attachWork", Chunk: "Phase 3", Kind: "run", ORef: "run:r1"}}, "", now); err != nil {
+		t.Fatal(err)
+	}
+	// chunk omitted -> removed from whichever chunk holds it
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:r1"}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range e.Chunks {
+		if len(c.WorkRefs) != 0 {
+			t.Fatalf("refs remain: %+v", c.WorkRefs)
+		}
+	}
+}
+
+func TestApplyOpsDetachWorkAbsentIsNoOp(t *testing.T) {
+	e := mkEffort()
+	err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:never-was"}}, "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
