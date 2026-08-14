@@ -122,3 +122,7 @@ func (ws *WshServer) EffortGetCommand(ctx context.Context, data wshrpc.CommandEf
 	}
 	return &wshrpc.CommandEffortGetRtnData{Effort: e}, nil
 }
+
+func (ws *WshServer) EffortDeleteCommand(ctx context.Context, data wshrpc.CommandEffortDeleteData) error {
+	return wstore.DBDelete(ctx, waveobj.OType_Effort, data.EffortOID)
+}

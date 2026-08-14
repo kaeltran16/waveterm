@@ -16,6 +16,7 @@ type EffortCommands interface {
 	EffortMutateCommand(ctx context.Context, data CommandEffortMutateData) (*CommandEffortMutateRtnData, error)
 	EffortListCommand(ctx context.Context, data CommandEffortListData) (*CommandEffortListRtnData, error)
 	EffortGetCommand(ctx context.Context, data CommandEffortGetData) (*CommandEffortGetRtnData, error)
+	EffortDeleteCommand(ctx context.Context, data CommandEffortDeleteData) error
 }
 
 type CommandEffortCreateData struct {
@@ -61,6 +62,10 @@ type CommandEffortGetData struct {
 
 type CommandEffortGetRtnData struct {
 	Effort *waveobj.Effort `json:"effort"`
+}
+
+type CommandEffortDeleteData struct {
+	EffortOID string `json:"effortoid"`
 }
 
 // EffortOp is one typed mutation. Op selects the behavior; the remaining fields are the op's

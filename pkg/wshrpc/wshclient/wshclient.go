@@ -321,6 +321,12 @@ func EffortCreateCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortCreateData,
 	return resp, err
 }
 
+// command "effortdelete", wshserver.EffortDeleteCommand
+func EffortDeleteCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortDeleteData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "effortdelete", data, opts)
+	return err
+}
+
 // command "effortget", wshserver.EffortGetCommand
 func EffortGetCommand(w *wshutil.WshRpc, data wshrpc.CommandEffortGetData, opts *wshrpc.RpcOpts) (*wshrpc.CommandEffortGetRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandEffortGetRtnData](w, "effortget", data, opts)

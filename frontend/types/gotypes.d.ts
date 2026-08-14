@@ -584,6 +584,11 @@ declare global {
         effortoid: string;
     };
 
+    // wshrpc.CommandEffortDeleteData
+    type CommandEffortDeleteData = {
+        effortoid: string;
+    };
+
     // wshrpc.CommandEffortGetData
     type CommandEffortGetData = {
         effortoid: string;

@@ -324,6 +324,12 @@ export class RpcApiType {
         return client.wshRpcCall("effortcreate", data, opts);
     }
 
+    // command "effortdelete" [call]
+    EffortDeleteCommand(client: WshClient, data: CommandEffortDeleteData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "effortdelete", data, opts);
+        return client.wshRpcCall("effortdelete", data, opts);
+    }
+
     // command "effortget" [call]
     EffortGetCommand(client: WshClient, data: CommandEffortGetData, opts?: RpcOpts): Promise<CommandEffortGetRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "effortget", data, opts);
