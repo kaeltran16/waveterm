@@ -9,10 +9,11 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import { normalizeBriefingNav, projectBriefing, SEVEN_DAYS_MS } from "./briefingmodel";
 import { EffortCard } from "./effortcard";
+import { EffortCreateForm } from "./effortcreateform";
 import { expandedEffortOrefAtom, toggleEffort } from "./effortstore";
 import {
     briefingAnswerAtom,
@@ -97,6 +98,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
     const answer = useAtomValue(briefingAnswerAtom);
     const setRailOpen = useSetAtom(stageRailOpenAtom);
     const expandedEffort = useAtomValue(expandedEffortOrefAtom);
+    const [showCreateForm, setShowCreateForm] = useState(false);
 
     // load on entry (mount == transitioned into Briefing); Refresh / Retry / pinned-row re-click
     // call refreshBriefing() directly.
@@ -220,7 +222,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                 </span>
                                 <button
                                     type="button"
-                                    onClick={() => {}}
+                                    onClick={() => setShowCreateForm(true)}
                                     className="ml-auto cursor-pointer rounded-[7px] border border-accent/40 bg-accentbg px-2.5 py-1 text-[11px] font-semibold text-accent-soft hover:border-accent/60"
                                 >
                                     + Effort
@@ -526,6 +528,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                     </>
                 ) : null}
             </div>
+            {showCreateForm ? <EffortCreateForm onClose={() => setShowCreateForm(false)} /> : null}
         </div>
     );
 }
