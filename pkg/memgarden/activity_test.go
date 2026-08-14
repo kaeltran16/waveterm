@@ -29,9 +29,9 @@ func captureActivity(t *testing.T) *[]baseds.MemoryActivityData {
 }
 
 // inertGardener is a gardener whose every side effect is injected, so a pass archives exactly what the
-// test says it archives.
+// test says it archives. State is in-memory: tests must never touch the real state file.
 func inertGardener(now time.Time, archived *[]string) *gardener {
-	g := newGardener()
+	g := testGardener(nil)
 	g.now = func() time.Time { return now }
 	g.repoPathFn = func(string) string { return "" }
 	g.repoIndexFn = func(string) map[string]bool { return map[string]bool{} }

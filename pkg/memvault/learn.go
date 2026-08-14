@@ -70,6 +70,13 @@ func FlagNote(path, reason string) error {
 	return editNoteMetadata(path, "gardener_flag", reason)
 }
 
+// ClearFlag removes metadata.gardener_flag (written as an empty value; empty and absent parse
+// identically) so the note leaves the cleanup queue without being deleted. Used by the gardener's
+// flag expiry for LLM-flagged notes.
+func ClearFlag(path string) error {
+	return editNoteMetadata(path, "gardener_flag", "")
+}
+
 // MarkSuperseded flags hubDir/<noteSlug>.md as replaced by bySlug (pruning's strong signal).
 func MarkSuperseded(hubDir, noteSlug, bySlug string) error {
 	return editNoteMetadata(filepath.Join(hubDir, noteSlug+".md"), "superseded_by", bySlug)

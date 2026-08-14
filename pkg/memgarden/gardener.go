@@ -9,7 +9,10 @@ package memgarden
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -25,41 +28,56 @@ import (
 
 const maxArchivesPerPass = 20
 
+// dedupFlagExpireDays is how long a gardener_flag may sit before the LLM pillars' stamps (drift /
+// duplicate) decay out of the cleanup queue on their own. Wrong flags must not pin notes forever;
+// the content fingerprint means a cleared flag never re-arms dedup. Deterministic "stale" flags are
+// exempt — their condition persists, so clearing them would just re-stamp at the next sweep.
+const dedupFlagExpireDays = 14
+
 type gardener struct {
 	mu       sync.Mutex
 	inflight map[string]bool
 
-	now          func() time.Time
-	staleDays    int
-	maxArchives  int
-	cooldownMins int
+	now            func() time.Time
+	staleDays      int
+	maxArchives    int
+	cooldownMins   int
+	flagExpireDays int
 
-	lastLLMSweep map[string]time.Time
+	vaultNotesFn func() []memvault.NoteWithBody
+	repoPathFn   func(scope string) string
+	repoIndexFn  func(repoPath string) map[string]bool
+	archiveFn    func(path, reason string, now time.Time) (string, error)
+	flagFn       func(path, reason string) error
+	clearFlagFn  func(path string) error
+	loadStateFn  func() (*gardenState, error)
+	saveStateFn  func(*gardenState) error
+	vaultRootFn  func() string
+	state        *gardenState
+	stateLoaded  bool
 
-	vaultNotesFn  func() []memvault.NoteWithBody
-	repoPathFn    func(scope string) string
-	repoIndexFn   func(repoPath string) map[string]bool
-	archiveFn     func(path, reason string, now time.Time) (string, error)
-	flagFn        func(path, reason string) error
-
-	gardenFn func(scope string, notes []memvault.NoteWithBody)   // indirection so sweep single-flight tests in isolation
+	gardenFn func(scope string, notes []memvault.NoteWithBody) // indirection so sweep single-flight tests in isolation
 	llmFn    func(model, prompt, corpus string) (string, bool) // used by Tasks 11-12
 }
 
 func newGardener() *gardener {
 	g := &gardener{
-		inflight:     map[string]bool{},
-		now:          time.Now,
-		staleDays:    gardenerStaleDays(),
-		maxArchives:  maxArchivesPerPass,
-		cooldownMins: gardenerCooldownMins(),
-		lastLLMSweep: map[string]time.Time{},
-		vaultNotesFn: memvault.VaultNotes,
-		repoPathFn:   memroots.RegistryPathForLabel,
-		repoIndexFn:  buildRepoIndex,
-		archiveFn:    memvault.Archive,
-		flagFn:       memvault.FlagNote,
-		llmFn:        runGardenLLM,
+		inflight:       map[string]bool{},
+		now:            time.Now,
+		staleDays:      gardenerStaleDays(),
+		maxArchives:    maxArchivesPerPass,
+		cooldownMins:   gardenerCooldownMins(),
+		flagExpireDays: dedupFlagExpireDays,
+		vaultNotesFn:   memvault.VaultNotes,
+		repoPathFn:     memroots.RegistryPathForLabel,
+		repoIndexFn:    buildRepoIndex,
+		archiveFn:      memvault.Archive,
+		flagFn:         memvault.FlagNote,
+		clearFlagFn:    memvault.ClearFlag,
+		loadStateFn:    defaultLoadState,
+		saveStateFn:    defaultSaveState,
+		vaultRootFn:    memroots.MemoryRoot,
+		llmFn:          runGardenLLM,
 	}
 	g.gardenFn = g.gardenScope
 	return g
@@ -108,6 +126,29 @@ func (g *gardener) gardenScope(scope string, notes []memvault.NoteWithBody) {
 		log.Printf("[memgarden] archived %s reason=%s scope=%s\n", path, reason, scope)
 	}
 
+	// Pillar 0: flag decay. LLM stamps (drift/duplicate) older than flagExpireDays clear themselves:
+	// a wrong flag must not pin a note in the cleanup queue forever, and the content fingerprint means
+	// clearing one never re-arms dedup. Deterministic "stale" flags are exempt — their condition
+	// persists, so the clear would just re-stamp at the next sweep. Flag age is the file mtime: the
+	// stamp rewrites the file, and a later body edit (human attention) extending the age is fine.
+	if g.flagExpireDays > 0 {
+		expireCutoff := now.AddDate(0, 0, -g.flagExpireDays)
+		for _, n := range plain {
+			if !isLLMFlag(n.GardenerFlag) {
+				continue
+			}
+			info, err := os.Stat(n.Path)
+			if err != nil || info.ModTime().After(expireCutoff) {
+				continue
+			}
+			if err := g.clearFlagFn(n.Path); err != nil {
+				log.Printf("[memgarden] expire flag %s: %v\n", n.Path, err)
+			} else {
+				log.Printf("[memgarden] expired flag %s (%s)\n", n.Path, n.GardenerFlag)
+			}
+		}
+	}
+
 	// Pillar 1: decay (recall + age).
 	for _, a := range classifyDecay(plain, now, g.staleDays) {
 		if a.Archive {
@@ -146,24 +187,115 @@ func (g *gardener) gardenScope(scope string, notes []memvault.NoteWithBody) {
 	}
 }
 
+// isLLMFlag reports whether a gardener_flag was stamped by an LLM pillar (decay-eligible) rather
+// than the deterministic decay pillar (which re-stamps its own condition every sweep).
+func isLLMFlag(reason string) bool {
+	return reason == "drift" || reason == "duplicate"
+}
+
 // runLLMPillars runs the flag-only LLM pillars: soft-drift (freshness) + near-dup (dedup).
 // Gated by a per-scope cooldown so rapid note/file changes during active development don't
-// trigger an LLM call on every hourly sweep. Deterministic pillars always run unthrottled.
+// trigger an LLM call on every hourly sweep. The cooldown and the dedup fingerprint live in the
+// persisted state: in-memory gates reset on restart, and a restart-triggered sweep re-armed the
+// pillars against the full corpus — that is how one vault switch stamped 63 duplicate flags in a
+// day (observed 2026-08-14). Deterministic pillars always run unthrottled.
 func (g *gardener) runLLMPillars(scope string, notes []memvault.NoteWithBody, repoPath string) {
 	now := g.now()
+	st := g.loadState()
 	if g.cooldownMins > 0 {
 		g.mu.Lock()
-		last := g.lastLLMSweep[scope]
+		lastStr := st.LastLLMSweep[scope]
 		g.mu.Unlock()
-		if now.Sub(last) < time.Duration(g.cooldownMins)*time.Minute {
-			return
+		if lastStr != "" {
+			if last, err := time.Parse(time.RFC3339, lastStr); err == nil && now.Sub(last) < time.Duration(g.cooldownMins)*time.Minute {
+				return
+			}
 		}
 	}
 	g.checkSoftDrift(repoPath, notes)
 	g.checkDedup(scope, notes)
 	g.mu.Lock()
-	g.lastLLMSweep[scope] = now
+	st.LastLLMSweep[scope] = now.UTC().Format(time.RFC3339)
 	g.mu.Unlock()
+	g.saveState()
+}
+
+// gardenState is the persisted gardener state: per-scope dedup fingerprints and last LLM sweep
+// times. In-memory only, both reset on every restart, and a restart-triggered sweep re-armed the
+// LLM pillars against the full corpus — that is how one vault switch stamped 63 duplicate flags in
+// a day (observed 2026-08-14). Keyed by scope (project label / cluster).
+type gardenState struct {
+	VaultRoot    string            `json:"vaultroot"`
+	DedupFP      map[string]string `json:"dedupfp"`      // scope -> corpus fingerprint
+	LastLLMSweep map[string]string `json:"lastllmsweep"` // scope -> RFC3339
+}
+
+// loadState returns the persisted gardener state, loading it on first use. A vault-root change
+// (memory:vaultpath) invalidates every per-scope entry: scope labels collide across vaults, and a
+// stale fingerprint or cooldown from the previous vault would suppress the first sweep here.
+func (g *gardener) loadState() *gardenState {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.stateLoaded {
+		return g.state
+	}
+	st, err := g.loadStateFn()
+	if err != nil || st == nil {
+		st = &gardenState{}
+	}
+	if st.DedupFP == nil {
+		st.DedupFP = map[string]string{}
+	}
+	if st.LastLLMSweep == nil {
+		st.LastLLMSweep = map[string]string{}
+	}
+	root := g.vaultRootFn()
+	if st.VaultRoot != "" && st.VaultRoot != root {
+		st.DedupFP = map[string]string{}
+		st.LastLLMSweep = map[string]string{}
+	}
+	st.VaultRoot = root
+	g.state = st
+	g.stateLoaded = true
+	return st
+}
+
+// saveState persists the in-memory state, serialized under mu: concurrent per-scope sweeps each
+// call saveState, and two unsynchronized full-file writes interleave into a corrupt file (observed
+// 2026-08-14). Failure is logged, never fatal: the state is advisory, and the worst outcome of a
+// lost write is one re-armed sweep.
+func (g *gardener) saveState() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.state == nil {
+		return
+	}
+	if err := g.saveStateFn(g.state); err != nil {
+		log.Printf("[memgarden] save state: %v\n", err)
+	}
+}
+
+// gardenStateFile is the persisted gardener state file name inside the Wave data dir.
+const gardenStateFile = "memgarden-state.json"
+
+func defaultLoadState() (*gardenState, error) {
+	data, err := os.ReadFile(filepath.Join(wavebase.GetWaveDataDir(), gardenStateFile))
+	if err != nil {
+		return nil, err // missing or unreadable -> fresh state
+	}
+	var st gardenState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+func defaultSaveState(st *gardenState) error {
+	data, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(wavebase.GetWaveDataDir(), gardenStateFile), data, 0o644)
 }
 
 const llmTimeout = 110 * time.Second

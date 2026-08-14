@@ -1,6 +1,9 @@
 package memgarden
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +16,7 @@ func TestGardenProjectDeterministic(t *testing.T) {
 	oldCap := now.AddDate(0, 0, -40).Format(time.RFC3339)
 
 	var archived, flagged []string
-	g := newGardener()
+	g := testGardener(nil)
 	g.now = func() time.Time { return now }
 	g.repoPathFn = func(scope string) string { return "/repo" }
 	g.repoIndexFn = func(repo string) map[string]bool { return map[string]bool{} }
@@ -44,7 +47,7 @@ func TestGardenProjectDeterministic(t *testing.T) {
 func TestGardenProjectRespectsArchiveCap(t *testing.T) {
 	now := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	oldCap := now.AddDate(0, 0, -40).Format(time.RFC3339)
-	g := newGardener()
+	g := testGardener(nil)
 	g.now = func() time.Time { return now }
 	g.maxArchives = 2
 	g.repoPathFn = func(string) string { return "" }
@@ -64,7 +67,7 @@ func TestGardenProjectRespectsArchiveCap(t *testing.T) {
 }
 
 func TestSweepSingleFlight(t *testing.T) {
-	g := newGardener()
+	g := testGardener(nil)
 	release := make(chan struct{})
 	started := make(chan struct{}, 4)
 	g.vaultNotesFn = func() []memvault.NoteWithBody {
@@ -84,6 +87,91 @@ func TestSweepSingleFlight(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
+}
+
+func TestGardenExpiresOldLLMFlags(t *testing.T) {
+	now := time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	write := func(name string, mtime time.Time) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		return p
+	}
+	var cleared []string
+	g := testGardener(nil)
+	g.now = func() time.Time { return now }
+	g.flagExpireDays = 14
+	g.clearFlagFn = func(path string) error {
+		cleared = append(cleared, path)
+		return nil
+	}
+	// old drift flag (15d), fresh duplicate flag (1d), old deterministic stale flag (15d, exempt)
+	old := now.AddDate(0, 0, -15)
+	notes := []memvault.NoteWithBody{
+		{Note: memvault.Note{ID: "old-drift", Path: write("old-drift.md", old), GardenerFlag: "drift"}},
+		{Note: memvault.Note{ID: "fresh-dup", Path: write("fresh-dup.md", now.AddDate(0, 0, -1)), GardenerFlag: "duplicate"}},
+		{Note: memvault.Note{ID: "old-stale", Path: write("old-stale.md", old), GardenerFlag: "stale"}},
+	}
+	g.gardenScope("proj", notes)
+	if len(cleared) != 1 || !strings.HasSuffix(cleared[0], "old-drift.md") {
+		t.Fatalf("want only the old drift flag cleared, got %v", cleared)
+	}
+}
+
+func TestLoadStateResetsOnVaultSwitch(t *testing.T) {
+	st := &gardenState{
+		VaultRoot:    "/old/vault/memory",
+		DedupFP:      map[string]string{"proj": "stale-fp"},
+		LastLLMSweep: map[string]string{"proj": "2026-08-14T00:00:00Z"},
+	}
+	g := testGardener(st)
+	g.vaultRootFn = func() string { return "/new/vault/memory" }
+	got := g.loadState()
+	if len(got.DedupFP) != 0 || len(got.LastLLMSweep) != 0 {
+		t.Fatalf("vault switch must reset per-scope state: %v", got)
+	}
+	if got.VaultRoot != "/new/vault/memory" {
+		t.Fatalf("vault root not updated: %q", got.VaultRoot)
+	}
+}
+
+func TestSaveStateSerialized(t *testing.T) {
+	// two concurrent per-scope sweeps calling saveState must not run the full-file write at the
+	// same time — unsynchronized os.WriteFile calls interleave into a corrupt file (observed
+	// 2026-08-14: a dev app's own sweeps corrupted its state file).
+	g := testGardener(nil)
+	var mu sync.Mutex
+	active, maxActive := 0, 0
+	g.saveStateFn = func(*gardenState) error {
+		mu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		mu.Unlock()
+		time.Sleep(2 * time.Millisecond) // widen the race window
+		mu.Lock()
+		active--
+		mu.Unlock()
+		return nil
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			g.saveState()
+		}()
+	}
+	wg.Wait()
+	if maxActive > 1 {
+		t.Fatalf("saveState ran concurrently (%d) — full-file writes can interleave", maxActive)
+	}
 }
 
 var _ = sync.Mutex{}

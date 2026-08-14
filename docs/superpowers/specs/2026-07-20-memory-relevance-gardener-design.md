@@ -114,6 +114,33 @@ non-destructive and per-pass-capped.
   rescan is a one-time ~80K tokens (≈ half one distill batch), spread by the per-pass cap.
 - The deterministic pillars (decay, dead-ref) cost **0 tokens** and can run every sweep.
 
+### 6a. Dedup flag mechanics (amended 2026-08-14 — mass-flagging incidents)
+
+Two incidents (2026-08-13: 53 false "duplicate" flags from one sweep; 2026-08-14: 54 more in one
+sweep, 63 total in a day across three sweeps) showed the dedup pillar could mass-stamp the cleanup
+queue and never release it. The original mtime fingerprint ratcheted: flagging a note rewrites its
+frontmatter, changing its mtime, which changed the fingerprint, which re-armed the next pass on the
+smaller set — each flag batch guaranteed the next run found more. In-memory gates made every server
+restart re-arm the full sweep; the vault switch (memory:vaultpath) reset nothing.
+
+Mechanics now:
+
+- **Content fingerprint, not mtime.** `noteSetFingerprint` hashes (id, body) over ALL notes. A flag
+  stamp rewrites only the frontmatter, so flagging (and expiry-clearing) never re-arms the next pass;
+  adding/removing/editing a note does.
+- **Persisted state.** The per-scope fingerprint and the LLM-sweep cooldown live in
+  `<data>/memgarden-state.json` (vault-root keyed; a vault switch resets all scopes). Restarts can no
+  longer re-arm a sweep against the full corpus.
+- **Per-pass flag cap** (`maxFlagsPerDedupPass = 5`) and **chunked verification** (`maxVerifyGroup =
+  4`): a 55-member cluster is no longer verified as one wall of look-alike text; unprocessed clusters
+  wait for the note set to actually change.
+- **Flag expiry** (`dedupFlagExpireDays = 14`): LLM stamps (`drift`/`duplicate`) older than 14 days
+  clear themselves out of the queue. Deterministic `stale` flags are exempt — their condition
+  persists, so clearing would re-stamp at the next sweep.
+
+Net effect: the cleanup queue drains (expiry + human removal) and only regrows slowly, one small
+verified batch at a time, never by restart or flag-ratchet.
+
 ### 7. Error handling
 
 Fail-safe throughout, matching the existing hooks: recall parsing and the sweep are off the agent hot
