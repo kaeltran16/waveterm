@@ -35,6 +35,8 @@ const KIND_LABEL: Record<PetEvent["kind"], string> = {
     connection: "This just connected",
     "loose-end": "Still open",
     ledger: "Work state",
+    notify: "Notice",
+    ask: "Asking you",
 };
 
 export function PetBubble({

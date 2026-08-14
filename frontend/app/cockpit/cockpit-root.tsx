@@ -97,7 +97,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             <BackgroundAgentsPoller />
             <AttentionPoller />
             <PetDecayPoller />
-            <PetSources />
+            <PetSources model={model} />
             <CockpitAppBar model={model} />
             <div className="min-h-0 flex-1">
                 <CockpitShell model={model} tabId={tabIdRef.current} />

@@ -12,6 +12,7 @@
 import type { PetSignals } from "./petcondition";
 import type { PetEvent } from "./petvoice";
 import { ageLabel } from "./recallderive";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 
 const INDEX_STATES = ["ok", "off", "stale"] as const;
 type IndexState = (typeof INDEX_STATES)[number];
@@ -196,4 +197,112 @@ export function passLine(pass: PetPass | null, nowMs: number): string {
     const wrote = pass.written === 0 ? "nothing written" : `${notes(pass.written)} written`;
     const covered = pass.sessions === 1 ? "1 session" : `${pass.sessions} sessions`;
     return `${ageLabel(Math.max(0, nowMs - pass.at))} · ${covered} · ${wrote}`;
+}
+
+// A notification is a message from elsewhere, so the text passes through verbatim — rewriting it would
+// be guessing (design §2). The title is the utterance; the message body rides as detail for the peek.
+// The id is session-unique (`seq` from the caller): notify events are ephemeral wave events, so no
+// cross-reload stability is needed, and the pair `nowMs`/`seq` keeps same-millisecond events distinct.
+export function eventFromNotify(
+    d: NotifyCommandData | null | undefined,
+    nowMs: number,
+    seq: number
+): PetEvent | null {
+    const title = d?.title?.trim() ?? "";
+    if (!title) {
+        return null;
+    }
+    return {
+        id: `notify:${nowMs}:${seq}`,
+        at: nowMs,
+        kind: "notify",
+        text: title,
+        detail: d.message?.trim() || undefined,
+    };
+}
+
+// The raise/clear pair shares the askid so the cleared event can retract the pending one. A raised ask
+// without a question carries nothing to say; a cleared ask carries no utterance at all, only the retract.
+export interface AskEventResult {
+    event?: PetEvent;
+    cancelId?: string;
+}
+
+export function eventFromAsk(d: AgentAskData | null | undefined): AskEventResult {
+    if (d == null || !d.askid) {
+        return {};
+    }
+    if (d.cleared) {
+        return { cancelId: `ask:${d.askid}` };
+    }
+    const question = d.questions?.[0]?.question?.trim() ?? "";
+    if (!question) {
+        return {};
+    }
+    return {
+        event: {
+            id: `ask:${d.askid}`,
+            at: d.ts > 0 ? d.ts : Date.now(),
+            kind: "ask",
+            text: question,
+            ref: d.oref || undefined,
+        },
+    };
+}
+
+// The roster join: an ask's block oref matches the roster row's termBlockOref, whose id IS the tab the
+// Agent surface focuses. `blockId` is the oref with the "block:" prefix stripped (agentsviewmodel.ts:519).
+// The VM is returned whole: the gate needs the tab id, and the open affordance needs the name.
+export function askAgent(agents: ReadonlyArray<AgentVM>, askOref: string | undefined): AgentVM | undefined {
+    const oid = askOref?.split(":")[1];
+    if (oid == null) {
+        return undefined;
+    }
+    return agents.find((a) => a.blockId === oid);
+}
+
+// The focus gate (design §4.2): an ask you are already looking at is already reported — speaking it too
+// would be the double-count the report-once rule exists to prevent. Suppressed when keyboard focus sits
+// inside the ask's block (cockpit) or when the Agent surface is focused on that agent's tab. Everything
+// else speaks. An oref the gate cannot match always speaks: absence of evidence is not suppression.
+export interface AskGateCtx {
+    surface: string;
+    focusTabId: string | undefined;
+    askTabId: string | undefined;
+    focusedBlockId: string | null;
+}
+
+export function shouldSpeakAsk(askOref: string | undefined, ctx: AskGateCtx): boolean {
+    if (askOref == null) {
+        return true;
+    }
+    const oid = askOref.split(":")[1];
+    if (oid != null && ctx.focusedBlockId != null && oid === ctx.focusedBlockId) {
+        return false;
+    }
+    if (ctx.surface === "agent" && ctx.askTabId != null && ctx.askTabId === ctx.focusTabId) {
+        return false;
+    }
+    return true;
+}
+
+// A background agent finishing is a presence→absence transition in the poll listing. The first load
+// diffs against nothing (prev is empty) so it can never fabricate completions, and a dismissed id is
+// excluded so the Dismiss button cannot fake one either. Each finisher is one event; the voice speaks
+// the newest and the peek keeps the rest.
+export function agentFinishedFromDiff(
+    prev: ReadonlyArray<BackgroundAgentData>,
+    next: ReadonlyArray<BackgroundAgentData>,
+    dismissed: ReadonlySet<string>,
+    nowMs: number
+): PetEvent[] {
+    const nextIds = new Set(next.filter((a) => a?.kind === "background").map((a) => a.sessionid));
+    return prev
+        .filter((a) => a?.kind === "background" && a.sessionid && !nextIds.has(a.sessionid) && !dismissed.has(a.sessionid))
+        .map((a) => ({
+            id: `bgdone:${a.sessionid}:${nowMs}`,
+            at: nowMs,
+            kind: "bg-agent-done",
+            text: `${(a.name ?? "").trim() || "A background agent"} finished`,
+        }));
 }

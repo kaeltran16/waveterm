@@ -9,6 +9,8 @@ import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { agentFinishedFromDiff } from "@/app/view/jarvis/petjoin";
+import { pushPetEvent } from "@/app/view/jarvis/petstore";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { backgroundAgentToVM, type AgentVM } from "./agentsviewmodel";
 import { projectLabel } from "./projectlabel";
@@ -18,10 +20,15 @@ export const backgroundAgentsErrorAtom = atom<boolean>(false) as PrimitiveAtom<b
 
 let loadSeq = 0;
 
+// ids the user dismissed via the strip's × button — a disappearance they caused must not read as a
+// completion. Session-scoped: a reload forgets it, and the poll diff has nothing to prove to history.
+const dismissedAgentIds = new Set<string>();
+
 // Dismiss a background agent: delete its ~/.claude/jobs record at the source (the transcript is
 // kept, so resume/attach still work). Optimistically drop it from the atom for instant feedback,
 // then reconcile against a fresh listing. On failure the reload restores the true state.
 export async function dismissBackgroundAgent(sessionId: string): Promise<void> {
+    dismissedAgentIds.add(sessionId);
     globalStore.set(
         backgroundAgentsAtom,
         globalStore.get(backgroundAgentsAtom).filter((a) => a.sessionid !== sessionId)
@@ -40,8 +47,13 @@ export async function loadBackgroundAgents(): Promise<void> {
         if (seq !== loadSeq) {
             return;
         }
+        const prev = globalStore.get(backgroundAgentsAtom);
         globalStore.set(backgroundAgentsAtom, rtn.agents ?? []);
         globalStore.set(backgroundAgentsErrorAtom, false);
+        // the one place prev and next meet; a failed load kept the last-good list and runs no diff
+        for (const ev of agentFinishedFromDiff(prev, rtn.agents ?? [], dismissedAgentIds, Date.now())) {
+            pushPetEvent(ev);
+        }
     } catch {
         if (seq !== loadSeq) {
             return;

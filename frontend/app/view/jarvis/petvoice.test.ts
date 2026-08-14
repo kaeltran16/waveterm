@@ -24,6 +24,12 @@ describe("nextUtterance", () => {
         const spoken = nextUtterance(events, null);
         expect(spoken.utterance?.id).toBe("c");
     });
+
+    it("treats a notify event as a normal utterance", () => {
+        const e = ev("n1", 1000, { kind: "notify" });
+        const spoken = nextUtterance([e], null);
+        expect(spoken.utterance).toEqual(e);
+    });
 });
 
 describe("the watermark", () => {

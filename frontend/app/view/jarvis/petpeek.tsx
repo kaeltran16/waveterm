@@ -287,6 +287,9 @@ function UpdateItem({
             <span className="rounded-full bg-edge-strong" />
             <div className="min-w-0">
                 <span className="text-[11.5px] leading-[1.45] text-secondary">{event.text}</span>
+                {event.detail ? (
+                    <span className="mt-0.5 block text-[11.5px] leading-[1.45] text-muted">{event.detail}</span>
+                ) : null}
                 <span className="mt-1 block font-mono text-[9.5px] text-muted">
                     {event.kind} · {ageLabel(Math.max(0, now - event.at))}
                 </span>

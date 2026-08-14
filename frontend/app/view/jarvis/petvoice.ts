@@ -34,8 +34,15 @@ export interface PetEvent {
         | "recall"
         | "connection"
         | "loose-end"
-        | "ledger";
+        | "ledger"
+        // announcement channels: notifications and pending agent questions
+        | "notify"
+        | "ask";
     text: string;
+    // message body / question body — the bubble shows only `text`; the peek renders this dimmed
+    detail?: string;
+    // address of the thing that raised this event (an ask's block oref) — carried for the peek to open
+    ref?: string;
     reportedAsCondition?: boolean;
     // Set on any utterance that has products to open: volunteered knowledge carries one, a distillation
     // pass carries the notes it wrote. An utterance with none is either housekeeping that produced nothing

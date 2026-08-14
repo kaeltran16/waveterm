@@ -297,3 +297,151 @@ describe("passLine", () => {
         expect(passLine(null, 0)).toBe("not read yet");
     });
 });
+
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import {
+    agentFinishedFromDiff,
+    askAgent,
+    eventFromAsk,
+    eventFromNotify,
+    shouldSpeakAsk,
+    type AskGateCtx,
+} from "./petjoin";
+
+function notify(over: Partial<NotifyCommandData> = {}): NotifyCommandData {
+    return { title: "build finished", message: "all 214 tests green", level: "info", ...over };
+}
+
+describe("eventFromNotify", () => {
+    it("turns a notification into an event: title is the utterance, message is the detail", () => {
+        const e = eventFromNotify(notify(), 1000, 1);
+        expect(e).toEqual({
+            id: "notify:1000:1",
+            at: 1000,
+            kind: "notify",
+            text: "build finished",
+            detail: "all 214 tests green",
+        });
+    });
+
+    it("ignores a missing or empty title", () => {
+        expect(eventFromNotify(null, 1000, 1)).toBeNull();
+        expect(eventFromNotify(notify({ title: "" }), 1000, 1)).toBeNull();
+    });
+
+    it("leaves detail unset when there is no message", () => {
+        expect(eventFromNotify(notify({ message: "" }), 1000, 2)?.detail).toBeUndefined();
+    });
+});
+
+function ask(over: Partial<AgentAskData> = {}): AgentAskData {
+    return {
+        oref: "block:abc",
+        askid: "ask-1",
+        ts: 2000,
+        questions: [{ question: "which rollout approach?", header: "Rollout", options: [] }],
+        ...over,
+    };
+}
+
+describe("eventFromAsk", () => {
+    it("turns a raised ask into an event keyed by askid", () => {
+        expect(eventFromAsk(ask())).toEqual({
+            event: { id: "ask:ask-1", at: 2000, kind: "ask", text: "which rollout approach?", ref: "block:abc" },
+        });
+    });
+
+    it("a cleared ask yields a cancel id, never an event", () => {
+        expect(eventFromAsk(ask({ cleared: true }))).toEqual({ cancelId: "ask:ask-1" });
+    });
+
+    it("an ask with no questions, or no data at all, yields nothing", () => {
+        expect(eventFromAsk(ask({ questions: [] }))).toEqual({});
+        expect(eventFromAsk(null)).toEqual({});
+    });
+});
+
+describe("askAgent", () => {
+    it("finds the roster agent whose block matches the ask oref", () => {
+        const agents = [{ id: "tab1", name: "radar-triage", blockId: "abc" } as unknown as AgentVM];
+        expect(askAgent(agents, "block:abc")?.id).toBe("tab1");
+    });
+
+    it("yields undefined when nothing matches", () => {
+        expect(askAgent([], "block:abc")).toBeUndefined();
+    });
+});
+
+function gateCtx(over: Partial<AskGateCtx> = {}): AskGateCtx {
+    return { surface: "jarvis", focusTabId: undefined, askTabId: undefined, focusedBlockId: null, ...over };
+}
+
+describe("shouldSpeakAsk", () => {
+    it("suppresses when keyboard focus is inside the ask's block", () => {
+        expect(shouldSpeakAsk("block:abc", gateCtx({ focusedBlockId: "abc" }))).toBe(false);
+    });
+
+    it("suppresses on the agent surface when that agent is focused", () => {
+        expect(shouldSpeakAsk("block:abc", gateCtx({ surface: "agent", focusTabId: "tab1", askTabId: "tab1" }))).toBe(
+            false
+        );
+    });
+
+    it("speaks when a different agent is focused", () => {
+        expect(shouldSpeakAsk("block:abc", gateCtx({ surface: "agent", focusTabId: "tab2", askTabId: "tab1" }))).toBe(
+            true
+        );
+    });
+
+    it("speaks when the ask's agent is not on the roster", () => {
+        expect(
+            shouldSpeakAsk("block:abc", gateCtx({ surface: "agent", focusTabId: "tab1", askTabId: undefined }))
+        ).toBe(true);
+    });
+
+    it("speaks when there is no oref to match against", () => {
+        expect(shouldSpeakAsk(undefined, gateCtx({ focusedBlockId: "abc" }))).toBe(true);
+    });
+});
+
+function bg(over: Partial<BackgroundAgentData> = {}): BackgroundAgentData {
+    return {
+        sessionid: "s1",
+        cwd: "/x",
+        kind: "background",
+        name: "radar-triage",
+        state: "working",
+        startedts: 1,
+        ...over,
+    };
+}
+
+describe("agentFinishedFromDiff", () => {
+    it("reports a background agent that disappeared between polls", () => {
+        expect(agentFinishedFromDiff([bg()], [], new Set(), 3000)).toEqual([
+            { id: "bgdone:s1:3000", at: 3000, kind: "bg-agent-done", text: "radar-triage finished" },
+        ]);
+    });
+
+    it("ignores agents still present", () => {
+        expect(agentFinishedFromDiff([bg()], [bg()], new Set(), 3000)).toEqual([]);
+    });
+
+    it("ignores dismissed ids", () => {
+        expect(agentFinishedFromDiff([bg()], [], new Set(["s1"]), 3000)).toEqual([]);
+    });
+
+    it("ignores non-background entries", () => {
+        expect(agentFinishedFromDiff([bg({ kind: "agent" })], [], new Set(), 3000)).toEqual([]);
+    });
+
+    it("never reports on a first load (empty prev)", () => {
+        expect(agentFinishedFromDiff([], [bg()], new Set(), 3000)).toEqual([]);
+    });
+
+    it("falls back to a generic name when the agent has none", () => {
+        expect(agentFinishedFromDiff([bg({ name: "" })], [], new Set(), 3000)[0]?.text).toBe(
+            "A background agent finished"
+        );
+    });
+});

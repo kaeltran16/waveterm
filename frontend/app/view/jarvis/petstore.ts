@@ -96,6 +96,13 @@ export function pushPetEvent(event: PetEvent): void {
     globalStore.set(petEventsAtom, [event, ...events].slice(0, PET_EVENTS_MAX));
 }
 
+// Retract a pending event (an ask cleared before it was spoken). Dedupe-by-id means the same id cannot
+// be re-queued afterwards, so the retract is safe even if the raise and the clear arrive in one tick.
+export function removePetEvent(id: string): void {
+    const events = globalStore.get(petEventsAtom).filter((e) => e.id !== id);
+    globalStore.set(petEventsAtom, events);
+}
+
 // What the bubble is showing, or null. Session-scoped: a bubble is a moment, not a state to restore.
 export const petBubbleAtom = atom<PetEvent | null>(null) as PrimitiveAtom<PetEvent | null>;
 
