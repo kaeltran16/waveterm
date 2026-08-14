@@ -64,7 +64,96 @@ Tauri and pivoted toward an agent-cockpit UI. `main` is the Tauri build. The Go 
   the do's and don'ts. Read it before planning or styling new UI.
 - Colors come from `@theme` tokens in `frontend/tailwindsetup.css`; never raw hex in components
   (the pi theme under `pi/themes/arc.json` is the exception — it is a TUI theme file).
-- Comments explain "why", never "what". Prefer short functions, KISS/YAGNI.
-- Pi sessions gate complex commits (>50 changed lines or >4 files, generated paths excluded) on a
-  `/simplify` review — see `pi/extensions/waveterm-simplify-gate.ts`. Override with `--no-verify`.
-- Never commit without explicit user approval.
+- Comments explain "why", never "what". Lower case. Only when necessary. Prefer short functions and
+  shallow nesting; KISS/YAGNI/DRY/SOLID; single source of truth.
+
+## Working style
+
+Personal preferences (source: `~/Projects/claude_skills/CLAUDE.md`), binding for every agent session in
+this repo.
+
+- **Style:** never use emojis unless explicitly requested; be concise and direct; explain the rationale
+  for architectural decisions.
+- **Architecture:** KISS, YAGNI, DRY, SOLID. Single source of truth. Measure before optimizing; don't
+  abstract for a single use; don't add config until needed.
+- **Solution ladder**, in order: need it? → already in this codebase? → stdlib → native platform
+  feature → installed dependency → one line → minimum that works. Check the earlier rungs before
+  writing; be lazy about the solution, never about reading.
+- Avoid magic numbers/strings. When unsure, fewer files and less abstraction.
+
+### Before acting
+
+- **State the assumption.** Name the interpretation you're using; if it could materially change the
+  answer, ask first.
+- **Read before you write.** Read a file's exports, its caller, and shared utilities before editing.
+- **Project the consequence.** For changes with downstream effect, weigh the downside if wrong and
+  whether it's reversible. Material downside → escalate care.
+- Plan non-trivial changes and get approval first.
+
+### While acting
+
+- **Touch only what the task requires.** No unrelated refactors, reformatting, or scope creep. Clean up
+  only your own additions.
+- **Stay minimal.** Minimum code that solves the problem; nothing speculative. Minimality never cuts
+  input validation, error handling, security, or accessibility; tests are not bloat.
+- **Reuse before write.** Grep for an existing helper or caller before writing a new one. Bug fix =
+  root cause, not symptom: fix the shared function once, not the path the ticket names.
+- **Match existing conventions** for naming, formatting, errors, tests. If two patterns conflict, pick
+  one (more recent/tested) and flag it.
+- **Model for judgment, code for determinism.** Use the model to classify/draft/extract; use code for
+  routing, retries, status codes, deterministic transforms.
+- Handle errors at boundaries; never silently swallow. Meaningful messages with context.
+
+### After acting
+
+- **Ground specific claims.** Numbers, rankings, named sources, superlatives — if unsupported, mark or
+  remove. Bounded language over invented specificity.
+- **Surface incompleteness.** Don't say "done" or "tests pass" if anything was skipped. Tests must fail
+  when intent is violated.
+- **Checkpoint multi-step work**: what's done, verified, left. If you lose track, stop and restate.
+- **Before review:** self-review the diff; no commented-out code or debug statements.
+
+## Tests & security
+
+- Test behavior, not internals. Cover business logic and edge cases. Tests in place before refactoring.
+- Validate all external input server-side. Never commit secrets — use env vars. Sanitize before
+  queries.
+
+## Dependencies
+
+- Minimize external deps; prefer the standard library when sufficient.
+
+## Git workflow — strict
+
+- NEVER commit or push without explicit approval. Batch into one commit at the end unless told
+  otherwise. Do NOT add yourself as co-author.
+- Before any commit: run the simplify review on the changed lines (pi-simplify), then run the relevant
+  tests. No commit with an unreviewed diff.
+- Before any commit, show: files with status (M/A/D) + brief change summary, and the message as
+  `type(scope): description` (subject < 72 chars, explain WHY). Then ask: "Awaiting approval. Proceed?
+  (yes/no)"
+- Spec/plan docs (`docs/superpowers/specs/`, `docs/superpowers/plans/`) fold into the feature commit
+  they describe — never a separate docs-only commit. General/decision docs (meta specs, briefs) may
+  commit on their own.
+- Only use git worktrees when necessary.
+- Windows environment: never use PowerShell here-string syntax (`@'...'@`) inside the Bash tool for
+  commit messages. For multi-line commits, use multiple `-m` flags or write the message to a temp file
+  with `git commit -F`. For file listing on Windows paths, prefer PowerShell over bash globbing to
+  avoid backslash path issues.
+
+## When stuck
+
+- Stop, explain the problem, propose 2–3 alternatives with trade-offs. Ask rather than assume on
+  architectural decisions.
+
+## Browser & web-UI verification
+
+- Prefer the `agent-browser` CLI over the claude-in-chrome MCP for driving/verifying web UIs
+  (token-efficient a11y snapshots via `@e` refs, not pixel screenshots).
+- Attach to a running **headed** Chrome: launch it with `--remote-debugging-port=<port>` (fully quit
+  Chrome first), then `agent-browser connect <port>`; `snapshot -i` for the a11y tree, `screenshot`
+  for CSS/theme checks. Attaching to a headless Chrome can hang.
+- Run `agent-browser` interactively, not through a non-interactive tool harness — its persistent
+  daemon can stall on the shell's stdout pipe and appear hung.
+- In this repo the CDP harness `task verify:ui -- <scenario>` is the preferred visual check — see
+  Build & dev commands.

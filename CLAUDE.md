@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Personal working-style conventions (no emojis, solution ladder, git workflow, etc.) live in
+`AGENTS.md` — see the "Working style" / "Git workflow — strict" sections there; they apply here too.
+
 ## Project status
 
 Wave Terminal — an open-source, AI-native terminal. This fork has **migrated the desktop shell from Electron to Tauri** and is pivoting toward an agent-cockpit UI. `main` is the Tauri build; the original Electron shell was removed from `main` and preserved on the `legacy/electron` branch.
