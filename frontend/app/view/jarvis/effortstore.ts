@@ -13,6 +13,8 @@ import { chunkTone, type ChunkTone } from "./effortmodel";
 
 export const expandedEffortOrefAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const effortDetailAtom = atom<Map<string, Effort>>(new Map()) as PrimitiveAtom<Map<string, Effort>>;
+// fetch failures surface inline on the card/detail instead of a dead click; cleared on success.
+export const effortDetailErrorAtom = atom<Map<string, string>>(new Map()) as PrimitiveAtom<Map<string, string>>;
 
 export type ChunkRowModel = {
     label: string;
@@ -76,24 +78,37 @@ async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
 }
 
 // fetch-once cache fill shared by the card expand, the detail subject, and re-entry paths; a
-// successful mutate has already replaced the cache entry, so callers may skip this.
+// successful mutate has already replaced the cache entry, so callers may skip this. Failures are
+// recorded in effortDetailErrorAtom and re-thrown so callers can decide (the expand helpers swallow).
 export async function loadEffortDetail(oref: string): Promise<void> {
     if (globalStore.get(effortDetailAtom).has(oref)) {
         return;
     }
-    const rtn = await RpcApi.EffortGetCommand(
-        TabRpcClient,
-        { effortoid: effortOid(oref) },
-        { timeout: stateRpcTimeoutMs }
-    );
-    const cache = new Map(globalStore.get(effortDetailAtom));
-    cache.set(oref, rtn.effort);
-    globalStore.set(effortDetailAtom, cache);
+    try {
+        const rtn = await RpcApi.EffortGetCommand(
+            TabRpcClient,
+            { effortoid: effortOid(oref) },
+            { timeout: stateRpcTimeoutMs }
+        );
+        const cache = new Map(globalStore.get(effortDetailAtom));
+        cache.set(oref, rtn.effort);
+        globalStore.set(effortDetailAtom, cache);
+        const errs = new Map(globalStore.get(effortDetailErrorAtom));
+        errs.delete(oref);
+        globalStore.set(effortDetailErrorAtom, errs);
+    } catch (e) {
+        const errs = new Map(globalStore.get(effortDetailErrorAtom));
+        errs.set(oref, e instanceof Error ? e.message : String(e));
+        globalStore.set(effortDetailErrorAtom, errs);
+        throw e;
+    }
 }
 
 export async function expandEffort(oref: string): Promise<void> {
-    await loadEffortDetail(oref);
+    // expand first so the card opens immediately; the fetch fills it in, or the recorded error shows
+    // inline with a retry. A failed fetch must not read as a dead click.
     globalStore.set(expandedEffortOrefAtom, oref);
+    await loadEffortDetail(oref).catch(() => {});
 }
 
 export async function toggleEffort(oref: string): Promise<void> {

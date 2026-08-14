@@ -9,7 +9,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { CHUNK_CHIP_CLASSES, type ChunkChip, type ChunkTone, type EffortCardModel } from "./effortmodel";
-import { addChunkOp, advanceChunk, appendChunkNote, effortChunkRows, effortDetailAtom, reopenChunk } from "./effortstore";
+import { addChunkOp, advanceChunk, appendChunkNote, effortChunkRows, effortDetailAtom, effortDetailErrorAtom, loadEffortDetail, reopenChunk } from "./effortstore";
 import { ProgressBar } from "./progressbar";
 
 const MARKS: Record<ChunkTone, string | null> = {
@@ -103,6 +103,7 @@ export function EffortCard({
 }) {
     const oid = model.oref.replace(/^effort:/, "");
     const effort = useAtomValue(effortDetailAtom).get(model.oref);
+    const detailError = useAtomValue(effortDetailErrorAtom).get(model.oref);
     const [highlighted, setHighlighted] = useState<string | null>(null);
     const [addingChunk, setAddingChunk] = useState(false);
     const [noting, setNoting] = useState(false);
@@ -239,7 +240,23 @@ export function EffortCard({
             {expanded ? (
                 <>
                     {effort == null ? (
-                        <div className="mt-2 h-10 animate-pulse rounded-[8px] bg-surface" />
+                        detailError != null ? (
+                            <span className="mt-2 flex items-center gap-2 text-[11px] text-error">
+                                {detailError}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        void loadEffortDetail(model.oref);
+                                    }}
+                                    className="cursor-pointer rounded-[4px] border border-border px-1.5 py-[1px] font-mono text-[9px] text-secondary hover:text-primary"
+                                >
+                                    retry
+                                </button>
+                            </span>
+                        ) : (
+                            <div className="mt-2 h-10 animate-pulse rounded-[8px] bg-surface" />
+                        )
                     ) : (
                         <>
                             <div className="mt-2 flex flex-col">
