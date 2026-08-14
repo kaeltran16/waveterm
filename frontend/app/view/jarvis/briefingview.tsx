@@ -9,10 +9,11 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
 import { normalizeBriefingNav, projectBriefing, SEVEN_DAYS_MS } from "./briefingmodel";
 import { EffortCard } from "./effortcard";
+import { expandedEffortOrefAtom, toggleEffort } from "./effortstore";
 import {
     briefingAnswerAtom,
     briefingAskStateAtom,
@@ -94,6 +95,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
     const askState = useAtomValue(briefingAskStateAtom);
     const answer = useAtomValue(briefingAnswerAtom);
     const setRailOpen = useSetAtom(stageRailOpenAtom);
+    const expandedEffort = useAtomValue(expandedEffortOrefAtom);
 
     // load on entry (mount == transitioned into Briefing); Refresh / Retry / pinned-row re-click
     // call refreshBriefing() directly.
@@ -115,9 +117,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
         });
     }, [snapshot, fixture, liveAgents]);
 
-    // one effort expanded at a time (the inline tracker); the store takes this over in Task 5.
-    const [expandedEffort, setExpandedEffort] = useState<string | null>(null);
-
+    // one effort expanded at a time, owned by the store so subjects and delta rows can drive it.
     const failedRefresh = error != null && snapshot != null;
     const firstLoad = snapshot == null && loading;
     const loadFailed = snapshot == null && error != null;
@@ -238,9 +238,8 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                             key={e.oref}
                                             model={e}
                                             expanded={expandedEffort === e.oref}
-                                            onToggle={() =>
-                                                setExpandedEffort((cur) => (cur === e.oref ? null : e.oref))
-                                            }
+                                            onToggle={() => void toggleEffort(e.oref)}
+                                            onChipClick={() => void toggleEffort(e.oref)}
                                         />
                                     ))}
                                     {model_.effortMore > 0 ? (
