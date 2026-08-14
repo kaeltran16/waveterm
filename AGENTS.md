@@ -56,4 +56,6 @@ Tauri and pivoted toward an agent-cockpit UI. `main` is the Tauri build. The Go 
 - Colors come from `@theme` tokens in `frontend/tailwindsetup.css`; never raw hex in components
   (the pi theme under `pi/themes/arc.json` is the exception — it is a TUI theme file).
 - Comments explain "why", never "what". Prefer short functions, KISS/YAGNI.
+- Pi sessions gate complex commits (>50 changed lines or >4 files, generated paths excluded) on a
+  `/simplify` review — see `pi/extensions/waveterm-simplify-gate.ts`. Override with `--no-verify`.
 - Never commit without explicit user approval.
