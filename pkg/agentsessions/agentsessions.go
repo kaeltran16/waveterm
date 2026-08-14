@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
@@ -110,6 +111,7 @@ type SessionInfo struct {
 
 type claudeLine struct {
 	Type       string `json:"type"`
+	Timestamp  string `json:"timestamp"` // events derivation; session derivation ignores it
 	Cwd        string `json:"cwd"`
 	GitBranch  string `json:"gitBranch"`
 	Entrypoint string `json:"entrypoint"`
@@ -125,18 +127,32 @@ type claudeLine struct {
 	} `json:"message"`
 }
 
+// parseClaudeLines unmarshals a transcript's lines once; both derivations below consume the same
+// slice so a scan never parses a file twice (extract + events used to each re-unmarshal every line).
+func parseClaudeLines(lines []string) []claudeLine {
+	recs := make([]claudeLine, 0, len(lines))
+	for _, line := range lines {
+		var rec claudeLine
+		if json.Unmarshal([]byte(line), &rec) != nil {
+			continue
+		}
+		recs = append(recs, rec)
+	}
+	return recs
+}
+
 // extractClaudeSession folds one transcript file's lines into a SessionInfo. Returns nil when the
 // file carries no human prompt (e.g. a subagent/tool-only file) because those aren't useful to resume,
 // and when the transcript is a print-mode run — every model call Wave's own backend makes is print-mode,
 // so that one field excludes all of them without matching a word of any prompt.
 func extractClaudeSession(id string, lines []string) *SessionInfo {
+	return claudeSessionFrom(id, parseClaudeLines(lines))
+}
+
+func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 	s := &SessionInfo{ID: id}
 	hasTask := false
-	for _, line := range lines {
-		var rec claudeLine
-		if err := json.Unmarshal([]byte(line), &rec); err != nil {
-			continue
-		}
+	for _, rec := range recs {
 		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
 			return nil
 		}
@@ -165,14 +181,6 @@ func extractClaudeSession(id string, lines []string) *SessionInfo {
 		return nil
 	}
 	return s
-}
-
-type claudeEventLine struct {
-	Type      string `json:"type"`
-	Timestamp string `json:"timestamp"`
-	Message   struct {
-		Content json.RawMessage `json:"content"`
-	} `json:"message"`
 }
 
 type claudeBlock struct {
@@ -208,15 +216,15 @@ func askText(b claudeBlock) string {
 // NOT gate the synthetic "finished" on liveness (Go can't know the live roster); assembleEvents only
 // appends "finished" for done sessions, and the frontend strips it for live ones.
 func extractClaudeEvents(lines []string) sessionEvents {
+	return claudeEventsFrom(parseClaudeLines(lines))
+}
+
+func claudeEventsFrom(recs []claudeLine) sessionEvents {
 	var raw []SessionEvent
 	cmdByID := map[string]string{}
 	var firstTs, lastTs int64
 	var firstUser, lastAssistant string
-	for _, line := range lines {
-		var rec claudeEventLine
-		if json.Unmarshal([]byte(line), &rec) != nil {
-			continue
-		}
+	for _, rec := range recs {
 		if ts := parseTs(rec.Timestamp); ts > 0 {
 			if firstTs == 0 {
 				firstTs = ts
@@ -610,19 +618,25 @@ type provider struct {
 	runtime   string
 	root      string
 	matches   func(name string) bool
-	extract   func(path, stem string, lines []string) *SessionInfo
+	fused     func(path, stem string, lines []string) (*SessionInfo, sessionEvents)
 	resumeCmd func(s *SessionInfo) string
-	events    func(path string, lines []string) sessionEvents
 }
 
 func claudeProvider(root string) provider {
 	return provider{
-		runtime:   "claude",
-		root:      root,
-		matches:   func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
-		extract:   func(_ string, id string, lines []string) *SessionInfo { return extractClaudeSession(id, lines) },
+		runtime: "claude",
+		root:    root,
+		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
+		// one shared unmarshal pass for both derivations — claude transcripts dominate the scan cost
+		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents) {
+			recs := parseClaudeLines(lines)
+			s := claudeSessionFrom(id, recs)
+			if s == nil {
+				return nil, sessionEvents{}
+			}
+			return s, claudeEventsFrom(recs)
+		},
 		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
-		events:    func(_ string, lines []string) sessionEvents { return extractClaudeEvents(lines) },
 	}
 }
 
@@ -633,14 +647,21 @@ func codexProvider(root string) provider {
 		matches: func(name string) bool {
 			return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
 		},
-		extract:   func(_ string, id string, lines []string) *SessionInfo { return extractCodexSession(id, lines) },
+		// codex's session/event passes parse different payload shapes, so fusing would cost the same
+		// two unmarshals per line; its files are small, sequential is fine
+		fused: func(_ string, _ string, lines []string) (*SessionInfo, sessionEvents) {
+			s := extractCodexSession("", lines)
+			if s == nil {
+				return nil, sessionEvents{}
+			}
+			return s, extractCodexEvents(lines)
+		},
 		resumeCmd: func(s *SessionInfo) string { return "codex resume " + s.ID },
-		events:    func(_ string, lines []string) sessionEvents { return extractCodexEvents(lines) },
 	}
 }
 
 // opencodeProvider scans opencode's native storage. root is the storage root (…/opencode/storage);
-// scanProvider walks its session subdir. extract/events resolve the sibling message/part dirs by
+// walkCandidates walks its session subdir. fused resolves the sibling message/part dirs by
 // session id, which is the info-file filename stem.
 func opencodeProvider(storageRoot string) provider {
 	return provider{
@@ -649,9 +670,14 @@ func opencodeProvider(storageRoot string) provider {
 		matches: func(name string) bool {
 			return strings.HasPrefix(name, "ses_") && strings.HasSuffix(name, ".json")
 		},
-		extract:   extractOpencodeSession,
+		fused: func(path, stem string, lines []string) (*SessionInfo, sessionEvents) {
+			s := extractOpencodeSession(path, stem, lines)
+			if s == nil {
+				return nil, sessionEvents{}
+			}
+			return s, extractOpencodeEvents(path, lines)
+		},
 		resumeCmd: func(s *SessionInfo) string { return "opencode -s " + s.ID },
-		events:    extractOpencodeEvents,
 	}
 }
 
@@ -863,14 +889,21 @@ func extractOpencodeEvents(path string, _ []string) sessionEvents {
 // per-project encoded-cwd subdirs. The encoded directory name is lossy and must never be decoded — the
 // v3 session header's cwd is authoritative. The full native file path is the resume key, so ResumeArgs
 // (not ResumeCommand, whose quoted form is display-only) carries the exact argv.
+// piProvider scans Pi's native session storage. root is …/pi/agent/sessions; walkCandidates walks its
+// encoded-cwd subdirs. fused reads the v3 file itself (pisession), so the scanned lines are unused.
 func piProvider(root string) provider {
 	return provider{
-		runtime:   "pi",
-		root:      root,
-		matches:   func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
-		extract:   extractPiSession,
+		runtime: "pi",
+		root:    root,
+		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
+		fused: func(path, _ string, lines []string) (*SessionInfo, sessionEvents) {
+			s := extractPiSession(path, "", lines)
+			if s == nil {
+				return nil, sessionEvents{}
+			}
+			return s, extractPiEvents(path, lines)
+		},
 		resumeCmd: func(s *SessionInfo) string { return "pi --session " + strconv.Quote(s.TranscriptPath) },
-		events:    extractPiEvents,
 	}
 }
 
@@ -1005,17 +1038,21 @@ func extractPiEvents(path string, _ []string) sessionEvents {
 	return sessionEvents{Events: events, Status: "done", StartedTs: ts}
 }
 
-// scanProvider returns up to limit sessions from one provider's root, newest-first. It reads
-// content only for the newest candidates, just enough to fill limit valid sessions.
-func scanProvider(p provider, windowDays, limit int) []SessionInfo {
+// candidate is one transcript file found by the stat-only walk; content is read later, only as far
+// as the limit requires.
+type candidate struct {
+	path  string
+	stem  string
+	mtime time.Time
+	size  int64
+	p     provider
+}
+
+// walkCandidates collects a provider's candidate files within the window (stat only — no content).
+func walkCandidates(p provider, windowDays int) []candidate {
 	var cutoff time.Time
 	if windowDays > 0 {
 		cutoff = time.Now().AddDate(0, 0, -windowDays-1)
-	}
-	type candidate struct {
-		path  string
-		stem  string
-		mtime time.Time
 	}
 	var cands []candidate
 	headlessSlug := agentobserve.HeadlessAgentSlug()
@@ -1039,38 +1076,88 @@ func scanProvider(p provider, windowDays, limit int) []SessionInfo {
 		if !cutoff.IsZero() && info.ModTime().Before(cutoff) {
 			return nil
 		}
-		cands = append(cands, candidate{path: path, stem: strings.TrimSuffix(strings.TrimSuffix(d.Name(), ".jsonl"), ".json"), mtime: info.ModTime()})
+		cands = append(cands, candidate{path: path, stem: strings.TrimSuffix(strings.TrimSuffix(d.Name(), ".jsonl"), ".json"), mtime: info.ModTime(), size: info.Size(), p: p})
 		return nil
 	})
 	sort.Slice(cands, func(i, j int) bool { return cands[i].mtime.After(cands[j].mtime) })
+	return cands
+}
 
+// scanCacheEntry pins a parsed candidate to its on-disk state. Transcripts only change by append, so
+// mtime+size equality means the cached derivation is still the file's. A nil info caches a file that
+// carries no session (subagent/tool-only) — those dominate the candidate set and must not be re-read
+// on every scan.
+type scanCacheEntry struct {
+	mtime time.Time
+	size  int64
+	info  *SessionInfo // nil = parsed, but not a session
+	se    sessionEvents
+}
+
+var (
+	scanCacheMu sync.Mutex
+	scanCache   = map[string]scanCacheEntry{}
+)
+
+// scanCacheMax bounds cache memory; clearing all when full is cheaper than LRU bookkeeping and only
+// costs a re-parse of the hot set.
+const scanCacheMax = 4096
+
+// scanSessionCached derives one candidate's session, reusing the cache while the file is unchanged.
+func scanSessionCached(c candidate) (*SessionInfo, sessionEvents) {
+	scanCacheMu.Lock()
+	e, ok := scanCache[c.path]
+	scanCacheMu.Unlock()
+	if ok && e.mtime.Equal(c.mtime) && e.size == c.size {
+		return e.info, e.se
+	}
+	lines := readLines(c.path)
+	s, se := c.p.fused(c.path, c.stem, lines)
+	scanCacheMu.Lock()
+	if len(scanCache) >= scanCacheMax {
+		clear(scanCache)
+	}
+	scanCache[c.path] = scanCacheEntry{mtime: c.mtime, size: c.size, info: s, se: se}
+	scanCacheMu.Unlock()
+	return s, se
+}
+
+// parseCandidates derives sessions from candidates in mtime order until limit sessions are found
+// (nil candidates do not count, so the parse set can exceed limit when subagent files interleave).
+func parseCandidates(cands []candidate, limit int) []SessionInfo {
 	var out []SessionInfo
 	for _, c := range cands {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		lines := readLines(c.path)
-		s := p.extract(c.path, c.stem, lines)
+		s, se := scanSessionCached(c)
 		if s == nil {
 			continue
 		}
-		s.Runtime = p.runtime
-		s.LastActiveTs = c.mtime.UnixMilli()
-		s.ResumeCommand = p.resumeCmd(s)
-		s.TranscriptPath = c.path
-		se := p.events(c.path, lines)
-		s.Events = se.Events
-		s.Status = se.Status
-		s.StartedTs = se.StartedTs
-		s.DurationMs = se.DurationMs
-		out = append(out, *s)
+		// value copy: the cache holds the canonical entry; callers may not mutate it
+		s2 := *s
+		s2.Runtime = c.p.runtime
+		s2.LastActiveTs = c.mtime.UnixMilli()
+		s2.ResumeCommand = c.p.resumeCmd(&s2)
+		s2.TranscriptPath = c.path
+		s2.Events = se.Events
+		s2.Status = se.Status
+		s2.StartedTs = se.StartedTs
+		s2.DurationMs = se.DurationMs
+		out = append(out, s2)
 	}
 	return out
 }
 
+// scanProvider returns up to limit sessions from one provider's root, newest-first (single-provider
+// form of the scan; ScanSessions merges providers first so the limit applies globally).
+func scanProvider(p provider, windowDays, limit int) []SessionInfo {
+	return parseCandidates(walkCandidates(p, windowDays), limit)
+}
+
 // ExtractSession folds a single transcript file into a SessionInfo, selecting the parser by runtime.
 // Returns (nil, nil) when the file carries no session (e.g. a tool-only subagent file). Reuses the
-// same extract/events the scanner uses, so status/summary derivation cannot drift from the Agent surfaces.
+// same fused derivation the scanner uses, so status/summary derivation cannot drift from the Agent surfaces.
 func ExtractSession(path, runtime string) (*SessionInfo, error) {
 	var p provider
 	switch runtime {
@@ -1089,13 +1176,12 @@ func ExtractSession(path, runtime string) (*SessionInfo, error) {
 	// strip .jsonl then .json so a claude/codex path (foo.jsonl) keeps its stem and an opencode
 	// session-info path (ses_x.json) is trimmed too.
 	stem := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".jsonl"), ".json")
-	s := p.extract(path, stem, lines)
+	s, se := p.fused(path, stem, lines)
 	if s == nil {
 		return nil, nil
 	}
 	s.Runtime = runtime
 	s.TranscriptPath = path
-	se := p.events(path, lines)
 	s.Events = se.Events
 	s.Status = se.Status
 	s.StartedTs = se.StartedTs
@@ -1112,21 +1198,31 @@ func ScanSessions(windowDays, limit int) ([]SessionInfo, error) {
 	if limit <= 0 {
 		limit = defaultLimit
 	}
+	return scanProviders(allProviders(), windowDays, limit), nil
+}
+
+// allProviders lists the four runtime transcript roots under the home dir.
+func allProviders() []provider {
 	home := wavebase.GetHomeDir()
 	opencodeRoot := filepath.Join(home, ".local", "share", "opencode", "storage")
-	providers := []provider{
+	return []provider{
 		claudeProvider(filepath.Join(home, ".claude", "projects")),
 		codexProvider(filepath.Join(home, ".codex", "sessions")),
 		opencodeProvider(opencodeRoot),
 		piProvider(filepath.Join(home, ".pi", "agent", "sessions")),
 	}
-	var all []SessionInfo
+}
+
+// scanProviders merges every provider's candidates before parsing, so the limit is the global newest
+// sessions across runtimes — a provider that writes many files cannot crowd other runtimes' recent
+// sessions out of the parse set by quota alone.
+func scanProviders(providers []provider, windowDays, limit int) []SessionInfo {
+	var cands []candidate
 	for _, p := range providers {
-		all = append(all, scanProvider(p, windowDays, limit)...)
+		cands = append(cands, walkCandidates(p, windowDays)...)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].LastActiveTs > all[j].LastActiveTs })
-	if limit > 0 && len(all) > limit {
-		all = all[:limit]
-	}
-	return all, nil
+	sort.Slice(cands, func(i, j int) bool { return cands[i].mtime.After(cands[j].mtime) })
+	out := parseCandidates(cands, limit)
+	sort.Slice(out, func(i, j int) bool { return out[i].LastActiveTs > out[j].LastActiveTs })
+	return out
 }

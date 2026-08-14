@@ -421,3 +421,100 @@ func TestScanProvider_PiSkipsMalformedFilesAndKeepsValidSibling(t *testing.T) {
 		t.Errorf("garbage pi file not logged with path context; log:\n%s", logged)
 	}
 }
+
+func TestScanCache_reusesUnchangedFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeJSONL(t, dir, "a.jsonl", `{"type":"user","cwd":"/x","message":{"content":"hi a"}}`)
+	writeJSONL(t, dir, "b.jsonl", `{"type":"user","cwd":"/x","message":{"content":"hi b"}}`)
+
+	orig := readLines
+	var reads []string
+	readLines = func(path string) []string {
+		reads = append(reads, filepath.Base(path))
+		return orig(path)
+	}
+	defer func() { readLines = orig }()
+
+	first := scanProvider(claudeProvider(dir), 0, 10)
+	if len(first) != 2 {
+		t.Fatalf("first scan: want 2 sessions, got %d", len(first))
+	}
+	if len(reads) != 2 {
+		t.Fatalf("first scan must read both files, read %d: %v", len(reads), reads)
+	}
+	reads = nil
+	second := scanProvider(claudeProvider(dir), 0, 10)
+	if len(second) != 2 || second[0].ID != first[0].ID || second[1].Task != first[1].Task {
+		t.Fatalf("second scan mismatch: %+v vs %+v", second, first)
+	}
+	if len(reads) != 0 {
+		t.Errorf("unchanged files must be served from the cache (0 reads), read %d: %v", len(reads), reads)
+	}
+}
+
+func TestScanCache_invalidatesOnRewrite(t *testing.T) {
+	dir := t.TempDir()
+	path := writeJSONL(t, dir, "a.jsonl", `{"type":"user","cwd":"/x","message":{"content":"old task"}}`)
+	if got := scanProvider(claudeProvider(dir), 0, 10); len(got) != 1 || got[0].Task != "old task" {
+		t.Fatalf("first scan: %+v", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"type":"user","cwd":"/x","message":{"content":"new task"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// force a distinct mtime so the rewrite is detectable on coarse-granularity filesystems too
+	ts := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	got := scanProvider(claudeProvider(dir), 0, 10)
+	if len(got) != 1 || got[0].Task != "new task" {
+		t.Fatalf("changed file must be re-read, got %+v", got)
+	}
+}
+
+func TestScanProviders_mergesByGlobalRecency(t *testing.T) {
+	claudeDir := filepath.Join(t.TempDir(), "claude")
+	codexDir := filepath.Join(t.TempDir(), "codex")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(path, content string, ago time.Duration) {
+		writeJSONL(t, filepath.Dir(path), filepath.Base(path), content)
+		ts := time.Now().Add(-ago)
+		if err := os.Chtimes(path, ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(filepath.Join(claudeDir, "claude-new.jsonl"), `{"type":"user","cwd":"/x","message":{"content":"newest claude"}}`, 1*time.Hour)
+	mk(filepath.Join(codexDir, "rollout-codex-new.jsonl"),
+		`{"type":"session_meta","payload":{"session_id":"cx","cwd":"/x"}}`+"\n"+
+			`{"type":"event_msg","payload":{"type":"user_message","message":"newest codex"}}`, 30*time.Minute)
+	mk(filepath.Join(claudeDir, "claude-old.jsonl"), `{"type":"user","cwd":"/x","message":{"content":"older claude"}}`, 3*time.Hour)
+
+	orig := readLines
+	var reads []string
+	readLines = func(path string) []string {
+		reads = append(reads, filepath.Base(path))
+		return orig(path)
+	}
+	defer func() { readLines = orig }()
+
+	// limit 2 across both providers: the newer codex session must outrank the older claude one, and
+	// only the global top-2 candidates may be read (claude-old never parsed).
+	got := scanProviders([]provider{claudeProvider(claudeDir), codexProvider(codexDir)}, 0, 2)
+	if len(got) != 2 {
+		t.Fatalf("want 2 sessions, got %d", len(got))
+	}
+	if got[0].Runtime != "codex" || got[0].Task != "newest codex" {
+		t.Errorf("newest must be the codex session, got %+v", got[0])
+	}
+	if got[1].Runtime != "claude" || got[1].Task != "newest claude" {
+		t.Errorf("second must be the claude session, got %+v", got[1])
+	}
+	if len(reads) != 2 || reads[0] != "rollout-codex-new.jsonl" || reads[1] != "claude-new.jsonl" {
+		t.Errorf("only the global top-2 candidates may be read, read %d: %v", len(reads), reads)
+	}
+}

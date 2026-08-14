@@ -120,13 +120,13 @@ Decided during the E brainstorming (spec `docs/superpowers/specs/2026-07-24-jarv
 
 - **What's deferred:**
   1. **Haiku model tier for boundary summaries** (fork 2) — E's one model call reuses the capable model via `consult.SpecFor("claude") → consult.Run`, with no `--model` selection. The cheap tier is a shared concern (C's synthesis + E's summary both want it) and lands as its own cross-cutting slice, not a one-off inside E. Boundary summaries are event-bounded (one per rest transition, never a poll), so the interim cost is bounded.
-  2. **Resume UI/RPC + ambient "pick up where you left off"** (fork 1) — `jarviscontinuity.Resume(r, taskID) → Narrative` is exposed and unit-tested but has **no wired v1 consumer** (recall reads the `state` block during traversal, so nothing calls it). A dedicated resume card / `resume` RPC is a *push* affordance adjacent to v2 proactive resurfacing — an ambient-presence follow-on, not E.
+  2. ~~**Resume UI/RPC + ambient "pick up where you left off"** (fork 1) — `jarviscontinuity.Resume(r, taskID) → Narrative` is exposed and unit-tested but has **no wired v1 consumer** (recall reads the `state` block during traversal, so nothing calls it). A dedicated resume card / `resume` RPC is a *push* affordance adjacent to v2 proactive resurfacing — an ambient-presence follow-on, not E.~~ **RESOLVED 2026-08-06** — `GetLatestResumeCommand` (`pkg/wshrpc/wshserver/wshserver_jarvispet.go`, `017dd234`) serves the single newest narrative by its own `Updated` stamp, and the pet's ambient sources consume it (`petsources.tsx` → `eventFromResume` in `petjoin.ts`): a stable-id "Where we were — …" peek event that re-speaks only when a new narrative is written. Still the newest narrative only — a per-task resume card remains the v2 ambient follow-on.
   3. **App idle/quit continuity flush** — no separate E flush on app idle or quit. A (Wave Vault) already performs a quit-safety commit, so a speculative E-owned flush is unjustified.
   4. **Completed-task prose re-freshness** (§3 caveat) — a **completed** task's prose can drift if facts change after `done`, because there is no further transition to re-trigger a summary. Low-stakes: it is a historical record and C still resolves live run status at query time. Re-freshness of terminal dossiers is out of scope.
 - **Why:** each is either blocked on a not-yet-built substrate (1 needs the tiering slice; 2 needs the v2 ambient-presence surface) or is speculative against an existing guarantee (3 duplicates A's quit commit; 4 is a low-stakes drift on a historical record that C already backstops with live leaf resolution). Building any now would be a single-use abstraction or premature.
 - **Where it plugs in:** (1) the `summarize` var in `pkg/jarviscontinuity/continuity.go` (a `--model` per call, wired with C's traversal at the shared `consult.Run` site — arrives with ≥2 real cheap-tier users per the F tiering-defer entry). (2) a resume card / RPC consuming `Resume` (`continuity.go`), surfaced on the Jarvis/ambient surface. (3) an app-lifecycle hook alongside A's quit commit. (4) a re-summarize trigger on post-`done` fact changes (or accept the drift).
 - **PLACEHOLDER tuning** (`pkg/jarviscontinuity`, calibrate against a populated vault): the summary length cap (`<= 4 sentences`, in `buildSummaryPrompt`); the rest-state set `{awaiting-review, blocked, done}` (`IsRestState` — drop `awaiting-review` if plan-gate-heavy runs prove noisy, keeping `blocked`/`done`); `continuityCaptureTimeout = 90s` (the detached boundary-summary model-call bound, `pkg/wshrpc/wshserver/wshserver_runs.go`).
-- **To resume:** each is independently pickable — (1) with the tiering slice, (2) with the v2 ambient/resume surface, (3) if a quit-time gap surfaces, (4) on evidence that terminal-dossier drift matters.
+- **To resume:** each is independently pickable — (1) with the tiering slice, (2) a per-task resume card beyond the pet's newest-narrative peek, (3) if a quit-time gap surfaces, (4) on evidence that terminal-dossier drift matters.
 
 ## Jarvis sub-project C (Recall engine) — traversal loop, learning store, backfill (2026-07-24)
 
@@ -135,11 +135,11 @@ Decided during the C brainstorming (spec `docs/superpowers/specs/2026-07-24-jarv
 - **What's deferred:**
   1. **Model-in-the-loop (agentic) traversal** — the north-star loop where a cheap model picks seed nodes and may request one more named re-expansion. v1 uses **deterministic** seed selection (regex ticket ids + full-text keyword ranking → top-k) and a single synthesis over one `Expand`.
   2. **Cache-tier learning store** — materializing high-confidence, fully-cited answers to the rebuildable derived layer with content-hash invalidation. v1 re-walks each question (retrieval is deterministic and free; the only cost is one synthesis per question).
-  3. **Historical backfill** — seeding the vault from existing SQLite objects (Runs/decisions/memory). Left as an optional, decoupled one-shot; recall is fed by live capture, not backfill.
+  3. ~~**Historical backfill** — seeding the vault from existing SQLite objects (Runs/decisions/memory). Left as an optional, decoupled one-shot; recall is fed by live capture, not backfill.~~ **RESOLVED 2026-07-27** — built as `pkg/jarvisbackfill` (`11d454c9`, backdate fix `dde89ff5`) to raise the J5 calibration corpus: a pure planner (`plan.go`) turns recorded wstore history into a real vault — Runs supply dossiers (goal/status/window), terminal Radar investigations with a worker-written summary supply decisions; strict fidelity, nothing inferred, gaps land in `Plan.Skipped`. It is a calibration/bootstrap one-shot, not the feeding mechanism — live capture still feeds recall.
 - **Why:** (1) is against the cost model without model tiering (F deferred it — only a capable model exists; running the agentic loop on it over a sparse v1 vault is expensive) — it lands **with** the cheap tier. (2) pays off only with repeated identical questions over a populated vault — no evidence yet, and it adds a keyed store + hash-set invalidation (YAGNI now). (3) manufacturing canonical Markdown from transient objects brushes the "no copying Run evidence into Markdown" non-goal; backfill is a bootstrap nicety, not the feeding mechanism.
 - **Where it plugs in:** (1) the seed-selection + `Expand` loop in `pkg/jarvisrecall/retrieve.go` (add a cheap-model seed-pick + a bounded re-expansion request; wire together with the tier selector at the `consult.Run` site, per the F tiering-defer entry — arrives with ≥2 real cheap-tier users: C traversal + E boundary summaries). (2) a new derived-layer cache keyed by query + cited-node hashes, invalidated at commit against A's `ContentHash` (mirrors A's index / C's learning-store posture). (3) a one-shot migration reading `wstore` → `jarvisdossier.CreateDossier`/`AppendDecision`.
 - **PLACEHOLDER tuning** (`pkg/jarvisrecall`, calibrate against a populated vault): seed top-k = 6; `Expand` Depth = 2 / Fanout = 8; `maxCandidates` = 12; and the v1 **one-dossier-per-Run** capture grouping (the many-Runs-to-one-task dossier needs a task identity Wave lacks — D/E territory). *(2026-07-27, J5: `maxCandidates`'s **ordering** is fixed — `orderCandidates` replaced the pure recency sort after a measured case showed the cap discarding the #1 semantic hit. The cap **value** 12 is still an unfitted guess; with seeds now sorted first it binds on the seed list rather than on expansion neighbours.)*
-- **To resume:** each is independently pickable — (1) with the tiering slice, (2) on repeat-question evidence, (3) anytime a cold vault needs seeding.
+- **To resume:** each is independently pickable — (1) with the tiering slice, (2) on repeat-question evidence, (3) a further backfill pass only if a new source appears (the J5 importer ships).
 
 ## Jarvis sub-project A (Wave Vault) — memory vault coexists, unify later (2026-07-23) — ✅ RESOLVED 2026-07-27
 
@@ -247,6 +247,14 @@ cockpit.
   `MarkdownMessage`/`groupTimeline`, capped narration render (`TIMELINE_RENDER_CAP`) + bounded projection
   window (`MAX_RETAINED_LINES`), and a single always-mounted `NowTicker` replacing three per-surface 1s
   intervals. Two follow-ups remain:
+
+  > **Follow-up 1 RESOLVED 2026-07-20 (`965cea8e`, open-issues backlog #3).** Server: `cancelRequest`
+  > now cancels the request context, not just the bool, so a streaming handler's goroutine + fsnotify
+  > watcher unwind while the link is still up. Client: the wire cancel is emitted synchronously from an
+  > overridden `return()` in `sendRpcCommand` — a `finally`-based cancel would be missed because
+  > `gen.return()` hangs and never runs `finally` when the generator is parked at the never-settling
+  > await. Race-tested + client vitest (`wshrpcutil-base.test.ts`). Follow-up 2 (stateful projection) was
+  > intentionally not built — measure-first, per this entry's own condition.
   - **Per-card-unmount-while-connected still leaks the server watcher.** The client's `gen.return()` on unmount
     sends no wire cancel, and `WshRpc.cancelRequest` only flips a bool (`wshrpc.go:266-277`) without cancelling
     the request ctx — so a card unmounted while the websocket stays up leaks its `streamTranscript` goroutine +
@@ -297,19 +305,23 @@ first tranche; then #2 `pkg/jarvis/watcher_test.go` (extracted pure `askAutoAnsw
 predicates from `handleAsk` and tested them) + `onexit_test.go` (`outcomeSummary`), which Theme 3 A1
 unblocked when it landed. All tests mutation-verified (each fails if its guarded behavior regresses).
 Spec/plan: `docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`.
+> **RESOLVED 2026-07-20 (`965cea8e`, open-issues backlog #2).** Both splits landed, move-only, call sites
+> unchanged: `runbody.tsx` 881→561 (card family → `runcards.tsx`, plan editor → `planpreview.tsx`);
+> `agentsviewmodel.ts` 1030→895 (grid geometry → `cardgridlayout.ts` + tests, re-exported so importers are
+> untouched).
+
 **Still deferred — #4 (`runbody.tsx` split) and #5 (`agentsviewmodel.ts` grid extract):** the
 `theme2-streaming-core` worktree is currently locked/active and edits those exact files; per the Theme 4
 brief, these move-only diffs wait until Theme 2 lands to avoid merge conflicts. Also recorded in the spec and
 plan (`docs/superpowers/{specs,plans}/2026-07-17-theme4-maintainability-testgaps-first-tranche*.md`).
 
-- **Tech-debt.** `runbody.tsx` is an 846-line god-file bundling ~17 components across unrelated concerns
+- **Tech-debt.** `runbody.tsx` was an 846-line god-file bundling ~17 components across unrelated concerns
   (status chrome, review gate + markdown-preview, ask card, cancel flow, blocked/starting states, orchestrator
-  fan-out, phase rail, and the live shell) — fix: peel the card family into `runcards.tsx` and `PlanPreview`
-  out, leave `RunBody` owning only live machinery. `agentsviewmodel.ts` is 933 lines / ~70 exports mixing ≥8
-  concerns (grid geometry, ask encoding, pricing math, formatting, cursor nav, filtering, projection) — it is
-  well-tested, so low risk, but the pure grid-layout cluster (`:99-103,824-958`) is cleanly extractable into
-  `cardgridlayout.ts` (move its tests). `sessionsidebarmodel.ts` copy-pastes the "first `term` block with
-  `cmd:cwd`" session-identity rule 4× (`:55,115,206,235`) — extract one `findSessionTermBlock(tab)` helper.
+  fan-out, phase rail, and the live shell) — **RESOLVED 2026-07-20** (`965cea8e`): the card family is now `runcards.tsx`,
+  `PlanPreview` is `planpreview.tsx`, and `RunBody` owns only live machinery. `agentsviewmodel.ts` was 933 lines /
+  ~70 exports mixing ≥8 concerns (grid geometry, ask encoding, pricing math, formatting, cursor nav, filtering,
+  projection) — it is well-tested, so low risk, but the pure grid-layout cluster (`:99-103,824-958`) was cleanly
+  extractable into `cardgridlayout.ts` (move its tests) — **RESOLVED 2026-07-20** (grid → `cardgridlayout.ts`, tests moved). `sessionsidebarmodel.ts` copy-pastes the "first `term` block with `cmd:cwd`" session-identity rule 4× (`:55,115,206,235`) — extract one `findSessionTermBlock(tab)` helper.
 - **Test gaps** (business-critical logic with no sibling test). `runactions.ts` (run lifecycle — `confirmCancelRun`
   live-worker branch/copy `:108-123`, in-flight `Set` tracking in `stopRunWorker`/`cancelRun`). `pkg/jarvis`:
   `watcher.go` (the Gatekeeper auto-answer-vs-escalate decision + index-bounds guard, `:80-118`) and `onexit.go`
@@ -347,10 +359,17 @@ written if the need reappears.
 
 ## Channel composer attachments — temp-file cleanup + remote-worker paths (2026-07-16)
 
+> **Item 1 (temp-file cleanup) RESOLVED 2026-07-20 (`965cea8e`, open-issues backlog #4).** The periodic
+> sweep the deferral named as the alternative is what shipped: `WriteTempFileCommand` now writes under a
+> distinct `waveterm-attach-` prefix (a bare `waveterm-*` sweep could delete `/tmp/waveterm-<uid>` socket
+> dirs on Linux/macOS), and `SweepTempAttachments` reaps `waveterm-attach-*` dirs older than 24h, wired
+> into wavesrv startup + a 4h loop (`pkg/wshrpc/wshserver/wshserver_files.go`). Per-worker lifecycle
+> tracking was not needed. Item 2 (remote/WSL paths) remains open.
+
 Shipped paste/attach/drag-drop attachments in the Channels composer (spec/plan
 `docs/superpowers/{specs,plans}/2026-07-16-channel-composer-attachments*.md`). Two edges deferred:
 
-1. **Temp-file cleanup.** Each attachment is persisted via `WriteTempFileCommand`, which `os.MkdirTemp`s a
+1. ~~**Temp-file cleanup.**~~ **RESOLVED — see banner above.** Each attachment is persisted via `WriteTempFileCommand`, which `os.MkdirTemp`s a
    fresh dir per file and never deletes it. v1 deliberately does not clean up (the worker may read the file
    any time after send, and lifecycle tracking is out of scope). Over time these accumulate under the OS
    temp dir. **To resume:** track written paths against the run/worker that consumed them and reap on
@@ -859,9 +878,12 @@ PLACEHOLDER tunable (calibrate against a real vault under normal use):
   over time.
 
 Deferred out of this cycle:
-- **The 3D creature.** The renderer is deliberately swappable: every decision it draws is made in the pure
-  `petcondition.ts` / `petvoice.ts` modules, so replacing `petview.tsx` (inline SVG + `motion`) with three.js
-  changes no logic. Design §4 decision 7.
+- ~~**The 3D creature.**~~ **RESOLVED 2026-08-05 (`e3cdfed4`)** — the avatar is now a real WebGL renderer
+  (`avatargl.ts`, raw WebGL per design §4 decision 2 — three.js rejected), with a canvas fallback
+  (`avatarcanvas.ts`), a shared scene abstraction (`avatarscene.ts`), and a live `webgl | canvas` renderer
+  switch in `petview.tsx`, built to JARVIS's documented form (four rounds of taste, four skins of one blob).
+  The deferred entry's original reasoning held: the renderer swap changed no logic (all decisions stay in the
+  pure `petcondition.ts` / `petvoice.ts` modules).
 - **Concierge-tier courier gestures** — carry/hold/escort, i.e. dragging an object onto the creature to
   pocket it and dragging it back out onto a target. Nothing of this remains in the code: the half-built state
   seam (a `petPocketAtom` with a reader and no writer, plus a Pocket section in `petpeek.tsx` that could never
