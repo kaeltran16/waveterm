@@ -10,6 +10,7 @@
 // The three card components are reused unchanged, dismissal included: this file only chooses and frames them.
 
 import type { RailSection } from "@/app/element/collapsiblerail";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { RelevantDecisions } from "@/app/view/agents/ambientviews";
 import { ProactiveCard } from "@/app/view/agents/proactiveviews";
 import { ResumeCard } from "@/app/view/agents/resumeviews";
@@ -20,9 +21,11 @@ import { ambientRailFor, type AmbientRailInput } from "./ambientrail";
 // "Context" — so the section reads in the register of its siblings (Needs you, Consults, Fleet).
 export const AMBIENT_SECTION_LABEL = "Worth knowing";
 
-export function ambientSection(input: AmbientRailInput): RailSection | null {
-    const model = ambientRailFor(input);
-    if (model == null) {
+// the real AgentsViewModel is threaded in because the proactive card navigates via openORef,
+// which needs the live model (surfaceAtom, openTerminal); AmbientRailInput stays pure data.
+export function ambientSection(model: AgentsViewModel, input: AmbientRailInput): RailSection | null {
+    const am = ambientRailFor(input);
+    if (am == null) {
         return null;
     }
     return {
@@ -34,9 +37,9 @@ export function ambientSection(input: AmbientRailInput): RailSection | null {
                 <div className="font-mono text-[9px] uppercase tracking-[.09em] text-muted">
                     {AMBIENT_SECTION_LABEL}
                 </div>
-                {model.resumeRun != null ? <ResumeCard run={model.resumeRun} /> : null}
-                {model.proactiveRun != null ? <ProactiveCard run={model.proactiveRun} /> : null}
-                {model.decisionsORef != null ? <RelevantDecisions oref={model.decisionsORef} /> : null}
+                {am.resumeRun != null ? <ResumeCard run={am.resumeRun} /> : null}
+                {am.proactiveRun != null ? <ProactiveCard model={model} run={am.proactiveRun} /> : null}
+                {am.decisionsORef != null ? <RelevantDecisions oref={am.decisionsORef} /> : null}
             </div>
         ),
     };

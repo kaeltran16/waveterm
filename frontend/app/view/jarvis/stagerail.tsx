@@ -261,7 +261,7 @@ export function StageRail({
     // collapsed strip's single glyph and that has to stay the Needs-you bell.
     const ambientSec =
         subject != null
-            ? ambientSection({
+            ? ambientSection(model, {
                   kind: subject.kind,
                   run: stageRun,
                   recordRuns: recordId != null ? (recordRuns[recordId] ?? []) : [],
