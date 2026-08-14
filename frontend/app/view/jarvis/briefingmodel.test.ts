@@ -3,6 +3,7 @@
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
+import { EFFORT_FIXTURES } from "./briefingfixtures";
 import { normalizeBriefingNav, projectBriefing, type BriefingModelInput } from "./briefingmodel";
 
 const HOUR = 60 * 60 * 1000;
@@ -232,5 +233,71 @@ describe("briefing projection", () => {
         expect(normalizeBriefingNav("run:r-1")).toBe("run:r-1");
         expect(normalizeBriefingNav(undefined)).toBeNull();
         expect(normalizeBriefingNav("")).toBeNull();
+    });
+
+    it("projects efforts, non-archived only, capped at 6 with overflow", () => {
+        const state = workState([{ project: "waveterm", active: [], shipped: [], events: [], delta: [] }]);
+        state.efforts = EFFORT_FIXTURES;
+        const m = projectBriefing(input(state));
+        expect(m.efforts.map((e) => e.title)).toEqual(["Scenario gate clearance", "Reflux state-layer migration"]);
+        expect(m.effortMore).toBe(0);
+        // cap: 8 efforts -> 6 cards + 2 overflow (archived never counts)
+        const many = [
+            ...EFFORT_FIXTURES,
+            ...Array.from({ length: 6 }, (_, i) => ({
+                oref: `effort:e${i}`,
+                title: `effort ${i}`,
+                status: i === 0 ? "archived" : "active",
+                done: 0,
+                total: 1,
+                updatedts: T0 - i * HOUR,
+                chunks: [{ label: "c", status: "pending" }],
+            })),
+        ] as WorkState["efforts"];
+        const m2 = projectBriefing(input({ ...state, efforts: many }));
+        expect(m2.efforts).toHaveLength(6);
+        expect(m2.effortMore).toBe(1);
+        expect(m2.efforts.some((e) => e.title === "effort 0")).toBe(false); // archived excluded
+    });
+
+    it("folds blocked chunks into attention lines", () => {
+        const state = workState([{ project: "waveterm", active: [], shipped: [], events: [], delta: [] }]);
+        state.efforts = EFFORT_FIXTURES;
+        const m = projectBriefing(input(state));
+        expect(m.attentionLines).toContain("Scenario gate clearance — chunk blocked · Phase 5");
+    });
+
+    it("caps delta rows at 10 and counts the overflow", () => {
+        const events = Array.from({ length: 12 }, (_, i) => ({
+            ts: T0 - i * HOUR,
+            kind: "run-created",
+            title: `r${i}`,
+        })) as TimelineEvent[];
+        const state = workState([{ project: "waveterm", active: [], shipped: [], events, delta: events }]);
+        const m = projectBriefing(input(state));
+        expect(m.delta).toHaveLength(10);
+        expect(m.deltaMore).toBe(2);
+        expect(m.counts.delta).toBe(12); // the pill keeps the true count
+    });
+
+    it("caps active legs and shipped rows with overflow counts", () => {
+        const active = Array.from({ length: 10 }, (_, i) =>
+            runItem({ title: `run ${i}`, ts: T0 - i * HOUR, navtarget: `run:r-${i}` })
+        );
+        const shipped: ShippedItem[] = Array.from({ length: 10 }, (_, i) => ({
+            project: "waveterm",
+            runoid: `rs-${i}`,
+            goal: `shipped ${i}`,
+            summary: "",
+            completedts: T0 - i * HOUR,
+        }));
+        const state = workState([{ project: "waveterm", active, shipped, events: [], delta: [] }]);
+        const m = projectBriefing(input(state));
+        expect(m.activeRuns).toHaveLength(8);
+        expect(m.activeMore).toBe(2);
+        expect(m.shipped).toHaveLength(8);
+        expect(m.shippedMore).toBe(2);
+        expect(m.counts.runs).toBe(10);
+        expect(m.counts.shipped).toBe(10);
     });
 });

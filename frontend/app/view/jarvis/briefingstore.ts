@@ -53,6 +53,11 @@ export const briefingStateAtom: Atom<BriefingLoadState> = atom((get) => {
     return get(fetchedBriefingStateAtom);
 });
 
+// FetchWorkState walks every ledger leg (channel runs, transcript scans, vault) and routinely takes
+// well past the server's 5s default RPC budget (measured ~14s on a warm corpus) — the same EC-TIME
+// trap the ask CLI raised its timeout for. Raised here so the briefing landing actually loads.
+export const stateRpcTimeoutMs = 180_000;
+
 // every load gets a generation; only the latest may write the snapshot or the cursor. Guards React
 // remounts and rapid subject changes without a backend write or lock.
 let loadGeneration = 0;
@@ -76,7 +81,7 @@ export async function loadBriefingAsync(): Promise<void> {
         error: null,
     });
     try {
-        const rtn = await RpcApi.JarvisStateCommand(TabRpcClient, { project: "", sincems: fetchSince });
+        const rtn = await RpcApi.JarvisStateCommand(TabRpcClient, { project: "", sincems: fetchSince }, { timeout: stateRpcTimeoutMs });
         if (gen !== loadGeneration) {
             return; // superseded
         }
