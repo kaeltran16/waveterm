@@ -46,8 +46,16 @@ tasks:
             - npm:install
 
     verify:ui:
-        desc: Run the CDP verification harness against the running dev app (scripts/cdp/). Pass scenario names after --, e.g. `task verify:ui -- surface-smoke`.
+        desc: Run the CDP verification harness against the running dev app (scripts/cdp/). Pass scenario names after --, e.g. `task verify:ui -- surface-smoke`. CDP_PORT env overrides the attach port (default 9222) for a worktree dev app on another port.
         cmd: node scripts/cdp/verify.mjs {{.CLI_ARGS}}
+
+    worktree:prepare:
+        desc: Junction node_modules, src-tauri/target, and dist/bin from the main checkout into the current worktree (Windows). Run inside the worktree before `task dev`.
+        cmd: node scripts/worktree-junctions.mjs prepare
+
+    worktree:cleanup:
+        desc: Remove junction links, then the worktree and its branch. Pass the worktree path after --, e.g. `task worktree:cleanup -- .worktrees/foo` (defaults to cwd). Never touches a real directory.
+        cmd: node scripts/worktree-junctions.mjs cleanup {{.CLI_ARGS}}
 
     build:backend:
         desc: Build the wavesrv and wsh components.

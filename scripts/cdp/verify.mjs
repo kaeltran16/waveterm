@@ -13,7 +13,8 @@ if (!chosen.length) {
     process.exit(2);
 }
 
-const h = await attach();
+const cdpPort = Number(process.env.CDP_PORT) || 9222; // worktree dev app can run on another port (see task worktree:prepare)
+const h = await attach(cdpPort);
 console.log(`attached to ${h.url}`);
 
 // Pin the viewport so a scenario's result does not depend on how wide the developer left the dev window.

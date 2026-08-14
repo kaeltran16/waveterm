@@ -46,6 +46,12 @@ Other useful commands:
 - **Never hand-edit generated files.** Go is the source of truth for the wire protocol and object types; `task generate` produces `frontend/app/store/wshclientapi.ts` and the generated Go/TS type files. Edit the Go definitions, then regenerate.
 - **A new registered `waveobj` type needs a SQL migration** in `db/migrations-wstore/NNNNNN.{up,down}.sql`, or it fails at runtime with "no such table".
 - CGO backend builds use the **zig** compiler for cross/static linking (required dependency, see `Taskfile.yml` `build:server:*`).
+- **Worktrees (Windows):** `task worktree:prepare` (run inside the worktree) junctions `node_modules`,
+  `src-tauri/target`, `dist/bin` from the main checkout so `task dev` there is fast instead of a cold
+  npm+cargo install. Remove with `task worktree:cleanup -- <path>` — it deletes the junction links
+  first, never a real directory (a recursive delete can follow a junction into the main checkout and
+  wipe its `node_modules`). To run a worktree dev app beside the main one, give it its own CDP port
+  and WebView2 profile: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223" WEBVIEW2_USER_DATA_FOLDER="$TEMP/wave-wt-profile" task dev`, then `CDP_PORT=9223 task verify:ui`.
 
 ### Visual verification (dev)
 
@@ -55,6 +61,11 @@ There is no jsdom/render-test harness for the cockpit — verify rendered UI by 
 - **Capture:** `node scripts/cdp-shot.mjs [out.png]` — discovers the page target on `:9222` and writes a PNG (the page is the Vite app inside WebView2, `http://localhost:5174/`). The same attach pattern drives full CDP (`Runtime.evaluate` to read the DOM / jotai atoms, `Input.dispatchKeyEvent` for keys). `claude-in-chrome` MCP can't attach (needs Chrome + extension) — use raw CDP.
 - **Scenario harness:** `task verify:ui -- <name...>` (→ `scripts/cdp/verify.mjs`) runs each scenario in `scripts/cdp/scenarios.mjs` as arrange → goto → shot → assert → teardown, prints a PASS/FAIL table, writes a contact sheet to `cdp-shots/index.html`, and exits nonzero on failure. Prefer this over ad-hoc `cdp-shot.mjs` when a repeatable check exists; shared attach logic is in `scripts/cdp/attach.mjs`.
 - **Inject test data first** if you need a populated cockpit: `node scripts/inject-live-agents.mjs <scenario>` (see that script's header).
+- **Worktree dev app:** the CDP port is env-overridable — `CDP_PORT=9223 task verify:ui` attaches to a
+  dev app launched with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"` and its
+  own `WEBVIEW2_USER_DATA_FOLDER` (profile lock + port collision prevent two dev apps on 9222).
+  `task worktree:prepare`/`worktree:cleanup` handle the junction sharing so `task dev` boots in a
+  worktree at all.
 
 ## Architecture
 
