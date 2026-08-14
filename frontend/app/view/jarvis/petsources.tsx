@@ -20,16 +20,31 @@
 //                       mid-session takes up to 15 minutes to show on the creature.
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
+import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { focusedBlockId } from "@/util/focusutil";
 import { useEffect } from "react";
 import { readUntilLanded } from "./petboot";
-import { eventFromActivity, eventFromResume, eventFromVolunteer, passFromActivity } from "./petjoin";
-import { petIndexAtom, pushPetEvent, recordPass } from "./petstore";
+import {
+    askAgent,
+    eventFromActivity,
+    eventFromAsk,
+    eventFromNotify,
+    eventFromResume,
+    eventFromVolunteer,
+    passFromActivity,
+    shouldSpeakAsk,
+    type AskGateCtx,
+} from "./petjoin";
+import { petIndexAtom, pushPetEvent, recordPass, removePetEvent } from "./petstore";
 
 const INDEX_POLL_MS = 15 * 60_000;
 const ACTIVITY_BACKLOG = 20;
+
+// session-unique sequence for notify event ids (the events themselves are session-scoped)
+let notifySeq = 0;
 
 // Each loader returns whether the read landed, never whether it found anything: "the vault has no narrative"
 // is a successful read, "the backend did not answer" is not, and only the second is worth retrying.
@@ -110,7 +125,7 @@ async function loadVolunteerBacklog(): Promise<boolean> {
     }
 }
 
-export function PetSources() {
+export function PetSources({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         // Retried until each lands: all three are one-shot or near-enough (15 min), so a read lost to a
         // backend that was not ready at mount would otherwise stay lost for the session. See petboot.ts.
@@ -143,11 +158,58 @@ export function PetSources() {
                 }
             },
         });
+        const unsubNotify = waveEventSubscribeSingle({
+            eventType: "notify",
+            handler: (event) => {
+                const mapped = eventFromNotify(event?.data as NotifyCommandData | undefined, Date.now(), ++notifySeq);
+                if (mapped != null) {
+                    pushPetEvent(mapped);
+                }
+            },
+        });
+        const unsubAsk = waveEventSubscribeSingle({
+            eventType: "agent:ask",
+            handler: (event) => {
+                const data = event?.data as AgentAskData | undefined;
+                const out = eventFromAsk(data);
+                if (out.cancelId != null) {
+                    removePetEvent(out.cancelId);
+                    return;
+                }
+                if (out.event == null) {
+                    return;
+                }
+                const agent = askAgent(globalStore.get(model.agentsAtom), data?.oref);
+                const ctx: AskGateCtx = {
+                    surface: globalStore.get(model.surfaceAtom),
+                    focusTabId: globalStore.get(model.focusIdAtom),
+                    askTabId: agent?.id,
+                    focusedBlockId: focusedBlockId(),
+                };
+                if (!shouldSpeakAsk(data?.oref, ctx)) {
+                    return;
+                }
+                // `agent:<tabId>` is the oref openORef routes to openTerminal (openref.ts "agent"
+                // case); askAboutSource tolerates the unknown sourceType (generic chip, never a wrong
+                // destination — jarvissubjectstore.ts:305). A roster-less ask still speaks, just with
+                // no open affordance — the same rule as a volunteer with no ref.
+                pushPetEvent(
+                    agent != null
+                        ? {
+                              ...out.event,
+                              sources: [{ ref: `agent:${agent.id}`, title: agent.name || "the ask", sourceType: "" }],
+                          }
+                        : out.event
+                );
+            },
+        });
         return () => {
             mounted = false;
             clearInterval(t);
             unsub();
             unsubVolunteer();
+            unsubNotify();
+            unsubAsk();
         };
     }, []);
     return null;
