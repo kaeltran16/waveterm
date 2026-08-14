@@ -19,15 +19,27 @@ type AmbientCardProps = {
     dismissLabel: string;
     onDismiss: () => void;
     children: React.ReactNode;
+    // when set, the card body becomes a real button (S3 deep-link); the dismiss × stays a
+    // sibling so the two never nest.
+    onClick?: () => void;
 };
 
-export function AmbientCard({ eyebrow, dismissLabel, onDismiss, children }: AmbientCardProps) {
+export function AmbientCard({ eyebrow, dismissLabel, onDismiss, children, onClick }: AmbientCardProps) {
+    const body = (
+        <>
+            <div className={cn("mb-0.5", AMBIENT_EYEBROW)}>{eyebrow}</div>
+            {children}
+        </>
+    );
     return (
         <div className={cn("mb-3 flex items-start gap-2", AMBIENT_BOX)}>
-            <div className="min-w-0 flex-1">
-                <div className={cn("mb-0.5", AMBIENT_EYEBROW)}>{eyebrow}</div>
-                {children}
-            </div>
+            {onClick != null ? (
+                <button type="button" onClick={onClick} className="min-w-0 flex-1 cursor-pointer text-left">
+                    {body}
+                </button>
+            ) : (
+                <div className="min-w-0 flex-1">{body}</div>
+            )}
             <button
                 type="button"
                 aria-label={dismissLabel}
