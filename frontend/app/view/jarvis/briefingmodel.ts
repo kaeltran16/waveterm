@@ -69,6 +69,103 @@ export interface ShippedRow {
 export interface AttentionSummary {
     count: number;
 }
+
+// one recency-sorted list across runs, blockers and direct agents; the kind badge tells the
+// story the old per-leg sub-headers told, so the section reads as one triage queue.
+export type ActiveWorkKind = "run" | "blocker" | "agent";
+export interface ActiveWorkRow {
+    key: string;
+    kind: ActiveWorkKind;
+    oref: string;
+    name: string;
+    meta: string;
+    chip: { label: string; tone: "blocked" | "asking" | "running" | "muted" } | null;
+    ts: number;
+}
+
+// calendar-day buckets for the since-last-visit window; empty groups are dropped so a quiet
+// day simply doesn't render.
+export type DeltaGroupLabel = "Today" | "Yesterday" | "Earlier";
+export interface DeltaGroup {
+    label: DeltaGroupLabel;
+    rows: DeltaRow[];
+}
+export function groupDelta(delta: DeltaRow[], nowTs: number): DeltaGroup[] {
+    const startOfDay = (ts: number) => {
+        const d = new Date(ts);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
+    };
+    const today = startOfDay(nowTs);
+    const yesterday = today - 24 * 60 * 60 * 1000;
+    const groups: DeltaGroup[] = [
+        { label: "Today", rows: [] },
+        { label: "Yesterday", rows: [] },
+        { label: "Earlier", rows: [] },
+    ];
+    for (const row of delta) {
+        const label: DeltaGroupLabel = row.ts >= today ? "Today" : row.ts >= yesterday ? "Yesterday" : "Earlier";
+        groups.find((g) => g.label === label)!.rows.push(row);
+    }
+    return groups.filter((g) => g.rows.length > 0);
+}
+
+// needing-eyes first (blocked run / blocker / asking agent), recency within tier, identity last.
+export function mergeActiveWork(input: {
+    activeRuns: RunRow[];
+    blockers: BlockerRow[];
+    directAgents: AgentRow[];
+}): ActiveWorkRow[] {
+    const rows: ActiveWorkRow[] = [
+        ...input.activeRuns.map((r) => ({
+            key: "run:" + r.oref,
+            kind: "run" as const,
+            oref: r.oref,
+            name: r.goal,
+            meta: [r.project, r.status].filter(Boolean).join(" · "),
+            chip:
+                r.status === "blocked"
+                    ? { label: "blocked", tone: "blocked" as const }
+                    : { label: r.status || "running", tone: "running" as const },
+            ts: r.ts,
+        })),
+        ...input.blockers.map((b) => ({
+            key: "blocker:" + b.oref,
+            kind: "blocker" as const,
+            oref: b.oref,
+            name: b.objective,
+            meta: b.blockers,
+            chip: b.project == null ? { label: "Unscoped record", tone: "muted" as const } : null,
+            ts: b.ts,
+        })),
+        ...input.directAgents.map((a) => ({
+            key: "agent:" + a.id,
+            kind: "agent" as const,
+            oref: a.oref,
+            name: a.name + " · " + (a.task || a.name),
+            meta: [a.runtime, a.project].filter(Boolean).join(" · "),
+            chip: { label: a.state, tone: a.state === "asking" ? ("asking" as const) : ("running" as const) },
+            ts: a.startedTs,
+        })),
+    ];
+    return rows
+        .sort((x, y) => {
+            const s = (r: ActiveWorkRow) =>
+                r.kind === "blocker" || (r.chip != null && (r.chip.tone === "blocked" || r.chip.tone === "asking"))
+                    ? 0
+                    : 1;
+            const d = s(x) - s(y);
+            if (d !== 0) {
+                return d;
+            }
+            const t = y.ts - x.ts;
+            if (t !== 0) {
+                return t;
+            }
+            return x.key < y.key ? -1 : x.key > y.key ? 1 : 0;
+        })
+        .map((r, i) => ({ ...r, key: r.key + ":" + i }));
+}
 export interface SourceHealthSummary {
     complete: boolean;
     missingLegs: string[];
@@ -277,7 +374,10 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
         shipped: cappedShipped,
         efforts: effortCards.slice(0, EFFORT_CAP),
         effortMore: over(effortCards.length, EFFORT_CAP),
-        activeMore: over(activeRuns.length, ACTIVE_CAP) + over(blockers.length, ACTIVE_CAP) + over(directAgents.length, ACTIVE_CAP),
+        activeMore:
+            over(activeRuns.length, ACTIVE_CAP) +
+            over(blockers.length, ACTIVE_CAP) +
+            over(directAgents.length, ACTIVE_CAP),
         deltaMore: over(delta.length, DELTA_CAP),
         shippedMore: over(shipped.length, SHIPPED_CAP),
         health: { complete: missingLegs.length === 0, missingLegs, attentionState: state.sources.attention },

@@ -4,7 +4,17 @@
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { EFFORT_FIXTURES } from "./briefingfixtures";
-import { normalizeBriefingNav, projectBriefing, type BriefingModelInput } from "./briefingmodel";
+import {
+    groupDelta,
+    mergeActiveWork,
+    normalizeBriefingNav,
+    projectBriefing,
+    type AgentRow,
+    type BlockerRow,
+    type BriefingModelInput,
+    type DeltaRow,
+    type RunRow,
+} from "./briefingmodel";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -299,5 +309,127 @@ describe("briefing projection", () => {
         expect(m.shippedMore).toBe(2);
         expect(m.counts.runs).toBe(10);
         expect(m.counts.shipped).toBe(10);
+    });
+});
+
+describe("delta grouping", () => {
+    // fixed local noon — calendar-day buckets must not depend on the runner's TZ.
+    const NOON = new Date(2027, 0, 15, 12, 0, 0).getTime();
+    const day = (d: number, h: number) => new Date(2027, 0, d, h, 0, 0).getTime();
+    const deltaRow = (ts: number, title: string): DeltaRow => ({
+        key: "k:" + title,
+        ts,
+        kind: "run-done",
+        title,
+        wording: "Run completed",
+        detail: null,
+        oref: null,
+    });
+
+    it("buckets by calendar day into Today / Yesterday / Earlier", () => {
+        const groups = groupDelta(
+            [
+                deltaRow(day(15, 9), "this-morning"),
+                deltaRow(day(14, 23), "last-night"),
+                deltaRow(day(13, 10), "two-days-ago"),
+            ],
+            NOON
+        );
+        expect(groups.map((g) => g.label)).toEqual(["Today", "Yesterday", "Earlier"]);
+        expect(groups[0].rows.map((r) => r.title)).toEqual(["this-morning"]);
+        expect(groups[1].rows.map((r) => r.title)).toEqual(["last-night"]);
+        expect(groups[2].rows.map((r) => r.title)).toEqual(["two-days-ago"]);
+    });
+
+    it("treats midnight as the day boundary", () => {
+        const groups = groupDelta([deltaRow(day(15, 0), "midnight"), deltaRow(day(14, 0), "yesterday-midnight")], NOON);
+        expect(groups[0].rows.map((r) => r.title)).toEqual(["midnight"]);
+        expect(groups[1].rows.map((r) => r.title)).toEqual(["yesterday-midnight"]);
+    });
+
+    it("omits empty groups and returns nothing for an empty delta", () => {
+        expect(groupDelta([deltaRow(day(14, 10), "only-yesterday")], NOON).map((g) => g.label)).toEqual(["Yesterday"]);
+        expect(groupDelta([], NOON)).toEqual([]);
+    });
+});
+
+describe("unified active work", () => {
+    const run = (over: Partial<RunRow> = {}): RunRow => ({
+        oref: "run:r1",
+        goal: "run goal",
+        project: "waveterm",
+        status: "running",
+        workerOrefs: [],
+        ts: T0 - 2 * HOUR,
+        ...over,
+    });
+    const blocker = (over: Partial<BlockerRow> = {}): BlockerRow => ({
+        oref: "task:b1",
+        objective: "blocked thing",
+        blockers: "waiting on x",
+        project: "waveterm",
+        ts: T0 - 2 * HOUR,
+        ...over,
+    });
+    const agentRow = (over: Partial<AgentRow> = {}): AgentRow => ({
+        oref: "agent:a1",
+        id: "a1",
+        name: "loom",
+        task: "the task",
+        runtime: "claude",
+        project: "waveterm",
+        state: "working",
+        startedTs: T0 - 2 * HOUR,
+        ...over,
+    });
+
+    it("interleaves kinds, needing-eyes first, then recency, then identity", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ ts: T0 - HOUR }), run({ oref: "run:r2", ts: T0 - 4 * HOUR, status: "blocked" })],
+            blockers: [blocker({ ts: T0 - 2 * HOUR })],
+            directAgents: [agentRow({ state: "asking", startedTs: T0 - 3 * HOUR })],
+        });
+        // needing-eyes (blocked run, blocker, asking agent) first, recency within tier:
+        expect(rows.map((r) => r.kind)).toEqual(["blocker", "agent", "run", "run"]);
+        // then the remaining run (1h ago) before… no — it is the only score-1 row here, so it is last.
+        expect(rows[3].oref).toBe("run:r1");
+        expect(rows[3].chip).toEqual({ label: "running", tone: "running" });
+    });
+
+    it("chips: blocked runs, asking agents, and only unscoped blockers", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ status: "blocked" })],
+            blockers: [blocker({ project: null })],
+            directAgents: [agentRow({ state: "asking" })],
+        });
+        expect(rows.find((r) => r.kind === "run")!.chip).toEqual({ label: "blocked", tone: "blocked" });
+        expect(rows.find((r) => r.kind === "blocker")!.chip).toEqual({ label: "Unscoped record", tone: "muted" });
+        expect(rows.find((r) => r.kind === "agent")!.chip).toEqual({ label: "asking", tone: "asking" });
+    });
+
+    it("carries name, meta, oref, and recency for each kind", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ project: "waveterm", status: "running" })],
+            blockers: [blocker({ objective: "gate decision", blockers: "needs the spawn gate" })],
+            directAgents: [agentRow({ state: "working", startedTs: T0 - 5 * HOUR })],
+        });
+        const byKind = Object.fromEntries(rows.map((r) => [r.kind, r]));
+        expect(byKind.run!.name).toBe("run goal");
+        expect(byKind.run!.meta).toBe("waveterm · running");
+        expect(byKind.run!.oref).toBe("run:r1");
+        expect(byKind.blocker!.name).toBe("gate decision");
+        expect(byKind.blocker!.meta).toBe("needs the spawn gate");
+        expect(byKind.agent!.name).toBe("loom · the task");
+        expect(byKind.agent!.meta).toBe("claude · waveterm");
+        expect(byKind.agent!.ts).toBe(T0 - 5 * HOUR);
+    });
+
+    it("stays deterministic when timestamps collide", () => {
+        const rows = mergeActiveWork({
+            activeRuns: [run({ oref: "run:z", ts: T0 }), run({ oref: "run:a", ts: T0 })],
+            blockers: [],
+            directAgents: [],
+        });
+        expect(rows.map((r) => r.oref)).toEqual(["run:a", "run:z"]);
     });
 });

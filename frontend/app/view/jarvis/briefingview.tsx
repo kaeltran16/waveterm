@@ -1,17 +1,24 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Briefing Stage body: attention banner, efforts, active work, since-last-visit delta,
-// seven-day shipped, and the inline all-work answer above the composer. Pure projection in
+// The Briefing Stage body: status strip, needs-you card, efforts, active work, since-last-visit
+// delta, seven-day shipped, and the inline all-work answer above the composer. Pure projection in
 // briefingmodel.ts; this file only renders rows and never reinterprets wire kinds.
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { cn } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { BRIEFING_FIXTURES } from "./briefingfixtures";
-import { normalizeBriefingNav, projectBriefing, SEVEN_DAYS_MS } from "./briefingmodel";
+import {
+    groupDelta,
+    mergeActiveWork,
+    normalizeBriefingNav,
+    projectBriefing,
+    SEVEN_DAYS_MS,
+    type ActiveWorkRow,
+} from "./briefingmodel";
 import {
     briefingAnswerAtom,
     briefingAskStateAtom,
@@ -29,22 +36,42 @@ import { selectSubject } from "./jarvissubjectstore";
 import { openORef, orefNavPlan } from "./openref";
 import { STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 
-// one consistent row chrome for the active-work kinds; only the middle line differs.
+// the section-header chrome: mono label + count pill + hairline rule + optional action.
+function SectionHead({ label, count, action }: { label: string; count?: number; action?: React.ReactNode }) {
+    return (
+        <div className="mb-1.5 flex items-center gap-2">
+            <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-feed-label">{label}</span>
+            {count != null ? (
+                <span className="rounded-full border border-edge-faint bg-surface-raised px-2 py-[1px] font-mono text-[9.5px] font-semibold text-muted">
+                    {count}
+                </span>
+            ) : null}
+            <span className="h-px min-w-3 flex-1 bg-edge-faint" />
+            {action}
+        </div>
+    );
+}
+
+// one consistent row chrome for the active-work kinds; only the middle line differs. `lead`
+// renders before the text (kind badge), children after it (chip, age).
 function RowShell({
     kind,
     name,
     meta,
+    lead,
     onClick,
     children,
 }: {
     kind: string;
     name: string;
     meta: string;
+    lead?: React.ReactNode;
     onClick: (() => void) | null;
     children?: React.ReactNode;
 }) {
     const body = (
         <>
+            {lead}
             <span className="min-w-0 flex-1 flex-col gap-0.5">
                 <span className="block min-w-0 truncate text-[12.5px] font-medium text-primary">{name}</span>
                 <span className="mt-[2px] block truncate font-mono text-[9.5px] text-muted">{meta}</span>
@@ -62,21 +89,28 @@ function RowShell({
             data-row-kind={kind}
             aria-label={name + ", " + meta}
             onClick={onClick}
-            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
             {body}
         </button>
     );
 }
 
-function statusChip(status: string): string {
-    const tone =
-        status === "blocked"
-            ? "bg-asking/15 text-asking"
-            : status === "done"
-              ? "bg-success/15 text-success"
-              : "bg-surface-raised text-secondary";
-    return cn("flex-none rounded-[4px] px-1.5 py-[2px] font-mono text-[9.5px] font-semibold uppercase", tone);
+// chip tones mirror the model's chip union; blocked/asking get the asking tint, the rest quiet.
+type ChipTone = "blocked" | "asking" | "running" | "muted";
+function chipClass(tone: ChipTone): string {
+    return tone === "blocked" || tone === "asking" ? "bg-asking/15 text-asking" : "bg-surface-raised text-secondary";
+}
+
+function kindBadge(kind: ActiveWorkRow["kind"]): string {
+    return cn(
+        "flex-none rounded-[4px] border px-1.5 py-[2px] font-mono text-[8.5px] font-bold uppercase tracking-[.06em]",
+        kind === "run"
+            ? "border-edge-faint bg-surface-raised text-ink-mid"
+            : kind === "agent"
+              ? "border-accent/25 bg-accentbg text-accent-soft"
+              : "border-asking/30 bg-asking/15 text-asking"
+    );
 }
 
 function MoreLink({ label, onClick }: { label: string; onClick: () => void }) {
@@ -84,7 +118,7 @@ function MoreLink({ label, onClick }: { label: string; onClick: () => void }) {
         <button
             type="button"
             onClick={onClick}
-            className="w-fit cursor-pointer rounded-[7px] px-2.5 py-1 font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover"
+            className="w-fit cursor-pointer rounded-[7px] px-2.5 py-1 font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
             {label}
         </button>
@@ -121,6 +155,16 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
         });
     }, [snapshot, fixture, liveAgents]);
 
+    const activeRows: ActiveWorkRow[] | null =
+        model_ != null
+            ? mergeActiveWork({
+                  activeRuns: model_.activeRuns,
+                  blockers: model_.blockers,
+                  directAgents: model_.directAgents,
+              })
+            : null;
+    const deltaGroups = model_ != null ? groupDelta(model_.delta, Date.now()) : null;
+
     // one effort expanded at a time, owned by the store so subjects and delta rows can drive it.
     const failedRefresh = error != null && snapshot != null;
     const firstLoad = snapshot == null && loading;
@@ -143,7 +187,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                         <button
                             type="button"
                             onClick={refreshBriefing}
-                            className="mt-1 w-fit cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-primary"
+                            className="mt-1 w-fit cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                             Retry
                         </button>
@@ -153,7 +197,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                     <div className="flex flex-col gap-4">
                         {[
                             ["Initiatives", "h-12"],
-                            ["Runs", "h-12"],
+                            ["Active work", "h-12"],
                             ["Since last visit", "h-16"],
                             ["Recently shipped · 7 days", "h-12"],
                         ].map(([label, h]) => (
@@ -171,69 +215,93 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                         ))}
                     </div>
                 ) : null}
-                {snapshot != null && model_ != null ? (
+                {snapshot != null && model_ != null && activeRows != null && deltaGroups != null ? (
                     <>
-                        {failedRefresh ? (
-                            <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface px-4 py-2.5">
-                                <span className="text-[12px] text-secondary">
-                                    Showing previous snapshot · refresh failed
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={refreshBriefing}
-                                    className="ml-auto cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 text-[10.5px] font-semibold text-secondary hover:text-primary"
-                                >
-                                    Retry
-                                </button>
-                            </div>
-                        ) : null}
-                        {snapshot.cursorSaved === false ? (
-                            <div className="rounded-[10px] border border-border bg-surface px-4 py-2.5 text-[12px] text-secondary">
-                                Visit marker not saved — the next load will repeat this window.
-                            </div>
-                        ) : null}
-                        {!model_.health.complete ? (
-                            <div className="rounded-[10px] border border-border bg-surface px-4 py-2.5 text-[12px] text-secondary">
-                                Couldn't fully read: {model_.health.missingLegs.join(", ")}
-                            </div>
-                        ) : null}
+                        {/* one quiet status line instead of stacked health/error boxes */}
+                        <div
+                            data-jarvis-briefing-strip
+                            className="flex items-center gap-2 rounded-[8px] border border-edge-faint px-3 py-1.5 font-mono text-[10px] text-ink-faint"
+                        >
+                            <span
+                                className={cn(
+                                    "h-[5px] w-[5px] flex-none rounded-full",
+                                    failedRefresh ? "bg-error" : "bg-success"
+                                )}
+                            />
+                            <span className="text-muted">
+                                snapshot {formatAge(Date.now() - snapshot.queryStartedAt)} ago
+                            </span>
+                            <span className="text-edge-strong">·</span>
+                            <span className="text-muted">
+                                {snapshot.cursorSaved === false ? "visit marker not saved" : "visit marker saved"}
+                            </span>
+                            {!model_.health.complete ? (
+                                <>
+                                    <span className="text-edge-strong">·</span>
+                                    <span className="text-error">
+                                        couldn't fully read: {model_.health.missingLegs.join(", ")}
+                                    </span>
+                                </>
+                            ) : null}
+                            {failedRefresh ? (
+                                <>
+                                    <span className="text-edge-strong">·</span>
+                                    <span className="text-error">refresh failed — showing previous snapshot</span>
+                                </>
+                            ) : null}
+                        </div>
+                        {/* needs-you: attention card, asking tone, whole card opens the rail */}
                         {model_.attention != null || model_.attentionLines.length > 0 ? (
                             <button
                                 type="button"
                                 data-jarvis-briefing-banner
                                 onClick={openRail}
-                                className="flex w-full cursor-pointer flex-col items-start gap-1 rounded-[10px] border border-asking/30 bg-asking/10 px-4 py-2.5 text-left transition-colors duration-[140ms] hover:bg-asking/15"
+                                className="flex w-full cursor-pointer flex-col items-start gap-1.5 rounded-[10px] border border-asking/30 bg-asking/10 px-4 py-3 text-left shadow-[inset_3px_0_0_0_var(--color-asking)] transition-colors duration-[140ms] hover:bg-asking/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                             >
-                                <span className="flex items-center gap-2">
-                                    <span className="h-2 w-2 flex-none rounded-full bg-asking" />
-                                    <span className="text-[13px] font-semibold text-primary">
-                                        Needs you{model_.attention != null ? ` · ${model_.attention.count}` : ""}
+                                <span className="flex items-center gap-2.5">
+                                    <span className="h-2 w-2 flex-none animate-pulse rounded-full bg-asking motion-reduce:animate-none" />
+                                    <span className="text-[13.5px] font-bold text-primary">Needs you</span>
+                                    <span className="rounded-full bg-asking px-1.5 py-[1px] font-mono text-[9.5px] font-bold text-on-warning">
+                                        {model_.attention != null
+                                            ? model_.attention.count
+                                            : model_.attentionLines.length}
+                                    </span>
+                                    <span className="ml-auto font-mono text-[10.5px] font-semibold text-accent-soft">
+                                        Review all →
                                     </span>
                                 </span>
-                                {model_.attentionLines.map((l) => (
-                                    <span key={l} className="block pl-4 text-[12px] text-secondary">
-                                        {l}
+                                {model_.attentionLines.length > 0 ? (
+                                    <span className="flex flex-col gap-1 pl-[18px]">
+                                        {model_.attentionLines.map((l) => (
+                                            <span
+                                                key={l}
+                                                className="flex items-baseline gap-2 text-[12px] text-secondary"
+                                            >
+                                                <span className="flex-none rounded-[4px] bg-asking/15 px-1 py-[1px] font-mono text-[8.5px] font-bold uppercase tracking-[.06em] text-asking">
+                                                    blocked
+                                                </span>
+                                                {l}
+                                            </span>
+                                        ))}
                                     </span>
-                                ))}
+                                ) : null}
                             </button>
                         ) : null}
                         {/* Efforts — full width, first section */}
                         <section data-jarvis-briefing-section="efforts" className="flex flex-col gap-2">
-                            <div className="mb-1 flex items-center gap-2">
-                                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                    Initiatives
-                                </span>
-                                <span className="rounded-[9px] bg-surface px-1.5 font-mono text-[9.5px] font-semibold text-muted">
-                                    {model_.efforts.length + model_.effortMore}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowCreateForm(true)}
-                                    className="ml-auto cursor-pointer rounded-[7px] border border-accent/40 bg-accentbg px-2.5 py-1 text-[11px] font-semibold text-accent-soft hover:border-accent/60"
-                                >
-                                    + Initiative
-                                </button>
-                            </div>
+                            <SectionHead
+                                label="Initiatives"
+                                count={model_.efforts.length + model_.effortMore}
+                                action={
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCreateForm(true)}
+                                        className="cursor-pointer rounded-[7px] border border-accent/40 bg-accentbg px-2.5 py-1 text-[11px] font-semibold text-accent-soft hover:border-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                    >
+                                        + Initiative
+                                    </button>
+                                }
+                            />
                             {model_.efforts.length === 0 ? (
                                 <div className="rounded-[10px] border border-dashed border-edge-strong px-4 py-4 text-center text-[12px] text-muted">
                                     <span className="font-medium text-secondary">No initiatives yet.</span> Big tasks —
@@ -265,190 +333,116 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                         </section>
                         {/* two-column cockpit grid: Active work | Since last visit + Shipped */}
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            {/* active work: one triage queue, kind badge per row */}
                             <section data-jarvis-briefing-section="active" className="flex min-w-0 flex-col gap-1">
-                                <div className="mb-1 flex items-center gap-2">
-                                    <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                        Active work
+                                <SectionHead
+                                    label="Active work"
+                                    count={model_.counts.runs + model_.blockers.length + model_.counts.agents}
+                                />
+                                {activeRows.length === 0 ? (
+                                    <span className="px-2.5 py-1 text-[12px] text-secondary">
+                                        No active work right now.
                                     </span>
-                                    <span className="rounded-[9px] bg-surface px-1.5 font-mono text-[9.5px] font-semibold text-muted">
-                                        {model_.counts.runs + model_.blockers.length + model_.counts.agents}
-                                    </span>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <span
-                                        data-jarvis-briefing-section="runs"
-                                        className="font-mono text-[9.5px] font-semibold uppercase tracking-[.12em] text-muted"
-                                    >
-                                        Runs · {model_.counts.runs}
-                                    </span>
-                                    {model_.activeRuns.length === 0 ? (
-                                        <span className="px-2.5 py-1 text-[12px] text-secondary">
-                                            No active Wave runs.
-                                        </span>
-                                    ) : (
-                                        model_.activeRuns.map((r) => (
-                                            <RowShell
-                                                key={r.oref}
-                                                kind="run"
-                                                name={r.goal}
-                                                meta={`${r.project} · ${r.status}`}
-                                                onClick={() => void openORef(model, r.oref)}
-                                            >
-                                                <span className={statusChip(r.status)}>{r.status}</span>
-                                            </RowShell>
-                                        ))
-                                    )}
-                                </div>
-                                <div className="mt-2 flex flex-col gap-1">
-                                    <span
-                                        data-jarvis-briefing-section="blockers"
-                                        className="font-mono text-[9.5px] font-semibold uppercase tracking-[.12em] text-muted"
-                                    >
-                                        Blocked records · {model_.blockers.length}
-                                    </span>
-                                    {model_.blockers.length === 0 ? (
-                                        <span className="px-2.5 py-1 text-[12px] text-secondary">
-                                            No blocked records.
-                                        </span>
-                                    ) : (
-                                        model_.blockers.map((b) => (
-                                            <RowShell
-                                                key={b.oref}
-                                                kind="blocker"
-                                                name={b.objective}
-                                                meta={b.blockers}
-                                                onClick={b.oref !== "" ? () => void openORef(model, b.oref) : null}
-                                            >
-                                                {b.project == null ? (
-                                                    <span className="flex-none rounded-[4px] bg-surface-raised px-1.5 py-[2px] font-mono text-[9.5px] font-semibold uppercase text-secondary">
-                                                        Unscoped record
-                                                    </span>
-                                                ) : null}
-                                            </RowShell>
-                                        ))
-                                    )}
-                                </div>
-                                <div className="mt-2 flex flex-col gap-1">
-                                    <span
-                                        data-jarvis-briefing-section="agents"
-                                        className="font-mono text-[9.5px] font-semibold uppercase tracking-[.12em] text-muted"
-                                    >
-                                        Direct agents · {model_.counts.agents}
-                                    </span>
-                                    {model_.directAgents.length === 0 ? (
-                                        <span className="px-2.5 py-1 text-[12px] text-secondary">
-                                            No direct agents working right now.
-                                        </span>
-                                    ) : (
-                                        model_.directAgents.map((a) => (
-                                            <RowShell
-                                                key={a.oref}
-                                                kind="agent"
-                                                name={a.name + " · " + (a.task || a.name)}
-                                                meta={`${a.runtime}${a.project != null ? " · " + a.project : ""} · ${formatAge(Date.now() - a.startedTs)}`}
-                                                onClick={() => void openORef(model, a.oref)}
-                                            >
+                                ) : (
+                                    activeRows.map((r) => (
+                                        <RowShell
+                                            key={r.key}
+                                            kind={r.kind}
+                                            name={r.name}
+                                            meta={r.meta}
+                                            lead={<span className={kindBadge(r.kind)}>{r.kind}</span>}
+                                            onClick={r.oref !== "" ? () => void openORef(model, r.oref) : null}
+                                        >
+                                            {r.chip != null ? (
                                                 <span
                                                     className={cn(
                                                         "flex-none rounded-[4px] px-1.5 py-[2px] font-mono text-[9.5px] font-semibold uppercase",
-                                                        a.state === "asking"
-                                                            ? "bg-asking/15 text-asking"
-                                                            : "bg-surface-raised text-secondary"
+                                                        chipClass(r.chip.tone)
                                                     )}
                                                 >
-                                                    {a.state}
+                                                    {r.chip.label}
                                                 </span>
-                                            </RowShell>
-                                        ))
-                                    )}
-                                    {model_.activeMore > 0 ? (
-                                        <MoreLink label={`+${model_.activeMore} more`} onClick={openRail} />
-                                    ) : null}
-                                </div>
+                                            ) : null}
+                                            <span className="flex-none font-mono text-[9.5px] text-ink-faint">
+                                                {formatAge(Date.now() - r.ts)}
+                                            </span>
+                                        </RowShell>
+                                    ))
+                                )}
+                                {model_.activeMore > 0 ? (
+                                    <MoreLink label={`+${model_.activeMore} more`} onClick={openRail} />
+                                ) : null}
                             </section>
                             <section className="flex min-w-0 flex-col gap-4">
-                                <section className="flex flex-col gap-1">
-                                    <div className="mb-1 flex items-center gap-2">
-                                        <span
-                                            data-jarvis-briefing-section="delta"
-                                            className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted"
-                                        >
-                                            Since last visit
-                                        </span>
-                                        <span className="rounded-[9px] bg-surface px-1.5 font-mono text-[9.5px] font-semibold text-muted">
-                                            {model_.counts.delta}
-                                        </span>
-                                    </div>
+                                <section data-jarvis-briefing-section="delta" className="flex flex-col gap-1">
+                                    <SectionHead label="Since last visit" count={model_.counts.delta} />
                                     {model_.delta.length === 0 ? (
                                         <span className="px-2.5 py-1 text-[12px] text-secondary">
                                             No changes in this visit window.
                                         </span>
                                     ) : (
-                                        model_.delta.map((d) => {
-                                            const eff = effortDeltaRow({
-                                                kind: d.kind,
-                                                title: d.title,
-                                                detail: d.detail,
-                                            });
-                                            const oref =
-                                                d.oref != null &&
-                                                d.oref !== "" &&
-                                                orefNavPlan(d.oref).kind !== "unsupported"
-                                                    ? d.oref
-                                                    : null;
-                                            const inner = (
-                                                <>
-                                                    <span className="min-w-0 flex-1 flex-col">
-                                                        <span className="block text-[12.5px] font-medium text-primary">
-                                                            {d.title}
-                                                        </span>
-                                                        <span className="mt-[2px] block truncate font-mono text-[9.5px] text-muted">
-                                                            {eff != null
-                                                                ? eff.meta
-                                                                : `${d.wording}${d.detail != null ? " · " + d.detail : ""}`}
-                                                        </span>
-                                                    </span>
-                                                    <span className="flex-none font-mono text-[9.5px] text-muted">
-                                                        {formatAge(Date.now() - d.ts)}
-                                                    </span>
-                                                </>
-                                            );
-                                            return oref != null ? (
-                                                <button
-                                                    key={d.key}
-                                                    type="button"
-                                                    data-jarvis-briefing-row
-                                                    data-row-kind={d.kind}
-                                                    aria-label={d.title + ", " + d.wording}
-                                                    onClick={() => void openORef(model, oref!)}
-                                                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover"
-                                                >
-                                                    {inner}
-                                                </button>
-                                            ) : (
-                                                <div
-                                                    key={d.key}
-                                                    className="flex items-center gap-2.5 rounded-[8px] px-2.5 py-[7px]"
-                                                >
-                                                    {inner}
-                                                </div>
-                                            );
-                                        })
+                                        deltaGroups.map((g) => (
+                                            <Fragment key={g.label}>
+                                                <span className="px-2.5 pb-0.5 pt-2 font-mono text-[9.5px] font-semibold uppercase tracking-[.12em] text-feed-label">
+                                                    {g.label}
+                                                </span>
+                                                {g.rows.map((d) => {
+                                                    const eff = effortDeltaRow({
+                                                        kind: d.kind,
+                                                        title: d.title,
+                                                        detail: d.detail,
+                                                    });
+                                                    const oref =
+                                                        d.oref != null &&
+                                                        d.oref !== "" &&
+                                                        orefNavPlan(d.oref).kind !== "unsupported"
+                                                            ? d.oref
+                                                            : null;
+                                                    const inner = (
+                                                        <>
+                                                            <span className="min-w-0 flex-1 flex-col">
+                                                                <span className="block text-[12.5px] font-medium text-primary">
+                                                                    {d.title}
+                                                                </span>
+                                                                <span className="mt-[2px] block truncate font-mono text-[9.5px] text-muted">
+                                                                    {eff != null
+                                                                        ? eff.meta
+                                                                        : `${d.wording}${d.detail != null ? " · " + d.detail : ""}`}
+                                                                </span>
+                                                            </span>
+                                                            <span className="flex-none font-mono text-[9.5px] text-ink-faint">
+                                                                {formatAge(Date.now() - d.ts)}
+                                                            </span>
+                                                        </>
+                                                    );
+                                                    return oref != null ? (
+                                                        <button
+                                                            key={d.key}
+                                                            type="button"
+                                                            data-jarvis-briefing-row
+                                                            data-row-kind={d.kind}
+                                                            aria-label={d.title + ", " + d.wording}
+                                                            onClick={() => void openORef(model, oref!)}
+                                                            className="flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                                        >
+                                                            {inner}
+                                                        </button>
+                                                    ) : (
+                                                        <div
+                                                            key={d.key}
+                                                            className="flex items-center gap-2.5 rounded-[8px] px-2.5 py-[7px]"
+                                                        >
+                                                            {inner}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </Fragment>
+                                        ))
                                     )}
                                     {model_.deltaMore > 0 ? <MoreLink label="see all" onClick={openRail} /> : null}
                                 </section>
-                                <section className="flex flex-col gap-1">
-                                    <div className="mb-1 flex items-center gap-2">
-                                        <span
-                                            data-jarvis-briefing-section="shipped"
-                                            className="font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted"
-                                        >
-                                            Recently shipped · 7 days
-                                        </span>
-                                        <span className="rounded-[9px] bg-surface px-1.5 font-mono text-[9.5px] font-semibold text-muted">
-                                            {model_.counts.shipped}
-                                        </span>
-                                    </div>
+                                <section data-jarvis-briefing-section="shipped" className="flex flex-col gap-1">
+                                    <SectionHead label="Recently shipped · 7 days" count={model_.counts.shipped} />
                                     {model_.shipped.length === 0 ? (
                                         <span className="px-2.5 py-1 text-[12px] text-secondary">
                                             No evidence-sealed Runs shipped in the last 7 days.
@@ -462,7 +456,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                                 data-row-kind="shipped"
                                                 aria-label={s.goal + ", shipped"}
                                                 onClick={() => void openORef(model, s.oref)}
-                                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                                                className="flex w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 py-[7px] text-left transition-colors duration-[140ms] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                             >
                                                 <span className="min-w-0 flex-1 flex-col">
                                                     <span className="block min-w-0 truncate text-[12.5px] font-medium text-primary">
@@ -478,7 +472,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                                         New
                                                     </span>
                                                 ) : null}
-                                                <span className="flex-none font-mono text-[9.5px] text-muted">
+                                                <span className="flex-none font-mono text-[9.5px] text-ink-faint">
                                                     {formatAge(Date.now() - s.completedTs)}
                                                 </span>
                                             </button>
@@ -492,9 +486,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                         </div>
                         {/* Ask — full width, above the composer */}
                         <section data-jarvis-briefing-section="ask" className="flex flex-col gap-1">
-                            <span className="mb-1 font-mono text-[9.5px] font-bold uppercase tracking-[.12em] text-muted">
-                                Ask across your work
-                            </span>
+                            <SectionHead label="Ask across your work" />
                             {answer != null ? (
                                 <>
                                     <div className="rounded-[10px] border border-border bg-surface px-4 py-3">
@@ -513,7 +505,7 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                                                             key={i}
                                                             type="button"
                                                             onClick={() => void openORef(model, normalized!)}
-                                                            className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 text-[10.5px] font-semibold text-accent-soft hover:border-accent/40"
+                                                            className="cursor-pointer rounded-[6px] border border-border bg-surface-raised px-2 py-0.5 text-[10.5px] font-semibold text-accent-soft hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                                         >
                                                             [{i + 1}] {s.title}
                                                         </button>
