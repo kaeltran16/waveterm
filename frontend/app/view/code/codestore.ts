@@ -75,6 +75,11 @@ export const codePendingLineAtom = atom<number | null>(null) as PrimitiveAtom<nu
 // there is no document — and because this codebase keeps DOM reads in `run`, never in `when`.
 export const codeTreeFocusedAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
+// Markdown files render as documents by default; Source switches to the editable Monaco view.
+// Ignored for non-markdown files, which are always Source. Reset on project switch, but not on
+// file switch — a reader who prefers source stays in source across files.
+export const codeViewModeAtom = atom<"preview" | "source">("preview") as PrimitiveAtom<"preview" | "source">;
+
 // The rendered row list. Derived rather than memoized inside the pane, because the keyboard bindings
 // have to agree with the pane about which rows exist and cannot see a component's useMemo.
 export const codeRowsAtom = atom((get) =>
@@ -103,6 +108,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeSaveAtom, { kind: "idle" });
     globalStore.set(codeCursorAtom, null);
     globalStore.set(codePendingLineAtom, null);
+    globalStore.set(codeViewModeAtom, "preview");
     resetSearch(); // results belong to the repository they were found in
     // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
     // brings your unsaved edits back with it

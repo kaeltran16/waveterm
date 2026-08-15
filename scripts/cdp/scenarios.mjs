@@ -3575,6 +3575,17 @@ const setSearchQuery = (h, text) =>
         return true;
     })()`);
 
+const setFinderQuery = (h, text) =>
+    h.ev(`(() => {
+        const input = document.querySelector('input[placeholder="Find a file by name — add :123 for a line"]');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, ${JSON.stringify(text)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+        return true;
+    })()`);
+
 const codeSearch = {
     name: "code-search",
     surface: "code",
@@ -4290,6 +4301,89 @@ const jarvisBriefing = {
         return steps;
     },
     async teardown(h) {
+        await h.goto("cockpit"); // leave the app where a human expects it
+    },
+};
+
+const codeMarkdown = {
+    name: "code-markdown",
+    surface: "code",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        await h.goto("code");
+        steps.push({
+            step: "Code surface is active",
+            ok: (await h.activeSurfaceLabel()) === SURFACE_LABEL.code,
+            detail: `active=${await h.activeSurfaceLabel()}`,
+        });
+
+        if ((await openProjectPicker(h)) === true) {
+            await sleep(300);
+            const picked = await chooseProjectRow(h);
+            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
+            await sleep(1200); // the index is one git ls-files call
+        }
+
+        // Ctrl+P opens the file finder (the command palette moved to Ctrl+Shift+P); Enter opens the
+        // top-ranked match
+        await h.ev(
+            `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+        );
+        await sleep(300);
+        const typed = await setFinderQuery(h, "README.md");
+        steps.push({
+            step: "open the finder with Ctrl+P and open README.md",
+            ok: typed === true,
+            detail: `typed=${typed}`,
+        });
+        await sleep(800); // one stat-then-read round trip
+
+        const heading = await h.ev(`(() => {
+            const h = document.querySelector('.markdown .heading');
+            return h ? (h.textContent || '').trim() : null;
+        })()`);
+        steps.push({
+            step: "markdown file renders as a document (a heading is present)",
+            ok: heading != null && heading.length > 0,
+            detail: `heading=${heading}`,
+        });
+        await h.shot("cdp-shots/code-markdown-preview.png");
+
+        const toSource = await h.ev(`(() => {
+            const b = document.querySelector('[data-code-view-mode="source"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await sleep(600);
+        const editor = await h.ev(`(() => !!document.querySelector('.monaco-editor'))()`);
+        steps.push({
+            step: "toggle to Source mounts the Monaco editor",
+            ok: toSource === true && editor === true,
+            detail: `toggled=${toSource} editor=${editor}`,
+        });
+
+        const backToPreview = await h.ev(`(() => {
+            const b = document.querySelector('[data-code-view-mode="preview"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await sleep(400);
+        const previewAgain = await h.ev(`(() => !!document.querySelector('.markdown .heading'))()`);
+        steps.push({
+            step: "toggle back to Preview re-renders the document",
+            ok: backToPreview === true && previewAgain === true,
+            detail: `toggled=${backToPreview} preview=${previewAgain}`,
+        });
+
+        return steps;
+    },
+    async teardown(h) {
         await h.goto("cockpit");
     },
 };
@@ -4301,6 +4395,7 @@ export const SCENARIOS = [
     gitHistory,
     surfaceSmoke,
     codeSearch,
+    codeMarkdown,
     jarvisAvatar,
     jarvisStates,
     jarvisBriefing,

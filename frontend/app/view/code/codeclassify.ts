@@ -7,6 +7,15 @@
 
 export const MAX_VIEW_BYTES = 2 * 1024 * 1024;
 
+// READMEs and other prose read as documents; the viewer renders them with the app's markdown
+// component. Extension-only: the backend maps unknown extensions to an empty mimetype (how Go and
+// Rust files pass the text gate), so MIME would misclassify .md reliably.
+const MARKDOWN_EXT = /\.(?:md|markdown)$/i;
+
+export function isMarkdownPath(rel: string): boolean {
+    return MARKDOWN_EXT.test(rel);
+}
+
 // application/* types that are really text. Anything else outside text/* is binary.
 const TEXTISH_MIME = new Set([
     "application/json",

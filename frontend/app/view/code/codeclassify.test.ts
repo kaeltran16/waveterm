@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { classifyFile, hasNulByte, MAX_VIEW_BYTES } from "./codeclassify";
+import { classifyFile, hasNulByte, isMarkdownPath, MAX_VIEW_BYTES } from "./codeclassify";
 
 describe("classifyFile", () => {
     it("treats an unrecognized (empty) mimetype as text, because Go and Rust land there", () => {
@@ -48,5 +48,22 @@ describe("hasNulByte", () => {
 
     it("does not scan past the head window", () => {
         expect(hasNulByte("a".repeat(9000) + "\u0000")).toBe(false);
+    });
+});
+
+describe("isMarkdownPath", () => {
+    it("accepts .md and .markdown, case-insensitively, at any depth", () => {
+        expect(isMarkdownPath("README.md")).toBe(true);
+        expect(isMarkdownPath("docs/guide.markdown")).toBe(true);
+        expect(isMarkdownPath("CHANGELOG.MD")).toBe(true);
+        expect(isMarkdownPath("frontend/app/view/code/readme.md")).toBe(true);
+    });
+
+    it("rejects extensions that merely contain md", () => {
+        expect(isMarkdownPath("file.md5")).toBe(false);
+        expect(isMarkdownPath("file.mds")).toBe(false);
+        expect(isMarkdownPath("foo.md.txt")).toBe(false);
+        expect(isMarkdownPath("src/main.ts")).toBe(false);
+        expect(isMarkdownPath("Makefile")).toBe(false);
     });
 });

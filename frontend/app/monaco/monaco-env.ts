@@ -13,6 +13,7 @@ import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import { monacoThemeFromTokens, readChromeRoles, readSyntaxTokens } from "./monacotheme";
 
 let monacoConfigured = false;
 
@@ -39,26 +40,13 @@ export function loadMonaco() {
         return;
     }
     monacoConfigured = true;
-    monaco.editor.defineTheme("wave-theme-dark", {
-        base: "vs-dark",
-        inherit: true,
-        rules: [],
-        colors: {
-            "editor.background": "#00000000",
-            "editorStickyScroll.background": "#00000055",
-            "minimap.background": "#00000077",
-            focusBorder: "#00000000",
-        },
-    });
-    monaco.editor.defineTheme("wave-theme-light", {
-        base: "vs",
-        inherit: true,
-        rules: [],
-        colors: {
-            "editor.background": "#fefefe",
-            focusBorder: "#00000000",
-        },
-    });
+    // theme definitions now come from the cockpit's own tokens (see monacotheme.ts); computed-style
+    // reads are safe here because loadMonaco runs at first editor mount, long after cockpit-root's
+    // pre-paint theme application, so the values are settled
+    const tokens = readSyntaxTokens(document.documentElement);
+    const chrome = readChromeRoles(document.documentElement);
+    monaco.editor.defineTheme("wave-theme-dark", monacoThemeFromTokens(tokens, chrome, true));
+    monaco.editor.defineTheme("wave-theme-light", monacoThemeFromTokens(tokens, chrome, false));
     // no monaco-yaml here on purpose: it was configured with zero schemas (so it only duplicated the
     // yaml grammar monaco already bundles), and its marker provider reset a yaml schema on EVERY
     // disposed model regardless of language, throwing an unhandled rejection per file switch.
@@ -75,4 +63,11 @@ export function loadMonaco() {
         enableSchemaRequest: true,
         schemas: MonacoSchemas,
     });
+}
+
+// The hook's entry point across the lazy chunk boundary: redefine under the same name (defineTheme
+// overwrites) and activate. Keeps monaco usage inside this module so monacotheme.ts stays type-only.
+export function applyMonacoTheme(name: string, theme: monaco.editor.IStandaloneThemeData): void {
+    monaco.editor.defineTheme(name, theme);
+    monaco.editor.setTheme(name);
 }

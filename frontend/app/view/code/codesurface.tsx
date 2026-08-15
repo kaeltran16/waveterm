@@ -6,6 +6,7 @@
 // to agents and runs — this answers "what does this code look like", not "what changed".
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { buildCodeBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -52,6 +53,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     // stable array: every run() reads live atoms, so it never needs rebuilding
     const codeBindings = useMemo(() => buildCodeBindings(), []);
     useKeybindings(codeBindings);
+    useSyncMonacoTheme();
 
     const projects: CodeProject[] = Object.entries(registry ?? {})
         .filter(([, v]) => v?.path)
