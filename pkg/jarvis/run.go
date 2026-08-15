@@ -351,10 +351,14 @@ func BuildQuickPrompt(goal string, principles waveobj.PrincipleList) string {
 // BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run: plan, then execute
 // adaptively by dispatching subagents, carrying the principles down to each. A gated run tells the lead
 // to hold after planning; every run tells it to report completion. Self-report verbs are wsh commands.
-func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate bool) string {
+func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate bool, runtime string) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
+	}
+	if runtime == "pi" {
+		buildPiOrchestratePrompt(&b, goal, gate)
+		return strings.TrimRight(b.String(), "\n")
 	}
 	b.WriteString("You are the lead orchestrator for this goal.\n")
 	if gate {
@@ -374,4 +378,16 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate 
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes.\n")
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// buildPiOrchestratePrompt is the pi-runtime variant: the engine's DAG replaces the
+// dispatch-your-own-subagents loop, and control events replace the per-child notify lines.
+func buildPiOrchestratePrompt(b *strings.Builder, goal string, gate bool) {
+	b.WriteString("You are the lead orchestrator for this goal, running under pi with the waveterm bridge.\n")
+	if gate {
+		b.WriteString("Plan the work with the superpowers:writing-plans approach, write the plan as pi-tasks records (blocks/blockedby set), then run `wsh jarvis dag import-tasks` to submit the DAG to the engine. The engine schedules children, enforces dependencies and the parallelism cap, and wakes you with control events (child_done, gate_open, dag_blocked, dag_complete) — respond to control events as they arrive; do not babysit children, never open their transcripts. At a gate, wait for the human to approve in the cockpit (or run `wsh jarvis dag approve <task>` yourself only for decisions the prompt marks as yours). Use `wsh jarvis dag status` for detail. Engine DAG = isolated parallel units; pi-subagents = in-context helpers only.\n")
+	} else {
+		b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise plan it (writing-plans), write the plan as pi-tasks records, and run `wsh jarvis dag import-tasks`; the engine schedules children and wakes you with control events — do not babysit. `wsh jarvis dag status` for detail.\n")
+	}
+	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }

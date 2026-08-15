@@ -267,6 +267,30 @@ func CreateWorktreeCommand(w *wshutil.WshRpc, data wshrpc.CommandCreateWorktreeD
 	return resp, err
 }
 
+// command "dagaction", wshserver.DagActionCommand
+func DagActionCommand(w *wshutil.WshRpc, data wshrpc.CommandDagActionData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "dagaction", data, opts)
+	return err
+}
+
+// command "dagmerge", wshserver.DagMergeCommand
+func DagMergeCommand(w *wshutil.WshRpc, data wshrpc.CommandDagMergeData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "dagmerge", data, opts)
+	return err
+}
+
+// command "dagstatus", wshserver.DagStatusCommand
+func DagStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts *wshrpc.RpcOpts) (*waveobj.TaskGroup, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.TaskGroup](w, "dagstatus", data, opts)
+	return resp, err
+}
+
+// command "dagsubmit", wshserver.DagSubmitCommand
+func DagSubmitCommand(w *wshutil.WshRpc, data wshrpc.CommandDagSubmitData, opts *wshrpc.RpcOpts) (*waveobj.TaskGroup, error) {
+	resp, err := sendRpcRequestCallHelper[*waveobj.TaskGroup](w, "dagsubmit", data, opts)
+	return resp, err
+}
+
 // command "debugterm", wshserver.DebugTermCommand
 func DebugTermCommand(w *wshutil.WshRpc, data wshrpc.CommandDebugTermData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDebugTermRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDebugTermRtnData](w, "debugterm", data, opts)

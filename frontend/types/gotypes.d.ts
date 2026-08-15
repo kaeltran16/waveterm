@@ -530,6 +530,35 @@ declare global {
         worktreepath: string;
     };
 
+    // wshrpc.CommandDagActionData
+    type CommandDagActionData = {
+        channelid: string;
+        runid: string;
+        taskid: string;
+        action: string;
+    };
+
+    // wshrpc.CommandDagMergeData
+    type CommandDagMergeData = {
+        channelid: string;
+        runid: string;
+    };
+
+    // wshrpc.CommandDagStatusData
+    type CommandDagStatusData = {
+        channelid: string;
+        runid: string;
+    };
+
+    // wshrpc.CommandDagSubmitData
+    type CommandDagSubmitData = {
+        channelid: string;
+        runid: string;
+        title?: string;
+        parallelism: number;
+        tasks: TaskNode[];
+    };
+
     // wshrpc.CommandDebugTermData
     type CommandDebugTermData = {
         blockid: string;
@@ -2738,6 +2767,7 @@ declare global {
         evidence?: RunEvidence;
         parentleadoref?: string;
         effortref?: RunEffortRef;
+        dagoref?: string;
     };
 
     // waveobj.RunEffortRef
@@ -2780,6 +2810,13 @@ declare global {
         reportid: string;
         findingid: string;
         fingerprint: string;
+    };
+
+    // waveobj.RunSpec
+    type RunSpec = {
+        runtime?: string;
+        mode?: string;
+        goal?: string;
     };
 
     // waveobj.RuntimeOpts
@@ -3179,6 +3216,32 @@ declare global {
         name: string;
         layoutstate: string;
         blockids: string[];
+    };
+
+    // waveobj.TaskGroup
+    type TaskGroup = WaveObj & {
+        id: string;
+        runid: string;
+        channelid: string;
+        title?: string;
+        parallelism: number;
+        tasks: TaskNode[];
+        status: string;
+        failures: number;
+        createdts: number;
+        updatedts: number;
+    };
+
+    // waveobj.TaskNode
+    type TaskNode = {
+        id: string;
+        label?: string;
+        deps?: string[];
+        gate?: boolean;
+        state: string;
+        runid?: string;
+        released?: boolean;
+        runspec?: RunSpec;
     };
 
     // waveobj.TermSize

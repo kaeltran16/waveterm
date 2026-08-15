@@ -24,6 +24,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { harnessesAtom } from "./harnessstore";
+import { openDag } from "../orchestrate/dagstore";
 import { steerWorker } from "./channelactions";
 import { runAtom } from "./channelsstore";
 import { jumpToAgent } from "./channelsprimitives";
@@ -183,6 +184,16 @@ export function RunHeader({
                 </div>
                 <div className="flex flex-none gap-1.5">
                     <AskJarvisButton model={model} sourceRef={sourceRefForRun(run)} label="Ask Jarvis" />
+                    {run.dagoref ? (
+                        <button
+                            type="button"
+                            onClick={() => openDag("dag:" + run.dagoref)}
+                            title="Open the engine task DAG for this run"
+                            className="cursor-pointer rounded border border-accent/50 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:border-accent"
+                        >
+                            Open DAG
+                        </button>
+                    ) : null}
                 </div>
                 {!hideSteer ? (
                     <div className="flex flex-none gap-1.5">

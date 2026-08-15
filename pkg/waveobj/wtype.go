@@ -37,6 +37,7 @@ const (
 	OType_ChannelMessage     = "channelmessage"
 	OType_JarvisConversation = "jarvisconversation"
 	OType_Effort             = "effort"
+	OType_Dag                = "dag"
 )
 
 var ValidOTypes = map[string]bool{
@@ -55,6 +56,7 @@ var ValidOTypes = map[string]bool{
 	OType_ChannelMessage:     true,
 	OType_JarvisConversation: true,
 	OType_Effort:             true,
+	OType_Dag:                true,
 }
 
 type WaveObjUpdate struct {
@@ -270,15 +272,59 @@ type Run struct {
 	Evidence    *RunEvidence    `json:"evidence,omitempty"`    // sealed once at completion; immutable
 	// ParentLeadORef is the tab oref ("tab:<id>") of the orchestrator lead that spawned this child run
 	// via `wsh jarvis run`. Empty for human-started runs. Drives the terminal-status notify-back.
-	ParentLeadORef string      `json:"parentleadoref,omitempty"`
+	ParentLeadORef string `json:"parentleadoref,omitempty"`
 	// EffortRef links a run to the effort chunk it executes (set by the composer's effort picker or
 	// `wsh effort chunk attach --run`). Advisory: the run never ticks the chunk automatically.
 	EffortRef *RunEffortRef `json:"effortref,omitempty"`
-	Meta       MetaMapType  `json:"meta"`
+	// DagORef links an orchestrator run to its TaskGroup ("dag:<id>"); set by DagSubmitCommand,
+	// copied onto child runs so the engine can resolve the group from any run in the DAG.
+	DagORef string      `json:"dagoref,omitempty"`
+	Meta    MetaMapType `json:"meta"`
 }
 
 func (*Run) GetOType() string {
 	return OType_Run
+}
+
+// TaskNode is one unit of work in a TaskGroup DAG. State is derived by the engine
+// (pkg/orchestrate), never hand-set — mirrors the RunStatus discipline.
+type TaskNode struct {
+	ID       string   `json:"id"` // "t-1", unique within the group
+	Label    string   `json:"label,omitempty"`
+	Deps     []string `json:"deps,omitempty"`
+	Gate     bool     `json:"gate,omitempty"`     // halt the DAG at completion for review
+	State    string   `json:"state"`              // pending|ready|running|done|failed|cancelled|skipped|blocked-merge
+	RunID    string   `json:"runid,omitempty"`    // child run once spawned
+	Released bool     `json:"released,omitempty"` // gate released by human approval
+	RunSpec  RunSpec  `json:"runspec,omitempty"`
+}
+
+// RunSpec is the child-run launch form a task wants (runtime/mode/goal override).
+type RunSpec struct {
+	Runtime string `json:"runtime,omitempty"` // harness; empty = run default
+	Mode    string `json:"mode,omitempty"`    // quick | pipeline | orchestrator
+	Goal    string `json:"goal,omitempty"`    // per-task goal; empty = task label
+}
+
+// TaskGroup is the persisted DAG attached to an orchestrator run (oref dag:<id>).
+type TaskGroup struct {
+	OID         string      `json:"oid"`
+	Version     int         `json:"version"`
+	ID          string      `json:"id"`        // == OID; retained for embedded-blob consumers until phase 3 contract
+	RunID       string      `json:"runid"`     // owning orchestrator run
+	ChannelId   string      `json:"channelid"` // owning run's channel (run lookups are channel-scoped)
+	Title       string      `json:"title,omitempty"`
+	Parallelism int         `json:"parallelism"`
+	Tasks       []TaskNode  `json:"tasks"`
+	Status      string      `json:"status"`   // running|awaiting-review|blocked|done|cancelled (derived)
+	Failures    int         `json:"failures"` // consecutive task failures; circuit-break at 3
+	CreatedTs   int64       `json:"createdts"`
+	UpdatedTs   int64       `json:"updatedts"`
+	Meta        MetaMapType `json:"meta"`
+}
+
+func (*TaskGroup) GetOType() string {
+	return OType_Dag
 }
 
 // RunEvidence is the sealed, immutable snapshot of what a run produced, derived server-side and frozen at
@@ -337,13 +383,13 @@ type Effort struct {
 	OID       string        `json:"oid"`
 	Version   int           `json:"version"`
 	Title     string        `json:"title"`
-	Project   string        `json:"project,omitempty"`  // free string; "" = unscoped
+	Project   string        `json:"project,omitempty"` // free string; "" = unscoped
 	Ticket    string        `json:"ticket,omitempty"`
-	Status    string        `json:"status"`             // active | paused | done | archived
+	Status    string        `json:"status"` // active | paused | done | archived
 	ParentOID string        `json:"parentoid,omitempty"`
-	Chunks    []EffortChunk `json:"chunks"`             // ordered; may be empty (agents create first, plan chunks after)
+	Chunks    []EffortChunk `json:"chunks"` // ordered; may be empty (agents create first, plan chunks after)
 	Notes     []EffortNote  `json:"notes,omitempty"`
-	Events    []EffortEvent `json:"events,omitempty"`   // delta-source event log (six kinds)
+	Events    []EffortEvent `json:"events,omitempty"` // delta-source event log (six kinds)
 	CreatedTs int64         `json:"createdts"`
 	UpdatedTs int64         `json:"updatedts"`
 	Meta      MetaMapType   `json:"meta"`
@@ -352,8 +398,8 @@ type Effort struct {
 func (*Effort) GetOType() string { return OType_Effort }
 
 type EffortChunk struct {
-	Label     string         `json:"label"`              // unique within the effort; reference key
-	Status    string         `json:"status"`             // pending | active | done | deferred | blocked | skipped
+	Label     string         `json:"label"`  // unique within the effort; reference key
+	Status    string         `json:"status"` // pending | active | done | deferred | blocked | skipped
 	Owner     string         `json:"owner,omitempty"`
 	WorkRefs  []ChunkWorkRef `json:"workrefs,omitempty"` // runs/agent sessions currently working this chunk (populated by Task 9+)
 	Notes     []EffortNote   `json:"notes,omitempty"`    // append-only trail
@@ -374,7 +420,7 @@ type EffortNote struct {
 
 type EffortEvent struct {
 	Ts    int64  `json:"ts"`
-	Kind  string `json:"kind"`  // effort-created | chunk-done | chunk-added | chunk-status | effort-status | effort-note
+	Kind  string `json:"kind"`            // effort-created | chunk-done | chunk-added | chunk-status | effort-status | effort-note
 	Label string `json:"label,omitempty"` // chunk label for chunk-level events, "" for effort-level
 	Text  string `json:"text,omitempty"`
 }
@@ -695,6 +741,7 @@ func AllWaveObjTypes() []reflect.Type {
 		reflect.TypeOf(&ChannelMessage{}),
 		reflect.TypeOf(&JarvisConvo{}),
 		reflect.TypeOf(&Effort{}),
+		reflect.TypeOf(&TaskGroup{}),
 	}
 }
 

@@ -4294,6 +4294,155 @@ const jarvisBriefing = {
     },
 };
 
+// --- dag lifecycle: engine + graph surface ----------------------------------------------------
+// Drives the real DagSubmit/DagAction/DagMerge RPCs through an orchestrator-mode run, then opens
+// the graph surface and asserts the ReactFlow canvas renders the submitted nodes. Blast radius is
+// contained like runs-lifecycle: temp-dir project, worker blocks killed in teardown, channel deleted.
+const dagLifecycle = {
+    name: "dag-lifecycle",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-dag-"));
+        const wslist = await h.rpc("workspacelist", null);
+        const workspaceId = wslist[0].workspacedata.oid;
+        const ch = await h.rpc("createchannel", { name: "verify-dag", projectpath: cwd });
+        return { cwd, workspaceId, channelId: ch.oid };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const getRun = async (runId) => {
+            const res = await h.rpc("getchannels", null);
+            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
+            return (cc.runs || []).find((x) => x.id === runId);
+        };
+
+        const created = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid: ctx.workspaceId,
+            goal: "verify dag: do nothing, make no file changes, stop immediately",
+            runtime: "claude",
+            mode: "orchestrator",
+        });
+        const runId = created.run.id;
+        rec(
+            "1. CreateRun mode=orchestrator -> run exists",
+            !!runId && created.run.mode === "orchestrator",
+            JSON.stringify({ runId, mode: created.run.mode })
+        );
+
+        const g = await h.rpc("dagsubmit", {
+            channelid: ctx.channelId,
+            runid: runId,
+            title: "verify dag",
+            parallelism: 2,
+            tasks: [
+                { id: "t-0", label: "noop", state: "pending", runspec: { runtime: "claude", mode: "quick", goal: "do nothing, stop immediately" } },
+                { id: "t-1", label: "review", state: "pending", deps: ["t-0"], gate: true, runspec: { runtime: "claude", mode: "quick", goal: "review only, make no changes" } },
+                { id: "t-2", label: "noop 2", state: "pending", deps: ["t-1"], runspec: { runtime: "claude", mode: "quick", goal: "do nothing, stop immediately" } },
+            ],
+        });
+        rec(
+            "2. DagSubmit -> group with 3 tasks, status running, run linked (dagoref)",
+            g.tasks.length === 3 && g.status === "running" && !!g.id,
+            JSON.stringify({ id: g.id, status: g.status, tasks: g.tasks.map((t) => t.id) })
+        );
+        const rAfter = await getRun(runId);
+        rec("3. run.dagoref links the group", rAfter && rAfter.dagoref === g.id, JSON.stringify({ dagoref: rAfter && rAfter.dagoref }));
+
+        const st = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        rec(
+            "4. DagStatus -> t-0 scheduled (running) or already finished, t-1/t-2 pending",
+            st.tasks[0].state === "running" || st.tasks[0].state === "done",
+            JSON.stringify(st.tasks.map((t) => ({ id: t.id, state: t.state })))
+        );
+
+        // graph surface: the run header has an Open DAG button (jarvis surface). The subjects column
+        // reads a boot-primed channel snapshot, so reload the page to pick up the RPC-created channel,
+        // then click the channel row (matched by data-jarvis-subject-kind, not text — the project group
+        // header contains the same temp-dir name), then the run row.
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 4500))");
+        await h.goto("jarvis");
+        const clickRetry = (findJs, tries = 8) =>
+            h.ev(`(async () => {
+                for (let i = 0; i < ${tries}; i++) {
+                    const b = ${findJs};
+                    if (b) { b.click(); return true; }
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+                return false;
+            })()`);
+        const channelClicked = await clickRetry(
+            `[...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')].find((b) => (b.getAttribute('aria-label') || '').includes('verify-dag'))`
+        );
+        const runClicked = await clickRetry(
+            `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('verify dag: do nothing, make no file changes, stop immediately'))`
+        );
+        const openClicked = await clickRetry(
+            `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open DAG'))`
+        );
+        await h.goto("cockpit");
+        await h.ev("new Promise((r) => setTimeout(r, 1200))");
+        const nodeCount = await h.ev(`(() => document.querySelectorAll('.react-flow__node').length)()`);
+        const backBtn = await h.ev(`(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Back')))()`);
+        rec(
+            "5. Open DAG -> cockpit shows the graph (3 nodes) with a Back button",
+            openClicked === true && nodeCount >= 3 && backBtn === true,
+            JSON.stringify({ channelClicked, runClicked, openClicked, nodeCount, backBtn })
+        );
+        await h.shot("cdp-shots/dag-graph.png");
+        // back returns to the fleet
+        await h.ev(`(() => {
+            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Back'));
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        const fleetBack = await h.ev(`(() => document.querySelectorAll('.react-flow__node').length === 0)()`);
+        rec("6. Back -> cockpit fleet returns", fleetBack === true, JSON.stringify({ fleetBack }));
+
+        // cancel the group (kills the spawned worker path via run cancel)
+        await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
+        await h.rpc("cancelrun", { channelid: ctx.channelId, runid: runId });
+        const rFin = await getRun(runId);
+        rec(
+            "7. Cancel -> run cancelled",
+            rFin && rFin.status === "cancelled",
+            JSON.stringify({ status: rFin && rFin.status })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        try {
+            const res = await h.rpc("getchannels", null);
+            const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
+            for (const run of cc.runs || []) {
+                for (const phase of run.phases || []) {
+                    for (const oref of phase.workerorefs || []) {
+                        try {
+                            const tab = await h.rpc("gettab", oref.slice(4));
+                            const bid = tab && tab.blockids && tab.blockids[0];
+                            if (bid) await h.rpc("deleteblock", { blockid: bid });
+                        } catch {
+                            // best-effort cleanup
+                        }
+                    }
+                }
+            }
+            await h.rpc("deletechannel", { channelid: ctx.channelId });
+        } catch {
+            // best-effort cleanup
+        }
+        try {
+            rmSync(ctx.cwd, { recursive: true, force: true });
+        } catch {
+            // best-effort cleanup
+        }
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     terminalTheme,
@@ -4323,4 +4472,5 @@ export const SCENARIOS = [
     usageCharts,
     attentionCrossChannel,
     harnessPicker,
+    dagLifecycle,
 ];

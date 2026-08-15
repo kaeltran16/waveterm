@@ -18,6 +18,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisproactive"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -487,6 +488,12 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
 		}
+		// engine-owned DAGs: a terminal child wakes its group's scheduler (derive + next spawns).
+		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
+			if serr := orchestrate.ScheduleOnce(ctx, grp); serr != nil {
+				log.Printf("dag schedule error: %v", serr)
+			}
+		}
 	}
 	// continuity (sub-project E): on entering a rest state (awaiting-review | blocked | done), write the
 	// dossier's narrative "where it stands" summary off the RPC budget. Non-fatal; a detached context so
@@ -575,6 +582,12 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 		stopRunWorkers(ctx, run)
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
+		}
+		// engine-owned DAGs: a cancelled child wakes its group's scheduler too.
+		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
+			if serr := orchestrate.ScheduleOnce(ctx, grp); serr != nil {
+				log.Printf("dag schedule error: %v", serr)
+			}
 		}
 		if run.RadarOrigin != nil {
 			inv := reporadar.InvestigationFromRun(run, data.ChannelId, "cancelled", time.Now().UnixMilli())

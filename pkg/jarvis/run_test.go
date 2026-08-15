@@ -321,27 +321,27 @@ func TestApproveGate_ResumesHeldInPlace(t *testing.T) {
 }
 
 func TestBuildOrchestratePrompt(t *testing.T) {
-	p := BuildOrchestratePrompt("do X", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, true)
+	p := BuildOrchestratePrompt("do X", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, true, "claude")
 	for _, want := range []string{"do X", "be clean", "wsh jarvis hold <plan-file-path>", "wsh jarvis complete", "subagent"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}
 	}
-	if strings.Contains(BuildOrchestratePrompt("do X", nil, false), "wsh jarvis hold") {
+	if strings.Contains(BuildOrchestratePrompt("do X", nil, false, "claude"), "wsh jarvis hold") {
 		t.Fatal("no-gate prompt must not tell the lead to hold")
 	}
 }
 
 func TestBuildOrchestratePromptGateOffTriages(t *testing.T) {
 	// gate off = adaptive: the lead sizes up the goal and announces a verdict before proceeding.
-	off := BuildOrchestratePrompt("do X", nil, false)
+	off := BuildOrchestratePrompt("do X", nil, false, "claude")
 	for _, want := range []string{"wsh jarvis triage", "quick", "plan"} {
 		if !strings.Contains(off, want) {
 			t.Errorf("gate-off prompt missing triage guidance %q:\n%s", want, off)
 		}
 	}
 	// gate on = always plan + hold; no triage choice to make.
-	if strings.Contains(BuildOrchestratePrompt("do X", nil, true), "wsh jarvis triage") {
+	if strings.Contains(BuildOrchestratePrompt("do X", nil, true, "claude"), "wsh jarvis triage") {
 		t.Error("gate-on prompt must not offer a triage choice")
 	}
 }
@@ -351,7 +351,7 @@ func TestBuildOrchestratePromptTellsLeadToAskViaAskUserQuestion(t *testing.T) {
 	// proceeds without an answer. Both modes must steer the lead to the AskUserQuestion channel
 	// (which renders + blocks) and warn against prose questions.
 	for _, gate := range []bool{true, false} {
-		got := BuildOrchestratePrompt("do X", nil, gate)
+		got := BuildOrchestratePrompt("do X", nil, gate, "claude")
 		for _, want := range []string{"AskUserQuestion", "prose"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("gate=%v prompt missing ask guidance %q:\n%s", gate, want, got)
@@ -487,13 +487,13 @@ func TestParentNotifyLine(t *testing.T) {
 }
 
 func TestBuildOrchestratePromptBacklogClause(t *testing.T) {
-	gated := BuildOrchestratePrompt("work docs/open-issues.md", nil, true)
+	gated := BuildOrchestratePrompt("work docs/open-issues.md", nil, true, "claude")
 	for _, want := range []string{"wsh jarvis run", "decomposition checklist", "never open a child"} {
 		if !strings.Contains(gated, want) {
 			t.Errorf("gated orchestrate prompt missing %q", want)
 		}
 	}
-	if strings.Contains(BuildOrchestratePrompt("small fix", nil, false), "decomposition checklist") {
+	if strings.Contains(BuildOrchestratePrompt("small fix", nil, false, "claude"), "decomposition checklist") {
 		t.Error("non-gated prompt must not carry the backlog clause")
 	}
 }

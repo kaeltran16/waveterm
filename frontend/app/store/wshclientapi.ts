@@ -270,6 +270,30 @@ export class RpcApiType {
         return client.wshRpcCall("createworktree", data, opts);
     }
 
+    // command "dagaction" [call]
+    DagActionCommand(client: WshClient, data: CommandDagActionData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagaction", data, opts);
+        return client.wshRpcCall("dagaction", data, opts);
+    }
+
+    // command "dagmerge" [call]
+    DagMergeCommand(client: WshClient, data: CommandDagMergeData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagmerge", data, opts);
+        return client.wshRpcCall("dagmerge", data, opts);
+    }
+
+    // command "dagstatus" [call]
+    DagStatusCommand(client: WshClient, data: CommandDagStatusData, opts?: RpcOpts): Promise<TaskGroup> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagstatus", data, opts);
+        return client.wshRpcCall("dagstatus", data, opts);
+    }
+
+    // command "dagsubmit" [call]
+    DagSubmitCommand(client: WshClient, data: CommandDagSubmitData, opts?: RpcOpts): Promise<TaskGroup> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagsubmit", data, opts);
+        return client.wshRpcCall("dagsubmit", data, opts);
+    }
+
     // command "debugterm" [call]
     DebugTermCommand(client: WshClient, data: CommandDebugTermData, opts?: RpcOpts): Promise<CommandDebugTermRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "debugterm", data, opts);

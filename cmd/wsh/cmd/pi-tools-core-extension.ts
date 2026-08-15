@@ -10,6 +10,10 @@ export const CONTROL_COMMANDS = [
     "abort",
     "new_session",
     "switch_session",
+    "child_done",
+    "gate_open",
+    "dag_blocked",
+    "dag_complete",
 ] as const;
 
 export type ControlCommand = (typeof CONTROL_COMMANDS)[number];
@@ -23,6 +27,18 @@ export interface PiControlCommand {
 
 export function controlFileName(sessionId: string): string {
     return `${sessionId}.json`;
+}
+
+// dagEventMessage maps an engine dag control command to a watcher-visible notification line.
+export function dagEventMessage(kind: string, detail: string): string {
+    const labels: Record<string, string> = {
+        child_done: "child done",
+        gate_open: "gate open — review in cockpit",
+        dag_blocked: "dag blocked",
+        dag_complete: "dag complete",
+    };
+    const label = labels[kind] ?? kind;
+    return detail ? `${label}: ${detail}` : label;
 }
 
 export function runCommandArgs(command: string, cwd?: string): string[] {

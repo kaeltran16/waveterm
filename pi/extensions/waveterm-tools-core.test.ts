@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     captureTailArgs,
     controlFileName,
+    dagEventMessage,
     notifyArgs,
     openFileArgs,
     parseControlCommand,
@@ -27,7 +28,14 @@ describe("waveterm-tools-core", () => {
 
     it("builds notify argv with optional message and level", () => {
         expect(notifyArgs("t")).toEqual(["notify", "t"]);
-        expect(notifyArgs("t", { message: "m", level: "error" })).toEqual(["notify", "t", "--message", "m", "--level", "error"]);
+        expect(notifyArgs("t", { message: "m", level: "error" })).toEqual([
+            "notify",
+            "t",
+            "--message",
+            "m",
+            "--level",
+            "error",
+        ]);
         expect(notifyArgs("t", { level: "info" })).toEqual(["notify", "t"]);
     });
 
@@ -46,12 +54,30 @@ describe("waveterm-tools-core", () => {
         expect(parseControlCommand(JSON.stringify({ content: "no cmd" }))).toBeNull();
     });
 
+    it("accepts dag control commands and maps them to notification lines", () => {
+        for (const cmd of ["child_done", "gate_open", "dag_blocked", "dag_complete"]) {
+            expect(parseControlCommand(JSON.stringify({ cmd }))).not.toBeNull();
+        }
+        expect(dagEventMessage("gate_open", "t-1")).toBe("gate open — review in cockpit: t-1");
+        expect(dagEventMessage("child_done", "t-0")).toBe("child done: t-0");
+        expect(dagEventMessage("dag_complete", "")).toBe("dag complete");
+        expect(dagEventMessage("mystery", "x")).toBe("mystery: x");
+    });
+
     it("builds wsh jarvis ask argv with json and optional cwd", () => {
         expect(vaultAskArgs("did the ask bridge ship?", "C:\\proj")).toEqual([
-            "jarvis", "ask", "did the ask bridge ship?", "--json", "--cwd", "C:\\proj",
+            "jarvis",
+            "ask",
+            "did the ask bridge ship?",
+            "--json",
+            "--cwd",
+            "C:\\proj",
         ]);
         expect(vaultAskArgs("did the ask bridge ship?")).toEqual([
-            "jarvis", "ask", "did the ask bridge ship?", "--json",
+            "jarvis",
+            "ask",
+            "did the ask bridge ship?",
+            "--json",
         ]);
     });
 });
