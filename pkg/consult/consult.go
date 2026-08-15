@@ -229,6 +229,15 @@ const (
 	MidModel = "sonnet"
 )
 
+// The pi deepseek ids each tier selects. Pi is a local harness whose default model is the operator's
+// own setting, so tiered calls pin the ids explicitly instead of inheriting that default — "capable"
+// maps to pro here (unlike claude, where capable keeps the operator default) because pi's default is
+// user-chosen and may be the cheap model, which would silently downgrade open-ended synthesis.
+const (
+	PiCheapModel = "deepseek-v4-flash"
+	PiMidModel   = "deepseek-v4-pro"
+)
+
 // modelForTier maps a tier to its claude --model alias. TierCapable maps to "" on purpose: passing
 // no flag is what keeps the operator's configured default (see Tier).
 func modelForTier(tier Tier) string {
@@ -242,8 +251,21 @@ func modelForTier(tier Tier) string {
 	}
 }
 
+// piModelForTier maps a tier to its pi --model id. TierCapable maps to pro, not "": pi's default
+// model is the operator's choice (it may be the cheap tier's model), so capable must stay explicit.
+func piModelForTier(tier Tier) string {
+	switch tier {
+	case TierCheap:
+		return PiCheapModel
+	case TierMid, TierCapable:
+		return PiMidModel
+	default:
+		return ""
+	}
+}
+
 // SpecForTier resolves a runtime spec with the tier's model selection applied.
-// For claude, it appends --model flags to BaseArgs.
+// For claude and pi, it appends --model flags to BaseArgs (claude aliases, pi deepseek ids).
 // For openrouter, it sets spec.Model from the configured tier models.
 // Other runtimes are returned unchanged.
 func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
@@ -258,6 +280,14 @@ func SpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
 		case TierMid, TierCapable:
 			spec.Model = OpenrouterMidModel()
 		}
+		return spec, true
+	}
+	if runtime == "pi" {
+		model := piModelForTier(tier)
+		if model == "" {
+			return spec, true
+		}
+		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", model)
 		return spec, true
 	}
 	model := modelForTier(tier)
@@ -328,15 +358,15 @@ func resolveHeadlessRuntime(configured string) string {
 // HeadlessSpecForTier resolves a spec for the configured headless runtime at the given tier. Every
 // background AI feature calls this instead of hardcoding a runtime, so the headless:runtime setting
 // is honored uniformly. Tier→model mapping is SpecForTier's job: openrouter sets Model from the
-// configured tier IDs, claude appends --model flags, pi/codex/opencode use the harness's own default.
+// configured tier IDs, claude and pi append --model flags, codex/opencode use the harness's own default.
 func HeadlessSpecForTier(tier Tier) (RuntimeSpec, bool) {
 	return SpecForTier(HeadlessRuntime(), tier)
 }
 
 // HeadlessCorpusSpec resolves a spec for the configured headless runtime on a corpus-size call (the
 // memory gardener's whole-corpus pass), applying the corpus model where the runtime takes a model
-// knob: openrouter gets the configured cheap/long IDs, claude the dated corpus constants. pi/codex/
-// opencode get no override — the harness uses its own configured default, same as any consult.
+// knob: openrouter gets the configured cheap/long IDs, claude the dated corpus constants, pi the
+// deepseek ids. codex/opencode get no override — the harness uses its own configured default.
 func HeadlessCorpusSpec(corpus string) (RuntimeSpec, bool) {
 	runtime := HeadlessRuntime()
 	if runtime == "claude" {
@@ -345,6 +375,14 @@ func HeadlessCorpusSpec(corpus string) (RuntimeSpec, bool) {
 			return spec, false
 		}
 		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", ModelForCorpus(corpus))
+		return spec, true
+	}
+	if runtime == "pi" {
+		spec, ok := SpecFor("pi")
+		if !ok {
+			return spec, false
+		}
+		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", CorpusModel(PiCheapModel, PiMidModel, corpus))
 		return spec, true
 	}
 	spec, ok := SpecForTier(runtime, TierCheap)
