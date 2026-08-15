@@ -119,7 +119,7 @@ func TestJudgeErrorIsSilentNotFatal(t *testing.T) {
 	capturePublished(t)
 	withProducers(t, &stubProducer{name: "x", cands: []Candidate{cand("a", 10)}})
 	defer SetJudgeForTest(func(context.Context, string, string) (string, error) {
-		return "", errNoClaude
+		return "", errNoRuntime
 	})()
 
 	data, reason := Evaluate(context.Background(), &Trigger{Kind: TriggerSweep})

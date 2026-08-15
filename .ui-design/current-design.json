@@ -1,0 +1,981 @@
+{
+  "tree": {
+    "id": "root",
+    "type": "root",
+    "props": {},
+    "children": [
+      {
+        "id": "n1",
+        "type": "heading",
+        "name": "title",
+        "props": {
+          "level": "h2",
+          "text": "Headless AI section — runtime selector"
+        },
+        "children": [],
+        "x": 60,
+        "y": 40,
+        "w": 900,
+        "h": 48,
+        "rotation": 0,
+        "z": 0,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n2",
+        "type": "paragraph",
+        "name": "subtitle",
+        "props": {
+          "text": "New backend setting headless:runtime — openrouter (default) | pi | claude | codex | opencode. Switches which engine all background AI consult features run on. Prototype for Settings → Headless AI."
+        },
+        "children": [],
+        "x": 60,
+        "y": 96,
+        "w": 980,
+        "h": 60,
+        "rotation": 0,
+        "z": 1,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n3",
+        "type": "divider",
+        "name": "divider-1",
+        "props": {
+          "text": "two states",
+          "vertical": false
+        },
+        "children": [],
+        "x": 60,
+        "y": 168,
+        "w": 400,
+        "h": 24,
+        "rotation": 0,
+        "z": 2,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n4",
+        "type": "heading",
+        "name": "state-a-title",
+        "props": {
+          "level": "h3",
+          "text": "STATE A — openrouter selected (default), key present"
+        },
+        "children": [],
+        "x": 60,
+        "y": 210,
+        "w": 680,
+        "h": 32,
+        "rotation": 0,
+        "z": 3,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n5",
+        "type": "heading",
+        "name": "state-a-label",
+        "props": {
+          "level": "h4",
+          "text": "HEADLESS AI  (section label: mono, 10px, uppercase, text-muted)"
+        },
+        "children": [],
+        "x": 60,
+        "y": 258,
+        "w": 680,
+        "h": 28,
+        "rotation": 0,
+        "z": 4,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n6",
+        "type": "paragraph",
+        "name": "state-a-help",
+        "props": {
+          "text": "Help card: Runtime for background AI features (jarvis gatekeeper / decompose / continuity / proactive / recall / volunteer, memdistill, memgarden, reporadar, pi auto-titles). OpenRouter is the API-backed default; its status = the stored OpenRouter key. Harness runtimes execute their local CLI. Model IDs use provider/model."
+        },
+        "children": [],
+        "x": 60,
+        "y": 294,
+        "w": 660,
+        "h": 84,
+        "rotation": 0,
+        "z": 5,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n7",
+        "type": "heading",
+        "name": "state-a-runtime-title",
+        "props": {
+          "level": "h5",
+          "text": "Runtime"
+        },
+        "children": [],
+        "x": 60,
+        "y": 396,
+        "w": 300,
+        "h": 24,
+        "rotation": 0,
+        "z": 6,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n8",
+        "type": "paragraph",
+        "name": "state-a-runtime-desc",
+        "props": {
+          "text": "Which engine powers background AI features. From the backend harness catalog; uninstalled harnesses stay visible but disabled."
+        },
+        "children": [],
+        "x": 60,
+        "y": 424,
+        "w": 660,
+        "h": 40,
+        "rotation": 0,
+        "z": 7,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n9",
+        "type": "heading",
+        "name": "state-a-row-0",
+        "props": {
+          "level": "h6",
+          "text": "● OpenRouter"
+        },
+        "children": [],
+        "x": 72,
+        "y": 476,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 8,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n10",
+        "type": "badge",
+        "name": "state-a-badge-0",
+        "props": {
+          "variant": "primary",
+          "text": "default · api key present"
+        },
+        "children": [],
+        "x": 420,
+        "y": 476,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 9,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n11",
+        "type": "heading",
+        "name": "state-a-row-1",
+        "props": {
+          "level": "h6",
+          "text": "○ Pi"
+        },
+        "children": [],
+        "x": 72,
+        "y": 520,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 10,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n12",
+        "type": "badge",
+        "name": "state-a-badge-1",
+        "props": {
+          "variant": "secondary",
+          "text": "installed"
+        },
+        "children": [],
+        "x": 420,
+        "y": 520,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 11,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n13",
+        "type": "heading",
+        "name": "state-a-row-2",
+        "props": {
+          "level": "h6",
+          "text": "○ Claude Code"
+        },
+        "children": [],
+        "x": 72,
+        "y": 564,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 12,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n14",
+        "type": "badge",
+        "name": "state-a-badge-2",
+        "props": {
+          "variant": "secondary",
+          "text": "installed"
+        },
+        "children": [],
+        "x": 420,
+        "y": 564,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 13,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n15",
+        "type": "heading",
+        "name": "state-a-row-3",
+        "props": {
+          "level": "h6",
+          "text": "○ Codex"
+        },
+        "children": [],
+        "x": 72,
+        "y": 608,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 14,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n16",
+        "type": "badge",
+        "name": "state-a-badge-3",
+        "props": {
+          "variant": "secondary",
+          "text": "not installed"
+        },
+        "children": [],
+        "x": 420,
+        "y": 608,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 15,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n17",
+        "type": "heading",
+        "name": "state-a-row-4",
+        "props": {
+          "level": "h6",
+          "text": "○ OpenCode"
+        },
+        "children": [],
+        "x": 72,
+        "y": 652,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 16,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n18",
+        "type": "badge",
+        "name": "state-a-badge-4",
+        "props": {
+          "variant": "secondary",
+          "text": "not installed"
+        },
+        "children": [],
+        "x": 420,
+        "y": 652,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 17,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n19",
+        "type": "heading",
+        "name": "state-a-models-title",
+        "props": {
+          "level": "h5",
+          "text": "Models — enabled (openrouter selected)"
+        },
+        "children": [],
+        "x": 60,
+        "y": 720,
+        "w": 400,
+        "h": 24,
+        "rotation": 0,
+        "z": 18,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n20",
+        "type": "paragraph",
+        "name": "state-a-models-desc",
+        "props": {
+          "text": "OpenRouter model IDs used by background features. Only applies while the runtime is openrouter."
+        },
+        "children": [],
+        "x": 60,
+        "y": 748,
+        "w": 660,
+        "h": 32,
+        "rotation": 0,
+        "z": 19,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n21",
+        "type": "input",
+        "name": "state-a-input-0",
+        "props": {
+          "label": "Cheap model — gatekeeper, decompose, continuity, proactive",
+          "placeholder": "deepseek/deepseek-v4-flash"
+        },
+        "children": [],
+        "x": 72,
+        "y": 796,
+        "w": 500,
+        "h": 64,
+        "rotation": 0,
+        "z": 20,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n22",
+        "type": "btnSecondary",
+        "name": "state-a-save-0",
+        "props": {
+          "text": "Save"
+        },
+        "children": [],
+        "x": 596,
+        "y": 816,
+        "w": 100,
+        "h": 40,
+        "rotation": 0,
+        "z": 21,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n23",
+        "type": "input",
+        "name": "state-a-input-1",
+        "props": {
+          "label": "Mid model — recall, radar, Jarvis",
+          "placeholder": "deepseek/deepseek-v4-pro"
+        },
+        "children": [],
+        "x": 72,
+        "y": 884,
+        "w": 500,
+        "h": 64,
+        "rotation": 0,
+        "z": 22,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n24",
+        "type": "btnSecondary",
+        "name": "state-a-save-1",
+        "props": {
+          "text": "Save"
+        },
+        "children": [],
+        "x": 596,
+        "y": 904,
+        "w": 100,
+        "h": 40,
+        "rotation": 0,
+        "z": 23,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n25",
+        "type": "input",
+        "name": "state-a-input-2",
+        "props": {
+          "label": "Long-context model — distillation, gardener > 400KB corpus",
+          "placeholder": "deepseek/deepseek-v4-pro"
+        },
+        "children": [],
+        "x": 72,
+        "y": 972,
+        "w": 500,
+        "h": 64,
+        "rotation": 0,
+        "z": 24,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n26",
+        "type": "btnSecondary",
+        "name": "state-a-save-2",
+        "props": {
+          "text": "Save"
+        },
+        "children": [],
+        "x": 596,
+        "y": 992,
+        "w": 100,
+        "h": 40,
+        "rotation": 0,
+        "z": 25,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n27",
+        "type": "alert",
+        "name": "state-a-warning",
+        "props": {
+          "variant": "warn",
+          "text": "API key not set — background AI features are disabled until the key is configured."
+        },
+        "children": [],
+        "x": 72,
+        "y": 1084,
+        "w": 640,
+        "h": 48,
+        "rotation": 0,
+        "z": 26,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n28",
+        "type": "divider",
+        "name": "divider-2",
+        "props": {
+          "text": "",
+          "vertical": false
+        },
+        "children": [],
+        "x": 780,
+        "y": 168,
+        "w": 400,
+        "h": 24,
+        "rotation": 0,
+        "z": 27,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n29",
+        "type": "heading",
+        "name": "state-b-title",
+        "props": {
+          "level": "h3",
+          "text": "STATE B — harness selected (Claude Code)"
+        },
+        "children": [],
+        "x": 780,
+        "y": 210,
+        "w": 680,
+        "h": 32,
+        "rotation": 0,
+        "z": 28,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n30",
+        "type": "heading",
+        "name": "state-b-label",
+        "props": {
+          "level": "h4",
+          "text": "HEADLESS AI  (section label)"
+        },
+        "children": [],
+        "x": 780,
+        "y": 258,
+        "w": 680,
+        "h": 28,
+        "rotation": 0,
+        "z": 29,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n31",
+        "type": "paragraph",
+        "name": "state-b-help",
+        "props": {
+          "text": "Help card: Runtime for background AI features. OpenRouter is the API-backed default and requires its key; harness runtimes (Pi, Claude Code, Codex, OpenCode) execute their local CLI. Model IDs only apply to OpenRouter."
+        },
+        "children": [],
+        "x": 780,
+        "y": 294,
+        "w": 660,
+        "h": 84,
+        "rotation": 0,
+        "z": 30,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n32",
+        "type": "heading",
+        "name": "state-b-runtime-title",
+        "props": {
+          "level": "h5",
+          "text": "Runtime"
+        },
+        "children": [],
+        "x": 780,
+        "y": 396,
+        "w": 300,
+        "h": 24,
+        "rotation": 0,
+        "z": 31,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n33",
+        "type": "paragraph",
+        "name": "state-b-runtime-desc",
+        "props": {
+          "text": "Same options; uninstalled harnesses shown but disabled (not installed tag, no hover, not selectable)."
+        },
+        "children": [],
+        "x": 780,
+        "y": 424,
+        "w": 660,
+        "h": 40,
+        "rotation": 0,
+        "z": 32,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n34",
+        "type": "heading",
+        "name": "state-b-row-0",
+        "props": {
+          "level": "h6",
+          "text": "○ OpenRouter"
+        },
+        "children": [],
+        "x": 792,
+        "y": 476,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 33,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n35",
+        "type": "badge",
+        "name": "state-b-badge-0",
+        "props": {
+          "variant": "primary",
+          "text": "default · api key present"
+        },
+        "children": [],
+        "x": 1140,
+        "y": 476,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 34,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n36",
+        "type": "heading",
+        "name": "state-b-row-1",
+        "props": {
+          "level": "h6",
+          "text": "○ Pi"
+        },
+        "children": [],
+        "x": 792,
+        "y": 520,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 35,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n37",
+        "type": "badge",
+        "name": "state-b-badge-1",
+        "props": {
+          "variant": "secondary",
+          "text": "installed"
+        },
+        "children": [],
+        "x": 1140,
+        "y": 520,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 36,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n38",
+        "type": "heading",
+        "name": "state-b-row-2",
+        "props": {
+          "level": "h6",
+          "text": "● Claude Code"
+        },
+        "children": [],
+        "x": 792,
+        "y": 564,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 37,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n39",
+        "type": "badge",
+        "name": "state-b-badge-2",
+        "props": {
+          "variant": "primary",
+          "text": "in use"
+        },
+        "children": [],
+        "x": 1140,
+        "y": 564,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 38,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n40",
+        "type": "heading",
+        "name": "state-b-row-3",
+        "props": {
+          "level": "h6",
+          "text": "○ Codex"
+        },
+        "children": [],
+        "x": 792,
+        "y": 608,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 39,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n41",
+        "type": "badge",
+        "name": "state-b-badge-3",
+        "props": {
+          "variant": "secondary",
+          "text": "not installed"
+        },
+        "children": [],
+        "x": 1140,
+        "y": 608,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 40,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n42",
+        "type": "heading",
+        "name": "state-b-row-4",
+        "props": {
+          "level": "h6",
+          "text": "○ OpenCode"
+        },
+        "children": [],
+        "x": 792,
+        "y": 652,
+        "w": 320,
+        "h": 24,
+        "rotation": 0,
+        "z": 41,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n43",
+        "type": "badge",
+        "name": "state-b-badge-4",
+        "props": {
+          "variant": "secondary",
+          "text": "not installed"
+        },
+        "children": [],
+        "x": 1140,
+        "y": 652,
+        "w": 210,
+        "h": 28,
+        "rotation": 0,
+        "z": 42,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n44",
+        "type": "heading",
+        "name": "state-b-models-title",
+        "props": {
+          "level": "h5",
+          "text": "Models — locked (openrouter only)"
+        },
+        "children": [],
+        "x": 780,
+        "y": 720,
+        "w": 400,
+        "h": 24,
+        "rotation": 0,
+        "z": 43,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n45",
+        "type": "paragraph",
+        "name": "state-b-models-desc",
+        "props": {
+          "text": "Model fields apply only when the runtime is openrouter — fields disabled, Save replaced by an openrouter-only hint. Background features now run through Claude Code."
+        },
+        "children": [],
+        "x": 780,
+        "y": 748,
+        "w": 660,
+        "h": 40,
+        "rotation": 0,
+        "z": 44,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n46",
+        "type": "input",
+        "name": "state-b-input-0",
+        "props": {
+          "label": "Cheap model — gatekeeper, decompose, continuity, proactive (disabled)",
+          "placeholder": "deepseek/deepseek-v4-flash"
+        },
+        "children": [],
+        "x": 792,
+        "y": 804,
+        "w": 500,
+        "h": 64,
+        "rotation": 0,
+        "z": 45,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n47",
+        "type": "badge",
+        "name": "state-b-hint-0",
+        "props": {
+          "variant": "secondary",
+          "text": "openrouter only"
+        },
+        "children": [],
+        "x": 1316,
+        "y": 824,
+        "w": 130,
+        "h": 28,
+        "rotation": 0,
+        "z": 46,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n48",
+        "type": "input",
+        "name": "state-b-input-1",
+        "props": {
+          "label": "Mid model — recall, radar, Jarvis (disabled)",
+          "placeholder": "deepseek/deepseek-v4-pro"
+        },
+        "children": [],
+        "x": 792,
+        "y": 892,
+        "w": 500,
+        "h": 64,
+        "rotation": 0,
+        "z": 47,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n49",
+        "type": "badge",
+        "name": "state-b-hint-1",
+        "props": {
+          "variant": "secondary",
+          "text": "openrouter only"
+        },
+        "children": [],
+        "x": 1316,
+        "y": 912,
+        "w": 130,
+        "h": 28,
+        "rotation": 0,
+        "z": 48,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n50",
+        "type": "input",
+        "name": "state-b-input-2",
+        "props": {
+          "label": "Long-context model — distillation, gardener > 400KB corpus (disabled)",
+          "placeholder": "deepseek/deepseek-v4-pro"
+        },
+        "children": [],
+        "x": 792,
+        "y": 980,
+        "w": 500,
+        "h": 64,
+        "rotation": 0,
+        "z": 49,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n51",
+        "type": "badge",
+        "name": "state-b-hint-2",
+        "props": {
+          "variant": "secondary",
+          "text": "openrouter only"
+        },
+        "children": [],
+        "x": 1316,
+        "y": 1000,
+        "w": 130,
+        "h": 28,
+        "rotation": 0,
+        "z": 50,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n52",
+        "type": "divider",
+        "name": "divider-3",
+        "props": {
+          "text": "interaction rules",
+          "vertical": false
+        },
+        "children": [],
+        "x": 60,
+        "y": 1180,
+        "w": 400,
+        "h": 24,
+        "rotation": 0,
+        "z": 51,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n53",
+        "type": "heading",
+        "name": "legend-title",
+        "props": {
+          "level": "h3",
+          "text": "Interaction rules"
+        },
+        "children": [],
+        "x": 60,
+        "y": 1218,
+        "w": 400,
+        "h": 32,
+        "rotation": 0,
+        "z": 52,
+        "visible": true,
+        "locked": false
+      },
+      {
+        "id": "n54",
+        "type": "list",
+        "name": "legend-list",
+        "props": {
+          "items": "openrouter is always first and the default; its 'installed' state = the OpenRouter API key is present (not in the harness catalog).|Uninstalled harnesses stay visible but disabled: not installed tag, reduced emphasis, no hover accent, not selectable.|Selected harness row gets the accent border + surface-hover fill + check, matching the theme picker language.|Model fields enable only for openrouter; any harness selection locks them with an openrouter only hint in place of Save.|Key-missing warning (amber, with label) shows only when runtime = openrouter and the key is missing."
+        },
+        "children": [],
+        "x": 60,
+        "y": 1266,
+        "w": 980,
+        "h": 160,
+        "rotation": 0,
+        "z": 53,
+        "visible": true,
+        "locked": false
+      }
+    ]
+  },
+  "theme": {
+    "primary": "#5e9cff",
+    "secondary": "#3f4ea0",
+    "bg": "#0c0e11",
+    "text": "#e6e9ed",
+    "spacing": "normal",
+    "radius": "md",
+    "font": "Inter",
+    "dark": true
+  },
+  "_version": 1
+}

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 )
 
 const (
@@ -301,6 +303,58 @@ func CorpusModel(cheapModel, longModel, corpus string) string {
 		return longModel
 	}
 	return cheapModel
+}
+
+// HeadlessRuntime returns the runtime the background AI features (gatekeeper, recall, gardener, radar,
+// pi titles, ...) use for one-shot consults. The headless:runtime setting is the single source of
+// truth; an empty or unknown value falls back to openrouter because these features run unattended —
+// a misconfigured value must degrade to the known default, never silently disable the feature.
+func HeadlessRuntime() string {
+	configured := wconfig.GetWatcher().GetFullConfig().Settings.HeadlessRuntime
+	return resolveHeadlessRuntime(configured)
+}
+
+func resolveHeadlessRuntime(configured string) string {
+	if configured == "" {
+		return "openrouter"
+	}
+	if _, ok := SpecFor(configured); !ok {
+		log.Printf("[consult] headless runtime %q not recognized, falling back to openrouter\n", configured)
+		return "openrouter"
+	}
+	return configured
+}
+
+// HeadlessSpecForTier resolves a spec for the configured headless runtime at the given tier. Every
+// background AI feature calls this instead of hardcoding a runtime, so the headless:runtime setting
+// is honored uniformly. Tier→model mapping is SpecForTier's job: openrouter sets Model from the
+// configured tier IDs, claude appends --model flags, pi/codex/opencode use the harness's own default.
+func HeadlessSpecForTier(tier Tier) (RuntimeSpec, bool) {
+	return SpecForTier(HeadlessRuntime(), tier)
+}
+
+// HeadlessCorpusSpec resolves a spec for the configured headless runtime on a corpus-size call (the
+// memory gardener's whole-corpus pass), applying the corpus model where the runtime takes a model
+// knob: openrouter gets the configured cheap/long IDs, claude the dated corpus constants. pi/codex/
+// opencode get no override — the harness uses its own configured default, same as any consult.
+func HeadlessCorpusSpec(corpus string) (RuntimeSpec, bool) {
+	runtime := HeadlessRuntime()
+	if runtime == "claude" {
+		spec, ok := SpecFor("claude")
+		if !ok {
+			return spec, false
+		}
+		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", ModelForCorpus(corpus))
+		return spec, true
+	}
+	spec, ok := SpecForTier(runtime, TierCheap)
+	if !ok {
+		return spec, false
+	}
+	if runtime == "openrouter" {
+		spec.Model = CorpusModel(OpenrouterCheapModel(), OpenrouterLongModel(), corpus)
+	}
+	return spec, true
 }
 
 // OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A

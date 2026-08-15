@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Headless AI — runtime selector · design preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* tokens — midnight @theme values, carried as CSS vars (mockup kit convention) */
+:root {
+    --color-background: #0c0e11;
+    --color-surface: #0e1116;
+    --color-surface-raised: #13171d;
+    --color-surface-hover: #171c22;
+    --color-surface-selected: #1a222c;
+    --color-primary: #e6e9ed;
+    --color-secondary: #cfd5db;
+    --color-ink-hi: #dfe4ea;
+    --color-ink-mid: #9aa3ad;
+    --color-muted: #7f858b;
+    --color-ink-faint: #646a72;
+    --color-border: #1c2128;
+    --color-edge-mid: #20262e;
+    --color-edge-strong: #2a313a;
+    --color-edge-faint: #161a20;
+    --color-accent: #5e9cff;
+    --color-accent-700: #3f4ea0;
+    --color-accentbg: rgba(94, 156, 255, 0.12);
+    --color-accent-soft: #aebfff;
+    --color-error: #e0726c;
+    --color-warning: #e6b450;
+    --color-warning-soft: #f0d79f;
+    --color-success: #54c79a;
+    --color-success-soft: #bfe6d6;
+    --color-pill: rgba(255, 255, 255, 0.05);
+    --color-hoverbg: rgba(255, 255, 255, 0.2);
+    --color-rt-pi: #ececec;
+    --color-rt-claude: #d97757;
+    --color-rt-codex: #ececec;
+    --color-rt-opencode: #a78bfa;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--color-background); }
+body {
+    font-family: "Hanken Grotesk", system-ui, sans-serif;
+    color: var(--color-primary);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* settings surface shell: px-10 py-9, centered max-w-[720px] column */
+.shell { padding: 36px 40px; }
+.column { margin: 0 auto; max-width: 720px; }
+
+/* demo strip — preview tooling only, not part of the design */
+.demo {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    margin-bottom: 28px; padding: 10px 14px;
+    background: var(--color-surface-raised); border: 1px solid var(--color-edge-mid);
+    border-radius: 11px; font-size: 12.5px; color: var(--color-muted);
+}
+.demo label { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+.demo input { accent-color: var(--color-accent); width: 14px; height: 14px; cursor: pointer; }
+
+/* section label: SectionLabel recipe */
+.section-label {
+    margin-bottom: 16px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--color-muted);
+}
+
+/* help card: mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] */
+.help {
+    margin-bottom: 16px; padding: 12px 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border); border-radius: 11px;
+    font-size: 12.5px; line-height: 1.6; color: var(--color-muted);
+}
+.help code {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11.5px; color: var(--color-secondary);
+}
+.help .key-state { font-weight: 600; }
+
+/* group titles (ConfigField title recipe) */
+.group-title { font-size: 14px; font-weight: 600; color: var(--color-primary); }
+.group-desc { margin: 2px 0 10px; font-size: 12.5px; color: var(--color-muted); }
+
+/* runtime selector — theme-picker language, one row per option */
+.runtime-list { display: flex; flex-direction: column; gap: 6px; }
+.runtime-option {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px; text-align: left;
+    background: transparent; border: 1px solid var(--color-border);
+    border-radius: 11px; cursor: pointer;
+    font-family: inherit; color: inherit;
+    transition: border-color 140ms cubic-bezier(0.22, 1, 0.36, 1), background-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.runtime-option:hover:not(:disabled):not(.selected) { border-color: var(--color-edge-strong); }
+.runtime-option.selected { border-color: var(--color-accent-700); background: var(--color-surface-hover); }
+.runtime-option:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.runtime-option:disabled { cursor: not-allowed; opacity: 0.55; }
+.runtime-option:disabled:hover { border-color: var(--color-border); }
+
+/* radio-style check */
+.check {
+    flex: none; width: 16px; height: 16px; border-radius: 9999px;
+    border: 2px solid var(--color-edge-strong);
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.check::after {
+    content: ""; width: 8px; height: 8px; border-radius: 9999px;
+    background: var(--color-accent); transform: scale(0);
+    transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.selected .check { border-color: var(--color-accent); }
+.selected .check::after { transform: scale(1); }
+
+.runtime-label { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--color-secondary); }
+.selected .runtime-label { color: var(--color-primary); }
+.runtime-mono {
+    font-family: "JetBrains Mono", monospace; font-size: 10.5px;
+    color: var(--color-ink-faint); font-weight: 400; letter-spacing: 0.02em;
+}
+.status-tag {
+    flex: none; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600;
+}
+.status-tag .dot { width: 6px; height: 6px; border-radius: 9999px; }
+.status-tag.default { color: var(--color-accent-soft); }
+.status-tag.default .dot { background: var(--color-accent); }
+.status-tag.installed { color: var(--color-success-soft); }
+.status-tag.installed .dot { background: var(--color-success); }
+.status-tag.not-installed { color: var(--color-muted); }
+.status-tag.not-installed .dot { background: var(--color-ink-faint); }
+.status-tag.key-missing { color: var(--color-warning-soft); }
+.status-tag.key-missing .dot { background: var(--color-warning); }
+
+/* models group */
+.models { margin-top: 20px; }
+.models-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.only-hint {
+    flex: none; font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px; color: var(--color-ink-faint);
+    border: 1px solid var(--color-border); border-radius: 6px;
+    padding: 2px 8px; background: var(--color-pill);
+}
+
+/* ConfigField recipe */
+.config-field { border-top: 1px solid var(--color-edge-faint); padding: 14px 0; }
+.config-field:first-child { border-top: 0; }
+.config-field .field-title { font-size: 14px; font-weight: 600; color: var(--color-primary); }
+.config-field .field-desc { margin: 2px 0 10px; font-size: 12.5px; color: var(--color-muted); }
+.field-row { display: flex; gap: 10px; }
+.field-input {
+    flex: 1; min-width: 0;
+    border: 1px solid var(--color-edge-mid); border-radius: 9px;
+    background: var(--color-surface-raised);
+    padding: 10px 14px;
+    font-family: "JetBrains Mono", monospace; font-size: 13px; color: var(--color-primary);
+    outline: none;
+}
+.field-input::placeholder { color: var(--color-ink-faint); }
+.field-input:focus { border-color: var(--color-accent-700); }
+.field-input:disabled { opacity: 0.4; cursor: not-allowed; }
+.save-btn {
+    flex: none; border: 1px solid var(--color-edge-mid); border-radius: 9px;
+    background: var(--color-surface-raised); color: var(--color-secondary);
+    padding: 10px 18px; font-family: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: border-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.save-btn:hover { border-color: var(--color-edge-strong); }
+.save-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.save-btn.saved {
+    border-color: rgba(84, 199, 154, 0.4); background: rgba(84, 199, 154, 0.14);
+    color: var(--color-success-soft);
+}
+.only-tag {
+    flex: none; align-self: center;
+    font-family: "JetBrains Mono", monospace; font-size: 11px;
+    color: var(--color-ink-faint); letter-spacing: 0.02em;
+}
+
+/* warning: mt-3 text-[12px] text-warning, status never color alone → paired with dot */
+.warning {
+    display: flex; align-items: center; gap: 7px;
+    margin-top: 12px; font-size: 12px; color: var(--color-warning);
+}
+.warning .dot { width: 6px; height: 6px; border-radius: 9999px; background: var(--color-warning); flex: none; }
+
+/* field fade when harness selected — keeps layout, communicates lock */
+.models.locked .config-field { opacity: 0.75; }
+
+@media (prefers-reduced-motion: reduce) {
+    .runtime-option, .check, .check::after, .save-btn { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+    <div class="column">
+
+        <div class="demo">
+            <span>Design preview — Settings → Headless AI. Click a runtime to switch states.</span>
+            <label><input type="checkbox" id="keyToggle"> simulate missing API key</label>
+        </div>
+
+        <!-- HEADLESS AI section -->
+        <div class="section-label">Headless AI</div>
+
+        <div class="help">
+            Runtime for background AI features (jarvis gatekeeper, decompose, continuity, proactive,
+            recall, volunteer, memdistill, memgarden, reporadar, pi auto-titles). OpenRouter is the
+            API-backed default and uses the <span class="key-state" id="keyState">stored</span> OpenRouter
+            key from the secret store (same key as Embeddings); harness runtimes execute their local CLI.
+            Model IDs use the full <code>provider/model</code> format.
+        </div>
+
+        <!-- runtime selector -->
+        <div class="group-title">Runtime</div>
+        <div class="group-desc">Which engine powers background AI features. Uninstalled harnesses stay visible but disabled — install them to enable.</div>
+
+        <div class="runtime-list" id="runtimeList" role="radiogroup" aria-label="headless runtime">
+            <!-- rows injected by script -->
+        </div>
+
+        <!-- models -->
+        <div class="models" id="modelsGroup">
+            <div class="models-head">
+                <div class="group-title">Models</div>
+                <span class="only-hint" id="modelsHint">openrouter only</span>
+            </div>
+            <div class="group-desc">OpenRouter model IDs for mechanical, synthesis, and large-corpus tasks — only applies while the runtime is openrouter.</div>
+
+            <div class="config-field">
+                <div class="field-title">Cheap model</div>
+                <div class="field-desc">For mechanical tasks: gatekeeper, decompose, continuity, proactive.</div>
+                <div class="field-row">
+                    <input class="field-input" id="m1" placeholder="deepseek/deepseek-v4-flash" spellcheck="false">
+                    <span class="only-tag" id="t1" hidden>openrouter only</span>
+                    <button class="save-btn" id="s1">Save</button>
+                </div>
+            </div>
+            <div class="config-field">
+                <div class="field-title">Mid model</div>
+                <div class="field-desc">For synthesis and conversation: recall, radar, Jarvis.</div>
+                <div class="field-row">
+                    <input class="field-input" id="m2" placeholder="deepseek/deepseek-v4-pro" spellcheck="false">
+                    <span class="only-tag" id="t2" hidden>openrouter only</span>
+                    <button class="save-btn" id="s2">Save</button>
+                </div>
+            </div>
+            <div class="config-field">
+                <div class="field-title">Long-context model</div>
+                <div class="field-desc">For large-corpus tasks: distillation, gardener when corpus &gt; 400KB.</div>
+                <div class="field-row">
+                    <input class="field-input" id="m3" placeholder="deepseek/deepseek-v4-pro" spellcheck="false">
+                    <span class="only-tag" id="t3" hidden>openrouter only</span>
+                    <button class="save-btn" id="s3">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="warning" id="keyWarning" hidden>
+            <span class="dot"></span>
+            <span>API key not set — background AI features are disabled until the key is configured.</span>
+        </div>
+
+    </div>
+</div>
+
+<script>
+// Runtime options. openrouter is API-backed (never in the harness catalog); its "installed" state
+// is the API key presence. Harness order follows the backend catalog (pkg/harness).
+// codex + opencode deliberately uninstalled in this demo to show the disabled state.
+const RUNTIMES = [
+    { id: "openrouter", label: "OpenRouter", mono: "openrouter", default: true },
+    { id: "pi", label: "Pi", mono: "pi", installed: true },
+    { id: "claude", label: "Claude Code", mono: "claude", installed: true },
+    { id: "codex", label: "Codex", mono: "codex", installed: false },
+    { id: "opencode", label: "OpenCode", mono: "opencode", installed: false },
+];
+
+let runtime = "openrouter";      // headless:runtime — openrouter is the default
+let hasKey = true;               // OpenRouter key in the secret store
+let savedFlash = [false, false, false];
+
+const list = document.getElementById("runtimeList");
+const modelsGroup = document.getElementById("modelsGroup");
+const modelsHint = document.getElementById("modelsHint");
+const keyWarning = document.getElementById("keyWarning");
+const keyState = document.getElementById("keyState");
+
+function buildRows() {
+    list.innerHTML = "";
+    for (const r of RUNTIMES) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "runtime-option";
+        btn.dataset.runtime = r.id;
+        btn.setAttribute("role", "radio");
+
+        const check = document.createElement("span");
+        check.className = "check";
+
+        const label = document.createElement("span");
+        label.className = "runtime-label";
+        label.textContent = r.label;
+
+        const mono = document.createElement("span");
+        mono.className = "runtime-mono";
+        mono.textContent = r.mono;
+
+        const tag = document.createElement("span");
+        tag.className = "status-tag";
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        tag.appendChild(dot);
+
+        if (r.default) {
+            tag.classList.add("default");
+            tag.appendChild(document.createTextNode("default"));
+        } else if (r.installed) {
+            tag.classList.add("installed");
+            tag.appendChild(document.createTextNode("installed"));
+        } else {
+            tag.classList.add("not-installed");
+            tag.appendChild(document.createTextNode("not installed"));
+            btn.disabled = true;
+        }
+
+        btn.append(check, label, mono, tag);
+        btn.addEventListener("click", () => { if (!btn.disabled) selectRuntime(r.id); });
+        list.appendChild(btn);
+    }
+}
+
+function selectRuntime(id) {
+    runtime = id;
+    savedFlash = [false, false, false];
+    render();
+}
+
+function render() {
+    const isOpenRouter = runtime === "openrouter";
+
+    // selector rows
+    for (const btn of list.children) {
+        const on = btn.dataset.runtime === runtime;
+        btn.classList.toggle("selected", on);
+        btn.setAttribute("aria-checked", String(on));
+    }
+
+    // openrouter key state tag (its "installed" state)
+    const orRow = list.querySelector('[data-runtime="openrouter"]');
+    const orTag = orRow.querySelector(".status-tag");
+    orTag.innerHTML = "";
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    orTag.appendChild(dot);
+    if (hasKey) {
+        orTag.classList.add("default");
+        orTag.classList.remove("key-missing");
+        orTag.appendChild(document.createTextNode("default · key stored"));
+    } else {
+        orTag.classList.remove("default");
+        orTag.classList.add("key-missing");
+        orTag.appendChild(document.createTextNode("default · key missing"));
+    }
+
+    // help card stored/missing emphasis
+    keyState.textContent = hasKey ? "stored" : "missing";
+    keyState.className = "key-state " + (hasKey ? "" : "key-missing");
+    keyState.style.color = hasKey ? "var(--color-success-soft)" : "var(--color-warning-soft)";
+
+    // models: enabled only for openrouter
+    modelsGroup.classList.toggle("locked", !isOpenRouter);
+    modelsHint.hidden = isOpenRouter;
+    for (const m of ["m1", "m2", "m3"]) {
+        document.getElementById(m).disabled = !isOpenRouter;
+    }
+    for (const t of ["t1", "t2", "t3"]) {
+        document.getElementById(t).hidden = isOpenRouter;
+    }
+    for (const s of ["s1", "s2", "s3"]) {
+        const btn = document.getElementById(s);
+        btn.hidden = !isOpenRouter;
+        if (isOpenRouter) {
+            btn.classList.toggle("saved", savedFlash[s[1] - 1]);
+            btn.textContent = savedFlash[s[1] - 1] ? "Saved ✓" : "Save";
+        }
+    }
+
+    // warning only when openrouter + missing key
+    keyWarning.hidden = !(isOpenRouter && !hasKey);
+}
+
+// demo wiring
+buildRows();
+document.getElementById("keyToggle").addEventListener("change", (e) => {
+    hasKey = e.target.checked ? false : true;
+    render();
+});
+["s1", "s2", "s3"].forEach((id) => {
+    document.getElementById(id).addEventListener("click", () => {
+        const i = Number(id[1]) - 1;
+        savedFlash[i] = true;
+        const btn = document.getElementById(id);
+        btn.classList.add("saved");
+        btn.textContent = "Saved ✓";
+        setTimeout(() => { savedFlash[i] = false; btn.classList.remove("saved"); btn.textContent = "Save"; }, 1800);
+    });
+});
+render();
+</script>
+</body>
+</html>

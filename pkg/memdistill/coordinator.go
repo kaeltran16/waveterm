@@ -103,7 +103,7 @@ func (d *distiller) flush(cwd string) {
 	}
 
 	corpus := buildCorpus(sessions)
-	spec, _ := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, _ := consult.HeadlessSpecForTier(consult.TierCheap)
 	raw, ok := d.distillFn(context.Background(), spec, corpus)
 	if !ok {
 		return

@@ -21,7 +21,7 @@ const synthTimeout = 120 * time.Second
 
 const notFoundProse = "Not found. No Wave source in scope references this."
 
-var errNoClaude = fmt.Errorf("recall requires the claude CLI, which is not available")
+var errNoSynthesize = fmt.Errorf("recall requires a headless runtime, which is not available")
 
 // Emit receives one streamed chunk. The caller forwards it onto the RPC channel.
 type Emit func(wshrpc.JarvisConverseChunk)
@@ -41,9 +41,9 @@ var runFn = consult.Run
 // exactly what degrades first on a small model, and selectTerminal grades that: a reply citing
 // nothing in range is downgraded to "weak" in the UI.
 var synthesize = func(ctx context.Context, cwd, prompt string, onChunk func(string)) (string, error) {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierMid)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierMid)
 	if !ok {
-		return "", errNoClaude
+		return "", errNoSynthesize
 	}
 	return runFn(ctx, spec, cwd, prompt, onChunk)
 }

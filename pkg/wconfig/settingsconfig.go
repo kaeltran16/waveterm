@@ -114,13 +114,14 @@ type SettingsType struct {
 	MemoryVaultPath              string `json:"memory:vaultpath,omitempty"`
 	MemoryGardenerStaleDays      int    `json:"memory:gardenerstaledays,omitempty"`
 	MemoryGardenerCooldownMins   int    `json:"memory:gardenercooldownmins,omitempty"`
+	HeadlessRuntime              string `json:"headless:runtime,omitempty"`
 	HeadlessOpenRouterCheapModel string `json:"headless:openroutercheapmodel,omitempty"`
 	HeadlessOpenRouterMidModel   string `json:"headless:openroutermidmodel,omitempty"`
 	HeadlessOpenRouterLongModel  string `json:"headless:openrouterlongmodel,omitempty"`
-	JarvisVaultPath         string `json:"jarvis:vaultpath,omitempty"`
-	JarvisEmbedEnabled      bool   `json:"jarvis:embedenabled,omitempty"`
-	JarvisEmbedBaseURL      string `json:"jarvis:embedbaseurl,omitempty"`
-	JarvisEmbedModel        string `json:"jarvis:embedmodel,omitempty"`
+	JarvisVaultPath              string `json:"jarvis:vaultpath,omitempty"`
+	JarvisEmbedEnabled           bool   `json:"jarvis:embedenabled,omitempty"`
+	JarvisEmbedBaseURL           string `json:"jarvis:embedbaseurl,omitempty"`
+	JarvisEmbedModel             string `json:"jarvis:embedmodel,omitempty"`
 
 	EditorMinimapEnabled      bool    `json:"editor:minimapenabled,omitempty"`
 	EditorStickyScrollEnabled bool    `json:"editor:stickyscrollenabled,omitempty"`

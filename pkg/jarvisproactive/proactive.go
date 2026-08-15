@@ -15,7 +15,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
 
-var errNoClaude = fmt.Errorf("proactive relevance judge requires the claude CLI, which is not available")
+var errNoRuntime = fmt.Errorf("proactive relevance judge requires a headless runtime, which is not available")
 
 // judgeRun is the inner process-runner seam. judge itself is swappable, but SetJudgeForTest replaces
 // spec construction along with the call, so a test using it cannot observe which tier the real body
@@ -27,9 +27,9 @@ var judgeRun = consult.Run
 // parsing is parseJudgeReply's job. A seam so tests mock it. One-shot and unstreamed,
 // so the emit callback is discarded.
 var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
-		return "", errNoClaude
+		return "", errNoRuntime
 	}
 	return judgeRun(ctx, spec, cwd, prompt, func(string) {})
 }

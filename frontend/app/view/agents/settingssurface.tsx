@@ -20,6 +20,7 @@ import {
 } from "./cockpitprefsstore";
 import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
+import { harnessPickerItems } from "./harnesspicker";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
@@ -670,16 +671,19 @@ function MemorySection() {
 // Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
 const EMBED_SECRET_NAME = "jarvis_embedapikey";
 
-function SaveButton({ label, onClick }: { label: string; onClick: () => void }) {
+function SaveButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
     return (
         <button
             type="button"
             onClick={onClick}
+            disabled={disabled}
             className={cn(
                 "shrink-0 rounded-[9px] border px-[18px] py-2.5 text-[13px] font-semibold transition-colors",
-                label === "Saved ✓"
-                    ? "border-success/40 bg-success/[0.14] text-success-soft animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
-                    : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
+                disabled
+                    ? "cursor-not-allowed opacity-40"
+                    : label === "Saved ✓"
+                      ? "border-success/40 bg-success/[0.14] text-success-soft animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                      : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
             )}
         >
             {label}
@@ -691,11 +695,13 @@ function TextInput({
     value,
     placeholder,
     password,
+    disabled,
     onChange,
 }: {
     value: string;
     placeholder: string;
     password?: boolean;
+    disabled?: boolean;
     onChange: (v: string) => void;
 }) {
     return (
@@ -704,9 +710,13 @@ function TextInput({
             value={value}
             placeholder={placeholder}
             spellCheck={false}
+            disabled={disabled}
             autoComplete={password ? "off" : undefined}
             onChange={(e) => onChange(e.target.value)}
-            className="min-w-0 flex-1 rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-2.5 font-mono text-[13px] text-primary outline-none focus:border-accent-700"
+            className={cn(
+                "min-w-0 flex-1 rounded-[9px] border border-edge-mid bg-surface-raised px-3.5 py-2.5 font-mono text-[13px] text-primary outline-none focus:border-accent-700",
+                disabled && "cursor-not-allowed opacity-40"
+            )}
         />
     );
 }
@@ -719,36 +729,45 @@ function ConfigField({
     placeholder,
     stored,
     onSave,
+    disabled,
 }: {
     title: string;
     desc: string;
     placeholder: string;
     stored: string;
     onSave: (value: string) => void;
+    disabled?: boolean;
 }) {
     const [draft, setDraft] = useState(stored);
     const [saved, setSaved] = useState(false);
     const showSaved = saved && draft === stored;
     return (
         <div className="border-t border-edge-faint py-3.5 first:border-t-0">
-            <div className="text-[14px] font-semibold text-primary">{title}</div>
+            <div className={cn("text-[14px] font-semibold", disabled ? "text-muted" : "text-primary")}>{title}</div>
             <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">{desc}</div>
             <div className="flex gap-2.5">
                 <TextInput
                     value={draft}
                     placeholder={placeholder}
+                    disabled={disabled}
                     onChange={(v) => {
                         setDraft(v);
                         setSaved(false);
                     }}
                 />
-                <SaveButton
-                    label={showSaved ? "Saved ✓" : "Save"}
-                    onClick={() => {
-                        onSave(draft.trim());
-                        setSaved(true);
-                    }}
-                />
+                {disabled ? (
+                    <span className="self-center font-mono text-[11px] tracking-[0.02em] text-ink-faint">
+                        openrouter only
+                    </span>
+                ) : (
+                    <SaveButton
+                        label={showSaved ? "Saved ✓" : "Save"}
+                        onClick={() => {
+                            onSave(draft.trim());
+                            setSaved(true);
+                        }}
+                    />
+                )}
             </div>
         </div>
     );
@@ -891,40 +910,168 @@ function EmbeddingsSection() {
 }
 
 function HeadlessAISection() {
+    const runtime = (useAtomValue(getSettingsKeyAtom("headless:runtime")) as string) ?? "";
     const cheapModel = (useAtomValue(getSettingsKeyAtom("headless:openroutercheapmodel")) as string) ?? "";
     const midModel = (useAtomValue(getSettingsKeyAtom("headless:openroutermidmodel")) as string) ?? "";
     const longModel = (useAtomValue(getSettingsKeyAtom("headless:openrouterlongmodel")) as string) ?? "";
 
     const [hasKey, setHasKey] = useState(false);
+    const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
     useEffect(() => {
         fireAndForget(async () => {
             try {
                 const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
                 setHasKey((names ?? []).includes(EMBED_SECRET_NAME));
-            } catch (_) {}
+            } catch (_) {
+                // best-effort probe; the key warning below simply stays "missing" on failure
+            }
+        });
+        fireAndForget(async () => {
+            try {
+                const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient);
+                setHarnesses(rtn?.harnesses ?? []);
+            } catch (_) {
+                // best-effort probe; a failed catalog leaves the selector with openrouter only
+            }
         });
     }, []);
 
     const write = (patch: Record<string, unknown>) =>
         void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
 
+    // empty setting means openrouter (the backend default); only openrouter reads the model keys.
+    const isOpenRouter = runtime === "" || runtime === "openrouter";
+    const effectiveRuntime = isOpenRouter ? "openrouter" : runtime;
+
+    const harnessRows = harnessPickerItems(harnesses, effectiveRuntime, "consult");
+    const options = [
+        {
+            id: "openrouter",
+            label: "OpenRouter",
+            mono: "openrouter",
+            selectable: true,
+            isDefault: true,
+            notInstalled: false,
+        },
+        ...harnessRows.map((h) => ({
+            id: h.runtime,
+            label: h.label,
+            mono: h.runtime,
+            selectable: h.selectable,
+            isDefault: false,
+            notInstalled: h.unavailableReason === "not-installed",
+        })),
+    ];
+
     return (
         <div>
             <SectionLabel>Headless AI</SectionLabel>
             <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
-                Models for background AI features (gardener, gatekeeper, recall, etc.). Uses OpenRouter with the{" "}
-                <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-muted")}>
+                Runtime for background AI features (gatekeeper, decompose, continuity, proactive, recall, volunteer,
+                distill, gardener, radar, pi auto-titles). OpenRouter is the API-backed default and uses the{" "}
+                <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-warning")}>
                     {hasKey ? "stored" : "missing"}
                 </span>{" "}
-                OpenRouter key from the secret store (same key as Embeddings). Model IDs use the full{" "}
-                <code className="font-mono text-[11.5px] text-secondary">provider/model</code> format.
+                OpenRouter key from the secret store (same key as Embeddings); harness runtimes execute their local CLI.
+                Model IDs use the full <code className="font-mono text-[11.5px] text-secondary">provider/model</code>{" "}
+                format.
             </div>
-            <div>
+            <div className="text-[14px] font-semibold text-primary">Runtime</div>
+            <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
+                Which engine powers background AI features. Uninstalled harnesses stay visible but disabled — install
+                them to enable.
+            </div>
+            <div role="radiogroup" aria-label="headless runtime" className="flex flex-col gap-1.5">
+                {options.map((o) => {
+                    const on = o.id === effectiveRuntime;
+                    return (
+                        <button
+                            key={o.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={on}
+                            disabled={!o.selectable}
+                            onClick={() => write({ "headless:runtime": o.id })}
+                            className={cn(
+                                "flex w-full cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
+                                on ? "border-accent-700 bg-surface-hover" : "border-border hover:border-edge-strong",
+                                !o.selectable && "cursor-not-allowed opacity-55 hover:border-border"
+                            )}
+                        >
+                            <span
+                                className={cn(
+                                    "flex h-4 w-4 flex-none items-center justify-center rounded-full border-2 transition-colors",
+                                    on ? "border-accent" : "border-edge-strong"
+                                )}
+                            >
+                                {on ? <span className="h-2 w-2 rounded-full bg-accent" /> : null}
+                            </span>
+                            <span
+                                className={cn(
+                                    "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                                    on ? "text-primary" : "text-secondary"
+                                )}
+                            >
+                                {o.label}
+                            </span>
+                            <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-ink-faint">
+                                {o.mono}
+                            </span>
+                            <span
+                                className={cn(
+                                    "flex flex-none items-center gap-1.5 text-[11px] font-semibold",
+                                    o.isDefault
+                                        ? hasKey
+                                            ? "text-accent-soft"
+                                            : "text-warning-soft"
+                                        : o.notInstalled
+                                          ? "text-muted"
+                                          : "text-success-soft"
+                                )}
+                            >
+                                <span
+                                    className={cn(
+                                        "h-1.5 w-1.5 rounded-full",
+                                        o.isDefault
+                                            ? hasKey
+                                                ? "bg-accent"
+                                                : "bg-warning"
+                                            : o.notInstalled
+                                              ? "bg-ink-faint"
+                                              : "bg-success"
+                                    )}
+                                />
+                                {o.isDefault
+                                    ? hasKey
+                                        ? "default · key stored"
+                                        : "default · key missing"
+                                    : o.notInstalled
+                                      ? "not installed"
+                                      : "installed"}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="mt-5">
+                <div className="flex items-baseline justify-between gap-3">
+                    <div className="text-[14px] font-semibold text-primary">Models</div>
+                    {!isOpenRouter ? (
+                        <span className="flex-none rounded-[6px] border border-border bg-pill px-2 py-0.5 font-mono text-[10.5px] text-ink-faint">
+                            openrouter only
+                        </span>
+                    ) : null}
+                </div>
+                <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
+                    OpenRouter model IDs for mechanical, synthesis, and large-corpus tasks — only applies while the
+                    runtime is openrouter.
+                </div>
                 <ConfigField
                     title="Cheap model"
                     desc="For mechanical tasks: gatekeeper, decompose, continuity, proactive."
                     placeholder="deepseek/deepseek-v4-flash"
                     stored={cheapModel}
+                    disabled={!isOpenRouter}
                     onSave={(v) => write({ "headless:openroutercheapmodel": v })}
                 />
                 <ConfigField
@@ -932,6 +1079,7 @@ function HeadlessAISection() {
                     desc="For synthesis and conversation: recall, radar, Jarvis."
                     placeholder="deepseek/deepseek-v4-pro"
                     stored={midModel}
+                    disabled={!isOpenRouter}
                     onSave={(v) => write({ "headless:openroutermidmodel": v })}
                 />
                 <ConfigField
@@ -939,10 +1087,11 @@ function HeadlessAISection() {
                     desc="For large-corpus tasks: distillation, gardener when corpus > 400KB."
                     placeholder="deepseek/deepseek-v4-pro"
                     stored={longModel}
+                    disabled={!isOpenRouter}
                     onSave={(v) => write({ "headless:openrouterlongmodel": v })}
                 />
             </div>
-            {!hasKey ? (
+            {isOpenRouter && !hasKey ? (
                 <div className="mt-3 text-[12px] text-warning">
                     API key not set — background AI features are disabled until the key is configured.
                 </div>

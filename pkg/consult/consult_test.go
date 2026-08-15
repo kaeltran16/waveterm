@@ -16,9 +16,9 @@ func TestSpecFor_knownRuntimes(t *testing.T) {
 		bin  string
 		arg0 string
 	}{
-		"claude":      {"claude", "-p"},
-		"codex":       {"codex", "exec"},
-		"opencode":    {"opencode", "run"},
+		"claude":   {"claude", "-p"},
+		"codex":    {"codex", "exec"},
+		"opencode": {"opencode", "run"},
 	}
 	for rt, want := range cases {
 		spec, ok := SpecFor(rt)
@@ -363,5 +363,55 @@ func TestBuildPromptPrependsPrinciples(t *testing.T) {
 	}
 	if !strings.Contains(got, "review this") {
 		t.Fatalf("expected the request to survive, got: %q", got)
+	}
+}
+
+func TestResolveHeadlessRuntime(t *testing.T) {
+	cases := []struct {
+		configured string
+		want       string
+	}{
+		{"", "openrouter"},
+		{"openrouter", "openrouter"},
+		{"pi", "pi"},
+		{"claude", "claude"},
+		{"codex", "codex"},
+		{"opencode", "opencode"},
+		{"bogus", "openrouter"},
+	}
+	for _, tc := range cases {
+		if got := resolveHeadlessRuntime(tc.configured); got != tc.want {
+			t.Errorf("resolveHeadlessRuntime(%q) = %q, want %q", tc.configured, got, tc.want)
+		}
+	}
+}
+
+// HeadlessSpecForTier resolves the default runtime (openrouter) with a tier model applied. The
+// headless:runtime setting is brand new, so an untouched config must behave exactly like the
+// hardcoded openrouter calls it replaces.
+func TestHeadlessSpecForTier_defaultsToOpenRouter(t *testing.T) {
+	spec, ok := HeadlessSpecForTier(TierCheap)
+	if !ok {
+		t.Fatal("expected the default headless runtime to resolve")
+	}
+	if spec.ApiBackend == nil {
+		t.Error("expected the default openrouter ApiBackend to be set")
+	}
+	if spec.Model != OpenrouterCheapModel() {
+		t.Errorf("cheap tier model = %q, want %q", spec.Model, OpenrouterCheapModel())
+	}
+}
+
+// HeadlessCorpusSpec on the default runtime applies the configured corpus model, matching what
+// runGardenLLM did before the setting existed.
+func TestHeadlessCorpusSpec_defaultsToOpenRouterCorpusModel(t *testing.T) {
+	small := "tiny corpus"
+	spec, ok := HeadlessCorpusSpec(small)
+	if !ok {
+		t.Fatal("expected the default headless runtime to resolve")
+	}
+	want := CorpusModel(OpenrouterCheapModel(), OpenrouterLongModel(), small)
+	if spec.Model != want {
+		t.Errorf("corpus model = %q, want %q", spec.Model, want)
 	}
 }

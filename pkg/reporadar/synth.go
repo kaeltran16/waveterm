@@ -73,9 +73,9 @@ func buildSynthesisPrompt(projectName, mode string, groups []CandidateGroup) str
 // synthesize runs one bounded model call via consult.Run and returns the parsed response.
 func synthesize(ctx context.Context, projectName, mode string, groups []CandidateGroup) (*SynthResponse, error) {
 	prompt := buildSynthesisPrompt(projectName, mode, groups)
-	spec, ok := consult.SpecForTier("openrouter", consult.TierMid)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierMid)
 	if !ok {
-		return nil, fmt.Errorf("openrouter runtime not available")
+		return nil, fmt.Errorf("headless runtime not available")
 	}
 	full, err := consult.Run(ctx, spec, wavebase.HeadlessAgentCwd(), prompt, func(string) {})
 	if err != nil {

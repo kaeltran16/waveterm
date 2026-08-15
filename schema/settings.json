@@ -170,6 +170,9 @@
         "memory:gardenercooldownmins": {
           "type": "integer"
         },
+        "headless:runtime": {
+          "type": "string"
+        },
         "headless:openroutercheapmodel": {
           "type": "string"
         },

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>UI Design Skeleton</title>
+<style>
+  body { font-family: Inter; max-width: 860px; margin: 40px auto; padding: 0 20px; background: #0c0e11; color: #e6e9ed; }
+  h3, h4, h5, h6 { margin: 14px 0 4px; }
+</style>
+</head>
+<body>
+<h2 style="margin:8px 0">Headless AI section — runtime selector</h2>
+<p style="margin:8px 0;color:#555">New backend setting headless:runtime — openrouter (default) | pi | claude | codex | opencode. Switches which engine all background AI consult features run on. Prototype for Settings → Headless AI.</p>
+<hr style="margin:16px 0;border:none;border-top:1px solid #ddd">
+<h3 style="margin:8px 0">STATE A — openrouter selected (default), key present</h3>
+<h4 style="margin:8px 0">HEADLESS AI  (section label: mono, 10px, uppercase, text-muted)</h4>
+<p style="margin:8px 0;color:#555">Help card: Runtime for background AI features (jarvis gatekeeper / decompose / continuity / proactive / recall / volunteer, memdistill, memgarden, reporadar, pi auto-titles). OpenRouter is the API-backed default; its status = the stored OpenRouter key. Harness runtimes execute their local CLI. Model IDs use provider/model.</p>
+<h5 style="margin:8px 0">Runtime</h5>
+<p style="margin:8px 0;color:#555">Which engine powers background AI features. From the backend harness catalog; uninstalled harnesses stay visible but disabled.</p>
+<h6 style="margin:8px 0">● OpenRouter</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#5e9cff;color:#fff;margin:4px">default · api key present</span>
+<h6 style="margin:8px 0">○ Pi</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">installed</span>
+<h6 style="margin:8px 0">○ Claude Code</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">installed</span>
+<h6 style="margin:8px 0">○ Codex</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">not installed</span>
+<h6 style="margin:8px 0">○ OpenCode</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">not installed</span>
+<h5 style="margin:8px 0">Models — enabled (openrouter selected)</h5>
+<p style="margin:8px 0;color:#555">OpenRouter model IDs used by background features. Only applies while the runtime is openrouter.</p>
+<div style="margin:8px 0"><label style="display:block;margin-bottom:4px;font-size:13px;color:#555">Cheap model — gatekeeper, decompose, continuity, proactive</label><input placeholder="deepseek/deepseek-v4-flash" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px"></div>
+<button style="background:#3f4ea0;color:#fff;padding:8px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer;margin:4px">Save</button>
+<div style="margin:8px 0"><label style="display:block;margin-bottom:4px;font-size:13px;color:#555">Mid model — recall, radar, Jarvis</label><input placeholder="deepseek/deepseek-v4-pro" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px"></div>
+<button style="background:#3f4ea0;color:#fff;padding:8px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer;margin:4px">Save</button>
+<div style="margin:8px 0"><label style="display:block;margin-bottom:4px;font-size:13px;color:#555">Long-context model — distillation, gardener &gt; 400KB corpus</label><input placeholder="deepseek/deepseek-v4-pro" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px"></div>
+<button style="background:#3f4ea0;color:#fff;padding:8px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer;margin:4px">Save</button>
+<div style="padding:12px 16px;border-radius:8px;margin:8px 0;font-size:14px;background:#e8f4f8;color:#024345;border:1px solid #b8dce8">API key not set — background AI features are disabled until the key is configured.</div>
+<hr style="margin:16px 0;border:none;border-top:1px solid #ddd">
+<h3 style="margin:8px 0">STATE B — harness selected (Claude Code)</h3>
+<h4 style="margin:8px 0">HEADLESS AI  (section label)</h4>
+<p style="margin:8px 0;color:#555">Help card: Runtime for background AI features. OpenRouter is the API-backed default and requires its key; harness runtimes (Pi, Claude Code, Codex, OpenCode) execute their local CLI. Model IDs only apply to OpenRouter.</p>
+<h5 style="margin:8px 0">Runtime</h5>
+<p style="margin:8px 0;color:#555">Same options; uninstalled harnesses shown but disabled (not installed tag, no hover, not selectable).</p>
+<h6 style="margin:8px 0">○ OpenRouter</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#5e9cff;color:#fff;margin:4px">default · api key present</span>
+<h6 style="margin:8px 0">○ Pi</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">installed</span>
+<h6 style="margin:8px 0">● Claude Code</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#5e9cff;color:#fff;margin:4px">in use</span>
+<h6 style="margin:8px 0">○ Codex</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">not installed</span>
+<h6 style="margin:8px 0">○ OpenCode</h6>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">not installed</span>
+<h5 style="margin:8px 0">Models — locked (openrouter only)</h5>
+<p style="margin:8px 0;color:#555">Model fields apply only when the runtime is openrouter — fields disabled, Save replaced by an openrouter-only hint. Background features now run through Claude Code.</p>
+<div style="margin:8px 0"><label style="display:block;margin-bottom:4px;font-size:13px;color:#555">Cheap model — gatekeeper, decompose, continuity, proactive (disabled)</label><input placeholder="deepseek/deepseek-v4-flash" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px"></div>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">openrouter only</span>
+<div style="margin:8px 0"><label style="display:block;margin-bottom:4px;font-size:13px;color:#555">Mid model — recall, radar, Jarvis (disabled)</label><input placeholder="deepseek/deepseek-v4-pro" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px"></div>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">openrouter only</span>
+<div style="margin:8px 0"><label style="display:block;margin-bottom:4px;font-size:13px;color:#555">Long-context model — distillation, gardener &gt; 400KB corpus (disabled)</label><input placeholder="deepseek/deepseek-v4-pro" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px"></div>
+<span style="display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#3f4ea0;color:#fff;margin:4px">openrouter only</span>
+<hr style="margin:16px 0;border:none;border-top:1px solid #ddd">
+<h3 style="margin:8px 0">Interaction rules</h3>
+<ul><li style="margin:4px 0">openrouter is always first and the default; its 'installed' state = the OpenRouter API key is present (not in the harness catalog).</li><li style="margin:4px 0">Uninstalled harnesses stay visible but disabled: not installed tag, reduced emphasis, no hover accent, not selectable.</li><li style="margin:4px 0">Selected harness row gets the accent border + surface-hover fill + check, matching the theme picker language.</li><li style="margin:4px 0">Model fields enable only for openrouter; any harness selection locks them with an openrouter only hint in place of Save.</li><li style="margin:4px 0">Key-missing warning (amber, with label) shows only when runtime = openrouter and the key is missing.</li></ul>
+</body>
+</html>

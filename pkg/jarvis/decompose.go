@@ -64,10 +64,10 @@ func ParseDecompose(reply, goal string) []string {
 	return out
 }
 
-// Decompose runs the headless claude planner. Fails safe to a single-element list on any CLI/timeout
+// Decompose runs the headless planner. Fails safe to a single-element list on any CLI/timeout
 // error (never blocks the dispatch).
 func Decompose(ctx context.Context, projectPath, goal string, channel *waveobj.Channel) []string {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
 		return []string{goal}
 	}

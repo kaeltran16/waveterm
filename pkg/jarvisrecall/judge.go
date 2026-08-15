@@ -14,8 +14,8 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/consult"
 )
 
-// errNoJudge mirrors jarvisproactive's failure mode: the cheap tier has no configured provider.
-var errNoJudge = fmt.Errorf("relevance judge requires the cheap tier, which is not available")
+// errNoRuntime mirrors jarvisproactive's failure mode: the configured headless runtime is unavailable.
+var errNoRuntime = fmt.Errorf("relevance judge requires a headless runtime, which is not available")
 
 // judgeRun is the inner process-runner seam (same shape as jarvisproactive.judgeRun).
 var judgeRun = consult.Run
@@ -24,9 +24,9 @@ var judgeRun = consult.Run
 // kept indices. Picking on-topic candidates is bounded classification, not synthesis — the cheap
 // tier exists for exactly this. A seam so tests mock it; one-shot and unstreamed.
 var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
-		return "", errNoJudge
+		return "", errNoRuntime
 	}
 	return judgeRun(ctx, spec, cwd, prompt, func(string) {})
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/consult"
 )
 
-var errNoClaude = fmt.Errorf("volunteer judge requires the claude CLI, which is not available")
+var errNoRuntime = fmt.Errorf("volunteer judge requires a headless runtime, which is not available")
 
 // judgeRun is the inner process-runner seam. judge itself is swappable, but SetJudgeForTest replaces
 // spec construction along with the call, so a test using it cannot observe which tier the real body
@@ -22,9 +22,9 @@ var judgeRun = consult.Run
 // judge runs on the cheap tier: deciding whether any of a short list is worth interrupting for is
 // bounded classification, not synthesis. One-shot and unstreamed, so the emit callback is discarded.
 var judge = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
-		return "", errNoClaude
+		return "", errNoRuntime
 	}
 	return judgeRun(ctx, spec, cwd, prompt, func(string) {})
 }

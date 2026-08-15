@@ -2884,6 +2884,7 @@ declare global {
         "memory:vaultpath"?: string;
         "memory:gardenerstaledays"?: number;
         "memory:gardenercooldownmins"?: number;
+        "headless:runtime"?: string;
         "headless:openroutercheapmodel"?: string;
         "headless:openroutermidmodel"?: string;
         "headless:openrouterlongmodel"?: string;

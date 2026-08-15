@@ -314,11 +314,10 @@ func pickModel(corpus string) string {
 
 // runGardenLLM is the injectable seam wired in newGardener.
 func runGardenLLM(model, prompt, corpus string) (string, bool) {
-	cheap := consult.OpenrouterCheapModel()
-	long := consult.OpenrouterLongModel()
-	resolvedModel := consult.CorpusModel(cheap, long, corpus)
-	spec, _ := consult.SpecForTier("openrouter", consult.TierCheap)
-	spec.Model = resolvedModel
+	spec, ok := consult.HeadlessCorpusSpec(corpus)
+	if !ok {
+		return "", false
+	}
 	fullPrompt := prompt + "\n\n" + corpus
 	return runGardenAPI(spec, fullPrompt)
 }

@@ -110,12 +110,12 @@ func ParseDecision(reply string) Decision {
 	return d
 }
 
-// Classify runs the headless claude classifier. It fails safe to escalate on any CLI/timeout error.
+// Classify runs the headless classifier. It fails safe to escalate on any CLI/timeout error.
 func Classify(ctx context.Context, channel *waveobj.Channel, q baseds.AgentAskQuestion, task string) Decision {
 	// cheap tier: this is a bounded pick-an-option classification, and every failure mode
 	// (unparseable reply, no option index, non-"answer" action) already falls through to
 	// escalate — a weaker model degrades toward asking the human, not toward a wrong answer.
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
 		return Decision{Action: "escalate", Reason: "claude CLI unavailable"}
 	}

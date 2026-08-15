@@ -106,7 +106,7 @@ func piTitlePrompt(taskText string) string {
 type titleGenerator func(ctx context.Context, prompt string) (string, error)
 
 func defaultTitleGenerator(ctx context.Context, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
 		return "", nil
 	}

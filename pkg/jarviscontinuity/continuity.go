@@ -16,16 +16,16 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
 
-var errNoClaude = fmt.Errorf("continuity summary requires the claude CLI, which is not available")
+var errNoRuntime = fmt.Errorf("continuity summary requires a headless runtime, which is not available")
 
 // summarize is the one model call. It runs on the cheap tier: the narrative is mechanical prose over
 // facts assembleFacts already gathered deterministically, not synthesis, and boundaries fire once per
 // rest transition on every run. A seam so tests mock it; capture is one-shot and unstreamed, so the
 // emit callback is discarded.
 var summarize = func(ctx context.Context, cwd, prompt string) (string, error) {
-	spec, ok := consult.SpecForTier("openrouter", consult.TierCheap)
+	spec, ok := consult.HeadlessSpecForTier(consult.TierCheap)
 	if !ok {
-		return "", errNoClaude
+		return "", errNoRuntime
 	}
 	return consult.Run(ctx, spec, cwd, prompt, func(string) {})
 }
