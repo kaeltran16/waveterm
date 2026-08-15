@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import {
     captureTailArgs,
     controlFileName,
+    dagEventMessage,
     notifyArgs,
     openFileArgs,
     parseControlCommand,
@@ -199,6 +200,12 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
                         }
                         await ctx.switchSession(cmd.path, { withSession: async () => {} });
                         break;
+                    case "child_done":
+                    case "gate_open":
+                    case "dag_blocked":
+                    case "dag_complete":
+                        await notify(dagEventMessage(cmd.cmd, cmd.content));
+                        break;
                 }
             } catch (e) {
                 log(`pi-control: command ${cmd.cmd} failed: ${String(e)}`);
@@ -214,7 +221,7 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
         dir: string,
         sessionId: string,
         onCommand: (cmd: PiControlCommand) => Promise<void>,
-        log: (m: string) => void,
+        log: (m: string) => void
     ): (() => void) => {
         const file = join(dir, controlFileName(sessionId));
         const process = async (): Promise<void> => {
@@ -258,7 +265,12 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
         const dir = process.env.WAVETERM_PI_CONTROL_DIR;
         const sessionId = ctx?.sessionManager?.getSessionId?.();
         if (!dir || !sessionId) return; // bare pi outside a Wave block — inert
-        cleanup = startControlWatcher(dir, sessionId, makeDispatcher(ctx, (m) => console.log(m)), (m) => console.log(m));
+        cleanup = startControlWatcher(
+            dir,
+            sessionId,
+            makeDispatcher(ctx, (m) => console.log(m)),
+            (m) => console.log(m)
+        );
     });
 
     pi.on("session_shutdown", () => {

@@ -34,6 +34,8 @@ import { dismissKey, isCockpitEmpty, shownForChip, splitRecentlyIdle, toggleInSe
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelsAtom } from "./channelsstore";
+import { DagGraphView } from "../orchestrate/daggraph";
+import { dagViewOrefAtom } from "../orchestrate/dagstore";
 import { filterBySpace, spaceBannerText } from "./spacescope";
 import { activeSpaceAtom, spaceRevealAtom, spaceScopeAtom } from "./spacestore";
 import { SpaceBanner } from "./spacebanner";
@@ -361,6 +363,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     };
 
     const empty = isCockpitEmpty(asking, working, idle);
+
+    // the dag graph is a full-surface takeover: open from a run card, closed by Back/Escape.
+    // all hooks above have run, so this branch cannot reorder them.
+    const dagOref = useAtomValue(dagViewOrefAtom);
+    if (dagOref) {
+        return <DagGraphView oref={dagOref} />;
+    }
 
     return (
         <MotionConfig reducedMotion="user">

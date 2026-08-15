@@ -24,6 +24,10 @@ const (
 	AttentionGate       = "gate"
 	AttentionEscalation = "escalation"
 	AttentionAsk        = "ask"
+	// dag items: statuses mirror orchestrate.DagStatus_* but are spelled here because jarvis is the
+	// engine's client (orchestrate imports jarvis for run status — importing it back would cycle).
+	AttentionDagGate    = "dag-gate"
+	AttentionDagBlocked = "dag-blocked"
 )
 
 // AttentionChannel is one channel's contribution: its identity plus the rows the builder reads.
@@ -45,6 +49,7 @@ type AttentionInput struct {
 	AskChannel    map[string]string
 	AskWorker     map[string]string
 	AskWorkerORef map[string]string
+	Dags          []*waveobj.TaskGroup // engine-owned task DAGs (awaiting-review/blocked surface items)
 }
 
 // reviewGateIdx ports frontend runmodel.reviewGate: the gated phase awaiting approval, or -1. The engine
@@ -143,6 +148,36 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		}
 	}
 
+	for _, g := range in.Dags {
+		// statuses mirror orchestrate.DagStatus_AwaitingReview / DagStatus_Blocked (see AttentionDagGate).
+		switch g.Status {
+		case "awaiting-review":
+			gates = append(gates, wshrpc.AttentionItem{
+				Kind:         AttentionDagGate,
+				Key:          "dag-gate:" + g.ID,
+				ChannelId:    g.ChannelId,
+				ChannelName:  channelNameFor(in.Channels, g.ChannelId),
+				RunId:        g.RunID,
+				Source:       dagSource(in.Channels, g),
+				Text:         "Approve the gate before the DAG proceeds.",
+				Action:       "Review",
+				WaitingSince: g.UpdatedTs,
+			})
+		case "blocked":
+			gates = append(gates, wshrpc.AttentionItem{
+				Kind:         AttentionDagBlocked,
+				Key:          "dag-blocked:" + g.ID,
+				ChannelId:    g.ChannelId,
+				ChannelName:  channelNameFor(in.Channels, g.ChannelId),
+				RunId:        g.RunID,
+				Source:       dagSource(in.Channels, g),
+				Text:         fmt.Sprintf("%d consecutive failures — decide retry/skip.", g.Failures),
+				Action:       "Review",
+				WaitingSince: g.UpdatedTs,
+			})
+		}
+	}
+
 	byOID := map[string]AttentionChannel{}
 	for _, ch := range in.Channels {
 		byOID[ch.OID] = ch
@@ -189,6 +224,30 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 	return out
 }
 
+// dagSource is the attention source line for a dag item: its title, else the owning run's goal.
+func dagSource(channels []AttentionChannel, g *waveobj.TaskGroup) string {
+	if g.Title != "" {
+		return g.Title
+	}
+	for _, ch := range channels {
+		for _, run := range ch.Runs {
+			if run.ID == g.RunID {
+				return run.Goal
+			}
+		}
+	}
+	return "orchestration dag"
+}
+
+func channelNameFor(channels []AttentionChannel, oid string) string {
+	for _, ch := range channels {
+		if ch.OID == oid {
+			return ch.Name
+		}
+	}
+	return ""
+}
+
 // GatherAttention reads the live inputs and builds the list. Channels, runs and messages come from the
 // store; pending asks come from the in-process registry, which is why this list is authoritative for the
 // current server lifetime rather than absolutely (a wavesrv restart empties it until agents re-raise).
@@ -225,6 +284,20 @@ func GatherAttention(ctx context.Context) ([]wshrpc.AttentionItem, error) {
 		}
 		if task != "" {
 			in.AskWorker[blockORef] = task
+		}
+	}
+	// engine DAGs: load the group of every run carrying a DagORef (children share the owner's oref,
+	// so dedupe by dag id); non-loadable groups are skipped — attention degrades gracefully.
+	seenDags := map[string]bool{}
+	for _, ch := range in.Channels {
+		for _, run := range ch.Runs {
+			if run.DagORef == "" || seenDags[run.DagORef] {
+				continue
+			}
+			seenDags[run.DagORef] = true
+			if g, gerr := wstore.GetDag(ctx, run.DagORef); gerr == nil {
+				in.Dags = append(in.Dags, g)
+			}
 		}
 	}
 	return BuildAttention(in), nil
