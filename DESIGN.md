@@ -423,6 +423,23 @@ runtime logos stay image assets.
 - Don't hand-edit generated files (`store/wshclientapi.ts`,
   `types/gotypes.d.ts`, …) — edit Go, run `task generate`.
 
+## Mockups (prototypes)
+
+UI changes get a validated high-fidelity HTML mockup before implementation — prototype
+first, always. The mockup is the design proposal; it must be seen and approved before
+code is written.
+
+- Start from `docs/prototype/mockup-template.html`: it carries the `@theme` tokens as CSS
+  vars (regenerate with `task mockup:kit` after any `@theme` change — never hand-edit the
+  token block), the shared recipes (card/panel, row, chips, badges, sec-head, buttons,
+  progress, skeleton), and the audit checklist.
+- Run the checklist (top of the template) before presenting: tokens only, contrast floor,
+  status never color alone, focus-visible, reduced motion, correct card recipe, single
+  accent CTA, micro-scale motion only.
+- Mockups live in `docs/prototype/`; serve with `python -m http.server 8766` from that
+  directory and open the file in a browser. The workflow is also encoded as the
+  `ui-mockup` pi skill (`pi/skills/ui-mockup`).
+
 ## Architecture & Patterns
 
 The cockpit's structural conventions (state, component shape, theming

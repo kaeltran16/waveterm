@@ -49,6 +49,10 @@ tasks:
         desc: Run the CDP verification harness against the running dev app (scripts/cdp/). Pass scenario names after --, e.g. `task verify:ui -- surface-smoke`. CDP_PORT env overrides the attach port (default 9222) for a worktree dev app on another port.
         cmd: node scripts/cdp/verify.mjs {{.CLI_ARGS}}
 
+    mockup:kit:
+        desc: Regenerate the @theme token block inside docs/prototype/mockup-template.html from frontend/tailwindsetup.css, so mockup colors cannot drift from the app.
+        cmd: node scripts/gen-mockup-tokens.mjs
+
     worktree:prepare:
         desc: Junction node_modules, src-tauri/target, and dist/bin from the main checkout into the current worktree (Windows). Run inside the worktree before `task dev`.
         cmd: node scripts/worktree-junctions.mjs prepare

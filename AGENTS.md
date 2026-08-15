@@ -64,6 +64,9 @@ Tauri and pivoted toward an agent-cockpit UI. `main` is the Tauri build. The Go 
   the do's and don'ts. Read it before planning or styling new UI.
 - Colors come from `@theme` tokens in `frontend/tailwindsetup.css`; never raw hex in components
   (the pi theme under `pi/themes/arc.json` is the exception — it is a TUI theme file).
+- UI mockups start from `docs/prototype/mockup-template.html` (generated tokens + recipes +
+  audit checklist). Run `task mockup:kit` after `@theme` token changes; present a mockup only
+  after its audit checklist passes. See `pi/skills/ui-mockup`.
 - Comments explain "why", never "what". Lower case. Only when necessary. Prefer short functions and
   shallow nesting; KISS/YAGNI/DRY/SOLID; single source of truth.
 
