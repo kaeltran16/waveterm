@@ -389,5 +389,7 @@ func buildPiOrchestratePrompt(b *strings.Builder, goal string, gate bool) {
 	} else {
 		b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise plan it (writing-plans), write the plan as pi-tasks records, and run `wsh jarvis dag import-tasks`; the engine schedules children and wakes you with control events — do not babysit. `wsh jarvis dag status` for detail.\n")
 	}
+	// same invariant as the claude branch: the goal must always reach the lead's prompt.
+	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }

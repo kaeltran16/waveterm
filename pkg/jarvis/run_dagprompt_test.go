@@ -7,7 +7,7 @@ import (
 
 func TestBuildOrchestratePromptPiHasDagVerbs(t *testing.T) {
 	p := BuildOrchestratePrompt("ship auth", nil, true, "pi")
-	for _, want := range []string{"wsh jarvis dag import-tasks", "wsh jarvis dag status", "respond to control events"} {
+	for _, want := range []string{"wsh jarvis dag import-tasks", "wsh jarvis dag status", "respond to control events", "Goal: ship auth"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("pi prompt missing %q", want)
 		}
@@ -21,5 +21,8 @@ func TestBuildOrchestratePromptClaudeUnchanged(t *testing.T) {
 	p := BuildOrchestratePrompt("ship auth", nil, true, "claude")
 	if strings.Contains(p, "wsh jarvis dag import-tasks") {
 		t.Errorf("claude prompt must not mention dag verbs")
+	}
+	if !strings.Contains(p, "Goal: ship auth") {
+		t.Errorf("claude prompt must carry the goal")
 	}
 }
