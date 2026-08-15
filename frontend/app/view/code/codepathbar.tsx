@@ -16,11 +16,12 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { joinRepoPath } from "@/util/paths";
 import { cn, stringToBase64 } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { Check, Copy, Send } from "lucide-react";
 import { useState } from "react";
+import { isMarkdownPath } from "./codeclassify";
 import { handoffLine, liveAgentsForProject } from "./codehandoff";
-import { codeDraftsAtom, codeFileAtom, codeProjectAtom, draftKey } from "./codestore";
+import { codeDraftsAtom, codeFileAtom, codeProjectAtom, codeViewModeAtom, draftKey } from "./codestore";
 import { codeEditorSelection } from "./codeviewer";
 
 export function CodePathBar({ model }: { model: AgentsViewModel }) {
@@ -45,6 +46,7 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                     className="size-[6px] flex-none rounded-full bg-accent-soft"
                 />
             ) : null}
+            {file.kind === "text" && isMarkdownPath(file.path) ? <ViewModeToggle /> : null}
             <div className="flex-1" />
             <button
                 type="button"
@@ -64,6 +66,30 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                 <span>{copied ? "Copied" : "Copy path"}</span>
             </button>
             <SendToAgent model={model} rel={file.path} projectName={project.name} />
+        </div>
+    );
+}
+
+// Markdown files render as documents by default; this is the escape back to the editable view.
+// The segmented control mirrors the Files/Search column-mode idiom.
+function ViewModeToggle() {
+    const [mode, setMode] = useAtom(codeViewModeAtom);
+    return (
+        <div className="flex flex-none items-center gap-0.5 rounded-[6px] border border-border p-[2px]">
+            {(["preview", "source"] as const).map((m) => (
+                <button
+                    key={m}
+                    type="button"
+                    data-code-view-mode={m}
+                    onClick={() => setMode(m)}
+                    className={cn(
+                        "cursor-pointer rounded-[4px] px-2 py-[2px] text-[11px] capitalize",
+                        m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
+                    )}
+                >
+                    {m}
+                </button>
+            ))}
         </div>
     );
 }

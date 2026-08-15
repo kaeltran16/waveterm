@@ -10,6 +10,7 @@
 // This is also the only module that touches Monaco directly. The store publishes a pending line and
 // a handoff asks for the current selection; both are served here so codestore.ts stays IO-and-atoms.
 
+import { Markdown } from "@/app/element/markdown";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
@@ -19,11 +20,13 @@ import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
 import { useEffect } from "react";
+import { isMarkdownPath } from "./codeclassify";
 import {
     codeDraftsAtom,
     codeFileAtom,
     codePendingLineAtom,
     codeProjectAtom,
+    codeViewModeAtom,
     draftKey,
     editDraft,
     refreshIndex,
@@ -62,16 +65,26 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const project = useAtomValue(codeProjectAtom);
     const drafts = useAtomValue(codeDraftsAtom);
     const pendingLine = useAtomValue(codePendingLineAtom);
+    const mode = useAtomValue(codeViewModeAtom);
 
     // Two paths, both needed. Monaco is keyed by file path, so opening a DIFFERENT file remounts it
     // and onMount is the only hook that runs late enough to reveal a line. Jumping to another line
     // in the file already open does not remount, so the effect covers that — and it cannot cover
     // the first mount, because Monaco lazy-loads and no re-render follows its arrival.
     useEffect(() => {
-        if (pendingLine != null && editor != null) {
+        if (pendingLine == null) {
+            return;
+        }
+        // a rendered document has no line to reveal; consume the request so a later Source toggle
+        // does not half-open the file at a stale position
+        if (file.kind === "text" && isMarkdownPath(file.path) && mode === "preview") {
+            globalStore.set(codePendingLineAtom, null);
+            return;
+        }
+        if (editor != null) {
             applyPendingLine(editor);
         }
-    }, [pendingLine, file]);
+    }, [pendingLine, file, mode]);
 
     switch (file.kind) {
         case "none":
@@ -115,6 +128,11 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // prop-sync effect no-ops when the incoming text already equals the model's (monaco-react
             // checks before pushing an edit), so feeding our own keystrokes back does not move the caret.
             const draft = project != null ? drafts.get(draftKey(project, file.path)) : undefined;
+            // READMEs and other prose render as documents; Source (the CodeEditor below) stays one
+            // toggle away, and the draft feeds the preview so unsaved edits show what you would save
+            if (isMarkdownPath(file.path) && mode === "preview") {
+                return <Markdown key={file.path} text={draft?.text ?? file.text} scrollable className="h-full" />;
+            }
             return (
                 <CodeEditor
                     key={file.path}
