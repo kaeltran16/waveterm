@@ -7,7 +7,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { Folder } from "lucide-react";
+import { ChevronRight, Folder } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -917,6 +917,7 @@ function HeadlessAISection() {
 
     const [hasKey, setHasKey] = useState(false);
     const [harnesses, setHarnesses] = useState<HarnessInfo[]>([]);
+    const [open, setOpen] = useState(false);
     useEffect(() => {
         fireAndForget(async () => {
             try {
@@ -962,139 +963,166 @@ function HeadlessAISection() {
             notInstalled: h.unavailableReason === "not-installed",
         })),
     ];
+    const runtimeRow = options.find((o) => o.id === effectiveRuntime) ?? options[0];
+    const summary = runtimeRow.isDefault
+        ? hasKey
+            ? "OpenRouter · key stored"
+            : "OpenRouter · key missing"
+        : `${runtimeRow.label} · ${runtimeRow.notInstalled ? "not installed" : "installed"}`;
 
     return (
         <div>
-            <SectionLabel>Headless AI</SectionLabel>
-            <div className="mb-4 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
-                Runtime for background AI features (gatekeeper, decompose, continuity, proactive, recall, volunteer,
-                distill, gardener, radar, pi auto-titles). OpenRouter is the API-backed default and uses the{" "}
-                <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-warning")}>
-                    {hasKey ? "stored" : "missing"}
-                </span>{" "}
-                OpenRouter key from the secret store (same key as Embeddings); harness runtimes execute their local CLI.
-                Model IDs use the full <code className="font-mono text-[11.5px] text-secondary">provider/model</code>{" "}
-                format.
-            </div>
-            <div className="text-[14px] font-semibold text-primary">Runtime</div>
-            <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
-                Which engine powers background AI features. Uninstalled harnesses stay visible but disabled — install
-                them to enable.
-            </div>
-            <div role="radiogroup" aria-label="headless runtime" className="flex flex-col gap-1.5">
-                {options.map((o) => {
-                    const on = o.id === effectiveRuntime;
-                    return (
-                        <button
-                            key={o.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={on}
-                            disabled={!o.selectable}
-                            onClick={() => write({ "headless:runtime": o.id })}
-                            className={cn(
-                                "flex w-full cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
-                                on ? "border-accent-700 bg-surface-hover" : "border-border hover:border-edge-strong",
-                                !o.selectable && "cursor-not-allowed opacity-55 hover:border-border"
-                            )}
-                        >
-                            <span
-                                className={cn(
-                                    "flex h-4 w-4 flex-none items-center justify-center rounded-full border-2 transition-colors",
-                                    on ? "border-accent" : "border-edge-strong"
-                                )}
-                            >
-                                {on ? <span className="h-2 w-2 rounded-full bg-accent" /> : null}
-                            </span>
-                            <span
-                                className={cn(
-                                    "min-w-0 flex-1 truncate text-[13px] font-semibold",
-                                    on ? "text-primary" : "text-secondary"
-                                )}
-                            >
-                                {o.label}
-                            </span>
-                            <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-ink-faint">
-                                {o.mono}
-                            </span>
-                            <span
-                                className={cn(
-                                    "flex flex-none items-center gap-1.5 text-[11px] font-semibold",
-                                    o.isDefault
-                                        ? hasKey
-                                            ? "text-accent-soft"
-                                            : "text-warning-soft"
-                                        : o.notInstalled
-                                          ? "text-muted"
-                                          : "text-success-soft"
-                                )}
-                            >
-                                <span
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                aria-expanded={open}
+                className="flex w-full cursor-pointer items-center gap-1.5 text-left"
+            >
+                <ChevronRight
+                    size={13}
+                    className={cn("shrink-0 text-muted transition-transform duration-150", open && "rotate-90")}
+                />
+                <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted">
+                    Headless AI
+                </span>
+                <span className="ml-auto truncate text-[11.5px] text-muted">{summary}</span>
+            </button>
+            {open ? (
+                <>
+                    <div className="mb-4 mt-3 rounded-[11px] border border-border bg-surface px-4 py-3 text-[12.5px] leading-[1.6] text-muted">
+                        Runtime for background AI features (gatekeeper, decompose, continuity, proactive, recall,
+                        volunteer, distill, gardener, radar, pi auto-titles). OpenRouter is the API-backed default and
+                        uses the{" "}
+                        <span className={cn("font-semibold", hasKey ? "text-success-soft" : "text-warning")}>
+                            {hasKey ? "stored" : "missing"}
+                        </span>{" "}
+                        OpenRouter key from the secret store (same key as Embeddings); harness runtimes execute their
+                        local CLI. Model IDs use the full{" "}
+                        <code className="font-mono text-[11.5px] text-secondary">provider/model</code> format.
+                    </div>
+                    <div className="text-[14px] font-semibold text-primary">Runtime</div>
+                    <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
+                        Which engine powers background AI features. Uninstalled harnesses stay visible but disabled —
+                        install them to enable.
+                    </div>
+                    <div role="radiogroup" aria-label="headless runtime" className="flex flex-col gap-1.5">
+                        {options.map((o) => {
+                            const on = o.id === effectiveRuntime;
+                            return (
+                                <button
+                                    key={o.id}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={on}
+                                    disabled={!o.selectable}
+                                    onClick={() => write({ "headless:runtime": o.id })}
                                     className={cn(
-                                        "h-1.5 w-1.5 rounded-full",
-                                        o.isDefault
-                                            ? hasKey
-                                                ? "bg-accent"
-                                                : "bg-warning"
-                                            : o.notInstalled
-                                              ? "bg-ink-faint"
-                                              : "bg-success"
+                                        "flex w-full cursor-pointer items-center gap-2.5 rounded-[11px] border p-[10px] text-left transition-colors",
+                                        on
+                                            ? "border-accent-700 bg-surface-hover"
+                                            : "border-border hover:border-edge-strong",
+                                        !o.selectable && "cursor-not-allowed opacity-55 hover:border-border"
                                     )}
-                                />
-                                {o.isDefault
-                                    ? hasKey
-                                        ? "default · key stored"
-                                        : "default · key missing"
-                                    : o.notInstalled
-                                      ? "not installed"
-                                      : "installed"}
-                            </span>
-                        </button>
-                    );
-                })}
-            </div>
-            <div className="mt-5">
-                <div className="flex items-baseline justify-between gap-3">
-                    <div className="text-[14px] font-semibold text-primary">Models</div>
-                    {!isOpenRouter ? (
-                        <span className="flex-none rounded-[6px] border border-border bg-pill px-2 py-0.5 font-mono text-[10.5px] text-ink-faint">
-                            openrouter only
-                        </span>
+                                >
+                                    <span
+                                        className={cn(
+                                            "flex h-4 w-4 flex-none items-center justify-center rounded-full border-2 transition-colors",
+                                            on ? "border-accent" : "border-edge-strong"
+                                        )}
+                                    >
+                                        {on ? <span className="h-2 w-2 rounded-full bg-accent" /> : null}
+                                    </span>
+                                    <span
+                                        className={cn(
+                                            "min-w-0 flex-1 truncate text-[13px] font-semibold",
+                                            on ? "text-primary" : "text-secondary"
+                                        )}
+                                    >
+                                        {o.label}
+                                    </span>
+                                    <span className="font-mono text-[10.5px] font-normal tracking-[0.02em] text-ink-faint">
+                                        {o.mono}
+                                    </span>
+                                    <span
+                                        className={cn(
+                                            "flex flex-none items-center gap-1.5 text-[11px] font-semibold",
+                                            o.isDefault
+                                                ? hasKey
+                                                    ? "text-accent-soft"
+                                                    : "text-warning-soft"
+                                                : o.notInstalled
+                                                  ? "text-muted"
+                                                  : "text-success-soft"
+                                        )}
+                                    >
+                                        <span
+                                            className={cn(
+                                                "h-1.5 w-1.5 rounded-full",
+                                                o.isDefault
+                                                    ? hasKey
+                                                        ? "bg-accent"
+                                                        : "bg-warning"
+                                                    : o.notInstalled
+                                                      ? "bg-ink-faint"
+                                                      : "bg-success"
+                                            )}
+                                        />
+                                        {o.isDefault
+                                            ? hasKey
+                                                ? "default · key stored"
+                                                : "default · key missing"
+                                            : o.notInstalled
+                                              ? "not installed"
+                                              : "installed"}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="mt-5">
+                        <div className="flex items-baseline justify-between gap-3">
+                            <div className="text-[14px] font-semibold text-primary">Models</div>
+                            {!isOpenRouter ? (
+                                <span className="flex-none rounded-[6px] border border-border bg-pill px-2 py-0.5 font-mono text-[10.5px] text-ink-faint">
+                                    openrouter only
+                                </span>
+                            ) : null}
+                        </div>
+                        <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
+                            OpenRouter model IDs for mechanical, synthesis, and large-corpus tasks — only applies while
+                            the runtime is openrouter.
+                        </div>
+                        <ConfigField
+                            title="Cheap model"
+                            desc="For mechanical tasks: gatekeeper, decompose, continuity, proactive."
+                            placeholder="deepseek/deepseek-v4-flash"
+                            stored={cheapModel}
+                            disabled={!isOpenRouter}
+                            onSave={(v) => write({ "headless:openroutercheapmodel": v })}
+                        />
+                        <ConfigField
+                            title="Mid model"
+                            desc="For synthesis and conversation: recall, radar, Jarvis."
+                            placeholder="deepseek/deepseek-v4-pro"
+                            stored={midModel}
+                            disabled={!isOpenRouter}
+                            onSave={(v) => write({ "headless:openroutermidmodel": v })}
+                        />
+                        <ConfigField
+                            title="Long-context model"
+                            desc="For large-corpus tasks: distillation, gardener when corpus > 400KB."
+                            placeholder="deepseek/deepseek-v4-pro"
+                            stored={longModel}
+                            disabled={!isOpenRouter}
+                            onSave={(v) => write({ "headless:openrouterlongmodel": v })}
+                        />
+                    </div>
+                    {isOpenRouter && !hasKey ? (
+                        <div className="mt-3 text-[12px] text-warning">
+                            API key not set — background AI features are disabled until the key is configured.
+                        </div>
                     ) : null}
-                </div>
-                <div className="mb-2.5 mt-0.5 text-[12.5px] text-muted">
-                    OpenRouter model IDs for mechanical, synthesis, and large-corpus tasks — only applies while the
-                    runtime is openrouter.
-                </div>
-                <ConfigField
-                    title="Cheap model"
-                    desc="For mechanical tasks: gatekeeper, decompose, continuity, proactive."
-                    placeholder="deepseek/deepseek-v4-flash"
-                    stored={cheapModel}
-                    disabled={!isOpenRouter}
-                    onSave={(v) => write({ "headless:openroutercheapmodel": v })}
-                />
-                <ConfigField
-                    title="Mid model"
-                    desc="For synthesis and conversation: recall, radar, Jarvis."
-                    placeholder="deepseek/deepseek-v4-pro"
-                    stored={midModel}
-                    disabled={!isOpenRouter}
-                    onSave={(v) => write({ "headless:openroutermidmodel": v })}
-                />
-                <ConfigField
-                    title="Long-context model"
-                    desc="For large-corpus tasks: distillation, gardener when corpus > 400KB."
-                    placeholder="deepseek/deepseek-v4-pro"
-                    stored={longModel}
-                    disabled={!isOpenRouter}
-                    onSave={(v) => write({ "headless:openrouterlongmodel": v })}
-                />
-            </div>
-            {isOpenRouter && !hasKey ? (
-                <div className="mt-3 text-[12px] text-warning">
-                    API key not set — background AI features are disabled until the key is configured.
-                </div>
+                </>
             ) : null}
         </div>
     );
