@@ -12,8 +12,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestClassifyVerif(t *testing.T) {
@@ -23,12 +27,23 @@ func TestClassifyVerif(t *testing.T) {
 		wantMatch bool
 		wantRes   string
 	}{
+		// real invocations: runner token + action verb -> classify, pass/fail preserved
 		{"pnpm test coupons", false, true, "pass"},
 		{"pnpm typecheck", true, true, "fail"},
 		{"npm run lint", false, true, "pass"},
 		{"go test ./...", true, true, "fail"},
-		{"ls -la", false, false, ""}, // not a verification command
-		{"echo hi && pnpm test", false, true, "pass"},
+		{"npm test", false, true, "pass"},
+		{"vitest run", false, true, "pass"},
+		{"pytest -q", false, true, "pass"},
+		{"npx tsc --noEmit", false, true, "pass"},
+		{"pnpm build", false, true, "pass"},
+		{"echo hi && pnpm test", false, true, "pass"}, // compound commands still classify
+		// prose that merely mentions a test/build word must NOT classify
+		{"ls -la", false, false, ""},
+		{"git commit -m \"test: add auth\"", false, false, ""},
+		{"echo build it", false, false, ""},
+		{"git diff --stat", false, false, ""},
+		{"git commit -m \"build: bump deps\"", true, false, ""},
 	}
 	for _, c := range cases {
 		_, res, ok := classifyVerif(c.cmd, "x", c.isError)
@@ -38,6 +53,14 @@ func TestClassifyVerif(t *testing.T) {
 		if ok && res != c.wantRes {
 			t.Errorf("classifyVerif(%q) result=%q, want %q", c.cmd, res, c.wantRes)
 		}
+	}
+}
+
+func TestClassifyVerifUnknownOnEmptyResult(t *testing.T) {
+	// ran but produced no captured output -> unknown, not pass (existing behavior preserved)
+	_, res, ok := classifyVerif("npm test", "", false)
+	if !ok || res != "unknown" {
+		t.Errorf("empty result: ok=%v res=%q, want ok=true res=unknown", ok, res)
 	}
 }
 
@@ -94,6 +117,20 @@ func TestVerificationCommandsDedupesAndClassifies(t *testing.T) {
 	}
 	if v[0].Result != "pass" || v[1].Result != "fail" {
 		t.Errorf("results = %q,%q", v[0].Result, v[1].Result)
+	}
+}
+
+func TestVerificationCommandsRejectsProseCommands(t *testing.T) {
+	// commands that merely mention a test/build word (commit messages, echoes) must not appear in the
+	// snapshot at all — not even as "unknown" when they have no tool_result (the pending-map tail).
+	lines := []string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b1","input":{"command":"git commit -m \"test: add auth\""}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b1","is_error":false,"content":"[main abc1234] test: add auth"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b2","input":{"command":"echo build it"}}]}}`,
+	}
+	v := verificationCommands(lines)
+	if len(v) != 0 {
+		t.Fatalf("got %d verifs, want 0 (prose commands must not be reported): %+v", len(v), v)
 	}
 }
 
@@ -156,6 +193,150 @@ func TestVerificationDetailPrefersTheSummaryOverTheFirstLine(t *testing.T) {
 	}
 	if !strings.Contains(v[0].Detail, "12 passed") {
 		t.Errorf("detail = %q, want the pytest result summary", v[0].Detail)
+	}
+}
+
+// verifToolUseLine / verifResultLine / textLine build transcript JSONL records for one Bash
+// verification call (the shapes verificationCommands scans).
+func verifToolUseLine(id, command string) string {
+	b, _ := json.Marshal(map[string]any{
+		"type": "assistant",
+		"message": map[string]any{"content": []any{
+			map[string]any{"type": "tool_use", "name": "Bash", "id": id, "input": map[string]any{"command": command}},
+		}},
+	})
+	return string(b)
+}
+
+func verifResultLine(id string, isError bool, out string) string {
+	b, _ := json.Marshal(map[string]any{
+		"type": "user",
+		"message": map[string]any{"content": []any{
+			map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": isError, "content": out},
+		}},
+	})
+	return string(b)
+}
+
+func textLine(text string) string {
+	b, _ := json.Marshal(map[string]any{
+		"type": "assistant",
+		"message": map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": text},
+		}},
+	})
+	return string(b)
+}
+
+// seedWorkerTranscript creates a worker tab+block (cwd = projDir) and a transcript JSONL for it in
+// the real Claude projects dir. The projects-dir entry is the slug of the unique projDir, so no user
+// project dir is touched; the created entry is removed on cleanup. Returns the tab oref.
+func seedWorkerTranscript(t *testing.T, projDir string, lines []string) string {
+	t.Helper()
+	ctx := context.Background()
+	tabOID := uuid.NewString()
+	blockOID := uuid.NewString()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabOID, Name: "worker", BlockIds: []string{blockOID}, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("seed worker tab: %v", err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockOID, Meta: waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: projDir}}); err != nil {
+		t.Fatalf("seed worker block: %v", err)
+	}
+	projRoot := filepath.Join(wavebase.GetHomeDir(), ".claude", "projects", agentobserve.SlugifyCwd(projDir))
+	if err := os.MkdirAll(projRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(projRoot) })
+	var b strings.Builder
+	cwdJSON, _ := json.Marshal(projDir)
+	b.WriteString(`{"type":"user","cwd":` + string(cwdJSON) + "}\n") // discovery re-validates the slug via the in-record cwd
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if err := os.WriteFile(filepath.Join(projRoot, "transcript.jsonl"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return waveobj.MakeORef(waveobj.OType_Tab, tabOID).String()
+}
+
+// TestSealEvidenceAggregatesVerifsAcrossWorkers proves the sealed snapshot carries the verification
+// commands of EVERY non-skipped phase worker, not just the last phase's first worker: phase 1's and
+// phase 2's workers each ran a distinct verification, and a skipped phase 3's worker must not leak
+// in. First-appearance order is phase order; the summary stays the last worker's.
+func TestSealEvidenceAggregatesVerifsAcrossWorkers(t *testing.T) {
+	proj := t.TempDir()
+	phase1Worker := seedWorkerTranscript(t, t.TempDir(), []string{
+		verifToolUseLine("b1", "pnpm typecheck"),
+		verifResultLine("b1", false, "0 errors"),
+		textLine("phase one summary"),
+	})
+	phase2Worker := seedWorkerTranscript(t, t.TempDir(), []string{
+		verifToolUseLine("b2", "go test ./..."),
+		verifResultLine("b2", false, "ok\tpkg/jarvis\t0.4s"),
+		textLine("phase two summary"),
+	})
+	skippedWorker := seedWorkerTranscript(t, t.TempDir(), []string{
+		verifToolUseLine("b3", "pnpm lint"),
+		verifResultLine("b3", false, "no problems"),
+	})
+
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: proj, CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{
+			{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 3000, WorkerOrefs: []string{phase1Worker}},
+			{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000, WorkerOrefs: []string{phase2Worker}},
+			{Kind: PhaseKind_Execute, State: PhaseState_Skipped, DoneTs: 6000, WorkerOrefs: []string{skippedWorker}},
+		},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Evidence == nil {
+		t.Fatal("evidence not sealed")
+	}
+	if len(run.Evidence.Verifs) != 2 {
+		t.Fatalf("got %d verifs, want 2 (both non-skipped workers, skipped phase excluded): %+v", len(run.Evidence.Verifs), run.Evidence.Verifs)
+	}
+	if run.Evidence.Verifs[0].Cmd != "pnpm typecheck" || run.Evidence.Verifs[0].Result != "pass" {
+		t.Errorf("verif[0] = %+v, want pnpm typecheck/pass (first-appearance order)", run.Evidence.Verifs[0])
+	}
+	if run.Evidence.Verifs[1].Cmd != "go test ./..." || run.Evidence.Verifs[1].Result != "pass" {
+		t.Errorf("verif[1] = %+v, want go test ./.../pass", run.Evidence.Verifs[1])
+	}
+	if run.Evidence.Summary != "phase two summary" {
+		t.Errorf("Summary = %q, want the last worker's text only", run.Evidence.Summary)
+	}
+}
+
+// TestSealEvidenceVerifDedupeAcrossWorkers guards the cross-transcript dedupe: the same command run
+// by two workers collapses to one entry, keeping its first-appearance position, and the last result
+// wins (the per-transcript semantic extended across transcripts).
+func TestSealEvidenceVerifDedupeAcrossWorkers(t *testing.T) {
+	w1 := seedWorkerTranscript(t, t.TempDir(), []string{
+		verifToolUseLine("b1", "pnpm test"),
+		verifResultLine("b1", true, "1 failing"),
+	})
+	w2 := seedWorkerTranscript(t, t.TempDir(), []string{
+		verifToolUseLine("b2", "pnpm test"),
+		verifResultLine("b2", false, "12 passed"),
+	})
+	run := &waveobj.Run{
+		ID: "r1", Status: RunStatus_Done, ProjectPath: t.TempDir(), CreatedTs: 1000,
+		Phases: []waveobj.RunPhase{
+			{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 3000, WorkerOrefs: []string{w1}},
+			{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000, WorkerOrefs: []string{w2}},
+		},
+	}
+	if err := SealEvidence(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	v := run.Evidence.Verifs
+	if len(v) != 1 {
+		t.Fatalf("got %d verifs, want 1 (deduped across workers): %+v", len(v), v)
+	}
+	if v[0].Cmd != "pnpm test" || v[0].Result != "pass" {
+		t.Errorf("verif = %+v, want pnpm test/pass (last result wins across workers)", v[0])
 	}
 }
 

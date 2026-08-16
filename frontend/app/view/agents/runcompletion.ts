@@ -6,7 +6,6 @@
 // freshctx phase to its own timeline node), and where an evidence click navigates. No React, no jotai —
 // unit-tested in runcompletion.test.ts.
 
-
 export function runShortId(id: string): string {
     return (id ?? "").replace(/-/g, "").slice(0, 6);
 }
@@ -39,16 +38,39 @@ export function fmtClock(tsMs: number): string {
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+export function fmtDate(tsMs: number): string {
+    if (!tsMs) {
+        return "—";
+    }
+    const d = new Date(tsMs);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export type VerifTone = { icon: string; labelClass: string; badgeClass: string; borderClass: string };
 
 export function verifTone(result: string): VerifTone {
     switch (result) {
         case "pass":
-            return { icon: "✓", labelClass: "text-success", badgeClass: "bg-success/15 text-success", borderClass: "border-success/25" };
+            return {
+                icon: "✓",
+                labelClass: "text-success",
+                badgeClass: "bg-success/15 text-success",
+                borderClass: "border-success/25",
+            };
         case "fail":
-            return { icon: "✕", labelClass: "text-error", badgeClass: "bg-error/15 text-error", borderClass: "border-error/30" };
+            return {
+                icon: "✕",
+                labelClass: "text-error",
+                badgeClass: "bg-error/15 text-error",
+                borderClass: "border-error/30",
+            };
         default:
-            return { icon: "?", labelClass: "text-warning", badgeClass: "bg-warning/15 text-warning", borderClass: "border-edge-mid" };
+            return {
+                icon: "?",
+                labelClass: "text-warning",
+                badgeClass: "bg-warning/15 text-warning",
+                borderClass: "border-edge-mid",
+            };
     }
 }
 

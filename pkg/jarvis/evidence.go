@@ -28,11 +28,22 @@ import (
 // Evidence-only: a command that does not match is simply not reported (we never invent expected steps).
 var verifPattern = regexp.MustCompile(`\b(test|typecheck|tsc|lint|vitest|jest|pytest|go test|cargo test|build|e2e|smoke)\b`)
 
+// runnerPattern matches a known test/build runner token. The action-verb pattern alone matches prose
+// ("git commit -m \"test: add auth\""), so a command must also invoke a real runner to be a
+// verification step. Token anywhere in the command: compound commands (`cd x && npm test`) still classify.
+var runnerPattern = regexp.MustCompile(`\b(npm|pnpm|yarn|bun|npx|go|cargo|dotnet|make|mvn|gradle|python|pytest|vitest|jest|tsc|eslint|prettier|tox|flutter)\b`)
+
+// isVerifCommand reports whether command is a verification step: it names a verification action AND
+// invokes a known runner, so prose mentioning test/build words is not reported.
+func isVerifCommand(command string) bool {
+	return verifPattern.MatchString(command) && runnerPattern.MatchString(command)
+}
+
 // classifyVerif reports whether command is a verification step and, if so, its pass/fail/unknown result.
 // resultText is the tool_result body; isError is the tool_result flag.
 func classifyVerif(command, resultText string, isError bool) (cmd string, result string, ok bool) {
 	command = strings.TrimSpace(command)
-	if command == "" || !verifPattern.MatchString(command) {
+	if command == "" || !isVerifCommand(command) {
 		return "", "", false
 	}
 	switch {
@@ -121,48 +132,62 @@ func resultText(raw json.RawMessage) (string, bool) {
 // verificationCommands scans a transcript for Bash verification calls and pairs each with its result.
 // Deduped by command (last result wins). Order preserved by first appearance.
 func verificationCommands(lines []string) []waveobj.EvidenceVerif {
-	type pending struct{ command string }
-	byToolID := map[string]pending{} // tool_use id -> command awaiting a result
-	idx := map[string]int{}          // command -> position in out
-	var out []waveobj.EvidenceVerif
+	acc := newVerifAccum()
+	acc.addTranscript(lines)
+	return acc.out
+}
+
+// verifAccum merges verification results across transcripts: a command keeps the slot of its first
+// appearance and the result of its last completion. Pending tool_use ids are per-transcript — each
+// worker reuses ids like "b1" — so only the result map is shared.
+type verifAccum struct {
+	idx map[string]int // command -> position in out
+	out []waveobj.EvidenceVerif
+}
+
+func newVerifAccum() *verifAccum {
+	return &verifAccum{idx: map[string]int{}}
+}
+
+func (a *verifAccum) addTranscript(lines []string) {
+	byToolID := map[string]string{} // tool_use id -> command awaiting a result (this transcript)
 	for _, line := range lines {
 		_, blocks := evBlocks(line)
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_use":
-				if b.Name == "Bash" && verifPattern.MatchString(b.Input.Command) {
-					byToolID[b.ID] = pending{command: strings.TrimSpace(b.Input.Command)}
+				if b.Name == "Bash" && isVerifCommand(b.Input.Command) {
+					byToolID[b.ID] = strings.TrimSpace(b.Input.Command)
 				}
 			case "tool_result":
-				p, live := byToolID[b.ToolUseID]
+				command, live := byToolID[b.ToolUseID]
 				if !live {
 					continue
 				}
 				delete(byToolID, b.ToolUseID)
 				txt, _ := resultText(b.Content)
-				cmd, res, ok := classifyVerif(p.command, txt, b.IsError)
+				cmd, res, ok := classifyVerif(command, txt, b.IsError)
 				if !ok {
 					continue
 				}
 				// tool output is captured with a TTY attached, so it carries ANSI color codes
 				detail := verifSummaryLine(utilfn.StripANSI(txt))
-				if i, seen := idx[cmd]; seen {
-					out[i] = waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail}
+				if i, seen := a.idx[cmd]; seen {
+					a.out[i] = waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail}
 				} else {
-					idx[cmd] = len(out)
-					out = append(out, waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail})
+					a.idx[cmd] = len(a.out)
+					a.out = append(a.out, waveobj.EvidenceVerif{Cmd: cmd, Result: res, Detail: detail})
 				}
 			}
 		}
 	}
 	// a verification tool_use with no result at all -> unknown (ran, indeterminate)
-	for _, p := range byToolID {
-		if _, seen := idx[p.command]; !seen {
-			idx[p.command] = len(out)
-			out = append(out, waveobj.EvidenceVerif{Cmd: p.command, Result: "unknown"})
+	for _, command := range byToolID {
+		if _, seen := a.idx[command]; !seen {
+			a.idx[command] = len(a.out)
+			a.out = append(a.out, waveobj.EvidenceVerif{Cmd: command, Result: "unknown"})
 		}
 	}
-	return out
 }
 
 // verifSummaryRe recognizes a test-runner result summary: a counted outcome (pytest/vitest "12 passed",
@@ -278,10 +303,14 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	// transcript-derived: summary (last worker) + verifications (all workers)
 	var summary string
 	var verifs []waveobj.EvidenceVerif
-	_, lines := lastWorkerTranscript(run)
-	if len(lines) > 0 {
-		summary = finalAssistantText(lines)
-		verifs = verificationCommands(lines)
+	transcripts := workerTranscripts(run)
+	if len(transcripts) > 0 {
+		summary = finalAssistantText(transcripts[len(transcripts)-1])
+		acc := newVerifAccum()
+		for _, lines := range transcripts {
+			acc.addTranscript(lines)
+		}
+		verifs = acc.out
 	}
 
 	// git-derived: files touched. prefer the run's own commit range (BaseCommit..EndCommit) — under
@@ -368,11 +397,12 @@ func activeSpanMs(run *waveobj.Run) int64 {
 	return sum
 }
 
-// lastWorkerTranscript returns the (worker tab id, transcript lines) of the last non-skipped phase's
-// first worker. Empty when no worker/transcript is resolvable.
-func lastWorkerTranscript(run *waveobj.Run) (string, []string) {
-	for i := len(run.Phases) - 1; i >= 0; i-- {
-		p := run.Phases[i]
+// workerTranscripts returns every non-skipped phase worker's transcript lines, in phase order with
+// workers in oref order. Unresolvable transcripts (a torn-down worker tab) are skipped; an empty
+// result means no worker transcript was readable.
+func workerTranscripts(run *waveobj.Run) [][]string {
+	var out [][]string
+	for _, p := range run.Phases {
 		if p.State == PhaseState_Skipped {
 			continue
 		}
@@ -383,12 +413,12 @@ func lastWorkerTranscript(run *waveobj.Run) (string, []string) {
 			id := strings.TrimPrefix(oref, "tab:")
 			if path := TranscriptPathForTab(id); path != "" {
 				if lines := readTranscriptLines(path); len(lines) > 0 {
-					return id, lines
+					out = append(out, lines)
 				}
 			}
 		}
 	}
-	return "", nil
+	return out
 }
 
 func readTranscriptLines(path string) []string {

@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     fmtBytes,
+    fmtDate,
     fmtDuration,
     needsEvidenceSeal,
     phaseHistory,
@@ -21,20 +22,32 @@ describe("runcompletion derivations", () => {
         expect(fmtDuration(848000)).toBe("14m 08s");
         expect(fmtDuration(9000)).toBe("9s");
         expect(fmtBytes(214 * 1024)).toBe("214 KB");
+        expect(fmtDate(new Date(2026, 7, 16, 9, 30).getTime())).toBe("2026-08-16");
+        expect(fmtDate(0)).toBe("—");
+        expect(fmtDate(NaN)).toBe("—");
     });
     it("maps verif tone + counts", () => {
         expect(verifTone("pass").icon).toBe("✓");
         expect(verifTone("fail").icon).toBe("✕");
         expect(verifTone("unknown").icon).toBe("?");
         const counts = verifCounts([
-            { cmd: "a", result: "pass" }, { cmd: "b", result: "fail" }, { cmd: "c", result: "pass" },
+            { cmd: "a", result: "pass" },
+            { cmd: "b", result: "fail" },
+            { cmd: "c", result: "pass" },
         ] as EvidenceVerif[]);
         expect(counts).toEqual({ pass: 2, fail: 1, unknown: 0 });
     });
     it("builds phase history with a freshctx boundary node and gate tag", () => {
         const run = {
-            id: "r", phases: [
-                { kind: "brainstorm", skill: "superpowers:brainstorming", state: "done", startedts: 1000, donets: 2000 },
+            id: "r",
+            phases: [
+                {
+                    kind: "brainstorm",
+                    skill: "superpowers:brainstorming",
+                    state: "done",
+                    startedts: 1000,
+                    donets: 2000,
+                },
                 { kind: "plan", skill: "superpowers:writing-plans", state: "done", gate: true, donets: 3000 },
                 { kind: "execute", state: "done", freshctx: true, donets: 4000, artifacts: ["merged"] },
             ],

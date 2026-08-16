@@ -20,6 +20,7 @@ import {
     artifactKindClass,
     fmtBytes,
     fmtClock,
+    fmtDate,
     fmtDuration,
     phaseHistory,
     runShortId,
@@ -151,7 +152,11 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                 />
                                 <StatCell label="Runtime" value={fmtDuration(ev.runtimems)} sub="active compute" />
                                 <StatCell label="Duration" value={fmtDuration(ev.durationms)} sub="wall clock" />
-                                <StatCell label="Completed" value={fmtClock(ev.capturedts)} sub="today" />
+                                <StatCell
+                                    label="Completed"
+                                    value={fmtClock(ev.capturedts)}
+                                    sub={fmtDate(ev.capturedts)}
+                                />
                             </div>
 
                             {/* completion summary */}
@@ -274,7 +279,10 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
                                                     {verifCmdLabel(v.cmd)}
                                                 </span>
                                                 {v.detail ? (
-                                                    <span className="font-mono text-[10.5px] text-muted">
+                                                    <span
+                                                        title={v.detail}
+                                                        className="min-w-0 max-w-[45%] flex-none truncate font-mono text-[10.5px] text-muted"
+                                                    >
                                                         {v.detail}
                                                     </span>
                                                 ) : null}
