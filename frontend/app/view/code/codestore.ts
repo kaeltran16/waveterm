@@ -14,6 +14,7 @@ import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { joinRepoPath, repoBasename, sameRepoPath } from "@/util/paths";
 import { base64ToString, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import { classifyFile, hasNulByte } from "./codeclassify";
 import { conflictMessage, conflictOf, nextDrafts, withoutDraft, type Draft, type FileBase } from "./codedraft";
 import { back, currentPath, EMPTY_HISTORY, forward, push, type History } from "./codehistory";
@@ -53,6 +54,13 @@ export type SaveState =
     | { kind: "error"; path: string; message: string };
 
 export const codeProjectAtom = atom<CodeProject | null>(null) as PrimitiveAtom<CodeProject | null>;
+// The last browsed project, persisted across launches so a restart lands on the same repo the way a
+// nav switch already does. getOnInit: without it the stored value arrives one render after the first
+// read, so the surface flashes "No project selected" before the restore lands. Only a real selection
+// writes it — never the null reset.
+export const lastCodeProjectAtom = atomWithStorage<CodeProject | null>("code.project.last", null, undefined, {
+    getOnInit: true,
+}) as PrimitiveAtom<CodeProject | null>;
 export const codeIndexAtom = atom<CodeIndex | null>(null) as PrimitiveAtom<CodeIndex | null>;
 export const codeIndexErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
@@ -100,6 +108,10 @@ const current = { indexToken: "", fileToken: "" };
 
 export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeProjectAtom, p);
+    // only a real selection is worth remembering; the null reset must not clobber the last good one
+    if (p != null) {
+        globalStore.set(lastCodeProjectAtom, p);
+    }
     globalStore.set(codeExpandedAtom, new Set<string>());
     globalStore.set(codeHistoryAtom, EMPTY_HISTORY);
     globalStore.set(codeFileAtom, { kind: "none" });
@@ -117,6 +129,20 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
         return;
     }
     await loadIndex(p);
+}
+
+// A stored selection restores only while the registry still knows its path — a project that was
+// renamed or removed must not silently reopen under a stale path (same rule as jarvis.subject.last).
+export function canRestoreProject(stored: CodeProject | null, registry: Record<string, ProjectKeywords>): boolean {
+    if (stored == null) {
+        return false;
+    }
+    for (const v of Object.values(registry ?? {})) {
+        if (v?.path != null && sameRepoPath(v.path, stored.path)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 async function loadIndex(p: CodeProject): Promise<void> {

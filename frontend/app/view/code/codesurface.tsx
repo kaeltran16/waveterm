@@ -22,6 +22,7 @@ import { CodePathBar } from "./codepathbar";
 import { CodeSearchPane } from "./codesearchpane";
 import { codeSearchModeAtom } from "./codesearchstore";
 import {
+    canRestoreProject,
     codeDraftsAtom,
     codeFileAtom,
     codeHistoryAtom,
@@ -32,6 +33,7 @@ import {
     draftKey,
     goBack,
     goForward,
+    lastCodeProjectAtom,
     refreshIndex,
     reloadFromDisk,
     revertDraft,
@@ -45,6 +47,7 @@ import { CodeViewer } from "./codeviewer";
 export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const registry = useAtomValue(projectsAtom);
     const project = useAtomValue(codeProjectAtom);
+    const stored = useAtomValue(lastCodeProjectAtom);
     const index = useAtomValue(codeIndexAtom);
     const indexError = useAtomValue(codeIndexErrorAtom);
     const history = useAtomValue(codeHistoryAtom);
@@ -61,12 +64,20 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
         .sort((a, b) => a.name.localeCompare(b.name));
 
     // the index survives an unmount in a module atom, but a project picked before this surface ever
-    // loaded (or a cache cleared elsewhere) leaves the atom null — reload on mount when that happens
+    // loaded (or a cache cleared elsewhere) leaves the atom null — reload on mount when that happens.
+    // A fresh launch starts with nothing selected at all; restore the last browsed project, but only
+    // while the registry still knows it — a renamed or removed project must not silently reopen.
     useEffect(() => {
-        if (project != null && index == null && indexError == null) {
-            fireAndForget(() => selectProject(project));
+        if (project != null) {
+            if (index == null && indexError == null) {
+                fireAndForget(() => selectProject(project));
+            }
+            return;
         }
-    }, [project, index, indexError]);
+        if (stored != null && canRestoreProject(stored, registry)) {
+            fireAndForget(() => selectProject(stored));
+        }
+    }, [project, index, indexError, stored, registry]);
 
     return (
         <div className="relative flex h-full w-full flex-col">
