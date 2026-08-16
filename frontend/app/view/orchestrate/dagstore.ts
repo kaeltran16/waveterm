@@ -33,6 +33,7 @@ export interface DagViewEdge {
 const ACTION_BY_STATE: Record<string, string[]> = {
     "blocked-merge": ["resolve"],
     failed: ["retry", "skip"],
+    stalled: ["retry", "skip"],
 };
 const GATE_DONE_ACTIONS = ["approve", "sendback"];
 

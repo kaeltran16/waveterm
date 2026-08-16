@@ -18,7 +18,7 @@ func ImportPitasks(tasks []pitasks.Task) ([]waveobj.TaskNode, error) {
 		default:
 			continue
 		}
-		node := waveobj.TaskNode{ID: idOf(t.ID), Label: t.Subject}
+		node := waveobj.TaskNode{ID: idOf(t.ID), Label: t.Subject, Description: t.Description}
 		for _, b := range t.BlockedBy {
 			node.Deps = append(node.Deps, idOf(b))
 		}

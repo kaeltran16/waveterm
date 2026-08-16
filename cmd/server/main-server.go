@@ -26,6 +26,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/memgarden"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/memvault"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/remote/conncontroller"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
@@ -588,6 +589,7 @@ func main() {
 	go backupCleanupLoop()
 	go tempAttachmentCleanupLoop()
 	go startupActivityUpdate(firstLaunch) // must be after startConfigWatcher()
+	orchestrate.StartWatchdog(context.Background()) // dag advance + stall detection tick
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()
 	blockcontroller.InitBlockController()

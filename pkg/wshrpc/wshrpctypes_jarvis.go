@@ -38,6 +38,7 @@ type JarvisCommands interface {
 	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)                               // work-ledger query: per-project active/shipped/timeline/delta + source health
 	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)                            // capture accounting: note counts, index availability, distill queue
 	JarvisAskCommand(ctx context.Context, data CommandJarvisAskData) (*CommandJarvisAskRtnData, error)                                       // stateless ask: ledger facts + judged prose recall, one answer
+	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                                         // resolve the run context (channel/run/dag) owning the caller's block
 	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error) // recent persisted "I found nothing" verdicts from proactive recall, with their causes
 	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                    // the newest rest-transition narrative across all runs — "where we were" at launch
 }
@@ -512,4 +513,19 @@ type CommandJarvisAskRtnData struct {
 	Answer   string                         `json:"answer"`
 	Sources  []waveobj.JarvisConvoSourceRef `json:"sources,omitempty"`
 	Terminal string                         `json:"terminal"`
+}
+
+// CommandJarvisCtxData is the run-context resolve request. BlockORef is the block whose owner run is
+// wanted (the caller's own block in the CLI); "" yields an empty result.
+type CommandJarvisCtxData struct {
+	BlockORef string `json:"blockoref,omitempty"`
+}
+
+// CommandJarvisCtxRtnData is the run context owning the caller's block: its channel, its run, and the
+// run's dag (when the run is an orchestrator lead). All fields empty when the block resolves to no run.
+type CommandJarvisCtxRtnData struct {
+	ChannelId string `json:"channelid,omitempty"`
+	RunId     string `json:"runid,omitempty"`
+	DagOID    string `json:"dagoid,omitempty"`
+	Goal      string `json:"goal,omitempty"`
 }

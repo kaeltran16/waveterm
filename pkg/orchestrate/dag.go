@@ -14,6 +14,7 @@ const (
 	TaskState_Pending      = "pending"
 	TaskState_Ready        = "ready"
 	TaskState_Running      = "running"
+	TaskState_Stalled      = "stalled" // no child activity past StallThreshold; lead decides (retry/skip/cancel)
 	TaskState_Done         = "done"
 	TaskState_Failed       = "failed"
 	TaskState_Cancelled    = "cancelled"

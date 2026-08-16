@@ -538,6 +538,19 @@ declare global {
         action: string;
     };
 
+    // wshrpc.CommandDagAnswerData
+    type CommandDagAnswerData = {
+        channelid: string;
+        runid: string;
+        taskid: string;
+        answers: AgentAnswerItem[];
+    };
+
+    // wshrpc.CommandDagAsksRtnData
+    type CommandDagAsksRtnData = {
+        asks: DagAskItem[];
+    };
+
     // wshrpc.CommandDagMergeData
     type CommandDagMergeData = {
         channelid: string;
@@ -1067,6 +1080,19 @@ declare global {
         projectpath?: string;
         attachedorefs?: string[];
         requestid: string;
+    };
+
+    // wshrpc.CommandJarvisCtxData
+    type CommandJarvisCtxData = {
+        blockoref?: string;
+    };
+
+    // wshrpc.CommandJarvisCtxRtnData
+    type CommandJarvisCtxRtnData = {
+        channelid?: string;
+        runid?: string;
+        dagoid?: string;
+        goal?: string;
     };
 
     // wshrpc.CommandJarvisData
@@ -1779,6 +1805,20 @@ declare global {
         cwd: string;
         pending: number;
         lastpass?: PassRecordWire;
+    };
+
+    // wshrpc.DagAskItem
+    type DagAskItem = {
+        taskid: string;
+        question: string;
+        options?: DagAskOption[];
+        blockoref: string;
+        ts: number;
+    };
+
+    // wshrpc.DagAskOption
+    type DagAskOption = {
+        label: string;
     };
 
     // wshrpc.DecisionCard
@@ -3236,12 +3276,14 @@ declare global {
     type TaskNode = {
         id: string;
         label?: string;
+        description?: string;
         deps?: string[];
         gate?: boolean;
         state: string;
         runid?: string;
         released?: boolean;
         runspec?: RunSpec;
+        lastactivity?: number;
     };
 
     // waveobj.TermSize

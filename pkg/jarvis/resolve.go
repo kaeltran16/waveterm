@@ -9,6 +9,7 @@ package jarvis
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -103,9 +104,47 @@ func ResolveRunWorker(channels []*waveobj.Channel, askingORef string) *RunWorker
 					}
 				}
 			}
+			// DAG-spawned children never populate phase workerorefs: their worker tab lives in the
+			// run's own worktree (run.ProjectPath), so match the asking tab's cwd against it. Only
+			// executing runs match — a cancelled/stale attempt shares the worktree with its respawn.
+			if run.DagORef != "" && run.ProjectPath != "" && phaseRunning(run) {
+				if tabCwdMatches(askingORef, run.ProjectPath) {
+					return &RunWorkerMatch{Channel: ch, Run: run, PhaseIdx: 0}
+				}
+			}
 		}
 	}
 	return nil
+}
+
+// phaseRunning reports whether any phase is currently executing.
+func phaseRunning(run *waveobj.Run) bool {
+	for _, p := range run.Phases {
+		if p.State == PhaseState_Running {
+			return true
+		}
+	}
+	return false
+}
+
+// tabCwdMatches reports whether the asking tab's first block runs in cwd (the worktree the DAG
+// child's pi session was spawned in). The tab's cwd is meta cmd:cwd on its first block.
+func tabCwdMatches(tabORefStr, cwd string) bool {
+	ctx := context.Background()
+	oref, err := waveobj.ParseORef(tabORefStr)
+	if err != nil || oref.OType != waveobj.OType_Tab {
+		return false
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
+	if err != nil || len(tab.BlockIds) == 0 {
+		return false
+	}
+	block, berr := wstore.DBMustGet[*waveobj.Block](ctx, tab.BlockIds[0])
+	if berr != nil {
+		return false
+	}
+	got := block.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
+	return got != "" && filepath.Clean(got) == filepath.Clean(cwd)
 }
 
 // ResolveRunWorkerFromMeta resolves the run/channel/phase owning a worker oref by reading the Phase-1/2

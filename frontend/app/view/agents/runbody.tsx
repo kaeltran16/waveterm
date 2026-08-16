@@ -16,28 +16,36 @@ import { cardVariants, computeEntrances, initialEntranceState } from "@/app/elem
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
 import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_PROSE, STAGE_SCROLLER } from "@/app/view/jarvis/stagemeasure";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { openDag } from "../orchestrate/dagstore";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
-import { harnessesAtom } from "./harnessstore";
-import { openDag } from "../orchestrate/dagstore";
+import { AmbientTags } from "./ambientviews";
 import { steerWorker } from "./channelactions";
-import { runAtom } from "./channelsstore";
 import { jumpToAgent } from "./channelsprimitives";
+import { runAtom } from "./channelsstore";
+import { ChildAskCard } from "./childaskcard";
 import { ComposerShell } from "./composer-shell";
+import { harnessesAtom } from "./harnessstore";
 import { InlineMarkdown } from "./inlinemarkdown";
 import { MarkdownMessage } from "./markdownmessage";
+import {
+    AskCard,
+    BlockedCard,
+    CancelRunButton,
+    CancelSurvivorsCard,
+    ReviewGateCard,
+    ShipMarker,
+    StartingCard,
+    TriageChip,
+} from "./runcards";
 import { needsEvidenceSeal } from "./runcompletion";
 import { RunCompletion } from "./runcompletionsurface";
-import { AskCard, BlockedCard, CancelRunButton, CancelSurvivorsCard, ReviewGateCard, ShipMarker, StartingCard, TriageChip } from "./runcards";
-import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
-import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
-import { AskJarvisButton, sourceRefForRun } from "@/app/view/jarvis/contextualentry";
-import { AmbientTags } from "./ambientviews";
 import {
     cancelSurvivors,
     currentPhaseIndex,
@@ -53,9 +61,11 @@ import {
     runStatusView,
     steerTarget,
 } from "./runmodel";
+import { PhaseHistory, RunRollup, RunWorkerCard } from "./runworkercard";
 import { sessionSidebarViewModelAtom } from "./session-models/sessionsidebarmodel";
-import { flattenVisualOrder } from "./session-models/sessionviewmodel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
+import { flattenVisualOrder } from "./session-models/sessionviewmodel";
+import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { useCardStreams } from "./usecardstreams";
@@ -84,7 +94,12 @@ function StatusPill({ status, survivorCount = 0 }: { status: string; survivorCou
     const label = survivorCount > 0 ? `${base.label} · ${survivorCount} still running` : base.label;
     const toneClass = survivorCount > 0 ? TONE_CLASS.blocked : (TONE_CLASS[base.tone] ?? "text-muted");
     return (
-        <span className={"inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] " + toneClass}>
+        <span
+            className={
+                "inline-flex items-center gap-1.5 font-mono text-[9px] font-semibold uppercase tracking-[.08em] " +
+                toneClass
+            }
+        >
             <span className="h-1.5 w-1.5 rounded-full bg-current" />
             {label}
         </span>
@@ -97,13 +112,20 @@ export function CompactStepper({ run, expanded, onToggle }: { run: Run; expanded
             <button type="button" onClick={onToggle} className="w-3.5 flex-none text-[11px] text-muted">
                 {expanded ? "▾" : "▸"}
             </button>
-            <span className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-muted">Playbook</span>
+            <span className="flex-none font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-muted">
+                Playbook
+            </span>
             <div className="relative flex flex-1 justify-between">
                 {(run.phases ?? []).map((p, i) => {
                     const v = phaseStateView(p.state);
                     return (
                         <div key={i} className="flex flex-1 flex-col items-center gap-1.5 text-center">
-                            <div className={"flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full border border-current font-mono text-xxxs font-bold " + (PHASE_TONE_CLASS[v.tone] ?? "text-muted")}>
+                            <div
+                                className={
+                                    "flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full border border-current font-mono text-xxxs font-bold " +
+                                    (PHASE_TONE_CLASS[v.tone] ?? "text-muted")
+                                }
+                            >
                                 {v.icon}
                             </div>
                             <span className="whitespace-nowrap text-[9px] font-semibold text-secondary">{p.kind}</span>
@@ -195,6 +217,7 @@ export function RunHeader({
                         </button>
                     ) : null}
                 </div>
+                {run.dagoref ? <ChildAskCard channelId={channel.oid} runId={run.id} /> : null}
                 {!hideSteer ? (
                     <div className="flex flex-none gap-1.5">
                         <button
@@ -292,14 +315,18 @@ function DispatchedAgents({ model, leadId }: { model: AgentsViewModel; leadId: s
                                 className={
                                     "h-2 w-2 flex-none rounded-full bg-current " +
                                     tone +
-                                    (s.state === "working" ? " animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none" : "")
+                                    (s.state === "working"
+                                        ? " animate-[pulseDot_1.6s_infinite] motion-reduce:animate-none"
+                                        : "")
                                 }
                             />
                             <div className="min-w-0 flex-1">
                                 <div className="truncate font-mono text-[11.5px] font-semibold text-secondary">
                                     {s.type || "subagent"}
                                 </div>
-                                {s.model ? <div className="truncate font-mono text-[9.5px] text-muted">{s.model}</div> : null}
+                                {s.model ? (
+                                    <div className="truncate font-mono text-[9.5px] text-muted">{s.model}</div>
+                                ) : null}
                             </div>
                             <span className={"shrink-0 whitespace-nowrap font-mono text-[9.5px] font-medium " + tone}>
                                 {s.state}
@@ -414,7 +441,23 @@ function PhaseNode({ tone, icon, done, notLast }: { tone: string; icon: string; 
     );
 }
 
-export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entranceIds }: { model: AgentsViewModel; run: Run; agents: AgentVM[]; channelId: string; liveTabIds: Set<string>; now: number; entranceIds: Set<string> }) {
+export function PhaseRail({
+    model,
+    run,
+    agents,
+    channelId,
+    liveTabIds,
+    now,
+    entranceIds,
+}: {
+    model: AgentsViewModel;
+    run: Run;
+    agents: AgentVM[];
+    channelId: string;
+    liveTabIds: Set<string>;
+    now: number;
+    entranceIds: Set<string>;
+}) {
     const phases = run.phases ?? [];
     const trackedWorkers = isOrchestrator(run) ? phases.flatMap((p) => phaseWorkers(p, agents)) : [];
     useSubagentTracking(trackedWorkers);
@@ -436,7 +479,9 @@ export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entr
                         {thread.showBoundary ? (
                             <div className="my-2 flex items-center gap-3">
                                 <div className="h-px flex-1 bg-[repeating-linear-gradient(90deg,var(--color-edge-mid)_0_5px,transparent_5px_10px)]" />
-                                <span className="font-mono text-[9.5px] font-semibold text-muted">context cleared → fresh worker</span>
+                                <span className="font-mono text-[9.5px] font-semibold text-muted">
+                                    context cleared → fresh worker
+                                </span>
                                 <div className="h-px flex-1 bg-[repeating-linear-gradient(90deg,var(--color-edge-mid)_0_5px,transparent_5px_10px)]" />
                             </div>
                         ) : null}
@@ -445,12 +490,24 @@ export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entr
                             <div className="min-w-0 flex-1 pb-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-[14px] font-bold text-primary">{p.kind}</span>
-                                    <span className={"font-mono text-[9px] font-semibold uppercase tracking-[.06em] " + (PHASE_TONE_CLASS[v.tone] ?? "text-muted")}>{v.label}</span>
+                                    <span
+                                        className={
+                                            "font-mono text-[9px] font-semibold uppercase tracking-[.06em] " +
+                                            (PHASE_TONE_CLASS[v.tone] ?? "text-muted")
+                                        }
+                                    >
+                                        {v.label}
+                                    </span>
                                 </div>
-                                {p.skill ? <div className="mt-0.5 font-mono text-[11px] text-muted">{p.skill}</div> : null}
+                                {p.skill ? (
+                                    <div className="mt-0.5 font-mono text-[11px] text-muted">{p.skill}</div>
+                                ) : null}
                                 {p.triage ? <TriageChip triage={p.triage} /> : null}
                                 {(p.artifacts ?? []).map((art) => (
-                                    <div key={art} className="mt-2 inline-flex items-center gap-1.5 rounded-[7px] border border-border bg-background px-2.5 py-1">
+                                    <div
+                                        key={art}
+                                        className="mt-2 inline-flex items-center gap-1.5 rounded-[7px] border border-border bg-background px-2.5 py-1"
+                                    >
                                         <span className="text-[11px] text-muted">▸</span>
                                         <span className="font-mono text-[11px] text-secondary">{art}</span>
                                     </div>
@@ -463,13 +520,21 @@ export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entr
                                     </div>
                                 ) : null}
                                 {p.state === "done" ? <PhaseHistory tabIds={recordedWorkerTabs(p)} /> : null}
-                                {thread.showGate ? <ReviewGateCard channelId={channelId} run={run} gateIdx={i} /> : null}
+                                {thread.showGate ? (
+                                    <ReviewGateCard channelId={channelId} run={run} gateIdx={i} />
+                                ) : null}
                                 {thread.showAsk && thread.askAgent && thread.askKind ? (
                                     <AskCard model={model} agent={thread.askAgent} kind={thread.askKind} />
                                 ) : null}
                                 {thread.showStarting ? <StartingCard /> : null}
                                 {thread.showBlocked ? (
-                                    <BlockedCard model={model} channelId={channelId} run={run} worker={workers[0]} agents={agents} />
+                                    <BlockedCard
+                                        model={model}
+                                        channelId={channelId}
+                                        run={run}
+                                        worker={workers[0]}
+                                        agents={agents}
+                                    />
                                 ) : null}
                                 {thread.showShip ? <ShipMarker /> : null}
                             </div>
@@ -485,7 +550,12 @@ export function PhaseRail({ model, run, agents, channelId, liveTabIds, now, entr
 // transcript streams for the run's running-phase workers, and the phase-rail entrance guard) so the
 // merged surface just renders <RunBody run={selected} /> and gets the same live behavior RunsView had.
 // Steering is the merged surface's composer Talk face, so the body hides the old inline Steer affordance.
-export function RunBody({ model, channel, agents, run: runProp }: {
+export function RunBody({
+    model,
+    channel,
+    agents,
+    run: runProp,
+}: {
     model: AgentsViewModel;
     channel: Channel;
     agents: AgentVM[];
@@ -517,7 +587,11 @@ export function RunBody({ model, channel, agents, run: runProp }: {
     // model so it includes an agent session that hasn't reported its first agent:status yet. Lets the
     // phase rail tell a *starting* worker (its tab still exists) from a *gone* one (tab destroyed).
     const sidebarVM = useAtomValue(sessionSidebarViewModelAtom);
-    const liveTabIds = new Set<string>(flattenVisualOrder(sidebarVM).filter((r) => r.termBlockOref).map((r) => r.tabId));
+    const liveTabIds = new Set<string>(
+        flattenVisualOrder(sidebarVM)
+            .filter((r) => r.termBlockOref)
+            .map((r) => r.tabId)
+    );
 
     // no-cascade entrance guard for the phase rail: switching runs / first mount is silent, a newly
     // appended phase animates in once. Scoped to the run id (see motiontokens.computeEntrances).
@@ -539,13 +613,12 @@ export function RunBody({ model, channel, agents, run: runProp }: {
     // never co-mount, so ownership doesn't collide.
     const streamable = streamableTranscriptAgents(runWorkers, now);
     useCardStreams(
-        streamable
-            .filter((a) => a.transcriptPath)
-            .map((a) => ({ id: a.id, path: a.transcriptPath!, agent: a.agent })),
+        streamable.filter((a) => a.transcriptPath).map((a) => ({ id: a.id, path: a.transcriptPath!, agent: a.agent }))
     );
 
     // the run's primary active worker drives the header "now" rollup
-    const primaryWorker = runWorkers.find((w) => w.state === "working") ?? runWorkers.find((w) => w.state === "asking") ?? runWorkers[0];
+    const primaryWorker =
+        runWorkers.find((w) => w.state === "working") ?? runWorkers.find((w) => w.state === "asking") ?? runWorkers[0];
 
     // auto-follow the run as it grows so the newest phase/worker card clears the composer below. A fresh
     // signature array each render re-pins while the user is at the bottom (releases on scroll-up).
@@ -593,7 +666,15 @@ export function RunBody({ model, channel, agents, run: runProp }: {
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
                     <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
                     {expanded ? (
-                        <PhaseRail model={model} run={run} agents={agents} channelId={channel.oid} liveTabIds={liveTabIds} now={now} entranceIds={entranceIds} />
+                        <PhaseRail
+                            model={model}
+                            run={run}
+                            agents={agents}
+                            channelId={channel.oid}
+                            liveTabIds={liveTabIds}
+                            now={now}
+                            entranceIds={entranceIds}
+                        />
                     ) : null}
                     {!isTerminal(run.status) ? (
                         <CancelRunButton

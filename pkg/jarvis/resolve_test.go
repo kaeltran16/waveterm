@@ -7,7 +7,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func ch(name string, enabled bool, msgs ...waveobj.ChannelMessage) *waveobj.Channel {
@@ -174,5 +176,44 @@ func TestRunOwnsWorker(t *testing.T) {
 	}
 	if RunOwnsWorker(nil, "tab:t1") {
 		t.Fatalf("nil run owns nothing")
+	}
+}
+
+// DAG-spawned children have no phase workerorefs; their worker tab runs in the child's own
+// worktree (run.ProjectPath). The scan must resolve them via the tab's cwd, otherwise the
+// child's `wsh jarvis complete` is a silent no-op and the DAG never advances.
+func TestResolveRunWorker_MatchesDagChildByCwd(t *testing.T) {
+	run := waveobj.Run{
+		ID:          "r-dag-child",
+		Goal:        "g",
+		DagORef:     "dag:g1",
+		ProjectPath: `C:\repo\.waveterm\worktrees\run1-t-1`,
+		Phases:      []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Running}},
+	}
+	c := chWithRun("c1", true, run)
+	// the asking tab's first block carries cmd:cwd = the worktree (UUID ids: ParseORef validates)
+	tabOID := uuid.NewString()
+	blockOID := uuid.NewString()
+	tab := &waveobj.Tab{OID: tabOID, BlockIds: []string{blockOID}}
+	if err := wstore.DBInsert(context.Background(), tab); err != nil {
+		t.Fatal(err)
+	}
+	block := &waveobj.Block{OID: blockOID, Meta: waveobj.MetaMapType{
+		waveobj.MetaKey_CmdCwd: `C:\repo\.waveterm\worktrees\run1-t-1`,
+	}}
+	if err := wstore.DBInsert(context.Background(), block); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		wstore.DBDelete(context.Background(), waveobj.OType_Tab, tabOID)
+		wstore.DBDelete(context.Background(), waveobj.OType_Block, blockOID)
+	})
+	m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:"+tabOID)
+	if m == nil || m.Run.ID != "r-dag-child" {
+		t.Fatalf("dag child must resolve by worktree cwd, got %+v", m)
+	}
+	// a tab with a different cwd must not match
+	if m := ResolveRunWorker([]*waveobj.Channel{c}, "tab:nope"); m != nil {
+		t.Fatalf("want nil for unknown tab, got %+v", m)
 	}
 }

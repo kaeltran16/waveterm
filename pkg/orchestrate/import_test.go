@@ -7,6 +7,22 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
 )
 
+func TestImportPitasksCarriesDescription(t *testing.T) {
+	in := []pitasks.Task{
+		{ID: "1", Subject: "setup", Description: "pin: use option B", Status: "pending"},
+	}
+	nodes, err := ImportPitasks(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("want 1 node, got %d", len(nodes))
+	}
+	if nodes[0].Description != "pin: use option B" {
+		t.Fatalf("description not carried: %+v", nodes[0])
+	}
+}
+
 func TestImportPitasks(t *testing.T) {
 	in := []pitasks.Task{
 		{ID: "1", Subject: "setup", Status: "in_progress"},

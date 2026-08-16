@@ -25,6 +25,7 @@ const STATE_TONE: Record<string, string> = {
     ready: "border-accent/40 bg-accent/10 text-accent-soft",
     done: "border-success/50 bg-success/10 text-success",
     failed: "border-warning/60 bg-warning/10 text-warning",
+    stalled: "border-warning/80 bg-warning/15 text-warning",
     cancelled: "border-edge-mid bg-surface-raised text-muted",
     skipped: "border-edge-mid bg-surface-raised text-muted",
     "blocked-merge": "border-warning/70 bg-warning/15 text-warning",

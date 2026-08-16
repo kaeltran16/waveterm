@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -32,6 +33,43 @@ func (c *captureClient) saw(kind, scope string) bool {
 		}
 	}
 	return false
+}
+
+func TestTaskPromptCarriesDescriptionAndContract(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	desc := "pin: date-only format (Aug 16)"
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "add fmtDate", Description: desc}, &owner)
+	if !strings.Contains(p, "add fmtDate") {
+		t.Fatalf("label missing from prompt: %q", p)
+	}
+	if !strings.Contains(p, desc) {
+		t.Fatalf("description missing from prompt: %q", p)
+	}
+	if !strings.Contains(p, HeadlessContract) {
+		t.Fatalf("headless contract missing from prompt: %q", p)
+	}
+}
+
+func TestTaskPromptLabelOnlyStillHasContract(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "plain"}, &owner)
+	if !strings.Contains(p, HeadlessContract) {
+		t.Fatalf("contract missing from prompt: %q", p)
+	}
+	if strings.Contains(p, "description") {
+		t.Fatalf("no description should appear for a label-only task: %q", p)
+	}
+}
+
+func TestTaskPromptRunSpecGoalWins(t *testing.T) {
+	owner := jarvis.NewRun("owner", "ws-1", "/p", nil, jarvis.RunMode_Orchestrator, nil, 1)
+	p := taskPrompt(&waveobj.TaskNode{ID: "t-1", Label: "label", RunSpec: waveobj.RunSpec{Goal: "explicit goal"}}, &owner)
+	if !strings.Contains(p, "explicit goal") {
+		t.Fatalf("runspec goal missing from prompt: %q", p)
+	}
+	if strings.Contains(p, "label") {
+		t.Fatalf("label must not appear when runspec goal is set: %q", p)
+	}
 }
 
 func TestScheduleOnceSpawnsUpToCap(t *testing.T) {

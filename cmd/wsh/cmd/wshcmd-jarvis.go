@@ -18,6 +18,34 @@ var jarvisCmd = &cobra.Command{
 	Short: "report run progress to Jarvis (used by an orchestrator lead)",
 }
 
+var jarvisCtxCmd = &cobra.Command{
+	Use:     "ctx",
+	Short:   "print the run context (channel/run/dag) owning this session",
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		oref, err := resolveBlockArg()
+		if err != nil {
+			return fmt.Errorf("resolving block: %w", err)
+		}
+		rtn, err := wshclient.JarvisCtxCommand(RpcClient, wshrpc.CommandJarvisCtxData{BlockORef: oref.String()}, &wshrpc.RpcOpts{Timeout: 5000})
+		if err != nil {
+			return err
+		}
+		if rtn.RunId == "" {
+			fmt.Println("no run context (this block is not a run worker)")
+			return nil
+		}
+		fmt.Printf("channel: %s\nrun: %s\n", rtn.ChannelId, rtn.RunId)
+		if rtn.DagOID != "" {
+			fmt.Printf("dag: %s\n", rtn.DagOID)
+		}
+		if rtn.Goal != "" {
+			fmt.Printf("goal: %s\n", rtn.Goal)
+		}
+		return nil
+	},
+}
+
 var jarvisHoldCmd = &cobra.Command{
 	Use:   "hold [plan-file-path]",
 	Short: "pause the current run at its plan gate for review",
@@ -92,6 +120,7 @@ func init() {
 	jarvisCmd.AddCommand(jarvisCompleteCmd)
 	jarvisCmd.AddCommand(jarvisTriageCmd)
 	jarvisCmd.AddCommand(jarvisRunCmd)
+	jarvisCmd.AddCommand(jarvisCtxCmd)
 	rootCmd.AddCommand(jarvisCmd)
 }
 

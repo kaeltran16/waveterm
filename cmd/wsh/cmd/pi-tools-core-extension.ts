@@ -14,6 +14,8 @@ export const CONTROL_COMMANDS = [
     "gate_open",
     "dag_blocked",
     "dag_complete",
+    "child_ask",
+    "child_stalled",
 ] as const;
 
 export type ControlCommand = (typeof CONTROL_COMMANDS)[number];
@@ -36,6 +38,8 @@ export function dagEventMessage(kind: string, detail: string): string {
         gate_open: "gate open — review in cockpit",
         dag_blocked: "dag blocked",
         dag_complete: "dag complete",
+        child_ask: "child is asking",
+        child_stalled: "child stalled",
     };
     const label = labels[kind] ?? kind;
     return detail ? `${label}: ${detail}` : label;

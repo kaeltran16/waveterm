@@ -289,14 +289,18 @@ func (*Run) GetOType() string {
 // TaskNode is one unit of work in a TaskGroup DAG. State is derived by the engine
 // (pkg/orchestrate), never hand-set — mirrors the RunStatus discipline.
 type TaskNode struct {
-	ID       string   `json:"id"` // "t-1", unique within the group
-	Label    string   `json:"label,omitempty"`
-	Deps     []string `json:"deps,omitempty"`
+	ID          string   `json:"id"` // "t-1", unique within the group
+	Label       string   `json:"label,omitempty"`
+	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
+	Deps        []string `json:"deps,omitempty"`
 	Gate     bool     `json:"gate,omitempty"`     // halt the DAG at completion for review
-	State    string   `json:"state"`              // pending|ready|running|done|failed|cancelled|skipped|blocked-merge
+	State    string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge
 	RunID    string   `json:"runid,omitempty"`    // child run once spawned
 	Released bool     `json:"released,omitempty"` // gate released by human approval
 	RunSpec  RunSpec  `json:"runspec,omitempty"`
+	// LastActivity is the newest observed child transcript write (UnixMilli). The watchdog flags a
+	// running task stalled when this goes quiet past the stall threshold; 0 = never observed.
+	LastActivity int64 `json:"lastactivity,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).

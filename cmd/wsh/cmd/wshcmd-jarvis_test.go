@@ -16,3 +16,15 @@ func TestJarvisRunSubcommandRegistered(t *testing.T) {
 		t.Fatal("`jarvis run` subcommand is not registered")
 	}
 }
+
+func TestJarvisCtxSubcommandRegistered(t *testing.T) {
+	var found bool
+	for _, c := range jarvisCmd.Commands() {
+		if c.Name() == "ctx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("`jarvis ctx` subcommand is not registered")
+	}
+}

@@ -3,6 +3,8 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -12,13 +14,17 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// DagEvent kinds published on the wps broker (mirrored in the cockpit events rail).
+// DagEvent kinds published on the wps broker. The names live in wps (the event hub's single source
+// of truth — the FE event union is generated from wps.AllEvents); these aliases keep the engine's
+// references unchanged.
 const (
-	DagEventChildDone   = "dag:child-done"
-	DagEventGateOpen    = "dag:gate-open"
-	DagEventBlocked     = "dag:dag-blocked"
-	DagEventComplete    = "dag:dag-complete"
-	DagEventTaskSpawned = "dag:task-spawned"
+	DagEventChildDone   = wps.DagEventChildDone
+	DagEventGateOpen    = wps.DagEventGateOpen
+	DagEventBlocked     = wps.DagEventBlocked
+	DagEventComplete    = wps.DagEventComplete
+	DagEventTaskSpawned = wps.DagEventTaskSpawned
+	DagEventChildAsk    = wps.DagEventChildAsk
+	DagEventTaskStalled = wps.DagEventTaskStalled
 )
 
 // spawnWorker is the child-run launch seam. Package var so engine tests can stub it;
@@ -49,12 +55,32 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		}
 	}
 	DeriveTaskStates(g, runs)
+	// liveness + stall detection: refresh each running task's last-activity from its child's pi
+	// session writes; a running task silent past StallThreshold is flagged stalled and reported to the
+	// lead (nothing else ever notices a headless child that stopped progressing). A stalled task whose
+	// child later completes still derives done (DeriveTaskStates).
+	now := time.Now().UnixMilli()
+	for i := range g.Tasks {
+		t := &g.Tasks[i]
+		if t.RunID == "" {
+			continue
+		}
+		if activity := lastActivityForRun(runs[t.RunID]); activity > t.LastActivity {
+			t.LastActivity = activity
+		}
+		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() {
+			t.State = TaskState_Stalled
+		}
+	}
 	// child-done notification: a task whose child just reached done wakes the lead (publish + control file).
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if t.State == TaskState_Done && t.RunID != "" && prevStates[t.ID] == TaskState_Running {
 			publishDagEvent(DagEventChildDone, g, t.ID)
 			_ = NotifyLead(ctx, g, DagEventChildDone, t.ID)
+		}
+		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {
+			PublishTaskStalled(ctx, g, t.ID)
 		}
 	}
 	// consecutive-failure accounting: a failure *streak* breaks only on a fresh success —
@@ -78,12 +104,17 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		task := taskByID(g, taskID)
 		cwd := owner.ProjectPath
 		if IsGitRepo(owner.ProjectPath) {
-			wt, err := CreateRunWorktree(ctx, owner.ProjectPath, owner.ID+"-"+taskID, owner.BaseCommit)
-			if err != nil {
-				g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
-				continue
+			wt := worktreeDir(owner.ProjectPath, owner.ID+"-"+taskID)
+			if _, statErr := os.Stat(wt); statErr == nil {
+				cwd = wt // retry of a dead child: reuse its worktree so partial work survives
+			} else {
+				wt, err := CreateRunWorktree(ctx, owner.ProjectPath, owner.ID+"-"+taskID, owner.BaseCommit)
+				if err != nil {
+					g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+					continue
+				}
+				cwd = wt
 			}
-			cwd = wt
 		}
 		prompt := taskPrompt(task, owner)
 		oref, err := spawnWorker(ctx, owner.Runtime, owner.WorkspaceId, "", cwd, prompt)
@@ -99,6 +130,7 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		if err := MarkRunning(g, taskID, childRun.ID); err != nil {
 			return err
 		}
+		g.Tasks[taskIdx(g, taskID)].LastActivity = now // the child is newborn: stall clock starts at spawn
 		publishDagEvent(DagEventTaskSpawned, g, taskID)
 	}
 	RecomputeDagStatus(g)
@@ -156,15 +188,32 @@ func taskIdx(g *waveobj.TaskGroup, taskID string) int {
 	return -1
 }
 
-// taskPrompt is the child's goal: per-task RunSpec goal, else the task label.
+// HeadlessContract is appended to every DAG child's goal. Children are unattended but not mute:
+// a genuinely consequential decision the plan didn't pin must go UP — the child's ask is forwarded
+// to the orchestrator lead (dag:child-ask event + parent-run card), who answers it or escalates to
+// the human. The child waits for the answer rather than guessing. What children must NOT do is the
+// lead's job: no design-approval gates, no plan rewriting — the plan was already approved.
+const HeadlessContract = "You are a DAG child worker. The plan was already approved — do not pause for design approval, do not re-plan, and do not silently invent unpinned decisions when they are genuinely consequential. If a real decision is blocking you and the plan does not pin it, ask: your question is forwarded to the orchestrator lead, who answers it or escalates it to the human. Ask once with a concrete question and concrete options, then wait — the answer will be delivered to you. When the task is fully done: commit your changes in this working tree and run `wsh jarvis complete --commit $(git rev-parse HEAD)` from it, so the engine records the task complete."
+
+// taskPrompt is the child's goal: per-task RunSpec goal, else the task label, with the plan
+// description (decision pins) and the headless contract appended so the child never re-asks what the
+// plan already decided.
 func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run) string {
+	var b strings.Builder
 	if task.RunSpec.Goal != "" {
-		return task.RunSpec.Goal
+		b.WriteString(task.RunSpec.Goal)
+	} else if task.Label != "" {
+		b.WriteString(task.Label)
+	} else {
+		fmt.Fprintf(&b, "task %s of %q", task.ID, owner.Goal)
 	}
-	if task.Label != "" {
-		return task.Label
+	if task.Description != "" {
+		b.WriteString("\n\n")
+		b.WriteString(task.Description)
 	}
-	return fmt.Sprintf("task %s of %q", task.ID, owner.Goal)
+	b.WriteString("\n\n")
+	b.WriteString(HeadlessContract)
+	return b.String()
 }
 
 // childRunFromSpec builds the child run that owns the spawned worker. The child carries

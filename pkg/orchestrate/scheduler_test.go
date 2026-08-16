@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -67,11 +68,17 @@ func TestSendBackAndRetryReset(t *testing.T) {
 	}
 	g2 := groupWith(TaskState_Done, TaskState_Failed)
 	g2.Failures = 2
-	if err := RetryTask(g2, "t-1"); err != nil {
+	if err := RetryTask(context.Background(), g2, "t-1"); err != nil {
 		t.Fatal(err)
 	}
-	if g2.Tasks[1].State != TaskState_Running || g2.Failures != 0 {
-		t.Fatalf("retry must rerun and reset failures: %+v", g2.Tasks[1])
+	// a retried task must return to pending so NextToSpawn picks it up again — "running"
+	// with no runid would count against the parallelism budget yet never spawn (deadlock).
+	if g2.Tasks[1].State != TaskState_Pending || g2.Tasks[1].RunID != "" || g2.Failures != 0 {
+		t.Fatalf("retry must re-open the task for spawn and reset failures: %+v", g2.Tasks[1])
+	}
+	got := NextToSpawn(g2)
+	if len(got) != 2 || got[0] != "t-1" {
+		t.Fatalf("retried task must be spawnable again, NextToSpawn=%v", got)
 	}
 }
 

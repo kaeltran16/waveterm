@@ -6,6 +6,7 @@ package wshrpc
 import (
 	"context"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -15,6 +16,8 @@ type DagCommands interface {
 	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*waveobj.TaskGroup, error)   // engine-owned status snapshot
 	DagActionCommand(ctx context.Context, data CommandDagActionData) error                         // approve | sendback | retry | skip | cancel
 	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                           // squash-merge a finished child's worktree back
+	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error) // pending child asks (children block on one at a time)
+	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                         // deliver an answer to a child's pending ask
 }
 
 type CommandDagSubmitData struct {
@@ -40,4 +43,30 @@ type CommandDagActionData struct {
 type CommandDagMergeData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
+}
+
+// DagAskItem is one pending child ask: the task that raised it, the question text + options, the child
+// block the answer must be delivered to, and when it was raised.
+type DagAskItem struct {
+	TaskId    string         `json:"taskid"`
+	Question  string         `json:"question"`
+	Options   []DagAskOption `json:"options,omitempty"`
+	BlockORef string         `json:"blockoref"`
+	Ts        int64          `json:"ts"`
+}
+
+// DagAskOption is one selectable answer option of a pending child ask.
+type DagAskOption struct {
+	Label string `json:"label"`
+}
+
+type CommandDagAsksRtnData struct {
+	Asks []DagAskItem `json:"asks"`
+}
+
+type CommandDagAnswerData struct {
+	ChannelId string                   `json:"channelid"`
+	RunId     string                   `json:"runid"`
+	TaskId    string                   `json:"taskid"`
+	Answers   []baseds.AgentAnswerItem `json:"answers"`
 }

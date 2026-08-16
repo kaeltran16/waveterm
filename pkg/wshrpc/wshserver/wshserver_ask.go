@@ -12,9 +12,11 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData) (wshrpc.AskRtnData, error) {
@@ -44,6 +46,10 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 		Ts:        ts,
 		Prose:     data.Prose,
 	})
+	// a dag child raising an ask is a lead event: the child blocks on the question, so the lead must
+	// be able to see it (and answer it via `wsh jarvis dag answer`) — the child sessions are invisible
+	// to the human (the "child asks never reach anyone" flaw).
+	forwardChildAsk(ctx, data.ORef, data.Questions)
 	if !data.Wait {
 		return wshrpc.AskRtnData{AskId: askId}, nil
 	}
@@ -94,4 +100,30 @@ func publishAgentAsk(data baseds.AgentAskData) {
 		Persist: 1,
 		Data:    data,
 	})
+}
+
+// forwardChildAsk routes a pending ask raised by a dag child's block to the dag + its owning run:
+// the child's ask card renders only on the child session (invisible to the human), so the engine
+// mirrors it as a dag:child-ask event the lead and the cockpit's parent-run surface can show. No-op
+// for blocks that are not dag children.
+func forwardChildAsk(ctx context.Context, blockOref string, questions []baseds.AgentAskQuestion) {
+	run, _, ok := ownerRunForBlock(ctx, blockOref)
+	if !ok || run.DagORef == "" || len(questions) == 0 {
+		return
+	}
+	g, err := wstore.GetDag(ctx, run.DagORef)
+	if err != nil {
+		return
+	}
+	taskId := ""
+	for i := range g.Tasks {
+		if g.Tasks[i].RunID == run.ID {
+			taskId = g.Tasks[i].ID
+			break
+		}
+	}
+	if taskId == "" {
+		return
+	}
+	orchestrate.PublishChildAsk(ctx, g, taskId, questions[0].Question)
 }

@@ -35,6 +35,14 @@ const (
 	Event_AgentAsk         = "agent:ask"         // type: baseds.AgentAskData
 	Event_MemoryActivity   = "memory:activity"   // type: baseds.MemoryActivityData
 	Event_JarvisVolunteer  = "jarvis:volunteer"  // type: baseds.VolunteerData
+	// orchestration engine events (pkg/orchestrate publishes these; the cockpit rail mirrors them)
+	DagEventChildDone   = "dag:child-done"   // type: string (task id)
+	DagEventGateOpen    = "dag:gate-open"    // type: string (gate task id)
+	DagEventBlocked     = "dag:dag-blocked"  // type: string (failure count)
+	DagEventComplete    = "dag:dag-complete" // type: string ("all tasks done")
+	DagEventTaskSpawned = "dag:task-spawned" // type: string (task id)
+	DagEventChildAsk    = "dag:child-ask"    // type: string (JSON {taskid, question})
+	DagEventTaskStalled = "dag:task-stalled" // type: string (task id)
 )
 
 var AllEvents []string = []string{
@@ -58,6 +66,13 @@ var AllEvents []string = []string{
 	Event_AgentAsk,
 	Event_MemoryActivity,
 	Event_JarvisVolunteer,
+	DagEventChildDone,
+	DagEventGateOpen,
+	DagEventBlocked,
+	DagEventComplete,
+	DagEventTaskSpawned,
+	DagEventChildAsk,
+	DagEventTaskStalled,
 }
 
 type WaveEvent struct {

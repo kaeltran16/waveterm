@@ -276,6 +276,18 @@ export class RpcApiType {
         return client.wshRpcCall("dagaction", data, opts);
     }
 
+    // command "daganswer" [call]
+    DagAnswerCommand(client: WshClient, data: CommandDagAnswerData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "daganswer", data, opts);
+        return client.wshRpcCall("daganswer", data, opts);
+    }
+
+    // command "dagasks" [call]
+    DagAsksCommand(client: WshClient, data: CommandDagStatusData, opts?: RpcOpts): Promise<CommandDagAsksRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagasks", data, opts);
+        return client.wshRpcCall("dagasks", data, opts);
+    }
+
     // command "dagmerge" [call]
     DagMergeCommand(client: WshClient, data: CommandDagMergeData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagmerge", data, opts);
@@ -784,6 +796,12 @@ export class RpcApiType {
 	JarvisConverseCommand(client: WshClient, data: CommandJarvisConverseData, opts?: RpcOpts): AsyncGenerator<JarvisConverseChunk, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "jarvisconverse", data, opts);
         return client.wshRpcStream("jarvisconverse", data, opts);
+    }
+
+    // command "jarvisctx" [call]
+    JarvisCtxCommand(client: WshClient, data: CommandJarvisCtxData, opts?: RpcOpts): Promise<CommandJarvisCtxRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisctx", data, opts);
+        return client.wshRpcCall("jarvisctx", data, opts);
     }
 
     // command "jarvisdecompose" [call]

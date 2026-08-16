@@ -55,12 +55,14 @@ describe("waveterm-tools-core", () => {
     });
 
     it("accepts dag control commands and maps them to notification lines", () => {
-        for (const cmd of ["child_done", "gate_open", "dag_blocked", "dag_complete"]) {
+        for (const cmd of ["child_done", "gate_open", "dag_blocked", "dag_complete", "child_ask", "child_stalled"]) {
             expect(parseControlCommand(JSON.stringify({ cmd }))).not.toBeNull();
         }
         expect(dagEventMessage("gate_open", "t-1")).toBe("gate open — review in cockpit: t-1");
         expect(dagEventMessage("child_done", "t-0")).toBe("child done: t-0");
         expect(dagEventMessage("dag_complete", "")).toBe("dag complete");
+        expect(dagEventMessage("child_ask", "t-3: A or B?")).toBe("child is asking: t-3: A or B?");
+        expect(dagEventMessage("child_stalled", "t-2")).toBe("child stalled: t-2");
         expect(dagEventMessage("mystery", "x")).toBe("mystery: x");
     });
 

@@ -204,6 +204,8 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
                     case "gate_open":
                     case "dag_blocked":
                     case "dag_complete":
+                    case "child_ask":
+                    case "child_stalled":
                         await notify(dagEventMessage(cmd.cmd, cmd.content));
                         break;
                 }

@@ -273,6 +273,18 @@ func DagActionCommand(w *wshutil.WshRpc, data wshrpc.CommandDagActionData, opts 
 	return err
 }
 
+// command "daganswer", wshserver.DagAnswerCommand
+func DagAnswerCommand(w *wshutil.WshRpc, data wshrpc.CommandDagAnswerData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "daganswer", data, opts)
+	return err
+}
+
+// command "dagasks", wshserver.DagAsksCommand
+func DagAsksCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts *wshrpc.RpcOpts) (*wshrpc.CommandDagAsksRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandDagAsksRtnData](w, "dagasks", data, opts)
+	return resp, err
+}
+
 // command "dagmerge", wshserver.DagMergeCommand
 func DagMergeCommand(w *wshutil.WshRpc, data wshrpc.CommandDagMergeData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "dagmerge", data, opts)
@@ -778,6 +790,12 @@ func JarvisAskCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisAskData, opts 
 // command "jarvisconverse", wshserver.JarvisConverseCommand
 func JarvisConverseCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisConverseData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.JarvisConverseChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.JarvisConverseChunk](w, "jarvisconverse", data, opts)
+}
+
+// command "jarvisctx", wshserver.JarvisCtxCommand
+func JarvisCtxCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisCtxData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisCtxRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisCtxRtnData](w, "jarvisctx", data, opts)
+	return resp, err
 }
 
 // command "jarvisdecompose", wshserver.JarvisDecomposeCommand

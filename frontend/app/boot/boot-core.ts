@@ -10,6 +10,9 @@ import { registerControlShiftStateUpdateHandler } from "@/app/store/keymodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { makeTabRouteId } from "@/app/store/wshrouter";
 import { initWshrpc, TabRpcClient } from "@/app/store/wshrpcutil";
+import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
+import { setupChildAskSubscription } from "@/app/view/agents/childaskstore";
+import { setupAgentStatusSubscription } from "@/app/view/agents/session-models/agentstatusstore";
 import {
     atoms,
     getApi,
@@ -22,8 +25,6 @@ import {
 import { activeTabIdAtom } from "@/store/tab-model";
 import * as WOS from "@/store/wos";
 import { isMacOS, setMacOSVersion } from "@/util/platformutil";
-import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
-import { setupAgentStatusSubscription } from "@/app/view/agents/session-models/agentstatusstore";
 
 export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
     const platform = getApi().getPlatform();
@@ -56,6 +57,7 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         // pending-launch placeholders and the narration card body stays empty.
         setupAgentStatusSubscription();
         setupAgentAskSubscription();
+        setupChildAskSubscription();
         subscribeToConnEvents();
         if (isMacOS()) {
             const macOSVersion = await RpcApi.MacOSVersionCommand(TabRpcClient);
