@@ -1113,6 +1113,18 @@ declare global {
         subtasks: string[];
     };
 
+    // wshrpc.CommandJarvisRunEventsData
+    type CommandJarvisRunEventsData = {
+        channelid: string;
+        runid: string;
+        limit?: number;
+    };
+
+    // wshrpc.CommandJarvisRunEventsRtnData
+    type CommandJarvisRunEventsRtnData = {
+        events: RunEvent[];
+    };
+
     // wshrpc.CommandJarvisStateData
     type CommandJarvisStateData = {
         project?: string;
@@ -2814,6 +2826,24 @@ declare global {
     type RunEffortRef = {
         effortoid: string;
         chunklabel: string;
+    };
+
+    // waveobj.RunEvent
+    type RunEvent = {
+        id: string;
+        runid: string;
+        channelid: string;
+        ts: number;
+        kind: string;
+        phaseidx?: number;
+        detail?: string;
+    };
+
+    // wshrpc.RunEventData
+    type RunEventData = {
+        channelid: string;
+        runid: string;
+        event: RunEvent;
     };
 
     // waveobj.RunEvidence

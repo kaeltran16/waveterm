@@ -287,3 +287,34 @@ func TestJarvisStatusIncludesEfforts(t *testing.T) {
 		t.Fatalf("efforts accounting: %+v", st.Status.Efforts)
 	}
 }
+
+// A run's lifecycle event log must be readable through the RPC (the run-card timeline's initial
+// load path). The read is a bounded channel-scoped query returning newest-first.
+func TestJarvisRunEventsCommand(t *testing.T) {
+	ctx := context.Background()
+	ws := &WshServer{}
+	ch, err := wstore.CreateChannel(ctx, "rpc", "/p/one")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if err := wstore.AppendRun(ctx, ch.OID, waveobj.Run{OID: "r-events-1", ID: "r-events-1", Goal: "test run", Status: "planning", ProjectPath: "/p/one", CreatedTs: 100}); err != nil {
+		t.Fatalf("append run: %v", err)
+	}
+	idx := 0
+	if _, err := wstore.AppendRunEvent(ctx, ch.OID, "r-events-1", waveobj.RunEventKindPhaseHeld, &idx, map[string]any{"artifacts": []string{"plan.md"}}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+	rtn, err := ws.JarvisRunEventsCommand(ctx, wshrpc.CommandJarvisRunEventsData{ChannelId: ch.OID, RunId: "r-events-1", Limit: 10})
+	if err != nil {
+		t.Fatalf("command: %v", err)
+	}
+	if len(rtn.Events) != 1 {
+		t.Fatalf("want 1 event, got %d", len(rtn.Events))
+	}
+	if rtn.Events[0].Kind != waveobj.RunEventKindPhaseHeld {
+		t.Fatalf("want phase-held, got %q", rtn.Events[0].Kind)
+	}
+	if rtn.Events[0].PhaseIdx == nil || *rtn.Events[0].PhaseIdx != 0 {
+		t.Fatalf("phaseidx not preserved: %v", rtn.Events[0].PhaseIdx)
+	}
+}

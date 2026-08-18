@@ -804,6 +804,12 @@ func JarvisDecomposeCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisDecompos
 	return resp, err
 }
 
+// command "jarvisrunevents", wshserver.JarvisRunEventsCommand
+func JarvisRunEventsCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisRunEventsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisRunEventsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisRunEventsRtnData](w, "jarvisrunevents", data, opts)
+	return resp, err
+}
+
 // command "jarvisstate", wshserver.JarvisStateCommand
 func JarvisStateCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJarvisStateRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJarvisStateRtnData](w, "jarvisstate", data, opts)

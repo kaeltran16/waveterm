@@ -39,6 +39,7 @@ type JarvisCommands interface {
 	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)                            // capture accounting: note counts, index availability, distill queue
 	JarvisAskCommand(ctx context.Context, data CommandJarvisAskData) (*CommandJarvisAskRtnData, error)                                       // stateless ask: ledger facts + judged prose recall, one answer
 	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                                         // resolve the run context (channel/run/dag) owning the caller's block
+	JarvisRunEventsCommand(ctx context.Context, data CommandJarvisRunEventsData) (*CommandJarvisRunEventsRtnData, error)                       // run visibility timeline: list a run's lifecycle events, newest-first
 	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error) // recent persisted "I found nothing" verdicts from proactive recall, with their causes
 	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                    // the newest rest-transition narrative across all runs — "where we were" at launch
 }
@@ -528,4 +529,24 @@ type CommandJarvisCtxRtnData struct {
 	RunId     string `json:"runid,omitempty"`
 	DagOID    string `json:"dagoid,omitempty"`
 	Goal      string `json:"goal,omitempty"`
+}
+
+// RunEventData is the run:event broadcast payload — the FE appends one row to the focused run's
+// timeline without re-querying.
+type RunEventData struct {
+	ChannelId string           `json:"channelid"`
+	RunId     string           `json:"runid"`
+	Event     waveobj.RunEvent `json:"event"`
+}
+
+// CommandJarvisRunEventsData is the run-event read request; limit 0/absent -> 200, capped at 500.
+type CommandJarvisRunEventsData struct {
+	ChannelId string `json:"channelid"`
+	RunId     string `json:"runid"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// CommandJarvisRunEventsRtnData is the run's event log, newest-first.
+type CommandJarvisRunEventsRtnData struct {
+	Events []waveobj.RunEvent `json:"events"`
 }
