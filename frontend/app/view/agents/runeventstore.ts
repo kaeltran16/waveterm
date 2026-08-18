@@ -3,13 +3,13 @@
 // Run-lifecycle event state: per-run atom, initial load via JarvisRunEventsCommand, live append via
 // the run:event broadcast (scoped to run:<id>, so only the focused run's card receives it).
 
-import { useEffect } from "react";
-import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { globalStore } from "@/app/store/jotaiStore";
+import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { fireAndForget } from "@/util/util";
+import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import { useEffect } from "react";
 
 const eventsAtoms = new Map<string, PrimitiveAtom<RunEvent[]>>();
 const loadedRuns = new Set<string>();
@@ -29,7 +29,11 @@ async function load(runId: string, channelId: string): Promise<void> {
     }
     loadedRuns.add(runId);
     try {
-        const rtn = await RpcApi.JarvisRunEventsCommand(TabRpcClient, { channelid: channelId, runid: runId, limit: 200 });
+        const rtn = await RpcApi.JarvisRunEventsCommand(TabRpcClient, {
+            channelid: channelId,
+            runid: runId,
+            limit: 200,
+        });
         globalStore.set(eventsAtomFor(runId), rtn.events ?? []);
     } catch {
         loadedRuns.delete(runId); // allow retry on transient failure
