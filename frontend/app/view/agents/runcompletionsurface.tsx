@@ -16,6 +16,7 @@ import { MotionConfig, motion } from "motion/react";
 import { type ReactNode } from "react";
 import { openDiff, runDiffScope } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
+import { RunTimeline } from "./runtimelineview";
 import {
     artifactKindClass,
     fmtBytes,
@@ -117,11 +118,15 @@ export function RunCompletion({ channel, run, model }: { channel: Channel; run: 
 
                 <div className="pb-10 pt-[22px]">
                     <div className={STAGE_GUTTER}>
+                        {/* the done run's lifecycle timeline sits above the snapshot: the sealed evidence
+                        is the last row of a story this card makes visible */}
+                        <RunTimeline channel={channel} run={run} />
                         {/* evidence snapshot card */}
                         <motion.div
                             variants={cardVariants}
                             initial="initial"
                             animate="animate"
+                            data-evidence-block
                             className="overflow-hidden rounded-2xl border border-accent/25 bg-surface shadow-popover-soft"
                         >
                             {/* sealed header */}

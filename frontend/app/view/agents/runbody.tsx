@@ -46,6 +46,7 @@ import {
 } from "./runcards";
 import { needsEvidenceSeal } from "./runcompletion";
 import { RunCompletion } from "./runcompletionsurface";
+import { RunTimeline } from "./runtimelineview";
 import {
     cancelSurvivors,
     currentPhaseIndex,
@@ -393,6 +394,7 @@ export function OrchestratorBody({
                     onSteerClose={onSteerClose}
                     hideSteer={hideSteer}
                 />
+                <RunTimeline channel={channel} run={run} />
                 <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                 {thread.showGate ? <ReviewGateCard channelId={channel.oid} run={run} gateIdx={idx} /> : null}
                 {thread.showAsk && thread.askAgent && thread.askKind ? (
@@ -423,10 +425,12 @@ export function OrchestratorBody({
 }
 
 // The phase-rail node (icon disc + connector). Plays a one-shot settle when the phase completes.
-function PhaseNode({ tone, icon, done, notLast }: { tone: string; icon: string; done: boolean; notLast: boolean }) {
+// idx drives the data-phase-id attribute so the run timeline's focus-phase click can scroll to the
+// rail node (the worker card renders immediately below it).
+function PhaseNode({ tone, icon, done, notLast, idx }: { tone: string; icon: string; done: boolean; notLast: boolean; idx: number }) {
     const settling = useSettle(done);
     return (
-        <div className="flex w-9 flex-none flex-col items-center">
+        <div data-phase-id={idx} className="flex w-9 flex-none flex-col items-center">
             <div
                 className={
                     "flex h-9 w-9 flex-none items-center justify-center rounded-[10px] border border-current font-mono text-[14px] font-bold " +
@@ -486,7 +490,7 @@ export function PhaseRail({
                             </div>
                         ) : null}
                         <div className="flex gap-4">
-                            <PhaseNode tone={v.tone} icon={v.icon} done={p.state === "done"} notLast={notLast} />
+                            <PhaseNode tone={v.tone} icon={v.icon} done={p.state === "done"} notLast={notLast} idx={i} />
                             <div className="min-w-0 flex-1 pb-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-[14px] font-bold text-primary">{p.kind}</span>
@@ -662,6 +666,7 @@ export function RunBody({
                         onSteerClose={noop}
                         hideSteer
                     />
+                    <RunTimeline channel={channel} run={run} />
                     <CancelSurvivorsCard model={model} channelId={channel.oid} run={run} agents={agents} />
                     {run.status === "executing" && primaryWorker ? <RunRollup agent={primaryWorker} now={now} /> : null}
                     <CompactStepper run={run} expanded={expanded} onToggle={() => setExpanded((e) => !e)} />
