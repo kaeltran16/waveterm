@@ -392,3 +392,102 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 		t.Fatalf("next worker spawned with runtime %q, want persisted opencode", spawnedWith)
 	}
 }
+
+// mustKinds collects a run's event kinds newest-first for a presence assertion.
+func mustKinds(t *testing.T, channelId, runID string) []string {
+	t.Helper()
+	events, err := wstore.QueryRunEvents(context.Background(), channelId, runID, 50)
+	if err != nil {
+		t.Fatalf("QueryRunEvents: %v", err)
+	}
+	kinds := make([]string, 0, len(events))
+	for _, e := range events {
+		kinds = append(kinds, e.Kind)
+	}
+	return kinds
+}
+
+func containsKind(kinds []string, kind string) bool {
+	for _, k := range kinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// A pipeline run driven end-to-end through the real AdvanceRunCommand must leave a lifecycle log
+// covering every transition class. The walk follows the engine's actual state machine (a held phase
+// resumes in place on approve; sendback re-opens a COMPLETED gate), not an idealized sequence.
+func TestRunLifecycleEventsAppended(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "events-run", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	// the RPC create path writes phase-started; the direct handler test seeds it the same way
+	phase0 := 0
+	if _, err := wstore.AppendRunEvent(ctx, ch.OID, run.ID, waveobj.RunEventKindPhaseStarted, &phase0, map[string]any{}); err != nil {
+		t.Fatalf("append phase-started: %v", err)
+	}
+	ws := &WshServer{}
+	// AdvanceRunCommand spawns workers for newly-running phases at its tail; stub the spawn seam like
+	// TestCompleteDefersEvidenceSeal does so the test never touches real tabs/PTYs
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+	advance := func(idx int, action string) {
+		t.Helper()
+		if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{ChannelId: ch.OID, RunId: run.ID, PhaseIdx: idx, Action: action}); err != nil {
+			t.Fatalf("AdvanceRunCommand(%s): %v", action, err)
+		}
+	}
+	// DefaultPlaybook: brainstorm(0) -> plan(1, gate) -> execute(2). A gated phase halts awaiting
+	// review when completed; sending back re-opens it; approving a HELD phase resumes it in place.
+	advance(0, jarvis.RunAction_Complete) // phase-complete(0); plan auto-runs
+	advance(1, jarvis.RunAction_Complete) // phase-complete(1); gate done -> awaiting-review
+	advance(1, jarvis.RunAction_SendBack) // gate-sent-back(1); plan re-opens
+	advance(1, jarvis.RunAction_Hold)     // phase-held(1); awaiting-review
+	advance(1, jarvis.RunAction_Approve)  // gate-approved(1); plan resumes (held cleared)
+	advance(1, jarvis.RunAction_Complete) // phase-complete(1); awaiting-review again
+	advance(1, jarvis.RunAction_Approve)  // gate-approved(1); execute(2) runs
+	advance(2, jarvis.RunAction_Triage)   // triage on the running execute phase
+	advance(2, jarvis.RunAction_Complete) // run done
+
+	kinds := mustKinds(t, ch.OID, run.ID)
+	for _, want := range []string{
+		waveobj.RunEventKindPhaseStarted, waveobj.RunEventKindPhaseComplete,
+		waveobj.RunEventKindPhaseHeld, waveobj.RunEventKindGateSentBack,
+		waveobj.RunEventKindGateApproved, waveobj.RunEventKindTriage,
+	} {
+		if !containsKind(kinds, want) {
+			t.Fatalf("events %v missing %q", kinds, want)
+		}
+	}
+}
+
+// Cancelling a run must record the terminal event on its log (written after the cancelled state is
+// persisted, so the row is durable).
+func TestRunCancelWritesRunCancelledEvent(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "cancel-events", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("cancel me", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	if err := (&WshServer{}).CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: ch.OID, RunId: run.ID}); err != nil {
+		t.Fatalf("CancelRunCommand: %v", err)
+	}
+	if !containsKind(mustKinds(t, ch.OID, run.ID), waveobj.RunEventKindRunCancelled) {
+		t.Fatalf("expected run-cancelled event")
+	}
+}

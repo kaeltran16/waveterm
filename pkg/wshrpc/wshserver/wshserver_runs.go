@@ -54,6 +54,26 @@ func publishRunUpdate(channelId, runId string) {
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 }
 
+// appendRunEvent persists one lifecycle event and broadcasts it scoped to the run (the focused run
+// card appends one row live). The broadcast carries the persisted event (id + ts) so the FE dedups and
+// sorts the live row exactly like a re-query. Best-effort: a telemetry failure is logged, never fatal
+// — the run transition it accompanies has already persisted.
+func appendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
+	if ev, err := wstore.AppendRunEvent(ctx, channelId, runId, kind, phaseIdx, detail); err != nil {
+		log.Printf("appendRunEvent(%s): %v", kind, err)
+	} else {
+		wps.Broker.Publish(wps.WaveEvent{
+			Event:  wps.Event_RunEvent,
+			Scopes: []string{waveobj.MakeORef(waveobj.OType_Run, runId).String()},
+			Data:   wshrpc.RunEventData{ChannelId: channelId, RunId: runId, Event: ev},
+		})
+	}
+}
+
+// phaseIdxOf returns a pointer for a phase index so 0 stays distinguishable from an absent idx (nil
+// means run-level — the FE groups by phaseidx == nil).
+func phaseIdxOf(idx int) *int { return &idx }
+
 // captureAsync dispatches the continuity boundary summary (sub-project E) off the RPC handler's
 // goroutine — it makes a model call and must never sit on the 5s RPC budget. A seam so tests capture
 // the dispatch without running it.
@@ -124,6 +144,14 @@ func sealDoneRunEvidence(channelId, runId string) {
 	}
 	// run: carries the sealed evidence to the focused view (RunCompletion needs status==done && evidence).
 	publishRunUpdate(channelId, runId)
+	if run.Evidence != nil {
+		// the seal ctx may be near its deadline after the slow git diff; the append is a quick insert that
+		// should not inherit that expiry.
+		actx := context.WithoutCancel(ctx)
+		appendRunEvent(actx, channelId, runId, waveobj.RunEventKindEvidenceSealed, nil, map[string]any{
+			"files": len(run.Evidence.Files), "addtotal": run.Evidence.AddTotal, "deltotal": run.Evidence.DelTotal,
+		})
+	}
 	// the connection producer stamps its candidate from the run's CompletedTs, which the UpdateRun above
 	// is what makes durable. Triggering at the rest transition instead would race this seal and always
 	// read an unstamped run. Detached: the judge is a headless CLI process.
@@ -302,6 +330,10 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	// the dossier capture below links [[run-<oid>]], and S3 excludes that node by the same key.
 	run.OID = run.ID
 	run.ChannelOID = data.ChannelId
+	// lifecycle log seeded before worker spawn, so a spawn failure still shows the run was created.
+	phaseZero := 0
+	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindCreated, nil, map[string]any{"runtime": run.Runtime, "mode": run.Mode})
+	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})
 	if effortRef != nil {
 		// non-fatal: the run is already persisted; a failed attach only loses the live marker, the
 		// ref stays on the run itself.
@@ -393,6 +425,11 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 		return nil, fmt.Errorf("spawning child worker: %w", err)
 	}
+	phaseZero := 0
+	appendRunEvent(ctx, channelId, child.ID, waveobj.RunEventKindChildCreated, nil, map[string]any{
+		"childrunid": child.ID, "goal": child.Goal, "mode": child.Mode,
+	})
+	appendRunEvent(ctx, channelId, child.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelId))
 	return &wshrpc.CommandCreateChildRunRtnData{RunId: child.ID}, nil
 }
@@ -471,6 +508,20 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 	if err != nil {
 		return fmt.Errorf("advancing run: %w", err)
 	}
+	// map the applied action to a lifecycle event (the transition above already persisted) — the
+	// focused run card renders these rows under the affected phase.
+	switch data.Action {
+	case jarvis.RunAction_Complete:
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseComplete, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts, "commit": data.Commit})
+	case jarvis.RunAction_Hold:
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseHeld, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts})
+	case jarvis.RunAction_Approve:
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateApproved, phaseIdxOf(data.PhaseIdx), map[string]any{})
+	case jarvis.RunAction_SendBack:
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateSentBack, phaseIdxOf(data.PhaseIdx), map[string]any{})
+	case jarvis.RunAction_Triage:
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindTriage, phaseIdxOf(data.PhaseIdx), map[string]any{"verdict": data.Verdict, "note": data.Note})
+	}
 	// on the non-done -> done transition: dispatch the evidence seal off the RPC budget, then notify the
 	// parent lead (if this is a child run). The notify is keyed on Done, not on evidence, so an empty-diff
 	// run still wakes its parent. Reached once per run: applyRunAction errors on an already-done run.
@@ -487,6 +538,19 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		// child is done as soon as the transition lands, not whenever the background seal happens to finish.
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
+			// record the child's terminal state on the PARENT run's log so the lead's timeline shows it.
+			if m := jarvis.ResolveRunWorkerFromMeta(ctx, run.ParentLeadORef); m != nil && m.Run != nil {
+				kind := waveobj.RunEventKindChildDone
+				summary := ""
+				if run.Status == jarvis.RunStatus_Cancelled {
+					kind = waveobj.RunEventKindChildCancelled
+				} else if run.Evidence != nil {
+					summary = fmt.Sprintf("%d files +%d/-%d", len(run.Evidence.Files), run.Evidence.AddTotal, run.Evidence.DelTotal)
+				}
+				appendRunEvent(ctx, m.Channel.OID, m.Run.ID, kind, nil, map[string]any{
+					"childrunid": run.ID, "goal": run.Goal, "summary": summary,
+				})
+			}
 		}
 		// engine-owned DAGs: a terminal child wakes its group's scheduler (derive + next spawns).
 		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
@@ -579,6 +643,7 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	}
 	// stop the live workers the run spawned; state is already persisted, so this is best-effort.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil {
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindRunCancelled, nil, map[string]any{})
 		stopRunWorkers(ctx, run)
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
