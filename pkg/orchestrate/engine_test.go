@@ -184,6 +184,20 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	if !cc.saw(DagEventTaskSpawned, scope) {
 		t.Fatal("task-spawned event not published")
 	}
+	// the spawn also lands on the owning run's lifecycle log, so its card timeline shows the task.
+	events, err := wstore.QueryRunEvents(ctx, ch.OID, owner.ID, 50)
+	if err != nil {
+		t.Fatalf("query run events: %v", err)
+	}
+	var sawSpawn bool
+	for _, e := range events {
+		if e.Kind == waveobj.RunEventKindTaskSpawned {
+			sawSpawn = true
+		}
+	}
+	if !sawSpawn {
+		t.Fatalf("expected task-spawned event on the owning run's log, got %+v", events)
+	}
 
 	if err := wstore.UpdateRun(ctx, ch.OID, child0, func(r *waveobj.Run) error {
 		r.Status = jarvis.RunStatus_Done

@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -81,6 +83,7 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		}
 		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {
 			PublishTaskStalled(ctx, g, t.ID)
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": t.ID})
 		}
 	}
 	// consecutive-failure accounting: a failure *streak* breaks only on a fresh success —
@@ -132,6 +135,7 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		}
 		g.Tasks[taskIdx(g, taskID)].LastActivity = now // the child is newborn: stall clock starts at spawn
 		publishDagEvent(DagEventTaskSpawned, g, taskID)
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": taskID})
 	}
 	RecomputeDagStatus(g)
 	// status-transition notifications: gate-open / blocked / complete wake the lead.
@@ -141,9 +145,11 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		_ = NotifyLead(ctx, g, DagEventGateOpen, fmt.Sprintf("gate %s", gatedTaskID(g)))
 	case DagStatus_Blocked:
 		publishDagEvent(DagEventBlocked, g, "")
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": g.Failures})
 		_ = NotifyLead(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", g.Failures))
 	case DagStatus_Done:
 		publishDagEvent(DagEventComplete, g, "")
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
 		_ = NotifyLead(ctx, g, DagEventComplete, "all tasks done")
 	}
 	g.UpdatedTs = time.Now().UnixMilli()
@@ -241,4 +247,20 @@ func publishDagEvent(kind string, g *waveobj.TaskGroup, detail string) {
 		Scopes: []string{waveobj.MakeORef(waveobj.OType_Dag, g.OID).String(), waveobj.MakeORef(waveobj.OType_Run, g.RunID).String()},
 		Data:   detail,
 	})
+}
+
+// appendRunEvent records a lifecycle event on the dag's owning run's log and broadcasts it to the
+// focused run card. Best-effort telemetry — a failure is logged, never returned: the engine's
+// scheduling must not fail over a log write. Local copy of the wshserver helper (that package imports
+// this one, so a shared implementation would be a cycle).
+func appendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx *int, detail any) {
+	if ev, err := wstore.AppendRunEvent(ctx, channelId, runId, kind, phaseIdx, detail); err != nil {
+		log.Printf("appendRunEvent(%s): %v", kind, err)
+	} else {
+		wps.Broker.Publish(wps.WaveEvent{
+			Event:  wps.Event_RunEvent,
+			Scopes: []string{waveobj.MakeORef(waveobj.OType_Run, runId).String()},
+			Data:   wshrpc.RunEventData{ChannelId: channelId, RunId: runId, Event: ev},
+		})
+	}
 }
