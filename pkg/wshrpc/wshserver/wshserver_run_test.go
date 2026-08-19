@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -416,9 +417,30 @@ func containsKind(kinds []string, kind string) bool {
 	return false
 }
 
-// A pipeline run driven end-to-end through the real AdvanceRunCommand must leave a lifecycle log
-// covering every transition class. The walk follows the engine's actual state machine (a held phase
-// resumes in place on approve; sendback re-opens a COMPLETED gate), not an idealized sequence.
+func mustSeq(t *testing.T, channelId, runID string) []string {
+	t.Helper()
+	events, err := wstore.QueryRunEvents(context.Background(), channelId, runID, 50)
+	if err != nil {
+		t.Fatalf("QueryRunEvents: %v", err)
+	}
+	// QueryRunEvents returns newest-first; the log is append-ordered, so reverse to read it forward.
+	out := make([]string, 0, len(events))
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		idx := ""
+		if e.PhaseIdx != nil {
+			idx = "@" + strconv.Itoa(*e.PhaseIdx)
+		}
+		out = append(out, e.Kind+idx)
+	}
+	return out
+}
+
+// A pipeline run driven end-to-end through the real AdvanceRunCommand must leave a lifecycle log whose
+// ORDER narrates the run the way the focused card renders it: every phase started, completing the gate
+// halts the run in review, approving releases the next phase, and the cancel lands last. approve passes
+// NO caller phase index (the FE's approve path never does) — the write must land at the engine-resolved
+// gate, which this exact-order assert pins.
 func TestRunLifecycleEventsAppended(t *testing.T) {
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "events-run", t.TempDir())
@@ -429,7 +451,7 @@ func TestRunLifecycleEventsAppended(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
-	// the RPC create path writes phase-started; the direct handler test seeds it the same way
+	// the RPC create path writes phase-started(0); the direct handler test seeds it the same way
 	phase0 := 0
 	if _, err := wstore.AppendRunEvent(ctx, ch.OID, run.ID, waveobj.RunEventKindPhaseStarted, &phase0, map[string]any{}); err != nil {
 		t.Fatalf("append phase-started: %v", err)
@@ -448,15 +470,69 @@ func TestRunLifecycleEventsAppended(t *testing.T) {
 			t.Fatalf("AdvanceRunCommand(%s): %v", action, err)
 		}
 	}
+	// DefaultPlaybook: brainstorm(0) -> plan(1, gate) -> execute(2). Completing the gate halts the run
+	// in review; approving releases execute.
+	advance(0, jarvis.RunAction_Complete) // phase-complete(0); plan auto-runs -> phase-started(1)
+	advance(1, jarvis.RunAction_Complete) // phase-complete(1); gate completes -> run awaiting-review also writes phase-held(1)
+	advance(0, jarvis.RunAction_Approve)  // the caller passes no usable index (absent ints decode 0) — approve resolves the gate itself -> gate-approved(1) + phase-started(2)
+	// cancel the running execute phase so the terminal row lands without the done-transition seal
+	if err := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: ch.OID, RunId: run.ID}); err != nil {
+		t.Fatalf("CancelRunCommand: %v", err)
+	}
+	want := []string{
+		"phase-started@0", "phase-complete@0", "phase-started@1",
+		"phase-complete@1", "phase-held@1",
+		"gate-approved@1", "phase-started@2",
+		"run-cancelled",
+	}
+	got := mustSeq(t, ch.OID, run.ID)
+	if len(got) != len(want) {
+		t.Fatalf("events %v:\n want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("event[%d] = %q, want %q (events %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// The remaining transition classes (sendback re-opening a completed gate, an explicit hold, an approve
+// that resumes a held phase in place, triage) must each leave their kind on the log.
+func TestRunLifecycleEventClassesPresent(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "events-run", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	phase0 := 0
+	if _, err := wstore.AppendRunEvent(ctx, ch.OID, run.ID, waveobj.RunEventKindPhaseStarted, &phase0, map[string]any{}); err != nil {
+		t.Fatalf("append phase-started: %v", err)
+	}
+	ws := &WshServer{}
+	origSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
+	}
+	defer func() { jarvis.SpawnRunWorker = origSpawn }()
+	advance := func(idx int, action string) {
+		t.Helper()
+		if err := ws.AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{ChannelId: ch.OID, RunId: run.ID, PhaseIdx: idx, Action: action}); err != nil {
+			t.Fatalf("AdvanceRunCommand(%s): %v", action, err)
+		}
+	}
 	// DefaultPlaybook: brainstorm(0) -> plan(1, gate) -> execute(2). A gated phase halts awaiting
 	// review when completed; sending back re-opens it; approving a HELD phase resumes it in place.
-	advance(0, jarvis.RunAction_Complete) // phase-complete(0); plan auto-runs
-	advance(1, jarvis.RunAction_Complete) // phase-complete(1); gate done -> awaiting-review
+	advance(0, jarvis.RunAction_Complete) // plan auto-runs
+	advance(1, jarvis.RunAction_Complete) // gate done -> awaiting-review
 	advance(1, jarvis.RunAction_SendBack) // gate-sent-back(1); plan re-opens
 	advance(1, jarvis.RunAction_Hold)     // phase-held(1); awaiting-review
 	advance(1, jarvis.RunAction_Approve)  // gate-approved(1); plan resumes (held cleared)
 	advance(1, jarvis.RunAction_Complete) // phase-complete(1); awaiting-review again
-	advance(1, jarvis.RunAction_Approve)  // gate-approved(1); execute(2) runs
+	advance(0, jarvis.RunAction_Approve)  // gate-approved(1); execute(2) runs
 	advance(2, jarvis.RunAction_Triage)   // triage on the running execute phase
 	advance(2, jarvis.RunAction_Complete) // run done
 

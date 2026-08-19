@@ -74,6 +74,24 @@ func appendRunEvent(ctx context.Context, channelId, runId, kind string, phaseIdx
 // means run-level — the FE groups by phaseidx == nil).
 func phaseIdxOf(idx int) *int { return &idx }
 
+// gatePhaseIdx mirrors jarvis.gateIndex: the completed gate phase a halted run waits on, or -1. Kept
+// in-file so the event mapping can stamp gate actions at the engine-resolved gate without exporting
+// the jarvis helper.
+func gatePhaseIdx(r *waveobj.Run) int {
+	if r == nil {
+		return -1
+	}
+	for i, p := range r.Phases {
+		if p.State != jarvis.PhaseState_Done && p.State != jarvis.PhaseState_Skipped {
+			if i > 0 && r.Phases[i-1].Gate && r.Phases[i-1].State == jarvis.PhaseState_Done {
+				return i - 1
+			}
+			return -1
+		}
+	}
+	return -1
+}
+
 // captureAsync dispatches the continuity boundary summary (sub-project E) off the RPC handler's
 // goroutine — it makes a model call and must never sit on the 5s RPC budget. A seam so tests capture
 // the dispatch without running it.
@@ -481,8 +499,10 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		return fmt.Errorf("channelid and runid are required")
 	}
 	preStatus := ""
+	var preRun *waveobj.Run
 	if pre, perr := wstore.GetRun(ctx, data.ChannelId, data.RunId); perr == nil {
 		preStatus = pre.Status
+		preRun = pre
 	}
 	// approve-in-place: an orchestrator lead held at the plan gate resumes via steer, not a fresh worker.
 	leadToSteer := ""
@@ -509,18 +529,46 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		return fmt.Errorf("advancing run: %w", err)
 	}
 	// map the applied action to a lifecycle event (the transition above already persisted) — the
-	// focused run card renders these rows under the affected phase.
+	// focused run card renders these rows under the affected phase. approve/sendback act on the gate
+	// the ENGINE resolved (the caller may not name it — the FE's approve path never passes an index),
+	// so stamp those rows at that gate, not at a possibly-absent caller index.
+	gateIdx := gatePhaseIdx(preRun)
+	gateIdxOr := func(fallback int) *int {
+		if gateIdx >= 0 {
+			return phaseIdxOf(gateIdx)
+		}
+		return phaseIdxOf(fallback)
+	}
+	post, _ := wstore.GetRun(ctx, data.ChannelId, data.RunId)
 	switch data.Action {
 	case jarvis.RunAction_Complete:
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseComplete, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts, "commit": data.Commit})
+		// completing a GATE phase halts the run in review (no explicit hold needed) — narrate the gate
+		// hold so the row appears next to the completion and the approve click target makes sense.
+		if post != nil && post.Status == jarvis.RunStatus_AwaitingReview {
+			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseHeld, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts})
+		}
 	case jarvis.RunAction_Hold:
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseHeld, phaseIdxOf(data.PhaseIdx), map[string]any{"artifacts": data.Artifacts})
 	case jarvis.RunAction_Approve:
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateApproved, phaseIdxOf(data.PhaseIdx), map[string]any{})
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateApproved, gateIdxOr(data.PhaseIdx), map[string]any{})
 	case jarvis.RunAction_SendBack:
-		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateSentBack, phaseIdxOf(data.PhaseIdx), map[string]any{})
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindGateSentBack, gateIdxOr(data.PhaseIdx), map[string]any{})
 	case jarvis.RunAction_Triage:
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindTriage, phaseIdxOf(data.PhaseIdx), map[string]any{"verdict": data.Verdict, "note": data.Note})
+	}
+	// record phase-started for every phase the transition just put in the running state (complete
+	// auto-starts the successor; approve starts the phase after the gate). The rows land under the
+	// phase group, so a group without its started row would narrate an empty phase.
+	if post != nil {
+		for i := range post.Phases {
+			if post.Phases[i].State != jarvis.PhaseState_Running {
+				continue
+			}
+			if preRun == nil || i >= len(preRun.Phases) || preRun.Phases[i].State != jarvis.PhaseState_Running {
+				appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, phaseIdxOf(i), map[string]any{})
+			}
+		}
 	}
 	// on the non-done -> done transition: dispatch the evidence seal off the RPC budget, then notify the
 	// parent lead (if this is a child run). The notify is keyed on Done, not on evidence, so an empty-diff

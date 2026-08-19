@@ -22,11 +22,16 @@ const runsLifecycle = {
         const wslist = await h.rpc("workspacelist", null);
         const workspaceId = wslist[0].workspacedata.oid;
         const ch = await h.rpc("createchannel", { name: "verify-runs", projectpath: cwd });
-        return { cwd, workspaceId, channelId: ch.oid, workers: [] };
+        // unique goal per run so the run-row selector can never match a leftover from an earlier
+        // aborted verification (plural verify-proactive channels persist in the dev db with the old
+        // "spawn-test only" goal).
+        const goal = `spawn-test ${Date.now() % 100000}: do nothing, make no file changes, stop immediately`;
+        return { cwd, workspaceId, channelId: ch.oid, workers: [], goal };
     },
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
         const getRun = async (runId) => {
             const res = await h.rpc("getchannels", null);
             const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
@@ -39,7 +44,7 @@ const runsLifecycle = {
         const created = await h.rpc("createrun", {
             channelid: ctx.channelId,
             workspaceid: ctx.workspaceId,
-            goal: "spawn-test only: do nothing, make no file changes, stop immediately",
+            goal: ctx.goal,
             runtime: "claude",
         });
         const run = created.run;
@@ -84,6 +89,145 @@ const runsLifecycle = {
             r5.status === "cancelled" && r5.phases[2].state === "skipped",
             JSON.stringify({ status: r5.status, states: r5.phases.map((p) => p.state) })
         );
+
+        // --- timeline UI (Task 6/7) --------------------------------------------------------------
+        // First pin the backend truth: the run's own event log must hold the 9 lifecycle writes.
+        const evres = await h.rpc("jarvisrunevents", { channelid: ctx.channelId, runid: runId, limit: 200 });
+        const kinds = (evres.events || []).map((e) => e.kind + (e.phaseidx != null ? `@${e.phaseidx}` : ""));
+        rec(
+            "6. run:event log holds the written lifecycle kinds",
+            kinds.includes("run-created") &&
+                kinds.includes("phase-started@0") &&
+                kinds.includes("phase-complete@0") &&
+                kinds.includes("phase-started@1") &&
+                kinds.includes("phase-complete@1") &&
+                kinds.includes("phase-held@1") &&
+                kinds.includes("gate-approved@2") &&
+                kinds.includes("phase-started@2") &&
+                kinds.includes("run-cancelled"),
+            kinds.join(" ")
+        );
+
+        // The RPCs above ran out-of-band from the Subjects column's snapshot; reload so the column
+        // reflects the fresh channel/run set (same reason jarvis-continuity reloads), then select the
+        // channel and ITS run row (scoped to the channel's run list so a same-goal leftover run under
+        // another channel can never be picked). The Stage renders RunBody with the collapsed timeline
+        // under the header; the event store loads via RPC on mount, so poll rather than sample once.
+        await h.ev("location.reload()");
+        await settle(2500);
+        await h.goto("jarvis");
+        const pick = async () => {
+            const b = await h.ev(`(() => {
+                const row = [...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')]
+                    .find((x) => (x.getAttribute('aria-label') || x.textContent || '').includes('verify-runs'));
+                if (!row) return false;
+                row.click();
+                return true;
+            })()`);
+            await settle(400);
+            const r = await h.ev(`(() => {
+                const row = [...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')]
+                    .find((x) => (x.getAttribute('aria-label') || x.textContent || '').includes('verify-runs'));
+                const list = row && row.nextElementSibling;
+                if (!list) return false;
+                const runRow = [...(list.querySelectorAll('button') || [])]
+                    .find((x) => (x.textContent || '').includes(${JSON.stringify(ctx.goal.split(":")[0])}));
+                if (!runRow) return false;
+                runRow.click();
+                return true;
+            })()`);
+            return b && r;
+        };
+        let pickedBoth = false;
+        for (let i = 0; i < 12 && !pickedBoth; i++) {
+            await settle(300);
+            pickedBoth = await pick();
+        }
+        rec(
+            "7. channel + its run selected in the Subjects column",
+            pickedBoth === true,
+            `pickedBoth=${pickedBoth}`
+        );
+        const timelineProbe = async () => {
+            const btn = await h.ev(`(() => {
+                const b = [...document.querySelectorAll('button')]
+                    .find((x) => /timeline/i.test(x.textContent || ''));
+                return b ? true : false;
+            })()`);
+            return btn;
+        };
+        let timelineShown = false;
+        for (let i = 0; i < 12 && !timelineShown; i++) {
+            await settle(400);
+            timelineShown = await timelineProbe();
+        }
+        // collapsed state: header + exactly the 3 newest rows, no group headers
+        const collapsed = await h.ev(`(() => {
+            const btn = [...document.querySelectorAll('button')]
+                .find((x) => /timeline/i.test(x.textContent || ''));
+            if (!btn) return null;
+            const body = btn.nextElementSibling;
+            const divs = body ? [...body.querySelectorAll('div')] : [];
+            const rows = divs
+                .filter((d) => (d.className || '').includes('font-mono') && (d.className || '').includes('text-secondary'))
+                .map((d) => (d.innerText || '').trim());
+            const groups = divs
+                .filter((d) => (d.className || '').includes('uppercase') && (d.className || '').includes('tracking'))
+                .map((d) => (d.innerText || '').trim());
+            return { rows, groups };
+        })()`);
+        rec(
+            "8. Timeline collapsed: 3-row preview, no group headers yet",
+            timelineShown && collapsed !== null && collapsed.rows.length === 3 && collapsed.groups.length === 0,
+            JSON.stringify(collapsed)
+        );
+        // expand: click the header, then assert RUN + per-phase groups and the written titles
+        const clickedHeader = await h.ev(`(() => {
+            const btn = [...document.querySelectorAll('button')]
+                .find((x) => /timeline/i.test(x.textContent || ''));
+            if (!btn) return false;
+            btn.click();
+            return true;
+        })()`);
+        await settle(300);
+        const full = await h.ev(`(() => {
+            const btn = [...document.querySelectorAll('button')]
+                .find((x) => /timeline/i.test(x.textContent || ''));
+            const body = btn && btn.nextElementSibling;
+            const divs = body ? [...body.querySelectorAll('div')] : [];
+            const rows = divs
+                .filter((d) => (d.className || '').includes('font-mono') && (d.className || '').includes('text-secondary'))
+                .map((d) => (d.innerText || '').trim());
+            const groups = divs
+                .filter((d) => (d.className || '').includes('uppercase') && (d.className || '').includes('tracking'))
+                .map((d) => (d.innerText || '').trim());
+            const rowText = rows.join(' | ');
+            return {
+                rowCount: rows.length,
+                groups,
+                hasCreated: rowText.includes('Run created'),
+                hasHeld: rowText.includes('Held for review'),
+                hasApproved: rowText.includes('Gate approved'),
+                hasCancelled: rowText.includes('Run cancelled'),
+                hasArtifact: rowText.includes('docs/spec.md'),
+            };
+        })()`);
+        rec(
+            "9. Expanded timeline: RUN + PHASE 1/2/3 groups, all written event titles, artifact link",
+            clickedHeader === true &&
+                full !== null &&
+                full.rowCount >= 9 &&
+                full.groups.length === 4 &&
+                full.groups[0] === 'RUN' &&
+                full.groups.slice(1).every((g) => /^PHASE [123]/.test(g)) &&
+                full.hasCreated &&
+                full.hasHeld &&
+                full.hasApproved &&
+                full.hasCancelled &&
+                full.hasArtifact,
+            JSON.stringify(full)
+        );
+        await h.shot("cdp-shots/runs-timeline.png");
 
         return steps;
     },
