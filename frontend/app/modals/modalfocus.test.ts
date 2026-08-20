@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from "vitest";
-import { takeModalFocus } from "./modalfocus";
+import { focusTrapTarget, takeModalFocus } from "./modalfocus";
 
 function fakePanel(contains: boolean) {
     return { focus: vi.fn(), contains: vi.fn(() => contains) } as unknown as HTMLElement;
@@ -11,6 +11,24 @@ function fakePanel(contains: boolean) {
 function fakeNode(isConnected: boolean) {
     return { focus: vi.fn(), isConnected } as unknown as HTMLElement;
 }
+
+describe("focusTrapTarget", () => {
+    const first = fakeNode(true);
+    const second = fakeNode(true);
+    const third = fakeNode(true);
+
+    it("wraps forward and reverse through the focusable list", () => {
+        expect(focusTrapTarget([first, second, third], third, false)).toBe(first);
+        expect(focusTrapTarget([first, second, third], first, true)).toBe(third);
+    });
+
+    it("chooses the first or last target when focus is outside the list", () => {
+        const outside = fakeNode(true);
+        expect(focusTrapTarget([first, second], outside, false)).toBe(first);
+        expect(focusTrapTarget([first, second], outside, true)).toBe(second);
+        expect(focusTrapTarget([], outside, false)).toBeNull();
+    });
+});
 
 describe("takeModalFocus", () => {
     it("focuses the panel when focus is outside it", () => {

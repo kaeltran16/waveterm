@@ -22,7 +22,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { openDag } from "../orchestrate/dagstore";
+import { openDagLive } from "../orchestrate/dagmodalstate";
 import type { AgentsViewModel } from "./agents";
 import { streamableTranscriptAgents, type AgentVM } from "./agentsviewmodel";
 import { AmbientTags } from "./ambientviews";
@@ -210,7 +210,7 @@ export function RunHeader({
                     {run.dagoref ? (
                         <button
                             type="button"
-                            onClick={() => openDag("dag:" + run.dagoref)}
+                            onClick={() => openDagLive(channel.oid, run.id, "dag:" + run.dagoref)}
                             title="Open the engine task DAG for this run"
                             className="cursor-pointer rounded border border-accent/50 px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:border-accent"
                         >

@@ -1,9 +1,9 @@
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { closeDag } from "./dagstore";
+import { closeDagModal } from "./dagmodalstate";
 
 // graph header: back, the owning run's goal, the derived status pill, cancel. The graph
-// replaces the fleet while open; back returns to it.
+// lives in the Stage modal; back dismisses that modal.
 export function DagGraphHeader({ group }: { group: TaskGroup }) {
     const status = group.status;
     const tone =
@@ -19,7 +19,7 @@ export function DagGraphHeader({ group }: { group: TaskGroup }) {
         <div className="flex items-center gap-3 border-b border-border bg-background px-4 py-2.5">
             <button
                 type="button"
-                onClick={closeDag}
+                onClick={closeDagModal}
                 className="rounded border border-edge-mid px-2.5 py-1 text-[11.5px] font-semibold text-secondary hover:border-edge-strong"
             >
                 ← Back

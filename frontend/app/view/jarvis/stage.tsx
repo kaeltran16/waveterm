@@ -34,6 +34,7 @@ import { EffortDetailView } from "./effortdetailview";
 import { EffortsListView } from "./effortslistview";
 import { peekFocus } from "./graphfocus";
 import { GraphPeek } from "./graphpeek";
+import { DagModal } from "../orchestrate/dagmodal";
 import { activeConversationAtom, graphPeekOpenAtom } from "./jarvisstore";
 import {
     activeSubjectAtom,
@@ -173,6 +174,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     title="Point me at some work."
                     body="I dispatch runs, keep the record of what they did, and remember it afterwards. Start a channel and I'll drive it — or just ask me something and I'll tell you what I can and can't ground."
                 />
+                <DagModal />
             </div>
         );
     }
@@ -298,6 +300,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                     />
                 ) : null}
             </AnimatePresence>
+            <DagModal />
         </div>
     );
 }

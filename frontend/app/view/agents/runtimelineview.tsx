@@ -7,7 +7,7 @@ import { getApi } from "@/app/store/global";
 import { fireAndForget } from "@/util/util";
 import { useState } from "react";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
-import { openDag } from "../orchestrate/dagstore";
+import { openDagLive } from "../orchestrate/dagmodalstate";
 import { approveGate, sendBackGate } from "./runactions";
 import { useRunEvents } from "./runeventstore";
 import {
@@ -126,7 +126,11 @@ function clickTarget(event: RunEvent, channel: Channel, run: Run): (() => void) 
         case "select-child":
             return () => setActiveRunId(channel.oid, t.childRunId);
         case "open-dag":
-            return () => openDag(run.dagoref ? "dag:" + run.dagoref : "");
+            return () => {
+                if (run.dagoref) {
+                    openDagLive(channel.oid, run.id, "dag:" + run.dagoref);
+                }
+            };
         case "focus-phase":
             return () => scrollToPhase(t.phaseIdx);
         case "approve-gate":

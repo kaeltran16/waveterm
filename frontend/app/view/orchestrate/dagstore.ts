@@ -1,21 +1,9 @@
 import { atom, type PrimitiveAtom } from "jotai";
-import { globalStore } from "../../store/jotaiStore";
 import { useWaveObjectValue } from "../../store/wos";
 
-// dagViewOrefAtom is the dag currently open in the graph surface ("dag:<id>"), or null.
-// No nav surface owns it: run cards open the graph, Escape/back clears it.
-// (cast to PrimitiveAtom: gotypes.d.ts declares a global Atom type that clashes with jotai's)
-export const dagViewOrefAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+// selectedTaskIdAtom is shared by the live graph and its detail rail. Opening or closing a modal resets
+// it through dagmodalstate.ts, while node clicks and keyboard navigation update it directly.
 export const selectedTaskIdAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
-
-export function openDag(oref: string) {
-    globalStore.set(dagViewOrefAtom, oref);
-    globalStore.set(selectedTaskIdAtom, null);
-}
-export function closeDag() {
-    globalStore.set(dagViewOrefAtom, null);
-    globalStore.set(selectedTaskIdAtom, null);
-}
 
 export interface DagViewNode {
     id: string;

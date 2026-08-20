@@ -18,7 +18,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useMemo } from "react";
 import { DagGraphHeader } from "./daggraph-header";
 import { computeLayeredLayout } from "./daglayout";
-import { buildViewData, closeDag, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
+import { buildViewData, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
 
 const STATE_TONE: Record<string, string> = {
     running: "border-accent/60 bg-accent/15 text-accent-soft",
@@ -139,13 +139,9 @@ function DagGraphInner({ oref }: { oref: string }) {
 
     const orderedIds = useMemo(() => (group ? group.tasks.map((t) => t.id) : []), [group]);
 
-    // j/k move the selection through the task list (layer order), Escape closes the graph.
+    // j/k move the selection through the task list (layer order). The modal owns Escape.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                closeDag();
-                return;
-            }
             if (e.key !== "j" && e.key !== "k") return;
             const cur = selectedId ? orderedIds.indexOf(selectedId) : -1;
             const next = e.key === "j" ? Math.min(cur + 1, orderedIds.length - 1) : Math.max(cur - 1, 0);
