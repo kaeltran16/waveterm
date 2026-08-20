@@ -4579,9 +4579,9 @@ const dagLifecycle = {
             title: "verify dag",
             parallelism: 2,
             tasks: [
-                { id: "t-0", label: "noop", state: "pending", runspec: { runtime: "claude", mode: "quick", goal: "do nothing, stop immediately" } },
-                { id: "t-1", label: "review", state: "pending", deps: ["t-0"], gate: true, runspec: { runtime: "claude", mode: "quick", goal: "review only, make no changes" } },
-                { id: "t-2", label: "noop 2", state: "pending", deps: ["t-1"], runspec: { runtime: "claude", mode: "quick", goal: "do nothing, stop immediately" } },
+                { id: "t-0", label: "noop", state: "pending", runspec: { runtime: "claude", tier: "capable", mode: "quick", goal: "do nothing, stop immediately" } },
+                { id: "t-1", label: "review", state: "pending", deps: ["t-0"], gate: true, runspec: { runtime: "claude", tier: "capable", mode: "quick", goal: "review only, make no changes" } },
+                { id: "t-2", label: "noop 2", state: "pending", deps: ["t-1"], runspec: { runtime: "claude", tier: "capable", mode: "quick", goal: "do nothing, stop immediately" } },
             ],
         });
         rec(
@@ -4621,29 +4621,31 @@ const dagLifecycle = {
         const runClicked = await clickRetry(
             `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('verify dag: do nothing, make no file changes, stop immediately'))`
         );
+        // task 9 removed the cockpit takeover: Open DAG opens a Stage-local modal (the jarvis surface
+        // stays mounted underneath) instead of replacing the fleet view.
         const openClicked = await clickRetry(
             `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open DAG'))`
         );
-        await h.goto("cockpit");
         await h.ev("new Promise((r) => setTimeout(r, 1200))");
+        const modalKind = await h.ev(`(() => (document.querySelector('[data-dag-modal-kind]') || {}).getAttribute?.('data-dag-modal-kind') || null)()`);
         const nodeCount = await h.ev(`(() => document.querySelectorAll('.react-flow__node').length)()`);
-        const backBtn = await h.ev(`(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Back')))()`);
+        const modalHeading = await h.ev(`(() => (document.querySelector('#dag-modal-heading') || {}).textContent || '')()`);
+        const closeBtn = await h.ev(`(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Close')))()`);
         rec(
-            "5. Open DAG -> cockpit shows the graph (3 nodes) with a Back button",
-            openClicked === true && nodeCount >= 3 && backBtn === true,
-            JSON.stringify({ channelClicked, runClicked, openClicked, nodeCount, backBtn })
+            "5. Open DAG -> Stage-local modal shows the live graph (3 nodes) with a heading",
+            openClicked === true && modalKind === "live" && nodeCount >= 3 && modalHeading === "Route DAG",
+            JSON.stringify({ channelClicked, runClicked, openClicked, modalKind, nodeCount, modalHeading, closeBtn })
         );
-        await h.shot("cdp-shots/dag-graph.png");
-        // back returns to the fleet
-        await h.ev(`(() => {
-            const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Back'));
-            if (!b) return false;
-            b.click();
+        await h.shot("cdp-shots/dag-modal.png");
+        // escape dismisses the modal (the modal state machine refuses close while launching, which is
+        // not in play here; the Close button and backdrop click share the same path)
+        const esc = await h.ev(`(async () => {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise((r) => setTimeout(r, 300));
             return true;
         })()`);
-        await h.ev("new Promise((r) => setTimeout(r, 300))");
-        const fleetBack = await h.ev(`(() => document.querySelectorAll('.react-flow__node').length === 0)()`);
-        rec("6. Back -> cockpit fleet returns", fleetBack === true, JSON.stringify({ fleetBack }));
+        const modalGone = await h.ev(`(() => !document.querySelector('[data-dag-modal-kind]'))()`);
+        rec("6. Escape -> modal closes, no cockpit takeover", modalGone === true, JSON.stringify({ esc, modalGone }));
 
         // cancel the group (kills the spawned worker path via run cancel)
         await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
