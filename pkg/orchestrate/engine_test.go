@@ -2,10 +2,12 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -73,7 +75,15 @@ func TestTaskPromptRunSpecGoalWins(t *testing.T) {
 	}
 }
 
+func allowWorkerHarnessForTest(t *testing.T) {
+	t.Helper()
+	old := validateWorkerHarness
+	validateWorkerHarness = func(string) error { return nil }
+	t.Cleanup(func() { validateWorkerHarness = old })
+}
+
 func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
+	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "engine-test", t.TempDir())
 	if err != nil {
@@ -142,6 +152,7 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 }
 
 func TestScheduleOncePublishesChildDone(t *testing.T) {
+	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 	cc := &captureClient{}
 	prevClient := wps.Broker.GetClient()
@@ -214,5 +225,144 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	}
 	if g.Tasks[0].State != TaskState_Done {
 		t.Fatalf("t-0 must derive done, got %s", g.Tasks[0].State)
+	}
+}
+
+func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "route-task", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.Runtime = "claude"
+	owner.Tier = "mid"
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{
+		ID: "t-0", Label: "pi task", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
+	}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	var gotCap runroute.Capability
+	old := spawnWorker
+	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+		gotCap = cap
+		return "tab:worker", nil
+	}
+	t.Cleanup(func() { spawnWorker = old })
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if gotCap.Runtime != "pi" || gotCap.Tier != "cheap" || len(gotCap.ModelArgs) != 2 || gotCap.ModelArgs[1] != consult.PiCheapModel {
+		t.Fatalf("spawn capability = %+v, want pi/cheap with flash model args", gotCap)
+	}
+	child, err := wstore.GetRun(ctx, ch.OID, g.Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Runtime != "pi" || child.Tier != "cheap" {
+		t.Fatalf("child route = %s/%s, want pi/cheap", child.Runtime, child.Tier)
+	}
+}
+
+func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "route-unavailable", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.Runtime = "claude"
+	owner.Tier = "capable"
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{
+		ID: "t-0", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
+	}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	oldValidate := validateWorkerHarness
+	validateWorkerHarness = func(string) error { return errors.New("unavailable") }
+	t.Cleanup(func() { validateWorkerHarness = oldValidate })
+	spawned := 0
+	oldSpawn := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		spawned++
+		return "tab:worker", nil
+	}
+	t.Cleanup(func() { spawnWorker = oldSpawn })
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Tasks[0].State != TaskState_Failed || spawned != 0 || g.Tasks[0].RunID != "" {
+		t.Fatalf("unavailable route state=%s run=%q spawned=%d", g.Tasks[0].State, g.Tasks[0].RunID, spawned)
+	}
+}
+
+func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "route-legacy", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.Runtime = "pi"
+	owner.Tier = "mid"
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, []waveobj.TaskNode{
+		{ID: "legacy", Label: "legacy", RunSpec: waveobj.RunSpec{Runtime: "claude"}},
+		{ID: "inherited", Label: "inherited"},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	caps := map[string]runroute.Capability{}
+	old := spawnWorker
+	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, _, prompt string) (string, error) {
+		if strings.Contains(prompt, "legacy") {
+			caps["legacy"] = cap
+		} else {
+			caps["inherited"] = cap
+		}
+		return "tab:worker", nil
+	}
+	t.Cleanup(func() { spawnWorker = old })
+
+	if err := ScheduleOnce(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"legacy", "inherited"} {
+		task := taskByID(&g, id)
+		child, cerr := wstore.GetRun(ctx, ch.OID, task.RunID)
+		if cerr != nil {
+			t.Fatal(cerr)
+		}
+		if id == "legacy" {
+			if caps[id].Runtime != "claude" || caps[id].Tier != "capable" || child.Runtime != "claude" || child.Tier != "capable" {
+				t.Fatalf("legacy route = cap %+v child %s/%s, want claude/capable", caps[id], child.Runtime, child.Tier)
+			}
+		} else if caps[id].Runtime != "pi" || caps[id].Tier != "mid" || child.Runtime != "pi" || child.Tier != "mid" {
+			t.Fatalf("inherited route = cap %+v child %s/%s, want pi/mid", caps[id], child.Runtime, child.Tier)
+		}
 	}
 }

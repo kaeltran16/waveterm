@@ -5,9 +5,11 @@ package wshserver
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -139,5 +141,124 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	}
 	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
 		t.Fatalf("repeated submit lifecycle events = %v, want unchanged %v", gotEvents, wantEvents)
+	}
+}
+
+func TestDagSubmitRejectsInvalidTaskRoutesBeforePersistence(t *testing.T) {
+	cases := []struct {
+		name        string
+		task        waveobj.TaskNode
+		unavailable bool
+	}{
+		{name: "runtime-only", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "pi"}}},
+		{name: "tier-only", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Tier: "cheap"}}},
+		{name: "unknown-runtime", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "missing", Tier: "capable"}}},
+		{name: "unknown-tier", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "missing"}}},
+		{name: "unsupported-pair", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "codex", Tier: "cheap"}}},
+		{name: "unavailable", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"}}, unavailable: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch, err := wstore.CreateChannel(ctx, "dag-route-"+tc.name, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+			owner.Runtime = "claude"
+			owner.Tier = "capable"
+			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+				t.Fatal(err)
+			}
+			oldValidate := validateHarness
+			validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+				if tc.unavailable && runtime == "pi" {
+					return harness.Spec{}, fmt.Errorf("harness %q unavailable", runtime)
+				}
+				spec, ok := harness.Lookup(runtime)
+				if !ok {
+					return harness.Spec{}, fmt.Errorf("unknown harness %q", runtime)
+				}
+				return spec, nil
+			}
+			t.Cleanup(func() { validateHarness = oldValidate })
+			runningBefore, err := wstore.GetDagsByStatus(ctx, orchestrate.DagStatus_Running)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spawned := 0
+			oldSpawn := jarvis.SpawnRunWorker
+			jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+				spawned++
+				return "tab:worker", nil
+			}
+			t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+
+			ws := &WshServer{}
+			if _, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+				ChannelId: ch.OID, RunId: owner.ID, Title: "g", Parallelism: 1, Tasks: []waveobj.TaskNode{tc.task},
+			}); err == nil {
+				t.Fatal("invalid route must be rejected")
+			}
+			got, err := wstore.GetRun(ctx, ch.OID, owner.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.DagORef != "" {
+				t.Fatalf("owner dagoref changed after rejected submit: %q", got.DagORef)
+			}
+			if spawned != 0 {
+				t.Fatalf("rejected submit spawned %d workers", spawned)
+			}
+			runningAfter, err := wstore.GetDagsByStatus(ctx, orchestrate.DagStatus_Running)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(runningAfter) != len(runningBefore) {
+				t.Fatalf("running dag count changed from %d to %d", len(runningBefore), len(runningAfter))
+			}
+		})
+	}
+}
+
+func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "dag-route-valid", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.Runtime = "claude"
+	owner.Tier = "mid"
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			return harness.Spec{}, fmt.Errorf("unknown harness %q", runtime)
+		}
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		return "tab:worker", nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+
+	g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: owner.ID, Title: "g", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{
+			{ID: "pinned", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"}},
+			{ID: "inherited"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.OID == "" {
+		t.Fatal("valid submit must persist a dag")
 	}
 }

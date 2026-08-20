@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -31,6 +33,24 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	}
 	if run.Mode != jarvis.RunMode_Orchestrator {
 		return nil, fmt.Errorf("dag requires an orchestrator-mode run")
+	}
+	ownerPin := runroute.NormalizeLegacy(run.Runtime, run.Tier)
+	for _, task := range data.Tasks {
+		runtimePresent := task.RunSpec.Runtime != ""
+		tierPresent := task.RunSpec.Tier != ""
+		if runtimePresent != tierPresent {
+			return nil, fmt.Errorf("task %q runtime and tier must be provided together", task.ID)
+		}
+		pin := ownerPin
+		if runtimePresent {
+			pin = waveobj.RoutePin{Runtime: task.RunSpec.Runtime, Tier: task.RunSpec.Tier}
+		}
+		if _, err := runroute.Resolve(pin); err != nil {
+			return nil, fmt.Errorf("task %q: %w", task.ID, err)
+		}
+		if _, err := validateHarness(pin.Runtime, harness.OperationRunWorker); err != nil {
+			return nil, fmt.Errorf("task %q: %w", task.ID, err)
+		}
 	}
 	g, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, data.Tasks, time.Now().UnixMilli())
 	if err != nil {

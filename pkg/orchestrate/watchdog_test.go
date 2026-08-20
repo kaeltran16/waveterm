@@ -79,6 +79,7 @@ func TestLastActivityForRunMatchesWorktreeSession(t *testing.T) {
 }
 
 func TestScheduleOnceFlagsStalledChild(t *testing.T) {
+	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 	cc := &captureClient{}
 	prevClient := wps.Broker.GetClient()
@@ -149,6 +150,7 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 }
 
 func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
+	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 	oldRoot := piSessionsRoot
 	root := t.TempDir()
@@ -212,6 +214,7 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 }
 
 func TestWatchdogTickAdvancesDag(t *testing.T) {
+	allowWorkerHarnessForTest(t)
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "watchdog", t.TempDir())
 	if err != nil {

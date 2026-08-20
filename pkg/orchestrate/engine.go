@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -37,6 +38,11 @@ var spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId
 	return jarvis.SpawnRunWorker(ctx, cap, workspaceId, projectName, cwd, prompt)
 }
 
+var validateWorkerHarness = func(runtime string) error {
+	_, err := harness.ValidateInstalled(runtime, harness.OperationRunWorker)
+	return err
+}
+
 // ScheduleOnce advances the DAG one step: derive task states from child runs, count
 // consecutive failures, spawn ready tasks (managed worktrees when the project is git),
 // persist, and publish waveobj + event updates. Idempotent — safe to call repeatedly.
@@ -58,10 +64,6 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		}
 	}
 	DeriveTaskStates(g, runs)
-	ownerCapability, err := runroute.Resolve(runroute.NormalizeLegacy(owner.Runtime, owner.Tier))
-	if err != nil {
-		return fmt.Errorf("resolving owning run route: %w", err)
-	}
 	// liveness + stall detection: refresh each running task's last-activity from its child's pi
 	// session writes; a running task silent past StallThreshold is flagged stalled and reported to the
 	// lead (nothing else ever notices a headless child that stopped progressing). A stalled task whose
@@ -110,6 +112,16 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 	}
 	for _, taskID := range NextToSpawn(g) {
 		task := taskByID(g, taskID)
+		pin := effectiveTaskRoute(task, owner)
+		capability, routeErr := runroute.Resolve(pin)
+		if routeErr != nil {
+			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+			continue
+		}
+		if harnessErr := validateWorkerHarness(pin.Runtime); harnessErr != nil {
+			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+			continue
+		}
 		cwd := owner.ProjectPath
 		if IsGitRepo(owner.ProjectPath) {
 			wt := worktreeDir(owner.ProjectPath, owner.ID+"-"+taskID)
@@ -125,13 +137,13 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 			}
 		}
 		prompt := taskPrompt(task, owner)
-		oref, err := spawnWorker(ctx, ownerCapability, owner.WorkspaceId, "", cwd, prompt)
+		oref, err := spawnWorker(ctx, capability, owner.WorkspaceId, "", cwd, prompt)
 		if err != nil {
 			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
 			continue
 		}
 		_ = oref // v1: no per-child steering surface; the child run row is the handle
-		childRun := childRunFromSpec(g, task, owner, cwd, prompt)
+		childRun := childRunFromSpec(g, task, owner, pin, cwd, prompt)
 		if err := wstore.AppendRun(ctx, g.ChannelId, childRun); err != nil {
 			return err
 		}
@@ -227,19 +239,24 @@ func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run) string {
 	return b.String()
 }
 
+func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run) waveobj.RoutePin {
+	if task.RunSpec.Runtime != "" || task.RunSpec.Tier != "" {
+		return runroute.NormalizeLegacy(task.RunSpec.Runtime, task.RunSpec.Tier)
+	}
+	return runroute.NormalizeLegacy(owner.Runtime, owner.Tier)
+}
+
 // childRunFromSpec builds the child run that owns the spawned worker. The child carries
 // DagORef so GroupForRun resolves the group from any run in the DAG, and its ProjectPath is
 // the worktree cwd so evidence/continuity machinery scopes to the isolated checkout.
-func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, cwd, goal string) waveobj.Run {
+func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, route waveobj.RoutePin, cwd, goal string) waveobj.Run {
 	mode := task.RunSpec.Mode
 	if mode == "" {
 		mode = jarvis.RunMode_Quick
 	}
-	runtime := task.RunSpec.Runtime
-	if runtime == "" {
-		runtime = owner.Runtime
-	}
 	run := jarvis.NewRun(goal, owner.WorkspaceId, cwd, nil, mode, jarvis.QuickPlaybook(), time.Now().UnixMilli())
+	run.Runtime = route.Runtime
+	run.Tier = route.Tier
 	run.DagORef = g.OID
 	run.BaseCommit = owner.BaseCommit
 	return run
