@@ -5,11 +5,11 @@
 // with an autocomplete. Talk: a plain message box addressed to the selected run's live worker. Both
 // render through the shared ComposerShell and drive their vocabulary from composercommand.
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAtomValue } from "jotai";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { type AgentVM } from "./agentsviewmodel";
-import { activeMentionQuery } from "./channelderive";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
+import { activeMentionQuery } from "./channelderive";
 import { ComposerShell } from "./composer-shell";
 import { type UseComposerAttachments } from "./composerattachments";
 import {
@@ -18,9 +18,11 @@ import {
     resolveComposerDispatch,
     runFooterFor,
     type LaunchMode,
+    type RunShape,
 } from "./composercommand";
 import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
+import { RoutePicker } from "./routepicker";
 import { runtimeMeta } from "./runtimemeta";
 
 // Launch face: a plain goal input driven by typed @quick/@run/@ask commands (a bare goal defaults to
@@ -35,7 +37,12 @@ export function LaunchComposer({
     channelName,
     pending,
     attach,
+    shape,
+    onShapeChange,
+    route,
+    onRouteChange,
     harnessOpenRequest = 0,
+    routeOpenRequest = 0,
 }: {
     value: string;
     onChange: (next: string) => void;
@@ -44,7 +51,12 @@ export function LaunchComposer({
     channelName: string;
     pending: boolean;
     attach: UseComposerAttachments;
+    shape: RunShape;
+    onShapeChange: (shape: RunShape) => void;
+    route: RoutePin | null;
+    onRouteChange: (route: RoutePin | null) => void;
     harnessOpenRequest?: number;
+    routeOpenRequest?: number;
 }) {
     const taRef = useRef<HTMLTextAreaElement>(null);
     const pendingCaret = useRef<number | null>(null);
@@ -55,6 +67,7 @@ export function LaunchComposer({
 
     const cmd = parseComposerCommand(value, harnessRuntimeIds(harnesses));
     const mode: LaunchMode = pending ? "run" : cmd.mode;
+    const selectedShape: RunShape = mode === "quick" ? "quick" : shape;
     const dispatch = resolveComposerDispatch({
         command: cmd,
         preferredRuntime: pref.route?.runtime ?? "",
@@ -64,9 +77,7 @@ export function LaunchComposer({
     const blocked = dispatch.kind === "blocked";
     // only a leading `@` token is a command — mid-text `@` (start > 0) is not
     const matches =
-        sugg && sugg.start === 0
-            ? LAUNCH_COMMANDS.filter((c) => c.cmd.startsWith("@" + sugg.query.toLowerCase()))
-            : [];
+        sugg && sugg.start === 0 ? LAUNCH_COMMANDS.filter((c) => c.cmd.startsWith("@" + sugg.query.toLowerCase())) : [];
     const open = matches.length > 0;
 
     useEffect(() => setSel(0), [sugg?.query, sugg?.start]);
@@ -120,12 +131,17 @@ export function LaunchComposer({
         }
     };
 
-    const behavior =
-        pending || mode === "run"
-            ? runFooterFor(profile)
-            : mode === "quick"
-              ? `→ spawns one worker in #${channelName}`
-              : "→ no worker · answer lands in Consults";
+    const runBehavior =
+        selectedShape === "orchestrator"
+            ? "→ review DAG before launch"
+            : selectedShape === "quick"
+              ? `→ direct quick launch in #${channelName}`
+              : "→ direct pipeline launch";
+    const behavior = pending
+        ? runFooterFor(profile)
+        : mode === "run" || mode === "quick"
+          ? runBehavior
+          : "→ no worker · answer lands in Consults";
     // An explicit `@ask <runtime>` is a one-off: show the effective harness and that the preference is
     // unchanged. Bare ask uses the preferred harness, so no one-off copy is needed.
     const oneOffRuntime = mode === "ask" && cmd.runtime != null ? cmd.runtime : undefined;
@@ -193,11 +209,38 @@ export function LaunchComposer({
             }
             footerLeft={
                 <>
-                    <HarnessPicker
-                        operation={mode === "ask" ? "consult" : "run-worker"}
-                        placement="top-start"
-                        openRequest={harnessOpenRequest}
-                    />
+                    {mode !== "ask" && !pending ? (
+                        <div className="flex items-center gap-1 rounded-[7px] border border-border bg-surface px-1 py-0.5">
+                            {(["pipeline", "orchestrator", "quick"] as RunShape[]).map((option) => (
+                                <button
+                                    key={option}
+                                    type="button"
+                                    aria-pressed={selectedShape === option}
+                                    disabled={mode === "quick"}
+                                    onClick={() => onShapeChange(option)}
+                                    className={
+                                        "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
+                                        (selectedShape === option
+                                            ? "bg-accentbg text-accent-soft"
+                                            : "text-muted hover:text-secondary")
+                                    }
+                                >
+                                    {option}
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+                    {mode !== "ask" && !pending ? (
+                        <RoutePicker
+                            value={route}
+                            onChange={onRouteChange}
+                            placement="top-start"
+                            openRequest={routeOpenRequest}
+                        />
+                    ) : null}
+                    {mode === "ask" ? (
+                        <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
+                    ) : null}
                     <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
                 </>
             }

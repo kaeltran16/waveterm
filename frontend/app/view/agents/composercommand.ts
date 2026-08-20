@@ -7,15 +7,53 @@
 // run strategy (from ⚙) as a one-liner; composerFace picks Launch vs Talk from whether the selected run
 // has a live worker. No React/jotai — unit-tested in composercommand.test.ts.
 
-import { steerTarget } from "./runmodel";
-import { supportsOperation, type HarnessOperation } from "./harnesspicker";
 import type { AgentVM } from "./agentsviewmodel";
+import { supportsOperation, type HarnessOperation } from "./harnesspicker";
+import type { EffectiveRoute } from "./route";
+import { steerTarget } from "./runmodel";
 
 export type LaunchMode = "quick" | "run" | "ask";
 export interface ComposerCommand {
     mode: LaunchMode;
     runtime?: string;
     body: string;
+}
+
+export type RunShape = "pipeline" | "orchestrator" | "quick";
+
+export type DagDraftRequest = {
+    channelId: string;
+    goal: string;
+    route: RoutePin;
+};
+
+export type RunCreationDecision =
+    | { kind: "create-run"; channelId: string; goal: string; mode: "pipeline" | "quick"; route: RoutePin }
+    | { kind: "dag-draft"; request: DagDraftRequest }
+    | { kind: "blocked"; focusRoute: boolean; reason: string };
+
+export function resolveRunCreationDecision(input: {
+    channelId: string;
+    goal: string;
+    shape: RunShape;
+    route: EffectiveRoute | null;
+}): RunCreationDecision {
+    if (input.route == null || input.route.capability == null) {
+        return { kind: "blocked", focusRoute: true, reason: "Choose an available route" };
+    }
+    if (input.shape === "orchestrator") {
+        return {
+            kind: "dag-draft",
+            request: { channelId: input.channelId, goal: input.goal, route: input.route.pin },
+        };
+    }
+    return {
+        kind: "create-run",
+        channelId: input.channelId,
+        goal: input.goal,
+        mode: input.shape,
+        route: input.route.pin,
+    };
 }
 
 export const LAUNCH_COMMANDS: { cmd: string; mode: LaunchMode; desc: string }[] = [
@@ -73,7 +111,14 @@ export function resolveComposerDispatch(input: ResolveComposerDispatchInput): Co
             }
             return { kind: "ask", runtime: command.runtime, body: command.body, oneOff: true };
         }
-        const dispatch = resolvePreferredForOperation(runtime, preferredRuntime, preferenceSaving, harnesses, "consult", command.body);
+        const dispatch = resolvePreferredForOperation(
+            runtime,
+            preferredRuntime,
+            preferenceSaving,
+            harnesses,
+            "consult",
+            command.body
+        );
         if (dispatch.kind === "blocked") {
             return dispatch;
         }
@@ -81,7 +126,14 @@ export function resolveComposerDispatch(input: ResolveComposerDispatchInput): Co
     }
     // run / quick use the visible preferred harness, validated for unattended workers.
     const runtime = preferredRuntime;
-    const dispatch = resolvePreferredForOperation(runtime, preferredRuntime, preferenceSaving, harnesses, "run-worker", command.body);
+    const dispatch = resolvePreferredForOperation(
+        runtime,
+        preferredRuntime,
+        preferenceSaving,
+        harnesses,
+        "run-worker",
+        command.body
+    );
     if (dispatch.kind === "blocked") {
         return dispatch;
     }

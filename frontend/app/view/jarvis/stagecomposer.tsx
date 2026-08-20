@@ -8,21 +8,29 @@
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage, steerWorker } from "@/app/view/agents/channelactions";
-import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { LaunchComposer, TalkComposer } from "@/app/view/agents/channelcomposers";
+import { resolveTargetChannel } from "@/app/view/agents/channelderive";
 import { type RosterEntry } from "@/app/view/agents/channelmessages";
-import { LAUNCH_COMMANDS, composerFace, parseComposerCommand, resolveComposerDispatch } from "@/app/view/agents/composercommand";
 import { appendAttachments, useComposerAttachments } from "@/app/view/agents/composerattachments";
+import {
+    LAUNCH_COMMANDS,
+    composerFace,
+    parseComposerCommand,
+    resolveComposerDispatch,
+    resolveRunCreationDecision,
+    type RunShape,
+} from "@/app/view/agents/composercommand";
 import { harnessRuntimeIds } from "@/app/view/agents/harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnessstore";
+import { resolveEffectiveRoute, routeForRuntime } from "@/app/view/agents/route";
 import { createRun, pendingRunDraftAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
-import { routeForRuntime } from "@/app/view/agents/route";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
+import { openDagDraft } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
-import { resolveComposerTarget } from "./composertarget";
+import { useEffect, useRef, useState } from "react";
 import { askAcrossWork, briefingAskStateAtom, briefingStateAtom } from "./briefingstore";
+import { resolveComposerTarget } from "./composertarget";
 import type { ScopeChip } from "./jarviscontract";
 import { activeConversationAtom, activeConversationIdAtom, submitJarvisQuery } from "./jarvisstore";
 import {
@@ -35,8 +43,8 @@ import {
     setComposingRun,
     setJarvisDraft,
 } from "./jarvissubjectstore";
-import { STAGE_BAND_INSET, STAGE_GUTTER } from "./stagemeasure";
 import type { StageComposition } from "./stagecompose";
+import { STAGE_BAND_INSET, STAGE_GUTTER } from "./stagemeasure";
 
 function TalkingTo({ label, audience }: { label: string; audience: "worker" | "jarvis" }) {
     return (
@@ -239,6 +247,31 @@ export function StageComposer({
     const harnesses = useAtomValue(harnessesAtom);
     const runtimeIds = harnessRuntimeIds(harnesses);
     const [harnessOpenRequest, setHarnessOpenRequest] = useState(0);
+    const [routeOpenRequest, setRouteOpenRequest] = useState(0);
+    const [shape, setShape] = useState<RunShape>(profile?.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
+    const [runRoute, setRunRoute] = useState<RoutePin | null>(route ?? pref.route);
+    const shapeTouched = useRef(false);
+    const routeTouched = useRef(false);
+    const channelIdentity = channel?.oid ?? null;
+
+    useEffect(() => {
+        shapeTouched.current = false;
+        routeTouched.current = false;
+        setShape("pipeline");
+        setRunRoute(null);
+    }, [channelIdentity]);
+
+    useEffect(() => {
+        if (!shapeTouched.current && profile != null) {
+            setShape(profile.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
+        }
+    }, [channelIdentity, profile?.defaultmode]);
+
+    useEffect(() => {
+        if (!routeTouched.current && (route != null || pref.route != null)) {
+            setRunRoute(route ?? pref.route);
+        }
+    }, [channelIdentity, route, pref.route]);
 
     const briefingAskState = useAtomValue(briefingAskStateAtom);
     const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
@@ -280,10 +313,8 @@ export function StageComposer({
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const phaseLabel = run ? run.phases?.[currentPhaseIndex(run)]?.kind : undefined;
 
-    // A plain @run sends no strategy: the channel's setting is the server's to resolve, and CreateRun
-    // reads any non-empty mode as a per-dispatch override — so echoing back the profile we were last
-    // handed is exactly how a just-saved ⚙ change got overridden by the value it replaced. `quick` is the
-    // one real override, chosen per dispatch by design.
+    // The run shape is a per-dispatch choice. Pipeline and quick create immediately; orchestrator hands
+    // the goal to the DAG draft flow without creating a Run.
     const launchInto = (channelId: string, goal: string, route: RoutePin, mode?: string) =>
         fireAndForget(async () => {
             const created = await createRun(channelId, goal, route, { mode });
@@ -362,23 +393,37 @@ export function StageComposer({
             return;
         }
         if (dispatch.kind === "run") {
-            let route: RoutePin | undefined;
-            try {
-                const effective = await resolveChannelLaunchRoute(channel.oid);
-                route = cmd.runtime == null ? effective : routeForRuntime(cmd.runtime, effective, harnesses);
-            } catch {
-                setHarnessOpenRequest((n) => n + 1);
-                return;
+            let selectedRoute = runRoute;
+            if (selectedRoute == null) {
+                try {
+                    selectedRoute = await resolveChannelLaunchRoute(channel.oid);
+                } catch {
+                    setRouteOpenRequest((n) => n + 1);
+                    return;
+                }
             }
-            if (route == null) {
-                setHarnessOpenRequest((n) => n + 1);
+            const effectiveRoute = resolveEffectiveRoute({ settings: selectedRoute, harnesses });
+            const decision = resolveRunCreationDecision({
+                channelId: channel.oid,
+                goal: dispatch.body,
+                shape: dispatch.mode === "quick" ? "quick" : shape,
+                route: effectiveRoute,
+            });
+            if (decision.kind === "blocked") {
+                if (decision.focusRoute) {
+                    setRouteOpenRequest((n) => n + 1);
+                }
                 return;
             }
             setDraft("");
             attach.clear();
             // whatever this dispatches, the Launch face has done its job — release the face back to the run.
             setComposingRun(channel.oid, false);
-            launchInto(channel.oid, dispatch.body, route, dispatch.mode === "quick" ? "quick" : undefined);
+            if (decision.kind === "dag-draft") {
+                openDagDraft(decision.request);
+            } else {
+                launchInto(channel.oid, decision.goal, decision.route, decision.mode);
+            }
             return;
         }
         setDraft("");
@@ -442,94 +487,107 @@ export function StageComposer({
     return (
         <div data-jarvis-composer className={cn(STAGE_BAND_INSET, "flex-none border-t border-border bg-background")}>
             <div className={cn(STAGE_GUTTER, "pb-4 pt-2.5")}>
-            <TalkingTo label={target.label} audience={target.audience} />
-            {picking ? (
-                <ChannelPicker channels={channels} onPick={dispatchFromPicker} onCancel={() => setPicking(false)} />
-            ) : null}
-            {onChannel && channel != null ? (
-                face.face === "talk" ? (
-                    <TalkComposer
-                        worker={face.worker}
-                        phaseLabel={phaseLabel}
-                        value={draft}
+                <TalkingTo label={target.label} audience={target.audience} />
+                {picking ? (
+                    <ChannelPicker channels={channels} onPick={dispatchFromPicker} onCancel={() => setPicking(false)} />
+                ) : null}
+                {onChannel && channel != null ? (
+                    face.face === "talk" ? (
+                        <TalkComposer
+                            worker={face.worker}
+                            phaseLabel={phaseLabel}
+                            value={draft}
+                            onChange={setDraft}
+                            onSubmit={sendOnChannel}
+                            onNewRun={() => setComposingRun(channel.oid, true)}
+                            attach={attach}
+                        />
+                    ) : (
+                        <>
+                            {radarDraft != null ? (
+                                <div className="mb-2 flex items-center gap-2.5 rounded-[10px] border border-accent/30 bg-accentbg px-3 py-2">
+                                    <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-accent-soft">
+                                        From Radar
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
+                                        {draftOrphaned
+                                            ? "No channel for this finding's project — create one to investigate it."
+                                            : "Review the goal, then start it — nothing dispatches until you do."}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRadarDraft(null)}
+                                        className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
+                                    >
+                                        Discard
+                                    </button>
+                                </div>
+                            ) : null}
+                            {composing && radarDraft == null && naturalFace.face === "talk" ? (
+                                <div className="mb-2 flex items-center gap-2.5 rounded-[10px] border border-edge-mid bg-surface px-3 py-2">
+                                    <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-muted">
+                                        New run
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
+                                        The run already going keeps running — this starts a second one.
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setComposingRun(channel.oid, false)}
+                                        className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : null}
+                            <LaunchComposer
+                                value={value}
+                                onChange={
+                                    radarDraft != null
+                                        ? (next) => setRadarDraft({ ...radarDraft, goal: next })
+                                        : setDraft
+                                }
+                                onSubmit={sendOnChannel}
+                                profile={profile}
+                                channelName={channel.name ?? "channel"}
+                                pending={radarDraft != null}
+                                attach={attach}
+                                shape={shape}
+                                onShapeChange={(next) => {
+                                    shapeTouched.current = true;
+                                    setShape(next);
+                                }}
+                                route={runRoute}
+                                onRouteChange={(next) => {
+                                    routeTouched.current = true;
+                                    setRunRoute(next);
+                                }}
+                                harnessOpenRequest={harnessOpenRequest}
+                                routeOpenRequest={routeOpenRequest}
+                            />
+                        </>
+                    )
+                ) : comp.composerTarget === "jarvis-briefing" ? (
+                    <BriefingAsk
+                        draft={draft}
                         onChange={setDraft}
-                        onSubmit={sendOnChannel}
-                        onNewRun={() => setComposingRun(channel.oid, true)}
-                        attach={attach}
+                        onSubmit={askJarvis}
+                        pending={briefingPending}
+                        disabled={briefingPending || briefingDisabled}
                     />
                 ) : (
-                    <>
-                        {radarDraft != null ? (
-                            <div className="mb-2 flex items-center gap-2.5 rounded-[10px] border border-accent/30 bg-accentbg px-3 py-2">
-                                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-accent-soft">
-                                    From Radar
-                                </span>
-                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
-                                    {draftOrphaned
-                                        ? "No channel for this finding's project — create one to investigate it."
-                                        : "Review the goal, then start it — nothing dispatches until you do."}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setRadarDraft(null)}
-                                    className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
-                                >
-                                    Discard
-                                </button>
-                            </div>
-                        ) : null}
-                        {composing && radarDraft == null && naturalFace.face === "talk" ? (
-                            <div className="mb-2 flex items-center gap-2.5 rounded-[10px] border border-edge-mid bg-surface px-3 py-2">
-                                <span className="font-mono text-[9px] font-semibold uppercase tracking-[.1em] text-muted">
-                                    New run
-                                </span>
-                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
-                                    The run already going keeps running — this starts a second one.
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setComposingRun(channel.oid, false)}
-                                    className="cursor-pointer font-mono text-[10px] text-muted hover:text-secondary"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        ) : null}
-                        <LaunchComposer
-                            value={value}
-                            onChange={
-                                radarDraft != null ? (next) => setRadarDraft({ ...radarDraft, goal: next }) : setDraft
-                            }
-                            onSubmit={sendOnChannel}
-                            profile={profile}
-                            channelName={channel.name ?? "channel"}
-                            pending={radarDraft != null}
-                            attach={attach}
-                            harnessOpenRequest={harnessOpenRequest}
-                        />
-                    </>
-                )
-            ) : comp.composerTarget === "jarvis-briefing" ? (
-                <BriefingAsk
-                    draft={draft}
-                    onChange={setDraft}
-                    onSubmit={askJarvis}
-                    pending={briefingPending}
-                    disabled={briefingPending || briefingDisabled}
-                />
-            ) : (
-                <JarvisAsk
-                    draft={draft}
-                    onChange={setDraft}
-                    onSubmit={askJarvis}
-                    placeholder={
-                        comp.composerTarget === "jarvis-record"
-                            ? "Ask Jarvis about this record…"
-                            : "Ask Jarvis anything…"
-                    }
-                    chips={conversation.scope.chips}
-                />
-            )}
+                    <JarvisAsk
+                        draft={draft}
+                        onChange={setDraft}
+                        onSubmit={askJarvis}
+                        placeholder={
+                            comp.composerTarget === "jarvis-record"
+                                ? "Ask Jarvis about this record…"
+                                : "Ask Jarvis anything…"
+                        }
+                        chips={conversation.scope.chips}
+                    />
+                )}
             </div>
         </div>
     );

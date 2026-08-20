@@ -6,9 +6,11 @@ import {
     LAUNCH_COMMANDS,
     parseComposerCommand,
     resolveComposerDispatch,
+    resolveRunCreationDecision,
     runFooterFor,
     type ResolveComposerDispatchInput,
 } from "./composercommand";
+import type { EffectiveRoute } from "./route";
 
 const ids = new Set(["claude", "codex", "opencode", "pi"]);
 
@@ -31,7 +33,10 @@ function dispatchInput(partial: Partial<ResolveComposerDispatchInput>): ResolveC
 
 describe("parseComposerCommand", () => {
     it("defaults a bare goal to run", () => {
-        expect(parseComposerCommand("fix auth token refresh", ids)).toEqual({ mode: "run", body: "fix auth token refresh" });
+        expect(parseComposerCommand("fix auth token refresh", ids)).toEqual({
+            mode: "run",
+            body: "fix auth token refresh",
+        });
     });
     it("parses @quick", () => {
         expect(parseComposerCommand("@quick add a spinner", ids)).toEqual({ mode: "quick", body: "add a spinner" });
@@ -46,7 +51,11 @@ describe("parseComposerCommand", () => {
         });
     });
     it("parses @ask <runtime> override from the catalog", () => {
-        expect(parseComposerCommand("@ask codex inspect", ids)).toEqual({ mode: "ask", runtime: "codex", body: "inspect" });
+        expect(parseComposerCommand("@ask codex inspect", ids)).toEqual({
+            mode: "ask",
+            runtime: "codex",
+            body: "inspect",
+        });
     });
     it("accepts opencode as an @ask runtime override", () => {
         expect(parseComposerCommand("@ask opencode audit the auth path", ids)).toEqual({
@@ -66,7 +75,10 @@ describe("parseComposerCommand", () => {
         expect(parseComposerCommand("@ask unknown inspect", ids)).toEqual({ mode: "ask", body: "unknown inspect" });
     });
     it("does not treat a mid-text @ as a command", () => {
-        expect(parseComposerCommand("add @mentions to the composer", ids)).toEqual({ mode: "run", body: "add @mentions to the composer" });
+        expect(parseComposerCommand("add @mentions to the composer", ids)).toEqual({
+            mode: "run",
+            body: "add @mentions to the composer",
+        });
     });
     it("trims the goal", () => {
         expect(parseComposerCommand("  @quick   spin  ", ids)).toEqual({ mode: "quick", body: "spin" });
@@ -75,7 +87,9 @@ describe("parseComposerCommand", () => {
 
 describe("resolveComposerDispatch", () => {
     it("blocks a run without a preferred harness and asks to open the picker", () => {
-        expect(resolveComposerDispatch(dispatchInput({ command: { mode: "run", body: "fix" }, preferredRuntime: "" }))).toEqual({
+        expect(
+            resolveComposerDispatch(dispatchInput({ command: { mode: "run", body: "fix" }, preferredRuntime: "" }))
+        ).toEqual({
             kind: "blocked",
             focusHarness: true,
             reason: "Choose a harness",
@@ -137,15 +151,73 @@ describe("resolveComposerDispatch", () => {
     });
 });
 
+describe("resolveRunCreationDecision", () => {
+    const route = {
+        pin: { runtime: "opencode", tier: "capable" },
+        source: "settings" as const,
+        capability: {} as NonNullable<EffectiveRoute["capability"]>,
+    };
+
+    it("creates a pipeline run directly", () => {
+        expect(
+            resolveRunCreationDecision({ channelId: "channel-1", goal: "fix auth", shape: "pipeline", route })
+        ).toEqual({
+            kind: "create-run",
+            channelId: "channel-1",
+            goal: "fix auth",
+            mode: "pipeline",
+            route: route.pin,
+        });
+    });
+
+    it("creates a quick run directly", () => {
+        expect(
+            resolveRunCreationDecision({ channelId: "channel-1", goal: "check status", shape: "quick", route })
+        ).toEqual({
+            kind: "create-run",
+            channelId: "channel-1",
+            goal: "check status",
+            mode: "quick",
+            route: route.pin,
+        });
+    });
+
+    it("returns only the orchestrator draft request", () => {
+        expect(
+            resolveRunCreationDecision({ channelId: "channel-1", goal: "plan migration", shape: "orchestrator", route })
+        ).toEqual({
+            kind: "dag-draft",
+            request: { channelId: "channel-1", goal: "plan migration", route: route.pin },
+        });
+    });
+
+    it("blocks an unavailable route", () => {
+        expect(
+            resolveRunCreationDecision({
+                channelId: "channel-1",
+                goal: "fix auth",
+                shape: "pipeline",
+                route: { pin: route.pin, source: "settings" },
+            })
+        ).toEqual({ kind: "blocked", focusRoute: true, reason: "Choose an available route" });
+    });
+});
+
 describe("runFooterFor", () => {
     it("orchestrator", () => {
-        expect(runFooterFor({ playbook: [], defaultmode: "orchestrator" })).toBe("→ adaptive lead · splits the work · set in ⚙");
+        expect(runFooterFor({ playbook: [], defaultmode: "orchestrator" })).toBe(
+            "→ adaptive lead · splits the work · set in ⚙"
+        );
     });
     it("pipeline with gate", () => {
-        expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: true })).toBe("→ pipeline run · stops at a review gate · set in ⚙");
+        expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: true })).toBe(
+            "→ pipeline run · stops at a review gate · set in ⚙"
+        );
     });
     it("pipeline no gate", () => {
-        expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: false })).toBe("→ pipeline run · no gate · set in ⚙");
+        expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: false })).toBe(
+            "→ pipeline run · no gate · set in ⚙"
+        );
     });
     it("says the strategy is unresolved rather than asserting a default", () => {
         expect(runFooterFor(undefined)).toBe("→ resolving channel strategy…");
