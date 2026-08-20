@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -32,8 +33,8 @@ const (
 // spawnWorker is the child-run launch seam. Package var so engine tests can stub it;
 // defaults to jarvis.SpawnRunWorker, read at call time so external stubs (e.g. swapping
 // jarvis.SpawnRunWorker in handler tests) take effect too.
-var spawnWorker = func(ctx context.Context, runtime, workspaceId, projectName, cwd, prompt string) (string, error) {
-	return jarvis.SpawnRunWorker(ctx, runtime, workspaceId, projectName, cwd, prompt)
+var spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	return jarvis.SpawnRunWorker(ctx, cap, workspaceId, projectName, cwd, prompt)
 }
 
 // ScheduleOnce advances the DAG one step: derive task states from child runs, count
@@ -57,6 +58,10 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		}
 	}
 	DeriveTaskStates(g, runs)
+	ownerCapability, err := runroute.Resolve(runroute.NormalizeLegacy(owner.Runtime, owner.Tier))
+	if err != nil {
+		return fmt.Errorf("resolving owning run route: %w", err)
+	}
 	// liveness + stall detection: refresh each running task's last-activity from its child's pi
 	// session writes; a running task silent past StallThreshold is flagged stalled and reported to the
 	// lead (nothing else ever notices a headless child that stopped progressing). A stalled task whose
@@ -120,7 +125,7 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 			}
 		}
 		prompt := taskPrompt(task, owner)
-		oref, err := spawnWorker(ctx, owner.Runtime, owner.WorkspaceId, "", cwd, prompt)
+		oref, err := spawnWorker(ctx, ownerCapability, owner.WorkspaceId, "", cwd, prompt)
 		if err != nil {
 			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
 			continue

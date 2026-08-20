@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -31,10 +32,10 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 	}
 
 	var calls int32
-	var spawnedWith string
+	var spawnedWith runroute.Capability
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
-		spawnedWith = runtime
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+		spawnedWith = cap
 		atomic.AddInt32(&calls, 1)
 		time.Sleep(30 * time.Millisecond) // widen the read->spawn->attach window so a truly-concurrent second caller overlaps
 		return waveobj.MakeORef(waveobj.OType_Tab, "faketab").String(), nil
@@ -56,8 +57,8 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 	if got := atomic.LoadInt32(&calls); got != 1 {
 		t.Fatalf("SpawnRunWorker calls = %d, want exactly 1", got)
 	}
-	if spawnedWith != "opencode" {
-		t.Fatalf("worker spawned with runtime %q, want the persisted opencode", spawnedWith)
+	if spawnedWith.Runtime != "opencode" || spawnedWith.Tier != "capable" {
+		t.Fatalf("worker spawned with capability %+v, want opencode/capable", spawnedWith)
 	}
 	out, err := wstore.GetRun(ctx, ch.OID, run.ID)
 	if err != nil {

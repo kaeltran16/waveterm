@@ -500,6 +500,7 @@ declare global {
         workspaceid: string;
         goal: string;
         runtime: string;
+        tier: string;
         playbookid?: string;
         mode?: string;
         plangate?: boolean;

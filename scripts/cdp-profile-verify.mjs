@@ -82,7 +82,7 @@ const script = `(async () => {
   await rpc("setchannelprofile", { channelid: channelId, override: { playbook: [{ kind: "execute", skill: "custom:only", state: "pending" }] } });
   const g3 = await rpc("getjarvisprofile", { channelid: channelId });
   const created = await rpc("createrun", { channelid: channelId, workspaceid: workspaceId,
-    goal: "profile-playbook-test: do nothing, make no changes, stop immediately" });
+    goal: "profile-playbook-test: do nothing, make no changes, stop immediately", runtime: "claude", tier: "capable" });
   const run = created.run;
   const w0 = run.phases[0].workerorefs && run.phases[0].workerorefs[0];
   rec("3. playbook override -> getjarvisprofile 1 phase; CreateRun uses resolved playbook (1 phase, execute)",

@@ -20,6 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -198,7 +199,15 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	if err != nil {
 		return err
 	}
-	spawned, spawnErr := jarvis.EnsureWorkers(ctx, run, projectName)
+	pin := runroute.NormalizeLegacy(run.Runtime, run.Tier)
+	cap, routeErr := runroute.Resolve(pin)
+	if routeErr != nil {
+		return routeErr
+	}
+	if _, harnessErr := validateHarness(pin.Runtime, harness.OperationRunWorker); harnessErr != nil {
+		return harnessErr
+	}
+	spawned, spawnErr := jarvis.EnsureWorkers(ctx, run, cap, projectName)
 	if len(spawned) > 0 {
 		if uerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 			for idx, oref := range spawned {
@@ -320,9 +329,12 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		}
 		effortRef = &waveobj.RunEffortRef{EffortOID: data.EffortOID, ChunkLabel: data.ChunkLabel}
 	}
-	// Every new Run needs an explicit, run-worker-capable, installed harness. Validated before any run
-	// is persisted or a worker spawned; an unknown/unsupported/unavailable runtime is rejected outright.
-	if _, err := validateHarness(data.Runtime, harness.OperationRunWorker); err != nil {
+	// Resolve and validate the complete route before loading or persisting any run state.
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: data.Runtime, Tier: data.Tier})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := validateHarness(cap.Runtime, harness.OperationRunWorker); err != nil {
 		return nil, err
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
@@ -336,7 +348,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if data.DeferStart {
 		run.Status = jarvis.RunStatus_Planning
 	}
-	run.Runtime = data.Runtime // immutable after Start; every phase and child inherits this
+	run.Runtime = cap.Runtime // immutable after Start; every phase and child inherits this
+	run.Tier = string(cap.Tier)
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
@@ -429,14 +442,20 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 		mode = parent.Mode // inherit the channel strategy the parent run was created with
 	}
 	resolved := jarvis.ResolveProfile(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(m.Channel))
+	pin := runroute.NormalizeLegacy(parent.Runtime, parent.Tier)
+	cap, err := runroute.Resolve(pin)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := validateHarness(pin.Runtime, harness.OperationRunWorker); err != nil {
+		return nil, err
+	}
 	childMode, playbook := childRunPlan(resolved, mode)
 	child := jarvis.NewRun(data.Goal, parent.WorkspaceId, parent.ProjectPath, parent.Principles, childMode, playbook, time.Now().UnixMilli())
 	// Children inherit the parent's runtime server-side; an empty legacy parent runtime becomes explicit
 	// claude so the child is never re-resolved as a legacy object.
-	child.Runtime = parent.Runtime
-	if child.Runtime == "" {
-		child.Runtime = "claude"
-	}
+	child.Runtime = cap.Runtime
+	child.Tier = string(cap.Tier)
 	child.ParentLeadORef = data.ORef
 	if head, herr := gitinfo.HeadCommit(ctx, parent.ProjectPath); herr == nil {
 		child.BaseCommit = head

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -96,7 +97,7 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 
 	var spawned []string
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, runtime, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
 		spawned = append(spawned, prompt)
 		return "tab:worker", nil
 	}
@@ -171,7 +172,7 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	}
 
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, runtime, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
 		return "tab:worker", nil
 	}
 	defer func() { spawnWorker = old }()

@@ -84,7 +84,7 @@ const e2e = `(async () => {
   }
 
   // STEP 1: principles reach the phase-0 worker prompt
-  const created = await rpc("createrun", { channelid: channelId, workspaceid: workspaceId, goal: "add a coupon field to checkout" });
+  const created = await rpc("createrun", { channelid: channelId, workspaceid: workspaceId, goal: "add a coupon field to checkout", runtime: "claude", tier: "capable" });
   const run = created.run, runId = run.id;
   const w0 = run.phases[0].workerorefs && run.phases[0].workerorefs[0];
   const meta0 = await blockMeta(w0);

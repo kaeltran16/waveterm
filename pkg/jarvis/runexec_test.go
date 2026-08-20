@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/consult"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 )
@@ -22,12 +24,56 @@ func TestRunWorkerSpecFor(t *testing.T) {
 		{"claude", "claude", []string{"--dangerously-skip-permissions", "do work"}},
 		{"codex", "codex", []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
 		{"opencode", "opencode", []string{"--auto", "--prompt", "do work"}},
-		{"pi", "pi", []string{"do work"}},
+		{"pi", "pi", []string{"--model", consult.PiMidModel, "do work"}},
 	}
 	for _, tt := range tests {
-		spec, ok := RunWorkerSpecFor(tt.runtime, "do work")
+		cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Tier: string(consult.TierCapable)})
+		if err != nil {
+			t.Fatalf("resolve %s: %v", tt.runtime, err)
+		}
+		spec, ok := RunWorkerSpecFor(cap, "do work")
 		if !ok || spec.Bin != tt.bin || !reflect.DeepEqual(spec.Args, tt.args) {
 			t.Errorf("%s spec = %+v, ok=%v", tt.runtime, spec, ok)
+		}
+	}
+}
+
+func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		runtime string
+		tier    consult.Tier
+		args    []string
+	}{
+		{"pi cheap", "pi", consult.TierCheap, []string{"--model", consult.PiCheapModel, "do work"}},
+		{"pi mid", "pi", consult.TierMid, []string{"--model", consult.PiMidModel, "do work"}},
+		{"claude cheap", "claude", consult.TierCheap, []string{"--dangerously-skip-permissions", "--model", consult.CheapModel, "do work"}},
+		{"claude mid", "claude", consult.TierMid, []string{"--dangerously-skip-permissions", "--model", consult.MidModel, "do work"}},
+		{"claude capable", "claude", consult.TierCapable, []string{"--dangerously-skip-permissions", "do work"}},
+		{"codex capable", "codex", consult.TierCapable, []string{"--dangerously-bypass-approvals-and-sandbox", "do work"}},
+		{"opencode capable", "opencode", consult.TierCapable, []string{"--auto", "--prompt", "do work"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime, Tier: string(tt.tier)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec, ok := RunWorkerSpecFor(cap, "do work")
+			if !ok || spec.Bin != tt.runtime || !reflect.DeepEqual(spec.Args, tt.args) {
+				t.Fatalf("spec = %+v, ok=%v", spec, ok)
+			}
+		})
+	}
+	cap, _ := runroute.Resolve(waveobj.RoutePin{Runtime: "claude", Tier: string(consult.TierCheap)})
+	cap.Tier = consult.TierCapable
+	for _, invalid := range []runroute.Capability{
+		cap,
+		{Runtime: "pi", Tier: consult.TierCapable},
+		{Runtime: "mystery", Tier: consult.TierCapable},
+	} {
+		if _, ok := RunWorkerSpecFor(invalid, "do work"); ok {
+			t.Errorf("mismatched/unsupported capability %+v produced a worker spec", cap)
 		}
 	}
 }

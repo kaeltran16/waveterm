@@ -46,6 +46,7 @@ const runsLifecycle = {
             workspaceid: ctx.workspaceId,
             goal: ctx.goal,
             runtime: "claude",
+            tier: "capable",
         });
         const run = created.run;
         const runId = run.id;
@@ -858,7 +859,7 @@ const jarvisVaultRecall = {
         const wslist = await h.rpc("workspacelist", null);
         const workspaceId = wslist[0].workspacedata.oid;
         const ch = await h.rpc("createchannel", { name: "verify-vault", projectpath: cwd });
-        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: VAULT_GOAL, runtime: "claude" });
+        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: VAULT_GOAL, runtime: "claude", tier: "capable" });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
         return { cwd, channelId: ch.oid, runId: run.id, workers: worker ? [worker] : [] };
@@ -938,7 +939,7 @@ const jarvisContinuityResume = {
         const wslist = await h.rpc("workspacelist", null);
         const workspaceId = wslist[0].workspacedata.oid;
         const ch = await h.rpc("createchannel", { name: "verify-continuity", projectpath: cwd });
-        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: CONTINUITY_GOAL, mode: "quick", runtime: "claude" });
+        const created = await h.rpc("createrun", { channelid: ch.oid, workspaceid: workspaceId, goal: CONTINUITY_GOAL, mode: "quick", runtime: "claude", tier: "capable" });
         const run = created.run;
         const worker = run.phases && run.phases[0] && run.phases[0].workerorefs && run.phases[0].workerorefs[0];
         // advance the single quick phase to done -> E's rest-boundary hook writes the completion narrative.
@@ -1105,6 +1106,7 @@ const jarvisProactive = {
             workspaceid: workspaceId,
             goal: PROACTIVE_GOAL,
             runtime: "claude",
+            tier: "capable",
             mode: "quick",
         });
         const run = created.run;
@@ -2935,6 +2937,7 @@ const attentionCrossChannel = {
             workspaceid: ctx.workspaceId,
             goal: "spawn-test, only: do nothing, make no file changes, stop immediately",
             runtime: "claude",
+            tier: "capable",
         });
         const runId = created.run.id;
         track(workerOf(created.run.phases[0]));
@@ -4560,6 +4563,7 @@ const dagLifecycle = {
             workspaceid: ctx.workspaceId,
             goal: "verify dag: do nothing, make no file changes, stop immediately",
             runtime: "claude",
+            tier: "capable",
             mode: "orchestrator",
         });
         const runId = created.run.id;

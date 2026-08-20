@@ -10,6 +10,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -20,7 +21,7 @@ func TestDagSubmitAndAction(t *testing.T) {
 	// the submit/action handlers schedule immediately; stub the spawn seam so the test
 	// environment (no backend/harness) doesn't fail every spawn.
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(ctx context.Context, runtime, workspaceId, projectName, cwd, prompt string) (string, error) {
+	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
 		return "tab:worker", nil
 	}
 	defer func() { jarvis.SpawnRunWorker = oldSpawn }()
@@ -102,7 +103,7 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	stubRunServer(t, "pi", nil)
 	ws := &WshServer{}
 	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi", Tier: "capable",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
 	if err != nil {

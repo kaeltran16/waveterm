@@ -10,6 +10,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -30,8 +31,10 @@ func TestCreateChildRunCommand_InheritsAndStampsParent(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 
+	var spawnedWith runroute.Capability
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+		spawnedWith = cap
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -59,6 +62,12 @@ func TestCreateChildRunCommand_InheritsAndStampsParent(t *testing.T) {
 	}
 	if child.Mode != jarvis.RunMode_Orchestrator {
 		t.Errorf("child Mode = %q, want inherited orchestrator", child.Mode)
+	}
+	if child.Runtime != "claude" || child.Tier != "capable" {
+		t.Errorf("child route = %s/%s, want claude/capable", child.Runtime, child.Tier)
+	}
+	if spawnedWith.Runtime != "claude" || spawnedWith.Tier != "capable" {
+		t.Errorf("spawned capability = %+v, want claude/capable", spawnedWith)
 	}
 	for i, p := range child.Phases {
 		if p.Gate {
@@ -93,7 +102,7 @@ func TestCreateChildRunCommand_InheritsParentRuntime(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -106,8 +115,8 @@ func TestCreateChildRunCommand_InheritsParentRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun(child): %v", err)
 	}
-	if child.Runtime != "opencode" {
-		t.Errorf("child runtime = %q, want inherited opencode", child.Runtime)
+	if child.Runtime != "opencode" || child.Tier != "capable" {
+		t.Errorf("child route = %s/%s, want opencode/capable", child.Runtime, child.Tier)
 	}
 }
 
@@ -136,7 +145,7 @@ func TestCreateChildRunCommand_LegacyParentPersistsClaude(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -149,8 +158,8 @@ func TestCreateChildRunCommand_LegacyParentPersistsClaude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun(child): %v", err)
 	}
-	if child.Runtime != "claude" {
-		t.Errorf("child runtime = %q, want explicit claude for a legacy parent", child.Runtime)
+	if child.Runtime != "claude" || child.Tier != "capable" {
+		t.Errorf("child route = %s/%s, want explicit claude/capable for a legacy parent", child.Runtime, child.Tier)
 	}
 }
 
@@ -176,7 +185,7 @@ func TestChildDoneNotifiesParentLead(t *testing.T) {
 	}
 
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -238,7 +247,7 @@ func TestParentlessRunDoesNotNotify(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()

@@ -11,6 +11,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/harness"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -25,30 +26,33 @@ type RunWorkerSpec struct {
 	Args []string
 }
 
-// RunWorkerSpecFor resolves the unattended worker launch form for a run-worker-capable harness. The
-// capability check comes from the shared catalog, so an unverified harness is never launched. The
-// flag forms are the documented unattended modes (see the harness-neutral headless design):
-//   - claude: --dangerously-skip-permissions <prompt>
-//   - codex:  --dangerously-bypass-approvals-and-sandbox <prompt> (interactive, not `exec`)
-//   - opencode: --auto --prompt <prompt> (interactive, not `run`)
-//   - pi: <prompt> (positional; --mode json --no-session --no-extensions are baked into the interactive CLI)
-func RunWorkerSpecFor(runtime, prompt string) (RunWorkerSpec, bool) {
-	h, ok := harness.Lookup(runtime)
+// RunWorkerSpecFor resolves the unattended worker launch form from one validated capability. The
+// capability authority owns runtime/tier compatibility and model selection; this adapter only supplies
+// each runtime's unattended base arguments.
+func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bool) {
+	if !runroute.IsValid(cap) {
+		return RunWorkerSpec{}, false
+	}
+	h, ok := harness.Lookup(cap.Runtime)
 	if !ok || !h.RunWorkerCapable {
 		return RunWorkerSpec{}, false
 	}
-	switch runtime {
+	var args []string
+	switch cap.Runtime {
 	case "claude":
-		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-skip-permissions", prompt}}, true
+		args = []string{"--dangerously-skip-permissions"}
 	case "codex":
-		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--dangerously-bypass-approvals-and-sandbox", prompt}}, true
+		args = []string{"--dangerously-bypass-approvals-and-sandbox"}
 	case "opencode":
-		return RunWorkerSpec{Bin: h.Bin, Args: []string{"--auto", "--prompt", prompt}}, true
+		args = []string{"--auto", "--prompt"}
 	case "pi":
-		return RunWorkerSpec{Bin: h.Bin, Args: []string{prompt}}, true
+		args = nil
 	default:
 		return RunWorkerSpec{}, false
 	}
+	args = append(args, cap.ModelArgs...)
+	args = append(args, prompt)
+	return RunWorkerSpec{Bin: h.Bin, Args: args}, true
 }
 
 // SpawnRunWorker creates a background tab running the runtime's unattended worker form in cwd and
@@ -61,13 +65,13 @@ func RunWorkerSpecFor(runtime, prompt string) (RunWorkerSpec, bool) {
 // launches it headlessly).
 //
 // It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
-var SpawnRunWorker = func(ctx context.Context, runtime, workspaceId, projectName, cwd, prompt string) (string, error) {
+var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
 	}
-	spec, ok := RunWorkerSpecFor(runtime, prompt)
+	spec, ok := RunWorkerSpecFor(cap, prompt)
 	if !ok {
-		return "", fmt.Errorf("no unattended run worker adapter for runtime %q", runtime)
+		return "", fmt.Errorf("no unattended run worker adapter for runtime %q tier %q", cap.Runtime, cap.Tier)
 	}
 	tabId, err := wcore.CreateTab(ctx, workspaceId, projectName, false, false)
 	if err != nil {
@@ -99,7 +103,7 @@ var SpawnRunWorker = func(ctx context.Context, runtime, workspaceId, projectName
 	// Tab meta: put the worker in the agent roster (and route the external status reporter). These keys
 	// have no generated constants; the literals match the frontend (see launchAgent).
 	tabMeta := waveobj.MetaMapType{
-		"session:agent":   runtime,
+		"session:agent":   cap.Runtime,
 		"session:project": projectName,
 	}
 	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
@@ -112,7 +116,7 @@ var SpawnRunWorker = func(ctx context.Context, runtime, workspaceId, projectName
 	// otherwise arrives only from the external reporter hook — unreliable for a headless worker (the
 	// hook may be owned by a coexisting install and route to the wrong wavesrv). A real hook event
 	// later refines this (detail/model, idle-on-stop).
-	wps.Broker.Publish(initialWorkerStatusEvent(blockId, runtime, time.Now().UnixMilli()))
+	wps.Broker.Publish(initialWorkerStatusEvent(blockId, cap.Runtime, time.Now().UnixMilli()))
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String(), nil
 }
 
@@ -150,11 +154,7 @@ func phasePrompt(run *waveobj.Run, idx int) string {
 // The runtime comes from the persisted run; an empty runtime (legacy Run) resolves to Claude, the
 // historical worker implementation. On a spawn error it returns what it has so far plus the error
 // (the caller still persists partial work).
-func EnsureWorkers(ctx context.Context, run *waveobj.Run, projectName string) (map[int]string, error) {
-	runtime := run.Runtime
-	if runtime == "" {
-		runtime = "claude"
-	}
+func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capability, projectName string) (map[int]string, error) {
 	spawned := map[int]string{}
 	for i := range run.Phases {
 		p := run.Phases[i]
@@ -162,7 +162,7 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, projectName string) (m
 			continue
 		}
 		prompt := phasePrompt(run, i)
-		oref, err := SpawnRunWorker(ctx, runtime, run.WorkspaceId, projectName, run.ProjectPath, prompt)
+		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, prompt)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}

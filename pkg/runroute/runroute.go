@@ -6,6 +6,7 @@ package runroute
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -59,6 +60,13 @@ func NormalizeLegacy(runtime, tier string) waveobj.RoutePin {
 		tier = string(consult.TierCapable)
 	}
 	return waveobj.RoutePin{Runtime: runtime, Tier: tier}
+}
+
+// IsValid reports whether a capability is an unmodified value returned by Resolve. Consumers pass
+// capabilities across package boundaries, so this keeps adapters from launching a hand-built route.
+func IsValid(capability Capability) bool {
+	resolved, err := Resolve(waveobj.RoutePin{Runtime: capability.Runtime, Tier: string(capability.Tier)})
+	return err == nil && resolved.ResolvedModel == capability.ResolvedModel && slices.Equal(resolved.ModelArgs, capability.ModelArgs)
 }
 
 func clone(capability Capability) Capability {

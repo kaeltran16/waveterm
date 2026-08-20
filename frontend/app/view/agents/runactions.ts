@@ -71,6 +71,7 @@ export async function createRun(
         workspaceid: workspaceId,
         goal,
         runtime,
+        tier: "capable",
         mode: opts?.mode,
         plangate: opts?.planGate,
         radarorigin: opts?.radarOrigin,

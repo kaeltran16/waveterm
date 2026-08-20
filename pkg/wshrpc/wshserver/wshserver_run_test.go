@@ -10,8 +10,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -106,7 +108,7 @@ func TestCompleteDefersEvidenceSeal(t *testing.T) {
 
 	// a done quick run spawns no next worker; guard against a real subprocess if that assumption breaks
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -167,7 +169,7 @@ func TestAdvanceRunDispatchesContinuityCapture(t *testing.T) {
 	defer func() { sealAsync = origSeal }()
 
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -251,7 +253,7 @@ func TestResolveRunPlan(t *testing.T) {
 
 // stubRunServer replaces the process boundaries (harness validation + worker spawn) so run handlers
 // are deterministic without launching CLIs or tabs. Restores prior values on cleanup.
-func stubRunServer(t *testing.T, validRuntime string, spawnErr error) {
+func stubRunServer(t *testing.T, validRuntime string, spawnErr error, captured ...*runroute.Capability) {
 	t.Helper()
 	oldValidate := validateHarness
 	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
@@ -267,14 +269,17 @@ func stubRunServer(t *testing.T, validRuntime string, spawnErr error) {
 	t.Cleanup(func() { validateHarness = oldValidate })
 
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
-		if runtime != validRuntime {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+		if len(captured) > 0 && captured[0] != nil {
+			*captured[0] = cap
+		}
+		if cap.Runtime != validRuntime {
 			return "", context.Canceled
 		}
 		if spawnErr != nil {
 			return "", spawnErr
 		}
-		return waveobj.MakeORef(waveobj.OType_Tab, "w-"+runtime).String(), nil
+		return waveobj.MakeORef(waveobj.OType_Tab, "w-"+cap.Runtime).String(), nil
 	}
 	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
 
@@ -306,6 +311,55 @@ func TestCreateRunCommand_EmptyRuntimeRejected(t *testing.T) {
 	}
 }
 
+func TestCreateRunCommand_RejectsInvalidOrUnavailableRouteBeforePersistence(t *testing.T) {
+	cases := []struct {
+		name, runtime, tier string
+		available           bool
+	}{
+		{name: "missing tier", runtime: "claude"},
+		{name: "unsupported pair", runtime: "codex", tier: "cheap"},
+		{name: "unavailable harness", runtime: "claude", tier: "capable", available: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch, err := wstore.CreateChannel(ctx, "reject-route-"+tt.name, "/repo")
+			if err != nil {
+				t.Fatalf("CreateChannel: %v", err)
+			}
+			oldValidate := validateHarness
+			validateHarness = func(string, harness.Operation) (harness.Spec, error) {
+				if !tt.available {
+					return harness.Spec{}, context.Canceled
+				}
+				t.Fatal("validateHarness called for a route rejected by runroute")
+				return harness.Spec{}, nil
+			}
+			t.Cleanup(func() { validateHarness = oldValidate })
+			var spawnCalls int
+			oldSpawn := jarvis.SpawnRunWorker
+			jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+				spawnCalls++
+				return "tab:unexpected", nil
+			}
+			t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+
+			_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+				ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: tt.runtime, Tier: tt.tier,
+			})
+			if err == nil {
+				t.Fatal("CreateRun must reject the route")
+			}
+			if runs, _ := wstore.GetChannelRuns(ctx, ch.OID); len(runs) != 0 {
+				t.Fatalf("rejected route persisted %d runs", len(runs))
+			}
+			if spawnCalls != 0 {
+				t.Fatalf("rejected route spawned %d workers", spawnCalls)
+			}
+		})
+	}
+}
+
 // New Run creation persists the explicit runtime on the Run before the worker is spawned.
 func TestCreateRunCommand_PersistsExplicitRuntime(t *testing.T) {
 	ctx := context.Background()
@@ -313,17 +367,21 @@ func TestCreateRunCommand_PersistsExplicitRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
-	stubRunServer(t, "opencode", nil)
+	var spawnedCap runroute.Capability
+	stubRunServer(t, "opencode", nil, &spawnedCap)
 
 	ws := &WshServer{}
 	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "opencode",
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "opencode", Tier: "capable",
 	})
 	if err != nil {
 		t.Fatalf("CreateRunCommand: %v", err)
 	}
-	if rtn.Run.Runtime != "opencode" {
-		t.Fatalf("persisted run runtime = %q, want opencode", rtn.Run.Runtime)
+	if rtn.Run.Runtime != "opencode" || rtn.Run.Tier != "capable" {
+		t.Fatalf("persisted route = %s/%s, want opencode/capable", rtn.Run.Runtime, rtn.Run.Tier)
+	}
+	if spawnedCap.Runtime != "opencode" || spawnedCap.Tier != "capable" || spawnedCap.ResolvedModel != "operator default" || len(spawnedCap.ModelArgs) != 0 {
+		t.Fatalf("spawned capability = %+v, want opencode/capable operator default", spawnedCap)
 	}
 	if got := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(got, []string{
 		waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0",
@@ -365,12 +423,13 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
-	run.Runtime = "opencode"
+	run.Runtime = "claude"
+	run.Tier = "cheap"
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
 
-	var spawnedWith string
+	var spawnedWith runroute.Capability
 	oldValidate := validateHarness
 	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
 		spec, ok := harness.Lookup(runtime)
@@ -381,8 +440,8 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, runtime, _, _, _, _ string) (string, error) {
-		spawnedWith = runtime
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+		spawnedWith = cap
 		return waveobj.MakeORef(waveobj.OType_Tab, "w").String(), nil
 	}
 	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
@@ -395,8 +454,55 @@ func TestAdvanceRun_SpawnsPersistedRuntime(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AdvanceRunCommand: %v", err)
 	}
-	if spawnedWith != "opencode" {
-		t.Fatalf("next worker spawned with runtime %q, want persisted opencode", spawnedWith)
+	if spawnedWith.Runtime != "claude" || spawnedWith.Tier != "cheap" || !reflect.DeepEqual(spawnedWith.ModelArgs, []string{"--model", consult.CheapModel}) {
+		t.Fatalf("next worker spawned with capability %+v, want claude/cheap with haiku model args", spawnedWith)
+	}
+}
+
+func TestAdvanceRun_LegacyRouteNormalizesOnlyForSpawn(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "advance-legacy-route", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("do it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Pipeline, jarvis.DefaultPlaybook(), 1)
+	run.Runtime = "claude"
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	var spawnedWith runroute.Capability
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, op harness.Operation) (harness.Spec, error) {
+		if runtime != "claude" || op != harness.OperationRunWorker {
+			t.Fatalf("validateHarness(%q, %q)", runtime, op)
+		}
+		return harness.Spec{}, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+		spawnedWith = cap
+		return waveobj.MakeORef(waveobj.OType_Tab, "legacy-worker").String(), nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	oldSeal := sealAsync
+	sealAsync = func(func()) {}
+	t.Cleanup(func() { sealAsync = oldSeal })
+
+	if err := (&WshServer{}).AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete,
+	}); err != nil {
+		t.Fatalf("AdvanceRunCommand: %v", err)
+	}
+	if spawnedWith.Runtime != "claude" || spawnedWith.Tier != "capable" || len(spawnedWith.ModelArgs) != 0 {
+		t.Fatalf("legacy worker capability = %+v, want claude/capable operator default", spawnedWith)
+	}
+	persisted, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if persisted.Runtime != "claude" || persisted.Tier != "" {
+		t.Fatalf("legacy run was rewritten while spawning: %s/%s", persisted.Runtime, persisted.Tier)
 	}
 }
 
@@ -466,7 +572,7 @@ func TestRunLifecycleEventsAppended(t *testing.T) {
 	// AdvanceRunCommand spawns workers for newly-running phases at its tail; stub the spawn seam like
 	// TestCompleteDefersEvidenceSeal does so the test never touches real tabs/PTYs
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -520,7 +626,7 @@ func TestRunLifecycleEventClassesPresent(t *testing.T) {
 	}
 	ws := &WshServer{}
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -583,7 +689,7 @@ func TestCreateRunDeferStart(t *testing.T) {
 	stubRunServer(t, "pi", nil)
 
 	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
-		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi", Tier: "capable",
 		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
 	})
 	if err != nil {
