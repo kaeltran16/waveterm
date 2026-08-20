@@ -6,6 +6,7 @@
 // cancel stops the run. Phase *completion* is reported by the external ~/.claude hook, not from here.
 
 import { atoms } from "@/app/store/global-atoms";
+import { getSettingsKeyAtom } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -13,6 +14,8 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { PendingRunDraft } from "./radarmodel";
+import { normalizeProfileOverrideRoute, resolveEffectiveRoute } from "./route";
+import { harnessesAtom, harnessPreferenceAtom } from "./harnessstore";
 
 // The pending Run draft handed from Radar's "Start investigation" to the Channels Run composer. Ephemeral
 // (lost on reload, which is fine for a review step); cleared on explicit Start or Discard.
@@ -61,17 +64,17 @@ export async function stopRunWorker(channelId: string, runId: string, workerORef
 export async function createRun(
     channelId: string,
     goal: string,
-    runtime: string,
+    route: RoutePin,
     opts?: { mode?: string; planGate?: boolean; radarOrigin?: { reportid: string; findingid: string; fingerprint: string } }
 ): Promise<Run> {
-    if (!runtime) throw new Error("Choose a harness");
+    if (!route.runtime || !route.tier) throw new Error("Choose a route");
     const workspaceId = globalStore.get(atoms.workspaceId);
     const rtn = await RpcApi.CreateRunCommand(TabRpcClient, {
         channelid: channelId,
         workspaceid: workspaceId,
         goal,
-        runtime,
-        tier: "capable",
+        runtime: route.runtime,
+        tier: route.tier,
         mode: opts?.mode,
         plangate: opts?.planGate,
         radarorigin: opts?.radarOrigin,
@@ -142,6 +145,10 @@ export const resolvedProfileAtom = atom<Record<string, JarvisProfile>>({}) as Pr
     Record<string, JarvisProfile>
 >;
 
+export const channelOverrideAtom = atom<Record<string, ProfileOverride>>({}) as PrimitiveAtom<
+    Record<string, ProfileOverride>
+>;
+
 export function loadResolvedProfile(channelId: string): void {
     if (globalStore.get(resolvedProfileAtom)[channelId] != null) {
         return;
@@ -149,21 +156,47 @@ export function loadResolvedProfile(channelId: string): void {
     fireAndForget(() => refreshResolvedProfile(channelId));
 }
 
+export function cacheJarvisProfile(channelId: string, response: CommandGetJarvisProfileRtnData): void {
+    globalStore.set(channelOverrideAtom, { ...globalStore.get(channelOverrideAtom), [channelId]: response.override ?? {} });
+    if (response.resolved != null) {
+        globalStore.set(resolvedProfileAtom, { ...globalStore.get(resolvedProfileAtom), [channelId]: response.resolved });
+    }
+}
+
 export async function refreshResolvedProfile(channelId: string): Promise<void> {
     const r = await getJarvisProfile(channelId);
-    if (r?.resolved == null) {
-        return;
-    }
-    globalStore.set(resolvedProfileAtom, { ...globalStore.get(resolvedProfileAtom), [channelId]: r.resolved });
+    cacheJarvisProfile(channelId, r);
 }
 
 // A global-profile write re-resolves every channel, not just the one the drawer was opened on.
 export function clearResolvedProfiles(): void {
     globalStore.set(resolvedProfileAtom, {});
+    globalStore.set(channelOverrideAtom, {});
+}
+
+export async function resolveChannelLaunchRoute(channelId: string): Promise<RoutePin> {
+    const response = await getJarvisProfile(channelId);
+    cacheJarvisProfile(channelId, response);
+    const settingsRuntime = (globalStore.get(getSettingsKeyAtom("harness:preferredruntime")) as string) ?? "";
+    const settingsTier = (globalStore.get(getSettingsKeyAtom("harness:preferredtier")) as string) ?? "";
+    const pref = globalStore.get(harnessPreferenceAtom);
+    const settings = pref.route ?? (settingsRuntime ? { runtime: settingsRuntime, tier: settingsTier || "capable" } : null);
+    const effective = resolveEffectiveRoute({
+        settings,
+        channel: response.override?.route ?? null,
+        harnesses: globalStore.get(harnessesAtom),
+    });
+    if (effective == null || effective.capability == null) {
+        throw new Error("Selected route is unavailable");
+    }
+    return effective.pin;
 }
 
 export async function setChannelProfile(channelId: string, override: ProfileOverride): Promise<void> {
-    await RpcApi.SetChannelProfileCommand(TabRpcClient, { channelid: channelId, override });
+    await RpcApi.SetChannelProfileCommand(TabRpcClient, {
+        channelid: channelId,
+        override: normalizeProfileOverrideRoute(override),
+    });
 }
 
 export async function getGlobalProfile(): Promise<JarvisProfile> {

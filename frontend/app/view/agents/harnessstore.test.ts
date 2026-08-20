@@ -11,20 +11,16 @@ import {
 } from "./harnessstore";
 
 const idle = (runtime: string, tier = "capable"): HarnessPreferenceState => ({
-    runtime,
-    persistedRuntime: runtime,
-    tier,
-    persistedTier: tier,
+    route: { runtime, tier },
+    persistedRoute: { runtime, tier },
     saving: false,
 });
 
 describe("harness preference transitions", () => {
     it("updates the selection immediately and marks the write in flight", () => {
-        expect(beginSave({ runtime: "codex", persistedRuntime: "codex", tier: "capable", persistedTier: "capable", saving: false }, "opencode", "mid")).toEqual({
-            runtime: "opencode",
-            persistedRuntime: "codex",
-            tier: "mid",
-            persistedTier: "capable",
+        expect(beginSave(idle("codex"), "opencode", "mid")).toEqual({
+            route: { runtime: "opencode", tier: "mid" },
+            persistedRoute: { runtime: "codex", tier: "capable" },
             saving: true,
         });
     });
@@ -32,10 +28,8 @@ describe("harness preference transitions", () => {
     it("persists the selection on success", () => {
         const begin = beginSave(idle("codex"), "opencode", "mid");
         expect(persistSave(begin)).toEqual({
-            runtime: "opencode",
-            persistedRuntime: "opencode",
-            tier: "mid",
-            persistedTier: "mid",
+            route: { runtime: "opencode", tier: "mid" },
+            persistedRoute: { runtime: "opencode", tier: "mid" },
             saving: false,
             error: undefined,
         });
@@ -44,10 +38,8 @@ describe("harness preference transitions", () => {
     it("rolls back to the persisted value and surfaces the error on failure", () => {
         const begin = beginSave(idle("codex", "cheap"), "opencode", "mid");
         expect(failSave(begin, "denied")).toMatchObject({
-            runtime: "codex",
-            persistedRuntime: "codex",
-            tier: "cheap",
-            persistedTier: "cheap",
+            route: { runtime: "codex", tier: "cheap" },
+            persistedRoute: { runtime: "codex", tier: "cheap" },
             saving: false,
             error: "denied",
         });
@@ -61,10 +53,8 @@ describe("harness preference transitions", () => {
     it("preserves a non-empty loaded tier", () => {
         initHarnessPreference("pi", "cheap");
         expect(globalStore.get(harnessPreferenceAtom)).toMatchObject({
-            runtime: "pi",
-            persistedRuntime: "pi",
-            tier: "cheap",
-            persistedTier: "cheap",
+            route: { runtime: "pi", tier: "cheap" },
+            persistedRoute: { runtime: "pi", tier: "cheap" },
             saving: false,
         });
     });
@@ -72,10 +62,8 @@ describe("harness preference transitions", () => {
     it("normalizes an empty loaded tier to capable", () => {
         initHarnessPreference("codex", "");
         expect(globalStore.get(harnessPreferenceAtom)).toMatchObject({
-            runtime: "codex",
-            persistedRuntime: "codex",
-            tier: "capable",
-            persistedTier: "capable",
+            route: { runtime: "codex", tier: "capable" },
+            persistedRoute: { runtime: "codex", tier: "capable" },
             saving: false,
         });
     });

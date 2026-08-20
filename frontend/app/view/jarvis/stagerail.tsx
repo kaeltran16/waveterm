@@ -19,8 +19,7 @@ import {
 import { fleetCounts } from "@/app/view/agents/jarviscards";
 import { buildFleetSnapshot, fleetCostUsd, type WorkerState } from "@/app/view/agents/jarvisderive";
 import { RAIL_ICON } from "@/app/view/agents/railicons";
-import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
-import { createRun, pendingRunFocusAtom } from "@/app/view/agents/runactions";
+import { createRun, pendingRunFocusAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { spaceScopeAtom } from "@/app/view/agents/spacestore";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -71,7 +70,6 @@ export function StageRail({
     const messages = useAtomValue(activeChannelMessagesAtom);
     const agents = useAtomValue(model.agentsAtom);
     const consultStreams = useAtomValue(consultStreamsAtom);
-    const pref = useAtomValue(harnessPreferenceAtom);
     const spaceScope = useAtomValue(spaceScopeAtom);
     const conversation = useAtomValue(activeConversationAtom);
     const convIdBySource = useAtomValue(sourceConversationAtom);
@@ -198,7 +196,11 @@ export function StageRail({
                         streams={consultStreams}
                         onDispatch={(goal) =>
                             fireAndForget(async () => {
-                                const created = await createRun(channelForDerive.oid, goal, pref.runtime);
+                                const created = await createRun(
+                                    channelForDerive.oid,
+                                    goal,
+                                    await resolveChannelLaunchRoute(channelForDerive.oid)
+                                );
                                 setActiveRunId(channelForDerive.oid, created.id);
                             })
                         }

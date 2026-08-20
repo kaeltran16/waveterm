@@ -72,7 +72,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             return;
         }
         defaultAppliedRef.current = true;
-        const pref = globalStore.get(harnessPreferenceAtom).runtime;
+        const pref = globalStore.get(harnessPreferenceAtom).route?.runtime ?? "";
         const chosen = resolveDefaultRuntime(pref, globalStore.get(harnessesAtom));
         if (chosen) {
             setRuntime(chosen as Runtime);

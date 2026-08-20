@@ -110,8 +110,9 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
         }
     }, [openRequest]);
 
-    const face = harnessPickerFace(pref.runtime, harnesses, operation);
-    const items = harnessPickerItems(harnesses, pref.runtime, operation);
+    const runtime = pref.route?.runtime ?? "";
+    const face = harnessPickerFace(runtime, harnesses, operation);
+    const items = harnessPickerItems(harnesses, runtime, operation);
     const { refs, floatingStyles, context } = useFloating({
         open,
         onOpenChange: setOpen,
@@ -129,11 +130,12 @@ export function HarnessPicker({ operation, placement = "top-start", className, o
                 type="button"
                 data-testid="harness-picker"
                 data-harness-operation={operation}
-                data-harness-runtime={pref.runtime || ""}
+                data-harness-runtime={runtime || ""}
                 aria-expanded={open}
                 title="Harness — which coding agent runs this"
                 className={cn(
                     "flex cursor-pointer items-center gap-2 rounded-[7px] border bg-surface px-2.5 py-1 text-[11px] font-semibold",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     open ? "border-accent-700 text-primary" : "border-border text-secondary hover:text-primary"
                 )}
             >

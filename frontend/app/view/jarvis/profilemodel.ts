@@ -18,10 +18,12 @@ export type SectionSource = "global" | "project";
 export function sectionSource(override: ProfileOverride | null | undefined): {
     playbook: SectionSource;
     principles: SectionSource;
+    route: SectionSource;
 } {
     return {
         playbook: override?.playbook != null ? "project" : "global",
         principles: override?.principles != null ? "project" : "global",
+        route: override?.route != null ? "project" : "global",
     };
 }
 
@@ -159,6 +161,11 @@ function normalizeOverride(o: ProfileOverride): ProfileOverride {
         delete out.principles;
     } else {
         out.principles = cleaned;
+    }
+    if (o.route?.runtime == null || o.route.runtime === "") {
+        delete out.route;
+    } else {
+        out.route = { runtime: o.route.runtime, tier: o.route.tier || "capable" };
     }
     return out;
 }

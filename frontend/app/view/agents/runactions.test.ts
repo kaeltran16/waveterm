@@ -22,6 +22,9 @@ import {
     confirmCancelRun,
     stopRunWorker,
     stoppingWorkerIdsAtom,
+    cacheJarvisProfile,
+    resolvedProfileAtom,
+    channelOverrideAtom,
 } from "./runactions";
 
 function deferred() {
@@ -40,6 +43,21 @@ beforeEach(() => {
     pushModal.mockReset();
     globalStore.set(stoppingWorkerIdsAtom, new Set());
     globalStore.set(cancellingRunIdsAtom, new Set());
+    globalStore.set(resolvedProfileAtom, {});
+    globalStore.set(channelOverrideAtom, {});
+});
+
+describe("profile cache", () => {
+    it("stores resolved profile and channel override together", () => {
+        const response = {
+            global: {} as JarvisProfile,
+            override: { route: { runtime: "pi", tier: "cheap" } },
+            resolved: { defaultmode: "pipeline" } as JarvisProfile,
+        } as CommandGetJarvisProfileRtnData;
+        cacheJarvisProfile("channel-1", response);
+        expect(globalStore.get(resolvedProfileAtom)["channel-1"]).toBe(response.resolved);
+        expect(globalStore.get(channelOverrideAtom)["channel-1"]).toBe(response.override);
+    });
 });
 
 describe("stopRunWorker", () => {

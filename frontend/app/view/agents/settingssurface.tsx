@@ -21,6 +21,8 @@ import {
 import { DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { harnessPickerItems } from "./harnesspicker";
+import { harnessPreferenceAtom, setPreferredRoute } from "./harnessstore";
+import { RoutePicker } from "./routepicker";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
 import { naFlagsAtom, naRememberFlagsAtom } from "./naflagsstore";
 import { ITEMS } from "./navrail";
@@ -78,6 +80,8 @@ export function SettingsSurface(_props: { model: AgentsViewModel }) {
                     <GeneralSection />
                     <SectionGap />
                     <NewAgentDefaultsSection />
+                    <SectionGap />
+                    <RunRouteSection />
                     <SectionGap />
                     <TerminalSection />
                     <SectionGap />
@@ -519,6 +523,19 @@ function NewAgentDefaultsSection() {
                     })
                 )}
             </motion.div>
+        </div>
+    );
+}
+
+function RunRouteSection() {
+    const preference = useAtomValue(harnessPreferenceAtom);
+    return (
+        <div>
+            <SectionLabel>Run defaults</SectionLabel>
+            <Row title="Run route" desc="Backend-authoritative harness, tier, and resolved model for new runs.">
+                <RoutePicker value={preference.route} canInherit={false} onChange={(route) => route && setPreferredRoute(route)} />
+            </Row>
+            {preference.error ? <div className="mt-2 text-[12px] text-error">{preference.error}</div> : null}
         </div>
     );
 }

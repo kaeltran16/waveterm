@@ -15,6 +15,7 @@ import {
     pendingRunDraftAtom,
     pendingRunFocusAtom,
     resolvedProfileAtom,
+    channelOverrideAtom,
 } from "@/app/view/agents/runactions";
 import { RunBody } from "@/app/view/agents/runbody";
 import { liveWorkers } from "@/app/view/agents/runmodel";
@@ -73,6 +74,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
     const graphOpen = useAtomValue(graphPeekOpenAtom);
     const setGraphOpen = useSetAtom(graphPeekOpenAtom);
     const profiles = useAtomValue(resolvedProfileAtom);
+    const overrides = useAtomValue(channelOverrideAtom);
     const profileChannelId = subject?.kind === "channel" ? subject.id : null;
     const profile = profileChannelId != null ? profiles[profileChannelId] : undefined;
     const briefingSnapshot = useAtomValue(briefingStateAtom).snapshot;
@@ -272,6 +274,7 @@ export function Stage({ model }: { model: AgentsViewModel }) {
                 recordId={subject.kind === "dossier" ? subject.id : null}
                 recordObjective={detail?.objective ?? ""}
                 profile={profile}
+                route={profileChannelId != null ? overrides[profileChannelId]?.route : undefined}
             />
             {/* last child, so the overlay layers above the whole Stage while containing none of it. The
                 Stage resolves what the peek opens on: it already holds the run, the attribution and the

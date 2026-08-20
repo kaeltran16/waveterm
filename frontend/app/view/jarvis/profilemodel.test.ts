@@ -17,12 +17,12 @@ const G: Principle[] = [
 
 describe("sectionSource", () => {
     it("is global for null/undefined and empty override", () => {
-        expect(sectionSource(null)).toEqual({ playbook: "global", principles: "global" });
-        expect(sectionSource({})).toEqual({ playbook: "global", principles: "global" });
+        expect(sectionSource(null)).toEqual({ playbook: "global", principles: "global", route: "global" });
+        expect(sectionSource({})).toEqual({ playbook: "global", principles: "global", route: "global" });
     });
     it("is project for the section that is present", () => {
-        expect(sectionSource({ principles: {} })).toEqual({ playbook: "global", principles: "project" });
-        expect(sectionSource({ playbook: [] })).toEqual({ playbook: "project", principles: "global" });
+        expect(sectionSource({ principles: {} })).toEqual({ playbook: "global", principles: "project", route: "global" });
+        expect(sectionSource({ playbook: [] })).toEqual({ playbook: "project", principles: "global", route: "global" });
     });
 });
 
@@ -105,6 +105,11 @@ describe("isDirty", () => {
     it("treats a structurally empty patch as equal to undefined", () => {
         expect(isDirty({}, { principles: {} })).toBe(false);
         expect(isDirty({ principles: { additions: [], disabled: [] } }, {})).toBe(false);
+    });
+    it("treats a route-only override as project-scoped and dirty", () => {
+        expect(sectionSource({ route: { runtime: "pi", tier: "capable" } }).route).toBe("project");
+        expect(isDirty({}, { route: { runtime: "pi", tier: "capable" } })).toBe(true);
+        expect(isDirty({ route: undefined }, { route: undefined })).toBe(false);
     });
     it("is true when the patch differs meaningfully", () => {
         expect(isDirty({}, { principles: { disabled: ["a"] } })).toBe(true);

@@ -27,7 +27,7 @@ export function PetErrand({ channel }: { channel: Channel | null }) {
         channel: channel != null,
         draft,
         busy,
-        runtime: pref.runtime,
+        runtime: pref.route?.runtime ?? "",
         saving: pref.saving,
         harnesses,
     });

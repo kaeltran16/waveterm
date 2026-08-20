@@ -23,6 +23,7 @@ import {
     setGlobalProfile,
 } from "../agents/runactions";
 import { globalProfileIsDirty, isDirty, principlePatchIsEmpty, reduceGlobalPrinciples } from "./profilemodel";
+import { RoutePicker } from "../agents/routepicker";
 import { PrinciplesEditor } from "./principleseditor";
 import { graphPeekOpenAtom, profileRailOpenAtom } from "./jarvisstore";
 
@@ -51,7 +52,8 @@ function overrideIsEmpty(o: ProfileOverride): boolean {
         o.playbook == null &&
         principlePatchIsEmpty(o.principles) &&
         o.defaultmode == null &&
-        o.defaultplangate == null
+        o.defaultplangate == null &&
+        o.route == null
     );
 }
 
@@ -567,6 +569,15 @@ export function ProfilePanel({ channelId }: { channelId: string }) {
                         diagnostics={loaded!.diagnostics}
                     />
                     <DefaultsSection global={loaded!.global} draft={draft} setDraft={setDraft} />
+                    <div className="border-t border-edge-faint pt-4">
+                        <div className="mb-2 text-[12px] font-semibold text-primary">Project run route</div>
+                        <div className="mb-2.5 text-[11.5px] text-muted">Override the global route for this project, or inherit it.</div>
+                        <RoutePicker
+                            value={draft.route ?? null}
+                            canInherit
+                            onChange={(route) => setDraft((current) => ({ ...current, ...(route ? { route } : { route: undefined }) }))}
+                        />
+                    </div>
                 </>
             )}
             </motion.div>

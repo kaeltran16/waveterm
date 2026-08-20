@@ -57,7 +57,7 @@ export function LaunchComposer({
     const mode: LaunchMode = pending ? "run" : cmd.mode;
     const dispatch = resolveComposerDispatch({
         command: cmd,
-        preferredRuntime: pref.runtime,
+        preferredRuntime: pref.route?.runtime ?? "",
         preferenceSaving: pref.saving,
         harnesses,
     });
@@ -131,7 +131,7 @@ export function LaunchComposer({
     const oneOffRuntime = mode === "ask" && cmd.runtime != null ? cmd.runtime : undefined;
     const askFooter =
         oneOffRuntime != null
-            ? `${runtimeMeta(oneOffRuntime).label} · one-off — preferred ${pref.runtime ? runtimeMeta(pref.runtime).label : "harness"} unchanged`
+            ? `${runtimeMeta(oneOffRuntime).label} · one-off — preferred ${pref.route?.runtime ? runtimeMeta(pref.route.runtime).label : "harness"} unchanged`
             : behavior;
     const footer = mode === "ask" ? askFooter : behavior;
     const sendLabel = mode === "ask" ? "Ask" : "Run ⏎";

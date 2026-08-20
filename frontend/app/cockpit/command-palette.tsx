@@ -15,8 +15,7 @@ import { formatAge } from "@/app/view/agents/agentsviewmodel";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { activeChannelAtom, channelsAtom } from "@/app/view/agents/channelsstore";
 import type { Runtime } from "@/app/view/agents/launch";
-import { harnessPreferenceAtom, harnessesAtom, resolveDefaultRuntime } from "@/app/view/agents/harnessstore";
-import { createRun, getJarvisProfile } from "@/app/view/agents/runactions";
+import { createRun, getJarvisProfile, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { loadSessionsArchive, sessionsArchiveAtom } from "@/app/view/agents/sessionsarchivestore";
 import { activeSpaceAtom, enterSpace, exitSpace, loadSpaces, spacesAtom } from "@/app/view/agents/spacestore";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
@@ -41,6 +40,7 @@ import { buildLaunchItems, type LaunchDeps } from "./palette-launch";
 import { fuzzyMatch, highlightRuns, rankPaletteItems } from "./palette-match";
 import { MAX_RECENT, nextMru, paletteMruAtom, recentItems, sortByMru } from "./palette-mru";
 import { parseScope, resolveChannelToken } from "./palette-scope";
+import { runPaletteAction } from "./palette-action";
 
 interface PaletteItem {
     key: string;
@@ -110,11 +110,10 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const surface = useAtomValue(model.surfaceAtom);
     const bindings = useAtomValue(bindingsAtom);
     const mru = useAtomValue(paletteMruAtom);
-    const pref = useAtomValue(harnessPreferenceAtom);
-    const harnesses = useAtomValue(harnessesAtom);
     const [query, setQuery] = useState("");
     const [sel, setSel] = useState(0);
     const [runStrategy, setRunStrategy] = useState<string | undefined>(undefined);
+    const [launchError, setLaunchError] = useState<string | undefined>(undefined);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const loadedRef = useRef(false);
@@ -152,6 +151,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
         setQuery(globalStore.get(model.paletteSeedAtom));
         globalStore.set(model.paletteSeedAtom, "");
+        setLaunchError(undefined);
         setSel(0);
         const raf = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(raf);
@@ -255,9 +255,15 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         }
         const ch = targetChannel;
         const fireLaunch = (action: () => Promise<unknown>) => {
-            fireAndForget(action);
-            globalStore.set(model.surfaceAtom, "jarvis"); // surface the result, then close
-            close();
+            setLaunchError(undefined);
+            void runPaletteAction(action).then((result) => {
+                if ("error" in result) {
+                    setLaunchError(result.error.replace(/^Error:\s*/, ""));
+                    return;
+                }
+                globalStore.set(model.surfaceAtom, "jarvis"); // surface the result, then close
+                close();
+            });
         };
         const sendText = (text: string) =>
             sendChannelMessage({
@@ -273,16 +279,12 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         // Run sends no mode — the channel's profile is the server's to resolve (resolveRunPlan takes any
         // non-empty mode as an override, so a stale prefetch here would beat the channel's own setting).
         // A missing preferred runtime blocks before any RPC: the goal stays in the palette, nothing dispatches.
-        const runtime = resolveDefaultRuntime(pref.runtime, harnesses);
-        const guarded = (goal: string, action: (rt: string) => Promise<unknown>) => {
-            if (!runtime) {
-                return; // no valid harness — do not call CreateRun
-            }
-            fireLaunch(() => action(runtime));
+        const guarded = (goal: string, action: (route: RoutePin) => Promise<unknown>) => {
+            fireLaunch(async () => action(await resolveChannelLaunchRoute(ch.oid)));
         };
         const deps: LaunchDeps = {
-            quick: (goal) => guarded(goal, (rt) => createRun(ch.oid, goal, rt, { mode: "quick" })),
-            run: (goal) => guarded(goal, (rt) => createRun(ch.oid, goal, rt)),
+            quick: (goal) => guarded(goal, (route) => createRun(ch.oid, goal, route, { mode: "quick" })),
+            run: (goal) => guarded(goal, (route) => createRun(ch.oid, goal, route)),
             consult: (runtime, goal) => fireLaunch(() => sendText(`ask @${runtime} ${goal}`)),
         };
         return buildLaunchItems(launchGoal, ch.name, runStrategy, deps).map((li) => ({
@@ -470,6 +472,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                         value={query}
                         onChange={(e) => {
                             setQuery(e.target.value);
+                            setLaunchError(undefined);
                             setSel(0);
                         }}
                         onKeyDown={onKeyDown}
@@ -480,6 +483,11 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                         esc
                     </span>
                 </div>
+                {launchError ? (
+                    <div role="alert" className="border-b border-error/30 bg-error/10 px-4 py-2 font-mono text-[11px] text-error-soft">
+                        Launch failed: {launchError}
+                    </div>
+                ) : null}
                 <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2">
                     {flat.length === 0 ? (
                         <div className="px-4 py-8 text-center text-[13px] text-muted">{emptyMessage}</div>
