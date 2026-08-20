@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -324,6 +325,11 @@ func TestCreateRunCommand_PersistsExplicitRuntime(t *testing.T) {
 	if rtn.Run.Runtime != "opencode" {
 		t.Fatalf("persisted run runtime = %q, want opencode", rtn.Run.Runtime)
 	}
+	if got := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(got, []string{
+		waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0",
+	}) {
+		t.Fatalf("non-deferred lifecycle events = %v, want created then phase-started@0", got)
+	}
 }
 
 // An unknown runtime is rejected before any run is persisted.
@@ -588,5 +594,10 @@ func TestCreateRunDeferStart(t *testing.T) {
 	}
 	if len(rtn.Run.Phases[0].WorkerOrefs) != 0 {
 		t.Fatalf("deferred run must not spawn workers")
+	}
+	if got := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(got, []string{
+		waveobj.RunEventKindCreated,
+	}) {
+		t.Fatalf("deferred lifecycle events = %v, want only run-created", got)
 	}
 }

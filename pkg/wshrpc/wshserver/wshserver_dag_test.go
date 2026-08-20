@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -124,5 +125,18 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	}
 	if got.DagORef != g.OID {
 		t.Fatalf("dagoref not linked")
+	}
+	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0"}
+	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
+		t.Fatalf("deferred lifecycle events = %v, want %v", gotEvents, wantEvents)
+	}
+	if _, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: rtn.Run.ID, Title: "second", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-2", Label: "two", State: "ready"}},
+	}); err != nil {
+		t.Fatalf("second submit: %v", err)
+	}
+	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
+		t.Fatalf("repeated submit lifecycle events = %v, want unchanged %v", gotEvents, wantEvents)
 	}
 }

@@ -352,9 +352,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.OID = run.ID
 	run.ChannelOID = data.ChannelId
 	// lifecycle log seeded before worker spawn, so a spawn failure still shows the run was created.
-	phaseZero := 0
 	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindCreated, nil, map[string]any{"runtime": run.Runtime, "mode": run.Mode})
-	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})
 	if effortRef != nil {
 		// non-fatal: the run is already persisted; a failed attach only loses the live marker, the
 		// ref stays on the run itself.
@@ -403,6 +401,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		})
 	})
 	if !data.DeferStart {
+		phaseZero := 0
+		appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})
 		if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
 			// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry
 			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
