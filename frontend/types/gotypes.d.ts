@@ -506,6 +506,7 @@ declare global {
         radarorigin?: RunRadarOrigin;
         effortoid?: string;
         chunklabel?: string;
+        deferstart?: boolean;
     };
 
     // wshrpc.CommandCreateRunRtnData

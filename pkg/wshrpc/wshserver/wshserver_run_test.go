@@ -567,3 +567,26 @@ func TestRunCancelWritesRunCancelledEvent(t *testing.T) {
 		t.Fatalf("expected run-cancelled event")
 	}
 }
+
+func TestCreateRunDeferStart(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-deferred", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	stubRunServer(t, "pi", nil)
+
+	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
+		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if rtn.Run.Status != "planning" {
+		t.Fatalf("want planning, got %s", rtn.Run.Status)
+	}
+	if len(rtn.Run.Phases[0].WorkerOrefs) != 0 {
+		t.Fatalf("deferred run must not spawn workers")
+	}
+}

@@ -10,12 +10,12 @@ import (
 )
 
 type RunCommands interface {
-	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error) // create + start a goal Run (spawns phase 1's worker)
-	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                           // complete a phase / approve or send back a gate (spawns the next worker)
-	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                             // cancel a Run
-	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                     // stop one surviving worker of a cancelled run
-	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                 // derive+seal a done run's evidence if absent (idempotent backfill)
-	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                   // lead self-reports hold/complete; resolves run/phase from its own oref
+	CreateRunCommand(ctx context.Context, data CommandCreateRunData) (*CommandCreateRunRtnData, error)                // create + start a goal Run (spawns phase 1's worker)
+	AdvanceRunCommand(ctx context.Context, data CommandAdvanceRunData) error                                          // complete a phase / approve or send back a gate (spawns the next worker)
+	CancelRunCommand(ctx context.Context, data CommandCancelRunData) error                                            // cancel a Run
+	StopRunWorkerCommand(ctx context.Context, data CommandStopRunWorkerData) error                                    // stop one surviving worker of a cancelled run
+	SealRunEvidenceCommand(ctx context.Context, data CommandSealRunEvidenceData) error                                // derive+seal a done run's evidence if absent (idempotent backfill)
+	ReportRunPhaseCommand(ctx context.Context, data CommandReportRunPhaseData) error                                  // lead self-reports hold/complete; resolves run/phase from its own oref
 	CreateChildRunCommand(ctx context.Context, data CommandCreateChildRunData) (*CommandCreateChildRunRtnData, error) // orchestrator lead spawns a hands-off child run for one backlog unit; parent resolved from the caller's oref
 }
 
@@ -30,6 +30,9 @@ type CommandCreateRunData struct {
 	RadarOrigin *waveobj.RunRadarOrigin `json:"radarorigin,omitempty"` // set when started from a Radar finding
 	EffortOID   string                  `json:"effortoid,omitempty"`   // optional effort tracker link (composer picker)
 	ChunkLabel  string                  `json:"chunklabel,omitempty"`
+	// DeferStart persists the run in planning without spawning phase workers; the caller (the
+	// draft-first composer) submits the TaskGroup explicitly and DagSubmit transitions it to executing.
+	DeferStart bool `json:"deferstart,omitempty"`
 }
 
 type CommandCreateRunRtnData struct {

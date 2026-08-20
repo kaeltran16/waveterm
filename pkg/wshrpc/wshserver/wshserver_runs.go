@@ -333,6 +333,9 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
 	mode, playbook := resolveRunPlan(resolved, data.Mode, data.PlanGate)
 	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
+	if data.DeferStart {
+		run.Status = jarvis.RunStatus_Planning
+	}
 	run.Runtime = data.Runtime // immutable after Start; every phase and child inherits this
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
@@ -399,10 +402,12 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 			Kind: jarvisvolunteer.TriggerRunCreated, ChannelID: data.ChannelId, RunID: run.ID,
 		})
 	})
-	if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
-		// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry
-		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
-		return nil, fmt.Errorf("spawning first worker: %w", err)
+	if !data.DeferStart {
+		if err := spawnRunWorkers(ctx, data.ChannelId, run.ID, ch.Name); err != nil {
+			// the run is persisted; surface the spawn failure but return the run so the UI can show blocked/retry
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+			return nil, fmt.Errorf("spawning first worker: %w", err)
+		}
 	}
 	out, _ := wstore.GetRun(ctx, data.ChannelId, run.ID)
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))

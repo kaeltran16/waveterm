@@ -91,3 +91,38 @@ func TestDagSubmitAndAction(t *testing.T) {
 		t.Fatalf("want cancelled, got %s", g4.Status)
 	}
 }
+
+func TestDagSubmitDeferredRun(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "dag-deferred", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	stubRunServer(t, "pi", nil)
+	ws := &WshServer{}
+	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "test", Runtime: "pi",
+		Mode: jarvis.RunMode_Orchestrator, DeferStart: true,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: rtn.Run.ID, Title: "g", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one", State: "ready"}},
+	})
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	got, err := wstore.GetRun(ctx, ch.OID, rtn.Run.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.Status != "executing" {
+		t.Fatalf("want executing, got %s", got.Status)
+	}
+	if got.DagORef != g.OID {
+		t.Fatalf("dagoref not linked")
+	}
+}

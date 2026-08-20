@@ -1,5 +1,9 @@
 package wshserver
 
+// DAG execution is engine-owned: persisted TaskGroups and waveobj updates drive supervision.
+// ScheduleOnce and the watchdog advance tasks from persisted state without the lead worker.
+// The lead receives notifications for visibility, but its phase worker is not an execution dependency.
+
 import (
 	"context"
 	"errors"
@@ -40,6 +44,16 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("linking dag to run: %w", err)
+	}
+	if run.Status == "planning" {
+		zero := 0
+		if err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+			r.Status = "executing"
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("transitioning deferred run: %w", err)
+		}
+		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, &zero, map[string]any{})
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
 	// schedule the first step immediately (spawns the initially ready tasks); failures are
