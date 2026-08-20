@@ -12,9 +12,10 @@ chosen route proves wrong. This doc decides who routes, when, and how to recover
 ## The decision (result of the brainstorming thread)
 
 **The orchestrator lead decides harness + model per task at DAG-authoring time, as free fields in
-the DAG it already writes. The engine honors them deterministically. Reactive escalation is the
-floor for author-time misses and post-authoring surprises. No difficulty classifier. No difficulty
-sniff. No runtime per-task routing.**
+the DAG it already writes. The engine honors them deterministically. Same-tier retry + typed
+`blocked` is the floor for author-time misses; a model hop is an explicit `escalate` verb
+judged by the lead/human, not an automatic policy. No difficulty classifier. No difficulty
+sniff. No runtime per-task routing. No automatic model-switch escalation (cache-miss sink).**
 
 Why this shape:
 
@@ -29,6 +30,12 @@ Why this shape:
 - The live lead must NOT be in the per-task spawn loop: that is precisely the prompt-enforced,
   lead-dependent fan-out the deterministic engine was built to remove. Author-time stamping is
   durable — it survives lead death and lives in the persisted TaskGroup.
+- An automatic `flash→pro` hop is a guaranteed prompt-cache miss (`taskPrompt` = goal +
+  Description + HeadlessContract, 2–4k prefix). `deepseek-v4-flash` is flaky on tool shape
+  but often recovers on a same-tier retry that keeps the cache (≈90% input discount). Auto-hop
+  turns a 1¢ flake into a 10¢ miss every time, and a 10-task DAG into a token sink. So the
+  engine retries same tier once for tool errors, otherwise blocks — the lead decides if the
+  miss is worth paying.
 
 ## Design
 
@@ -49,10 +56,12 @@ carries the harness; `Model` disambiguates which model within it.
 
 ### 2. Harness ↔ model capability matrix
 
-Not every harness runs every model. A small, explicit table of valid `(harness, model)` pairs is
-the single source of truth the spawn path validates against. The lead's stamp must resolve to a
-valid pair; an invalid or empty stamp falls back (empty → harness default model; unknown harness →
-owner's harness).
+Not every harness runs every model. A small table of valid `(harness, model)` pairs derived from
+`harness.Lookup(RunWorkerCapable)` × `consult.SpecForTier` (Tier `cheap/mid/capable`) is the single
+source of truth the spawn path validates against. Raw model ids are not the vocabulary — tier is;
+`RunSpec.Model` stays a free string for extensibility but the matrix normalizes it through the tier
+table. The lead's stamp must resolve to a valid pair; an invalid or empty stamp falls back (empty →
+harness default tier; unknown harness → owner's harness).
 
 ### 3. Spawn passthrough
 
@@ -67,21 +76,45 @@ configured.
 new per-task fields. `import` passthrough maps them from pitasks if present. The lead stamps routes
 while writing tasks — no new authoring tool.
 
-### 5. Reactive escalation floor
+### 5. Same-tier retry + typed `blocked`; explicit `escalate` verb (replaces auto-hop)
 
-If a task's stamped route fails (run failed, watchdog stall, circuit-break, gate sendback), the
-engine re-runs the same task on a more capable (harness, model) from the capability matrix. This is
-the backstop for author-time miscalibration and post-authoring reality. It reuses the existing
-retry/sendback/failure machinery — a policy on top, not a new subsystem. Deterministic: Go observes
-failure/stall and reacts; no model judges difficulty.
+No automatic model switch. The engine's only automatic recovery is a **same-tier retry** for
+transient tool errors (same `RunSpec`, same worktree, prefix-cache hit). Every other terminal
+signal goes to `blocked` and wakes the lead (`DagEventBlocked` + control file + `run:event
+ dag_blocked`). A model hop is an explicit `wsh jarvis dag escalate <task> [--tier mid|capable]`
+verb — `RetryTask` + patch `TaskNode.RunSpec` before `MarkPending` — judged by the lead/human
+who sees the DAG + failure kind + cost. Reuses the existing retry/sendback/blocked machinery; a
+policy + one verb, not a new subsystem. Deterministic: Go observes the kind, the lead judges the
+hop.
+
+Typed handling (pure `escalate(kind, attempts) → action`, no model call):
+
+| Kind | 1st failure | 2nd consecutive same kind | 3rd → |
+|---|---|---|---|
+| `tool_call_error` (common on `flash`) | retry same tier (cache hit) | `blocked` (lead may `escalate`) | `blocked` |
+| `stalled` / `timeout` / `context-window` | `blocked` (same tier is provably stuck) | — | — |
+| `gate sendback` ("too hard") | `blocked` | — | — |
+| `test/verify failed` / `blocked-merge` | `blocked` (bigger model won't fix logic) | — | — |
+
+Per-task `Attempts` + `LastFailureKind` on `TaskNode` persist the count in the `TaskGroup` blob
+(survives lead death). Global `g.Failures >= MaxConsecutiveFailures(3)` remains the DAG-level
+circuit-break and is not bypassed by per-task retries.
+
+Why not auto-hop: a hop is always a full prefix miss (2–4k `taskPrompt`), while a same-tier retry
+keeps the cache. Auto-hop on every `failed` turns flash flakiness into a token sink; a judged hop
+pays the miss only when the lead has evidence it's worth it.
 
 ## What this is NOT
 
 - Not a difficulty classifier (a model call rating tasks up front) — rejected, YAGNI.
 - Not a deterministic difficulty sniff — dropped; the lead subsumes it.
 - Not live per-spawn routing by the running lead — would reintroduce the single point of failure
-  the engine exists to remove. Author-time only.
-- Not a rewrite of `recomputeStatus`/phases or the engine core — a field, a passthrough, a policy.
+  the engine exists to remove. Author-time only, plus the explicit `escalate` verb for the blocked
+  case.
+- Not an automatic model-switch escalation — rejected (cache-miss token sink on flash flakiness);
+  same-tier retry is automatic, a hop is judged.
+- Not a rewrite of `recomputeStatus`/phases or the engine core — a field, a passthrough, a retry
+  policy + one verb.
 
 ## Dependencies
 
@@ -105,14 +138,20 @@ waveobj change.
 - Authoring just works (submit/import already accept task JSON incl. `Model`/`Harness`).
 - Exit: a task stamped `{runtime, model}` spawns the intended worker; unstamped tasks unchanged.
 
-### Phase 2 — Reactive escalation floor
+### Phase 2 — Same-tier retry + typed `blocked`; explicit `escalate` verb
 
-- Policy: on task failure/stall/circuit-break/sendback, re-run on the next more-capable
-  `(harness, model)` from the matrix, up to a cap.
-- Reuse existing retry/sendback machinery; wire into the failure path.
-- Tests: failure triggers escalation; stall triggers escalation; cap respected; determinism (the
-  escalation decision is a pure function of task state + matrix).
-- Exit: a cheap-stamped hard task fails then resumes on a capable model before the group blocks.
+- Policy: `tool_call_error` → retry same tier once (cache hit), then `blocked`; `stalled`/
+  `timeout`/`context-window`/`gate sendback`/`test failed` → `blocked` immediately. No automatic
+  model hop.
+- Verb: `wsh jarvis dag escalate <task> [--tier mid|capable]` — patches `TaskNode.RunSpec`,
+  resets `RunID`/`Attempts`, `MarkPending`, reuses worktree. Lead/human judged; `blocked` already
+  wakes the lead.
+- Reuse existing retry/sendback/blocked machinery; `escalate` is `RetryTask` + `RunSpec` patch.
+- Tests: tool error retries same tier then blocks; stall blocks without retry; `escalate` patches
+  tier and re-queues; global `Failures` circuit-break still respected; typed decision is pure
+  `kind × attempts → action`.
+- Exit: a flaky cheap task recovers without a miss; a hard task blocks for a judged hop instead of
+  silently sinking tokens.
 
 ### Phase 3 — Surface the route
 
@@ -130,8 +169,10 @@ waveobj change.
 
 ## Open questions for review
 
-1. Capability matrix shape: hardcoded table vs config? (Lean hardcoded const for v1.)
-2. Escalation cap: how many resumptions before the task gives up to a human? (Default proposal: one
-   model-step up, then circuit-break to human.)
+1. Capability matrix shape: tier-derived table (`harness` × `consult.Tier`) vs raw hardcoded ids? (Lean
+   tier-derived for v1 — ids drift, tiers are the stable pricing/bucketing vocabulary.)
+2. `escalate` cap: how many judged hops before the task is terminal? (Default: one `flash→pro` hop
+   per task, then `blocked` to human; the global `MaxConsecutiveFailures(3)` remains the DAG cap.)
 3. Should `wsh jarvis merge`/evidence tag which model produced each commit (Phase 3 overlaps
-   evidence)? Proposed yes, only because it makes Phase 4's gate possible.
+   evidence)? Proposed yes, only because it makes Phase 4's gate (`cost/outcome per (stampTier,
+   runTier, cached%)` via `usagestats`) possible.
