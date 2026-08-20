@@ -2133,6 +2133,7 @@ declare global {
         version?: string;
         consultcapable: boolean;
         runworkercapable: boolean;
+        routecapabilities?: RouteCapabilityInfo[];
     };
 
     // gitinfo.HistoryCommit
@@ -2620,6 +2621,7 @@ declare global {
     type ProfileOverride = {
         playbook?: RunPhase[];
         principles?: PrinciplePatch;
+        route?: RoutePin;
         defaultmode?: string;
         defaultplangate?: boolean;
     };
@@ -2767,6 +2769,19 @@ declare global {
         updated: number;
     };
 
+    // wshrpc.RouteCapabilityInfo
+    type RouteCapabilityInfo = {
+        runtime: string;
+        tier: string;
+        resolvedmodel: string;
+    };
+
+    // waveobj.RoutePin
+    type RoutePin = {
+        runtime: string;
+        tier: string;
+    };
+
     // wshrpc.RpcContext
     type RpcContext = {
         sockname?: string;
@@ -2805,6 +2820,7 @@ declare global {
         id: string;
         goal: string;
         runtime?: string;
+        tier?: string;
         playbookid?: string;
         mode?: string;
         workspaceid: string;
@@ -2886,6 +2902,7 @@ declare global {
     // waveobj.RunSpec
     type RunSpec = {
         runtime?: string;
+        tier?: string;
         mode?: string;
         goal?: string;
     };
@@ -3044,6 +3061,7 @@ declare global {
         "debug:pprofmemprofilerate"?: number;
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
+        "harness:preferredtier"?: string;
     };
 
     // wshrpc.ShippedItem

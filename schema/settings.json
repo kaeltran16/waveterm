@@ -329,6 +329,9 @@
         },
         "harness:preferredruntime": {
           "type": "string"
+        },
+        "harness:preferredtier": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

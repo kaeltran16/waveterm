@@ -236,6 +236,11 @@ type PhaseTriage struct {
 	Note    string `json:"note,omitempty"` // one-line reason
 }
 
+type RoutePin struct {
+	Runtime string `json:"runtime"`
+	Tier    string `json:"tier"`
+}
+
 type RunPhase struct {
 	Kind        string       `json:"kind"`               // brainstorm | plan | execute | orchestrate | custom
 	Skill       string       `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
@@ -257,6 +262,7 @@ type Run struct {
 	ID          string          `json:"id"`                   // == OID; retained for embedded-blob consumers until phase 3 contract
 	Goal        string          `json:"goal"`
 	Runtime     string          `json:"runtime,omitempty"` // the harness running every phase and child; empty means legacy Claude-only
+	Tier        string          `json:"tier,omitempty"`
 	PlaybookId  string          `json:"playbookid,omitempty"`
 	Mode        string          `json:"mode,omitempty"`       // pipeline | orchestrator (empty = pipeline, legacy-safe)
 	WorkspaceId string          `json:"workspaceid"`          // where phase-worker tabs are created (frontend supplies at CreateRun)
@@ -306,8 +312,9 @@ type TaskNode struct {
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).
 type RunSpec struct {
 	Runtime string `json:"runtime,omitempty"` // harness; empty = run default
-	Mode    string `json:"mode,omitempty"`    // quick | pipeline | orchestrator
-	Goal    string `json:"goal,omitempty"`    // per-task goal; empty = task label
+	Tier    string `json:"tier,omitempty"`
+	Mode    string `json:"mode,omitempty"` // quick | pipeline | orchestrator
+	Goal    string `json:"goal,omitempty"` // per-task goal; empty = task label
 }
 
 // TaskGroup is the persisted DAG attached to an orchestrator run (oref dag:<id>).
@@ -444,6 +451,7 @@ type JarvisProfile struct {
 type ProfileOverride struct {
 	Playbook        *[]RunPhase     `json:"playbook,omitempty"`
 	Principles      *PrinciplePatch `json:"principles,omitempty"`
+	Route           *RoutePin       `json:"route,omitempty"`
 	DefaultMode     *string         `json:"defaultmode,omitempty"`
 	DefaultPlanGate *bool           `json:"defaultplangate,omitempty"`
 }

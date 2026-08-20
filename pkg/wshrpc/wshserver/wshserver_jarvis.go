@@ -20,6 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisrecall"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -350,13 +351,24 @@ func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandL
 	results := probeHarnesses(ctx)
 	infos := make([]wshrpc.HarnessInfo, len(results))
 	for i, r := range results {
+		capabilities := []wshrpc.RouteCapabilityInfo{}
+		if r.Installed && r.Spec.RunWorkerCapable {
+			for _, capability := range runroute.Capabilities(r.Spec.Runtime) {
+				capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
+					Runtime:       capability.Runtime,
+					Tier:          string(capability.Tier),
+					ResolvedModel: capability.ResolvedModel,
+				})
+			}
+		}
 		infos[i] = wshrpc.HarnessInfo{
-			Runtime:          r.Spec.Runtime,
-			Label:            r.Spec.Label,
-			Installed:        r.Installed,
-			Version:          r.Version,
-			ConsultCapable:   r.Spec.ConsultCapable,
-			RunWorkerCapable: r.Spec.RunWorkerCapable,
+			Runtime:           r.Spec.Runtime,
+			Label:             r.Spec.Label,
+			Installed:         r.Installed,
+			Version:           r.Version,
+			ConsultCapable:    r.Spec.ConsultCapable,
+			RunWorkerCapable:  r.Spec.RunWorkerCapable,
+			RouteCapabilities: capabilities,
 		}
 	}
 	return &wshrpc.CommandListHarnessesRtnData{Harnesses: infos}, nil

@@ -208,15 +208,22 @@ type CommandArchiveJarvisConversationData struct {
 	Archived       bool   `json:"archived"`
 }
 
+type RouteCapabilityInfo struct {
+	Runtime       string `json:"runtime"`
+	Tier          string `json:"tier"`
+	ResolvedModel string `json:"resolvedmodel"`
+}
+
 // HarnessInfo is one installed coding-agent harness in the shared catalog. OpenRouter is deliberately
 // absent: it is an API-backed utility runtime, not an installable harness an operator chooses for Runs.
 type HarnessInfo struct {
-	Runtime          string `json:"runtime"`
-	Label            string `json:"label"`
-	Installed        bool   `json:"installed"`
-	Version          string `json:"version,omitempty"`
-	ConsultCapable   bool   `json:"consultcapable"`
-	RunWorkerCapable bool   `json:"runworkercapable"`
+	Runtime           string                `json:"runtime"`
+	Label             string                `json:"label"`
+	Installed         bool                  `json:"installed"`
+	Version           string                `json:"version,omitempty"`
+	ConsultCapable    bool                  `json:"consultcapable"`
+	RunWorkerCapable  bool                  `json:"runworkercapable"`
+	RouteCapabilities []RouteCapabilityInfo `json:"routecapabilities,omitempty"`
 }
 
 type CommandListHarnessesRtnData struct {

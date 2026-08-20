@@ -178,6 +178,7 @@ type SettingsType struct {
 	DebugWebGlStatus         bool `json:"debug:webglstatus,omitempty"`
 
 	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
+	HarnessPreferredTier    string `json:"harness:preferredtier,omitempty"`
 }
 
 func (s *SettingsType) GetAiSettings() *AiSettingsType {

@@ -127,5 +127,6 @@ const (
 	ConfigKey_DebugWebGlStatus               = "debug:webglstatus"
 
 	ConfigKey_HarnessPreferredRuntime        = "harness:preferredruntime"
+	ConfigKey_HarnessPreferredTier           = "harness:preferredtier"
 )
 
