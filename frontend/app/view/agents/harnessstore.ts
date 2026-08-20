@@ -13,6 +13,8 @@ import { globalStore } from "@/app/store/global";
 export interface HarnessPreferenceState {
     runtime: string; // selected, may be ahead of persistence
     persistedRuntime: string; // the last value confirmed by the server
+    tier: string; // selected model tier, may be ahead of persistence
+    persistedTier: string; // the last tier confirmed by the server
     saving: boolean;
     error?: string;
 }
@@ -20,6 +22,8 @@ export interface HarnessPreferenceState {
 export const emptyHarnessPreference: HarnessPreferenceState = {
     runtime: "",
     persistedRuntime: "",
+    tier: "capable",
+    persistedTier: "capable",
     saving: false,
 };
 
@@ -41,19 +45,39 @@ export function resolveDefaultRuntime(pref: string, harnesses: HarnessInfo[]): s
 
 // beginSave flips the shared state into saving for a new selection. The runtime updates immediately
 // (both pickers stay synchronized) while persistedRuntime is untouched until the write succeeds.
-export function beginSave(state: HarnessPreferenceState, runtime: string): HarnessPreferenceState {
-    return { runtime, persistedRuntime: state.persistedRuntime, saving: true };
+export function beginSave(state: HarnessPreferenceState, runtime: string, tier: string): HarnessPreferenceState {
+    return {
+        runtime,
+        persistedRuntime: state.persistedRuntime,
+        tier,
+        persistedTier: state.persistedTier,
+        saving: true,
+    };
 }
 
 // persistSave confirms the write succeeded: the selection becomes durable.
 export function persistSave(state: HarnessPreferenceState): HarnessPreferenceState {
-    return { runtime: state.runtime, persistedRuntime: state.runtime, saving: false, error: undefined };
+    return {
+        runtime: state.runtime,
+        persistedRuntime: state.runtime,
+        tier: state.tier,
+        persistedTier: state.tier,
+        saving: false,
+        error: undefined,
+    };
 }
 
 // failSave rolls the visible selection back to the last persisted value so a failed write is never
 // mistaken for durable, and surfaces the error.
 export function failSave(state: HarnessPreferenceState, error: string): HarnessPreferenceState {
-    return { runtime: state.persistedRuntime, persistedRuntime: state.persistedRuntime, saving: false, error };
+    return {
+        runtime: state.persistedRuntime,
+        persistedRuntime: state.persistedRuntime,
+        tier: state.persistedTier,
+        persistedTier: state.persistedTier,
+        saving: false,
+        error,
+    };
 }
 
 // setPreferredHarness updates the shared atom immediately, persists via SetConfigCommand, and rolls
@@ -63,12 +87,14 @@ export function setPreferredHarness(runtime: string): void {
     if (current.saving || current.runtime === runtime) {
         return;
     }
-    globalStore.set(harnessPreferenceAtom, beginSave(current, runtime));
+    const tier = current.tier || "capable";
+    globalStore.set(harnessPreferenceAtom, beginSave(current, runtime, tier));
     void (async () => {
         try {
-            await RpcApi.SetConfigCommand(TabRpcClient, { "harness:preferredruntime": runtime } as Parameters<
-                typeof RpcApi.SetConfigCommand
-            >[1]);
+            await RpcApi.SetConfigCommand(TabRpcClient, {
+                "harness:preferredruntime": runtime,
+                "harness:preferredtier": tier,
+            } as Parameters<typeof RpcApi.SetConfigCommand>[1]);
             globalStore.set(harnessPreferenceAtom, persistSave(globalStore.get(harnessPreferenceAtom)));
         } catch (e) {
             globalStore.set(harnessPreferenceAtom, failSave(globalStore.get(harnessPreferenceAtom), String(e)));
@@ -77,14 +103,17 @@ export function setPreferredHarness(runtime: string): void {
 }
 
 // initHarnessPreference seeds the atom from the persisted setting and the server's harness list.
-export function initHarnessPreference(persistedRuntime: string): void {
+export function initHarnessPreference(persistedRuntime: string, persistedTier = ""): void {
     const current = globalStore.get(harnessPreferenceAtom);
     if (current.saving) {
         return; // a selection is mid-flight; don't clobber it with the boot value
     }
+    const tier = persistedTier || "capable";
     globalStore.set(harnessPreferenceAtom, {
         runtime: persistedRuntime,
         persistedRuntime,
+        tier,
+        persistedTier: tier,
         saving: false,
     });
 }

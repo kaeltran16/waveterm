@@ -5,6 +5,8 @@ package wshserver
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -157,6 +159,85 @@ func TestSetChannelProfileStoresPatch(t *testing.T) {
 	}
 	if len(ov.Principles.Disabled) != 1 || ov.Principles.Disabled[0] != disableID {
 		t.Fatalf("stored patch mismatch: %+v", ov.Principles)
+	}
+}
+
+func TestSetChannelProfileRouteRoundTripsWithoutResolvedRoute(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "route-chan", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}
+	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
+		ChannelId: ch.OID,
+		Override:  &waveobj.ProfileOverride{Route: route},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := wstore.DBMustGet[*waveobj.Channel](ctx, ch.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := jarvis.OverrideFromMeta(reloaded)
+	if stored == nil || stored.Route == nil || *stored.Route != *route {
+		t.Fatalf("stored route mismatch: %+v", stored)
+	}
+	got, err := (&WshServer{}).GetJarvisProfileCommand(ctx, wshrpc.CommandGetJarvisProfileData{ChannelId: ch.OID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Override == nil || got.Override.Route == nil || *got.Override.Route != *route {
+		t.Fatalf("returned route mismatch: %+v", got.Override)
+	}
+	resolved, err := json.Marshal(got.Resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(resolved), "route") {
+		t.Fatalf("resolved profile leaked route: %s", resolved)
+	}
+}
+
+func TestSetChannelProfileRejectsInvalidRouteBeforeWrite(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "invalid-route-chan", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Route: &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}})
+	invalid := &waveobj.RoutePin{Runtime: "openrouter", Tier: "capable"}
+	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
+		ChannelId: ch.OID,
+		Override:  &waveobj.ProfileOverride{Route: invalid},
+	}); err == nil {
+		t.Fatal("expected invalid route error")
+	}
+	reloaded, err := wstore.DBMustGet[*waveobj.Channel](ctx, ch.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := jarvis.OverrideFromMeta(reloaded)
+	if stored == nil || stored.Route == nil || stored.Route.Runtime != "pi" || stored.Route.Tier != "capable" {
+		t.Fatalf("invalid route changed profile: %+v", stored)
+	}
+}
+
+func TestSetChannelProfileNilRouteClearsEmptyOverride(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "clear-route-chan", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Route: &waveobj.RoutePin{Runtime: "pi", Tier: "capable"}})
+	if err := (&WshServer{}).SetChannelProfileCommand(ctx, wshrpc.CommandSetChannelProfileData{
+		ChannelId: ch.OID,
+		Override:  &waveobj.ProfileOverride{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if channelHasProfileMeta(t, ctx, ch.OID) {
+		t.Fatal("nil route with no other sections should clear override")
 	}
 }
 

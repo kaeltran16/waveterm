@@ -22,6 +22,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/suggestion"
 	"github.com/wavetermdev/waveterm/pkg/telemetry"
 	"github.com/wavetermdev/waveterm/pkg/telemetry/telemetrydata"
@@ -206,7 +207,30 @@ func (ws *WshServer) EventReadHistoryCommand(ctx context.Context, data wshrpc.Co
 	return events, nil
 }
 
+func validatePreferredRoutePatch(patch waveobj.MetaMapType) error {
+	runtimeValue, runtimePresent := patch[wconfig.ConfigKey_HarnessPreferredRuntime]
+	tierValue, tierPresent := patch[wconfig.ConfigKey_HarnessPreferredTier]
+	if !runtimePresent && !tierPresent {
+		return nil
+	}
+	if !runtimePresent || !tierPresent {
+		return fmt.Errorf("preferred route runtime and tier must be updated together")
+	}
+	runtime, runtimeOK := runtimeValue.(string)
+	tier, tierOK := tierValue.(string)
+	if !runtimeOK || !tierOK || runtime == "" || tier == "" {
+		return fmt.Errorf("preferred route runtime and tier must be non-empty strings")
+	}
+	if _, err := runroute.Resolve(waveobj.RoutePin{Runtime: runtime, Tier: tier}); err != nil {
+		return fmt.Errorf("invalid preferred route: %w", err)
+	}
+	return nil
+}
+
 func (ws *WshServer) SetConfigCommand(ctx context.Context, data wshrpc.MetaSettingsType) error {
+	if err := validatePreferredRoutePatch(data.MetaMapType); err != nil {
+		return err
+	}
 	return wconfig.SetBaseConfigValue(data.MetaMapType)
 }
 

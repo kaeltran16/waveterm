@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -180,6 +181,11 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 	if data.ChannelId == "" {
 		return fmt.Errorf("channelid is required")
 	}
+	if data.Override != nil && data.Override.Route != nil {
+		if _, err := runroute.Resolve(*data.Override.Route); err != nil {
+			return fmt.Errorf("validating route: %w", err)
+		}
+	}
 	if data.Override != nil && data.Override.Principles != nil {
 		global := jarvis.LoadGlobalProfile()
 		// a legacy string arriving from an old client becomes a structured patch before validation/storage.
@@ -193,7 +199,7 @@ func (ws *WshServer) SetChannelProfileCommand(ctx context.Context, data wshrpc.C
 		data.Override.Principles = patch
 	}
 	empty := data.Override == nil || (data.Override.Playbook == nil && data.Override.Principles == nil &&
-		data.Override.DefaultMode == nil && data.Override.DefaultPlanGate == nil)
+		data.Override.Route == nil && data.Override.DefaultMode == nil && data.Override.DefaultPlanGate == nil)
 	err := wstore.DBUpdateFn(ctx, data.ChannelId, func(ch *waveobj.Channel) {
 		if ch.Meta == nil {
 			ch.Meta = make(waveobj.MetaMapType)
