@@ -3,12 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const stopRunWorkerCommand = vi.fn();
 const cancelRunCommand = vi.fn();
+const createRunCommand = vi.fn();
 const pushModal = vi.fn();
 
+vi.mock("@/app/store/global-atoms", async () => {
+    const actual = await vi.importActual<typeof import("@/app/store/global-atoms")>("@/app/store/global-atoms");
+    const { atom } = await import("jotai");
+    return { ...actual, atoms: { workspaceId: atom("workspace-1") as any } };
+});
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         StopRunWorkerCommand: (...args: any[]) => stopRunWorkerCommand(...args),
         CancelRunCommand: (...args: any[]) => cancelRunCommand(...args),
+        CreateRunCommand: (...args: any[]) => createRunCommand(...args),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -25,6 +32,7 @@ import {
     cacheJarvisProfile,
     resolvedProfileAtom,
     channelOverrideAtom,
+    createRun,
 } from "./runactions";
 
 function deferred() {
@@ -40,6 +48,7 @@ function deferred() {
 beforeEach(() => {
     stopRunWorkerCommand.mockReset();
     cancelRunCommand.mockReset();
+    createRunCommand.mockReset();
     pushModal.mockReset();
     globalStore.set(stoppingWorkerIdsAtom, new Set());
     globalStore.set(cancellingRunIdsAtom, new Set());
@@ -57,6 +66,30 @@ describe("profile cache", () => {
         cacheJarvisProfile("channel-1", response);
         expect(globalStore.get(resolvedProfileAtom)["channel-1"]).toBe(response.resolved);
         expect(globalStore.get(channelOverrideAtom)["channel-1"]).toBe(response.override);
+    });
+});
+
+describe("createRun", () => {
+    it("maps deferred orchestrator options to the RPC shape", async () => {
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
+        await createRun("channel-1", "ship", { runtime: "pi", tier: "mid" }, { mode: "orchestrator", deferStart: true });
+        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), {
+            channelid: "channel-1",
+            workspaceid: "workspace-1",
+            goal: "ship",
+            runtime: "pi",
+            tier: "mid",
+            mode: "orchestrator",
+            plangate: undefined,
+            deferstart: true,
+            radarorigin: undefined,
+        });
+
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
+        await createRun("channel-1", "direct", { runtime: "pi", tier: "mid" });
+        expect(createRunCommand.mock.calls[1][1]).toEqual(
+            expect.objectContaining({ runtime: "pi", tier: "mid", mode: undefined, deferstart: undefined }),
+        );
     });
 });
 

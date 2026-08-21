@@ -29,6 +29,7 @@ type JarvisCommands interface {
 	AcceptDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-confirm a dossier<->run attribution and harden it into canonical refs; also restores a detached edge and attaches an unattributed run
 	ListDetachedEdgesCommand(ctx context.Context, data CommandListDetachedEdgesData) (*CommandListDetachedEdgesRtnData, error)             // the human-suppressed edges for one dossier or one run, so a detach can be undone
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)                   // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
+	JarvisPlanDagCommand(ctx context.Context, data CommandJarvisPlanDagData) (*CommandJarvisPlanDagRtnData, error)                         // plan a structured, editable DAG before Run creation
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error)                // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                                           // read the global Jarvis profile (builtins if unset)
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to jarvis-profile.json
@@ -37,9 +38,9 @@ type JarvisCommands interface {
 	EmbedReconcileCommand(ctx context.Context) error                                                                                       // start catching the embedding index up to the vault; returns as soon as the work is dispatched
 	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)                               // work-ledger query: per-project active/shipped/timeline/delta + source health
 	JarvisStatusCommand(ctx context.Context, data CommandJarvisStatusData) (*CommandJarvisStatusRtnData, error)                            // capture accounting: note counts, index availability, distill queue
-	JarvisAskCommand(ctx context.Context, data CommandJarvisAskData) (*CommandJarvisAskRtnData, error)                                       // stateless ask: ledger facts + judged prose recall, one answer
-	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                                         // resolve the run context (channel/run/dag) owning the caller's block
-	JarvisRunEventsCommand(ctx context.Context, data CommandJarvisRunEventsData) (*CommandJarvisRunEventsRtnData, error)                       // run visibility timeline: list a run's lifecycle events, newest-first
+	JarvisAskCommand(ctx context.Context, data CommandJarvisAskData) (*CommandJarvisAskRtnData, error)                                     // stateless ask: ledger facts + judged prose recall, one answer
+	JarvisCtxCommand(ctx context.Context, data CommandJarvisCtxData) (*CommandJarvisCtxRtnData, error)                                     // resolve the run context (channel/run/dag) owning the caller's block
+	JarvisRunEventsCommand(ctx context.Context, data CommandJarvisRunEventsData) (*CommandJarvisRunEventsRtnData, error)                   // run visibility timeline: list a run's lifecycle events, newest-first
 	ListProactiveRefusalsCommand(ctx context.Context, data CommandListProactiveRefusalsData) (*CommandListProactiveRefusalsRtnData, error) // recent persisted "I found nothing" verdicts from proactive recall, with their causes
 	GetLatestResumeCommand(ctx context.Context) (*CommandGetLatestResumeRtnData, error)                                                    // the newest rest-transition narrative across all runs — "where we were" at launch
 }
@@ -114,6 +115,32 @@ type CommandJarvisDecomposeData struct {
 
 type CommandJarvisDecomposeRtnData struct {
 	Subtasks []string `json:"subtasks"`
+}
+
+type CommandJarvisPlanDagData struct {
+	ChannelId string           `json:"channelid"`
+	Goal      string           `json:"goal"`
+	Route     waveobj.RoutePin `json:"route"`
+}
+
+type DagPlanDraft struct {
+	Title string        `json:"title"`
+	Tasks []DagPlanTask `json:"tasks"`
+}
+
+type DagPlanTask struct {
+	ID          string            `json:"id"`
+	Label       string            `json:"label"`
+	Description string            `json:"description,omitempty"`
+	Deps        []string          `json:"deps,omitempty"`
+	Gate        bool              `json:"gate,omitempty"`
+	Route       *waveobj.RoutePin `json:"route,omitempty"`
+}
+
+type CommandJarvisPlanDagRtnData struct {
+	Draft    DagPlanDraft `json:"draft"`
+	Fallback bool         `json:"fallback,omitempty"`
+	Warnings []string     `json:"warnings,omitempty"`
 }
 
 type CommandGetJarvisProfileData struct {
@@ -438,7 +465,7 @@ type ActiveWorkItem struct {
 	Title       string   `json:"title"`
 	Detail      string   `json:"detail,omitempty"`
 	Ts          int64    `json:"ts"`
-	NavTarget   string   `json:"navtarget,omitempty"` // "run:<oid>" | "vault:<id>"
+	NavTarget   string   `json:"navtarget,omitempty"`   // "run:<oid>" | "vault:<id>"
 	WorkerORefs []string `json:"workerorefs,omitempty"` // run rows only: sorted deduped phase worker orefs ("tab:<id>")
 }
 
@@ -480,10 +507,10 @@ type CommandJarvisStatusData struct{}
 // CaptureStatus is the observability answer to "did it skip my session?": vault note counts per
 // collection, embedding index availability, and the distill queue state per cwd.
 type CaptureStatus struct {
-	NoteCounts     map[string]int     `json:"notecounts,omitempty"`
-	IndexAvailable bool               `json:"indexavailable"`
-	IndexError     string             `json:"indexerror,omitempty"`
-	DistillQueue   []CwdQueueWire     `json:"distillqueue,omitempty"`
+	NoteCounts     map[string]int       `json:"notecounts,omitempty"`
+	IndexAvailable bool                 `json:"indexavailable"`
+	IndexError     string               `json:"indexerror,omitempty"`
+	DistillQueue   []CwdQueueWire       `json:"distillqueue,omitempty"`
 	Efforts        CaptureEffortsStatus `json:"efforts"`
 }
 

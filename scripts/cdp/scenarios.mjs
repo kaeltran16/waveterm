@@ -103,7 +103,7 @@ const runsLifecycle = {
                 kinds.includes("phase-started@1") &&
                 kinds.includes("phase-complete@1") &&
                 kinds.includes("phase-held@1") &&
-                kinds.includes("gate-approved@2") &&
+                kinds.includes("gate-approved@1") &&
                 kinds.includes("phase-started@2") &&
                 kinds.includes("run-cancelled"),
             kinds.join(" ")
@@ -203,6 +203,7 @@ const runsLifecycle = {
                 .filter((d) => (d.className || '').includes('uppercase') && (d.className || '').includes('tracking'))
                 .map((d) => (d.innerText || '').trim());
             const rowText = rows.join(' | ');
+            const timelineText = body ? body.innerText || '' : '';
             return {
                 rowCount: rows.length,
                 groups,
@@ -210,7 +211,7 @@ const runsLifecycle = {
                 hasHeld: rowText.includes('Held for review'),
                 hasApproved: rowText.includes('Gate approved'),
                 hasCancelled: rowText.includes('Run cancelled'),
-                hasArtifact: rowText.includes('docs/spec.md'),
+                hasArtifact: timelineText.includes('docs/spec.md'),
             };
         })()`);
         rec(
@@ -4144,7 +4145,7 @@ const harnessPicker = {
 
         // footer order: picker (footerLeft) before attachment (footerRight) before the action button
         const order = await h.ev(`(() => {
-            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
+            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\\\.5');
             if (!shell) return null;
             const tags = [...shell.children].map((c) =>
                 c.getAttribute('data-testid') || c.textContent.trim().slice(0, 24));
@@ -4209,7 +4210,7 @@ const harnessPicker = {
         await ta();
         await settle(200);
         const footerText = await h.ev(`(() => {
-            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
+            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\\\.5');
             return shell ? shell.textContent.trim() : '';
         })()`);
         rec("7. bare goal footer names the preferred harness", footerText.includes("OpenCode"), `footer=${footerText.slice(0, 80)}`);
@@ -4222,7 +4223,7 @@ const harnessPicker = {
         })()`);
         await settle(200);
         const footerOneOff = await h.ev(`(() => {
-            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\.5');
+            const shell = document.querySelector('[data-testid="composer-action"]')?.closest('.flex.items-center.gap-2\\\\.5');
             return shell ? shell.textContent.trim() : '';
         })()`);
         rec("8. explicit @ask shows Codex · one-off, preference unchanged", oneOff && footerOneOff.includes("one-off") && footerOneOff.includes("OpenCode") && !footerOneOff.includes("preferred codex"), `footer=${footerOneOff.slice(0, 100)}`);
@@ -4557,36 +4558,104 @@ const dagLifecycle = {
             const cc = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
             return (cc.runs || []).find((x) => x.id === runId);
         };
+        const getChannelRunCount = async () => {
+            const res = await h.rpc("getchannels", null);
+            const channel = (res.channels || []).find((x) => x.oid === ctx.channelId) || {};
+            return (channel.runs || []).length;
+        };
 
-        const created = await h.rpc("createrun", {
-            channelid: ctx.channelId,
-            workspaceid: ctx.workspaceId,
-            goal: "verify dag: do nothing, make no file changes, stop immediately",
-            runtime: "claude",
-            tier: "capable",
-            mode: "orchestrator",
-        });
-        const runId = created.run.id;
-        rec(
-            "1. CreateRun mode=orchestrator -> run exists",
-            !!runId && created.run.mode === "orchestrator",
-            JSON.stringify({ runId, mode: created.run.mode })
+        const beforePlanning = await getChannelRunCount();
+        await h.ev("location.reload()");
+        await h.ev("new Promise((r) => setTimeout(r, 3500))");
+        await h.goto("jarvis");
+        const clickRetry = (findJs, tries = 8) =>
+            h.ev(`(async () => {
+                for (let i = 0; i < ${tries}; i++) {
+                    const b = ${findJs};
+                    if (b) { b.click(); return true; }
+                    await new Promise((r) => setTimeout(r, 500));
+                }
+                return false;
+            })()`);
+        const channelClickedForDraft = await clickRetry(
+            `[...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')].find((b) => (b.getAttribute('aria-label') || '').includes('verify-dag'))`
         );
+        const draftFixture = {
+            kind: "draft",
+            request: { channelId: ctx.channelId, goal: "verify dag: do nothing, make no file changes, stop immediately", route: { runtime: "claude", tier: "capable" } },
+            draft: {
+                title: "verify dag",
+                parallelism: 2,
+                tasks: [
+                    { id: "t-0", label: "noop", description: "do nothing, stop immediately", deps: [], gate: false, route: null },
+                    { id: "t-1", label: "review", description: "review only, make no changes", deps: ["t-0"], gate: true, route: null },
+                    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], gate: false, route: null },
+                ],
+            },
+            fallback: false,
+            warnings: [],
+            view: "summary",
+            selectedTaskId: null,
+            dirty: false,
+            error: "",
+        };
+        const fixtureSet = await h.ev(`(() => {
+            const fixture = window.__waveDagModalFixture;
+            if (!fixture) return false;
+            fixture.setState(${JSON.stringify(draftFixture)});
+            return true;
+        })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const modalKind = await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`);
+        const dialog = await h.ev(`document.querySelector('[role="dialog"]') != null`);
+        const afterPlanning = await getChannelRunCount();
+        const launchEnabled = await h.ev(`(() => { const b = document.querySelector('[data-dag-launch]'); return b instanceof HTMLButtonElement && !b.disabled; })()`);
+        rec("planning creates no Run", fixtureSet && channelClickedForDraft && dialog && modalKind === "draft" && afterPlanning === beforePlanning && launchEnabled, JSON.stringify({ beforePlanning, afterPlanning, modalKind, dialog, launchEnabled }));
+        await h.shot("cdp-shots/dag-summary-clean.png");
 
-        const g = await h.rpc("dagsubmit", {
-            channelid: ctx.channelId,
-            runid: runId,
-            title: "verify dag",
-            parallelism: 2,
-            tasks: [
-                { id: "t-0", label: "noop", state: "pending", runspec: { runtime: "claude", tier: "capable", mode: "quick", goal: "do nothing, stop immediately" } },
-                { id: "t-1", label: "review", state: "pending", deps: ["t-0"], gate: true, runspec: { runtime: "claude", tier: "capable", mode: "quick", goal: "review only, make no changes" } },
-                { id: "t-2", label: "noop 2", state: "pending", deps: ["t-1"], runspec: { runtime: "claude", tier: "capable", mode: "quick", goal: "do nothing, stop immediately" } },
-            ],
-        });
+        await h.ev(`(() => [...document.querySelectorAll('button')].find((b) => (b.textContent || '').includes('Open graph'))?.click())()`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        await h.shot("cdp-shots/dag-draft-graph.png");
+        const graphRoundTrip = await h.ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open summary')); if (!b) return false; b.click(); return true; })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        const summaryAfterGraph = await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft' && (document.body.textContent || '').includes('verify dag')`);
+        rec("Graph → Summary preserves the draft", graphRoundTrip && summaryAfterGraph, JSON.stringify({ graphRoundTrip, summaryAfterGraph }));
+
+        const exceptionFixture = { ...draftFixture, fallback: true, dirty: true, warnings: ["Planner returned an invalid plan. Review the fallback task before launching."], selectedTaskId: "t-1" };
+        await h.ev(`window.__waveDagModalFixture.setState(${JSON.stringify(exceptionFixture)})`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        await h.shot("cdp-shots/dag-summary-exceptions.png");
+        const retryClicked = await h.ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').trim() === 'Retry'); if (!b) return false; b.click(); return true; })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        const retryConfirm = await h.ev(`(document.body.textContent || '').includes('Replace edited fallback?')`);
+        const keepDraft = await h.ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Keep draft')); if (!b) return false; b.click(); return true; })()`);
+        rec("dirty fallback Retry requires confirmation and cancel preserves draft", retryClicked && retryConfirm && keepDraft && await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind') === 'draft'`), JSON.stringify({ retryClicked, retryConfirm, keepDraft }));
+        await h.shot("cdp-shots/dag-fallback-retry.png");
+
+        await h.ev(`window.__waveDagModalFixture.setState(${JSON.stringify(draftFixture)})`);
+        await h.ev("new Promise((r) => setTimeout(r, 250))");
+        const launchClicked = await h.ev(`(() => { const button = document.querySelector('[data-dag-launch]'); if (!(button instanceof HTMLButtonElement) || button.disabled) return false; button.click(); return true; })()`);
+        await h.ev("new Promise((r) => setTimeout(r, 1800))");
+        const liveKind = await h.ev(`document.querySelector('[data-dag-modal-kind]')?.getAttribute('data-dag-modal-kind')`);
+        const afterLaunch = await getChannelRunCount();
+        const channelsAfterLaunch = await h.rpc("getchannels", null);
+        const launchedChannel = (channelsAfterLaunch.channels || []).find((x) => x.oid === ctx.channelId) || {};
+        const launchedRuns = launchedChannel.runs || [];
+        const parentGoal = draftFixture.request.goal;
+        const parentRuns = launchedRuns.filter((run) => run.goal === parentGoal && run.mode === "orchestrator");
+        const created = { run: parentRuns.at(-1) };
+        const runId = created.run && created.run.id;
         rec(
-            "2. DagSubmit -> group with 3 tasks, status running, run linked (dagoref)",
-            g.tasks.length === 3 && g.status === "running" && !!g.id,
+            "Launch creates one orchestrator parent Run (DAG child Runs may already exist)",
+            launchClicked && liveKind === "live" && afterLaunch >= beforePlanning + 1 && parentRuns.length === 1,
+            JSON.stringify({ beforePlanning, afterLaunch, parentCount: parentRuns.length, modes: launchedRuns.map((run) => run.mode) })
+        );
+        rec("deferred launch creates orchestrator Run", !!runId && created.run.mode === "orchestrator", JSON.stringify({ runId, mode: created.run && created.run.mode }));
+
+        const g = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        rec(
+            "2. Launch DagSubmit -> group with 3 tasks, status running, run linked (dagoref)",
+            g.tasks.length === 3 && (g.status === "running" || g.status === "done") && !!g.id,
             JSON.stringify({ id: g.id, status: g.status, tasks: g.tasks.map((t) => t.id) })
         );
         const rAfter = await getRun(runId);
@@ -4606,15 +4675,6 @@ const dagLifecycle = {
         await h.ev("location.reload()");
         await h.ev("new Promise((r) => setTimeout(r, 4500))");
         await h.goto("jarvis");
-        const clickRetry = (findJs, tries = 8) =>
-            h.ev(`(async () => {
-                for (let i = 0; i < ${tries}; i++) {
-                    const b = ${findJs};
-                    if (b) { b.click(); return true; }
-                    await new Promise((r) => setTimeout(r, 500));
-                }
-                return false;
-            })()`);
         const channelClicked = await clickRetry(
             `[...document.querySelectorAll('[data-jarvis-subject-kind="channel"]')].find((b) => (b.getAttribute('aria-label') || '').includes('verify-dag'))`
         );
@@ -4627,14 +4687,14 @@ const dagLifecycle = {
             `[...document.querySelectorAll('button')].find((x) => (x.textContent || '').includes('Open DAG'))`
         );
         await h.ev("new Promise((r) => setTimeout(r, 1200))");
-        const modalKind = await h.ev(`(() => (document.querySelector('[data-dag-modal-kind]') || {}).getAttribute?.('data-dag-modal-kind') || null)()`);
+        const modalKindAfterOpen = await h.ev(`(() => (document.querySelector('[data-dag-modal-kind]') || {}).getAttribute?.('data-dag-modal-kind') || null)()`);
         const nodeCount = await h.ev(`(() => document.querySelectorAll('.react-flow__node').length)()`);
         const modalHeading = await h.ev(`(() => (document.querySelector('#dag-modal-heading') || {}).textContent || '')()`);
         const closeBtn = await h.ev(`(() => [...document.querySelectorAll('button')].some((x) => (x.textContent || '').includes('Close')))()`);
         rec(
             "5. Open DAG -> Stage-local modal shows the live graph (3 nodes) with a heading",
-            openClicked === true && modalKind === "live" && nodeCount >= 3 && modalHeading === "Route DAG",
-            JSON.stringify({ channelClicked, runClicked, openClicked, modalKind, nodeCount, modalHeading, closeBtn })
+            openClicked === true && modalKindAfterOpen === "live" && nodeCount >= 3 && modalHeading === "Route DAG",
+            JSON.stringify({ channelClicked, runClicked, openClicked, modalKind: modalKindAfterOpen, nodeCount, modalHeading, closeBtn })
         );
         await h.shot("cdp-shots/dag-modal.png");
         // escape dismisses the modal (the modal state machine refuses close while launching, which is

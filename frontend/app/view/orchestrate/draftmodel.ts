@@ -1,11 +1,12 @@
 import { capabilityFor } from "../agents/route";
 
-const DEFAULT_PARALLELISM = 2;
-const MAX_PARALLELISM = 64;
+export const MAX_DRAFT_TASKS = 8;
+export const MAX_DRAFT_PARALLELISM = 8;
 
 export type DraftTask = {
     id: string;
     label: string;
+    description: string;
     deps: string[];
     gate: boolean;
     route: RoutePin | null;
@@ -25,31 +26,60 @@ function taskIndex(draft: DagDraft, id: string): number {
     return draft.tasks.findIndex((task) => task.id === id);
 }
 
-export function draftFromSubtasks(goal: string, subtasks: string[]): DagDraft {
+export function draftFromPlan(response: CommandJarvisPlanDagRtnData): DagDraft {
+    const tasks = response.draft.tasks.map((task) => ({
+        id: task.id,
+        label: task.label,
+        description: task.description ?? "",
+        deps: [...(task.deps ?? [])],
+        gate: task.gate ?? false,
+        route: task.route == null ? null : { ...task.route },
+    }));
     return {
-        title: goal,
-        parallelism: DEFAULT_PARALLELISM,
-        tasks: subtasks.map((label, index) => ({ id: `t-${index + 1}`, label, deps: [], gate: false, route: null })),
+        title: response.draft.title,
+        parallelism: tasks.length === 1 ? 1 : 2,
+        tasks,
     };
 }
 
+export function draftFromSubtasks(goal: string, subtasks: string[]): DagDraft {
+    return draftFromPlan({
+        draft: {
+            title: goal,
+            tasks: subtasks.map((label, index) => ({ id: `t-${index + 1}`, label, description: "", deps: [], gate: false })),
+        },
+    } as CommandJarvisPlanDagRtnData);
+}
+
 export function addDraftTask(draft: DagDraft, label = "New task"): DagDraft {
+    if (draft.tasks.length >= MAX_DRAFT_TASKS) return draft;
     const used = new Set(draft.tasks.map((task) => task.id));
     let number = 1;
     while (used.has(`t-${number}`)) number++;
-    return { ...draft, tasks: [...draft.tasks.map(copyTask), { id: `t-${number}`, label, deps: [], gate: false, route: null }] };
+    return {
+        ...draft,
+        tasks: [...draft.tasks.map(copyTask), { id: `t-${number}`, label, description: "", deps: [], gate: false, route: null }],
+    };
 }
 
 export function renameDraftTask(draft: DagDraft, id: string, label: string): DagDraft {
     const index = taskIndex(draft, id);
-    if (index < 0) return draft;
+    if (index < 0 || draft.tasks[index].label === label) return draft;
     const tasks = draft.tasks.map(copyTask);
     tasks[index] = { ...tasks[index], label };
     return { ...draft, tasks };
 }
 
+export function setDraftDescription(draft: DagDraft, id: string, description: string): DagDraft {
+    const index = taskIndex(draft, id);
+    if (index < 0 || draft.tasks[index].description === description) return draft;
+    const tasks = draft.tasks.map(copyTask);
+    tasks[index] = { ...tasks[index], description };
+    return { ...draft, tasks };
+}
+
 export function deleteDraftTask(draft: DagDraft, id: string): DagDraft {
-    if (taskIndex(draft, id) < 0) return draft;
+    if (draft.tasks.length <= 1 || taskIndex(draft, id) < 0) return draft;
     return {
         ...draft,
         tasks: draft.tasks.filter((task) => task.id !== id).map((task) => ({ ...copyTask(task), deps: task.deps.filter((dep) => dep !== id) })),
@@ -84,6 +114,15 @@ export function setDraftDependency(draft: DagDraft, id: string, dep: string, ena
     return { ...draft, tasks };
 }
 
+export function dependencyCandidates(draft: DagDraft, id: string): DraftTask[] {
+    if (taskIndex(draft, id) < 0) return [];
+    return draft.tasks.filter((candidate) => {
+        if (candidate.id === id) return false;
+        if (draft.tasks[taskIndex(draft, id)].deps.includes(candidate.id)) return true;
+        return setDraftDependency(draft, id, candidate.id, true) !== draft;
+    });
+}
+
 export function setDraftGate(draft: DagDraft, id: string, gate: boolean): DagDraft {
     const index = taskIndex(draft, id);
     if (index < 0 || draft.tasks[index].gate === gate) return draft;
@@ -103,7 +142,7 @@ export function setDraftRoute(draft: DagDraft, id: string, route: RoutePin | nul
 }
 
 export function setDraftParallelism(draft: DagDraft, parallelism: number): DagDraft {
-    if (!Number.isInteger(parallelism) || parallelism < 1 || parallelism > MAX_PARALLELISM) return draft;
+    if (!Number.isInteger(parallelism) || parallelism < 1 || parallelism > MAX_DRAFT_PARALLELISM) return draft;
     if (draft.parallelism === parallelism) return draft;
     return { ...draft, parallelism, tasks: draft.tasks.map(copyTask) };
 }
@@ -111,30 +150,33 @@ export function setDraftParallelism(draft: DagDraft, parallelism: number): DagDr
 export function validateDraft(draft: DagDraft, harnesses: HarnessInfo[]): string[] {
     const errors: string[] = [];
     if (!draft.title.trim()) errors.push("title is required");
-    if (!Number.isInteger(draft.parallelism) || draft.parallelism < 1 || draft.parallelism > MAX_PARALLELISM) {
-        errors.push("parallelism must be a positive integer no greater than 64");
+    if (!Number.isInteger(draft.parallelism) || draft.parallelism < 1 || draft.parallelism > MAX_DRAFT_PARALLELISM) {
+        errors.push("parallelism must be an integer from 1 through 8");
     }
     if (draft.tasks.length === 0) errors.push("at least one task is required");
+    if (draft.tasks.length > MAX_DRAFT_TASKS) errors.push("no more than 8 tasks are allowed");
+
     const ids = new Set<string>();
     for (const task of draft.tasks) {
         if (!task.id.trim()) errors.push("task id is required");
         if (ids.has(task.id)) errors.push(`duplicate task id ${task.id}`);
         ids.add(task.id);
         if (!task.label.trim()) errors.push(`task ${task.id} label is required`);
-        const deps = new Set<string>();
-        for (const dep of task.deps) {
-            if (dep === task.id) errors.push(`task ${task.id} depends on itself`);
-            if (!ids.has(dep) && !draft.tasks.some((candidate) => candidate.id === dep)) errors.push(`task ${task.id} depends on unknown task ${dep}`);
-            if (deps.has(dep)) errors.push(`task ${task.id} has duplicate dependency ${dep}`);
-            deps.add(dep);
-        }
         if (task.route != null && capabilityFor(task.route, harnesses) == null) {
             errors.push(`task ${task.id} route is not supported by an installed backend`);
         }
     }
     for (const task of draft.tasks) {
-        const dependsOnSelf = task.deps.some((dep) => dep === task.id || reaches(draft, dep, task.id));
-        if (dependsOnSelf) {
+        const deps = new Set<string>();
+        for (const dep of task.deps) {
+            if (dep === task.id) errors.push(`task ${task.id} depends on itself`);
+            if (!ids.has(dep)) errors.push(`task ${task.id} depends on unknown task ${dep}`);
+            if (deps.has(dep)) errors.push(`task ${task.id} has duplicate dependency ${dep}`);
+            deps.add(dep);
+        }
+    }
+    for (const task of draft.tasks) {
+        if (task.deps.some((dep) => dep === task.id || reaches(draft, dep, task.id))) {
             errors.push(`dependency cycle involving ${task.id}`);
             break;
         }
@@ -149,6 +191,7 @@ export function toDagSubmitPayload(draft: DagDraft): { title: string; parallelis
         tasks: draft.tasks.map((task) => ({
             id: task.id,
             label: task.label,
+            description: task.description,
             deps: [...task.deps],
             gate: task.gate,
             state: "pending",

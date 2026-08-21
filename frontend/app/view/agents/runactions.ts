@@ -65,7 +65,12 @@ export async function createRun(
     channelId: string,
     goal: string,
     route: RoutePin,
-    opts?: { mode?: string; planGate?: boolean; radarOrigin?: { reportid: string; findingid: string; fingerprint: string } }
+    opts?: {
+        mode?: string;
+        planGate?: boolean;
+        deferStart?: boolean;
+        radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
+    }
 ): Promise<Run> {
     if (!route.runtime || !route.tier) throw new Error("Choose a route");
     const workspaceId = globalStore.get(atoms.workspaceId);
@@ -77,6 +82,7 @@ export async function createRun(
         tier: route.tier,
         mode: opts?.mode,
         plangate: opts?.planGate,
+        deferstart: opts?.deferStart,
         radarorigin: opts?.radarOrigin,
     });
     return rtn.run;

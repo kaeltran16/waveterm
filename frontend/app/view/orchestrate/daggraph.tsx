@@ -46,7 +46,8 @@ function DagTaskNode({ data }: NodeProps) {
     const tone = STATE_TONE[view.state] ?? STATE_TONE.pending;
     return (
         <div
-            className={`w-[168px] rounded-[11px] border bg-lane px-2.5 py-2 shadow-[0_2px_10px_rgba(0,0,0,0.25)] ${
+            data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.tier}`}
+            className={`w-[168px] rounded-[11px] border bg-lane px-2.5 py-2 shadow-popover-line ${
                 selected ? "border-accent" : "border-edge-mid"
             }`}
         >
@@ -63,6 +64,9 @@ function DagTaskNode({ data }: NodeProps) {
                 {view.label}
             </div>
             {view.meta ? <div className="truncate font-mono text-[9px] text-muted">{view.meta}</div> : null}
+            <div className="truncate font-mono text-[9px] text-secondary">
+                {view.route.source === "pinned" ? "pinned" : "inherits run route"} · {view.route.runtime} / {view.route.tier} · {view.route.resolvedModel}
+            </div>
             {view.gate ? (
                 <div className="mt-0.5 font-mono text-[8.5px] uppercase tracking-wide text-warning">gate</div>
             ) : null}
@@ -93,15 +97,15 @@ const nodeTypes = { dagTask: DagTaskNode };
 // the per-run graph: ReactFlow canvas fed by the pure view data + layered layout. Actions
 // round-trip through the dag commands; the waveobj update re-derives the view. The provider
 // must wrap the component that calls useReactFlow (the hook reads the provider's context).
-export function DagGraphView({ oref }: { oref: string }) {
+export function DagGraphView({ oref, owner, harnesses }: { oref: string; owner: Run; harnesses: HarnessInfo[] }) {
     return (
         <ReactFlowProvider>
-            <DagGraphInner oref={oref} />
+            <DagGraphInner oref={oref} owner={owner} harnesses={harnesses} />
         </ReactFlowProvider>
     );
 }
 
-function DagGraphInner({ oref }: { oref: string }) {
+function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; harnesses: HarnessInfo[] }) {
     const [group, loading] = useDagGroup(oref);
     const selectedId = useAtomValue(selectedTaskIdAtom);
     const { fitView, zoomIn, zoomOut } = useReactFlow();
@@ -109,7 +113,7 @@ function DagGraphInner({ oref }: { oref: string }) {
     const { nodes, edges, byId } = useMemo(() => {
         if (loading || !group)
             return { nodes: [] as Node[], edges: [] as Edge[], byId: new Map<string, DagViewNode>() };
-        const { nodes: vnodes, edges: vedges } = buildViewData(group);
+        const { nodes: vnodes, edges: vedges } = buildViewData(group, owner, harnesses);
         const pos = computeLayeredLayout(group.tasks);
         const viewById = new Map(vnodes.map((n) => [n.id, n]));
         const reactNodes: Node[] = vnodes.map((n) => ({
@@ -128,14 +132,14 @@ function DagGraphInner({ oref }: { oref: string }) {
             id: `e-${i}`,
             source: e.source,
             target: e.target,
-            markerEnd: { type: MarkerType.ArrowClosed, color: "#6b7482" },
+            markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-edge-strong)" },
             style: {
-                stroke: viewById.get(e.target)?.state === "failed" ? "#e5a50a" : "#6b7482",
+                stroke: viewById.get(e.target)?.state === "failed" ? "var(--color-warning)" : "var(--color-edge-strong)",
                 strokeDasharray: viewById.get(e.target)?.state === "failed" ? "6 4" : undefined,
             },
         }));
         return { nodes: reactNodes, edges: reactEdges, byId: viewById };
-    }, [group, loading, selectedId]);
+    }, [group, harnesses, loading, owner, selectedId]);
 
     const orderedIds = useMemo(() => (group ? group.tasks.map((t) => t.id) : []), [group]);
 
@@ -160,6 +164,9 @@ function DagGraphInner({ oref }: { oref: string }) {
     return (
         <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
             <DagGraphHeader group={group} />
+            <div className="flex flex-none items-center gap-2 border-b border-border bg-surface px-4 py-1.5 font-mono text-xxs text-muted">
+                Run route · {owner.runtime || "unavailable"} / {owner.tier || "capable"}
+            </div>
             <div className="relative min-h-0 flex-1">
                 <ReactFlow
                     nodes={nodes}
@@ -176,7 +183,7 @@ function DagGraphInner({ oref }: { oref: string }) {
                     onPaneClick={() => globalStore.set(selectedTaskIdAtom, null)}
                     minZoom={0.2}
                 >
-                    <Background gap={24} size={1} color="rgba(120,130,150,0.14)" />
+                    <Background gap={24} size={1} color="color-mix(in srgb, var(--color-ink-mid) 14%, transparent)" />
                 </ReactFlow>
                 {/* zoom cluster */}
                 <div className="absolute right-3 top-3 z-[5] flex flex-col overflow-hidden rounded-[7px] border border-edge-mid bg-surface-raised">
@@ -217,6 +224,9 @@ function DagGraphInner({ oref }: { oref: string }) {
                                 state <b className="text-primary">{selected.state}</b>
                                 {selected.gate ? " · gate" : ""}
                                 {selected.meta ? ` · ${selected.meta}` : ""}
+                            </div>
+                            <div className="font-mono text-[10px] text-secondary" data-dag-node-route={`${selected.route.source}:${selected.route.runtime}:${selected.route.tier}`}>
+                                {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.tier} · {selected.route.resolvedModel}
                             </div>
                         </div>
                         {selected.actions.length > 0 ? (

@@ -33,6 +33,7 @@ import (
 var (
 	probeHarnesses  = harness.ProbeAll
 	validateHarness = harness.ValidateInstalled
+	planDag         = jarvis.PlanDag
 )
 
 func (ws *WshServer) GetJarvisProfileCommand(ctx context.Context, data wshrpc.CommandGetJarvisProfileData) (*wshrpc.CommandGetJarvisProfileRtnData, error) {
@@ -84,6 +85,49 @@ func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.Com
 	}
 	subtasks := jarvis.Decompose(ctx, projectPath, data.Goal, channel)
 	return &wshrpc.CommandJarvisDecomposeRtnData{Subtasks: subtasks}, nil
+}
+
+func (ws *WshServer) JarvisPlanDagCommand(ctx context.Context, data wshrpc.CommandJarvisPlanDagData) (*wshrpc.CommandJarvisPlanDagRtnData, error) {
+	channelID := strings.TrimSpace(data.ChannelId)
+	goal := strings.TrimSpace(data.Goal)
+	if channelID == "" {
+		return nil, fmt.Errorf("channelid is required")
+	}
+	if goal == "" {
+		return nil, fmt.Errorf("goal is required")
+	}
+	capability, err := runroute.Resolve(data.Route)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := validateHarness(capability.Runtime, harness.OperationRunWorker); err != nil {
+		return nil, err
+	}
+	channel, err := wstore.DBMustGet[*waveobj.Channel](ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("loading channel: %w", err)
+	}
+	probes := probeHarnesses(ctx)
+	global := jarvis.LoadGlobalProfile()
+	override := jarvis.OverrideFromMeta(channel)
+	resolved, _ := jarvis.ResolveProfileWithDiagnostics(global, override)
+	draft, warnings, err := planDag(ctx, channel.ProjectPath, jarvis.DagPlanInput{
+		Goal:          goal,
+		ChannelName:   channel.Name,
+		Principles:    resolved.Principles,
+		RunRoute:      data.Route,
+		AllowedRoutes: installedRunWorkerPins(probes),
+	})
+	if err != nil {
+		log.Printf("jarvis plan dag: channel=%s: %v", channelID, err)
+		draft, warnings = jarvis.FallbackDagPlan(goal, err)
+		return &wshrpc.CommandJarvisPlanDagRtnData{
+			Draft:    toRPCDagPlanDraft(draft),
+			Fallback: true,
+			Warnings: warnings,
+		}, nil
+	}
+	return &wshrpc.CommandJarvisPlanDagRtnData{Draft: toRPCDagPlanDraft(draft), Warnings: warnings}, nil
 }
 
 const consultTimeout = 120 * time.Second
@@ -347,19 +391,53 @@ func (ws *WshServer) ArchiveJarvisConversationCommand(ctx context.Context, data 
 	}
 	return nil
 }
+func routeCapabilitiesForProbe(result harness.ProbeResult) []runroute.Capability {
+	if !result.Installed || !result.Spec.RunWorkerCapable {
+		return nil
+	}
+	return runroute.Capabilities(result.Spec.Runtime)
+}
+
+func installedRunWorkerPins(results []harness.ProbeResult) []waveobj.RoutePin {
+	var pins []waveobj.RoutePin
+	for _, result := range results {
+		for _, capability := range routeCapabilitiesForProbe(result) {
+			pins = append(pins, waveobj.RoutePin{Runtime: capability.Runtime, Tier: string(capability.Tier)})
+		}
+	}
+	return pins
+}
+
+func toRPCDagPlanDraft(draft jarvis.DagPlanDraft) wshrpc.DagPlanDraft {
+	out := wshrpc.DagPlanDraft{Title: draft.Title, Tasks: make([]wshrpc.DagPlanTask, len(draft.Tasks))}
+	for i, task := range draft.Tasks {
+		converted := wshrpc.DagPlanTask{
+			ID:          task.ID,
+			Label:       task.Label,
+			Description: task.Description,
+			Deps:        append([]string(nil), task.Deps...),
+			Gate:        task.Gate,
+		}
+		if task.Route != nil {
+			route := *task.Route
+			converted.Route = &route
+		}
+		out.Tasks[i] = converted
+	}
+	return out
+}
+
 func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandListHarnessesRtnData, error) {
 	results := probeHarnesses(ctx)
 	infos := make([]wshrpc.HarnessInfo, len(results))
 	for i, r := range results {
 		capabilities := []wshrpc.RouteCapabilityInfo{}
-		if r.Installed && r.Spec.RunWorkerCapable {
-			for _, capability := range runroute.Capabilities(r.Spec.Runtime) {
-				capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
-					Runtime:       capability.Runtime,
-					Tier:          string(capability.Tier),
-					ResolvedModel: capability.ResolvedModel,
-				})
-			}
+		for _, capability := range routeCapabilitiesForProbe(r) {
+			capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
+				Runtime:       capability.Runtime,
+				Tier:          string(capability.Tier),
+				ResolvedModel: capability.ResolvedModel,
+			})
 		}
 		infos[i] = wshrpc.HarnessInfo{
 			Runtime:           r.Spec.Runtime,
