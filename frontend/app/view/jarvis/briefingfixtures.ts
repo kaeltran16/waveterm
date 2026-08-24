@@ -178,7 +178,7 @@ const emptyState: WorkState = {
 };
 
 const loaded = (state: WorkState): BriefingLoadState => ({
-    snapshot: { state, queryStartedAt: NOW, actualCursor: NOW - 7 * DAY, complete: true, cursorSaved: true },
+    snapshot: { state, queryStartedAt: NOW, actualCursor: NOW - 7 * DAY, complete: true },
     loading: false,
     error: null,
 });

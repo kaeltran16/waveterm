@@ -17,7 +17,6 @@ export interface BriefingSnapshot {
     queryStartedAt: number;
     actualCursor: number;
     complete: boolean;
-    cursorSaved: boolean;
 }
 
 export interface BriefingLoadState {
@@ -58,8 +57,8 @@ export const briefingStateAtom: Atom<BriefingLoadState> = atom((get) => {
 // trap the ask CLI raised its timeout for. Raised here so the briefing landing actually loads.
 export const stateRpcTimeoutMs = 180_000;
 
-// every load gets a generation; only the latest may write the snapshot or the cursor. Guards React
-// remounts and rapid subject changes without a backend write or lock.
+// every load gets a generation; only the latest may write the snapshot. Guards React remounts and
+// rapid subject changes without a backend write or lock.
 let loadGeneration = 0;
 
 function validCursor(v: unknown, at: number): v is number {
@@ -87,24 +86,9 @@ export async function loadBriefingAsync(): Promise<void> {
         }
         const state = rtn.state;
         const complete = state.sources.runs === true && state.sources.dossiers === true;
-        let cursorSaved = true;
-        if (complete) {
-            try {
-                // re-read before the write: a slower second window must not regress a cursor another
-                // window (or another Wave window) already advanced past its own query start. Only
-                // positivity is re-checked — a peer's cursor may legitimately exceed this window's
-                // queryStartedAt, so the read-time future rejection must not re-apply here.
-                const cur = globalStore.get(briefingCursorAtom);
-                const curValid = typeof cur === "number" && Number.isFinite(cur) && cur > 0;
-                globalStore.set(briefingCursorAtom, Math.max(curValid ? cur : 0, queryStartedAt));
-            } catch {
-                // keep the accepted snapshot and say the marker was not saved; the safe consequence
-                // is repetition on the next load, never a lost event.
-                cursorSaved = false;
-            }
-        }
+        globalStore.set(briefingAckAtom, "waiting");
         globalStore.set(fetchedBriefingStateAtom, {
-            snapshot: { state, queryStartedAt, actualCursor, complete, cursorSaved },
+            snapshot: { state, queryStartedAt, actualCursor, complete },
             loading: false,
             error: null,
         });
@@ -123,6 +107,31 @@ export async function loadBriefingAsync(): Promise<void> {
 
 export function loadBriefing(): void {
     void loadBriefingAsync();
+}
+
+// --- visit acknowledgment (dwell-based; the safe consequence of skipping it is repetition) --------
+export type BriefingAckState = "idle" | "waiting" | "saved" | "failed";
+export const briefingAckAtom = atom<BriefingAckState>("idle") as PrimitiveAtom<BriefingAckState>;
+
+// Advances the visit cursor to the current snapshot's query start. Called by the view after a short
+// dwell on loaded content, not at load completion — a glance-and-close must not mark the delta seen.
+export function ackBriefingVisit(): void {
+    const st = globalStore.get(fetchedBriefingStateAtom);
+    if (st.snapshot == null || !st.snapshot.complete || st.loading) {
+        return;
+    }
+    try {
+        // re-read before the write: a slower second window must not regress a cursor another window
+        // already advanced past its own query start. Only positivity is re-checked — a peer's cursor
+        // may legitimately exceed this snapshot's queryStartedAt.
+        const cur = globalStore.get(briefingCursorAtom);
+        const curValid = typeof cur === "number" && Number.isFinite(cur) && cur > 0;
+        globalStore.set(briefingCursorAtom, Math.max(curValid ? cur : 0, st.snapshot.queryStartedAt));
+        globalStore.set(briefingAckAtom, "saved");
+    } catch {
+        // keep the accepted snapshot and say the marker was not saved; repetition beats a lost event.
+        globalStore.set(briefingAckAtom, "failed");
+    }
 }
 
 // Refresh uses the same load and cursor rules as reopening Briefing.

@@ -23,7 +23,9 @@ func emptyLegs() fetchSeams {
 		getChannels:     func(ctx context.Context) ([]*waveobj.Channel, error) { return nil, nil },
 		getChannelRuns:  func(ctx context.Context, id string) ([]*waveobj.Run, error) { return nil, nil },
 		scanSessions:    func(days, limit int) ([]agentsessions.SessionInfo, error) { return nil, nil },
-		gatherAttention: func(ctx context.Context) ([]wshrpc.AttentionItem, error) { return nil, nil },
+		gatherAttention: func(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error) {
+			return nil, nil
+		},
 		openVault:       func(ctx context.Context) (*wavevault.Vault, error) { return nil, errors.New("no vault") },
 		loadDossier:     jarvisdossier.LoadDossier,
 		loadDecision:    jarvisdossier.LoadDecision,
@@ -187,7 +189,7 @@ func TestFetchWorkStateMarksDossiersUnhealthyOnDossierLoadFailure(t *testing.T) 
 func TestFetchWorkStateAttentionErrorAndVolatile(t *testing.T) {
 	ctx := context.Background()
 	seamsErr := emptyLegs()
-	seamsErr.gatherAttention = func(ctx context.Context) ([]wshrpc.AttentionItem, error) { return nil, errors.New("attention broke") }
+	seamsErr.gatherAttention = func(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error) { return nil, errors.New("attention broke") }
 	restoreErr := SetFetchSeamsForTest(seamsErr)
 	st, err := FetchWorkState(ctx, "", 0)
 	restoreErr()

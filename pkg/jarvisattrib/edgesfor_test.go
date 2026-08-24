@@ -48,14 +48,14 @@ func TestEdgesForEndToEnd(t *testing.T) {
 	}
 
 	// Backfill returns the same informing edge as a proposal
-	proposals, err := Backfill(ctx, v, id)
+	proposals, err := backfill(ctx, v, id)
 	if err != nil || findEdge(proposals, "run:"+runID) == nil {
-		t.Fatalf("Backfill missing the proposal: %+v err=%v", proposals, err)
+		t.Fatalf("backfill missing the proposal: %+v err=%v", proposals, err)
 	}
 
-	// 2) Harden promotes the deterministic, past-probation edge into canonical refs
-	if err := Harden(ctx, v, id); err != nil {
-		t.Fatalf("Harden: %v", err)
+	// 2) harden promotes the deterministic, past-probation edge into canonical refs
+	if err := harden(ctx, v, id); err != nil {
+		t.Fatalf("harden: %v", err)
 	}
 	edges, _ = EdgesFor(ctx, v, id)
 	got = findEdge(edges, "run:"+runID)

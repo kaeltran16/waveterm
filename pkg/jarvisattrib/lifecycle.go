@@ -334,9 +334,10 @@ func AllEdges(ctx context.Context, v *wavevault.Vault) (map[string][]AttributedE
 	return out, nil
 }
 
-// Backfill returns the still-informing (unconfirmed) subset of EdgesFor — the proposals a human would
-// review and accept when attributing past work. The batched one-click-accept UI is deferred (G).
-func Backfill(ctx context.Context, v *wavevault.Vault, dossierID string) ([]AttributedEdge, error) {
+// backfill returns the still-informing (unconfirmed) subset of EdgesFor — the proposals a human would
+// review and accept when attributing past work. No consumer yet; a batched one-click-accept UI would
+// be its natural home.
+func backfill(ctx context.Context, v *wavevault.Vault, dossierID string) ([]AttributedEdge, error) {
 	all, err := EdgesFor(ctx, v, dossierID)
 	if err != nil {
 		return nil, err
@@ -350,10 +351,10 @@ func Backfill(ctx context.Context, v *wavevault.Vault, dossierID string) ([]Attr
 	return proposals, nil
 }
 
-// Harden auto-promotes deterministic layer-2 edges that have passed probation into canonical refs
+// harden auto-promotes deterministic layer-2 edges that have passed probation into canonical refs
 // (layer-3 weak edges require an explicit Accept). Idempotent; reloads the dossier before each write so
-// the baseHash guard stays current.
-func Harden(ctx context.Context, v *wavevault.Vault, dossierID string) error {
+// the baseHash guard stays current. No consumer outside tests yet — Accept/Detach carry the live path.
+func harden(ctx context.Context, v *wavevault.Vault, dossierID string) error {
 	lk, runs, err := gatherLookups(ctx)
 	if err != nil {
 		return err

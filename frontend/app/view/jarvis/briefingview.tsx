@@ -20,6 +20,8 @@ import {
     type ActiveWorkRow,
 } from "./briefingmodel";
 import {
+    ackBriefingVisit,
+    briefingAckAtom,
     briefingAnswerAtom,
     briefingAskStateAtom,
     briefingFixtureAtom,
@@ -141,6 +143,19 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
         loadBriefing();
     }, []);
 
+    // visit marker advances on dwell, not at load: a glance-and-close leaves the delta unseen and
+    // repeating on the next brief. The timer restarts whenever a new snapshot lands (refresh/reload).
+    const ack = useAtomValue(briefingAckAtom);
+    const snapshotComplete = snapshot?.complete === true;
+    const queryStartedAt = snapshot?.queryStartedAt;
+    useEffect(() => {
+        if (!snapshotComplete) {
+            return;
+        }
+        const t = window.setTimeout(ackBriefingVisit, 3000);
+        return () => window.clearTimeout(t);
+    }, [snapshotComplete, queryStartedAt]);
+
     const model_ = useMemo(() => {
         if (snapshot == null) {
             return null;
@@ -233,7 +248,11 @@ export function BriefingView({ model }: { model: AgentsViewModel }) {
                             </span>
                             <span className="text-edge-strong">·</span>
                             <span className="text-muted">
-                                {snapshot.cursorSaved === false ? "visit marker not saved" : "visit marker saved"}
+                                {ack === "failed"
+                                    ? "visit marker not saved"
+                                    : ack === "saved"
+                                      ? "visit marker saved"
+                                      : "visit marker pending"}
                             </span>
                             {!model_.health.complete ? (
                                 <>

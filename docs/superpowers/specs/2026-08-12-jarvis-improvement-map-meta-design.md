@@ -74,7 +74,7 @@ objection — it is deterministic content with no LLM dependence.
 | **Jarvis tab landing = work-state briefing** (active work, needs-you, shipped recently, one-click ask) instead of an empty stage | not proposed (surface was in flux) | unblocked; the direct fix for "I barely use it" |
 | **Bring-up brief** — "what happened while I was away" (new runs, status changes, decisions, attention since last visit) | deferred (gap 3) | unblocked; a deterministic delta over the ledger, no synthesis needed for the facts |
 | **Pet volunteers ledger facts** at the autonomy ladder's set initiative (Concierge quiet / Gatekeeper volunteers / Delegator acts) | deferred (gap 2; companion killed on "the engine has never evaluated a real goal") | unblocked; the ledger is the engine, and the ladder is the volume knob |
-| **Attribution correction** — `jarvisattrib` has `Detach/Accept/Backfill/Harden` with no RPC and no consumer (brief gap 4, its strongest remaining candidate) | open | unblocked; operator-corrected corpus quality, small and compounding |
+| **Attribution correction** — ~~`jarvisattrib` has `Detach/Accept/Backfill/Harden` with no RPC and no consumer~~ **stale as of 2026-08-24:** Detach/Accept/ListDetached ship end-to-end (wshserver RPCs + the record view's detach/accept/undo UI); Backfill/Harden had no consumer and were unexported. Item closed — remaining attribution work would be new scope, not this gap. | closed | shipped |
 
 ### Axis 3 — Explicitly out (with reasons)
 

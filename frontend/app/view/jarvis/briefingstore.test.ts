@@ -30,7 +30,9 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { SEVEN_DAYS_MS } from "./briefingmodel";
 import {
+    ackBriefingVisit,
     askAcrossWorkAsync,
+    briefingAckAtom,
     briefingAnswerAtom,
     briefingAskStateAtom,
     briefingCursorAtom,
@@ -58,22 +60,27 @@ describe("briefing cursor", () => {
         globalStore.set(briefingCursorAtom, null);
         globalStore.set(briefingAskStateAtom, "idle");
         globalStore.set(briefingAnswerAtom, null);
+        globalStore.set(briefingAckAtom, "idle");
         vi.spyOn(Date, "now").mockReturnValue(T0);
         (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReset();
         (RpcApi.JarvisAskCommand as ReturnType<typeof vi.fn>).mockReset();
     });
 
-    it("first use falls back to seven days ago and stores the query start on success", async () => {
+    it("first use falls back to seven days ago for the fetch; the cursor moves only on acknowledge", async () => {
         mockStateRpc(completeState());
         await loadBriefingAsync();
         expect(RpcApi.JarvisStateCommand).toHaveBeenCalledWith(expect.anything(), {
             project: "",
             sincems: T0 - SEVEN_DAYS_MS,
         }, { timeout: 180_000 });
-        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        // load alone must not mark the delta seen
+        expect(globalStore.get(briefingCursorAtom)).toBe(null);
+        expect(globalStore.get(briefingAckAtom)).toBe("waiting");
         const st = globalStore.get(briefingStateAtom);
         expect(st.snapshot?.complete).toBe(true);
-        expect(st.snapshot?.cursorSaved).toBe(true);
+        ackBriefingVisit();
+        expect(globalStore.get(briefingCursorAtom)).toBe(T0);
+        expect(globalStore.get(briefingAckAtom)).toBe("saved");
     });
 
     it.each([
@@ -91,13 +98,14 @@ describe("briefing cursor", () => {
         }, { timeout: 180_000 });
     });
 
-    it("advances from queryStartedAt, never response time", async () => {
+    it("acknowledgment advances from queryStartedAt, never response time", async () => {
         let resolve!: (v: CommandJarvisStateRtnData) => void;
         (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReturnValue(new Promise((r) => (resolve = r)));
         const pending = loadBriefingAsync();
         vi.spyOn(Date, "now").mockReturnValue(T0 + 60_000); // the response lands a minute later
         resolve({ state: completeState() });
         await pending;
+        ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0);
     });
 
@@ -109,7 +117,7 @@ describe("briefing cursor", () => {
         expect(globalStore.get(briefingStateAtom).error).toBeTruthy();
     });
 
-    it("does not advance on partial source health but still renders the snapshot", async () => {
+    it("does not advance on partial source health; acknowledge is a no-op", async () => {
         globalStore.set(briefingCursorAtom, T0 - DAY);
         const partial: WorkState = {
             projects: [],
@@ -120,10 +128,12 @@ describe("briefing cursor", () => {
         const st = globalStore.get(briefingStateAtom);
         expect(st.snapshot?.complete).toBe(false);
         expect(st.snapshot?.state.sources.runs).toBe(false);
+        ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0 - DAY);
+        expect(globalStore.get(briefingAckAtom)).toBe("waiting");
     });
 
-    it("discards a stale generation's snapshot and cursor write", async () => {
+    it("a stale generation's snapshot is discarded and acknowledgment uses the current one", async () => {
         let resolveA!: (v: CommandJarvisStateRtnData) => void;
         (RpcApi.JarvisStateCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise((r) => (resolveA = r)));
         const a = loadBriefingAsync();
@@ -131,18 +141,20 @@ describe("briefing cursor", () => {
         await loadBriefingAsync();
         resolveA({ state: completeState() }); // generation A lands late
         await a;
+        ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0);
         expect(globalStore.get(briefingStateAtom).snapshot?.queryStartedAt).toBe(T0);
     });
 
-    it("keeps the accepted snapshot and flags the unsaved marker when localStorage writes fail", async () => {
+    it("flags the unsaved marker when localStorage writes fail during acknowledgment", async () => {
         lsMock.failWrites = true;
         try {
             mockStateRpc(completeState());
             await loadBriefingAsync();
-            const st = globalStore.get(briefingStateAtom);
-            expect(st.snapshot?.complete).toBe(true);
-            expect(st.snapshot?.cursorSaved).toBe(false);
+            expect(globalStore.get(briefingStateAtom).snapshot?.complete).toBe(true);
+            ackBriefingVisit();
+            expect(globalStore.get(briefingAckAtom)).toBe("failed");
+            expect(globalStore.get(briefingStateAtom).error).toBeNull();
         } finally {
             lsMock.failWrites = false;
         }
@@ -152,6 +164,7 @@ describe("briefing cursor", () => {
         globalStore.set(briefingCursorAtom, T0 + 10_000);
         mockStateRpc(completeState());
         await loadBriefingAsync();
+        ackBriefingVisit();
         expect(globalStore.get(briefingCursorAtom)).toBe(T0 + 10_000);
     });
 

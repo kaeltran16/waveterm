@@ -32,7 +32,7 @@ type fetchSeams struct {
 	getChannels     func(ctx context.Context) ([]*waveobj.Channel, error)
 	getChannelRuns  func(ctx context.Context, channelId string) ([]*waveobj.Run, error)
 	scanSessions    func(days, limit int) ([]agentsessions.SessionInfo, error)
-	gatherAttention func(ctx context.Context) ([]wshrpc.AttentionItem, error)
+	gatherAttention func(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error)
 	openVault       func(ctx context.Context) (*wavevault.Vault, error)
 	loadDossier     func(r *wavevault.Retriever, id string) (*jarvisdossier.Dossier, error)
 	loadDecision    func(r *wavevault.Retriever, id string) (*jarvisdossier.Decision, error)
@@ -43,7 +43,7 @@ var defaultSeams = fetchSeams{
 	getChannels:     wstore.GetChannels,
 	getChannelRuns:  wstore.GetChannelRuns,
 	scanSessions:    agentsessions.ScanSessions,
-	gatherAttention: jarvis.GatherAttention,
+	gatherAttention: jarvis.GatherAttentionFromLedger,
 	openVault:       wavevault.OpenVault,
 	loadDossier:     jarvisdossier.LoadDossier,
 	loadDecision:    jarvisdossier.LoadDecision,
@@ -64,9 +64,10 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 	st := wshrpc.WorkState{Sources: wshrpc.SourceHealth{Attention: "volatile"}}
 
 	var runs []*waveobj.Run
+	runsByChannel := map[string][]*waveobj.Run{}
 	runsHealthy := true
-	chans, err := defaultSeams.getChannels(ctx)
-	if err != nil {
+	chans, chanErr := defaultSeams.getChannels(ctx)
+	if chanErr != nil {
 		runsHealthy = false
 	} else {
 		for _, ch := range chans {
@@ -75,6 +76,7 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 				runsHealthy = false // one bad channel read voids completeness but keeps the rest
 				continue
 			}
+			runsByChannel[ch.OID] = cr
 			runs = append(runs, cr...)
 		}
 	}
@@ -87,7 +89,10 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 	}
 
 	var attention []wshrpc.AttentionItem
-	if a, aerr := defaultSeams.gatherAttention(ctx); aerr == nil {
+	// attention reads the same channels+runs this query already loaded; a failed channel leg voids it too.
+	if chanErr != nil {
+		st.Sources.Attention = "error"
+	} else if a, aerr := defaultSeams.gatherAttention(ctx, chans, runsByChannel); aerr == nil {
 		attention = a
 	} else {
 		st.Sources.Attention = "error"

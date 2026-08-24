@@ -248,14 +248,32 @@ func channelNameFor(channels []AttentionChannel, oid string) string {
 	return ""
 }
 
-// GatherAttention reads the live inputs and builds the list. Channels, runs and messages come from the
-// store; pending asks come from the in-process registry, which is why this list is authoritative for the
+// attentionMessageWindow bounds the per-channel message read. Only escalation cards are scanned, and a
+// card whose ask is no longer pending is dropped by the registry check anyway — recent history suffices.
+const attentionMessageWindow = 50
+
+// GatherAttention reads the live inputs and builds the list. Channels and runs come from the store;
+// pending asks come from the in-process registry, which is why this list is authoritative for the
 // current server lifetime rather than absolutely (a wavesrv restart empties it until agents re-raise).
 func GatherAttention(ctx context.Context) ([]wshrpc.AttentionItem, error) {
 	chans, err := wstore.GetChannels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing channels: %w", err)
 	}
+	runsByChannel := make(map[string][]*waveobj.Run, len(chans))
+	for _, ch := range chans {
+		runs, err := wstore.GetChannelRuns(ctx, ch.OID)
+		if err != nil {
+			return nil, fmt.Errorf("getting runs for channel %s: %w", ch.OID, err)
+		}
+		runsByChannel[ch.OID] = runs
+	}
+	return GatherAttentionFromLedger(ctx, chans, runsByChannel)
+}
+
+// GatherAttentionFromLedger builds the attention list from channel/run rows the caller already holds,
+// skipping the second full channels+runs read. Callers without them should use GatherAttention.
+func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error) {
 	in := AttentionInput{
 		PendingAsks:   agentask.GlobalRegistry.List(),
 		AskChannel:    map[string]string{},
@@ -263,16 +281,12 @@ func GatherAttention(ctx context.Context) ([]wshrpc.AttentionItem, error) {
 		AskWorkerORef: map[string]string{},
 	}
 	for _, ch := range chans {
-		runs, err := wstore.GetChannelRuns(ctx, ch.OID)
-		if err != nil {
-			return nil, fmt.Errorf("getting runs for channel %s: %w", ch.OID, err)
-		}
-		msgs, err := wstore.GetChannelMessages(ctx, ch.OID, 0, 0)
+		msgs, err := wstore.GetChannelMessages(ctx, ch.OID, 0, attentionMessageWindow)
 		if err != nil {
 			return nil, fmt.Errorf("getting messages for channel %s: %w", ch.OID, err)
 		}
 		in.Channels = append(in.Channels, AttentionChannel{
-			OID: ch.OID, Name: ch.Name, Runs: runs, Messages: msgs,
+			OID: ch.OID, Name: ch.Name, Runs: runsByChannel[ch.OID], Messages: msgs,
 		})
 	}
 	for blockORef := range in.PendingAsks {
