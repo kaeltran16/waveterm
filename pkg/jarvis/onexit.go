@@ -5,6 +5,7 @@ package jarvis
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
@@ -20,13 +21,15 @@ func init() {
 // OnWorkerExit posts a channel "outcome" message when a dispatched agent worker's process exits: it
 // reads the transcript path stamped on the block by the hook, derives status+summary from the
 // transcript (agentsessions), and posts to the dispatching channel (PostOutcome). No-op for a
-// non-agent block, a block with no stamped transcript, or a worker no channel dispatched.
+// non-agent block or a block with no stamped transcript; every other failure logs — a silent exit
+// is indistinguishable from "worker produced nothing".
 // Fire-and-forget; injected into blockcontroller.AgentOutcomeHook at init to avoid an import cycle.
 func OnWorkerExit(blockId string, exitCode int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	blockData, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
+		log.Printf("jarvis onexit: block %s unreadable: %v", blockId, err)
 		return
 	}
 	tpath := blockData.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
@@ -35,10 +38,12 @@ func OnWorkerExit(blockId string, exitCode int) {
 	}
 	tabId, err := wstore.DBFindTabForBlockId(ctx, blockId)
 	if err != nil {
+		log.Printf("jarvis onexit: tab lookup for block %s failed: %v", blockId, err)
 		return
 	}
 	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
 	if err != nil {
+		log.Printf("jarvis onexit: tab %s unreadable: %v", tabId, err)
 		return
 	}
 	runtime := tab.Meta.GetString("session:agent", "")
@@ -47,11 +52,13 @@ func OnWorkerExit(blockId string, exitCode int) {
 	}
 	sess, err := agentsessions.ExtractSession(tpath, runtime)
 	if err != nil || sess == nil {
+		log.Printf("jarvis onexit: transcript %s parse failed: %v", tpath, err)
 		return
 	}
 	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
 	ch := resolveDispatchChannelForWorker(ctx, workerORef)
 	if ch == nil {
+		log.Printf("jarvis onexit: no dispatch channel for worker %s; outcome not posted", workerORef)
 		return
 	}
 	PostOutcome(ch, workerORef, runtime, OutcomeData{

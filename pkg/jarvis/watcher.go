@@ -25,6 +25,9 @@ var (
 	inflight     = map[string]context.CancelFunc{} // askId -> cancel
 )
 
+// deliverFn is the delivery seam; tests stub it so no real ask actuator runs.
+var deliverFn = agentask.DeliverAnswer
+
 // OnAgentAsk is the server-side Gatekeeper entry point, called from publishAgentAsk for every ask
 // and clear. It never blocks the publish path: real work runs in a goroutine. A Cleared event
 // cancels any in-flight classification for that AskId.
@@ -125,10 +128,18 @@ func handleAsk(ctx context.Context, data baseds.AgentAskData) {
 	if decision.Action == "answer" && decision.OptionIndex != nil {
 		idx := *decision.OptionIndex
 		if optionIndexInRange(idx, q) {
-			delivered, derr := agentask.DeliverAnswer(data.ORef, data.AskId, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
+			delivered, derr := deliverFn(data.ORef, data.AskId, []baseds.AgentAnswerItem{{SelectedIndexes: []int{idx}}})
 			if derr == nil && delivered {
 				postAnswered(ch.OID, q, idx, decision.Reason, data.ORef, ownerORef)
+				return
 			}
+			// classifier chose answer but delivery raced a clear or failed — fail safe to escalate
+			// rather than let the ask vanish from the channel trail.
+			reason := "answer delivery failed"
+			if derr != nil {
+				reason += ": " + derr.Error()
+			}
+			postEscalation(ch.OID, data, reason, ownerORef)
 			return
 		}
 	}

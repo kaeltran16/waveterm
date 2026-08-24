@@ -17,6 +17,7 @@ import (
 
 const classifyTimeout = 120 * time.Second
 const maxTimeline = 12
+const maxTimelineLine = 200
 
 // runFn is the process-runner seam shared by this package's two headless claude calls (Classify and
 // Decompose). Production uses consult.Run; tests override it so nothing shells out and so the spec
@@ -83,9 +84,19 @@ func recentTimeline(channel *waveobj.Channel) string {
 	}
 	var b strings.Builder
 	for _, m := range msgs {
-		b.WriteString(m.Author + ": " + m.Text + "\n")
+		b.WriteString(m.Author + ": " + truncateLine(m.Text) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// truncateLine caps one message's contribution to the timeline prompt so a pasted log can't crowd
+// out the question in a cheap-tier context.
+func truncateLine(text string) string {
+	runes := []rune(text)
+	if len(runes) <= maxTimelineLine {
+		return text
+	}
+	return string(runes[:maxTimelineLine]) + "…"
 }
 
 // ParseDecision extracts the JSON object from the reply and validates it. ANY problem — no JSON,

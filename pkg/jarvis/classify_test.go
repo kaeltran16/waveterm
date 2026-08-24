@@ -6,6 +6,7 @@ package jarvis
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -127,4 +128,33 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestRecentTimeline_TruncatesLongLines(t *testing.T) {
+	long := strings.Repeat("x", 5000)
+	ch := &waveobj.Channel{Messages: []waveobj.ChannelMessage{
+		{Author: "worker", Text: long},
+		{Author: "human", Text: "short"},
+	}}
+	out := recentTimeline(ch)
+	if !strings.Contains(out, "short") {
+		t.Fatalf("short message dropped: %q", out)
+	}
+	if strings.Contains(out, long) {
+		t.Fatalf("long message not truncated")
+	}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if len([]rune(line)) > maxTimelineLine+len(line[:strings.Index(line, ": ")])+3 { // ": " + ellipsis
+			t.Fatalf("line exceeds cap: %d runes", len([]rune(line)))
+		}
+	}
+}
+
+func TestRecentTimeline_MultibyteTruncation(t *testing.T) {
+	long := strings.Repeat("é", maxTimelineLine+50)
+	ch := &waveobj.Channel{Messages: []waveobj.ChannelMessage{{Author: "w", Text: long}}}
+	out := recentTimeline(ch)
+	if got := len([]rune(out)); got != 4+maxTimelineLine { // author + ": " + capped + ellipsis
+		t.Fatalf("multibyte line not capped: %d runes", got)
+	}
 }

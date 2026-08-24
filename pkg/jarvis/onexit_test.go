@@ -4,10 +4,16 @@
 package jarvis
 
 import (
+	"bytes"
+	"context"
+	"log"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestOutcomeSummary(t *testing.T) {
@@ -48,4 +54,38 @@ func TestOutcomeSummary(t *testing.T) {
 			t.Errorf("got len %d, want 160", len(got))
 		}
 	})
+}
+
+// Guards J5: abnormal exit paths must log — a silent outcome is indistinguishable from
+// "worker produced nothing". Uses an unknown block id to force the block-load failure branch.
+func TestOnWorkerExit_LogsUnreadableBlock(t *testing.T) {
+	var buf bytes.Buffer
+	oldOut := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldOut)
+
+	OnWorkerExit("no-such-block", 0)
+
+	if !strings.Contains(buf.String(), "jarvis onexit") {
+		t.Fatalf("expected failure log, got %q", buf.String())
+	}
+}
+
+// The documented-normal no-transcript path stays silent.
+func TestOnWorkerExit_NoTranscriptStaysSilent(t *testing.T) {
+	ctx := context.Background()
+	blockOID := uuid.NewString()
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockOID, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("seed block: %v", err)
+	}
+	var buf bytes.Buffer
+	oldOut := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldOut)
+
+	OnWorkerExit(blockOID, 0)
+
+	if strings.Contains(buf.String(), "jarvis onexit") {
+		t.Fatalf("normal no-transcript path should not log: %q", buf.String())
+	}
 }
