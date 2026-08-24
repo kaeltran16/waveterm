@@ -21,7 +21,7 @@ export function sameRepoPath(a: string, b: string): boolean {
     return normalizeRepoPath(a) === normalizeRepoPath(b);
 }
 
-function normalizeRepoPath(p: string): string {
+export function normalizeRepoPath(p: string): string {
     return p
         .replace(/[\\/]+/g, "/")
         .replace(/\/+$/, "")
