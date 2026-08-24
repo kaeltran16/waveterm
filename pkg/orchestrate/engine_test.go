@@ -3,6 +3,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -286,7 +287,7 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{
-		ID: "t-0", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
+		ID: "t-0", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
 	}}, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -365,4 +366,205 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 			t.Fatalf("inherited route = cap %+v child %s/%s, want pi/mid", caps[id], child.Runtime, child.Tier)
 		}
 	}
+}
+
+func TestSchedulePersistsSpawnedWorkerOwnership(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	allowWorkerHarnessForTest(t)
+	cc := &captureClient{}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	t.Cleanup(func() { wps.Broker.SetClient(prevClient) })
+	const subscriber = "schedule-child-run-updates"
+	wps.Broker.Subscribe(subscriber, wps.SubscriptionRequest{Event: wps.Event_WaveObjUpdate, AllScopes: true})
+	t.Cleanup(func() { wps.Broker.Unsubscribe(subscriber, wps.Event_WaveObjUpdate) })
+	workerTabID := "12121212-1212-4212-8212-121212121212"
+	worker := waveobj.MakeORef(waveobj.OType_Tab, workerTabID).String()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: workerTabID}); err != nil {
+		t.Fatal(err)
+	}
+	stubSpawnWorker(t, worker, nil)
+	if err := Schedule(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := wstore.GetDag(ctx, dag.OID)
+	if len(got.Tasks) == 0 || got.Tasks[0].RunID == "" {
+		t.Fatalf("dag task not running: %+v", got.Tasks)
+	}
+	child, _ := wstore.GetRun(ctx, got.ChannelId, got.Tasks[0].RunID)
+	if len(child.Phases) == 0 || len(child.Phases[0].WorkerOrefs) != 1 || child.Phases[0].WorkerOrefs[0] != worker {
+		t.Fatalf("worker ownership = %+v, want %s", child.Phases, worker)
+	}
+	runORef, channelORef, err := wstore.GetWorkerOwner(ctx, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runORef != waveobj.MakeORef(waveobj.OType_Run, child.ID).String() || channelORef != waveobj.MakeORef(waveobj.OType_Channel, dag.ChannelId).String() {
+		t.Fatalf("worker owner metadata = %q/%q", runORef, channelORef)
+	}
+	if !cc.saw(wps.Event_WaveObjUpdate, waveobj.MakeORef(waveobj.OType_Run, child.ID).String()) ||
+		!cc.saw(wps.Event_WaveObjUpdate, waveobj.MakeORef(waveobj.OType_Channel, dag.ChannelId).String()) {
+		t.Fatal("committed child Run/channel updates were not published")
+	}
+}
+
+func TestScheduleStopsWorkerWhenChildPersistFails(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	allowWorkerHarnessForTest(t)
+	worker := waveobj.MakeORef(waveobj.OType_Tab, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").String()
+	stubSpawnWorker(t, worker, nil)
+	stopped := false
+	oldAppend, oldStop := appendChildRun, stopSpawnedWorker
+	appendChildRun = func(context.Context, string, waveobj.Run) error { return errors.New("persist failed") }
+	stopSpawnedWorker = func(context.Context, string) error { stopped = true; return nil }
+	t.Cleanup(func() { appendChildRun, stopSpawnedWorker = oldAppend, oldStop })
+	err := Schedule(ctx, dag.OID)
+	if err == nil || !strings.Contains(err.Error(), "persist failed") {
+		t.Fatalf("want persist failed error, got %v", err)
+	}
+	if !stopped {
+		t.Fatal("worker not stopped on persist failure")
+	}
+}
+
+func TestScheduleCleansAllWorkersWhenLaterChildPersistFails(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	allowWorkerHarnessForTest(t)
+	cc := &captureClient{}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	t.Cleanup(func() { wps.Broker.SetClient(prevClient) })
+	const subscriber = "schedule-child-cleanup-updates"
+	wps.Broker.Subscribe(subscriber, wps.SubscriptionRequest{Event: wps.Event_WaveObjUpdate, AllScopes: true})
+	t.Cleanup(func() { wps.Broker.Unsubscribe(subscriber, wps.Event_WaveObjUpdate) })
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Parallelism = 2
+		g.Tasks = append(g.Tasks, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Pending})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	oldSpawn, oldAppend, oldStop, oldStamp := spawnWorker, appendChildRun, stopSpawnedWorker, stampSpawnedWorker
+	var spawnCalls int
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		spawnCalls++
+		return fmt.Sprintf("tab:worker-%d", spawnCalls), nil
+	}
+	var persisted []waveobj.Run
+	appendCalls := 0
+	appendChildRun = func(ctx context.Context, channelID string, run waveobj.Run) error {
+		appendCalls++
+		if appendCalls == 2 {
+			return errors.New("second child persist failed")
+		}
+		if err := oldAppend(ctx, channelID, run); err != nil {
+			return err
+		}
+		persisted = append(persisted, run)
+		return nil
+	}
+	var stopped []string
+	stopSpawnedWorker = func(_ context.Context, oref string) error {
+		stopped = append(stopped, oref)
+		return nil
+	}
+	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
+	t.Cleanup(func() {
+		spawnWorker, appendChildRun, stopSpawnedWorker, stampSpawnedWorker = oldSpawn, oldAppend, oldStop, oldStamp
+	})
+
+	err := Schedule(ctx, dag.OID)
+	if err == nil || !strings.Contains(err.Error(), "second child persist failed") {
+		t.Fatalf("schedule error = %v, want second child persistence failure", err)
+	}
+	if len(stopped) != 2 {
+		t.Fatalf("stopped workers = %v, want both spawned workers", stopped)
+	}
+	if len(persisted) != 1 {
+		t.Fatalf("persisted children = %d, want 1", len(persisted))
+	}
+	child, err := wstore.GetRun(ctx, dag.ChannelId, persisted[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("persisted child status = %q, want cancelled", child.Status)
+	}
+	if !cc.saw(wps.Event_WaveObjUpdate, waveobj.MakeORef(waveobj.OType_Run, child.ID).String()) ||
+		!cc.saw(wps.Event_WaveObjUpdate, waveobj.MakeORef(waveobj.OType_Channel, dag.ChannelId).String()) {
+		t.Fatal("compensated child Run/channel updates were not published")
+	}
+	got, err := wstore.GetDag(ctx, dag.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range got.Tasks {
+		if task.State != TaskState_Failed || task.RunID != "" {
+			t.Fatalf("task %s cleanup = state %q run %q, want failed with no run", task.ID, task.State, task.RunID)
+		}
+	}
+}
+
+func TestScheduleUsesDetachedContextForPersistenceCleanup(t *testing.T) {
+	baseCtx, dag := seedPendingDag(t)
+	ctx, cancel := context.WithCancel(baseCtx)
+	allowWorkerHarnessForTest(t)
+	worker := "tab:worker-detached-cleanup"
+	cc := &captureClient{}
+	prevClient := wps.Broker.GetClient()
+	wps.Broker.SetClient(cc)
+	t.Cleanup(func() { wps.Broker.SetClient(prevClient) })
+	const subscriber = "schedule-persist-failure-events"
+	wps.Broker.Subscribe(subscriber, wps.SubscriptionRequest{Event: DagEventTaskSpawned, AllScopes: true})
+	t.Cleanup(func() { wps.Broker.Unsubscribe(subscriber, DagEventTaskSpawned) })
+
+	oldAppend, oldStop, oldStamp := appendChildRun, stopSpawnedWorker, stampSpawnedWorker
+	var childID string
+	appendChildRun = func(ctx context.Context, channelID string, run waveobj.Run) error {
+		if err := oldAppend(ctx, channelID, run); err != nil {
+			return err
+		}
+		childID = run.ID
+		cancel()
+		return nil
+	}
+	stopSpawnedWorker = func(context.Context, string) error { return nil }
+	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
+	t.Cleanup(func() {
+		appendChildRun, stopSpawnedWorker, stampSpawnedWorker = oldAppend, oldStop, oldStamp
+	})
+	stubSpawnWorker(t, worker, nil)
+
+	err := Schedule(ctx, dag.OID)
+	if err == nil {
+		t.Fatal("want persistence failure after caller cancellation")
+	}
+	scope := waveobj.MakeORef(waveobj.OType_Dag, dag.OID).String()
+	if cc.saw(DagEventTaskSpawned, scope) {
+		t.Fatal("task-spawned event published before DAG persistence")
+	}
+	child, getErr := wstore.GetRun(baseCtx, dag.ChannelId, childID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if child.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("child status = %q, want cancelled", child.Status)
+	}
+	got, getErr := wstore.GetDag(baseCtx, dag.OID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Tasks[0].State != TaskState_Failed || got.Tasks[0].RunID != "" {
+		t.Fatalf("task cleanup = state %q run %q, want failed with no run", got.Tasks[0].State, got.Tasks[0].RunID)
+	}
+}
+
+func stubSpawnWorker(t *testing.T, worker string, err error) {
+	t.Helper()
+	old := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		return worker, err
+	}
+	t.Cleanup(func() { spawnWorker = old })
 }

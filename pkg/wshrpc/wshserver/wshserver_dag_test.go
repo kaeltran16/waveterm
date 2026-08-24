@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
@@ -20,11 +22,15 @@ import (
 
 func TestDagSubmitAndAction(t *testing.T) {
 	ctx := context.Background()
-	// the submit/action handlers schedule immediately; stub the spawn seam so the test
-	// environment (no backend/harness) doesn't fail every spawn.
 	oldSpawn := jarvis.SpawnRunWorker
 	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
-		return "tab:worker", nil
+		tabId := uuid.NewString()
+		blockId := uuid.NewString()
+		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
+		_ = wstore.DBInsert(ctx, tab)
+		block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId}
+		_ = wstore.DBInsert(ctx, block)
+		return "tab:" + tabId, nil
 	}
 	defer func() { jarvis.SpawnRunWorker = oldSpawn }()
 	ch, err := wstore.CreateChannel(ctx, "dag-test", t.TempDir())
@@ -32,6 +38,7 @@ func TestDagSubmitAndAction(t *testing.T) {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run.Status = jarvis.RunStatus_Planning
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("AppendRun: %v", err)
 	}
@@ -94,6 +101,42 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if g4.Status != "cancelled" {
 		t.Fatalf("want cancelled, got %s", g4.Status)
 	}
+	cancelledOwner, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelledOwner.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("owner status = %q, want cancelled", cancelledOwner.Status)
+	}
+	for _, task := range g4.Tasks {
+		if task.RunID == "" {
+			continue
+		}
+		child, err := wstore.GetRun(ctx, ch.OID, task.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if child.Status != jarvis.RunStatus_Cancelled {
+			t.Fatalf("child %s status = %q, want cancelled", child.ID, child.Status)
+		}
+		for _, phase := range child.Phases {
+			for _, workerORef := range phase.WorkerOrefs {
+				tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, strings.TrimPrefix(workerORef, "tab:"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, blockID := range tab.BlockIds {
+					block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if block.Meta[waveobj.MetaKey_CmdRunOnStart] != false {
+						t.Fatalf("worker block %s runonstart = %#v, want false", blockID, block.Meta[waveobj.MetaKey_CmdRunOnStart])
+					}
+				}
+			}
+		}
+	}
 }
 
 func TestDagSubmitDeferredRun(t *testing.T) {
@@ -114,7 +157,7 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 
 	g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
 		ChannelId: ch.OID, RunId: rtn.Run.ID, Title: "g", Parallelism: 1,
-		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one", State: "ready"}},
+		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one"}},
 	})
 	if err != nil {
 		t.Fatalf("submit: %v", err)
@@ -129,18 +172,89 @@ func TestDagSubmitDeferredRun(t *testing.T) {
 	if got.DagORef != g.OID {
 		t.Fatalf("dagoref not linked")
 	}
-	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0"}
+	wantEvents := []string{waveobj.RunEventKindCreated, waveobj.RunEventKindPhaseStarted + "@0", waveobj.RunEventKindTaskSpawned}
 	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
 		t.Fatalf("deferred lifecycle events = %v, want %v", gotEvents, wantEvents)
 	}
+	retry, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: rtn.Run.ID, Title: "g", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one"}},
+	})
+	if err != nil {
+		t.Fatalf("identical retry: %v", err)
+	}
+	if retry.OID != g.OID {
+		t.Fatalf("identical retry dag = %q, want %q", retry.OID, g.OID)
+	}
+	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
+		t.Fatalf("identical retry lifecycle events = %v, want unchanged %v", gotEvents, wantEvents)
+	}
 	if _, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
 		ChannelId: ch.OID, RunId: rtn.Run.ID, Title: "second", Parallelism: 1,
-		Tasks: []waveobj.TaskNode{{ID: "t-2", Label: "two", State: "ready"}},
-	}); err != nil {
-		t.Fatalf("second submit: %v", err)
+		Tasks: []waveobj.TaskNode{{ID: "t-2", Label: "two"}},
+	}); err == nil {
+		t.Fatalf("second different submit must be rejected")
 	}
 	if gotEvents := mustSeq(t, ch.OID, rtn.Run.ID); !reflect.DeepEqual(gotEvents, wantEvents) {
 		t.Fatalf("repeated submit lifecycle events = %v, want unchanged %v", gotEvents, wantEvents)
+	}
+}
+
+func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
+	nineTasks := make([]waveobj.TaskNode, 9)
+	for i := range nineTasks {
+		nineTasks[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: "task"}
+	}
+	cases := []struct {
+		name        string
+		title       string
+		parallelism int
+		tasks       []waveobj.TaskNode
+	}{
+		{name: "state", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", State: "running"}}},
+		{name: "runid", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", RunID: "child"}}},
+		{name: "released", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Released: true}}},
+		{name: "lastactivity", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastActivity: 1}}},
+		{name: "too-many-tasks", title: "g", parallelism: 1, tasks: nineTasks},
+		{name: "zero-parallelism", title: "g", parallelism: 0, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
+		{name: "excess-parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
+	}
+	oldValidate := validateHarness
+	validateHarness = func(runtime string, _ harness.Operation) (harness.Spec, error) {
+		spec, ok := harness.Lookup(runtime)
+		if !ok {
+			return harness.Spec{}, fmt.Errorf("unknown harness %q", runtime)
+		}
+		return spec, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			ch, err := wstore.CreateChannel(ctx, "dag-invalid-"+tc.name, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := jarvis.NewRun("owner", "ws", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+			owner.Status = jarvis.RunStatus_Planning
+			owner.Runtime = "claude"
+			owner.Tier = "capable"
+			if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+				ChannelId: ch.OID, RunId: owner.ID, Title: tc.title, Parallelism: tc.parallelism, Tasks: tc.tasks,
+			}); err == nil {
+				t.Fatal("want submit validation error")
+			}
+			got, err := wstore.GetRun(ctx, ch.OID, owner.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.DagORef != "" || got.Status != jarvis.RunStatus_Planning {
+				t.Fatalf("invalid submit mutated owner: %+v", got)
+			}
+		})
 	}
 }
 
@@ -150,12 +264,12 @@ func TestDagSubmitRejectsInvalidTaskRoutesBeforePersistence(t *testing.T) {
 		task        waveobj.TaskNode
 		unavailable bool
 	}{
-		{name: "runtime-only", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "pi"}}},
-		{name: "tier-only", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Tier: "cheap"}}},
-		{name: "unknown-runtime", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "missing", Tier: "capable"}}},
-		{name: "unknown-tier", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "missing"}}},
-		{name: "unsupported-pair", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "codex", Tier: "cheap"}}},
-		{name: "unavailable", task: waveobj.TaskNode{ID: "t", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"}}, unavailable: true},
+		{name: "runtime-only", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi"}}},
+		{name: "tier-only", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Tier: "cheap"}}},
+		{name: "unknown-runtime", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "missing", Tier: "capable"}}},
+		{name: "unknown-tier", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "missing"}}},
+		{name: "unsupported-pair", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "codex", Tier: "cheap"}}},
+		{name: "unavailable", task: waveobj.TaskNode{ID: "t", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"}}, unavailable: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -243,16 +357,26 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
-		return "tab:worker", nil
+	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+		tabId := uuid.NewString()
+		blockId := uuid.NewString()
+		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
+		_ = wstore.DBInsert(ctx, tab)
+		block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId}
+		_ = wstore.DBInsert(ctx, block)
+		return "tab:" + tabId, nil
 	}
 	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
 
+	owner.Status = jarvis.RunStatus_Planning
+	if err := wstore.UpdateRun(ctx, ch.OID, owner.ID, func(r *waveobj.Run) error { r.Status = jarvis.RunStatus_Planning; return nil }); err != nil {
+		t.Fatal(err)
+	}
 	g, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
 		ChannelId: ch.OID, RunId: owner.ID, Title: "g", Parallelism: 1,
 		Tasks: []waveobj.TaskNode{
-			{ID: "pinned", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"}},
-			{ID: "inherited"},
+			{ID: "pinned", Label: "pinned", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"}},
+			{ID: "inherited", Label: "inherited"},
 		},
 	})
 	if err != nil {

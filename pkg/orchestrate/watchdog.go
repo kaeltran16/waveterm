@@ -27,7 +27,7 @@ var (
 			return
 		}
 		for _, g := range dags {
-			if serr := ScheduleOnce(ctx, g); serr != nil {
+			if serr := Schedule(ctx, g.OID); serr != nil {
 				log.Printf("watchdog: advancing dag %s: %v", g.ID, serr)
 			}
 		}

@@ -1,0 +1,224 @@
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+package orchestrate
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
+)
+
+var dagMutationLocks = keyedmutex.New()
+
+func withDagMutation(dagID string, fn func() error) error {
+	if dagID == "" {
+		return fmt.Errorf("dag id is required")
+	}
+	dagMutationLocks.Lock(dagID)
+	defer dagMutationLocks.Unlock(dagID)
+	return fn()
+}
+
+var stopRunWorkers = jarvis.StopRunWorkers
+var withMutationTx = wstore.WithTx
+
+const cancelCleanupTimeout = 10 * time.Second
+
+func childRunIDs(g *waveobj.TaskGroup) []string {
+	var out []string
+	for i := range g.Tasks {
+		if g.Tasks[i].RunID != "" {
+			out = append(out, g.Tasks[i].RunID)
+		}
+	}
+	return out
+}
+
+func ApplyAction(ctx context.Context, dagID, taskID, action string) error {
+	err := withDagMutation(dagID, func() error {
+		return applyActionLocked(ctx, dagID, taskID, action)
+	})
+	if err != nil {
+		return err
+	}
+	return Schedule(ctx, dagID)
+}
+
+func cancelAndStopTaskRun(ctx context.Context, g *waveobj.TaskGroup, taskID string) error {
+	task := taskByID(g, taskID)
+	if task == nil {
+		return fmt.Errorf("no task %q", taskID)
+	}
+	if task.RunID == "" {
+		return nil
+	}
+	if err := wstore.UpdateRun(ctx, g.ChannelId, task.RunID, func(r *waveobj.Run) error {
+		*r = jarvis.CancelRun(*r)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("cancelling old run %s: %w", task.RunID, err)
+	}
+	run, err := wstore.GetRun(ctx, g.ChannelId, task.RunID)
+	if err != nil {
+		return fmt.Errorf("loading old run %s after cancellation: %w", task.RunID, err)
+	}
+	if err := stopRunWorkers(ctx, run); err != nil {
+		return fmt.Errorf("stopping old run %s: %w", task.RunID, err)
+	}
+	return nil
+}
+
+func applyActionLocked(ctx context.Context, dagID, taskID, action string) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	if g.Status == DagStatus_Cancelled {
+		return fmt.Errorf("dag %s is cancelled", dagID)
+	}
+	switch action {
+	case "approve":
+		ApproveGate(g)
+	case "sendback":
+		SendBackGate(g)
+	case "skip":
+		task := taskByID(g, taskID)
+		if task == nil {
+			return fmt.Errorf("no task %q", taskID)
+		}
+		if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_Ready {
+			return fmt.Errorf("task %q cannot be skipped from state %q", taskID, task.State)
+		}
+		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+			return err
+		}
+		if err := SkipTask(g, taskID); err != nil {
+			return err
+		}
+	case "retry":
+		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+			return err
+		}
+		if err := RetryTask(g, taskID); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown dag action %q", action)
+	}
+	g.UpdatedTs = time.Now().UnixMilli()
+	if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+		*cur = *g
+		return nil
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	return nil
+}
+
+func MarkBlockedMerge(ctx context.Context, dagID, childRunID string) error {
+	return withDagMutation(dagID, func() error {
+		g, err := wstore.GetDag(ctx, dagID)
+		if err != nil {
+			return fmt.Errorf("loading dag: %w", err)
+		}
+		if g.Status == DagStatus_Cancelled {
+			return fmt.Errorf("dag %s is cancelled", dagID)
+		}
+		found := false
+		for i := range g.Tasks {
+			if g.Tasks[i].RunID == childRunID {
+				g.Tasks[i].State = TaskState_BlockedMerge
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("no task owns run %s", childRunID)
+		}
+		RecomputeDagStatus(g)
+		g.UpdatedTs = time.Now().UnixMilli()
+		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
+			*cur = *g
+			return nil
+		}); err != nil {
+			return err
+		}
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+		return nil
+	})
+}
+
+func Cancel(ctx context.Context, dagID string) error {
+	return withDagMutation(dagID, func() error {
+		return cancelLocked(ctx, dagID)
+	})
+}
+
+func cancelLocked(ctx context.Context, dagID string) error {
+	var gCopy *waveobj.TaskGroup
+	var runIDs []string
+	if err := withMutationTx(ctx, func(tx *wstore.TxWrap) error {
+		txCtx := tx.Context()
+		g, err := wstore.GetDag(txCtx, dagID)
+		if err != nil {
+			return err
+		}
+		CancelGroup(g)
+		if err := wstore.UpdateDag(txCtx, dagID, func(cur *waveobj.TaskGroup) error {
+			*cur = *g
+			return nil
+		}); err != nil {
+			return err
+		}
+		gCopy = g
+		runIDs = append([]string{g.RunID}, childRunIDs(g)...)
+		for _, runID := range runIDs {
+			if runID == "" {
+				continue
+			}
+			if err := wstore.UpdateRun(txCtx, g.ChannelId, runID, func(r *waveobj.Run) error {
+				*r = jarvis.CancelRun(*r)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelCleanupTimeout)
+	defer cancel()
+	var errs []error
+	for _, runID := range runIDs {
+		if runID == "" {
+			continue
+		}
+		run, err := wstore.GetRun(cleanupCtx, gCopy.ChannelId, runID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("loading run %s: %w", runID, err))
+			continue
+		}
+		if err := stopRunWorkers(cleanupCtx, run); err != nil {
+			errs = append(errs, fmt.Errorf("run %s: %w", runID, err))
+		}
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))
+	for _, runID := range runIDs {
+		if runID != "" {
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, runID))
+			wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, gCopy.ChannelId))
+		}
+	}
+	return errors.Join(errs...)
+}

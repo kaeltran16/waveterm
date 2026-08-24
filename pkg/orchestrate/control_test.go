@@ -1,8 +1,12 @@
 package orchestrate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -34,5 +38,27 @@ func TestControlMessageShape(t *testing.T) {
 	g, _ := NewTaskGroup("run-1", "g", "g", 2, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
 	if err := NotifyLead(context.Background(), &g, DagEventGateOpen, "t-0"); err != nil {
 		t.Fatalf("NotifyLead without env must be a no-op: %v", err)
+	}
+}
+
+func TestNotifyLeadBestEffortLogsFailure(t *testing.T) {
+	g, _ := NewTaskGroup("run-42", "ch-1", "g", 1, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
+	g.OID = "dag-123"
+	g.RunID = "run-42"
+	old := notifyLeadFn
+	notifyLeadFn = func(context.Context, *waveobj.TaskGroup, string, string) error {
+		return errors.New("write failed")
+	}
+	t.Cleanup(func() { notifyLeadFn = old })
+	var buf bytes.Buffer
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(orig) })
+	notifyLeadBestEffort(context.Background(), &g, DagEventGateOpen, "t-0")
+	out := buf.String()
+	for _, want := range []string{"dag-123", "run-42", DagEventGateOpen, "write failed"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("log %q missing %q", out, want)
+		}
 	}
 }

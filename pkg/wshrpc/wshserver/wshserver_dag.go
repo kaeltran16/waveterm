@@ -52,36 +52,41 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return nil, fmt.Errorf("task %q: %w", task.ID, err)
 		}
 	}
-	g, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, data.Tasks, time.Now().UnixMilli())
+	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, data.Tasks, time.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}
-	if err := wstore.AppendDag(ctx, &g); err != nil {
-		return nil, fmt.Errorf("appending dag: %w", err)
-	}
-	if err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-		r.DagORef = g.OID
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("linking dag to run: %w", err)
-	}
-	if run.Status == "planning" {
-		zero := 0
-		if err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
-			r.Status = "executing"
-			return nil
-		}); err != nil {
-			return nil, fmt.Errorf("transitioning deferred run: %w", err)
+	stored, created, err := wstore.CreateDagForRun(ctx, data.ChannelId, data.RunId, &proposed, func(run *waveobj.Run) error {
+		if run.Mode != jarvis.RunMode_Orchestrator {
+			return fmt.Errorf("dag requires an orchestrator-mode run")
 		}
+		if run.Status != jarvis.RunStatus_Planning {
+			return fmt.Errorf("dag run %s is %s, want planning", run.ID, run.Status)
+		}
+		run.Status = jarvis.RunStatus_Executing
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !created {
+		if !orchestrate.SameDagProposal(stored, &proposed) {
+			return nil, fmt.Errorf("dag conflict: run %s already linked to a different dag", data.RunId)
+		}
+	} else {
+		zero := 0
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindPhaseStarted, &zero, map[string]any{})
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
-	// schedule the first step immediately (spawns the initially ready tasks); failures are
-	// retried on the next trigger, so this is log-only.
-	if serr := orchestrate.ScheduleOnce(ctx, &g); serr != nil {
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, stored.OID))
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, data.RunId))
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, data.ChannelId))
+	if serr := orchestrate.Schedule(ctx, stored.OID); serr != nil {
 		log.Printf("dag submit schedule error: %v", serr)
 	}
-	return &g, nil
+	if fresh, err := wstore.GetDag(ctx, stored.OID); err == nil {
+		return fresh, nil
+	}
+	return stored, nil
 }
 
 func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDagStatusData) (*waveobj.TaskGroup, error) {
@@ -106,41 +111,10 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 	if run.DagORef == "" {
 		return fmt.Errorf("run has no dag")
 	}
-	err = wstore.UpdateDag(ctx, run.DagORef, func(g *waveobj.TaskGroup) error {
-		switch data.Action {
-		case "approve":
-			orchestrate.ApproveGate(g)
-		case "sendback":
-			orchestrate.SendBackGate(g)
-		case "retry":
-			if err := orchestrate.RetryTask(ctx, g, data.TaskId); err != nil {
-				return err
-			}
-		case "skip":
-			if err := orchestrate.SkipTask(g, data.TaskId); err != nil {
-				return err
-			}
-		case "cancel":
-			orchestrate.CancelGroup(g)
-		default:
-			return fmt.Errorf("unknown dag action %q", data.Action)
-		}
-		g.UpdatedTs = time.Now().UnixMilli()
-		return nil
-	})
-	if err != nil {
-		return err
+	if data.Action == "cancel" {
+		return orchestrate.Cancel(ctx, run.DagORef)
 	}
-	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, run.DagORef))
-	// advance the DAG after the action (cancel is terminal: nothing left to schedule).
-	if data.Action != "cancel" {
-		if grp, gerr := wstore.GetDag(ctx, run.DagORef); gerr == nil {
-			if serr := orchestrate.ScheduleOnce(ctx, grp); serr != nil {
-				log.Printf("dag action schedule error: %v", serr)
-			}
-		}
-	}
-	return nil
+	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action)
 }
 
 // taskBlockOrefs lists the worker block orefs of a run's phases (the blocks the ask registry keys
@@ -261,17 +235,8 @@ func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDag
 	sha, err := orchestrate.MergeRunWorktree(ctx, run.ProjectPath, data.RunId, run.Goal)
 	if err != nil {
 		if errors.Is(err, orchestrate.ErrMergeConflict) {
-			// surface as blocked-merge on the task that owns this run
 			if run.DagORef != "" {
-				if derr := wstore.UpdateDag(ctx, run.DagORef, func(g *waveobj.TaskGroup) error {
-					for i := range g.Tasks {
-						if g.Tasks[i].RunID == data.RunId {
-							g.Tasks[i].State = orchestrate.TaskState_BlockedMerge
-						}
-					}
-					orchestrate.RecomputeDagStatus(g)
-					return nil
-				}); derr != nil {
+				if derr := orchestrate.MarkBlockedMerge(ctx, run.DagORef, data.RunId); derr != nil {
 					return derr
 				}
 			}

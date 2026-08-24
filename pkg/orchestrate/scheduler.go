@@ -1,12 +1,9 @@
 package orchestrate
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 // gateBlocked reports whether a completed-but-unreleased gate is halting the DAG.
@@ -113,19 +110,12 @@ func SendBackGate(g *waveobj.TaskGroup) *waveobj.TaskGroup {
 	return g
 }
 
-// RetryTask re-spawns a failed task and resets the consecutive-failure counter. The previous child
-// run is cancelled first: a stale "executing" run row would otherwise shadow the respawn in the
-// worktree-cwd run resolution (the old block and the new one share the same worktree).
-func RetryTask(ctx context.Context, g *waveobj.TaskGroup, taskID string) error {
+func RetryTask(g *waveobj.TaskGroup, taskID string) error {
 	for i := range g.Tasks {
 		if g.Tasks[i].ID == taskID {
-			oldRunID := g.Tasks[i].RunID
 			g.Tasks[i].State = TaskState_Pending
 			g.Tasks[i].RunID = ""
 			g.Failures = 0
-			if oldRunID != "" {
-				CancelChildRun(ctx, g, oldRunID)
-			}
 			RecomputeDagStatus(g)
 			return nil
 		}
@@ -136,12 +126,16 @@ func RetryTask(ctx context.Context, g *waveobj.TaskGroup, taskID string) error {
 // SkipTask marks a failed/ready task skipped (no spawn).
 func SkipTask(g *waveobj.TaskGroup, taskID string) error {
 	for i := range g.Tasks {
-		if g.Tasks[i].ID == taskID {
-			g.Tasks[i].State = TaskState_Skipped
-			g.Tasks[i].RunID = ""
-			RecomputeDagStatus(g)
-			return nil
+		if g.Tasks[i].ID != taskID {
+			continue
 		}
+		if g.Tasks[i].State != TaskState_Failed && g.Tasks[i].State != TaskState_Stalled && g.Tasks[i].State != TaskState_Ready {
+			return fmt.Errorf("task %q cannot be skipped from state %q", taskID, g.Tasks[i].State)
+		}
+		g.Tasks[i].State = TaskState_Skipped
+		g.Tasks[i].RunID = ""
+		RecomputeDagStatus(g)
+		return nil
 	}
 	return fmt.Errorf("no task %q", taskID)
 }
@@ -153,25 +147,10 @@ func CancelGroup(g *waveobj.TaskGroup) *waveobj.TaskGroup {
 		switch t.State {
 		case TaskState_Pending, TaskState_Ready:
 			t.State = TaskState_Skipped
-		case TaskState_Running:
+		case TaskState_Running, TaskState_Stalled:
 			t.State = TaskState_Cancelled
 		}
 	}
 	g.Status = DagStatus_Cancelled
 	return g
-}
-
-// CancelChildRun marks a task's previous child run cancelled (best-effort) so the worktree-cwd run
-// resolution cannot match the stale run over the respawned one. Non-fatal: an orphan row is a
-// cosmetic staleness; a wrong resolution is a broken completion.
-func CancelChildRun(ctx context.Context, g *waveobj.TaskGroup, runID string) {
-	_ = wstore.UpdateRun(ctx, g.ChannelId, runID, func(r *waveobj.Run) error {
-		for pi := range r.Phases {
-			if r.Phases[pi].State == jarvis.PhaseState_Running {
-				r.Phases[pi].State = jarvis.PhaseState_Done
-			}
-		}
-		r.Status = jarvis.RunStatus_Cancelled
-		return nil
-	})
 }

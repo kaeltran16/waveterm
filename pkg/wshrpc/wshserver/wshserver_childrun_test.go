@@ -10,6 +10,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -233,6 +234,59 @@ func TestChildCancelNotifiesParentLead(t *testing.T) {
 	}
 	if gotORef != leadORef || !strings.Contains(gotLine, "-> cancelled") {
 		t.Errorf("cancel notify: oref=%q line=%q", gotORef, gotLine)
+	}
+}
+
+func TestCancelDagChildDoesNotCancelOwnerOrSpawnReplacement(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "cancel-dag-child", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	dag, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{ID: "t", Label: "task"}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.DagORef = dag.OID
+	child.DagORef = dag.OID
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
+		t.Fatal(err)
+	}
+	dag.Tasks[0].State = orchestrate.TaskState_Running
+	dag.Tasks[0].RunID = child.ID
+	if err := wstore.AppendDag(ctx, &dag); err != nil {
+		t.Fatal(err)
+	}
+	spawnCalls := 0
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		spawnCalls++
+		return "tab:unexpected", nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+
+	if err := (&WshServer{}).CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: ch.OID, RunId: child.ID}); err != nil {
+		t.Fatal(err)
+	}
+	gotChild, _ := wstore.GetRun(ctx, ch.OID, child.ID)
+	gotOwner, _ := wstore.GetRun(ctx, ch.OID, owner.ID)
+	gotDag, _ := wstore.GetDag(ctx, dag.OID)
+	if gotChild.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("child status = %q, want cancelled", gotChild.Status)
+	}
+	if gotOwner.Status == jarvis.RunStatus_Cancelled {
+		t.Fatal("child cancellation invoked owner-wide cancellation")
+	}
+	if gotDag.Tasks[0].State != orchestrate.TaskState_Cancelled || gotDag.Status != orchestrate.DagStatus_Cancelled {
+		t.Fatalf("dag was not derived from child cancellation: status=%q task=%q", gotDag.Status, gotDag.Tasks[0].State)
+	}
+	if spawnCalls != 0 {
+		t.Fatalf("child cancellation spawned %d replacement workers", spawnCalls)
 	}
 }
 

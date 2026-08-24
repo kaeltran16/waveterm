@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,14 @@ func controlMessage(kind, detail string) string {
 	payload := map[string]any{"cmd": cmd, "content": detail, "ts": time.Now().UnixMilli()}
 	out, _ := json.Marshal(payload)
 	return string(out)
+}
+
+var notifyLeadFn = NotifyLead
+
+func notifyLeadBestEffort(ctx context.Context, g *waveobj.TaskGroup, kind, detail string) {
+	if err := notifyLeadFn(ctx, g, kind, detail); err != nil {
+		log.Printf("dag %s run %s notify lead %s: %v", g.OID, g.RunID, kind, err)
+	}
 }
 
 // NotifyLead writes a control event for the lead pi session of the owning run. The lead
@@ -111,14 +120,14 @@ func runChannelID(runID string) string {
 func PublishChildAsk(ctx context.Context, g *waveobj.TaskGroup, taskId, question string) {
 	detail, _ := json.Marshal(map[string]string{"taskid": taskId, "question": question})
 	publishDagEvent(DagEventChildAsk, g, string(detail))
-	_ = NotifyLead(ctx, g, DagEventChildAsk, fmt.Sprintf("%s: %s", taskId, question))
+	notifyLeadBestEffort(ctx, g, DagEventChildAsk, fmt.Sprintf("%s: %s", taskId, question))
 }
 
 // PublishTaskStalled broadcasts a stalled child (no activity for the stall threshold) and wakes the
 // lead with the task id.
 func PublishTaskStalled(ctx context.Context, g *waveobj.TaskGroup, taskId string) {
 	publishDagEvent(DagEventTaskStalled, g, taskId)
-	_ = NotifyLead(ctx, g, DagEventTaskStalled, taskId)
+	notifyLeadBestEffort(ctx, g, DagEventTaskStalled, taskId)
 }
 
 // gatedTaskID returns the id of the done, unreleased gate halting the DAG, or "".

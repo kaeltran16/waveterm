@@ -4661,6 +4661,28 @@ const dagLifecycle = {
         const rAfter = await getRun(runId);
         rec("3. run.dagoref links the group", rAfter && rAfter.dagoref === g.id, JSON.stringify({ dagoref: rAfter && rAfter.dagoref }));
 
+        const beforeRetryCount = await getChannelRunCount();
+        const retry = await h.rpc("dagsubmit", {
+            channelid: ctx.channelId,
+            runid: runId,
+            title: draftFixture.draft.title,
+            parallelism: draftFixture.draft.parallelism,
+            tasks: draftFixture.draft.tasks.map((task) => ({
+                id: task.id,
+                label: task.label,
+                description: task.description,
+                deps: task.deps,
+                gate: task.gate,
+                state: "",
+            })),
+        });
+        const afterRetryCount = await getChannelRunCount();
+        rec(
+            "identical DagSubmit retry returns the same DAG without creating Runs",
+            retry.id === g.id && retry.tasks.length === g.tasks.length && afterRetryCount === beforeRetryCount,
+            JSON.stringify({ first: g.id, retry: retry.id, beforeRetryCount, afterRetryCount })
+        );
+
         const st = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
         rec(
             "4. DagStatus -> t-0 scheduled (running) or already finished, t-1/t-2 pending",
@@ -4707,14 +4729,33 @@ const dagLifecycle = {
         const modalGone = await h.ev(`(() => !document.querySelector('[data-dag-modal-kind]'))()`);
         rec("6. Escape -> modal closes, no cockpit takeover", modalGone === true, JSON.stringify({ esc, modalGone }));
 
-        // cancel the group (kills the spawned worker path via run cancel)
+        // one DAG cancellation command owns the parent, children, and worker shutdown.
         await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
-        await h.rpc("cancelrun", { channelid: ctx.channelId, runid: runId });
-        const rFin = await getRun(runId);
+        const channelsAfterCancel = await h.rpc("getchannels", null);
+        const cancelledChannel = (channelsAfterCancel.channels || []).find((x) => x.oid === ctx.channelId) || {};
+        const cancelledRuns = cancelledChannel.runs || [];
+        const cancelledOwner = cancelledRuns.find((run) => run.id === runId);
+        const cancelledChildren = cancelledRuns.filter((run) => run.dagoref === g.id && run.id !== runId);
+        const cancelledDag = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        const cascadeOk =
+            cancelledOwner &&
+            cancelledOwner.status === "cancelled" &&
+            cancelledChildren.length > 0 &&
+            cancelledChildren.every((run) => run.status === "cancelled") &&
+            cancelledDag.status === "cancelled";
         rec(
-            "7. Cancel -> run cancelled",
-            rFin && rFin.status === "cancelled",
-            JSON.stringify({ status: rFin && rFin.status })
+            "7. DagAction cancel terminally cancels owner, children, and DAG",
+            cascadeOk,
+            JSON.stringify({ owner: cancelledOwner && cancelledOwner.status, children: cancelledChildren.map((run) => ({ id: run.id, status: run.status })), dag: cancelledDag.status })
+        );
+
+        await h.rpc("dagaction", { channelid: ctx.channelId, runid: runId, taskid: "", action: "cancel" });
+        const repeatedDag = await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId });
+        const repeatedOwner = await getRun(runId);
+        rec(
+            "8. repeated DAG cancellation is idempotent",
+            repeatedDag.status === "cancelled" && repeatedOwner && repeatedOwner.status === "cancelled",
+            JSON.stringify({ owner: repeatedOwner && repeatedOwner.status, dag: repeatedDag.status })
         );
         return steps;
     },

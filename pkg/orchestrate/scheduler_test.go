@@ -1,7 +1,6 @@
 package orchestrate
 
 import (
-	"context"
 	"reflect"
 	"testing"
 
@@ -15,13 +14,14 @@ func groupWith(states ...string) *waveobj.TaskGroup {
 		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
 		{ID: "t-3", Label: "d", Deps: []string{"t-1", "t-2"}},
 	}
-	for i, s := range states {
-		tasks[i].State = s
-	}
 	g, err := NewTaskGroup("run-1", "ch-1", "g", 2, tasks, 1)
 	if err != nil {
 		panic(err)
 	}
+	for i, s := range states {
+		g.Tasks[i].State = s
+	}
+	RecomputeDagStatus(&g)
 	return &g
 }
 
@@ -68,7 +68,7 @@ func TestSendBackAndRetryReset(t *testing.T) {
 	}
 	g2 := groupWith(TaskState_Done, TaskState_Failed)
 	g2.Failures = 2
-	if err := RetryTask(context.Background(), g2, "t-1"); err != nil {
+	if err := RetryTask(g2, "t-1"); err != nil {
 		t.Fatal(err)
 	}
 	// a retried task must return to pending so NextToSpawn picks it up again — "running"
@@ -83,10 +83,11 @@ func TestSendBackAndRetryReset(t *testing.T) {
 }
 
 func TestCancelGroup(t *testing.T) {
-	g := groupWith(TaskState_Done, TaskState_Running)
+	g := groupWith(TaskState_Done, TaskState_Running, TaskState_Stalled)
 	g.Tasks[1].RunID = "r-1"
+	g.Tasks[2].RunID = "r-2"
 	CancelGroup(g)
-	if g.Tasks[1].State != TaskState_Cancelled || g.Status != DagStatus_Cancelled {
-		t.Fatalf("cancel: %s %s", g.Tasks[1].State, g.Status)
+	if g.Tasks[1].State != TaskState_Cancelled || g.Tasks[2].State != TaskState_Cancelled || g.Status != DagStatus_Cancelled {
+		t.Fatalf("cancel: running=%s stalled=%s status=%s", g.Tasks[1].State, g.Tasks[2].State, g.Status)
 	}
 }

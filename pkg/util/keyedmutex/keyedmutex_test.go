@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package wshserver
+package keyedmutex
 
 import (
 	"sync"
@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-func TestKeyedMutex_SameKeySerializes(t *testing.T) {
-	km := newKeyedMutex()
-	km.Lock("a")
+func TestMutexSameKeySerializes(t *testing.T) {
+	m := New()
+	m.Lock("a")
 	entered := make(chan struct{})
 	go func() {
-		km.Lock("a")
+		m.Lock("a")
 		close(entered)
-		km.Unlock("a")
+		m.Unlock("a")
 	}()
 	select {
 	case <-entered:
@@ -24,7 +24,7 @@ func TestKeyedMutex_SameKeySerializes(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 		// still blocked as required
 	}
-	km.Unlock("a")
+	m.Unlock("a")
 	select {
 	case <-entered:
 		// proceeded after Unlock
@@ -33,14 +33,14 @@ func TestKeyedMutex_SameKeySerializes(t *testing.T) {
 	}
 }
 
-func TestKeyedMutex_DifferentKeysConcurrent(t *testing.T) {
-	km := newKeyedMutex()
-	km.Lock("a")
-	defer km.Unlock("a")
+func TestMutexDifferentKeysConcurrent(t *testing.T) {
+	m := New()
+	m.Lock("a")
+	defer m.Unlock("a")
 	done := make(chan struct{})
 	go func() {
-		km.Lock("b")
-		km.Unlock("b")
+		m.Lock("b")
+		m.Unlock("b")
 		close(done)
 	}()
 	select {
@@ -51,8 +51,8 @@ func TestKeyedMutex_DifferentKeysConcurrent(t *testing.T) {
 	}
 }
 
-func TestKeyedMutex_MutualExclusionUnderLoad(t *testing.T) {
-	km := newKeyedMutex()
+func TestMutexMutualExclusionUnderLoad(t *testing.T) {
+	m := New()
 	var active, maxActive int
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -61,7 +61,7 @@ func TestKeyedMutex_MutualExclusionUnderLoad(t *testing.T) {
 	for i := 0; i < n; i++ {
 		go func() {
 			defer wg.Done()
-			km.Lock("k")
+			m.Lock("k")
 			mu.Lock()
 			active++
 			if active > maxActive {
@@ -72,7 +72,7 @@ func TestKeyedMutex_MutualExclusionUnderLoad(t *testing.T) {
 			mu.Lock()
 			active--
 			mu.Unlock()
-			km.Unlock("k")
+			m.Unlock("k")
 		}()
 	}
 	wg.Wait()
@@ -81,14 +81,15 @@ func TestKeyedMutex_MutualExclusionUnderLoad(t *testing.T) {
 	}
 }
 
-func TestKeyedMutex_CleansUpIdleKeys(t *testing.T) {
-	km := newKeyedMutex()
-	km.Lock("a")
-	km.Unlock("a")
-	km.mu.Lock()
-	n := len(km.locks)
-	km.mu.Unlock()
-	if n != 0 {
-		t.Fatalf("idle key not cleaned up: %d entries remain", n)
+func TestMutexCleansUpIdleKeys(t *testing.T) {
+	m := New()
+	m.Lock("a")
+	m.Unlock("a")
+
+	m.mu.Lock()
+	count := len(m.locks)
+	m.mu.Unlock()
+	if count != 0 {
+		t.Fatalf("idle key not cleaned up: %d entries remain", count)
 	}
 }

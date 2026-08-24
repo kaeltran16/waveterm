@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { toDagSubmitPayload } from "./draftmodel";
-import { launchDagDraft, type DagLaunchDeps } from "./daglaunch";
 import type { DagDraftRequest } from "../agents/composercommand";
+import { launchDagDraft, type DagLaunchDeps } from "./daglaunch";
+import { toDagSubmitPayload } from "./draftmodel";
 
 const request = { channelId: "channel-1", goal: "ship", route: { runtime: "pi", tier: "mid" } } as DagDraftRequest;
 const draft = {
@@ -48,6 +48,21 @@ describe("launchDagDraft", () => {
         expect(deps.cancelRun).not.toHaveBeenCalled();
     });
 
+    it("retries the same submit once before cleanup", async () => {
+        const deps: DagLaunchDeps = {
+            createDeferredRun: vi.fn().mockResolvedValue(run()),
+            submitDag: vi
+                .fn()
+                .mockRejectedValueOnce("response lost")
+                .mockResolvedValueOnce({ oid: "dag-1" } as TaskGroup),
+            cancelRun: vi.fn(),
+        };
+        const result = await launchDagDraft(request, draft, deps);
+        expect(result).toEqual({ ok: true, channelId: "channel-1", runId: "run-1", dagOref: "dag:dag-1" });
+        expect(deps.submitDag).toHaveBeenCalledTimes(2);
+        expect(deps.cancelRun).not.toHaveBeenCalled();
+    });
+
     it("cancels after submit failure and reports the contextual error", async () => {
         const deps: DagLaunchDeps = {
             createDeferredRun: vi.fn().mockResolvedValue(run()),
@@ -55,7 +70,11 @@ describe("launchDagDraft", () => {
             cancelRun: vi.fn().mockResolvedValue(undefined),
         };
         const result = await launchDagDraft(request, draft, deps);
-        expect(result).toEqual({ ok: false, error: "DAG submission failed for run run-1: submit failed" });
+        expect(result).toEqual({
+            ok: false,
+            error: "DAG submission failed for run run-1: submit failed. Retry failed: submit failed",
+        });
+        expect(deps.submitDag).toHaveBeenCalledTimes(2);
         expect(deps.cancelRun).toHaveBeenCalledOnce();
     });
 
@@ -68,7 +87,8 @@ describe("launchDagDraft", () => {
         const result = await launchDagDraft(request, draft, deps);
         expect(result).toEqual({
             ok: false,
-            error: "DAG submission failed for run run-1: submit failed. Cleanup also failed: cancel failed",
+            error: "DAG submission failed for run run-1: submit failed. Retry failed: submit failed. Cleanup also failed: cancel failed",
         });
+        expect(deps.submitDag).toHaveBeenCalledTimes(2);
     });
 });

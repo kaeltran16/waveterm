@@ -2,6 +2,7 @@ package wstore
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -41,4 +42,52 @@ func GetDagsByStatus(ctx context.Context, status string) ([]*waveobj.TaskGroup, 
 // UpdateDag applies fn under the optimistic-concurrency version check and bumps Version.
 func UpdateDag(ctx context.Context, dagId string, fn func(*waveobj.TaskGroup) error) error {
 	return DBUpdateFnErr[*waveobj.TaskGroup](ctx, dagId, fn)
+}
+
+func CreateDagForRun(ctx context.Context, channelID string, runID string, proposed *waveobj.TaskGroup, transition func(*waveobj.Run) error) (dag *waveobj.TaskGroup, created bool, err error) {
+	err = WithTx(ctx, func(tx *TxWrap) error {
+		txCtx := tx.Context()
+		ch, txErr := DBMustGet[*waveobj.Channel](txCtx, channelID)
+		if txErr != nil {
+			return fmt.Errorf("loading channel: %w", txErr)
+		}
+		var run *waveobj.Run
+		for i := range ch.Runs {
+			if ch.Runs[i].ID == runID {
+				run = &ch.Runs[i]
+				break
+			}
+		}
+		if run == nil {
+			return fmt.Errorf("run %q not found in channel", runID)
+		}
+		if run.DagORef != "" {
+			existing, txErr := DBMustGet[*waveobj.TaskGroup](txCtx, run.DagORef)
+			if txErr != nil {
+				return txErr
+			}
+			dag = existing
+			created = false
+			return nil
+		}
+		if transition != nil {
+			if txErr := transition(run); txErr != nil {
+				return txErr
+			}
+		}
+		run.DagORef = proposed.OID
+		if txErr := DBInsert(txCtx, proposed); txErr != nil {
+			return txErr
+		}
+		if txErr := DBUpdate(txCtx, ch); txErr != nil {
+			return txErr
+		}
+		if txErr := dbUpsertObjTx(txCtx, run); txErr != nil {
+			return txErr
+		}
+		dag = proposed
+		created = true
+		return nil
+	})
+	return dag, created, err
 }

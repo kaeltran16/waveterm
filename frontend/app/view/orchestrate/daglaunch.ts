@@ -1,5 +1,5 @@
-import { toDagSubmitPayload, type DagDraft } from "./draftmodel";
 import type { DagDraftRequest } from "../agents/composercommand";
+import { toDagSubmitPayload, type DagDraft } from "./draftmodel";
 
 export type DagSubmitPayload = ReturnType<typeof toDagSubmitPayload>;
 
@@ -16,7 +16,7 @@ export type DagLaunchResult =
 export async function launchDagDraft(
     request: DagDraftRequest,
     draft: DagDraft,
-    deps: DagLaunchDeps,
+    deps: DagLaunchDeps
 ): Promise<DagLaunchResult> {
     const payload = toDagSubmitPayload(draft);
     let run: Run;
@@ -26,18 +26,25 @@ export async function launchDagDraft(
         return { ok: false, error: `Couldn't create the deferred run: ${String(error)}` };
     }
 
-    try {
-        const group = await deps.submitDag(request.channelId, run.id, payload);
-        return { ok: true, channelId: request.channelId, runId: run.id, dagOref: `dag:${group.oid}` };
-    } catch (submitError) {
+    const submitErrors: unknown[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
         try {
-            await deps.cancelRun(request.channelId, run.id);
-        } catch (cancelError) {
-            return {
-                ok: false,
-                error: `DAG submission failed for run ${run.id}: ${String(submitError)}. Cleanup also failed: ${String(cancelError)}`,
-            };
+            const group = await deps.submitDag(request.channelId, run.id, payload);
+            return { ok: true, channelId: request.channelId, runId: run.id, dagOref: `dag:${group.oid}` };
+        } catch (error) {
+            submitErrors.push(error);
         }
-        return { ok: false, error: `DAG submission failed for run ${run.id}: ${String(submitError)}` };
     }
+    try {
+        await deps.cancelRun(request.channelId, run.id);
+    } catch (cancelError) {
+        return {
+            ok: false,
+            error: `DAG submission failed for run ${run.id}: ${String(submitErrors[0])}. Retry failed: ${String(submitErrors[1])}. Cleanup also failed: ${String(cancelError)}`,
+        };
+    }
+    return {
+        ok: false,
+        error: `DAG submission failed for run ${run.id}: ${String(submitErrors[0])}. Retry failed: ${String(submitErrors[1])}`,
+    };
 }

@@ -102,11 +102,12 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{
-		{ID: "t-0", Label: "a", LastActivity: time.Now().Add(-StallThreshold - time.Minute).UnixMilli()},
+		{ID: "t-0", Label: "a"},
 	}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
+	g.Tasks[0].LastActivity = time.Now().Add(-StallThreshold - time.Minute).UnixMilli()
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
@@ -171,11 +172,12 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{
-		{ID: "t-0", Label: "a", LastActivity: time.Now().Add(-StallThreshold - time.Minute).UnixMilli()},
+		{ID: "t-0", Label: "a"},
 	}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
+	g.Tasks[0].LastActivity = time.Now().Add(-StallThreshold - time.Minute).UnixMilli()
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}

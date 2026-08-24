@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -43,10 +44,128 @@ var validateWorkerHarness = func(runtime string) error {
 	return err
 }
 
-// ScheduleOnce advances the DAG one step: derive task states from child runs, count
+// SetValidateWorkerHarnessForTest stubs harness validation for tests.
+func SetValidateWorkerHarnessForTest(fn func(string) error) func() {
+	old := validateWorkerHarness
+	validateWorkerHarness = fn
+	return func() { validateWorkerHarness = old }
+}
+
+var appendChildRun = wstore.AppendRun
+var stopSpawnedWorker = jarvis.StopRunWorker
+var stampSpawnedWorker = wstore.StampWorkerOwner
+
+const scheduleCleanupTimeout = 10 * time.Second
+
+type spawnedWorkerInfo struct {
+	childRun  waveobj.Run
+	oref      string
+	taskID    string
+	persisted bool
+}
+
+func publishSpawnedRunUpdates(channelID string, spawned []spawnedWorkerInfo) {
+	publishedChannel := false
+	for _, sp := range spawned {
+		if !sp.persisted {
+			continue
+		}
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Run, sp.childRun.ID))
+		publishedChannel = true
+	}
+	if publishedChannel {
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Channel, channelID))
+	}
+}
+
+func cleanupScheduleFailure(ctx, workerCtx context.Context, g *waveobj.TaskGroup, spawned []spawnedWorkerInfo, cause error) error {
+	cleanupCtx := ctx
+	cancel := func() {}
+	if cleanupCtx.Err() != nil {
+		cleanupCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), scheduleCleanupTimeout)
+	}
+	defer cancel()
+	if workerCtx.Err() != nil {
+		workerCtx = cleanupCtx
+	}
+
+	errs := []error{cause}
+	for _, sp := range spawned {
+		if err := stopSpawnedWorker(workerCtx, sp.oref); err != nil {
+			errs = append(errs, fmt.Errorf("stop worker %s for task %s: %w", sp.oref, sp.taskID, err))
+		}
+		if !sp.persisted {
+			continue
+		}
+		if err := wstore.UpdateRun(cleanupCtx, g.ChannelId, sp.childRun.ID, func(r *waveobj.Run) error {
+			*r = jarvis.CancelRun(*r)
+			return nil
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("cancel child run %s for task %s: %w", sp.childRun.ID, sp.taskID, err))
+		}
+	}
+
+	publishSpawnedRunUpdates(g.ChannelId, spawned)
+	fresh, err := wstore.GetDag(cleanupCtx, g.OID)
+	if err != nil {
+		return errors.Join(append(errs, fmt.Errorf("reload dag for task failure cleanup: %w", err))...)
+	}
+	for _, sp := range spawned {
+		if idx := taskIdx(fresh, sp.taskID); idx >= 0 {
+			fresh.Tasks[idx].State = TaskState_Failed
+			fresh.Tasks[idx].RunID = ""
+		}
+	}
+	fresh.UpdatedTs = time.Now().UnixMilli()
+	RecomputeDagStatus(fresh)
+	if err := wstore.UpdateDag(cleanupCtx, fresh.OID, func(cur *waveobj.TaskGroup) error {
+		*cur = *fresh
+		return nil
+	}); err != nil {
+		errs = append(errs, fmt.Errorf("recording task failure: %w", err))
+	} else {
+		wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, fresh.OID))
+	}
+	return errors.Join(errs...)
+}
+
+// Schedule advances the DAG one step: derive task states from child runs, count
 // consecutive failures, spawn ready tasks (managed worktrees when the project is git),
 // persist, and publish waveobj + event updates. Idempotent — safe to call repeatedly.
+// It is authoritative: it reloads the DAG after acquiring the per-DAG mutation lock.
+func Schedule(ctx context.Context, dagID string) error {
+	return withDagMutation(dagID, func() error {
+		return scheduleLocked(ctx, dagID)
+	})
+}
+
+// ScheduleOnce is a compatibility wrapper for callers that still hold a TaskGroup snapshot.
 func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
+	if g == nil {
+		return fmt.Errorf("dag is required")
+	}
+	if err := Schedule(ctx, g.OID); err != nil {
+		return err
+	}
+	// keep the caller's snapshot in sync for legacy callers
+	if fresh, err := wstore.GetDag(ctx, g.OID); err == nil {
+		*g = *fresh
+	}
+	return nil
+}
+
+func scheduleLocked(ctx context.Context, dagID string) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return fmt.Errorf("loading dag: %w", err)
+	}
+	if g.Status == DagStatus_Cancelled {
+		return nil
+	}
+	var afterCommit []func()
+	spawnCtx := context.WithoutCancel(ctx)
+	spawnCtx, cancel := context.WithTimeout(spawnCtx, jarvis.RunWorkerSpawnTimeout)
+	defer cancel()
 	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
 	if err != nil {
 		return fmt.Errorf("loading owning run: %w", err)
@@ -85,12 +204,18 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
 		if t.State == TaskState_Done && t.RunID != "" && prevStates[t.ID] == TaskState_Running {
-			publishDagEvent(DagEventChildDone, g, t.ID)
-			_ = NotifyLead(ctx, g, DagEventChildDone, t.ID)
+			taskID := t.ID
+			afterCommit = append(afterCommit, func() {
+				publishDagEvent(DagEventChildDone, g, taskID)
+				notifyLeadBestEffort(ctx, g, DagEventChildDone, taskID)
+			})
 		}
 		if t.State == TaskState_Stalled && prevStates[t.ID] == TaskState_Running {
-			PublishTaskStalled(ctx, g, t.ID)
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": t.ID})
+			taskID := t.ID
+			afterCommit = append(afterCommit, func() {
+				PublishTaskStalled(ctx, g, taskID)
+				appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskStalled, nil, map[string]any{"taskid": taskID})
+			})
 		}
 	}
 	// consecutive-failure accounting: a failure *streak* breaks only on a fresh success —
@@ -105,11 +230,11 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		}
 	}
 	for i := range g.Tasks {
-		if g.Tasks[i].State == TaskState_Failed && g.Tasks[i].RunID != "" {
+		if g.Tasks[i].State == TaskState_Failed && prevStates[g.Tasks[i].ID] == TaskState_Running {
 			g.Failures++
-			g.Tasks[i].RunID = "" // allow retry re-spawn
 		}
 	}
+	var spawned []spawnedWorkerInfo
 	for _, taskID := range NextToSpawn(g) {
 		task := taskByID(g, taskID)
 		pin := effectiveTaskRoute(task, owner)
@@ -126,9 +251,9 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 		if IsGitRepo(owner.ProjectPath) {
 			wt := worktreeDir(owner.ProjectPath, owner.ID+"-"+taskID)
 			if _, statErr := os.Stat(wt); statErr == nil {
-				cwd = wt // retry of a dead child: reuse its worktree so partial work survives
+				cwd = wt
 			} else {
-				wt, err := CreateRunWorktree(ctx, owner.ProjectPath, owner.ID+"-"+taskID, owner.BaseCommit)
+				wt, err := CreateRunWorktree(spawnCtx, owner.ProjectPath, owner.ID+"-"+taskID, owner.BaseCommit)
 				if err != nil {
 					g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
 					continue
@@ -137,46 +262,79 @@ func ScheduleOnce(ctx context.Context, g *waveobj.TaskGroup) error {
 			}
 		}
 		prompt := taskPrompt(task, owner)
-		oref, err := spawnWorker(ctx, capability, owner.WorkspaceId, "", cwd, prompt)
+		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt)
 		if err != nil {
 			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
 			continue
 		}
-		_ = oref // v1: no per-child steering surface; the child run row is the handle
 		childRun := childRunFromSpec(g, task, owner, pin, cwd, prompt)
-		if err := wstore.AppendRun(ctx, g.ChannelId, childRun); err != nil {
-			return err
+		// attach worker to child run before persisting
+		attached := false
+		for i := range childRun.Phases {
+			if childRun.Phases[i].State == jarvis.PhaseState_Running {
+				childRun.Phases[i].WorkerOrefs = []string{oref}
+				attached = true
+				break
+			}
+		}
+		spawned = append(spawned, spawnedWorkerInfo{childRun: childRun, oref: oref, taskID: taskID})
+		if !attached {
+			return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, fmt.Errorf("child run for task %s has no running phase", taskID))
+		}
+		if err := appendChildRun(ctx, g.ChannelId, childRun); err != nil {
+			return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, fmt.Errorf("persisting child run for task %s: %w", taskID, err))
+		}
+		spawned[len(spawned)-1].persisted = true
+		runORef := waveobj.MakeORef(waveobj.OType_Run, childRun.ID).String()
+		channelORef := waveobj.MakeORef(waveobj.OType_Channel, g.ChannelId).String()
+		if err := stampSpawnedWorker(spawnCtx, oref, runORef, channelORef); err != nil {
+			log.Printf("schedule dag %s task %s: stamp worker %s: %v", g.OID, taskID, oref, err)
 		}
 		if err := MarkRunning(g, taskID, childRun.ID); err != nil {
-			return err
+			return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, err)
 		}
-		g.Tasks[taskIdx(g, taskID)].LastActivity = now // the child is newborn: stall clock starts at spawn
-		publishDagEvent(DagEventTaskSpawned, g, taskID)
-		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": taskID})
+		g.Tasks[taskIdx(g, taskID)].LastActivity = now
+		spawnedTaskID := taskID
+		afterCommit = append(afterCommit, func() {
+			publishDagEvent(DagEventTaskSpawned, g, spawnedTaskID)
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSpawned, nil, map[string]any{"taskid": spawnedTaskID})
+		})
 	}
 	RecomputeDagStatus(g)
 	// status-transition notifications: gate-open / blocked / complete wake the lead.
 	switch g.Status {
 	case DagStatus_AwaitingReview:
-		publishDagEvent(DagEventGateOpen, g, "")
-		_ = NotifyLead(ctx, g, DagEventGateOpen, fmt.Sprintf("gate %s", gatedTaskID(g)))
+		detail := fmt.Sprintf("gate %s", gatedTaskID(g))
+		afterCommit = append(afterCommit, func() {
+			publishDagEvent(DagEventGateOpen, g, "")
+			notifyLeadBestEffort(ctx, g, DagEventGateOpen, detail)
+		})
 	case DagStatus_Blocked:
-		publishDagEvent(DagEventBlocked, g, "")
-		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": g.Failures})
-		_ = NotifyLead(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", g.Failures))
+		failures := g.Failures
+		afterCommit = append(afterCommit, func() {
+			publishDagEvent(DagEventBlocked, g, "")
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures})
+			notifyLeadBestEffort(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", failures))
+		})
 	case DagStatus_Done:
-		publishDagEvent(DagEventComplete, g, "")
-		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
-		_ = NotifyLead(ctx, g, DagEventComplete, "all tasks done")
+		afterCommit = append(afterCommit, func() {
+			publishDagEvent(DagEventComplete, g, "")
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagDone, nil, map[string]any{})
+			notifyLeadBestEffort(ctx, g, DagEventComplete, "all tasks done")
+		})
 	}
 	g.UpdatedTs = time.Now().UnixMilli()
 	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
 		*cur = *g
 		return nil
 	}); err != nil {
-		return err
+		return cleanupScheduleFailure(ctx, spawnCtx, g, spawned, err)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
+	publishSpawnedRunUpdates(g.ChannelId, spawned)
+	for _, publish := range afterCommit {
+		publish()
+	}
 	return nil
 }
 

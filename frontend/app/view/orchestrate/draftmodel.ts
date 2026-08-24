@@ -46,7 +46,13 @@ export function draftFromSubtasks(goal: string, subtasks: string[]): DagDraft {
     return draftFromPlan({
         draft: {
             title: goal,
-            tasks: subtasks.map((label, index) => ({ id: `t-${index + 1}`, label, description: "", deps: [], gate: false })),
+            tasks: subtasks.map((label, index) => ({
+                id: `t-${index + 1}`,
+                label,
+                description: "",
+                deps: [],
+                gate: false,
+            })),
         },
     } as CommandJarvisPlanDagRtnData);
 }
@@ -58,7 +64,10 @@ export function addDraftTask(draft: DagDraft, label = "New task"): DagDraft {
     while (used.has(`t-${number}`)) number++;
     return {
         ...draft,
-        tasks: [...draft.tasks.map(copyTask), { id: `t-${number}`, label, description: "", deps: [], gate: false, route: null }],
+        tasks: [
+            ...draft.tasks.map(copyTask),
+            { id: `t-${number}`, label, description: "", deps: [], gate: false, route: null },
+        ],
     };
 }
 
@@ -82,7 +91,9 @@ export function deleteDraftTask(draft: DagDraft, id: string): DagDraft {
     if (draft.tasks.length <= 1 || taskIndex(draft, id) < 0) return draft;
     return {
         ...draft,
-        tasks: draft.tasks.filter((task) => task.id !== id).map((task) => ({ ...copyTask(task), deps: task.deps.filter((dep) => dep !== id) })),
+        tasks: draft.tasks
+            .filter((task) => task.id !== id)
+            .map((task) => ({ ...copyTask(task), deps: task.deps.filter((dep) => dep !== id) })),
     };
 }
 
@@ -194,7 +205,7 @@ export function toDagSubmitPayload(draft: DagDraft): { title: string; parallelis
             description: task.description,
             deps: [...task.deps],
             gate: task.gate,
-            state: "pending",
+            state: "",
             ...(task.route == null ? {} : { runspec: { runtime: task.route.runtime, tier: task.route.tier } }),
         })),
     };

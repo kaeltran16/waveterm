@@ -21,6 +21,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/reporadar"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -30,15 +31,12 @@ import (
 
 // runSpawnLocks serializes spawnRunWorkers per runId so the read-back double-spawn guard
 // (len(WorkerOrefs) > 0) is effective across concurrent CreateRun/AdvanceRun calls for one run.
-var runSpawnLocks = newKeyedMutex()
+var runSpawnLocks = keyedmutex.New()
 
-// runWorkerSpawnTimeout bounds detached worker-spawn work; evidenceSealTimeout bounds detached evidence
-// sealing (git diff + transcript reads). Both are generous so the short FE-call budget can't cancel
-// CreateTab mid-flight (orphaning a tab) or cut a git diff short into an empty, immutable snapshot.
-const (
-	runWorkerSpawnTimeout = 60 * time.Second
-	evidenceSealTimeout   = 30 * time.Second
-)
+// evidenceSealTimeout bounds detached evidence sealing (git diff + transcript reads). Generous so the short
+// FE-call budget can't cut a git diff short into an empty, immutable snapshot. Worker spawn uses
+// jarvis.RunWorkerSpawnTimeout.
+const evidenceSealTimeout = 30 * time.Second
 
 // sealAsync dispatches the best-effort evidence seal off the RPC handler's goroutine so a slow git diff
 // can't hold the response past the caller's client timeout. A var so tests can run it inline.
@@ -192,7 +190,7 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	// detach from the caller's RPC budget (a 5s FE-call ctx): worker spawning calls wcore.CreateTab, and a
 	// mid-flight cancellation would orphan a half-created tab. keep parent values, bound with our own deadline.
 	ctx = context.WithoutCancel(ctx)
-	ctx, cancel := context.WithTimeout(ctx, runWorkerSpawnTimeout)
+	ctx, cancel := context.WithTimeout(ctx, jarvis.RunWorkerSpawnTimeout)
 	defer cancel()
 	ctx = waveobj.ContextWithUpdates(ctx)
 	run, err := wstore.GetRun(ctx, channelId, runId)
@@ -233,41 +231,16 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 	return spawnErr // surfaced but non-fatal to already-persisted state
 }
 
-// stopWorkerORef terminates one worker the run owns: it parses the tab oref, and for each block in the
-// tab flips cmd:runonstart off (so a later ResyncController can't relaunch the command) then destroys the
-// block controller, killing the claude process (the idle-on-exit backstop in shellcontroller then flips
-// the roster row working->idle). Returns an error only for the resolution boundary (bad oref / missing
-// tab). A meta-write failure and an already-dead controller are logged no-ops, never fatal — a worker is
-// spawned with cmd:runonstart defaulting true and no cmd:runonce, so the flip is what makes the kill
-// durable: without it, opening the tab (or a reload) would resync the block and revive the worker.
+// stopWorkerORef terminates one worker the run owns via the shared jarvis stop implementation.
 func stopWorkerORef(ctx context.Context, workerORef string) error {
-	oref, err := waveobj.ParseORef(workerORef)
-	if err != nil || oref.OType != waveobj.OType_Tab {
-		return fmt.Errorf("bad worker oref %q: %w", workerORef, err)
-	}
-	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
-	if err != nil {
-		return fmt.Errorf("loading tab %q: %w", workerORef, err)
-	}
-	for _, blockId := range tab.BlockIds {
-		meta := waveobj.MetaMapType{waveobj.MetaKey_CmdRunOnStart: false}
-		if merr := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), meta, false); merr != nil {
-			log.Printf("stopWorkerORef: clearing runonstart on block %s: %v", blockId, merr)
-		}
-		blockcontroller.DestroyBlockController(blockId)
-	}
-	return nil
+	return jarvis.StopRunWorker(ctx, workerORef)
 }
 
 // stopRunWorkers terminates every live worker the run owns (best-effort; each worker's failure is logged,
 // never fatal — the run's cancelled state is already persisted).
 func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
-	for i := range run.Phases {
-		for _, workerORef := range run.Phases[i].WorkerOrefs {
-			if err := stopWorkerORef(ctx, workerORef); err != nil {
-				log.Printf("stopRunWorkers: %v", err)
-			}
-		}
+	if err := jarvis.StopRunWorkers(ctx, run); err != nil {
+		log.Printf("stopRunWorkers: %v", err)
 	}
 }
 
@@ -626,7 +599,7 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		}
 		// engine-owned DAGs: a terminal child wakes its group's scheduler (derive + next spawns).
 		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
-			if serr := orchestrate.ScheduleOnce(ctx, grp); serr != nil {
+			if serr := orchestrate.Schedule(ctx, grp.OID); serr != nil {
 				log.Printf("dag schedule error: %v", serr)
 			}
 		}
@@ -706,23 +679,47 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 	if data.ChannelId == "" || data.RunId == "" {
 		return fmt.Errorf("channelid and runid are required")
 	}
-	err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+	// owner DAG run cancellation goes through the DAG authority
+	linkedRun, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	if linkedRun.DagORef != "" {
+		grp, err := wstore.GetDag(ctx, linkedRun.DagORef)
+		if err != nil {
+			return fmt.Errorf("loading linked dag %s: %w", linkedRun.DagORef, err)
+		}
+		if grp.RunID == linkedRun.ID {
+			cerr := orchestrate.Cancel(ctx, linkedRun.DagORef)
+			appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindRunCancelled, nil, map[string]any{})
+			if linkedRun.RadarOrigin != nil {
+				inv := reporadar.InvestigationFromRun(linkedRun, data.ChannelId, "cancelled", time.Now().UnixMilli())
+				if rerr := reporadar.RecordInvestigation(ctx, linkedRun.ProjectPath, linkedRun.RadarOrigin.Fingerprint, inv); rerr != nil {
+					log.Printf("CancelRun: recording radar investigation (cancelled) failed: %v", rerr)
+				}
+			}
+			publishRunUpdate(data.ChannelId, data.RunId)
+			if cerr != nil {
+				return fmt.Errorf("cancelling dag: %w", cerr)
+			}
+			return nil
+		}
+	}
+	err = wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
 		*r = jarvis.CancelRun(*r)
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("cancelling run: %w", err)
 	}
-	// stop the live workers the run spawned; state is already persisted, so this is best-effort.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil {
 		appendRunEvent(ctx, data.ChannelId, data.RunId, waveobj.RunEventKindRunCancelled, nil, map[string]any{})
 		stopRunWorkers(ctx, run)
 		if line, ok := jarvis.ParentNotifyLine(run); ok {
 			steerRunLead(ctx, run.ParentLeadORef, line)
 		}
-		// engine-owned DAGs: a cancelled child wakes its group's scheduler too.
 		if grp, gerr := orchestrate.GroupForRun(ctx, run.ChannelOID, run.ID); gerr == nil {
-			if serr := orchestrate.ScheduleOnce(ctx, grp); serr != nil {
+			if serr := orchestrate.Schedule(ctx, grp.OID); serr != nil {
 				log.Printf("dag schedule error: %v", serr)
 			}
 		}

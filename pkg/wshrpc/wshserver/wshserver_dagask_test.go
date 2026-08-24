@@ -14,6 +14,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -49,13 +50,6 @@ func dagAskFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, string) {
 	}
 	tabId := uuid.NewString()
 	blockId := uuid.NewString()
-	child := jarvis.NewRun("child goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
-	child.ID = uuid.NewString()
-	child.DagORef = g.OID
-	child.Phases[0].WorkerOrefs = []string{"tab:" + tabId}
-	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
-		t.Fatal(err)
-	}
 	tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
 	if err := wstore.DBInsert(ctx, tab); err != nil {
 		t.Fatal(err)
@@ -65,17 +59,27 @@ func dagAskFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, string) {
 		t.Fatal(err)
 	}
 	childORef := "block:" + blockId
-	// the child run is running for this dag
-	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
-		for i := range cur.Tasks {
-			cur.Tasks[i].RunID = child.ID
-			cur.Tasks[i].State = orchestrate.TaskState_Running
-		}
-		return nil
-	}); err != nil {
+	// stub worker spawn to return the pre-created tab
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+		return "tab:" + tabId, nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	restoreValidate := orchestrate.SetValidateWorkerHarnessForTest(func(string) error { return nil })
+	t.Cleanup(restoreValidate)
+	if err := orchestrate.Schedule(ctx, g.OID); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	fresh, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return &g, &child, childORef
+	g = *fresh
+	child, err := wstore.GetRun(ctx, ch.OID, g.Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &g, child, childORef
 }
 
 // wsCaptureClient records broker events so tests can assert event publishing (mirrors the capture

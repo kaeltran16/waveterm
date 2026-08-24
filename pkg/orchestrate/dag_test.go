@@ -34,6 +34,82 @@ func TestNewTaskGroupSetsIdentity(t *testing.T) {
 	}
 }
 
+func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
+	nineTasks := make([]waveobj.TaskNode, 9)
+	for i := range nineTasks {
+		nineTasks[i] = waveobj.TaskNode{ID: string(rune('a' + i)), Label: "task"}
+	}
+	cases := []struct {
+		name        string
+		title       string
+		parallelism int
+		tasks       []waveobj.TaskNode
+	}{
+		{name: "blank title", title: "   ", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
+		{name: "blank label", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "   "}}},
+		{name: "duplicate dependency", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "a", Label: "a"}, {ID: "b", Label: "b", Deps: []string{"a", "a"}}}},
+		{name: "too many tasks", title: "g", parallelism: 1, tasks: nineTasks},
+		{name: "zero parallelism", title: "g", parallelism: 0, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
+		{name: "excess parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
+		{name: "state", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", State: TaskState_Running}}},
+		{name: "run id", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", RunID: "run"}}},
+		{name: "released", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Released: true}}},
+		{name: "last activity", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastActivity: 1}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := NewTaskGroup("run", "channel", tc.title, tc.parallelism, tc.tasks, 1); err == nil {
+				t.Fatal("want validation error")
+			}
+		})
+	}
+}
+
+func TestNewTaskGroupSanitizesDeepCopy(t *testing.T) {
+	tasks := []waveobj.TaskNode{
+		{ID: "a", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "mid"}},
+		{ID: "b", Label: "b", Deps: []string{"a"}},
+	}
+	g, err := NewTaskGroup("run", "channel", "g", 1, tasks, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks[0].Label = "changed"
+	tasks[1].Deps[0] = "changed"
+	if g.Tasks[0].Label != "a" || g.Tasks[1].Deps[0] != "a" {
+		t.Fatalf("group shares caller task data: %+v", g.Tasks)
+	}
+	for _, task := range g.Tasks {
+		if task.State != TaskState_Pending {
+			t.Fatalf("task %s state = %q, want pending", task.ID, task.State)
+		}
+	}
+}
+
+func TestSameDagProposalUsesOnlyAuthoringShape(t *testing.T) {
+	a := mustGroup(t, mkTasks())
+	b := *a
+	b.Tasks = append([]waveobj.TaskNode(nil), a.Tasks...)
+	b.OID = "different"
+	b.ID = "different"
+	b.Version = 99
+	b.Status = DagStatus_Blocked
+	b.Failures = 2
+	b.CreatedTs = 50
+	b.UpdatedTs = 60
+	b.Tasks[0].State = TaskState_Done
+	b.Tasks[0].RunID = "child"
+	b.Tasks[0].Released = true
+	b.Tasks[0].LastActivity = 100
+	if !SameDagProposal(a, &b) {
+		t.Fatal("engine state changed proposal identity")
+	}
+	b.Tasks[0].Label = "changed"
+	if SameDagProposal(a, &b) {
+		t.Fatal("authoring change treated as identical proposal")
+	}
+}
+
 func TestValidateRejects(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -44,6 +120,7 @@ func TestValidateRejects(t *testing.T) {
 		{"self dep", []waveobj.TaskNode{{ID: "t-1", Deps: []string{"t-1"}}}},
 		{"cycle", []waveobj.TaskNode{{ID: "t-1", Deps: []string{"t-2"}}, {ID: "t-2", Deps: []string{"t-1"}}}},
 		{"empty id", []waveobj.TaskNode{{ID: ""}}},
+		{"blank id", []waveobj.TaskNode{{ID: "   ", Label: "a"}}},
 	}
 	for _, c := range cases {
 		if err := ValidateTasks(c.tasks); err == nil {

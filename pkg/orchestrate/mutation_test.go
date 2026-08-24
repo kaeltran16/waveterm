@@ -1,0 +1,544 @@
+package orchestrate
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
+)
+
+func seedPendingDag(t *testing.T) (context.Context, *waveobj.TaskGroup) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "mutation-seed", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{
+		{ID: "t-0", Label: "a"},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, &g
+}
+
+func TestScheduleSerializesSameDag(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	allowWorkerHarnessForTest(t)
+
+	entered := make(chan struct{})
+	duplicateEntered := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	old := spawnWorker
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+		switch calls.Add(1) {
+		case 1:
+			close(entered)
+			<-release
+		case 2:
+			close(duplicateEntered)
+		}
+		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
+	}
+	t.Cleanup(func() { spawnWorker = old })
+
+	errs := make(chan error, 2)
+	go func() { errs <- Schedule(ctx, dag.OID) }()
+	<-entered
+	secondStarted := make(chan struct{})
+	go func() {
+		close(secondStarted)
+		errs <- Schedule(ctx, dag.OID)
+	}()
+	<-secondStarted
+	select {
+	case <-duplicateEntered:
+		t.Fatal("second scheduler entered spawn while the first still held the DAG")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("spawn calls = %d, want 1", calls.Load())
+	}
+}
+
+func seedFailedDag(t *testing.T) (context.Context, *waveobj.TaskGroup, waveobj.Run) {
+	t.Helper()
+	ctx, dag := seedPendingDag(t)
+	child := jarvis.NewRun("child goal", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	child.Status = jarvis.RunStatus_Blocked
+	if err := wstore.AppendRun(ctx, dag.ChannelId, child); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = TaskState_Running
+		g.Tasks[0].RunID = child.ID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, dag, child
+}
+
+func TestScheduleRetainsFailedChildOwnershipForRetry(t *testing.T) {
+	ctx, dag, child := seedFailedDag(t)
+
+	if err := Schedule(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wstore.GetDag(ctx, dag.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].State != TaskState_Failed || got.Tasks[0].RunID != child.ID {
+		t.Fatalf("failed task ownership = state %q run %q, want failed/%q", got.Tasks[0].State, got.Tasks[0].RunID, child.ID)
+	}
+}
+
+func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
+	ctx, dag, child := seedFailedDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = TaskState_Failed
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry")
+	if err == nil || !strings.Contains(err.Error(), "stop failed") {
+		t.Fatalf("retry error = %v, want stop failure", err)
+	}
+	got, getErr := wstore.GetDag(ctx, dag.OID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Tasks[0].State != TaskState_Failed || got.Tasks[0].RunID != child.ID {
+		t.Fatalf("failed task ownership = state %q run %q, want failed/%q", got.Tasks[0].State, got.Tasks[0].RunID, child.ID)
+	}
+}
+
+func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
+	ctx, dag, _, child := seedRunningDag(t)
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip"); err == nil {
+		t.Fatal("running task accepted skip")
+	}
+	got, err := wstore.GetDag(ctx, dag.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].State != TaskState_Running || got.Tasks[0].RunID != child.ID {
+		t.Fatalf("running task ownership changed: state=%q run=%q", got.Tasks[0].State, got.Tasks[0].RunID)
+	}
+}
+
+func TestSkipStopsStalledChildBeforeClearingOwnership(t *testing.T) {
+	ctx, dag, _, child := seedRunningDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = TaskState_Stalled
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldStop := stopRunWorkers
+	stopped := false
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		stopped = run.ID == child.ID
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip"); err != nil {
+		t.Fatal(err)
+	}
+	gotDag, _ := wstore.GetDag(ctx, dag.OID)
+	gotChild, _ := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+	if !stopped || gotChild.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("stalled child stop=%v status=%q, want stopped/cancelled", stopped, gotChild.Status)
+	}
+	if gotDag.Tasks[0].State != TaskState_Skipped || gotDag.Tasks[0].RunID != "" {
+		t.Fatalf("skipped task = state %q run %q", gotDag.Tasks[0].State, gotDag.Tasks[0].RunID)
+	}
+}
+
+func TestRetryKeepsOwnershipWhenCancelledChildCannotReload(t *testing.T) {
+	ctx, dag, child := seedFailedDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = TaskState_Failed
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const trigger = "delete_retry_child_after_update"
+	if err := wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+		tx.Exec(fmt.Sprintf(`CREATE TEMP TRIGGER %s AFTER UPDATE ON db_run WHEN NEW.oid = '%s' BEGIN DELETE FROM db_run WHERE oid = NEW.oid; END`, trigger, child.ID))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = wstore.WithTx(context.Background(), func(tx *wstore.TxWrap) error {
+			tx.Exec("DROP TRIGGER IF EXISTS " + trigger)
+			return nil
+		})
+	})
+
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry")
+	if err == nil || !strings.Contains(err.Error(), "loading old run") {
+		t.Fatalf("retry error = %v, want child reload failure", err)
+	}
+	got, getErr := wstore.GetDag(ctx, dag.OID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Tasks[0].State != TaskState_Failed || got.Tasks[0].RunID != child.ID {
+		t.Fatalf("failed task ownership = state %q run %q, want failed/%q", got.Tasks[0].State, got.Tasks[0].RunID, child.ID)
+	}
+}
+
+func seedRunningDag(t *testing.T) (context.Context, *waveobj.TaskGroup, *waveobj.Run, waveobj.Run) {
+	t.Helper()
+	ctx, dag := seedPendingDag(t)
+	owner, err := wstore.GetRun(ctx, dag.ChannelId, dag.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := jarvis.NewRun("child", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	child.Phases[0].WorkerOrefs = []string{"tab:worker"}
+	if err := wstore.AppendRun(ctx, dag.ChannelId, child); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = TaskState_Running
+		g.Tasks[0].RunID = child.ID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, dag, owner, child
+}
+
+func TestCancelPersistsBeforeStoppingWorkersAndIsIdempotent(t *testing.T) {
+	ctx, dag, owner, child := seedRunningDag(t)
+	oldStop := stopRunWorkers
+	stopCalls := 0
+	stopObservedCancelled := true
+	stopRunWorkers = func(ctx context.Context, _ *waveobj.Run) error {
+		stopCalls++
+		gotDag, dagErr := wstore.GetDag(ctx, dag.OID)
+		gotOwner, ownerErr := wstore.GetRun(ctx, dag.ChannelId, owner.ID)
+		gotChild, childErr := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+		stopObservedCancelled = stopObservedCancelled && dagErr == nil && ownerErr == nil && childErr == nil &&
+			gotDag.Status == DagStatus_Cancelled && gotDag.Tasks[0].State == TaskState_Cancelled &&
+			gotOwner.Status == jarvis.RunStatus_Cancelled && gotChild.Status == jarvis.RunStatus_Cancelled
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	if err := Cancel(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	if err := Cancel(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	if !stopObservedCancelled {
+		t.Fatal("worker stop ran before terminal state committed")
+	}
+	if stopCalls != 4 {
+		t.Fatalf("stop calls = %d, want owner and child on each cancellation", stopCalls)
+	}
+}
+
+func TestCancelDetachesWorkerCleanupFromCallerContext(t *testing.T) {
+	baseCtx, dag, _, _ := seedRunningDag(t)
+	ctx, cancel := context.WithCancel(baseCtx)
+	oldTx, oldStop := withMutationTx, stopRunWorkers
+	withMutationTx = func(ctx context.Context, fn func(*wstore.TxWrap) error) error {
+		err := wstore.WithTx(ctx, fn)
+		cancel()
+		return err
+	}
+	stopCalls := 0
+	stopRunWorkers = func(ctx context.Context, _ *waveobj.Run) error {
+		stopCalls++
+		if ctx.Err() != nil {
+			return fmt.Errorf("cleanup context is cancelled: %w", ctx.Err())
+		}
+		return nil
+	}
+	t.Cleanup(func() { withMutationTx, stopRunWorkers = oldTx, oldStop })
+
+	if err := Cancel(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	if stopCalls != 2 {
+		t.Fatalf("stop calls = %d, want owner and child", stopCalls)
+	}
+}
+
+func TestCancelReturnsStopFailureWithoutRevertingState(t *testing.T) {
+	ctx, dag, _, child := seedRunningDag(t)
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		if run.ID == child.ID {
+			return errors.New("worker stop failed")
+		}
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	err := Cancel(ctx, dag.OID)
+	if err == nil || !strings.Contains(err.Error(), child.ID) || !strings.Contains(err.Error(), "worker stop failed") {
+		t.Fatalf("cancel error = %v, want contextual child stop failure", err)
+	}
+	gotDag, _ := wstore.GetDag(ctx, dag.OID)
+	gotChild, _ := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+	if gotDag.Status != DagStatus_Cancelled || gotChild.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("stop failure reverted cancellation: dag=%q child=%q", gotDag.Status, gotChild.Status)
+	}
+}
+
+func TestCancelRollsBackAllStateBeforeWorkerStop(t *testing.T) {
+	ctx, dag, owner, child := seedRunningDag(t)
+	const trigger = "fail_cancel_run_update"
+	if err := wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+		tx.Exec(`CREATE TEMP TRIGGER fail_cancel_run_update BEFORE UPDATE ON db_run BEGIN SELECT RAISE(ABORT, 'forced cancel failure'); END`)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = wstore.WithTx(context.Background(), func(tx *wstore.TxWrap) error {
+			tx.Exec("DROP TRIGGER IF EXISTS " + trigger)
+			return nil
+		})
+	})
+	oldStop := stopRunWorkers
+	stopCalls := 0
+	stopRunWorkers = func(context.Context, *waveobj.Run) error { stopCalls++; return nil }
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	if err := Cancel(ctx, dag.OID); err == nil {
+		t.Fatal("want forced cancellation transaction failure")
+	}
+	gotDag, _ := wstore.GetDag(ctx, dag.OID)
+	gotOwner, _ := wstore.GetRun(ctx, dag.ChannelId, owner.ID)
+	gotChild, _ := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+	if gotDag.Status == DagStatus_Cancelled || gotOwner.Status == jarvis.RunStatus_Cancelled || gotChild.Status == jarvis.RunStatus_Cancelled {
+		t.Fatalf("cancellation partially committed: dag=%q owner=%q child=%q", gotDag.Status, gotOwner.Status, gotChild.Status)
+	}
+	if stopCalls != 0 {
+		t.Fatalf("worker stop called %d times before transaction committed", stopCalls)
+	}
+}
+
+func TestMarkBlockedMergeChangesOnlyOwningTask(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks = append(g.Tasks, waveobj.TaskNode{ID: "t-1", Label: "b", State: TaskState_Running, RunID: "child-1"})
+		g.Tasks[0].State = TaskState_Running
+		g.Tasks[0].RunID = "child-0"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkBlockedMerge(ctx, dag.OID, "child-1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := wstore.GetDag(ctx, dag.OID)
+	if got.Tasks[0].State != TaskState_Running || got.Tasks[1].State != TaskState_BlockedMerge {
+		t.Fatalf("merge block changed wrong tasks: %+v", got.Tasks)
+	}
+}
+
+func TestCancelledDagRejectsFurtherMutations(t *testing.T) {
+	ctx, dag, _, child := seedRunningDag(t)
+	oldStop, oldSpawn := stopRunWorkers, spawnWorker
+	stopRunWorkers = func(context.Context, *waveobj.Run) error { return nil }
+	spawnCalls := 0
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		spawnCalls++
+		return "tab:unexpected", nil
+	}
+	t.Cleanup(func() { stopRunWorkers, spawnWorker = oldStop, oldSpawn })
+	if err := Cancel(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, action := range []string{"approve", "sendback", "retry", "skip"} {
+		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action); err == nil {
+			t.Fatalf("cancelled DAG accepted %q", action)
+		}
+	}
+	if err := MarkBlockedMerge(ctx, dag.OID, child.ID); err == nil {
+		t.Fatal("cancelled DAG accepted blocked-merge mutation")
+	}
+	got, err := wstore.GetDag(ctx, dag.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	RecomputeDagStatus(got)
+	if got.Status != DagStatus_Cancelled || got.Tasks[0].State != TaskState_Cancelled || spawnCalls != 0 {
+		t.Fatalf("cancelled DAG reopened: status=%q task=%q spawns=%d", got.Status, got.Tasks[0].State, spawnCalls)
+	}
+}
+
+func TestCancelHoldsDagAuthorityThroughWorkerCleanup(t *testing.T) {
+	ctx, dag, _, _ := seedRunningDag(t)
+	oldStop := stopRunWorkers
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	stopRunWorkers = func(context.Context, *waveobj.Run) error {
+		if calls.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		return nil
+	}
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+
+	cancelDone := make(chan error, 1)
+	go func() { cancelDone <- Cancel(ctx, dag.OID) }()
+	<-entered
+	actionDone := make(chan error, 1)
+	go func() { actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry") }()
+	select {
+	case err := <-actionDone:
+		t.Fatalf("action escaped cancellation authority before worker cleanup: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-cancelDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-actionDone; err == nil {
+		t.Fatal("cancelled DAG accepted retry after cleanup")
+	}
+}
+
+func TestCancelWaitsForSpawnAndStopsAttachedWorker(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	allowWorkerHarnessForTest(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	worker := waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String()
+	oldSpawn, oldStamp, oldStop := spawnWorker, stampSpawnedWorker, stopRunWorkers
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		close(entered)
+		<-release
+		return worker, nil
+	}
+	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
+	stoppedAttachedWorker := false
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		for _, phase := range run.Phases {
+			for _, oref := range phase.WorkerOrefs {
+				if oref == worker {
+					stoppedAttachedWorker = true
+				}
+			}
+		}
+		return nil
+	}
+	t.Cleanup(func() { spawnWorker, stampSpawnedWorker, stopRunWorkers = oldSpawn, oldStamp, oldStop })
+
+	scheduleDone := make(chan error, 1)
+	go func() { scheduleDone <- Schedule(ctx, dag.OID) }()
+	<-entered
+	cancelDone := make(chan error, 1)
+	go func() { cancelDone <- Cancel(ctx, dag.OID) }()
+	select {
+	case err := <-cancelDone:
+		t.Fatalf("cancellation returned before bounded spawn completed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-scheduleDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-cancelDone; err != nil {
+		t.Fatal(err)
+	}
+	if !stoppedAttachedWorker {
+		t.Fatal("cancellation did not stop the worker attached during spawn")
+	}
+}
+
+func TestScheduleDifferentDagsProceedConcurrently(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	ctx1, dag1 := seedPendingDag(t)
+	ctx2, dag2 := seedPendingDag(t)
+	// ctx is shared; both dags use background context, but we need to block dag1's spawn
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var callsDag1 atomic.Int32
+	var callsDag2 atomic.Int32
+	old := spawnWorker
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+		// We can't easily know which dag is calling; use a simple counter and block only first call.
+		// Instead we separate by using dag1's spawn path: block first spawn, let second dag proceed.
+		if callsDag1.Load() == 0 && callsDag2.Load() == 0 {
+			// first overall spawn -> dag1 blocked
+			callsDag1.Add(1)
+			close(entered)
+			<-release
+			return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
+		}
+		callsDag2.Add(1)
+		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
+	}
+	t.Cleanup(func() { spawnWorker = old })
+
+	errs := make(chan error, 2)
+	go func() { errs <- Schedule(ctx1, dag1.OID) }()
+	<-entered
+	// while dag1 is blocked, dag2 should be able to complete
+	done := make(chan error, 1)
+	go func() { done <- Schedule(ctx2, dag2.OID) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("dag2 schedule failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("different DAG was blocked by unrelated scheduling")
+	}
+	close(release)
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	// dag2 already done; ensure counts
+	if callsDag1.Load() != 1 {
+		t.Fatalf("dag1 spawn calls = %d, want 1", callsDag1.Load())
+	}
+	if callsDag2.Load() != 1 {
+		t.Fatalf("dag2 spawn calls = %d, want 1", callsDag2.Load())
+	}
+}

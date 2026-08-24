@@ -3,6 +3,7 @@ package orchestrate
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -34,8 +35,8 @@ const (
 // MaxConsecutiveFailures is the circuit-break: the DAG blocks with a "stop and ask" flag.
 const MaxConsecutiveFailures = 3
 
-// DefaultParallelism is applied when the submit data carries 0.
-const DefaultParallelism = 2
+const MaxTasks = 8
+const MaxParallelism = 8
 
 // ValidateTasks rejects duplicate/empty ids, unknown or self deps, and dependency cycles.
 func ValidateTasks(tasks []waveobj.TaskNode) error {
@@ -44,17 +45,25 @@ func ValidateTasks(tasks []waveobj.TaskNode) error {
 	}
 	seen := map[string]bool{}
 	for _, t := range tasks {
-		if t.ID == "" {
+		if strings.TrimSpace(t.ID) == "" {
 			return fmt.Errorf("task with empty id")
+		}
+		if strings.TrimSpace(t.Label) == "" {
+			return fmt.Errorf("task %q label is required", t.ID)
 		}
 		if seen[t.ID] {
 			return fmt.Errorf("duplicate task id %q", t.ID)
 		}
 		seen[t.ID] = true
+		depSeen := map[string]bool{}
 		for _, d := range t.Deps {
 			if d == t.ID {
 				return fmt.Errorf("task %q depends on itself", t.ID)
 			}
+			if depSeen[d] {
+				return fmt.Errorf("task %q has duplicate dependency %q", t.ID, d)
+			}
+			depSeen[d] = true
 			if !seen[d] && !taskExists(tasks, d) {
 				return fmt.Errorf("task %q depends on unknown task %q", t.ID, d)
 			}
@@ -117,13 +126,44 @@ func findCycle(tasks []waveobj.TaskNode) string {
 	return ""
 }
 
-// NewTaskGroup validates and builds a group; parallelism 0 becomes DefaultParallelism.
 func NewTaskGroup(runID, channelId, title string, parallelism int, tasks []waveobj.TaskNode, ts int64) (waveobj.TaskGroup, error) {
+	if strings.TrimSpace(title) == "" {
+		return waveobj.TaskGroup{}, fmt.Errorf("title is required")
+	}
+	if len(tasks) == 0 {
+		return waveobj.TaskGroup{}, fmt.Errorf("dag has no tasks")
+	}
+	if len(tasks) > MaxTasks {
+		return waveobj.TaskGroup{}, fmt.Errorf("no more than %d tasks are allowed", MaxTasks)
+	}
+	if parallelism < 1 || parallelism > MaxParallelism {
+		return waveobj.TaskGroup{}, fmt.Errorf("parallelism must be an integer from 1 through %d", MaxParallelism)
+	}
 	if err := ValidateTasks(tasks); err != nil {
 		return waveobj.TaskGroup{}, err
 	}
-	if parallelism < 1 {
-		parallelism = DefaultParallelism
+	// reject non-default engine fields
+	for _, t := range tasks {
+		if t.State != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q state must be empty", t.ID)
+		}
+		if t.RunID != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q runid must be empty", t.ID)
+		}
+		if t.Released {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q released must be false", t.ID)
+		}
+		if t.LastActivity != 0 {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q lastactivity must be zero", t.ID)
+		}
+	}
+	tasksCopy := make([]waveobj.TaskNode, len(tasks))
+	for i, t := range tasks {
+		depsCopy := make([]string, len(t.Deps))
+		copy(depsCopy, t.Deps)
+		tasksCopy[i] = t
+		tasksCopy[i].Deps = depsCopy
+		tasksCopy[i].State = TaskState_Pending
 	}
 	g := waveobj.TaskGroup{
 		ID:          uuid.NewString(),
@@ -131,24 +171,50 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, tasks []waveo
 		ChannelId:   channelId,
 		Title:       title,
 		Parallelism: parallelism,
-		Tasks:       tasks,
+		Tasks:       tasksCopy,
 		Status:      DagStatus_Running,
 		CreatedTs:   ts,
 		UpdatedTs:   ts,
 	}
 	g.OID = g.ID
-	for i := range g.Tasks {
-		if g.Tasks[i].State == "" {
-			g.Tasks[i].State = TaskState_Pending
-		}
-	}
 	RecomputeDagStatus(&g)
 	return g, nil
+}
+
+func SameDagProposal(a, b *waveobj.TaskGroup) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Title != b.Title || a.Parallelism != b.Parallelism || len(a.Tasks) != len(b.Tasks) {
+		return false
+	}
+	for i := range a.Tasks {
+		ta := a.Tasks[i]
+		tb := b.Tasks[i]
+		if ta.ID != tb.ID || ta.Label != tb.Label || ta.Description != tb.Description || ta.Gate != tb.Gate {
+			return false
+		}
+		if len(ta.Deps) != len(tb.Deps) {
+			return false
+		}
+		for j := range ta.Deps {
+			if ta.Deps[j] != tb.Deps[j] {
+				return false
+			}
+		}
+		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Tier != tb.RunSpec.Tier || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode {
+			return false
+		}
+	}
+	return true
 }
 
 // RecomputeDagStatus derives g.Status from task states. Single source of truth.
 // Order matters: cancelled (terminal override) -> done -> blocked -> awaiting-review -> running.
 func RecomputeDagStatus(g *waveobj.TaskGroup) {
+	if g.Status == DagStatus_Cancelled {
+		return
+	}
 	cancelled := false
 	allTerminal := true
 	blocked := false
