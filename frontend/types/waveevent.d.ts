@@ -24,6 +24,7 @@ declare global {
         | "badge"
         | "agent:status"
         | "notify"
+        | "openfile"
         | "agent:ask"
         | "memory:activity"
         | "jarvis:volunteer"
@@ -61,6 +62,7 @@ declare global {
         { event: "badge"; data?: BadgeEvent; } | 
         { event: "agent:status"; data?: AgentStatusData; } | 
         { event: "notify"; data?: NotifyCommandData; } | 
+        { event: "openfile"; data?: OpenFileData; } | 
         { event: "agent:ask"; data?: AgentAskData; } | 
         { event: "memory:activity"; data?: MemoryActivityData; } | 
         { event: "jarvis:volunteer"; data?: VolunteerData; } | 

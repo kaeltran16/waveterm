@@ -2571,6 +2571,12 @@ declare global {
         "waveai:maxoutputtokens"?: number;
     };
 
+    // wshrpc.OpenFileData
+    type OpenFileData = {
+        path: string;
+        edit?: boolean;
+    };
+
     // wshrpc.PassRecordWire
     type PassRecordWire = {
         ts: number;

@@ -12,6 +12,12 @@ type NotifyCommandData struct {
 	Level   string `json:"level"` // info | warn | error (default info)
 }
 
+// OpenFileData is the payload for wsh open/view/edit: route a path into the cockpit's code surface.
+type OpenFileData struct {
+	Path string `json:"path"`
+	Edit bool   `json:"edit,omitempty"`
+}
+
 // PiControlCommandData is a steering command for a live pi session. The extension
 // consumes {cmd, content, name, path} from the control file (see writeControlFile).
 type PiControlCommandData struct {

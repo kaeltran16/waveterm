@@ -32,6 +32,7 @@ const (
 	Event_Badge            = "badge"             // type: baseds.BadgeEvent
 	Event_AgentStatus      = "agent:status"      // type: baseds.AgentStatusData
 	Event_Notify           = "notify"            // type: wshrpc.NotifyCommandData
+	Event_OpenFile         = "openfile"          // type: wshrpc.OpenFileData
 	Event_AgentAsk         = "agent:ask"         // type: baseds.AgentAskData
 	Event_MemoryActivity   = "memory:activity"   // type: baseds.MemoryActivityData
 	Event_JarvisVolunteer  = "jarvis:volunteer"  // type: baseds.VolunteerData
@@ -64,6 +65,7 @@ var AllEvents []string = []string{
 	Event_Badge,
 	Event_AgentStatus,
 	Event_Notify,
+	Event_OpenFile,
 	Event_AgentAsk,
 	Event_MemoryActivity,
 	Event_JarvisVolunteer,

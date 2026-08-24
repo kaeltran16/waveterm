@@ -11,17 +11,15 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
 
-var viewMagnified bool
-
 var viewCmd = &cobra.Command{
-	Use:     "view {file|directory|URL}",
+	Use:     "view {file|directory}",
 	Aliases: []string{"preview", "open"},
-	Short:   "preview/edit a file or directory",
+	Short:   "preview/edit a file or directory in the cockpit code surface",
 	RunE:    viewRun,
 	PreRunE: preRunSetupRpcClient,
 }
@@ -34,12 +32,12 @@ var editCmd = &cobra.Command{
 }
 
 func init() {
-	viewCmd.Flags().BoolVarP(&viewMagnified, "magnified", "m", false, "open view in magnified mode")
 	rootCmd.AddCommand(viewCmd)
-	editCmd.Flags().BoolVarP(&viewMagnified, "magnified", "m", false, "open view in magnified mode")
 	rootCmd.AddCommand(editCmd)
 }
 
+// viewRun routes the path to the running cockpit via an openfile event; there is no
+// block-layout renderer in this build, so creating preview blocks would be a silent no-op.
 func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	cmdName := cmd.Name()
 	defer func() {
@@ -47,66 +45,39 @@ func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	}()
 	if len(args) == 0 {
 		OutputHelpMessage(cmd)
-		return fmt.Errorf("no arguments.  wsh %s requires a file or URL as an argument argument", cmdName)
+		return fmt.Errorf("no arguments.  wsh %s requires a file or directory as an argument", cmdName)
 	}
 	if len(args) > 1 {
 		OutputHelpMessage(cmd)
 		return fmt.Errorf("too many arguments.  wsh %s requires exactly one argument", cmdName)
 	}
-	tabId := getTabIdFromEnv()
-	if tabId == "" {
-		return fmt.Errorf("no WAVETERM_TABID env var set")
-	}
 	fileArg := args[0]
-	conn := RpcContext.Conn
-	var wshCmd *wshrpc.CommandCreateBlockData
 	if strings.HasPrefix(fileArg, "http://") || strings.HasPrefix(fileArg, "https://") {
-		wshCmd = &wshrpc.CommandCreateBlockData{
-			TabId: tabId,
-			BlockDef: &waveobj.BlockDef{
-				Meta: map[string]any{
-					waveobj.MetaKey_View: "web",
-					waveobj.MetaKey_Url:  fileArg,
-				},
-			},
-			Magnified: viewMagnified,
-			Focused:   true,
-		}
-	} else {
-		absFile, err := filepath.Abs(fileArg)
-		if err != nil {
-			return fmt.Errorf("getting absolute path: %w", err)
-		}
-		absParent, err := filepath.Abs(filepath.Dir(fileArg))
-		if err != nil {
-			return fmt.Errorf("getting absolute path of parent dir: %w", err)
-		}
-		_, err = os.Stat(absParent)
-		if err == fs.ErrNotExist {
-			return fmt.Errorf("parent directory does not exist: %q", absParent)
-		}
-		if err != nil {
-			return fmt.Errorf("getting file info: %w", err)
-		}
-		wshCmd = &wshrpc.CommandCreateBlockData{
-			TabId: tabId,
-			BlockDef: &waveobj.BlockDef{
-				Meta: map[string]interface{}{
-					waveobj.MetaKey_View: "preview",
-					waveobj.MetaKey_File: absFile,
-				},
-			},
-			Magnified: viewMagnified,
-			Focused:   true,
-		}
-		if cmdName == "edit" {
-			wshCmd.BlockDef.Meta[waveobj.MetaKey_Edit] = true
-		}
-		if conn != "" {
-			wshCmd.BlockDef.Meta[waveobj.MetaKey_Connection] = conn
-		}
+		return fmt.Errorf("URLs are not supported by wsh %s in this build: %q", cmdName, fileArg)
 	}
-	_, err := wshclient.CreateBlockCommand(RpcClient, *wshCmd, &wshrpc.RpcOpts{Timeout: 2000})
+	absFile, err := filepath.Abs(fileArg)
+	if err != nil {
+		return fmt.Errorf("getting absolute path: %w", err)
+	}
+	absParent, err := filepath.Abs(filepath.Dir(fileArg))
+	if err != nil {
+		return fmt.Errorf("getting absolute path of parent dir: %w", err)
+	}
+	_, err = os.Stat(absParent)
+	if err == fs.ErrNotExist {
+		return fmt.Errorf("parent directory does not exist: %q", absParent)
+	}
+	if err != nil {
+		return fmt.Errorf("getting file info: %w", err)
+	}
+	eventData := wshrpc.OpenFileData{Path: absFile}
+	if cmdName == "edit" {
+		eventData.Edit = true
+	}
+	err = wshclient.EventPublishCommand(RpcClient, wps.WaveEvent{
+		Event: wps.Event_OpenFile,
+		Data:  eventData,
+	}, &wshrpc.RpcOpts{Timeout: 2000})
 	if err != nil {
 		return fmt.Errorf("running view command: %w", err)
 	}
