@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -540,5 +542,61 @@ func TestScheduleDifferentDagsProceedConcurrently(t *testing.T) {
 	}
 	if callsDag2.Load() != 1 {
 		t.Fatalf("dag2 spawn calls = %d, want 1", callsDag2.Load())
+	}
+}
+
+// TestCancelSweepsTaskWorktrees: cancelling a dag removes every task's worktree (dumping dirty
+// state to a recovery patch first) so abandoned trees and branches don't accumulate in the project.
+func TestCancelSweepsTaskWorktrees(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	allowWorkerHarnessForTest(t)
+
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, dag.ChannelId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newGitRepoAt(t, ch.ProjectPath)
+	base := gitCmd(t, ch.ProjectPath, "rev-parse", "HEAD")
+	if err := wstore.UpdateRun(ctx, ch.OID, dag.RunID, func(r *waveobj.Run) error {
+		r.BaseCommit = base
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	old := spawnWorker
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
+	}
+	defer func() { spawnWorker = old }()
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(ctx context.Context, r *waveobj.Run) error { return nil }
+	defer func() { stopRunWorkers = oldStop }()
+
+	if err := ScheduleOnce(ctx, dag); err != nil {
+		t.Fatal(err)
+	}
+	key := TaskWorktreeKey(dag.RunID, "t-0")
+	wtPath := filepath.Join(ch.ProjectPath, ".waveterm", "worktrees", key)
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Fatalf("expected spawned task worktree at %s: %v", wtPath, err)
+	}
+	os.WriteFile(filepath.Join(wtPath, "uncommitted.txt"), []byte("wip"), 0o644)
+
+	if err := Cancel(ctx, dag.OID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatalf("cancel must sweep the task worktree, stat err = %v", err)
+	}
+	if gitCmd(t, ch.ProjectPath, "branch", "--list", "wave/"+key) != "" {
+		t.Fatal("cancel must delete the task branch")
+	}
+	patch, err := os.ReadFile(filepath.Join(ch.ProjectPath, ".waveterm", "recovery", key+".patch"))
+	if err != nil {
+		t.Fatalf("dirty state must be dumped before the sweep: %v", err)
+	}
+	if !strings.Contains(string(patch), "uncommitted.txt") {
+		t.Fatalf("patch must capture uncommitted work:\n%s", patch)
 	}
 }

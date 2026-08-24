@@ -86,9 +86,17 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string) error 
 	}
 	switch action {
 	case "approve":
-		ApproveGate(g)
+		g2, err := ApproveGate(g, taskID)
+		if err != nil {
+			return err
+		}
+		g = g2
 	case "sendback":
-		SendBackGate(g)
+		g2, err := SendBackGate(g, taskID)
+		if err != nil {
+			return err
+		}
+		g = g2
 	case "skip":
 		task := taskByID(g, taskID)
 		if task == nil {
@@ -211,6 +219,18 @@ func cancelLocked(ctx context.Context, dagID string) error {
 		}
 		if err := stopRunWorkers(cleanupCtx, run); err != nil {
 			errs = append(errs, fmt.Errorf("run %s: %w", runID, err))
+		}
+	}
+	// worktree sweep: cancelled work is abandoned, so every task's tree goes — dirty state is dumped
+	// to a recovery patch first. Done-but-unmerged trees are swept too; merge is unreachable after
+	// cancel, so keeping them would only strand branches.
+	if owner, oerr := wstore.GetRun(cleanupCtx, gCopy.ChannelId, gCopy.RunID); oerr == nil && IsGitRepo(owner.ProjectPath) {
+		for i := range gCopy.Tasks {
+			key := TaskWorktreeKey(owner.ID, gCopy.Tasks[i].ID)
+			DumpRecoveryPatch(cleanupCtx, owner.ProjectPath, key) // best effort
+			if err := RemoveRunWorktree(cleanupCtx, owner.ProjectPath, key); err != nil {
+				errs = append(errs, fmt.Errorf("worktree %s: %w", key, err))
+			}
 		}
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, dagID))

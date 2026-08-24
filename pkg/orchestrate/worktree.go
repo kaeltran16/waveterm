@@ -32,6 +32,12 @@ func IsGitRepo(projectPath string) bool {
 	return err == nil
 }
 
+// TaskWorktreeKey derives the per-task worktree key: <owner run ID>-<task ID>. Single source of
+// truth for the key — engine spawn, merge, and cancel sweeps must all derive it identically.
+func TaskWorktreeKey(ownerRunID, taskID string) string {
+	return ownerRunID + "-" + taskID
+}
+
 // CreateRunWorktree links a worktree at <project>/.waveterm/worktrees/<runID> on branch
 // wave/<runID>, checked out at baseCommit (empty = current branch head).
 func CreateRunWorktree(ctx context.Context, projectPath, runID, baseCommit string) (string, error) {
@@ -62,13 +68,51 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 	return nil
 }
 
-// DumpRecoveryPatch writes the worktree's diff vs its base to a patch file so a cancelled
-// run's work is not silently lost.
+// EnsureRunWorktree returns a usable linked worktree for runID at baseCommit. An existing tree is
+// reused only when its branch still exists and the tree is clean — a clean tree whose head sits
+// past baseCommit is committed child work that merge needs later, so it stays; anything dirty or
+// unverifiable gets its uncommitted state dumped to a recovery patch and is rebuilt from baseCommit.
+func EnsureRunWorktree(ctx context.Context, projectPath, runID, baseCommit string) (string, error) {
+	wt := worktreeDir(projectPath, runID)
+	if _, err := os.Stat(wt); err == nil {
+		usable := false
+		if _, err := WorktreeHeadCommit(ctx, projectPath, runID); err == nil {
+			status, serr := git(ctx, wt, "status", "--porcelain")
+			// any dirt forces a rebuild (dump first); a clean tree is reused even when its head
+			// sits past baseCommit — that divergence is committed child work merge needs later
+			if serr == nil && strings.TrimSpace(status) == "" {
+				usable = true
+			}
+		}
+		if usable {
+			return wt, nil
+		}
+		DumpRecoveryPatch(ctx, projectPath, runID) // best effort; rebuild proceeds either way
+		if err := RemoveRunWorktree(ctx, projectPath, runID); err != nil {
+			return "", fmt.Errorf("recreating stale worktree: %w", err)
+		}
+	}
+	return CreateRunWorktree(ctx, projectPath, runID, baseCommit)
+}
+
+// DumpRecoveryPatch writes the worktree's diff vs the project head to a patch file so a cancelled
+// or recreated run's work is not silently lost. Captures both committed divergence (branch tip vs
+// project HEAD) and uncommitted changes inside the linked tree.
 func DumpRecoveryPatch(ctx context.Context, projectPath, runID string) error {
 	base := "wave/" + runID
 	patch, err := git(ctx, projectPath, "diff", "HEAD", base)
 	if err != nil {
 		return err
+	}
+	wt := worktreeDir(projectPath, runID)
+	if _, statErr := os.Stat(wt); statErr == nil {
+		// dump paths are discard/rebuild paths, so staging here is safe — and it pulls untracked
+		// files into the diff, which plain `diff HEAD` would silently drop
+		git(ctx, wt, "add", "-A")
+		dirty, derr := git(ctx, wt, "diff", "--cached", "HEAD")
+		if derr == nil && strings.TrimSpace(dirty) != "" {
+			patch += "\n" + dirty
+		}
 	}
 	recDir := filepath.Join(projectPath, ".waveterm", "recovery")
 	if err := os.MkdirAll(recDir, 0o755); err != nil {

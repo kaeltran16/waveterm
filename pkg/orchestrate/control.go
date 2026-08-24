@@ -49,7 +49,7 @@ func NotifyLead(ctx context.Context, g *waveobj.TaskGroup, kind, detail string) 
 	if dir := os.Getenv("WAVETERM_PI_CONTROL_DIR"); dir == "" {
 		return nil
 	}
-	sessionID := resolveLeadSessionID(ctx, g.RunID)
+	sessionID := resolveLeadSessionID(ctx, g.ChannelId, g.RunID)
 	if sessionID == "" {
 		return nil
 	}
@@ -62,8 +62,8 @@ func NotifyLead(ctx context.Context, g *waveobj.TaskGroup, kind, detail string) 
 // reported by the pi status extension via `wsh agentstatus --session-id` and lands in the retained
 // agent:status events (baseds.AgentStatusData.SessionID, Persist:1) scoped to the lead's block — read
 // the latest one back off the broker. Unresolvable -> "" (the notification is skipped, non-fatal).
-func resolveLeadSessionID(ctx context.Context, runID string) string {
-	channelId := runChannelID(runID)
+// channelId comes from the TaskGroup — runs are channel-scoped, no scan needed.
+func resolveLeadSessionID(ctx context.Context, channelId, runID string) string {
 	if channelId == "" {
 		return ""
 	}
@@ -88,26 +88,6 @@ func resolveLeadSessionID(ctx context.Context, runID string) string {
 				}
 				if data, ok := ev[len(ev)-1].Data.(baseds.AgentStatusData); ok && data.SessionID != "" {
 					return data.SessionID
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// runChannelID resolves the channel owning a run by scanning channels for it (runs are channel-scoped
-// and the caller here has only the run id). Empty when not found.
-func runChannelID(runID string) string {
-	ctx := context.Background()
-	channels, err := wstore.GetChannels(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, ch := range channels {
-		if runs, rerr := wstore.GetChannelRuns(ctx, ch.OID); rerr == nil {
-			for _, r := range runs {
-				if r.ID == runID {
-					return ch.OID
 				}
 			}
 		}

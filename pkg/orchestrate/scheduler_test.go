@@ -38,7 +38,9 @@ func TestReadyTasksGateHalt(t *testing.T) {
 	if got := ReadyTasks(g); len(got) != 0 {
 		t.Fatalf("gate must halt ready tasks, got %v", got)
 	}
-	ApproveGate(g)
+	if _, err := ApproveGate(g, "t-2"); err != nil {
+		t.Fatal(err)
+	}
 	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-3"}) {
 		t.Fatalf("after approve want [t-3], got %v", got)
 	}
@@ -56,13 +58,60 @@ func TestNextToSpawnParallelismCap(t *testing.T) {
 	}
 }
 
+func TestNextToSpawnStalledHoldsSlot(t *testing.T) {
+	// a stalled child is still an alive process: it must keep its parallelism slot until
+	// retried or stopped, or actual concurrency overshoots Parallelism during stalls.
+	g := groupWith(TaskState_Done, TaskState_Stalled)
+	g.Parallelism = 1
+	if got := NextToSpawn(g); len(got) != 0 {
+		t.Fatalf("stalled task must hold its slot, got %v", got)
+	}
+	g.Tasks[1].State = TaskState_Failed // stopped (dead) tasks free the slot
+	if got := NextToSpawn(g); !reflect.DeepEqual(got, []string{"t-2"}) {
+		t.Fatalf("failed task must free its slot, got %v", got)
+	}
+}
+
+func TestGateActionsTargetTaskAndError(t *testing.T) {
+	// one approval must release only its own gate, and a non-gate or unknown id must error
+	// rather than silently no-op — the lead has to know the dag did not move.
+	g := groupWith(TaskState_Done, TaskState_Done, TaskState_Done)
+	g.Tasks[1].Gate = true
+	g.Tasks[2].Gate = true
+	if _, err := ApproveGate(g, "t-0"); err == nil {
+		t.Fatal("approving a non-gate task must error")
+	}
+	if _, err := ApproveGate(g, "nope"); err == nil {
+		t.Fatal("unknown task id must error")
+	}
+	if _, err := ApproveGate(g, "t-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !g.Tasks[1].Released || g.Tasks[2].Released {
+		t.Fatalf("approve must release only its target: t-1=%v t-2=%v", g.Tasks[1].Released, g.Tasks[2].Released)
+	}
+	if _, err := SendBackGate(g, "t-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SendBackGate(g, "nope"); err == nil {
+		t.Fatal("unknown task id must error")
+	}
+	if g.Tasks[2].State != TaskState_Running {
+		t.Fatalf("sendback must reopen only its target, got %q", g.Tasks[2].State)
+	}
+}
+
 func TestSendBackAndRetryReset(t *testing.T) {
 	g := groupWith(TaskState_Done, TaskState_Done, TaskState_Done)
 	g.Tasks[2].Gate = true
-	ApproveGate(g)
+	if _, err := ApproveGate(g, "t-2"); err != nil {
+		t.Fatal(err)
+	}
 	g.Tasks[3].State = TaskState_Running
 	g.Tasks[3].RunID = "r-3"
-	SendBackGate(g) // reopens the gate for re-spawn
+	if _, err := SendBackGate(g, "t-2"); err != nil { // reopens the gate for re-spawn
+		t.Fatal(err)
+	}
 	if g.Tasks[2].State != TaskState_Running || g.Tasks[2].RunID != "" {
 		t.Fatalf("sendback must reopen gate and clear runid: %+v", g.Tasks[2])
 	}
@@ -73,8 +122,10 @@ func TestSendBackAndRetryReset(t *testing.T) {
 	}
 	// a retried task must return to pending so NextToSpawn picks it up again — "running"
 	// with no runid would count against the parallelism budget yet never spawn (deadlock).
-	if g2.Tasks[1].State != TaskState_Pending || g2.Tasks[1].RunID != "" || g2.Failures != 0 {
-		t.Fatalf("retry must re-open the task for spawn and reset failures: %+v", g2.Tasks[1])
+	// the dag-wide failure streak is NOT cleared: one retry must not starve the circuit-break;
+	// only a fresh success clears it (tick accounting).
+	if g2.Tasks[1].State != TaskState_Pending || g2.Tasks[1].RunID != "" || g2.Failures != 2 {
+		t.Fatalf("retry must re-open the task for spawn and preserve failures: %+v", g2.Tasks[1])
 	}
 	got := NextToSpawn(g2)
 	if len(got) != 2 || got[0] != "t-1" {

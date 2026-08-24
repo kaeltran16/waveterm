@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -193,7 +192,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		if t.RunID == "" {
 			continue
 		}
-		if activity := lastActivityForRun(runs[t.RunID]); activity > t.LastActivity {
+		if activity := lastActivityForRun(runs[t.RunID], dagSessionMarker(g.OID, t.ID)); activity > t.LastActivity {
 			t.LastActivity = activity
 		}
 		if t.State == TaskState_Running && t.LastActivity > 0 && now-t.LastActivity > StallThreshold.Milliseconds() {
@@ -249,19 +248,14 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 		cwd := owner.ProjectPath
 		if IsGitRepo(owner.ProjectPath) {
-			wt := worktreeDir(owner.ProjectPath, owner.ID+"-"+taskID)
-			if _, statErr := os.Stat(wt); statErr == nil {
-				cwd = wt
-			} else {
-				wt, err := CreateRunWorktree(spawnCtx, owner.ProjectPath, owner.ID+"-"+taskID, owner.BaseCommit)
-				if err != nil {
-					g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
-					continue
-				}
-				cwd = wt
+			wt, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), owner.BaseCommit)
+			if werr != nil {
+				g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
+				continue
 			}
+			cwd = wt
 		}
-		prompt := taskPrompt(task, owner)
+		prompt := taskPrompt(task, owner) + "\n\n" + dagSessionMarker(g.OID, taskID)
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt)
 		if err != nil {
 			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed

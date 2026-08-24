@@ -42,7 +42,8 @@ type CommandDagActionData struct {
 
 type CommandDagMergeData struct {
 	ChannelId string `json:"channelid"`
-	RunId     string `json:"runid"`
+	RunId     string `json:"runid"` // the dag's owning (lead) run
+	TaskId    string `json:"taskid"` // selects the child whose worktree merges
 }
 
 // DagAskItem is one pending child ask: the task that raised it, the question text + options, the child

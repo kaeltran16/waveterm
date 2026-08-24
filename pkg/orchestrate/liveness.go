@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,8 +40,10 @@ type piSessionHeader struct {
 // lastActivityForRun returns the newest write time of the run's worker pi sessions (the child's
 // transcript file mtimes — the heartbeat a headless agent actually emits), or 0 when no session
 // matches. Only the first line of each candidate file is read (the v3 header carries cwd), so a tick
-// is stat+header-cheap even for multi-MB sessions.
-func lastActivityForRun(run *waveobj.Run) int64 {
+// is stat+header-cheap even for multi-MB sessions. When marker is non-empty the session must also
+// mention it in its first lines: siblings spawned into the same cwd (non-git projects) would
+// otherwise refresh each other's heartbeat.
+func lastActivityForRun(run *waveobj.Run, marker string) int64 {
 	if run == nil {
 		return 0
 	}
@@ -74,6 +77,9 @@ func lastActivityForRun(run *waveobj.Run) int64 {
 			if !headerCwdMatches(filepath.Join(sessDir, f.Name()), cwd) {
 				continue
 			}
+			if marker != "" && !sessionMentions(filepath.Join(sessDir, f.Name()), marker) {
+				continue
+			}
 			if info, ierr := f.Info(); ierr == nil {
 				ms := info.ModTime().UnixMilli()
 				if ms > newest {
@@ -102,6 +108,31 @@ func headerCwdMatches(path, cwd string) bool {
 		return false
 	}
 	return filepath.Clean(h.Cwd) == filepath.Clean(cwd)
+}
+
+// dagSessionMarker is embedded at the end of every DAG child's prompt and recorded verbatim in its
+// transcript, giving liveness a per-task identity that survives shared cwds (non-git projects spawn
+// every sibling into owner.ProjectPath).
+func dagSessionMarker(dagOID, taskID string) string {
+	return fmt.Sprintf("[wave:dag %s %s]", dagOID, taskID)
+}
+
+// sessionMentions scans the opening lines of a pi session for the marker substring. Bounded read:
+// the prompt (and therefore the marker) lands in the first user message, never deep in a
+// multi-MB transcript.
+func sessionMentions(path, marker string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for i := 0; i < 200 && sc.Scan(); i++ {
+		if strings.Contains(sc.Text(), marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // workerCwd resolves the worktree a run's child pi session runs in. A DAG-spawned child runs

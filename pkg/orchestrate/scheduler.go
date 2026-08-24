@@ -53,16 +53,17 @@ func depTerminal(g *waveobj.TaskGroup, id string) bool {
 	return false
 }
 
-// NextToSpawn returns ready tasks the engine should spawn now: ready minus running,
-// capped so running+new <= Parallelism, ordered by id.
+// NextToSpawn returns ready tasks the engine should spawn now: ready minus busy,
+// capped so busy+new <= Parallelism, ordered by id. stalled workers still hold their slot — the
+// stall flag does not stop the child process, so counting only Running would overshoot Parallelism.
 func NextToSpawn(g *waveobj.TaskGroup) []string {
-	running := 0
+	busy := 0
 	for i := range g.Tasks {
-		if g.Tasks[i].State == TaskState_Running {
-			running++
+		if g.Tasks[i].State == TaskState_Running || g.Tasks[i].State == TaskState_Stalled {
+			busy++
 		}
 	}
-	room := g.Parallelism - running
+	room := g.Parallelism - busy
 	if room <= 0 {
 		return nil
 	}
@@ -86,28 +87,37 @@ func MarkRunning(g *waveobj.TaskGroup, taskID, runID string) error {
 }
 
 // ApproveGate releases a completed gate so successors may run.
-func ApproveGate(g *waveobj.TaskGroup) *waveobj.TaskGroup {
+func ApproveGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, error) {
 	for i := range g.Tasks {
-		if g.Tasks[i].Gate && g.Tasks[i].State == TaskState_Done {
-			g.Tasks[i].Released = true
+		t := &g.Tasks[i]
+		if t.ID == taskID {
+			if !t.Gate || t.State != TaskState_Done {
+				return g, fmt.Errorf("task %q is not a done gate", taskID)
+			}
+			t.Released = true
+			RecomputeDagStatus(g)
+			return g, nil
 		}
 	}
-	RecomputeDagStatus(g)
-	return g
+	return g, fmt.Errorf("no task %q", taskID)
 }
 
 // SendBackGate reopens a completed gate: it must re-spawn (RunID cleared) from a fresh worktree.
-func SendBackGate(g *waveobj.TaskGroup) *waveobj.TaskGroup {
+func SendBackGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, error) {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
-		if t.Gate && t.State == TaskState_Done {
+		if t.ID == taskID {
+			if !t.Gate || t.State != TaskState_Done {
+				return g, fmt.Errorf("task %q is not a done gate", taskID)
+			}
 			t.State = TaskState_Running
 			t.Released = false
 			t.RunID = ""
+			RecomputeDagStatus(g)
+			return g, nil
 		}
 	}
-	RecomputeDagStatus(g)
-	return g
+	return g, fmt.Errorf("no task %q", taskID)
 }
 
 func RetryTask(g *waveobj.TaskGroup, taskID string) error {
@@ -115,7 +125,9 @@ func RetryTask(g *waveobj.TaskGroup, taskID string) error {
 		if g.Tasks[i].ID == taskID {
 			g.Tasks[i].State = TaskState_Pending
 			g.Tasks[i].RunID = ""
-			g.Failures = 0
+			// failures is not reset here: retrying one task must not clear the dag-wide streak,
+			// or n failing tasks plus one retry would starve the circuit-break. a fresh success
+			// clears it via the tick accounting.
 			RecomputeDagStatus(g)
 			return nil
 		}

@@ -6,6 +6,9 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -60,9 +63,9 @@ func TestDagSubmitAndAction(t *testing.T) {
 	if g.Tasks[0].State != orchestrate.TaskState_Running || g.Tasks[0].RunID == "" {
 		t.Fatalf("submit must schedule the first step: t-0 running with child run, got %+v", g.Tasks[0])
 	}
-	// approve on a non-gate task is a no-op (permissive), not an error:
-	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0", Action: "approve"}); err != nil {
-		t.Fatalf("approve on non-gate must be a no-op: %v", err)
+	// approve on a non-gate task errors (targeted actions must not silently no-op):
+	if err := ws.DagActionCommand(ctx, wshrpc.CommandDagActionData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0", Action: "approve"}); err == nil {
+		t.Fatal("approve on non-gate task must error")
 	}
 	// gate flow: t-0 done -> running; gate (t-1) done -> awaiting-review; approve -> running
 	if err := wstore.UpdateDag(ctx, g.ID, func(g *waveobj.TaskGroup) error {
@@ -384,5 +387,106 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	}
 	if g.OID == "" {
 		t.Fatal("valid submit must persist a dag")
+	}
+}
+
+// TestDagMergeTargetsChildWorktree: merge must resolve the composite worktree key the engine
+// spawned (<owner run>-<task>), not any run id — regression for O1 where wave/<leadRunId> could
+// never exist and finished child work was unlandable.
+func TestDagMergeTargetsChildWorktree(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	execGit := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", projectDir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	execGit("init", "-b", "main")
+	execGit("config", "user.email", "t@test")
+	execGit("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(projectDir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit("add", ".")
+	execGit("commit", "-m", "base")
+	baseSha := execGit("rev-parse", "HEAD")
+
+	ch, err := wstore.CreateChannel(ctx, "dag-merge", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run.Status = jarvis.RunStatus_Planning
+	run.BaseCommit = baseSha
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		tabId := uuid.NewString()
+		blockId := uuid.NewString()
+		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
+		_ = wstore.DBInsert(ctx, tab)
+		block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId}
+		_ = wstore.DBInsert(ctx, block)
+		return "tab:" + tabId, nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	ws := &WshServer{}
+	g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: run.ID, Title: "t", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "feature work"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// child commits feature work in its own worktree
+	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
+	wtPath := filepath.Join(projectDir, ".waveterm", "worktrees", key)
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Fatalf("expected task worktree at %s: %v", wtPath, err)
+	}
+	if err := os.WriteFile(filepath.Join(wtPath, "feature.txt"), []byte("feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit2 := func(dir string, args ...string) {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	execGit2(wtPath, "add", ".")
+	execGit2(wtPath, "commit", "-m", "feature")
+
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State = orchestrate.TaskState_Done
+		orchestrate.RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ws.DagMergeCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "feature.txt")); err != nil {
+		t.Fatalf("child work must land in the project tree: %v", err)
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatal("merged task's worktree must be removed")
+	}
+	child, err := wstore.GetRun(ctx, ch.OID, g.Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(child.EndCommit) != 40 {
+		t.Fatalf("child EndCommit must record the merge sha, got %q", child.EndCommit)
+	}
+	// merging a task with no child run is rejected
+	if err := ws.DagMergeCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "nope"}); err == nil {
+		t.Fatal("unknown task must error")
 	}
 }

@@ -224,31 +224,61 @@ func (ws *WshServer) DagAnswerCommand(ctx context.Context, data wshrpc.CommandDa
 	return fmt.Errorf("no task %q", data.TaskId)
 }
 
+// DagMergeCommand squash-merges one finished task's worktree back into the project branch. RunId is
+// the dag's owning run (which has no worktree of its own); TaskId selects the child — the branch is
+// keyed by the composite worktree key the engine spawned, never by a run id.
 func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDagMergeData) error {
-	if data.ChannelId == "" || data.RunId == "" {
-		return fmt.Errorf("channelid and runid are required")
+	if data.ChannelId == "" || data.RunId == "" || data.TaskId == "" {
+		return fmt.Errorf("channelid, runid and taskid are required")
 	}
-	run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	owner, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
 	if err != nil {
 		return fmt.Errorf("loading run: %w", err)
 	}
-	sha, err := orchestrate.MergeRunWorktree(ctx, run.ProjectPath, data.RunId, run.Goal)
+	if owner.DagORef == "" {
+		return fmt.Errorf("run has no dag")
+	}
+	g, err := wstore.GetDag(ctx, owner.DagORef)
+	if err != nil {
+		return err
+	}
+	taskIdx := -1
+	for i := range g.Tasks {
+		if g.Tasks[i].ID == data.TaskId {
+			taskIdx = i
+			break
+		}
+	}
+	if taskIdx < 0 {
+		return fmt.Errorf("no task %q", data.TaskId)
+	}
+	task := &g.Tasks[taskIdx]
+	if task.State != orchestrate.TaskState_Done && task.State != orchestrate.TaskState_BlockedMerge {
+		return fmt.Errorf("task %s is %s, want done", data.TaskId, task.State)
+	}
+	if task.RunID == "" {
+		return fmt.Errorf("task %s has no child run", data.TaskId)
+	}
+	child, err := wstore.GetRun(ctx, data.ChannelId, task.RunID)
+	if err != nil {
+		return fmt.Errorf("loading child run: %w", err)
+	}
+	key := orchestrate.TaskWorktreeKey(owner.ID, data.TaskId)
+	sha, err := orchestrate.MergeRunWorktree(ctx, owner.ProjectPath, key, child.Goal)
 	if err != nil {
 		if errors.Is(err, orchestrate.ErrMergeConflict) {
-			if run.DagORef != "" {
-				if derr := orchestrate.MarkBlockedMerge(ctx, run.DagORef, data.RunId); derr != nil {
-					return derr
-				}
+			if derr := orchestrate.MarkBlockedMerge(ctx, owner.DagORef, child.ID); derr != nil {
+				return derr
 			}
 			return err
 		}
 		return err
 	}
-	if err := wstore.UpdateRun(ctx, data.ChannelId, data.RunId, func(r *waveobj.Run) error {
+	if err := wstore.UpdateRun(ctx, data.ChannelId, child.ID, func(r *waveobj.Run) error {
 		r.EndCommit = sha
 		return nil
 	}); err != nil {
 		return err
 	}
-	return jarvis.SealEvidence(ctx, run)
+	return jarvis.SealEvidence(ctx, child)
 }

@@ -148,16 +148,16 @@ func dagAction(action string) *cobra.Command {
 }
 
 var dagMergeCmd = &cobra.Command{
-	Use:     "merge",
-	Short:   "squash-merge the run's worktree back into the project branch",
-	Args:    cobra.NoArgs,
+	Use:     "merge <task-id>",
+	Short:   "squash-merge a finished task's worktree back into the project branch",
+	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		channelId, runId, err := dagIds(cmd)
 		if err != nil {
 			return err
 		}
-		return wshclient.DagMergeCommand(RpcClient, wshrpc.CommandDagMergeData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 60_000})
+		return wshclient.DagMergeCommand(RpcClient, wshrpc.CommandDagMergeData{ChannelId: channelId, RunId: runId, TaskId: args[0]}, &wshrpc.RpcOpts{Timeout: 60_000})
 	},
 }
 

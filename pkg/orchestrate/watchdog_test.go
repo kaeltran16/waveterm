@@ -21,13 +21,26 @@ import (
 // writePiSession writes a fake pi v3 session file (first line = header with cwd) under the sessions
 // root with the given mtime, returning its path.
 func writePiSession(t *testing.T, root, dir, cwd string, mtime time.Time) string {
+	return writePiSessionWithBody(t, root, dir, cwd, mtime, "")
+}
+
+// writePiSessionWithBody writes a fake pi v3 session (header line + extra body text) under the
+// sessions root with the given mtime.
+func writePiSessionWithBody(t *testing.T, root, dir, cwd string, mtime time.Time, body string) string {
 	t.Helper()
 	path := filepath.Join(root, dir, "session.jsonl")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	header, _ := json.Marshal(map[string]string{"id": "s1", "cwd": cwd})
-	if err := os.WriteFile(path, append(header, '\n'), 0o644); err != nil {
+	content := header
+	if body != "" {
+		content = append(content, '\n')
+		content = append(content, body...)
+	} else {
+		content = append(content, '\n')
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, mtime, mtime); err != nil {
@@ -69,12 +82,35 @@ func TestLastActivityForRunMatchesWorktreeSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := lastActivityForRun(runPtr)
+	got := lastActivityForRun(runPtr, "")
 	if got != fresh.UnixMilli() {
 		t.Fatalf("want newest matching session mtime %d, got %d", fresh.UnixMilli(), got)
 	}
-	if got := lastActivityForRun(nil); got != 0 {
+	if got := lastActivityForRun(nil, ""); got != 0 {
 		t.Fatalf("nil run must be 0, got %d", got)
+	}
+}
+
+// TestLastActivityMarkerExcludesSiblings: two children spawned into the same cwd (non-git project)
+// must not refresh each other's heartbeat — only the session whose transcript mentions this task's
+// marker counts.
+func TestLastActivityMarkerExcludesSiblings(t *testing.T) {
+	oldRoot := piSessionsRoot
+	root := t.TempDir()
+	piSessionsRoot = func() string { return root }
+	defer func() { piSessionsRoot = oldRoot }()
+
+	shared := t.TempDir()
+	fresh := time.Now().Add(-1 * time.Minute)
+	writePiSessionWithBody(t, root, "sib-a", shared, fresh, dagSessionMarker("dag-1", "t-a")+"\n")
+	writePiSession(t, root, "sib-b", shared, fresh)
+
+	got := lastActivityForRun(&waveobj.Run{DagORef: "dag-1", ProjectPath: shared}, dagSessionMarker("dag-1", "t-a"))
+	if got == 0 {
+		t.Fatal("own marker session must match")
+	}
+	if got := lastActivityForRun(&waveobj.Run{DagORef: "dag-1", ProjectPath: shared}, dagSessionMarker("dag-1", "t-b")); got != 0 {
+		t.Fatalf("sibling-only sessions must not satisfy a task marker, got %d", got)
 	}
 }
 
@@ -181,6 +217,9 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 	if err := wstore.AppendDag(ctx, &g); err != nil {
 		t.Fatal(err)
 	}
+	// schedule probes with this dag's task marker; the fixture session must mention it to count
+	writePiSessionWithBody(t, root, "wt-session-marker", worktree, time.Now().Add(-1*time.Minute),
+		dagSessionMarker(g.OID, "t-0"))
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
 	child.ID = "11111111-1111-4111-8111-111111111111"
 	child.Phases[0].WorkerOrefs = []string{"tab:" + tabId}
@@ -247,5 +286,21 @@ func TestWatchdogTickAdvancesDag(t *testing.T) {
 	}
 	if persisted.Tasks[0].State != TaskState_Running {
 		t.Fatalf("watchdog tick must advance a running dag, got %s", persisted.Tasks[0].State)
+	}
+}
+
+func TestSafeTickSurvivesPanic(t *testing.T) {
+	old := watchdogTick
+	defer func() { watchdogTick = old }()
+
+	// a panicking tick must not take the loop down: recover is per-tick, not per-loop
+	watchdogTick = func(ctx context.Context) { panic("boom") }
+	safeTick(context.Background())
+
+	ticked := false
+	watchdogTick = func(ctx context.Context) { ticked = true }
+	safeTick(context.Background())
+	if !ticked {
+		t.Fatal("watchdog must keep ticking after a panicking tick")
 	}
 }

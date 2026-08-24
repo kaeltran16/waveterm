@@ -557,6 +557,7 @@ declare global {
     type CommandDagMergeData = {
         channelid: string;
         runid: string;
+        taskid: string;
     };
 
     // wshrpc.CommandDagStatusData

@@ -255,7 +255,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
 function runAction(group: TaskGroup, view: DagViewNode, action: string) {
     const data = { channelid: group.channelid, runid: group.runid, taskid: view.id, action };
     if (action === "merge") {
-        void RpcApi.DagMergeCommand(TabRpcClient, { channelid: group.channelid, runid: group.runid });
+        void RpcApi.DagMergeCommand(TabRpcClient, { channelid: group.channelid, runid: group.runid, taskid: view.id });
         return;
     }
     void RpcApi.DagActionCommand(TabRpcClient, data);

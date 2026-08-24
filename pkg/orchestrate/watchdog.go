@@ -39,22 +39,28 @@ var (
 func StartWatchdog(ctx context.Context) {
 	watchdogOnce.Do(func() {
 		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("watchdog: panic: %v", r)
-				}
-			}()
 			ticker := time.NewTicker(watchdogInterval)
 			defer ticker.Stop()
-			watchdogTick(ctx) // first pass immediately (a submitted dag's children may already need attention)
+			safeTick(ctx) // first pass immediately (a submitted dag's children may already need attention)
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					watchdogTick(ctx)
+					safeTick(ctx)
 				}
 			}
 		}()
 	})
+}
+
+// safeTick recovers per tick: a panic inside one Schedule must not kill the loop for the server's
+// lifetime — the watchdog is the only advance path for event-less stalls.
+func safeTick(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("watchdog: tick panic (loop continues): %v", r)
+		}
+	}()
+	watchdogTick(ctx)
 }
