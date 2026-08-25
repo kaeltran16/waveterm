@@ -8,8 +8,10 @@ current source. No failure-injection tests or live reproductions were run during
 
 **Update:** R1 and R3 shipped in `b9aad7fd`. R2 was resolved by the config-watcher reliability change
 that added ordered callback dispatch and explicit startup initialization. R4 was resolved by making
-websocket RPC forwarding observe connection cancellation while waiting for output capacity. The original
-evidence remains below for rationale; it no longer describes the current R1–R4 implementation.
+websocket RPC forwarding observe connection cancellation while waiting for output capacity. R5 was
+resolved 2026-08-25 by routing pipe-runtime stderr to an owned capped temp file (no `os/exec` copy
+goroutine), after its trigger was reproduced on Windows — details in the R5 section below. The original
+evidence remains below for rationale; it no longer describes the current implementations.
 
 This brief ranks the most valuable reliability work by concrete consequence and smallest credible fix.
 Existing orchestrator findings are linked rather than re-derived; new findings carry their evidence here.
@@ -22,13 +24,14 @@ Existing orchestrator findings are linked rather than re-derived; new findings c
 | R2 | Config watcher callbacks could race and apply updates out of order; initialization failure poisoned the singleton | Resolved (config-watcher reliability change) | M | New; details below |
 | R3 | DAG safety invariants: stalled tasks freed slots, retry cleared the global failure streak, gate actions targeted every gate, and one panic killed the watchdog | Shipped (`b9aad7fd`) | S–M | 2026-08-24 scan O2/O3/O5/O6 |
 | R4 | Websocket RPC forwarding could block forever after the writer exited | Resolved (websocket forwarding change) | S | New; details below |
-| R5 | Consult cancellation can abandon `Cmd.Wait` when descendants retain stderr | Reproduce first | M | New; details below |
+| R5 | Consult cancellation can abandon `Cmd.Wait` when descendants retain stderr | Resolved (`reap_test.go`, 2026-08-25) | M | New; details below |
 | M1 | DAG liveness repeats a complete Pi-session corpus scan per active task | Measure first | S measurement; M fix | New; details below |
 
 ## Recommended sequence
 
 1. Run the R5 failure-injection probe and M1 timing instrumentation; build either only if its trigger is
-   observed.
+   observed. **Done 2026-08-25:** R5's trigger reproduced on Windows and the fix shipped (section below);
+   M1 measured as not material today (42.7ms/task/tick on the real corpus; threshold recorded).
 
 ## R1 — Per-task DAG merge targets the wrong branch
 
@@ -126,37 +129,55 @@ Also cover the normal forwarding path.
 
 ## R5 — Consult cancellation may abandon process resources
 
-**Status:** Held for reproduction · **Effort:** M · **Confidence:** High on the failure path, medium on the
-cross-platform fix.
+**Status:** Resolved 2026-08-25 · **Effort:** M · **Confidence:** High — trigger reproduced on Windows,
+then fixed.
 
 `waitCmd` starts `cmd.Wait()` in a goroutine and returns immediately when the context is cancelled
 (`pkg/consult/exec.go`). This intentionally bounds caller latency when a descendant inherits stderr and
 holds the pipe open, but it abandons that wait goroutine and associated process/pipe resources. Repeated
 timeouts against such runtimes can accumulate them.
 
-**Trigger to make actionable:** reproduce with a helper process whose descendant retains stderr after the
-parent is killed, and demonstrate that the reaper remains blocked on Windows.
+**Reproduction (2026-08-25, Windows):** a probe helper spawned a grandchild that kept the stderr pipe
+write end open past its parent's death. A raw `os/exec` check confirmed the mechanism — after ctx-kill,
+`cmd.Wait()` stayed blocked until the grandchild released stderr (11.3s of a 12s hold), because the
+stderr copy goroutine never saw EOF. Through `consult.Run`, each cancelled consult retained +2 goroutines
+(Wait + copy) plus pipe handles while the descendant lived, accumulating across cancellations (2 runs →
++4) and draining only when the descendants exited.
 
-**Candidate directions after reproduction:** kill the complete process tree and wait synchronously, or send
-stderr to an owned capped file so `os/exec` has no copy goroutine waiting for descendant-held EOF. Choose
-only after the Windows behavior is measured.
+**Fix (chosen direction): owned capped temp file for stderr.** `runPipe` now gives the child an
+`*os.File` (via `os.CreateTemp`), which `os/exec` connects directly — no pipe, no copy goroutine — so
+`Wait()` returns as soon as the direct child dies and nothing waits on descendant-held EOF. A 500ms ticker
+truncates the file past a 16MB cap so a runaway writer cannot fill disk; the error path reads the file
+tail (32KB) instead of the old buffer. A surviving grandchild is now an OS-level artifact that fades on
+its own instead of a leaked goroutine pairing. Regression test: `pkg/consult/reap_test.go`
+(`TestRunPipe_cancelLeaksNoReaper` — asserts zero retention while a descendant holds stderr;
+`TestRunPipe_stderrTextSurfacesInError` — asserts the stderr text still reaches the returned error).
+The alternative direction (process-tree termination via job objects) was rejected as heavier and
+riskier until the stderr-file fix is shown insufficient.
+
+**Validation:** `go test ./pkg/consult/` green (the retention test failed on the pre-fix code with a
++2 goroutine leak and passes now); full consult + jarvis + wshserver packages build.
 
 ## M1 — Liveness repeats task × transcript-corpus filesystem work
 
-**Status:** Measure first · **Effort:** S measurement, M fix · **Confidence:** High on repeated work, medium
-on material impact.
+**Status:** Measured, hold · **Effort:** S measurement, M fix · **Confidence:** High on repeated work,
+medium on material impact.
 
 Every watchdog tick schedules every running DAG. During scheduling, each active task independently calls
 `lastActivityForRun`. That function enumerates the complete Pi session root, opens candidate headers, and
 scans up to 200 opening lines for the task marker (`pkg/orchestrate/liveness.go`). Cost therefore grows with
 `active tasks × accumulated session files` every tick.
 
-**Trigger to make actionable:** instrument one tick with active DAG/task count, session files visited, files
-and bytes opened, and elapsed liveness time. Exercise realistic and synthetic corpus sizes.
+**Measurement (2026-08-25, real corpus):** the function as-walked sees 191 `.jsonl` files in 8 session
+dirs (~158MB on disk; reads are header + ≤200-line only). Best-of-3 per-task/tick cost: **42.7ms** on the
+real corpus. Synthetic scaling is linear: 306 files → 17ms; 3,060 → 201ms; 30,600 → 1.6s per task per tick.
+A realistic 4-task DAG pays ~170ms per 30s tick today (~4.9s/day of scan work) — not material (~0.14% tick
+duty per task).
 
-**Smallest direction if material:** build one immutable liveness snapshot per `Schedule` call and index the
-newest mtime by cwd plus DAG/task marker. That changes the local work from roughly
-`O(tasks × session files)` to `O(session files + tasks)` without introducing a persistent cache.
+**Trigger to make actionable (measured threshold):** build the per-schedule snapshot + mtime index only
+when the corpus nears ~3,000 files (≈10× today), where a 4-task DAG starts exceeding ~0.8s per tick.
+Pi sessions accumulate unboundedly (no retention policy), so that is plausibly months away; re-probe
+growth first.
 
 ## Exclusions and limits
 

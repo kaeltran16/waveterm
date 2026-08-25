@@ -92,11 +92,14 @@ total. Full rationale + measurement in `docs/deferred.md`; Phases 0–2 shipped.
 
 Reliability investigations (`docs/superpowers/briefs/2026-08-25-reliability-improvement-scan.md`):
 
-- **Consult cancellation cleanup (R5):** reproduce on Windows with a descendant retaining stderr after
-  parent cancellation; build process-tree termination or owned-file stderr capture only if the reaper stays
-  blocked.
-- **DAG liveness batching (M1):** instrument task count, session files visited, bytes opened, and tick time;
-  build a per-schedule snapshot only if the current task × transcript-corpus scan is material.
+- **Consult cancellation cleanup (R5): resolved 2026-08-25** — reproduced on Windows (a descendant
+  retaining stderr kept `cmd.Wait()` blocked 11s past ctx-kill; +2 goroutines leaked per cancelled
+  consult until the descendant exited). Fixed by routing stderr to an owned capped temp file so
+  `os/exec` spawns no copy goroutine; regression test `pkg/consult/reap_test.go`.
+- **DAG liveness batching (M1):** measured 2026-08-25 — 42.7ms per running task per 30s watchdog tick
+  on the real corpus (191 session files); scales linearly (201ms @ 3,060 files; 1.6s @ 30,600). Not
+  material today (~0.14% tick duty per task). Build the per-schedule snapshot only when the corpus
+  nears ~3,000 files (≈10× today; pi sessions accumulate unboundedly).
 
 Jarvis second-brain smalls (canonical list: J7 in `docs/jarvis-second-brain-open-issues.md`;
 rationale per entry in `docs/deferred.md`):

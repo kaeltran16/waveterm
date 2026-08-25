@@ -13,12 +13,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
 )
+
+// stderrCapBytes bounds the owned stderr capture file: a hung child or a descendant
+// that outlives it can keep writing indefinitely, and truncation keeps disk bounded.
+const stderrCapBytes = int64(16 << 20)
 
 // Run executes the runtime in one-shot mode with the given prompt and cwd, calling emit for each
 // reply fragment as it arrives, and returns the complete captured reply.
@@ -41,7 +48,21 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 	if err != nil {
 		return "", err
 	}
-	stdout, err := cmd.StdoutPipe()
+	// stderr goes to an owned capped temp file rather than a pipe: os/exec spawns no copy
+	// goroutine for an *os.File target, so a descendant that inherits the fd and holds it
+	// open after the child dies cannot strand a goroutine waiting for EOF (R5). Wait returns
+	// as soon as the direct child is gone; the file's tail still carries the error text.
+	defer func() {
+		if stderr != nil {
+			stderr.Close()
+			os.Remove(stderr.Name())
+		}
+	}()
+	stop := make(chan struct{})
+	defer close(stop)
+	go capStderrFile(stderr, stop)
+	var stdout io.ReadCloser
+	stdout, err = cmd.StdoutPipe()
 	if err != nil {
 		return "", err
 	}
@@ -51,8 +72,6 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 	// Grandchildren (e.g. codex hook subprocesses) can inherit and hold the stdout pipe open after the
 	// CLI itself exits, so an EOF-driven read loop would block forever; and a ctx-killed process's pipe
 	// may never EOF either. Closing stdout when ctx fires guarantees the read loop ends.
-	stop := make(chan struct{})
-	defer close(stop)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -97,7 +116,7 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 		}
 	}
 	if werr := waitCmd(ctx, cmd); werr != nil {
-		msg := strings.TrimSpace(stderr.String())
+		msg := strings.TrimSpace(stderrTail(stderr))
 		if msg == "" {
 			msg = werr.Error()
 		}
@@ -178,7 +197,46 @@ func runPty(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit func
 	return final, nil
 }
 
-func startCmd(ctx context.Context, spec RuntimeSpec, cwd, prompt string) (*exec.Cmd, *bytes.Buffer, error) {
+// capStderrFile keeps the owned stderr file bounded while the child and whatever it
+// spawned may still hold it open. exits on stop (runPipe cleanup) or file errors.
+func capStderrFile(f *os.File, stop <-chan struct{}) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			if info, serr := f.Stat(); serr == nil && info.Size() > stderrCapBytes {
+				f.Truncate(stderrCapBytes)
+			}
+		}
+	}
+}
+
+// stderrTail returns the last chunk of the stderr file, trimmed — the real error text
+// sits at the tail even when a descendant keeps writing past us.
+func stderrTail(f *os.File) string {
+	if f == nil {
+		return ""
+	}
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return ""
+	}
+	const tailBytes = 32 << 10
+	off := info.Size() - tailBytes
+	if off < 0 {
+		off = 0
+	}
+	buf := make([]byte, info.Size()-off)
+	if _, rerr := f.ReadAt(buf, off); rerr != nil && rerr != io.EOF {
+		return ""
+	}
+	return strings.TrimSpace(string(buf))
+}
+
+func startCmd(ctx context.Context, spec RuntimeSpec, cwd, prompt string) (*exec.Cmd, *os.File, error) {
 	args := append([]string{}, spec.BaseArgs...)
 	if !spec.PromptViaStdin {
 		args = append(args, prompt)
@@ -190,11 +248,16 @@ func startCmd(ctx context.Context, spec RuntimeSpec, cwd, prompt string) (*exec.
 	if spec.PromptViaStdin {
 		cmd.Stdin = strings.NewReader(prompt)
 	}
-	// pty runtimes get their stderr merged onto the pty; only pipe runtimes capture it separately.
-	var stderr *bytes.Buffer
+	// pty runtimes merge stderr onto the pty; pipe runtimes capture it in an owned file
+	// (see runPipe for why a pipe target + copy goroutine would strand on descendant-held EOF).
+	var stderr *os.File
 	if !spec.UsePty {
-		stderr = &bytes.Buffer{}
-		cmd.Stderr = stderr
+		f, cerr := os.CreateTemp("", "wave-consult-stderr-*")
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("creating stderr capture: %w", cerr)
+		}
+		cmd.Stderr = f
+		stderr = f
 	}
 	if _, err := exec.LookPath(spec.Bin); err != nil {
 		return nil, nil, fmt.Errorf("starting %s: %w", spec.Bin, err)
