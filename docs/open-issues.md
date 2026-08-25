@@ -56,7 +56,6 @@ The reliability findings below are ranked and detailed in
 
 | Item | Kind | Effort | Source / notes |
 |---|---|---|---|
-| Make websocket RPC forwarding cancellation-aware so a full output channel cannot retain the goroutine after disconnect | reliability / cleanup | S | reliability scan R4; `pkg/web/ws.go` |
 | Issue 8 deep-link fix was never reproduced live (unit-tested only) — verify with a focused agent + dirty worktree | verification gap | S | pre-consolidation issue 8 detail (in git history); fixed 2026-08-04 |
 | OS/dock/titlebar badge when Arc is backgrounded (in-app counter ships; nothing reaches you cross-app) — measure-first | feature | M | scan brief B2; `badge.ts`, `navrail.tsx` |
 | Diff-surface orphans: `GitRevertCommand` / `gitinfo.RevertFile` / `gitinfo.RevertHunk` / `filesstore.reloadChanges` have no caller — delete both together or neither | tech-debt | S | `docs/deferred.md` 2026-07-31 entry |

@@ -257,6 +257,20 @@ func unregisterConn(wsConnId string, stableId string) {
 	}
 }
 
+func forwardRpcMessages(toRemoteCh <-chan []byte, outputCh chan<- any, closeCh <-chan any) {
+	for msgBytes := range toRemoteCh {
+		rpcWSMsg := map[string]any{
+			"eventtype": "rpc", // TODO don't hard code this (but def is in eventbus)
+			"data":      json.RawMessage(msgBytes),
+		}
+		select {
+		case outputCh <- rpcWSMsg:
+		case <-closeCh:
+			return
+		}
+	}
+}
+
 func HandleWsInternal(w http.ResponseWriter, r *http.Request) error {
 	stableId := r.URL.Query().Get("stableid")
 	if stableId == "" {
@@ -291,14 +305,7 @@ func HandleWsInternal(w http.ResponseWriter, r *http.Request) error {
 			panichandler.PanicHandler("HandleWsInternal:outputCh", recover())
 		}()
 		// no waitgroup add here
-		// move values from rpcOutputCh to outputCh
-		for msgBytes := range wproxy.ToRemoteCh {
-			rpcWSMsg := map[string]any{
-				"eventtype": "rpc", // TODO don't hard code this (but def is in eventbus)
-				"data":      json.RawMessage(msgBytes),
-			}
-			outputCh <- rpcWSMsg
-		}
+		forwardRpcMessages(wproxy.ToRemoteCh, outputCh, closeCh)
 	}()
 	go func() {
 		defer func() {

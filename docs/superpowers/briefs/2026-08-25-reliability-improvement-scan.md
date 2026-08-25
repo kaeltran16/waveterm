@@ -1,14 +1,15 @@
 # Reliability improvement scan
 
 **Date:** 2026-08-25  
-**Status:** Historical scan; R1–R3 resolved, R4 remains actionable.
+**Status:** Historical scan; R1–R4 resolved.
 **Source:** Read-only repository scan plus reconciliation with `docs/open-issues.md` and the
 2026-08-24 Jarvis/orchestrator scan. The strongest new findings were independently re-read in the
 current source. No failure-injection tests or live reproductions were run during the scan.
 
 **Update:** R1 and R3 shipped in `b9aad7fd`. R2 was resolved by the config-watcher reliability change
-that added ordered callback dispatch and explicit startup initialization. The original evidence remains
-below for rationale; it no longer describes the current R1–R3 implementation.
+that added ordered callback dispatch and explicit startup initialization. R4 was resolved by making
+websocket RPC forwarding observe connection cancellation while waiting for output capacity. The original
+evidence remains below for rationale; it no longer describes the current R1–R4 implementation.
 
 This brief ranks the most valuable reliability work by concrete consequence and smallest credible fix.
 Existing orchestrator findings are linked rather than re-derived; new findings carry their evidence here.
@@ -20,14 +21,13 @@ Existing orchestrator findings are linked rather than re-derived; new findings c
 | R1 | Per-task DAG merge targeted the lead branch, so isolated child work could not land | Shipped (`b9aad7fd`) | M | 2026-08-24 scan O1 |
 | R2 | Config watcher callbacks could race and apply updates out of order; initialization failure poisoned the singleton | Resolved (config-watcher reliability change) | M | New; details below |
 | R3 | DAG safety invariants: stalled tasks freed slots, retry cleared the global failure streak, gate actions targeted every gate, and one panic killed the watchdog | Shipped (`b9aad7fd`) | S–M | 2026-08-24 scan O2/O3/O5/O6 |
-| R4 | Websocket RPC forwarding can block forever after the writer exits | Actionable | S | New; details below |
+| R4 | Websocket RPC forwarding could block forever after the writer exited | Resolved (websocket forwarding change) | S | New; details below |
 | R5 | Consult cancellation can abandon `Cmd.Wait` when descendants retain stderr | Reproduce first | M | New; details below |
 | M1 | DAG liveness repeats a complete Pi-session corpus scan per active task | Measure first | S measurement; M fix | New; details below |
 
 ## Recommended sequence
 
-1. **R4 first.** It is the remaining narrow actionable lifecycle fix with a direct cancellation-aware send.
-2. Run the R5 failure-injection probe and M1 timing instrumentation; build either only if its trigger is
+1. Run the R5 failure-injection probe and M1 timing instrumentation; build either only if its trigger is
    observed.
 
 ## R1 — Per-task DAG merge targets the wrong branch
@@ -97,15 +97,16 @@ O2, O3, O5, and O6.
 **Validation:** deterministic scheduler tests for each invariant, plus a watchdog test where one tick panics
 and the next tick still executes.
 
-## R4 — Websocket RPC forwarding can leak after disconnect
+## R4 — Websocket RPC forwarding could leak after disconnect
 
-**Status:** Actionable · **Effort:** S · **Confidence:** High from source inspection.
+**Status:** Resolved by the websocket forwarding change · **Effort:** S · **Confidence:** High from source
+inspection and focused cancellation tests.
 
-`HandleWsInternal` starts an untracked goroutine that ranges `wproxy.ToRemoteCh` and sends to the bounded
-`outputCh` (`pkg/web/ws.go`). `WriteLoop` stops consuming that channel after a socket failure or shutdown.
-If producers fill the buffer, the forwarding goroutine blocks on `outputCh <- rpcWSMsg` and cannot observe
-`ToRemoteCh` closing when the handler returns. Repeated loaded disconnects can retain goroutines and their
-channel/proxy graph.
+Before the fix, `HandleWsInternal` started an untracked goroutine that ranged `wproxy.ToRemoteCh` and sent
+to the bounded `outputCh` (`pkg/web/ws.go`). `WriteLoop` stopped consuming that channel after a socket
+failure or shutdown. If producers filled the buffer, the forwarding goroutine blocked on
+`outputCh <- rpcWSMsg` and could not observe `ToRemoteCh` closing when the handler returned. Repeated
+loaded disconnects could retain goroutines and their channel/proxy graph.
 
 **Smallest direction:** make the forwarding send cancellation-aware:
 
