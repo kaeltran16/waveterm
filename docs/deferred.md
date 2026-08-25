@@ -7,6 +7,33 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
 > marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
 
+## Channel data-model scaling — Phase 3 (Contract) — parked on evidence gate (2026-08-25)
+
+Deferred after the 2026-08-25 prod reality check. Phase 3 was the irrevocable step of the approved scaling
+workstream (spec `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`): stop embedding
+`Messages`/`Runs` in the channel blob, make `Channel` metadata-only, drop the dead arrays, and land the
+A1 write/broadcast payoff.
+
+- **What is available now:** Phases 0–2 shipped — read-connection pool (A3), indexed `db_run` /
+  `db_channelmessage` rows with `channeloid` expression indexes, hot-path lookups redirected, worker-oref→run
+  stamped on tab meta, and per-object delta broadcast. The hard part (indexed model, migration risk absorbed)
+  is done; only the collapse remains.
+- **Why deferred:** the workstream is explicitly preventive ("no observed symptom"), and the reality check
+  found the target does not exist yet. Measured in the packaged-app DB
+  (`%LOCALAPPDATA%/dev.arc.app/data/db/waveterm.db`, read-only query, 2026-08-25): **4 channels, 680 KB total
+  blob bytes** (largest 341 KB, dominated by ~28 KB sealed run evidence per done run, not message text),
+  34 messages, 58 runs. Even 10× annualized usage ≈ 7 MB total — the O(history) write/broadcast cost is
+  nanoseconds-scale and unmeasurable. Building Phase 3 now would spend the irreversible step to collapse
+  ~680 KB.
+- **Where it plugs in:** `db_channel` becomes metadata-only; drop-array migration; verification per spec
+  Section 4 (constant-ish write time on a burst of posts to a large channel). Fold in the outstanding Phase 2
+  carry-ins when cutting over: cross-channel aggregates (rail unread badge, cross-channel ask badges) still
+  read the `GetChannels` snapshot, and the deferred visual-parity CDP check.
+- **To resume:** a channel whose embedded blob is material (roughly >5 MB, or a measured per-event
+  write/broadcast cost that shows up in real use), or any observed write/latency symptom on a large channel.
+- **Separate observation, not this deferral:** the DB's bulk is `db_tevent` (753,006 terminal-event rows
+  ≈ most of the 171 MB file), not channel data. If DB size matters, that is the target, not Phase 3.
+
 ## Jarvis Briefing — generic cross-project progress and durable milestones (2026-08-13)
 
 Deferred during the Axis 2 landing-briefing design. The briefing can generically identify active work

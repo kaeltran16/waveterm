@@ -19,20 +19,25 @@ Every item below carries a source pointer; read that before planning any fix. St
 
 ## 1 · Active workstreams
 
-### Channel data-model scaling — Phase 3 (Contract)
+### Channel data-model scaling — Phases 0–2 shipped, Phase 3 parked (evidence gate 2026-08-25)
 
-The repo's biggest remaining backend item. Split `Messages`/`Runs` out of the channel blob into indexed
-rows + read pool, as reversible expand → migrate → contract phases; A1/A2's write/broadcast payoff lands
-only at Phase 3. Phase 0 (read pool) shipped; Phase 1 (Expand) was the active work as of 2026-07-22.
-Spec: `docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`. Source: improvement-scan
+Phases 0–2 are in — read pool, indexed `db_run`/`db_channelmessage` rows, redirected hot-path lookups,
+delta broadcast. **Phase 3 (Contract: drop the embedded arrays) is parked pending evidence**: the prod
+reality check measured 4 channels / 680 KB total blob, so the large-channel target does not exist. See
+Held §4 and the `docs/deferred.md` 2026-08-25 entry. Take the Phase 2 carry-ins (cross-channel rail
+badges, visual-parity CDP check) before any contract work. Spec:
+`docs/superpowers/specs/2026-07-21-channel-data-model-scaling-design.md`. Source: improvement-scan
 brief Theme A.
 
 ### Lead-authored task routing — Phases 1–3
 
-Draft roadmap (2026-08-19, awaiting review), nothing built yet. Phase 1: `RunSpec.Model` +
-harness↔model capability matrix + spawn passthrough. Phase 2: same-tier retry + typed `blocked` +
-explicit `wsh jarvis dag escalate` verb. Phase 3: route surfaced in DAG graph + run evidence. Phase 4
-(measurement gate) is evidence-gated and may be skipped entirely.
+The roadmap header still reads "draft, awaiting review" (2026-08-19), but the route chain has shipped:
+backend run-route capability authority, settings/channel persistence validation, enforcement at worker
+launch + DAG children, capability-driven route controls, draft-first DAG creation (stage-local modal), and
+structured fast approval (plans 2026-08-20/21). Remaining: Phase 2's same-tier retry wiring + typed
+`blocked` + `escalate` verb (confirmed not implemented anywhere in `pkg/` by the 2026-08-24 scan's
+"Also noted"), Phase 3 (route surfaced in DAG graph + run evidence), Phase 4 measurement gate
+(evidence-gated, may be skipped entirely).
 Doc: `docs/lead-authored-task-routing-roadmap.md`.
 
 ### Orchestrator redesign plan — 27 unchecked steps
@@ -43,9 +48,10 @@ it piggybacks on; sequence the two to avoid collisions.
 
 ### 2026-08-24 orchestrator improvement scan — remaining Jarvis findings
 
-The engine findings O1–O8 shipped in `b9aad7fd`; Jarvis J1 shipped in `67b628a3`, and J2/J6 in
-`a7de0687`. J3–J5 remain untriaged; each fix batch needs its own spec/plan. Historical evidence remains
-in `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`.
+The engine findings O1–O8 shipped in `b9aad7fd`; Jarvis J1 shipped in `67b628a3`, J2/J6 in `a7de0687`, and
+J3 (meta-doc corrected, `Backfill`/`Harden` unexported), J4 (per-line timeline truncation), J5 (onexit
+failure logging) landed in the same two commits — the scan is fully closed as of 2026-08-25. Historical
+evidence remains in `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`.
 
 ---
 
@@ -79,6 +85,10 @@ local default. Effort realistically L counting step 1. Full reference design in 
 ---
 
 ## 4 · Held — pick up only on the named trigger
+
+Channel data-model scaling — Phase 3 (Contract) (parked 2026-08-25): revive when a real channel blob is
+material (>5 MB or a measured per-event write/broadcast cost) — prod reality check: 4 channels, 680 KB
+total. Full rationale + measurement in `docs/deferred.md`; Phases 0–2 shipped.
 
 Reliability investigations (`docs/superpowers/briefs/2026-08-25-reliability-improvement-scan.md`):
 
