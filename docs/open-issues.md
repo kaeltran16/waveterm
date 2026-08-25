@@ -41,12 +41,11 @@ Doc: `docs/lead-authored-task-routing-roadmap.md`.
 child-ask forwarding. Not a hard prerequisite for task routing but improves the lead↔worker relationship
 it piggybacks on; sequence the two to avoid collisions.
 
-### 2026-08-24 orchestrator improvement scan — untriaged findings
+### 2026-08-24 orchestrator improvement scan — remaining Jarvis findings
 
-Fresh read-only scans of `pkg/orchestrate`, lead-side `pkg/jarvis`, the `wsh jarvis dag` CLI, and the
-Jarvis surface. Sequencing deliberately undecided; each fix batch needs its own spec/plan. Includes at
-least one hand-verified blocker (**O1**: `dag merge` targets the wrong branch, so child work cannot land).
-File: `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`.
+The engine findings O1–O8 shipped in `b9aad7fd`; Jarvis J1 shipped in `67b628a3`, and J2/J6 in
+`a7de0687`. J3–J5 remain untriaged; each fix batch needs its own spec/plan. Historical evidence remains
+in `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`.
 
 ---
 
@@ -57,9 +56,6 @@ The reliability findings below are ranked and detailed in
 
 | Item | Kind | Effort | Source / notes |
 |---|---|---|---|
-| **DAG merge blocker:** make merge task-targeted so an isolated child's composite worktree branch can land | correctness / delivery | M | reliability scan R1; 2026-08-24 scan O1 |
-| **DAG scheduler safety batch:** stalled tasks consume slots; retry preserves the global failure streak; gate actions target one task; watchdog survives a panicking tick | correctness / reliability | S–M | reliability scan R3; 2026-08-24 scan O2/O3/O5/O6 |
-| Serialize config-watcher callbacks and make watcher initialization failure explicit instead of allowing out-of-order updates, a callback race, and a poisoned nil singleton | reliability / concurrency | M | reliability scan R2; `pkg/wconfig/filewatcher.go` |
 | Make websocket RPC forwarding cancellation-aware so a full output channel cannot retain the goroutine after disconnect | reliability / cleanup | S | reliability scan R4; `pkg/web/ws.go` |
 | Issue 8 deep-link fix was never reproduced live (unit-tested only) — verify with a focused agent + dirty worktree | verification gap | S | pre-consolidation issue 8 detail (in git history); fixed 2026-08-04 |
 | OS/dock/titlebar badge when Arc is backgrounded (in-app counter ships; nothing reaches you cross-app) — measure-first | feature | M | scan brief B2; `badge.ts`, `navrail.tsx` |

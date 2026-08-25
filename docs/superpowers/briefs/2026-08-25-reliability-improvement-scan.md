@@ -1,10 +1,14 @@
 # Reliability improvement scan
 
 **Date:** 2026-08-25  
-**Status:** Triaged reliability backlog; no implementation approved.  
+**Status:** Historical scan; R1–R3 resolved, R4 remains actionable.
 **Source:** Read-only repository scan plus reconciliation with `docs/open-issues.md` and the
 2026-08-24 Jarvis/orchestrator scan. The strongest new findings were independently re-read in the
-current source. No failure-injection tests or live reproductions were run.
+current source. No failure-injection tests or live reproductions were run during the scan.
+
+**Update:** R1 and R3 shipped in `b9aad7fd`. R2 was resolved by the config-watcher reliability change
+that added ordered callback dispatch and explicit startup initialization. The original evidence remains
+below for rationale; it no longer describes the current R1–R3 implementation.
 
 This brief ranks the most valuable reliability work by concrete consequence and smallest credible fix.
 Existing orchestrator findings are linked rather than re-derived; new findings carry their evidence here.
@@ -13,31 +17,27 @@ Existing orchestrator findings are linked rather than re-derived; new findings c
 
 | Rank | Finding | Status | Effort | Source |
 |---|---|---|---|---|
-| R1 | Per-task DAG merge targets the lead branch, so isolated child work cannot land | Actionable blocker | M | 2026-08-24 scan O1 |
-| R2 | Config watcher callbacks can race and apply updates out of order; initialization failure permanently poisons the singleton | Actionable | M | New; details below |
-| R3 | DAG safety invariants: stalled tasks free slots, retry clears the global failure streak, gate actions target every gate, and one panic kills the watchdog | Actionable batch | S–M | 2026-08-24 scan O2/O3/O5/O6 |
+| R1 | Per-task DAG merge targeted the lead branch, so isolated child work could not land | Shipped (`b9aad7fd`) | M | 2026-08-24 scan O1 |
+| R2 | Config watcher callbacks could race and apply updates out of order; initialization failure poisoned the singleton | Resolved (config-watcher reliability change) | M | New; details below |
+| R3 | DAG safety invariants: stalled tasks freed slots, retry cleared the global failure streak, gate actions targeted every gate, and one panic killed the watchdog | Shipped (`b9aad7fd`) | S–M | 2026-08-24 scan O2/O3/O5/O6 |
 | R4 | Websocket RPC forwarding can block forever after the writer exits | Actionable | S | New; details below |
 | R5 | Consult cancellation can abandon `Cmd.Wait` when descendants retain stderr | Reproduce first | M | New; details below |
 | M1 | DAG liveness repeats a complete Pi-session corpus scan per active task | Measure first | S measurement; M fix | New; details below |
 
 ## Recommended sequence
 
-1. **R1 first.** It blocks the orchestrator's worktree-isolation delivery path.
-2. **R3 second.** Four small deterministic fixes restore concurrency, circuit-break, gate-targeting, and
-   watchdog invariants before more DAG capability lands.
-3. **R2 third.** It removes a process-global race and turns an obscure delayed crash into explicit startup
-   behavior.
-4. **R4 fourth.** It is a narrow lifecycle fix with a direct cancellation-aware send.
-5. Run the R5 failure-injection probe and M1 timing instrumentation; build either only if its trigger is
+1. **R4 first.** It is the remaining narrow actionable lifecycle fix with a direct cancellation-aware send.
+2. Run the R5 failure-injection probe and M1 timing instrumentation; build either only if its trigger is
    observed.
 
 ## R1 — Per-task DAG merge targets the wrong branch
 
-**Status:** Actionable blocker · **Effort:** M · **Confidence:** Verified in the 2026-08-24 scan.
+**Status:** Shipped in `b9aad7fd` · **Effort:** M · **Confidence:** Verified in the 2026-08-24 scan.
 
-The engine creates child worktrees and branches from the composite owner/task key, while `dag merge`
-uses the lead run id. The lead owns no child branch, and the blocked-merge path also looks up the wrong
-identity. Child commits produced through worktree isolation therefore have no working merge path.
+Before the fix, the engine created child worktrees and branches from the composite owner/task key, while
+`dag merge` used the lead run id. The lead owned no child branch, and the blocked-merge path also looked
+up the wrong identity. Child commits produced through worktree isolation therefore had no working merge
+path.
 
 **Evidence and fix direction:** `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`
 O1. Make merge task-targeted and derive the exact persisted child worktree key/branch rather than
@@ -46,16 +46,17 @@ reconstructing it from the lead run.
 **Validation:** create a DAG child, commit in its worktree, merge that task, assert the expected diff lands
 on the owner branch, then verify successful cleanup and the conflict/blocked path.
 
-## R2 — Config watcher delivery and initialization are unsafe
+## R2 — Config watcher delivery and initialization were unsafe
 
-**Status:** Actionable · **Effort:** M · **Confidence:** High from source inspection.
+**Status:** Resolved by the config-watcher reliability change · **Effort:** M · **Confidence:** High
+from source inspection and focused race tests.
 
-### R2a — callbacks race and can arrive out of order
+### R2a — callbacks raced and could arrive out of order
 
-`Watcher.notifyHandlers` starts one goroutine per handler per update
-(`pkg/wconfig/filewatcher.go`, `notifyHandlers`). There is no ordering, version check, queue, or fan-out
-bound. Two filesystem events A then B can therefore run handler B before A. A real handler closes over and
-mutates `currentTelemetryEnabled` from these callbacks (`cmd/server/main-server.go`,
+Before the fix, `Watcher.notifyHandlers` started one goroutine per handler per update
+(`pkg/wconfig/filewatcher.go`, `notifyHandlers`). There was no ordering, version check, queue, or fan-out
+bound. Two filesystem events A then B could therefore run handler B before A. A real handler closed over
+and mutated `currentTelemetryEnabled` from these callbacks (`cmd/server/main-server.go`,
 `setupTelemetryConfigHandler`), so rapid updates also produce a Go data race.
 
 **Smallest direction:** give the watcher one ordered callback-dispatch queue. Copy the handler slice while
@@ -65,12 +66,12 @@ fsnotify event loop.
 **Validation:** register a handler that blocks update A, deliver update B, release A, and assert A→B under
 `go test -race`. Include queue shutdown behavior if the dispatcher owns a goroutine.
 
-### R2b — first initialization failure poisons the singleton
+### R2b — first initialization failure poisoned the singleton
 
-`GetWatcher` uses `sync.Once`. If `fsnotify.NewWatcher()` fails, the callback returns without assigning
-`instance`, but the once guard prevents every later retry. Startup tolerates the nil result, while many
-runtime callers use `wconfig.GetWatcher().GetFullConfig()` without a nil check. A transient resource error
-can therefore become a delayed process panic far from the cause.
+Before the fix, `GetWatcher` used `sync.Once`. If `fsnotify.NewWatcher()` failed, the callback returned
+without assigning `instance`, but the once guard prevented every later retry. Startup tolerated the nil
+result, while many runtime callers used `wconfig.GetWatcher().GetFullConfig()` without a nil check. A
+transient resource error could therefore become a delayed process panic far from the cause.
 
 **Smallest direction:** either return an initialization error and fail startup clearly, or replace the once
 guard with retryable mutex-protected construction. Fail-fast startup is the simpler contract because the
@@ -81,9 +82,9 @@ a later call can initialize successfully. No nil watcher should escape as succes
 
 ## R3 — DAG scheduler safety invariant batch
 
-**Status:** Actionable · **Effort:** S–M total · **Confidence:** Verified in the 2026-08-24 scan.
+**Status:** Shipped in `b9aad7fd` · **Effort:** S–M total · **Confidence:** Verified in the 2026-08-24 scan.
 
-Four independent small defects belong in one scheduler-safety pass:
+The shipped scheduler-safety pass fixed four independent defects:
 
 - count `Stalled` workers against parallelism because stall detection does not stop the child;
 - do not clear the DAG-wide consecutive-failure streak in `RetryTask`;

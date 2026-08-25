@@ -74,6 +74,7 @@ const InitialDiagnosticWait = 5 * time.Minute
 const DiagnosticTick = 10 * time.Minute
 
 var shutdownOnce sync.Once
+var initConfigWatcher = wconfig.InitWatcher
 
 func init() {
 	envFilePath := os.Getenv("WAVETERM_ENVFILE")
@@ -94,8 +95,8 @@ func doShutdown(reason string) {
 		// TODO deal with flush in progress
 		clearTempFiles()
 		filestore.WFS.FlushCache(ctx)
-		watcher := wconfig.GetWatcher()
-		if watcher != nil {
+		watcher, err := wconfig.InitWatcher()
+		if err == nil {
 			watcher.Close()
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -119,11 +120,13 @@ func stdinReadWatch() {
 	}
 }
 
-func startConfigWatcher() {
-	watcher := wconfig.GetWatcher()
-	if watcher != nil {
-		watcher.Start()
+func startConfigWatcher() error {
+	watcher, err := initConfigWatcher()
+	if err != nil {
+		return fmt.Errorf("initializing config watcher: %w", err)
 	}
+	watcher.Start()
+	return nil
 }
 
 func telemetryLoop() {
@@ -578,7 +581,11 @@ func main() {
 	sigutil.InstallShutdownSignalHandlers(doShutdown)
 	sigutil.InstallSIGUSR1Handler()
 	wconfig.MigratePresetsBackgrounds()
-	startConfigWatcher()
+	err = startConfigWatcher()
+	if err != nil {
+		log.Printf("error starting config watcher: %v\n", err)
+		return
+	}
 	aiusechat.InitAIModeConfigWatcher()
 	maybeStartPprofServer()
 	go stdinReadWatch()
@@ -588,7 +595,7 @@ func main() {
 	go updateTelemetryCountsLoop()
 	go backupCleanupLoop()
 	go tempAttachmentCleanupLoop()
-	go startupActivityUpdate(firstLaunch) // must be after startConfigWatcher()
+	go startupActivityUpdate(firstLaunch)           // must be after startConfigWatcher()
 	orchestrate.StartWatchdog(context.Background()) // dag advance + stall detection tick
 	blocklogger.InitBlockLogger()
 	jobcontroller.InitJobController()
