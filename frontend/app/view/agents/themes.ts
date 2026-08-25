@@ -11,7 +11,8 @@ import { colord } from "colord";
 
 // The base roles we theme. A deliberately small set: the identity-carrying "chrome". Subtle greys
 // (muted-foreground, ink-mid, lane, feed-*) and identity colors (avatar/mem/rt/ansi) are left at their
-// tailwindsetup.css @theme defaults — safe across all dark themes; revisited with light mode (Paper).
+// tailwindsetup.css @theme defaults — safe across all dark themes (light mode was declined; see
+// docs/deferred.md).
 export interface ThemePalette {
     bg: string;
     surface: string;
@@ -39,7 +40,6 @@ export type OverrideRole = "accent" | "success" | "warning" | "error";
 export interface ThemeDef {
     id: string;
     name: string;
-    dark: boolean; // the picker shows dark themes only in v1 (see spec §6)
     palette: ThemePalette;
 }
 
@@ -47,7 +47,6 @@ export const THEMES: ThemeDef[] = [
     {
         id: "midnight",
         name: "Midnight",
-        dark: true,
         // Authored to the CURRENT tailwindsetup.css values (not the mockup's Midnight) so the default
         // theme reproduces today's look exactly — guarded by themes.test.ts.
         palette: {
@@ -74,7 +73,6 @@ export const THEMES: ThemeDef[] = [
     {
         id: "slate",
         name: "Slate",
-        dark: true,
         palette: {
             bg: "#0d1117",
             surface: "#111722",
@@ -99,7 +97,6 @@ export const THEMES: ThemeDef[] = [
     {
         id: "carbon",
         name: "Carbon",
-        dark: true,
         palette: {
             bg: "#0e0e0d",
             surface: "#141412",
@@ -124,7 +121,6 @@ export const THEMES: ThemeDef[] = [
     {
         id: "nocturne",
         name: "Nocturne",
-        dark: true,
         palette: {
             bg: "#0d0b12",
             surface: "#131019",
@@ -149,7 +145,6 @@ export const THEMES: ThemeDef[] = [
     {
         id: "onedark",
         name: "One Dark",
-        dark: true,
         palette: {
             bg: "#282c34",
             surface: "#21252b",
@@ -174,7 +169,6 @@ export const THEMES: ThemeDef[] = [
     {
         id: "monokai",
         name: "Monokai",
-        dark: true,
         palette: {
             bg: "#272822",
             surface: "#2d2e28",
@@ -196,34 +190,7 @@ export const THEMES: ThemeDef[] = [
             error: "#f92672",
         },
     },
-    {
-        id: "paper",
-        name: "Paper",
-        dark: false, // light — kept for the engine, omitted from the v1 picker
-        palette: {
-            bg: "#f4f5f7",
-            surface: "#ffffff",
-            surfaceRaised: "#eceef2",
-            surfaceHover: "#e2e5ec",
-            surfaceSelected: "#dde3f0",
-            code: "#f1f2f5",
-            border: "#e4e6ec",
-            edgeMid: "#d5d9e1",
-            edgeStrong: "#c2c8d3",
-            edgeFaint: "#ecedf1",
-            text: "#14171d",
-            secondary: "#4e5561",
-            muted: "#606774",
-            inkFaint: "#7e8288",
-            accent: "#4f63c9",
-            success: "#2f9169",
-            warning: "#b5842a",
-            error: "#c9524c",
-        },
-    },
 ];
-
-export const PICKER_THEMES: ThemeDef[] = THEMES.filter((t) => t.dark);
 
 // Accent quick-picks for the Custom colors card (ports the mockup accentPalette; the first
 // entry tracks the current default accent, midnight's cc-dark blue).

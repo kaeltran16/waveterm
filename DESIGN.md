@@ -272,14 +272,14 @@ green, `mem-feedback` amber, `mem-user` purple), **jarvis graph node kinds**
 
 ### Runtime theming
 
-`themes.ts` (`THEMES`: midnight, slate, carbon, nocturne, onedark, monokai,
-paper) maps each base palette to the full `--color-*` override set and writes
+`themes.ts` (`THEMES`: midnight, slate, carbon, nocturne, onedark, monokai)
+maps each base palette to the full `--color-*` override set and writes
 them as inline styles on `document.documentElement` — highest specificity,
 beats `:root`, re-skins everything with zero component edits. Subtle greys
 (`muted-foreground`, `ink-mid`, `lane`, `feed-*`) and the identity palettes
-stay at defaults, safe across all dark themes. The shipped picker is
-dark-only (`PICKER_THEMES = THEMES.filter(t => t.dark)`); the light "paper"
-palette exists in the engine but is deliberately not offered.
+stay at defaults, safe across all dark themes. All dark only — light mode
+(Paper) was declined 2026-08-24 (see `docs/deferred.md`); an unknown preset
+id falls back to Midnight.
 
 ## Typography
 

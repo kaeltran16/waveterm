@@ -29,7 +29,7 @@ import { ITEMS } from "./navrail";
 import { railVisibleAtom } from "./railstore";
 import { SETTINGS_SECTION_EMBEDDINGS, takePendingSettingsSection } from "./settingsstore";
 import { SurfaceHeader } from "./surfacescaffold";
-import { ACCENT_SWATCHES, activePalette, colorOf, PICKER_THEMES, type OverrideRole } from "./themes";
+import { ACCENT_SWATCHES, activePalette, colorOf, THEMES, type OverrideRole } from "./themes";
 import { themeOverridesAtom, themePresetAtom } from "./themestore";
 
 const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i.key, i.label])) as Record<
@@ -246,7 +246,7 @@ function AppearanceSection() {
     const [overrides, setOverrides] = useAtom(themeOverridesAtom);
     const palette = activePalette(preset);
     const isCustom = Object.keys(overrides).length > 0;
-    const activeName = PICKER_THEMES.find((t) => t.id === preset)?.name ?? "Midnight";
+    const activeName = THEMES.find((t) => t.id === preset)?.name ?? "Midnight";
     const setOverride = (role: OverrideRole, hex: string) => setOverrides((prev) => ({ ...prev, [role]: hex }));
     const selectPreset = (id: string) => {
         setPreset(id);
@@ -270,7 +270,7 @@ function AppearanceSection() {
                     </span>
                 </div>
                 <div data-theme-presets className="grid grid-cols-4 gap-2.5">
-                    {PICKER_THEMES.map((t) => {
+                    {THEMES.map((t) => {
                         const on = t.id === preset;
                         return (
                             <button

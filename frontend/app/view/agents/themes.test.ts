@@ -10,7 +10,6 @@ import {
     colorOf,
     deriveAnsi,
     deriveTermTheme,
-    PICKER_THEMES,
     THEMES,
 } from "./themes";
 
@@ -77,10 +76,8 @@ describe("helpers", () => {
         expect(colorOf(p, {}, "accent")).toBe("#5e9cff");
         expect(colorOf(p, { accent: "#123456" }, "accent")).toBe("#123456");
     });
-    it("PICKER_THEMES excludes the light (paper) theme", () => {
-        expect(THEMES.some((t) => t.id === "paper")).toBe(true);
-        expect(PICKER_THEMES.some((t) => t.id === "paper")).toBe(false);
-        expect(PICKER_THEMES).toHaveLength(6);
+    it("THEMES ships the six dark presets — light mode was declined and removed", () => {
+        expect(THEMES).toHaveLength(6);
     });
     it("ACCENT_SWATCHES has 10 hex values", () => {
         expect(ACCENT_SWATCHES).toHaveLength(10);
@@ -147,9 +144,9 @@ const BRIGHT_PAIRS: [string, string][] = [
 ];
 
 describe("deriveAnsi — structural invariants across every selectable theme", () => {
-    // Only the picker themes are reachable: themePresetAtom is written by AppearanceSection, which
-    // renders PICKER_THEMES. "paper" exists in THEMES but is excluded (light mode is not shipped).
-    for (const theme of PICKER_THEMES) {
+    // themePresetAtom is written by AppearanceSection, which renders THEMES; every preset is
+    // therefore reachable.
+    for (const theme of THEMES) {
         const ansi = deriveAnsi(theme.palette) as unknown as Record<string, string>;
 
         it(`${theme.id}: all 16 slots are parseable 6-digit hex`, () => {
@@ -192,11 +189,6 @@ describe("deriveAnsi — structural invariants across every selectable theme", (
             }
         });
     }
-
-    it("paper (light, not in the picker) still derives without throwing", () => {
-        const paper = THEMES.find((t) => t.id === "paper")!;
-        expect(Object.keys(deriveAnsi(paper.palette))).toHaveLength(16);
-    });
 });
 
 describe("deriveAnsi — Midnight golden set", () => {

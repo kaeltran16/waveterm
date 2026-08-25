@@ -3,6 +3,10 @@
 Running log of intentionally-deferred features. Each entry records what was deferred, why,
 where it would plug in, and how to pick it back up. Append new entries at the top.
 
+> The consolidated "what's left" view lives in `docs/open-issues.md` (2026-08-24). This file stays the
+> append-only rationale log — append the full deferral here, then mirror a one-line row there. Entries
+> marked RESOLVED/DECLINED below are kept for the reasoning, not as pending work.
+
 ## Jarvis Briefing — generic cross-project progress and durable milestones (2026-08-13)
 
 Deferred during the Axis 2 landing-briefing design. The briefing can generically identify active work
@@ -803,15 +807,16 @@ token totals, only `fivehourpct`/`fivehourreset`/`weekpct`/`weekreset`.
   command registry.
 - **Deferred:** 2026-06-25, during the cockpit handoff-parity pass.
 
-## Cockpit light mode (Paper theme) — 2026-07-03
+## Cockpit light mode (Paper theme) — 2026-07-03 — DECIDED AGAINST, removed 2026-08-24
 
-The theming engine (`themes.ts`) is light-capable and the `paper` palette exists in `THEMES`, but it is
-omitted from the v1 picker (`PICKER_THEMES` = dark only). A faithful light mode needs a cockpit-wide
-audit of dark-assumed hardcoded colors: inline `rgba(255,255,255,α)` overlays (hover states, `.agent-md`
-dividers/code fills in `tailwindsetup.css`), the hardcoded scrollbar hexes (`tailwindsetup.css`
-`::-webkit-scrollbar-thumb`), `cockpit.scss` fallbacks, and the greys left fixed by `buildThemeVars`
-(`muted-foreground`, `ink-mid`, `lane`, `lane-asking`, `cacheread`, `feed-*`). Convert those to themed
-tokens, then set `paper.dark = true`-equivalent exposure in the picker.
+The light mode was declined and the code deleted. The `paper` palette entry is gone from `THEMES`
+(`frontend/app/view/agents/themes.ts`), along with the now-pointless `ThemeDef.dark` flag and the
+`PICKER_THEMES` dark-only filter it existed to drive; the picker, palette commands, and Monaco sync
+all read `THEMES` directly. A persisted `paper` preset id falls back to Midnight via
+`activePalette`'s unknown-id fallback. The audit work the original entry scoped (hardcoded
+light-assumed colors in overlays, scrollbar hexes, `buildThemeVars` greys) is therefore not needed.
+The Monaco editor's separate `wave-theme-light` base definition (`monaco-env.ts`) was left alone —
+it is editor theming, not cockpit light mode.
 
 ## Jarvis sub-project D — attribution tuning constants (2026-07-24)
 

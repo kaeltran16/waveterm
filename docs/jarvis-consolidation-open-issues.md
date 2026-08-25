@@ -1,5 +1,8 @@
 # Jarvis consolidated surface — open issues
 
+> **Closed 2026-07-29 — archived.** Every JC item (JC1–JC23) is fixed; nothing here is pending work.
+> Kept as the record of what shipped and why. The live backlog is `docs/open-issues.md`.
+
 Scoped backlog for the **merged Jarvis surface** (Subjects · Stage · one rail — commits `d76d4452` →
 `5662f393`) and the entry points that dispatch into it (command palette, Radar handoff).
 

@@ -7,7 +7,7 @@
 // inherits the stock base theme. The module imports monaco-editor only as a type, so it stays
 // outside the lazy monaco chunk and unit-testable in node.
 
-import { activePalette, buildThemeVars, THEMES } from "@/app/view/agents/themes";
+import { activePalette, buildThemeVars } from "@/app/view/agents/themes";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { colord } from "colord";
 import { useAtomValue } from "jotai";
@@ -115,7 +115,6 @@ export function useSyncMonacoTheme(): void {
     const preset = useAtomValue(themePresetAtom);
     const overrides = useAtomValue(themeOverridesAtom);
     useLayoutEffect(() => {
-        const def = THEMES.find((t) => t.id === preset);
         const vars = buildThemeVars(activePalette(preset), overrides);
         const chrome: MonacoChrome = {
             foreground: vars["--color-foreground"],
@@ -129,7 +128,7 @@ export function useSyncMonacoTheme(): void {
                 return;
             }
             m.loadMonaco();
-            m.applyMonacoTheme("wave-theme-dark", monacoThemeFromTokens(tokens, chrome, def?.dark ?? true));
+            m.applyMonacoTheme("wave-theme-dark", monacoThemeFromTokens(tokens, chrome, true));
         });
         return () => {
             cancelled = true;

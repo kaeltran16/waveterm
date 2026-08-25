@@ -7,7 +7,7 @@
 // registry's labels and showing no chords at all.
 
 import type { Binding, KeyContext, SurfaceKey } from "@/app/store/keybindings/types";
-import { PICKER_THEMES } from "@/app/view/agents/themes";
+import { THEMES } from "@/app/view/agents/themes";
 
 export interface CommandItem {
     key: string; // binding id, or "cmd:<slug>" for a chordless extra
@@ -69,13 +69,12 @@ export interface ExtraDeps {
     setTheme: (presetId: string) => void;
 }
 
-// The cockpit actions that have no chord to derive from. PICKER_THEMES is already the dark-only subset
-// the Settings picker offers, so Paper stays omitted here for the same reason it is omitted there.
+// The cockpit actions that have no chord to derive from.
 export function buildExtraItems(deps: ExtraDeps): CommandItem[] {
     return [
         { key: "cmd:new-project", title: "New project", group: "Global", run: deps.openNewProject },
         { key: "cmd:new-memory", title: "New memory", group: "Memory", run: deps.openNewMemory },
-        ...PICKER_THEMES.map((t) => ({
+        ...THEMES.map((t) => ({
             key: `cmd:theme:${t.id}`,
             title: `Switch theme → ${t.name}`,
             group: "Appearance",

@@ -1,5 +1,10 @@
 # Jarvis second brain — open issues
 
+> **Consolidated 2026-08-24.** The live "what's left" list now lives in `docs/open-issues.md` (§4 Held);
+> this file is the per-issue detail and measurement record for the J entries — read it for the why and
+> the evidence, not for a list of open work. New second-brain deferrals: full entry to `docs/deferred.md`,
+> one-line mirror to `docs/open-issues.md`.
+
 Scoped backlog for the second-brain feature only (v1 A–G + v2 S1–S3 / U1–U3). Everything here is
 **residue from a shipped sub-project**, not new product scope: each item was deliberately deferred
 during its own cycle and is now either unblocked or overdue.

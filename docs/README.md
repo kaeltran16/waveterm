@@ -19,11 +19,11 @@ reference for build commands, architecture, and gotchas — start there.
 
 | File | Role |
 | --- | --- |
-| `deferred.md` | Canonical running log of intentionally-deferred work, and why. Append at the top. |
-| `open-issues.md` | Repo-wide actionable backlog, lifted out of `deferred.md` with re-verified citations. |
+| `deferred.md` | Append-only running log of intentionally-deferred work, and why. Append at the top, then mirror a one-line row into `open-issues.md`. |
+| `open-issues.md` | **The single consolidated "what's left" list** — active workstreams, actionable smalls, blocked/held/declined items across every tracker. Start here. |
 | `jarvis-tab.md` | Reference for the consolidated Jarvis surface. Its "Known gaps" table is the live status. |
 | `jarvis-tour.md` | Task-ordered walkthrough of Jarvis — what to *do*, where `jarvis-tab.md` says what things *are*. |
-| `jarvis-consolidation-open-issues.md`, `jarvis-second-brain-open-issues.md` | Scoped backlogs for those two sub-projects. |
+| `jarvis-consolidation-open-issues.md`, `jarvis-second-brain-open-issues.md` | Archived/closed detail records for those two sub-projects (consolidation: all fixed; second brain: J-entry evidence). Open residue lives in `open-issues.md`. |
 | `keyboard-shortcuts.md` | Human-readable mirror of the keybinding registry (`frontend/app/store/keybindings/` is the source of truth). |
 | `orchestrator-roadmap.md`, `redesign-brief.md`, `redesign-meta-spec.md`, `tauri-migration-meta-spec.md`, `feature-triage.md` | Direction and umbrella docs. Largely historical — they record sequencing rationale, not remaining work. |
 
