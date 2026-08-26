@@ -11,7 +11,10 @@ func TestClassifyFailure(t *testing.T) {
 		{"context window exceeded", 1, FailureKindContextWindow},
 		{"request timed out after 300s", 1, FailureKindTimeout},
 		{"lead sendback: out of scope", 1, FailureKindGateSendback},
-		{"tests: TestFoo still failing", 1, FailureKindTestFailed},
+		{"test failed: TestFoo", 1, FailureKindTestFailed},
+		{"2 of 5 checks not passing", 1, FailureKindTestFailed},
+		// passing test output on a failed outcome must not read as a test failure
+		{"ran tests: 12 passed", 1, FailureKindUnknown},
 		{"tool call errored: invalid input schema", 2, FailureKindToolError},
 		{"mcp tool returned an error", 2, FailureKindToolError},
 		{"mcp server initialized before process exit", 1, FailureKindUnknown},

@@ -35,6 +35,7 @@ declare global {
         | "dag:task-spawned"
         | "dag:child-ask"
         | "dag:task-stalled"
+        | "dag:task-retried"
         | "run:event"
     ;
 
@@ -73,6 +74,7 @@ declare global {
         { event: "dag:task-spawned"; data?: string; } | 
         { event: "dag:child-ask"; data?: string; } | 
         { event: "dag:task-stalled"; data?: string; } | 
+        { event: "dag:task-retried"; data?: string; } | 
         { event: "run:event"; data?: RunEventData; }
     );
 

@@ -58,6 +58,7 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 		task.LastFailureKind = kind
 		mayRetry := retryDecision(kind, task.Attempts)
 		task.Attempts++
+		attempt := task.Attempts
 		task.State = TaskState_Failed
 		g.Failures++
 		if mayRetry {
@@ -72,6 +73,11 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 			return nil
 		}); err != nil {
 			return err
+		}
+		// emit only after the persist lands so the event never describes state the store rejected
+		if mayRetry {
+			publishDagEvent(DagEventTaskRetried, g, task.ID)
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, map[string]any{"taskid": task.ID, "kind": kind, "attempt": attempt})
 		}
 		return scheduleLocked(ctx, g.OID)
 	})

@@ -44,6 +44,7 @@ const (
 	DagEventTaskSpawned = "dag:task-spawned" // type: string (task id)
 	DagEventChildAsk    = "dag:child-ask"    // type: string (JSON {taskid, question})
 	DagEventTaskStalled = "dag:task-stalled" // type: string (task id)
+	DagEventTaskRetried = "dag:task-retried" // type: string (task id)
 	Event_RunEvent      = "run:event"        // type: wshrpc.RunEventData
 )
 
@@ -76,6 +77,7 @@ var AllEvents []string = []string{
 	DagEventTaskSpawned,
 	DagEventChildAsk,
 	DagEventTaskStalled,
+	DagEventTaskRetried,
 	Event_RunEvent,
 }
 

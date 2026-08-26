@@ -3,6 +3,8 @@ package orchestrate
 import (
 	"fmt"
 	"strings"
+
+	"github.com/wavetermdev/waveterm/pkg/consult"
 )
 
 const (
@@ -23,7 +25,8 @@ func classifyFailure(summary string, exitCode int) string {
 		return FailureKindTimeout
 	case strings.Contains(s, "sendback"), strings.Contains(s, "too hard"), strings.Contains(s, "out of scope"):
 		return FailureKindGateSendback
-	case strings.Contains(s, "test failed"), strings.Contains(s, "tests:"), strings.Contains(s, "not passing"), strings.Contains(s, "check failed"):
+	// bare "tests:" dropped: it matched passing summaries like "tests: 12 passed"
+	case strings.Contains(s, "test failed"), strings.Contains(s, "not passing"), strings.Contains(s, "check failed"):
 		return FailureKindTestFailed
 	case strings.Contains(s, "tool call"), strings.Contains(s, "function call"), strings.Contains(s, "tool errored"):
 		return FailureKindToolError
@@ -41,11 +44,11 @@ func retryDecision(kind string, attempts int) bool {
 
 func nextTier(tier string) (string, error) {
 	switch tier {
-	case "cheap":
-		return "mid", nil
-	case "mid":
-		return "capable", nil
-	case "capable":
+	case string(consult.TierCheap):
+		return string(consult.TierMid), nil
+	case string(consult.TierMid):
+		return string(consult.TierCapable), nil
+	case string(consult.TierCapable):
 		return "", fmt.Errorf("tier %q is already the top tier", tier)
 	default:
 		return "", fmt.Errorf("unknown tier %q", tier)
@@ -53,5 +56,6 @@ func nextTier(tier string) (string, error) {
 }
 
 func isHigherTier(current, target string) bool {
-	return current == "cheap" && (target == "mid" || target == "capable") || current == "mid" && target == "capable"
+	cheap, mid, capable := string(consult.TierCheap), string(consult.TierMid), string(consult.TierCapable)
+	return current == cheap && (target == mid || target == capable) || current == mid && target == capable
 }

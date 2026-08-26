@@ -50,6 +50,7 @@ var WaveEventDataTypes = map[string]reflect.Type{
 	wps.DagEventTaskSpawned:    reflect.TypeOf(""), // detail is the task id
 	wps.DagEventChildAsk:       reflect.TypeOf(""), // detail is JSON {taskid, question}
 	wps.DagEventTaskStalled:    reflect.TypeOf(""), // detail is the task id
+	wps.DagEventTaskRetried:    reflect.TypeOf(""), // detail is the task id
 	wps.Event_RunEvent:         reflect.TypeOf(wshrpc.RunEventData{}),
 }
 

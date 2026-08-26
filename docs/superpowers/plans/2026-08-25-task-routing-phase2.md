@@ -1,5 +1,7 @@
 # Task-Routing Phase 2 Implementation Plan
 
+> **Status (2026-08-26):** Tasks 1-7 implemented and verified (go suites orchestrate/jarvis/wshserver/waveobj, go vet, gofmt, tsc all clean); checkboxes below left as written. Task 8's verification ran at integration; follow-up hardening landed separately: tier vocabulary aliased to consult constants, classifier `"tests:"` keyword dropped, circuit-break × auto-retry semantics pinned in `circuitbreak_test.go`, auto-retry telemetry added (`DagEventTaskRetried`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the DAG engine one automatic same-tier recovery for a transient tool failure, persisted typed failure state, and an explicit human/lead-judged `escalate` verb that re-queues a failed task on a strictly higher tier.

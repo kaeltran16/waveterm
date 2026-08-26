@@ -29,6 +29,7 @@ const (
 	DagEventTaskSpawned = wps.DagEventTaskSpawned
 	DagEventChildAsk    = wps.DagEventChildAsk
 	DagEventTaskStalled = wps.DagEventTaskStalled
+	DagEventTaskRetried = wps.DagEventTaskRetried
 )
 
 // spawnWorker is the child-run launch seam. Package var so engine tests can stub it;
