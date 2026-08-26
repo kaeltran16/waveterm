@@ -22,14 +22,14 @@ func TestBuildPlanDagPromptIncludesAuthorityAndSchema(t *testing.T) {
 		Principles:  waveobj.PrincipleList{{ID: "simple", Text: "prefer the smallest safe change"}},
 		RunRoute:    waveobj.RoutePin{Runtime: "claude", Tier: "mid"},
 		AllowedRoutes: []waveobj.RoutePin{
-			{Runtime: "pi", Tier: "cheap"},
+			{Runtime: "pi", Model: "opencode/deepseek-v4-flash"},
 			{Runtime: "claude", Tier: "mid"},
 		},
 	}
 	prompt := BuildPlanDagPrompt(input)
 	for _, want := range []string{
 		"ship fast approval", "waveterm", "prefer the smallest safe change",
-		`"runtime":"claude"`, `"tier":"mid"`, `"runtime":"pi"`,
+		`"runtime":"claude"`, `"tier":"mid"`, `"runtime":"pi"`, `"model":"opencode/deepseek-v4-flash"`,
 		"one to eight", "inherit the Run route", `"description"`, `"deps"`, `"gate"`, `"route"`,
 	} {
 		if !strings.Contains(prompt, want) {
@@ -62,12 +62,12 @@ func TestParsePlanDagCanonicalizesAValidPlan(t *testing.T) {
 		RunRoute: waveobj.RoutePin{Runtime: "claude", Tier: "mid"},
 		AllowedRoutes: []waveobj.RoutePin{
 			{Runtime: "claude", Tier: "mid"},
-			{Runtime: "pi", Tier: "cheap"},
+			{Runtime: "pi", Model: "opencode/deepseek-v4-flash"},
 		},
 	}
 	raw := `{"title":" Release ","tasks":[` +
 		`{"id":"plan","label":" Plan ","description":" Decide seams ","gate":true},` +
-		`{"id":"build","label":"Build","deps":["plan","plan"],"route":{"runtime":"pi","tier":"cheap"}}]}`
+		`{"id":"build","label":"Build","deps":["plan","plan"],"route":{"runtime":"pi","model":"opencode/deepseek-v4-flash"}}]}`
 	draft, warnings, err := ParsePlanDag(raw, input)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestParsePlanDagCanonicalizesAValidPlan(t *testing.T) {
 	if draft.Tasks[0].ID != "t-1" || draft.Tasks[0].Description != "Decide seams" || !draft.Tasks[0].Gate {
 		t.Fatalf("first task=%+v", draft.Tasks[0])
 	}
-	if !reflect.DeepEqual(draft.Tasks[1].Deps, []string{"t-1"}) || draft.Tasks[1].Route == nil || draft.Tasks[1].Route.Runtime != "pi" {
+	if !reflect.DeepEqual(draft.Tasks[1].Deps, []string{"t-1"}) || draft.Tasks[1].Route == nil || draft.Tasks[1].Route.Runtime != "pi" || draft.Tasks[1].Route.Model != "opencode/deepseek-v4-flash" {
 		t.Fatalf("second task=%+v", draft.Tasks[1])
 	}
 }
@@ -105,8 +105,26 @@ func TestParsePlanDagClearsInvalidRouteWithTaskWarning(t *testing.T) {
 		`{"tasks":[{"id":"a","label":"Build","route":{"runtime":"pi","tier":"cheap"}}]}`,
 		input,
 	)
-	if err != nil || draft.Tasks[0].Route != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "t-1") {
+	if err != nil || draft.Tasks[0].Route != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "t-1") || !strings.Contains(warnings[0], "pi/cheap") {
 		t.Fatalf("draft=%+v warnings=%v err=%v", draft, warnings, err)
+	}
+}
+
+func TestParsePlanDagClearsUnavailableModelRouteWithLabelWarning(t *testing.T) {
+	input := DagPlanInput{
+		Goal:          "ship",
+		RunRoute:      waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"},
+		AllowedRoutes: []waveobj.RoutePin{{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}},
+	}
+	draft, warnings, err := ParsePlanDag(
+		`{"tasks":[{"id":"a","label":"Build","route":{"runtime":"pi","model":"not-allowed"}}]}`,
+		input,
+	)
+	if err != nil || draft.Tasks[0].Route != nil || len(warnings) != 1 {
+		t.Fatalf("draft=%+v warnings=%v err=%v", draft, warnings, err)
+	}
+	if !strings.Contains(warnings[0], "route pi/not-allowed") {
+		t.Fatalf("warning must use the model label: %q", warnings[0])
 	}
 }
 

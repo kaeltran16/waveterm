@@ -133,7 +133,7 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
 	t.Cleanup(func() { stopRunWorkers = oldStop })
 
-	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", "")
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
 	if err == nil || !strings.Contains(err.Error(), "stop failed") {
 		t.Fatalf("retry error = %v, want stop failure", err)
 	}
@@ -148,7 +148,7 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 
 func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
 	ctx, dag, _, child := seedRunningDag(t)
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ""); err == nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err == nil {
 		t.Fatal("running task accepted skip")
 	}
 	got, err := wstore.GetDag(ctx, dag.OID)
@@ -176,7 +176,7 @@ func TestSkipStopsStalledChildBeforeClearingOwnership(t *testing.T) {
 	}
 	t.Cleanup(func() { stopRunWorkers = oldStop })
 
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ""); err != nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	gotDag, _ := wstore.GetDag(ctx, dag.OID)
@@ -211,7 +211,7 @@ func TestRetryKeepsOwnershipWhenCancelledChildCannotReload(t *testing.T) {
 		})
 	})
 
-	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", "")
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
 	if err == nil || !strings.Contains(err.Error(), "loading old run") {
 		t.Fatalf("retry error = %v, want child reload failure", err)
 	}
@@ -298,9 +298,9 @@ func allowEscalationSchedule(t *testing.T) {
 	stubSpawnWorker(t, waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil)
 }
 
-func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, child waveobj.Run, worker string, requestedTier string) {
+func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, child waveobj.Run, worker string, target waveobj.RoutePin) {
 	t.Helper()
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", requestedTier); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", target); err == nil {
 		t.Fatal("want escalation rejection")
 	}
 	got, err := wstore.GetRun(ctx, dag.ChannelId, child.ID)
@@ -312,30 +312,24 @@ func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context
 	}
 }
 
-func TestEscalateDefaultsToNextTierAndPreservesInheritedRuntime(t *testing.T) {
-	ctx, dag, child, _ := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
+func TestEscalateRejectsEmptyTarget(t *testing.T) {
+	ctx, dag, _, _ := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ""); err != nil {
-		t.Fatal(err)
+	// no automatic tier ladder: a judged hop requires an explicit model or higher tier
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{}); err == nil {
+		t.Fatal("empty escalate target must be rejected")
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
 	task := got.Tasks[0]
-	if task.RunSpec.Runtime != "pi" || task.RunSpec.Tier != "capable" || task.Escalations != 1 || task.Attempts != 0 || task.LastFailureKind != "" {
-		t.Fatalf("escalated task route/state = %+v", task)
-	}
-	oldChild, err := wstore.GetRun(ctx, dag.ChannelId, child.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if oldChild.Status != jarvis.RunStatus_Cancelled {
-		t.Fatalf("old child status = %q, want cancelled", oldChild.Status)
+	if task.RunSpec.Runtime != "" || task.RunSpec.Tier != "" || task.Escalations != 0 || task.State != TaskState_Failed {
+		t.Fatalf("rejected escalation mutated task route/state = %+v", task)
 	}
 }
 
 func TestEscalateAcceptsExplicitHigherTier(t *testing.T) {
 	ctx, dag, _, _ := seedEscalationDag(t, "pi", "cheap", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", "capable"); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Tier: "capable"}); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
@@ -348,19 +342,19 @@ func TestEscalateRejectsSameOrLowerTierWithoutCancellingRun(t *testing.T) {
 	for _, requested := range []string{"mid", "cheap"} {
 		t.Run(requested, func(t *testing.T) {
 			ctx, dag, child, worker := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
-			assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, requested)
+			assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: requested})
 		})
 	}
 }
 
 func TestEscalateRejectsSecondHopWithoutCancellingRun(t *testing.T) {
 	ctx, dag, child, worker := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 1)
-	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, "capable")
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: "capable"})
 }
 
 func TestEscalateRejectsUnsupportedRouteWithoutCancellingRun(t *testing.T) {
 	ctx, dag, child, worker := seedEscalationDag(t, "codex", "cheap", TaskState_Failed, 0)
-	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, "mid")
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, waveobj.RoutePin{Tier: "mid"})
 }
 
 func TestEscalateRejectsPendingTask(t *testing.T) {
@@ -372,7 +366,7 @@ func TestEscalateRejectsPendingTask(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", "capable"); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Tier: "capable"}); err == nil {
 		t.Fatal("pending task accepted escalation")
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
@@ -529,7 +523,7 @@ func TestCancelledDagRejectsFurtherMutations(t *testing.T) {
 	}
 
 	for _, action := range []string{"approve", "sendback", "retry", "skip", "escalate"} {
-		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action, ""); err == nil {
+		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action, waveobj.RoutePin{}); err == nil {
 			t.Fatalf("cancelled DAG accepted %q", action)
 		}
 	}
@@ -565,7 +559,7 @@ func TestCancelHoldsDagAuthorityThroughWorkerCleanup(t *testing.T) {
 	go func() { cancelDone <- Cancel(ctx, dag.OID) }()
 	<-entered
 	actionDone := make(chan error, 1)
-	go func() { actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", "") }()
+	go func() { actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{}) }()
 	select {
 	case err := <-actionDone:
 		t.Fatalf("action escaped cancellation authority before worker cleanup: %v", err)
@@ -733,5 +727,50 @@ func TestCancelSweepsTaskWorktrees(t *testing.T) {
 	}
 	if !strings.Contains(string(patch), "uncommitted.txt") {
 		t.Fatalf("patch must capture uncommitted work:\n%s", patch)
+	}
+}
+
+func TestEscalationTargetModel(t *testing.T) {
+	task := &waveobj.TaskNode{ID: "t-1", State: TaskState_Failed, RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "opencode/deepseek-v4-flash"}}
+	owner := &waveobj.Run{Runtime: "pi"}
+	target, err := escalationTarget(task, owner, waveobj.RoutePin{Runtime: "claude", Model: "opus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Runtime != "claude" || target.Model != "opus" {
+		t.Fatalf("cross-runtime model escalation failed: %+v", target)
+	}
+}
+
+func TestEscalationTargetRequiresValidModel(t *testing.T) {
+	task := &waveobj.TaskNode{ID: "t-1", State: TaskState_Failed, RunSpec: waveobj.RunSpec{Runtime: "pi"}}
+	owner := &waveobj.Run{Runtime: "pi"}
+	if _, err := escalationTarget(task, owner, waveobj.RoutePin{Runtime: "claude", Model: "gpt-5.4"}); err == nil {
+		t.Fatal("cross-namespace model must be rejected")
+	}
+	if _, err := escalationTarget(task, owner, waveobj.RoutePin{}); err == nil {
+		t.Fatal("empty target must be rejected")
+	}
+}
+
+func TestEscalationTargetCapHolds(t *testing.T) {
+	task := &waveobj.TaskNode{ID: "t-1", State: TaskState_Stalled, Escalations: 1, RunSpec: waveobj.RunSpec{Runtime: "pi"}}
+	owner := &waveobj.Run{Runtime: "pi"}
+	if _, err := escalationTarget(task, owner, waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}); err == nil {
+		t.Fatal("escalations cap must refuse a second hop")
+	}
+}
+
+func TestEffectiveTaskRouteModel(t *testing.T) {
+	task := &waveobj.TaskNode{RunSpec: waveobj.RunSpec{Runtime: "", Model: "opencode/claude-opus-4-8"}}
+	owner := &waveobj.Run{Runtime: "pi"}
+	got := effectiveTaskRoute(task, owner)
+	if got.Model != "opencode/claude-opus-4-8" || got.Runtime != "pi" {
+		t.Fatalf("model RunSpec must inherit owner runtime: %+v", got)
+	}
+	ownerWithModel := &waveobj.Run{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}
+	inherited := effectiveTaskRoute(&waveobj.TaskNode{}, ownerWithModel)
+	if inherited.Model != "opencode/deepseek-v4-pro" || inherited.Runtime != "pi" {
+		t.Fatalf("owner model must flow to tasks without a route: %+v", inherited)
 	}
 }

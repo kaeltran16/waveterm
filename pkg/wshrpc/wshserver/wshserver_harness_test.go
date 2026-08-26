@@ -17,6 +17,12 @@ import (
 )
 
 func TestListHarnessesReturnsCatalogWithoutOpenRouter(t *testing.T) {
+	// keep real CLIs out of the test; catalog contents are covered elsewhere
+	defer runroute.SetCatalogCommandForTest(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return []byte("not a model table\n"), nil
+	})()
+	runroute.RefreshRouteCatalog()
+	defer runroute.RefreshRouteCatalog()
 	old := probeHarnesses
 	t.Cleanup(func() { probeHarnesses = old })
 	probeHarnesses = func(ctx context.Context) []harness.ProbeResult {
@@ -45,15 +51,19 @@ func TestListHarnessesReturnsCatalogWithoutOpenRouter(t *testing.T) {
 }
 
 func TestInstalledRunWorkerPinsUseOnlyInstalledWorkerCapabilities(t *testing.T) {
-	pins := installedRunWorkerPins([]harness.ProbeResult{
+	defer runroute.SetCatalogCommandForTest(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return []byte("provider model context\nopencode deepseek-v4-pro 1M\n"), nil
+	})()
+	runroute.RefreshRouteCatalog()
+	defer runroute.RefreshRouteCatalog()
+
+	pins := installedRunWorkerPins(context.Background(), []harness.ProbeResult{
 		{Spec: harness.Spec{Runtime: "pi", RunWorkerCapable: true}, Installed: true},
 		{Spec: harness.Spec{Runtime: "claude", RunWorkerCapable: true}, Installed: false},
 		{Spec: harness.Spec{Runtime: "codex", RunWorkerCapable: false}, Installed: true},
 	})
 	want := []waveobj.RoutePin{
-		{Runtime: "pi", Tier: "cheap"},
-		{Runtime: "pi", Tier: "mid"},
-		{Runtime: "pi", Tier: "capable"},
+		{Runtime: "pi", Model: "opencode/deepseek-v4-pro"},
 	}
 	if !reflect.DeepEqual(pins, want) {
 		t.Fatalf("pins=%+v want=%+v", pins, want)
@@ -61,6 +71,13 @@ func TestInstalledRunWorkerPinsUseOnlyInstalledWorkerCapabilities(t *testing.T) 
 }
 
 func TestListHarnessesAddsRouteCapabilitiesOnlyForAvailableWorkers(t *testing.T) {
+	// garbage catalog output degrades every runtime to free-form-only, keeping the legacy-tier
+	// assertions below deterministic regardless of which CLIs this machine has installed
+	defer runroute.SetCatalogCommandForTest(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return []byte("not a model table\n"), nil
+	})()
+	runroute.RefreshRouteCatalog()
+	defer runroute.RefreshRouteCatalog()
 	old := probeHarnesses
 	t.Cleanup(func() { probeHarnesses = old })
 	probeHarnesses = func(ctx context.Context) []harness.ProbeResult {
@@ -118,5 +135,59 @@ func TestConsultRejectsUnknownRuntimeBeforeDispatch(t *testing.T) {
 	}
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "mystery") {
 		t.Fatalf("error = %v, want validator error naming the runtime", gotErr)
+	}
+}
+
+func TestListHarnessesAddsCatalogModelCapabilities(t *testing.T) {
+	defer runroute.SetCatalogCommandForTest(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return []byte("provider model context\nopencode deepseek-v4-pro 1M\n"), nil
+	})()
+	runroute.RefreshRouteCatalog()
+	defer runroute.RefreshRouteCatalog()
+	old := probeHarnesses
+	t.Cleanup(func() { probeHarnesses = old })
+	probeHarnesses = func(ctx context.Context) []harness.ProbeResult {
+		return []harness.ProbeResult{
+			{Spec: harness.Spec{Runtime: "pi", Label: "Pi", RunWorkerCapable: true}, Installed: true},
+			{Spec: harness.Spec{Runtime: "claude", Label: "Claude Code", RunWorkerCapable: true}, Installed: false},
+			{Spec: harness.Spec{Runtime: "codex", Label: "Codex", RunWorkerCapable: false}, Installed: true},
+		}
+	}
+
+	ws := &WshServer{}
+	rtn, err := ws.ListHarnessesCommand(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var piCap *wshrpc.RouteCapabilityInfo
+	for i := range rtn.Harnesses {
+		h := &rtn.Harnesses[i]
+		if h.Runtime != "pi" {
+			continue
+		}
+		for j := range h.RouteCapabilities {
+			if h.RouteCapabilities[j].Model == "opencode/deepseek-v4-pro" {
+				piCap = &h.RouteCapabilities[j]
+			}
+		}
+	}
+	if piCap == nil {
+		t.Fatalf("pi must expose a catalog model capability: %+v", rtn.Harnesses)
+	}
+	if piCap.ResolvedModel != "opencode/deepseek-v4-pro" {
+		t.Fatalf("resolvedmodel must equal the model: %+v", piCap)
+	}
+	if piCap.ContextHint != "1M" {
+		t.Fatalf("catalog metadata must ride through: %+v", piCap)
+	}
+	// non-installed / non-worker runtimes must not expose model capabilities
+	for _, h := range rtn.Harnesses {
+		if h.Runtime == "claude" || h.Runtime == "codex" {
+			for _, c := range h.RouteCapabilities {
+				if c.Model != "" {
+					t.Errorf("%s must not expose model capabilities: %+v", h.Runtime, c)
+				}
+			}
+		}
 	}
 }

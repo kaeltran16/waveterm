@@ -39,7 +39,9 @@ type CommandDagActionData struct {
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
 	Action    string `json:"action"` // approve | sendback | retry | skip | escalate | cancel
-	Tier      string `json:"tier,omitempty"`
+	Tier      string `json:"tier,omitempty"`    // legacy escalate target tier
+	Model     string `json:"model,omitempty"`   // escalate target model (exact id); wins over Tier
+	Runtime   string `json:"runtime,omitempty"` // escalate target runtime; empty = task's current runtime
 }
 
 type CommandDagMergeData struct {

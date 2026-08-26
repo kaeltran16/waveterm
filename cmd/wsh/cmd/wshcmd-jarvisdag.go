@@ -246,18 +246,22 @@ func dagEscalateData(cmd *cobra.Command, args []string) (wshrpc.CommandDagAction
 		return wshrpc.CommandDagActionData{}, err
 	}
 	tier, _ := cmd.Flags().GetString("tier")
+	model, _ := cmd.Flags().GetString("model")
+	runtime, _ := cmd.Flags().GetString("runtime")
 	return wshrpc.CommandDagActionData{
 		ChannelId: channelID,
 		RunId:     runID,
 		TaskId:    args[0],
 		Action:    "escalate",
 		Tier:      tier,
+		Model:     model,
+		Runtime:   runtime,
 	}, nil
 }
 
 var dagEscalateCmd = &cobra.Command{
 	Use:     "escalate <task-id>",
-	Short:   "re-queue a failed or stalled task on a higher tier",
+	Short:   "re-queue a failed or stalled task on a chosen model (one judged hop)",
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -386,7 +390,9 @@ func init() {
 	}
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
-	dagEscalateCmd.Flags().String("tier", "", "target tier: mid|capable (default: next tier)")
+	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. opencode/claude-opus-4-8)")
+	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")
+	dagEscalateCmd.Flags().String("tier", "", "legacy: retry on a higher tier (mid|capable)")
 	dagMergeCmd.Flags().Bool("continue", false, "finish a blocked squash merge after manual conflict resolution")
 	jarvisCmd.AddCommand(jarvisDagCmd)
 }

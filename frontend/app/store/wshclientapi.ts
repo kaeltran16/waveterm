@@ -1110,6 +1110,12 @@ export class RpcApiType {
         return client.wshRpcCall("recordtevent", data, opts);
     }
 
+    // command "refreshroutecatalog" [call]
+    RefreshRouteCatalogCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "refreshroutecatalog", null, opts);
+        return client.wshRpcCall("refreshroutecatalog", null, opts);
+    }
+
     // command "remotedisconnectfromjobmanager" [call]
     RemoteDisconnectFromJobManagerCommand(client: WshClient, data: CommandRemoteDisconnectFromJobManagerData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "remotedisconnectfromjobmanager", data, opts);

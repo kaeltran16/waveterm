@@ -43,15 +43,6 @@ func TestRetryDecision(t *testing.T) {
 }
 
 func TestTierPolicy(t *testing.T) {
-	if got, err := nextTier("cheap"); err != nil || got != "mid" {
-		t.Fatalf("cheap -> %q, %v", got, err)
-	}
-	if got, err := nextTier("mid"); err != nil || got != "capable" {
-		t.Fatalf("mid -> %q, %v", got, err)
-	}
-	if _, err := nextTier("capable"); err == nil {
-		t.Fatal("capable must have no next tier")
-	}
 	if !isHigherTier("cheap", "mid") || !isHigherTier("cheap", "capable") || !isHigherTier("mid", "capable") {
 		t.Fatal("valid upward hops rejected")
 	}

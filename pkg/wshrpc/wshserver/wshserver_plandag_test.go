@@ -12,6 +12,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -70,6 +71,12 @@ func TestJarvisPlanDagResolvesInputWithoutCreatingRuns(t *testing.T) {
 
 	oldPlan, oldValidate, oldProbe := planDag, validateHarness, probeHarnesses
 	t.Cleanup(func() { planDag, validateHarness, probeHarnesses = oldPlan, oldValidate, oldProbe })
+	// deterministic catalog: one model pin for the installed worker-capable runtime
+	defer runroute.SetCatalogCommandForTest(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return []byte("provider model context\nopencode deepseek-v4-pro 1M\n"), nil
+	})()
+	runroute.RefreshRouteCatalog()
+	t.Cleanup(runroute.RefreshRouteCatalog)
 	validateHarness = func(runtime string, _ harness.Operation) (harness.Spec, error) {
 		return harness.Spec{Runtime: runtime}, nil
 	}
@@ -103,9 +110,7 @@ func TestJarvisPlanDagResolvesInputWithoutCreatingRuns(t *testing.T) {
 		t.Fatalf("resolved principles=%+v", gotInput.Principles)
 	}
 	wantPins := []waveobj.RoutePin{
-		{Runtime: "pi", Tier: "cheap"},
-		{Runtime: "pi", Tier: "mid"},
-		{Runtime: "pi", Tier: "capable"},
+		{Runtime: "pi", Model: "opencode/deepseek-v4-pro"},
 	}
 	if !reflect.DeepEqual(gotInput.AllowedRoutes, wantPins) {
 		t.Fatalf("allowed routes=%+v want=%+v", gotInput.AllowedRoutes, wantPins)

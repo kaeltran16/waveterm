@@ -34,6 +34,9 @@ type JarvisCommands interface {
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                                           // read the global Jarvis profile (builtins if unset)
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to jarvis-profile.json
 	ListHarnessesCommand(ctx context.Context) (*CommandListHarnessesRtnData, error)                                                        // installed coding-agent harnesses (catalog); excludes API-only backends like OpenRouter
+	// RefreshRouteCatalogCommand clears the cached run-route model catalog; the next
+	// ListHarnessesCommand re-enumerates from the installed harnesses.
+	RefreshRouteCatalogCommand(ctx context.Context) error
 	GetEmbedIndexStatusCommand(ctx context.Context) (*EmbedIndexStatus, error)                                                             // is semantic recall actually working right now: ok | off | stale, and why
 	EmbedReconcileCommand(ctx context.Context) error                                                                                       // start catching the embedding index up to the vault; returns as soon as the work is dispatched
 	JarvisStateCommand(ctx context.Context, data CommandJarvisStateData) (*CommandJarvisStateRtnData, error)                               // work-ledger query: per-project active/shipped/timeline/delta + source health
@@ -237,8 +240,12 @@ type CommandArchiveJarvisConversationData struct {
 
 type RouteCapabilityInfo struct {
 	Runtime       string `json:"runtime"`
-	Tier          string `json:"tier"`
+	Tier          string `json:"tier,omitempty"`       // legacy tier pin only; "" for model capabilities
+	Model         string `json:"model,omitempty"`       // exact model id; set on catalog capabilities
 	ResolvedModel string `json:"resolvedmodel"`
+	Provider      string `json:"provider,omitempty"`
+	ContextHint   string `json:"contexthint,omitempty"`
+	Default       bool   `json:"default,omitempty"`
 }
 
 // HarnessInfo is one installed coding-agent harness in the shared catalog. OpenRouter is deliberately

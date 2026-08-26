@@ -66,11 +66,11 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 		})
 	}
 	cap, _ := runroute.Resolve(waveobj.RoutePin{Runtime: "claude", Tier: string(consult.TierCheap)})
-	cap.Tier = consult.TierCapable
+	cap.Tier = string(consult.TierCapable)
 	for _, invalid := range []runroute.Capability{
 		cap,
-		{Runtime: "pi", Tier: consult.TierCapable},
-		{Runtime: "mystery", Tier: consult.TierCapable},
+		{Runtime: "pi", Tier: string(consult.TierCapable)},
+		{Runtime: "mystery", Tier: string(consult.TierCapable)},
 	} {
 		if _, ok := RunWorkerSpecFor(invalid, "do work"); ok {
 			t.Errorf("mismatched/unsupported capability %+v produced a worker spec", cap)

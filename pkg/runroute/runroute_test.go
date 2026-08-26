@@ -2,6 +2,7 @@ package runroute
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestResolveV1Capabilities(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Resolve: %v", err)
 			}
-			if got.Runtime != tt.runtime || got.Tier != tt.tier || got.ResolvedModel != tt.model {
+			if got.Runtime != tt.runtime || got.Tier != string(tt.tier) || got.ResolvedModel != tt.model {
 				t.Fatalf("got %+v", got)
 			}
 			if !reflect.DeepEqual(got.ModelArgs, tt.args) {
@@ -99,5 +100,100 @@ func TestNormalizeLegacy(t *testing.T) {
 	}
 	if got := NormalizeLegacy("", "cheap"); got != (waveobj.RoutePin{Runtime: "claude", Tier: "cheap"}) {
 		t.Fatalf("NormalizeLegacy runtime empty = %+v", got)
+	}
+}
+
+func TestResolveModelPinClaudeAlias(t *testing.T) {
+	cap, err := Resolve(waveobj.RoutePin{Runtime: "claude", Model: "opus[1m]"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.ResolvedModel != "opus[1m]" || !slices.Equal(cap.ModelArgs, []string{"--model", "opus[1m]"}) {
+		t.Fatalf("claude alias pin resolved wrong: %+v", cap)
+	}
+}
+
+func TestResolveModelPinPiProviderID(t *testing.T) {
+	cap, err := Resolve(waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Model != "opencode/deepseek-v4-pro" || cap.ResolvedModel != "opencode/deepseek-v4-pro" {
+		t.Fatalf("pi provider pin resolved wrong: %+v", cap)
+	}
+}
+
+func TestResolveModelPinOpenCode(t *testing.T) {
+	cap, err := Resolve(waveobj.RoutePin{Runtime: "opencode", Model: "openai/gpt-5.4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cap.ModelArgs, []string{"--model", "openai/gpt-5.4"}) {
+		t.Fatalf("opencode args wrong: %+v", cap.ModelArgs)
+	}
+}
+
+func TestResolveModelPinCodex(t *testing.T) {
+	cap, err := Resolve(waveobj.RoutePin{Runtime: "codex", Model: "gpt-5.6-sol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cap.ModelArgs, []string{"--model", "gpt-5.6-sol"}) {
+		t.Fatalf("codex args wrong: %+v", cap.ModelArgs)
+	}
+}
+
+func TestResolveRejectsCrossRuntimeNamespace(t *testing.T) {
+	for _, pin := range []waveobj.RoutePin{
+		{Runtime: "claude", Model: "gpt-5.4"},
+		{Runtime: "opencode", Model: "deepseek-v4-pro"},
+		{Runtime: "codex", Model: "a;b"}, // shell metacharacter reject
+		{Runtime: "pi", Model: "has space/deepseek"},
+	} {
+		if _, err := Resolve(pin); err == nil {
+			t.Errorf("expected reject for %+v", pin)
+		}
+	}
+}
+
+func TestResolveModelWinsOverTier(t *testing.T) {
+	cap, err := Resolve(waveobj.RoutePin{Runtime: "pi", Tier: "cheap", Model: "opencode/claude-opus-4-8"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Model != "opencode/claude-opus-4-8" {
+		t.Fatalf("model must win over tier: %+v", cap)
+	}
+}
+
+// legacy path must stay byte-identical: every pinned tier resolves to the same model+args as today.
+func TestResolveLegacyTableUnchanged(t *testing.T) {
+	for _, pin := range []waveobj.RoutePin{
+		{Runtime: "pi", Tier: "cheap"}, {Runtime: "pi", Tier: "mid"}, {Runtime: "pi", Tier: "capable"},
+		{Runtime: "claude", Tier: "cheap"}, {Runtime: "claude", Tier: "mid"}, {Runtime: "claude", Tier: "capable"},
+		{Runtime: "codex", Tier: "capable"}, {Runtime: "opencode", Tier: "capable"},
+	} {
+		cap, err := Resolve(pin)
+		if err != nil {
+			t.Fatalf("legacy %+v: %v", pin, err)
+		}
+		if cap.Model != "" {
+			t.Fatalf("legacy pin must not set Model: %+v", cap)
+		}
+	}
+}
+
+func TestIsValidModelCapability(t *testing.T) {
+	cap, err := Resolve(waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-flash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsValid(cap) {
+		t.Fatal("resolved model capability must be valid")
+	}
+	forged := cap
+	forged.ModelArgs = []string{"--model", "not-the-resolved-model"}
+	if IsValid(forged) {
+		t.Fatal("forged ModelArgs must be rejected")
 	}
 }

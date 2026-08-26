@@ -501,6 +501,7 @@ declare global {
         goal: string;
         runtime: string;
         tier: string;
+        model?: string;
         playbookid?: string;
         mode?: string;
         plangate?: boolean;
@@ -539,6 +540,8 @@ declare global {
         taskid: string;
         action: string;
         tier?: string;
+        model?: string;
+        runtime?: string;
     };
 
     // wshrpc.CommandDagAnswerData
@@ -2811,14 +2814,19 @@ declare global {
     // wshrpc.RouteCapabilityInfo
     type RouteCapabilityInfo = {
         runtime: string;
-        tier: string;
+        tier?: string;
+        model?: string;
         resolvedmodel: string;
+        provider?: string;
+        contexthint?: string;
+        default?: boolean;
     };
 
     // waveobj.RoutePin
     type RoutePin = {
         runtime: string;
         tier: string;
+        model?: string;
     };
 
     // wshrpc.RpcContext
@@ -2860,6 +2868,7 @@ declare global {
         goal: string;
         runtime?: string;
         tier?: string;
+        model?: string;
         playbookid?: string;
         mode?: string;
         workspaceid: string;
@@ -2942,6 +2951,7 @@ declare global {
     type RunSpec = {
         runtime?: string;
         tier?: string;
+        model?: string;
         mode?: string;
         goal?: string;
     };

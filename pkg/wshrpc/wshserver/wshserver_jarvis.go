@@ -71,6 +71,11 @@ func (ws *WshServer) SetGlobalProfileCommand(ctx context.Context, data wshrpc.Co
 	return jarvis.SaveGlobalProfile(data.Profile)
 }
 
+func (ws *WshServer) RefreshRouteCatalogCommand(ctx context.Context) error {
+	runroute.RefreshRouteCatalog()
+	return nil
+}
+
 func (ws *WshServer) JarvisDecomposeCommand(ctx context.Context, data wshrpc.CommandJarvisDecomposeData) (*wshrpc.CommandJarvisDecomposeRtnData, error) {
 	if strings.TrimSpace(data.Goal) == "" {
 		return nil, fmt.Errorf("goal is required")
@@ -116,7 +121,7 @@ func (ws *WshServer) JarvisPlanDagCommand(ctx context.Context, data wshrpc.Comma
 		ChannelName:   channel.Name,
 		Principles:    resolved.Principles,
 		RunRoute:      data.Route,
-		AllowedRoutes: installedRunWorkerPins(probes),
+		AllowedRoutes: installedRunWorkerPins(ctx, probes),
 	})
 	if err != nil {
 		log.Printf("jarvis plan dag: channel=%s: %v", channelID, err)
@@ -127,7 +132,23 @@ func (ws *WshServer) JarvisPlanDagCommand(ctx context.Context, data wshrpc.Comma
 			Warnings: warnings,
 		}, nil
 	}
-	return &wshrpc.CommandJarvisPlanDagRtnData{Draft: toRPCDagPlanDraft(draft), Warnings: warnings}, nil
+	return &wshrpc.CommandJarvisPlanDagRtnData{Draft: toRPCDagPlanDraft(draft), Warnings: append(warnings, catalogPresenceWarnings(draft)...)}, nil
+}
+
+// catalogPresenceWarnings flags task routes whose model is missing from the cached catalog.
+// Advisory by design: the cache can be stale and a namespace-valid id may still be new to the
+// provider, so these are warnings the human sees before launch, never submit errors.
+func catalogPresenceWarnings(draft jarvis.DagPlanDraft) []string {
+	var warnings []string
+	for _, task := range draft.Tasks {
+		if task.Route == nil || task.Route.Model == "" {
+			continue
+		}
+		if !runroute.CatalogHasModel(context.Background(), task.Route.Runtime, task.Route.Model) {
+			warnings = append(warnings, fmt.Sprintf("Task %s model %s is not in the current catalog; verify it before launch.", task.ID, task.Route.Model))
+		}
+	}
+	return warnings
 }
 
 const consultTimeout = 120 * time.Second
@@ -398,11 +419,20 @@ func routeCapabilitiesForProbe(result harness.ProbeResult) []runroute.Capability
 	return runroute.Capabilities(result.Spec.Runtime)
 }
 
-func installedRunWorkerPins(results []harness.ProbeResult) []waveobj.RoutePin {
+// catalogModelsForProbe returns the harness-sourced model catalog for installed, run-worker-capable
+// probes; the picker sees the flat catalog, never the legacy tiers.
+func catalogModelsForProbe(ctx context.Context, result harness.ProbeResult) []runroute.ModelEntry {
+	if !result.Installed || !result.Spec.RunWorkerCapable {
+		return nil
+	}
+	return runroute.ModelsForRuntime(ctx, result.Spec.Runtime)
+}
+
+func installedRunWorkerPins(ctx context.Context, results []harness.ProbeResult) []waveobj.RoutePin {
 	var pins []waveobj.RoutePin
 	for _, result := range results {
-		for _, capability := range routeCapabilitiesForProbe(result) {
-			pins = append(pins, waveobj.RoutePin{Runtime: capability.Runtime, Tier: string(capability.Tier)})
+		for _, entry := range catalogModelsForProbe(ctx, result) {
+			pins = append(pins, waveobj.RoutePin{Runtime: entry.Runtime, Model: entry.Model})
 		}
 	}
 	return pins
@@ -435,8 +465,18 @@ func (ws *WshServer) ListHarnessesCommand(ctx context.Context) (*wshrpc.CommandL
 		for _, capability := range routeCapabilitiesForProbe(r) {
 			capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
 				Runtime:       capability.Runtime,
-				Tier:          string(capability.Tier),
+				Tier:          capability.Tier,
 				ResolvedModel: capability.ResolvedModel,
+			})
+		}
+		for _, entry := range catalogModelsForProbe(ctx, r) {
+			capabilities = append(capabilities, wshrpc.RouteCapabilityInfo{
+				Runtime:       entry.Runtime,
+				Model:         entry.Model,
+				ResolvedModel: entry.Model,
+				Provider:      entry.Provider,
+				ContextHint:   entry.ContextHint,
+				Default:       entry.Default,
 			})
 		}
 		infos[i] = wshrpc.HarnessInfo{

@@ -198,6 +198,7 @@ func spawnRunWorkers(ctx context.Context, channelId, runId, projectName string) 
 		return err
 	}
 	pin := runroute.NormalizeLegacy(run.Runtime, run.Tier)
+	pin.Model = run.Model
 	cap, routeErr := runroute.Resolve(pin)
 	if routeErr != nil {
 		return routeErr
@@ -303,7 +304,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		effortRef = &waveobj.RunEffortRef{EffortOID: data.EffortOID, ChunkLabel: data.ChunkLabel}
 	}
 	// Resolve and validate the complete route before loading or persisting any run state.
-	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: data.Runtime, Tier: data.Tier})
+	cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: data.Runtime, Tier: data.Tier, Model: data.Model})
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +323,8 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 		run.Status = jarvis.RunStatus_Planning
 	}
 	run.Runtime = cap.Runtime // immutable after Start; every phase and child inherits this
-	run.Tier = string(cap.Tier)
+	run.Tier = cap.Tier
+	run.Model = cap.Model
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
@@ -416,6 +418,7 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 	}
 	resolved := jarvis.ResolveProfile(jarvis.LoadGlobalProfile(), jarvis.OverrideFromMeta(m.Channel))
 	pin := runroute.NormalizeLegacy(parent.Runtime, parent.Tier)
+	pin.Model = parent.Model
 	cap, err := runroute.Resolve(pin)
 	if err != nil {
 		return nil, err

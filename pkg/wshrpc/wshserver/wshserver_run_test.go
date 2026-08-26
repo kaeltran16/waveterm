@@ -769,3 +769,61 @@ func TestCancelRunDoesNotBypassMissingLinkedDag(t *testing.T) {
 		t.Fatal("owner was partially cancelled despite unresolved DAG")
 	}
 }
+
+func TestCreateRunCommand_PersistsModelRoute(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-model", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	var spawnedCap runroute.Capability
+	stubRunServer(t, "claude", nil, &spawnedCap)
+
+	ws := &WshServer{}
+	rtn, err := ws.CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "claude", Model: "sonnet",
+	})
+	if err != nil {
+		t.Fatalf("CreateRunCommand: %v", err)
+	}
+	if rtn.Run.Model != "sonnet" || rtn.Run.Runtime != "claude" {
+		t.Fatalf("persisted route = %s model=%q, want claude/sonnet", rtn.Run.Runtime, rtn.Run.Model)
+	}
+	if spawnedCap.Model != "sonnet" || !reflect.DeepEqual(spawnedCap.ModelArgs, []string{"--model", "sonnet"}) {
+		t.Fatalf("spawned capability = %+v, want claude sonnet --model args", spawnedCap)
+	}
+}
+
+func TestCreateRunCommand_RejectsCrossNamespaceModelBeforePersistence(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "create-badmodel", "/repo")
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	oldValidate := validateHarness
+	validateHarness = func(string, harness.Operation) (harness.Spec, error) {
+		t.Fatal("validateHarness called for a route rejected by runroute")
+		return harness.Spec{}, nil
+	}
+	t.Cleanup(func() { validateHarness = oldValidate })
+	var spawnCalls int
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		spawnCalls++
+		return "tab:unexpected", nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+
+	_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws-1", Goal: "do it", Runtime: "claude", Model: "gpt-5.4",
+	})
+	if err == nil {
+		t.Fatal("cross-namespace model must be rejected")
+	}
+	if runs, _ := wstore.GetChannelRuns(ctx, ch.OID); len(runs) != 0 {
+		t.Fatalf("rejected route persisted %d runs", len(runs))
+	}
+	if spawnCalls != 0 {
+		t.Fatalf("rejected route spawned %d workers", spawnCalls)
+	}
+}

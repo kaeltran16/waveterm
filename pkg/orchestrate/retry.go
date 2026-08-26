@@ -1,7 +1,6 @@
 package orchestrate
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
@@ -40,19 +39,6 @@ func classifyFailure(summary string, exitCode int) string {
 
 func retryDecision(kind string, attempts int) bool {
 	return kind == FailureKindToolError && attempts == 0
-}
-
-func nextTier(tier string) (string, error) {
-	switch tier {
-	case string(consult.TierCheap):
-		return string(consult.TierMid), nil
-	case string(consult.TierMid):
-		return string(consult.TierCapable), nil
-	case string(consult.TierCapable):
-		return "", fmt.Errorf("tier %q is already the top tier", tier)
-	default:
-		return "", fmt.Errorf("unknown tier %q", tier)
-	}
 }
 
 func isHigherTier(current, target string) bool {

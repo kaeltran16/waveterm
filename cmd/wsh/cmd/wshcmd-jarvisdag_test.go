@@ -20,6 +20,8 @@ func TestDagEscalateData(t *testing.T) {
 	cmd.Flags().String("channel", "", "")
 	cmd.Flags().String("runid", "", "")
 	cmd.Flags().String("tier", "", "")
+	cmd.Flags().String("model", "", "")
+	cmd.Flags().String("runtime", "", "")
 	if err := cmd.Flags().Set("channel", "ch"); err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +29,12 @@ func TestDagEscalateData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := cmd.Flags().Set("tier", "capable"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("model", "opencode/claude-opus-4-8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set("runtime", "claude"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := dagEscalateData(cmd, []string{"t-1"})
@@ -39,6 +47,8 @@ func TestDagEscalateData(t *testing.T) {
 		TaskId:    "t-1",
 		Action:    "escalate",
 		Tier:      "capable",
+		Model:     "opencode/claude-opus-4-8",
+		Runtime:   "claude",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dagEscalateData = %+v, want %+v", got, want)

@@ -167,7 +167,7 @@ func ParsePlanDag(reply string, input DagPlanInput) (DagPlanDraft, []string, err
 			draft.Tasks[i].Route = &route
 			continue
 		}
-		warnings = append(warnings, fmt.Sprintf("Task %s route %s/%s is unavailable and now inherits the Run route.", id, task.Route.Runtime, task.Route.Tier))
+		warnings = append(warnings, fmt.Sprintf("Task %s route %s is unavailable and now inherits the Run route.", id, routePinLabel(*task.Route)))
 	}
 	return draft, warnings, nil
 }
@@ -206,6 +206,13 @@ func routeAllowed(route waveobj.RoutePin, allowed []waveobj.RoutePin) bool {
 		}
 	}
 	return false
+}
+
+func routePinLabel(pin waveobj.RoutePin) string {
+	if pin.Model != "" {
+		return pin.Runtime + "/" + pin.Model
+	}
+	return pin.Runtime + "/" + pin.Tier
 }
 
 func PlanDag(ctx context.Context, projectPath string, input DagPlanInput) (DagPlanDraft, []string, error) {

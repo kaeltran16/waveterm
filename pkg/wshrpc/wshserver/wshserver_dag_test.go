@@ -447,10 +447,36 @@ func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveo
 	return ctx, ch, owner, g, child
 }
 
-func TestDagActionEscalatesInheritedRoute(t *testing.T) {
+func TestDagActionRejectsEmptyEscalateTarget(t *testing.T) {
+	ctx, ch, owner, g, child := seedDagActionEscalation(t, "mid")
+	// no automatic tier ladder: the human names the model (or legacy higher tier)
+	err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
+		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate",
+	})
+	if err == nil {
+		t.Fatal("empty escalate target was accepted")
+	}
+	got, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].RunSpec.Runtime != "" || got.Tasks[0].RunSpec.Tier != "" || got.Tasks[0].Escalations != 0 {
+		t.Fatalf("rejected escalation mutated task: %+v", got.Tasks[0])
+	}
+	oldChild, err := wstore.GetRun(ctx, ch.OID, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldChild.Status != jarvis.RunStatus_Blocked {
+		t.Fatalf("rejected escalation cancelled child: %q", oldChild.Status)
+	}
+}
+
+func TestDagActionEscalatesToModel(t *testing.T) {
 	ctx, ch, owner, g, child := seedDagActionEscalation(t, "mid")
 	if err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
 		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate",
+		Runtime: "claude", Model: "sonnet",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -458,8 +484,8 @@ func TestDagActionEscalatesInheritedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Tasks[0].RunSpec.Runtime != "pi" || got.Tasks[0].RunSpec.Tier != "capable" || got.Tasks[0].Escalations != 1 {
-		t.Fatalf("rpc escalation = %+v", got.Tasks[0])
+	if got.Tasks[0].RunSpec.Runtime != "claude" || got.Tasks[0].RunSpec.Model != "sonnet" || got.Tasks[0].RunSpec.Tier != "" || got.Tasks[0].Escalations != 1 {
+		t.Fatalf("rpc model escalation = %+v", got.Tasks[0])
 	}
 	oldChild, err := wstore.GetRun(ctx, ch.OID, child.ID)
 	if err != nil {

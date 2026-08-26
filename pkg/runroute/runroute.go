@@ -6,6 +6,7 @@ package runroute
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/wavetermdev/waveterm/pkg/consult"
@@ -14,22 +15,41 @@ import (
 
 const operatorDefault = "operator default"
 
+var (
+	claudeAliasRe    = regexp.MustCompile(`^(opus|sonnet|haiku|fable|best)(\[[0-9]+m\])?$`)
+	claudeFullRe     = regexp.MustCompile(`^claude-[a-zA-Z0-9-]+$`)
+	providerModelRe  = regexp.MustCompile(`^[a-zA-Z0-9_-]+/[a-zA-Z0-9._:+-]+$`)
+	piBareRe         = regexp.MustCompile(`^[a-zA-Z0-9._:+-]+$`)
+	codexForbiddenRe = regexp.MustCompile(`[\s;&|` + "`" + `$<>'"]`)
+)
+
+func codexSafe(model string) bool {
+	if model == "" {
+		return false
+	}
+	return !codexForbiddenRe.MatchString(model)
+}
+
 type Capability struct {
-	Runtime       string       `json:"runtime"`
-	Tier          consult.Tier `json:"tier"`
-	ResolvedModel string       `json:"resolvedmodel"`
-	ModelArgs     []string     `json:"-"`
+	Runtime       string `json:"runtime"`
+	Tier          string `json:"tier,omitempty"`        // legacy tier pin only; "" for model pins
+	Model         string `json:"model,omitempty"`       // set on model pins; "" for legacy tier pins
+	ResolvedModel string `json:"resolvedmodel"`
+	Provider      string `json:"provider,omitempty"`   // catalog metadata, informational
+	ContextHint   string `json:"contexthint,omitempty"` // catalog metadata, informational
+	Default       bool   `json:"default,omitempty"`     // catalog metadata: the harness's own default model
+	ModelArgs     []string `json:"-"`
 }
 
 var capabilityTable = []Capability{
-	{Runtime: "pi", Tier: consult.TierCheap, ResolvedModel: consult.PiCheapModel, ModelArgs: []string{"--model", consult.PiCheapModel}},
-	{Runtime: "pi", Tier: consult.TierMid, ResolvedModel: consult.PiMidModel, ModelArgs: []string{"--model", consult.PiMidModel}},
-	{Runtime: "pi", Tier: consult.TierCapable, ResolvedModel: consult.PiMidModel, ModelArgs: []string{"--model", consult.PiMidModel}},
-	{Runtime: "claude", Tier: consult.TierCheap, ResolvedModel: consult.CheapModel, ModelArgs: []string{"--model", consult.CheapModel}},
-	{Runtime: "claude", Tier: consult.TierMid, ResolvedModel: consult.MidModel, ModelArgs: []string{"--model", consult.MidModel}},
-	{Runtime: "claude", Tier: consult.TierCapable, ResolvedModel: operatorDefault},
-	{Runtime: "codex", Tier: consult.TierCapable, ResolvedModel: operatorDefault},
-	{Runtime: "opencode", Tier: consult.TierCapable, ResolvedModel: operatorDefault},
+	{Runtime: "pi", Tier: string(consult.TierCheap), ResolvedModel: consult.PiCheapModel, ModelArgs: []string{"--model", consult.PiCheapModel}},
+	{Runtime: "pi", Tier: string(consult.TierMid), ResolvedModel: consult.PiMidModel, ModelArgs: []string{"--model", consult.PiMidModel}},
+	{Runtime: "pi", Tier: string(consult.TierCapable), ResolvedModel: consult.PiMidModel, ModelArgs: []string{"--model", consult.PiMidModel}},
+	{Runtime: "claude", Tier: string(consult.TierCheap), ResolvedModel: consult.CheapModel, ModelArgs: []string{"--model", consult.CheapModel}},
+	{Runtime: "claude", Tier: string(consult.TierMid), ResolvedModel: consult.MidModel, ModelArgs: []string{"--model", consult.MidModel}},
+	{Runtime: "claude", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
+	{Runtime: "codex", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
+	{Runtime: "opencode", Tier: string(consult.TierCapable), ResolvedModel: operatorDefault},
 }
 
 func Capabilities(runtime string) []Capability {
@@ -44,12 +64,58 @@ func Capabilities(runtime string) []Capability {
 }
 
 func Resolve(pin waveobj.RoutePin) (Capability, error) {
+	if pin.Model != "" {
+		return resolveModelPin(pin)
+	}
+	return resolveLegacyTier(pin)
+}
+
+func resolveLegacyTier(pin waveobj.RoutePin) (Capability, error) {
 	for _, capability := range capabilityTable {
-		if capability.Runtime == pin.Runtime && string(capability.Tier) == pin.Tier {
+		if capability.Runtime == pin.Runtime && capability.Tier == pin.Tier {
 			return clone(capability), nil
 		}
 	}
 	return Capability{}, fmt.Errorf("unsupported route runtime %q tier %q", pin.Runtime, pin.Tier)
+}
+
+func resolveModelPin(pin waveobj.RoutePin) (Capability, error) {
+	if pin.Runtime == "" {
+		return Capability{}, fmt.Errorf("model route requires a runtime")
+	}
+	if !modelNamespaceValid(pin.Runtime, pin.Model) {
+		return Capability{}, fmt.Errorf("model %q is not a valid %s model id", pin.Model, pin.Runtime)
+	}
+	return Capability{
+		Runtime:       pin.Runtime,
+		Model:         pin.Model,
+		ResolvedModel: pin.Model,
+		ModelArgs:     modelArgsFor(pin.Runtime, pin.Model),
+	}, nil
+}
+
+// modelNamespaceValid is the hard submit gate. Presence in the catalog is advisory (the harness is
+// the ultimate validator at spawn); namespace membership is deterministic and cheap.
+func modelNamespaceValid(runtime, model string) bool {
+	switch runtime {
+	case "claude":
+		return claudeAliasRe.MatchString(model) || claudeFullRe.MatchString(model)
+	case "pi":
+		return providerModelRe.MatchString(model) || piBareRe.MatchString(model)
+	case "opencode":
+		return providerModelRe.MatchString(model)
+	case "codex":
+		return codexSafe(model)
+	}
+	return false
+}
+
+func modelArgsFor(runtime, model string) []string {
+	switch runtime {
+	case "claude", "codex", "opencode", "pi":
+		return []string{"--model", model}
+	}
+	return nil
 }
 
 func NormalizeLegacy(runtime, tier string) waveobj.RoutePin {
@@ -65,7 +131,7 @@ func NormalizeLegacy(runtime, tier string) waveobj.RoutePin {
 // IsValid reports whether a capability is an unmodified value returned by Resolve. Consumers pass
 // capabilities across package boundaries, so this keeps adapters from launching a hand-built route.
 func IsValid(capability Capability) bool {
-	resolved, err := Resolve(waveobj.RoutePin{Runtime: capability.Runtime, Tier: string(capability.Tier)})
+	resolved, err := Resolve(waveobj.RoutePin{Runtime: capability.Runtime, Tier: capability.Tier, Model: capability.Model})
 	return err == nil && resolved.ResolvedModel == capability.ResolvedModel && slices.Equal(resolved.ModelArgs, capability.ModelArgs)
 }
 
