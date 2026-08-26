@@ -28,7 +28,8 @@ function useHarnessPreference() {
     useEffect(() => {
         const persisted = (globalStore.get(getSettingsKeyAtom("harness:preferredruntime")) as string) ?? "";
         const persistedTier = (globalStore.get(getSettingsKeyAtom("harness:preferredtier")) as string) ?? "";
-        initHarnessPreference(persisted, persistedTier);
+        const persistedModel = (globalStore.get(getSettingsKeyAtom("harness:preferredmodel")) as string) ?? "";
+        initHarnessPreference(persisted, persistedTier, persistedModel);
         fireAndForget(loadHarnesses);
     }, []);
 }

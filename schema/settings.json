@@ -332,6 +332,9 @@
         },
         "harness:preferredtier": {
           "type": "string"
+        },
+        "harness:preferredmodel": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

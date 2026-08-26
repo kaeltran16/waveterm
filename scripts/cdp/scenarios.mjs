@@ -4788,6 +4788,54 @@ const dagLifecycle = {
     },
 };
 
+const routePickerFlat = {
+    name: "route-picker-flat",
+    surface: "cockpit",
+    async arrange() {
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        await h.goto("settings");
+        const pickerPresent = await h.ev(`(() => !!document.querySelector('[data-testid="route-picker"]'))()`);
+        await h.ev(`(() => { const b = document.querySelector('[data-testid="route-picker"]'); if (b) b.click(); return true; })()`);
+        await settle(400);
+        const rowCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)`);
+        rec("route picker opens with flat model rows", pickerPresent === true && rowCount > 0, `picker=${pickerPresent} rows=${rowCount}`);
+        await h.shot("cdp-shots/route-picker-flat.png");
+        // filter shrinks the row set
+        const filterTyped = await h.ev(`(() => {
+            const input = document.querySelector('input[aria-label="Filter models"]');
+            if (!input) return false;
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, "opus");
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        })()`);
+        await settle(300);
+        const filteredCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)`);
+        rec("filter shrinks model rows", filterTyped === true && filteredCount > 0 && filteredCount < rowCount, `rows=${rowCount} filtered=${filteredCount}`);
+        // choosing a row updates the face off "capable"
+        await h.ev(`(() => {
+            const input = document.querySelector('input[aria-label="Filter models"]');
+            if (input) {
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input, "");
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            const row = document.querySelector('[data-testid^="route-option-"]');
+            if (row) row.click();
+            return true;
+        })()`);
+        await settle(400);
+        const face = await h.ev(`((document.querySelector('[data-testid="route-picker"]')||{}).textContent||'').trim()`);
+        rec("face shows the chosen model", !face.includes("· capable"), `face="${face}"`);
+        return steps;
+    },
+};
+
 export const SCENARIOS = [
     runsLifecycle,
     terminalTheme,
@@ -4819,4 +4867,5 @@ export const SCENARIOS = [
     attentionCrossChannel,
     harnessPicker,
     dagLifecycle,
+    routePickerFlat,
 ];

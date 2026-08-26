@@ -62,7 +62,7 @@ export function DagTaskDrawer({
             <div className="flex flex-col gap-1 font-mono text-xxs text-muted">
                 <span>Route</span>
                 {disabled ? (
-                    <span className="rounded-md border border-edge-mid bg-surface px-2.5 py-1.5 text-[11px] text-secondary">{task.route == null ? "Inherit Run route" : `${task.route.runtime} / ${task.route.tier}`}</span>
+                    <span className="rounded-md border border-edge-mid bg-surface px-2.5 py-1.5 text-[11px] text-secondary">{task.route == null ? "Inherit Run route" : `${task.route.runtime} / ${task.route.model || task.route.tier}`}</span>
                 ) : (
                     <RoutePicker value={task.route} canInherit inheritedLabel="Inherit Run route" onChange={(route) => apply(setDraftRoute(draft, taskId, route))} />
                 )}

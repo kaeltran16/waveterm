@@ -128,5 +128,6 @@ const (
 
 	ConfigKey_HarnessPreferredRuntime        = "harness:preferredruntime"
 	ConfigKey_HarnessPreferredTier           = "harness:preferredtier"
+	ConfigKey_HarnessPreferredModel          = "harness:preferredmodel"
 )
 

@@ -46,7 +46,7 @@ describe("buildViewData", () => {
         expect(ship.gate).toBe(true);
         expect(ship.actions).toEqual(["approve", "sendback"]);
         const perf = nodes.find((n) => n.id === "t-3")!;
-        expect(perf.actions).toEqual(["retry", "skip"]);
+        expect(perf.actions).toEqual(["retry", "skip", "escalate"]);
     });
 
     it("projects pinned, inherited, legacy, and unavailable routes", () => {
@@ -57,12 +57,14 @@ describe("buildViewData", () => {
                 { id: "inherited", label: "Inherited", state: "running" },
                 { id: "legacy", label: "Legacy", state: "running", runspec: { runtime: "pi" } },
                 { id: "missing", label: "Missing", state: "running", runspec: { runtime: "missing", tier: "mid" } },
+                { id: "modelpin", label: "ModelPin", state: "running", runspec: { runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" } },
             ],
         } as any;
         const { nodes } = buildViewData(routed, { runtime: "claude", tier: "" } as Run, harnesses);
-        expect(nodes.find((n) => n.id === "pinned")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "cheap", resolvedModel: "pi-cheap" });
-        expect(nodes.find((n) => n.id === "inherited")!.route).toEqual({ source: "inherited", runtime: "claude", tier: "capable", resolvedModel: "operator default" });
-        expect(nodes.find((n) => n.id === "legacy")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "capable", resolvedModel: "unavailable" });
-        expect(nodes.find((n) => n.id === "missing")!.route).toEqual({ source: "pinned", runtime: "missing", tier: "mid", resolvedModel: "unavailable" });
+        expect(nodes.find((n) => n.id === "pinned")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "cheap", model: "", resolvedModel: "pi-cheap" });
+        expect(nodes.find((n) => n.id === "inherited")!.route).toEqual({ source: "inherited", runtime: "claude", tier: "capable", model: "", resolvedModel: "operator default" });
+        expect(nodes.find((n) => n.id === "legacy")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "capable", model: "", resolvedModel: "unavailable" });
+        expect(nodes.find((n) => n.id === "missing")!.route).toEqual({ source: "pinned", runtime: "missing", tier: "mid", model: "", resolvedModel: "unavailable" });
+        expect(nodes.find((n) => n.id === "modelpin")!.route).toEqual({ source: "pinned", runtime: "pi", tier: "capable", model: "opencode/deepseek-v4-pro", resolvedModel: "unavailable" });
     });
 });

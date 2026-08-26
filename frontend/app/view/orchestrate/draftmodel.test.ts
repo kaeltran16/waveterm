@@ -256,3 +256,20 @@ describe("validateDraft and payload", () => {
         expect(validateDraft(invalidRouteFixture, harnesses).some((error) => error.includes("route"))).toBe(true);
     });
 });
+
+describe("model-aware routes", () => {
+    it("setDraftRoute treats a model change as a change and preserves model", () => {
+        const draft = baseDraft();
+        const withModel = setDraftRoute(draft, "t-1", { runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" });
+        expect(withModel.tasks[0].route?.model).toBe("opencode/deepseek-v4-pro");
+        expect(setDraftRoute(withModel, "t-1", { runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" })).toBe(withModel);
+    });
+
+    it("toDagSubmitPayload writes model into runspec", () => {
+        const draft = setDraftRoute(baseDraft(), "t-1", { runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" });
+        expect(toDagSubmitPayload(draft).tasks[0].runspec).toMatchObject({
+            runtime: "pi",
+            model: "opencode/deepseek-v4-pro",
+        });
+    });
+});

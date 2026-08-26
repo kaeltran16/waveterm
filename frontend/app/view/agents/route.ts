@@ -18,17 +18,26 @@ export interface RoutePickerSection {
     capabilities: RouteCapability[];
 }
 
-export function normalizeLegacyRoute(runtime: string, tier?: string): RoutePin | null {
+export function normalizeLegacyRoute(runtime: string, tier?: string, model?: string): RoutePin | null {
     if (!runtime) {
         return null;
     }
-    return { runtime, tier: tier || "capable" };
+    return { runtime, tier: tier || "capable", ...(model ? { model } : {}) };
 }
 
-export function capabilityFor(pin: RoutePin, harnesses: HarnessInfo[]): RouteCapability | undefined {
-    return harnesses
-        .flatMap((h) => h.routecapabilities ?? [])
-        .find((capability) => capability.runtime === pin.runtime && capability.tier === pin.tier);
+export function capabilityFor(pin: RoutePin | null | undefined, harnesses: HarnessInfo[]): RouteCapability | undefined {
+    if (pin == null) {
+        return undefined;
+    }
+    const caps = harnesses.flatMap((h) => h.routecapabilities ?? []);
+    if (pin.model) {
+        const byModel = caps.find((c) => c.runtime === pin.runtime && c.model === pin.model);
+        if (byModel != null) {
+            return byModel;
+        }
+    }
+    // legacy tier fallback: persisted pins without a model still render their resolved tier model
+    return caps.find((c) => c.runtime === pin.runtime && (c.tier ?? "") !== "" && c.tier === (pin.tier || "capable"));
 }
 
 export function resolveEffectiveRoute(input: {
@@ -48,7 +57,7 @@ export function resolveEffectiveRoute(input: {
         if (raw == null) {
             continue;
         }
-        const pin = normalizeLegacyRoute(raw.runtime, raw.tier);
+        const pin = normalizeLegacyRoute(raw.runtime, raw.tier, raw.model);
         if (pin != null) {
             return { pin, source, capability: capabilityFor(pin, input.harnesses) };
         }
@@ -89,4 +98,54 @@ export function routePickerItems(harnesses: HarnessInfo[]): RoutePickerSection[]
     return harnesses
         .filter((h) => (h.routecapabilities ?? []).length > 0)
         .map((h) => ({ runtime: h.runtime, label: h.label, capabilities: h.routecapabilities ?? [] }));
+}
+
+export interface PickerModelRow {
+    runtime: string;
+    model: string;
+    provider: string;
+    contexthint: string;
+    default: boolean;
+    label: string;
+}
+
+export interface PickerSection {
+    runtime: string;
+    label: string;
+    rows: PickerModelRow[];
+}
+
+// model-only rows for the picker; legacy tier capabilities never become rows ("flat model list").
+export function buildPickerSections(harnesses: HarnessInfo[]): PickerSection[] {
+    return harnesses
+        .map((h) => ({
+            runtime: h.runtime,
+            label: h.label,
+            rows: (h.routecapabilities ?? [])
+                .filter((c) => (c.model ?? "") !== "")
+                .map((c) => ({
+                    runtime: c.runtime,
+                    model: c.model!,
+                    provider: c.provider ?? "",
+                    contexthint: c.contexthint ?? "",
+                    default: c.default ?? false,
+                    label: h.label,
+                })),
+        }))
+        .filter((s) => s.rows.length > 0);
+}
+
+export function filterPickerSections(sections: PickerSection[], query: string): PickerSection[] {
+    const q = query.trim().toLowerCase();
+    if (q === "") {
+        return sections;
+    }
+    return sections
+        .map((s) => ({ ...s, rows: s.rows.filter((r) => r.model.toLowerCase().includes(q) || r.provider.toLowerCase().includes(q)) }))
+        .filter((s) => s.rows.length > 0);
+}
+
+// displayed id on the picker face / graph route line
+export function modelFace(pin: RoutePin): string {
+    return pin.model ?? pin.tier ?? "capable";
 }

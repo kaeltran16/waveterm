@@ -3111,6 +3111,7 @@ declare global {
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
         "harness:preferredtier"?: string;
+        "harness:preferredmodel"?: string;
     };
 
     // wshrpc.ShippedItem

@@ -12,7 +12,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
-func readPreferredRoute(t *testing.T) (string, string) {
+func readPreferredRoute(t *testing.T) (string, string, string) {
 	t.Helper()
 	settings, errs := wconfig.ReadWaveHomeConfigFile(wconfig.SettingsFile)
 	if len(errs) > 0 {
@@ -20,7 +20,8 @@ func readPreferredRoute(t *testing.T) (string, string) {
 	}
 	runtime, _ := settings[wconfig.ConfigKey_HarnessPreferredRuntime].(string)
 	tier, _ := settings[wconfig.ConfigKey_HarnessPreferredTier].(string)
-	return runtime, tier
+	model, _ := settings[wconfig.ConfigKey_HarnessPreferredModel].(string)
+	return runtime, tier, model
 }
 
 func TestSetConfigPreferredRouteGuardsAtomicPairs(t *testing.T) {
@@ -48,9 +49,9 @@ func TestSetConfigPreferredRouteGuardsAtomicPairs(t *testing.T) {
 			if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: patch}); err == nil {
 				t.Fatal("expected route validation error")
 			}
-			gotRuntime, gotTier := readPreferredRoute(t)
-			if gotRuntime != "pi" || gotTier != "capable" {
-				t.Fatalf("invalid patch changed route: got %q/%q", gotRuntime, gotTier)
+			gotRuntime, gotTier, gotModel := readPreferredRoute(t)
+			if gotRuntime != "pi" || gotTier != "capable" || gotModel != "" {
+				t.Fatalf("invalid patch changed route: got %q/%q/%q", gotRuntime, gotTier, gotModel)
 			}
 		})
 	}
@@ -83,8 +84,47 @@ func TestSetConfigPreferredRouteRejectsNonStringValues(t *testing.T) {
 	}}); err == nil {
 		t.Fatal("expected non-string route validation error")
 	}
-	gotRuntime, gotTier := readPreferredRoute(t)
-	if gotRuntime != "pi" || gotTier != "capable" {
-		t.Fatalf("non-string patch changed route: got %q/%q", gotRuntime, gotTier)
+	gotRuntime, gotTier, gotModel := readPreferredRoute(t)
+	if gotRuntime != "pi" || gotTier != "capable" || gotModel != "" {
+		t.Fatalf("non-string patch changed route: got %q/%q/%q", gotRuntime, gotTier, gotModel)
+	}
+}
+
+func TestSetConfigPreferredRouteModelPin(t *testing.T) {
+	withConfigHome(t, t.TempDir())
+	ws := &WshServer{}
+	ctx := context.Background()
+	modelPatch := waveobj.MetaMapType{
+		wconfig.ConfigKey_HarnessPreferredRuntime: "pi",
+		wconfig.ConfigKey_HarnessPreferredTier:    "",
+		wconfig.ConfigKey_HarnessPreferredModel:   "opencode/deepseek-v4-flash",
+	}
+	if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: modelPatch}); err != nil {
+		t.Fatalf("valid model pin rejected: %v", err)
+	}
+	gotRuntime, _, gotModel := readPreferredRoute(t)
+	if gotRuntime != "pi" || gotModel != "opencode/deepseek-v4-flash" {
+		t.Fatalf("model pin not persisted: got %q/%q", gotRuntime, gotModel)
+	}
+
+	// switching back to a tier pin must clear the stale model
+	tierPatch := waveobj.MetaMapType{
+		wconfig.ConfigKey_HarnessPreferredRuntime: "pi",
+		wconfig.ConfigKey_HarnessPreferredTier:    "capable",
+		wconfig.ConfigKey_HarnessPreferredModel:   "",
+	}
+	if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: tierPatch}); err != nil {
+		t.Fatalf("tier pin with cleared model rejected: %v", err)
+	}
+	_, gotTier, gotModel := readPreferredRoute(t)
+	if gotTier != "capable" || gotModel != "" {
+		t.Fatalf("stale model not cleared: got %q/%q", gotTier, gotModel)
+	}
+
+	// model without runtime is rejected
+	if err := ws.SetConfigCommand(ctx, wshrpc.MetaSettingsType{MetaMapType: waveobj.MetaMapType{
+		wconfig.ConfigKey_HarnessPreferredModel: "opencode/deepseek-v4-flash",
+	}}); err == nil {
+		t.Fatal("expected model-only patch to be rejected")
 	}
 }

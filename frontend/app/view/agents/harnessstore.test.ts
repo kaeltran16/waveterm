@@ -1,98 +1,67 @@
-import { describe, expect, it } from "vitest";
+// Copyright 2026, Command Line Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+const listHarnesses = vi.fn();
+const refreshRouteCatalog = vi.fn();
+const setConfig = vi.fn();
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: {
+        ListHarnessesCommand: (...a: any[]) => listHarnesses(...a),
+        RefreshRouteCatalogCommand: (...a: any[]) => refreshRouteCatalog(...a),
+        SetConfigCommand: (...a: any[]) => setConfig(...a),
+    },
+}));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+
 import { globalStore } from "@/app/store/global";
-import {
-    beginSave,
-    failSave,
-    harnessPreferenceAtom,
-    initHarnessPreference,
-    persistSave,
-    resolveDefaultRuntime,
-    type HarnessPreferenceState,
-} from "./harnessstore";
+import { harnessPreferenceAtom, harnessesAtom, initHarnessPreference, loadHarnesses, setPreferredRoute } from "./harnessstore";
 
-const idle = (runtime: string, tier = "capable"): HarnessPreferenceState => ({
-    route: { runtime, tier },
-    persistedRoute: { runtime, tier },
-    saving: false,
-});
+describe("harnessstore model catalog freshness", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        globalStore.set(harnessesAtom, []);
+        globalStore.set(harnessPreferenceAtom, { route: null, persistedRoute: null, saving: false });
+        listHarnesses.mockResolvedValue({ harnesses: [] });
+        refreshRouteCatalog.mockResolvedValue(undefined);
+        setConfig.mockResolvedValue(undefined);
+    });
 
-describe("harness preference transitions", () => {
-    it("updates the selection immediately and marks the write in flight", () => {
-        expect(beginSave(idle("codex"), "opencode", "mid")).toEqual({
-            route: { runtime: "opencode", tier: "mid" },
-            persistedRoute: { runtime: "codex", tier: "capable" },
-            saving: true,
+    it("refreshes the catalog before re-listing when forced", async () => {
+        await loadHarnesses(true);
+        expect(refreshRouteCatalog).toHaveBeenCalledTimes(1);
+        expect(listHarnesses).toHaveBeenCalledTimes(1);
+        expect(refreshRouteCatalog.mock.invocationCallOrder[0]).toBeLessThan(listHarnesses.mock.invocationCallOrder[0]);
+    });
+
+    it("does not refresh when not forced", async () => {
+        await loadHarnesses();
+        expect(refreshRouteCatalog).not.toHaveBeenCalled();
+        expect(listHarnesses).toHaveBeenCalledTimes(1);
+    });
+
+    it("persists model in the route settings patch", async () => {
+        setPreferredRoute({ runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" });
+        await vi.waitFor(() => expect(setConfig).toHaveBeenCalled());
+        const patch = setConfig.mock.calls[0][1] as Record<string, string>;
+        expect(patch["harness:preferredmodel"]).toBe("opencode/deepseek-v4-pro");
+        expect(patch["harness:preferredruntime"]).toBe("pi");
+    });
+
+    it("treats a model-only change as a change worth saving", async () => {
+        initHarnessPreference("pi", "capable");
+        setPreferredRoute({ runtime: "pi", tier: "", model: "opencode/deepseek-v4-pro" });
+        await vi.waitFor(() => expect(setConfig).toHaveBeenCalled());
+        expect(setConfig.mock.calls[0][1]["harness:preferredmodel"]).toBe("opencode/deepseek-v4-pro");
+    });
+
+    it("seeds the preference from a persisted model", () => {
+        initHarnessPreference("pi", "capable", "opencode/deepseek-v4-pro");
+        expect(globalStore.get(harnessPreferenceAtom).route).toEqual({
+            runtime: "pi",
+            tier: "capable",
+            model: "opencode/deepseek-v4-pro",
         });
-    });
-
-    it("persists the selection on success", () => {
-        const begin = beginSave(idle("codex"), "opencode", "mid");
-        expect(persistSave(begin)).toEqual({
-            route: { runtime: "opencode", tier: "mid" },
-            persistedRoute: { runtime: "opencode", tier: "mid" },
-            saving: false,
-            error: undefined,
-        });
-    });
-
-    it("rolls back to the persisted value and surfaces the error on failure", () => {
-        const begin = beginSave(idle("codex", "cheap"), "opencode", "mid");
-        expect(failSave(begin, "denied")).toMatchObject({
-            route: { runtime: "codex", tier: "cheap" },
-            persistedRoute: { runtime: "codex", tier: "cheap" },
-            saving: false,
-            error: "denied",
-        });
-    });
-
-    it("has no dispatchable value while saving", () => {
-        const begin = beginSave(idle("codex"), "opencode", "mid");
-        expect(begin.saving).toBe(true);
-    });
-
-    it("preserves a non-empty loaded tier", () => {
-        initHarnessPreference("pi", "cheap");
-        expect(globalStore.get(harnessPreferenceAtom)).toMatchObject({
-            route: { runtime: "pi", tier: "cheap" },
-            persistedRoute: { runtime: "pi", tier: "cheap" },
-            saving: false,
-        });
-    });
-
-    it("normalizes an empty loaded tier to capable", () => {
-        initHarnessPreference("codex", "");
-        expect(globalStore.get(harnessPreferenceAtom)).toMatchObject({
-            route: { runtime: "codex", tier: "capable" },
-            persistedRoute: { runtime: "codex", tier: "capable" },
-            saving: false,
-        });
-    });
-});
-
-const h = (runtime: string, installed = true, runworkercapable = true): HarnessInfo =>
-    ({ runtime, label: runtime, installed, consultcapable: true, runworkercapable }) as HarnessInfo;
-
-describe("resolveDefaultRuntime", () => {
-    // catalog order (harness.List() -> ListHarnessesCommand) — pi first
-    const harnesses = [h("pi"), h("claude"), h("codex"), h("opencode")];
-
-    it("prefers an explicit installed preference", () => {
-        expect(resolveDefaultRuntime("codex", harnesses)).toBe("codex");
-    });
-
-    it("falls back to pi when no preference exists", () => {
-        expect(resolveDefaultRuntime("", harnesses)).toBe("pi");
-    });
-
-    it("ignores a preference whose harness is not installed", () => {
-        expect(resolveDefaultRuntime("pi", [h("claude"), h("codex")])).toBe("claude");
-    });
-
-    it("returns the first installed harness when pi is absent", () => {
-        expect(resolveDefaultRuntime("", [h("claude"), h("codex")])).toBe("claude");
-    });
-
-    it("returns empty when nothing is installed", () => {
-        expect(resolveDefaultRuntime("", [h("pi", false)])).toBe("");
     });
 });

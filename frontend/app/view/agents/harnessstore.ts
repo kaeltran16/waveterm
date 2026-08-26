@@ -52,16 +52,24 @@ export function failSave(state: HarnessPreferenceState, error: string): HarnessP
 
 export function setPreferredRoute(route: RoutePin): void {
     const current = globalStore.get(harnessPreferenceAtom);
-    if (current.saving || (current.route?.runtime === route.runtime && current.route?.tier === route.tier)) {
+    const same =
+        current.route != null &&
+        current.route.runtime === route.runtime &&
+        (current.route.model ?? "") === (route.model ?? "") &&
+        (current.route.tier ?? "") === (route.tier ?? "");
+    if (current.saving || same) {
         return;
     }
     globalStore.set(harnessPreferenceAtom, beginSave(current, route));
     void (async () => {
         try {
-            await RpcApi.SetConfigCommand(TabRpcClient, {
+            // always send all three so switching model<->tier clears the stale selector
+            const patch: Record<string, string> = {
                 "harness:preferredruntime": route.runtime,
-                "harness:preferredtier": route.tier,
-            } as Parameters<typeof RpcApi.SetConfigCommand>[1]);
+                "harness:preferredtier": route.tier ?? "",
+                "harness:preferredmodel": route.model ?? "",
+            };
+            await RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
             globalStore.set(harnessPreferenceAtom, persistSave(globalStore.get(harnessPreferenceAtom)));
         } catch (e) {
             globalStore.set(harnessPreferenceAtom, failSave(globalStore.get(harnessPreferenceAtom), String(e)));
@@ -82,16 +90,26 @@ export function setPreferredHarness(runtime: string): void {
     setPreferredRoute({ runtime: route.runtime, tier: route.tier });
 }
 
-export function initHarnessPreference(persistedRuntime: string, persistedTier = ""): void {
+export function initHarnessPreference(persistedRuntime: string, persistedTier = "", persistedModel = ""): void {
     const current = globalStore.get(harnessPreferenceAtom);
     if (current.saving) {
         return;
     }
-    const route = persistedRuntime ? { runtime: persistedRuntime, tier: persistedTier || "capable" } : null;
+    const route = persistedRuntime
+        ? { runtime: persistedRuntime, tier: persistedTier || "capable", ...(persistedModel ? { model: persistedModel } : {}) }
+        : null;
     globalStore.set(harnessPreferenceAtom, { route, persistedRoute: route, saving: false });
 }
 
-export async function loadHarnesses(): Promise<void> {
+export async function loadHarnesses(forceRefresh = false): Promise<void> {
+    if (forceRefresh) {
+        // the catalog is cached server-side; only a forced refresh re-enumerates installed CLIs
+        try {
+            await RpcApi.RefreshRouteCatalogCommand(TabRpcClient);
+        } catch (e) {
+            console.error("refreshing route catalog failed", e);
+        }
+    }
     try {
         const rtn = await RpcApi.ListHarnessesCommand(TabRpcClient);
         globalStore.set(harnessesAtom, rtn?.harnesses ?? []);
@@ -99,6 +117,10 @@ export async function loadHarnesses(): Promise<void> {
         console.error("loading harness catalog failed", e);
         globalStore.set(harnessesAtom, []);
     }
+}
+
+export async function refreshHarnessCatalog(): Promise<void> {
+    return loadHarnesses(true);
 }
 
 export function preferredCapability(route: RoutePin | null): RouteCapabilityInfo | undefined {

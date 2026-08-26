@@ -179,6 +179,7 @@ type SettingsType struct {
 
 	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
 	HarnessPreferredTier    string `json:"harness:preferredtier,omitempty"`
+	HarnessPreferredModel   string `json:"harness:preferredmodel,omitempty"`
 }
 
 func (s *SettingsType) GetAiSettings() *AiSettingsType {

@@ -15,10 +15,12 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAtomValue } from "jotai";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { RoutePicker } from "../agents/routepicker";
 import { DagGraphHeader } from "./daggraph-header";
 import { computeLayeredLayout } from "./daglayout";
 import { buildViewData, selectedTaskIdAtom, useDagGroup, type DagViewNode } from "./dagstore";
+import { escalatePayload } from "./escalate";
 
 const STATE_TONE: Record<string, string> = {
     running: "border-accent/60 bg-accent/15 text-accent-soft",
@@ -65,7 +67,7 @@ function DagTaskNode({ data }: NodeProps) {
             </div>
             {view.meta ? <div className="truncate font-mono text-[9px] text-muted">{view.meta}</div> : null}
             <div className="truncate font-mono text-[9px] text-secondary">
-                {view.route.source === "pinned" ? "pinned" : "inherits run route"} · {view.route.runtime} / {view.route.tier} · {view.route.resolvedModel}
+                {view.route.source === "pinned" ? "pinned" : "inherits run route"} · {view.route.runtime} / {view.route.model || view.route.tier} · {view.route.resolvedModel}
             </div>
             {view.gate ? (
                 <div className="mt-0.5 font-mono text-[8.5px] uppercase tracking-wide text-warning">gate</div>
@@ -142,6 +144,8 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
     }, [group, harnesses, loading, owner, selectedId]);
 
     const orderedIds = useMemo(() => (group ? group.tasks.map((t) => t.id) : []), [group]);
+    const [escalating, setEscalating] = useState(false);
+    const [escalateRoute, setEscalateRoute] = useState<RoutePin | null>(null);
 
     // j/k move the selection through the task list (layer order). The modal owns Escape.
     useEffect(() => {
@@ -226,28 +230,74 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                                 {selected.meta ? ` · ${selected.meta}` : ""}
                             </div>
                             <div className="font-mono text-[10px] text-secondary" data-dag-node-route={`${selected.route.source}:${selected.route.runtime}:${selected.route.tier}`}>
-                                {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.tier} · {selected.route.resolvedModel}
+                                {selected.route.source === "pinned" ? "pinned" : "inherits run route"} · {selected.route.runtime} / {selected.route.model || selected.route.tier} · {selected.route.resolvedModel}
                             </div>
                         </div>
                         {selected.actions.length > 0 ? (
                             <div className="flex flex-none gap-1.5">
-                                {selected.actions.map((a) => (
-                                    <button
-                                        key={a}
-                                        type="button"
-                                        onClick={() => runAction(group, selected, a)}
-                                        className="cursor-pointer rounded border border-edge-mid px-2.5 py-1 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
-                                    >
-                                        {a}
-                                    </button>
-                                ))}
+                                {selected.actions.map((a) =>
+                                    a === "escalate" ? (
+                                        <button
+                                            key={a}
+                                            type="button"
+                                            onClick={() => setEscalating(!escalating)}
+                                            aria-expanded={escalating}
+                                            className="cursor-pointer rounded border border-edge-mid bg-surface px-2.5 py-1 text-[11px] font-semibold text-accent hover:border-edge-strong hover:text-accent-soft"
+                                        >
+                                            escalate…
+                                        </button>
+                                    ) : (
+                                        <button
+                                            key={a}
+                                            type="button"
+                                            onClick={() => runAction(group, selected, a)}
+                                            className="cursor-pointer rounded border border-edge-mid px-2.5 py-1 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
+                                        >
+                                            {a}
+                                        </button>
+                                    )
+                                )}
                             </div>
                         ) : null}
                     </div>
+                    {escalating && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
+                            <RoutePicker value={escalateRoute} canInherit={false} onChange={setEscalateRoute} placement="top-start" />
+                            <span className="text-[10px] text-muted">one judged hop — a second failure blocks this task for you</span>
+                            <div className="ml-auto flex gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setEscalating(false)}
+                                    className="cursor-pointer rounded border border-edge-mid px-2.5 py-1 text-[11px] text-secondary hover:border-edge-strong"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={escalateRoute == null}
+                                    onClick={() => {
+                                        if (escalateRoute && selected) {
+                                            runEscalate(group, selected, escalateRoute);
+                                            setEscalating(false);
+                                            setEscalateRoute(null);
+                                        }
+                                    }}
+                                    className="cursor-pointer rounded bg-accent px-2.5 py-1 text-[11px] font-semibold text-background hover:bg-accenthover disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Re-queue on model
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             ) : null}
         </div>
     );
+}
+
+// runEscalate re-queues a failed/stalled task on the exact model the human picked; one judged hop.
+function runEscalate(group: TaskGroup, view: DagViewNode, route: RoutePin) {
+    void RpcApi.DagActionCommand(TabRpcClient, escalatePayload(group.channelid, group.runid, view.id, route));
 }
 
 // runAction dispatches the node's action to the dag commands; the resulting waveobj update

@@ -72,18 +72,19 @@ export async function createRun(
         radarOrigin?: { reportid: string; findingid: string; fingerprint: string };
     }
 ): Promise<Run> {
-    if (!route.runtime || !route.tier) throw new Error("Choose a route");
+    if (!route.runtime) throw new Error("Choose a route");
     const workspaceId = globalStore.get(atoms.workspaceId);
     const rtn = await RpcApi.CreateRunCommand(TabRpcClient, {
         channelid: channelId,
         workspaceid: workspaceId,
         goal,
         runtime: route.runtime,
-        tier: route.tier,
+        tier: route.tier ?? "",
+        ...(route.model ? { model: route.model } : {}),
         mode: opts?.mode,
         plangate: opts?.planGate,
         deferstart: opts?.deferStart,
-        radarorigin: opts?.radarOrigin,
+        ...(opts?.radarOrigin ? { radarorigin: opts.radarOrigin } : {}),
     });
     return rtn.run;
 }
@@ -185,8 +186,13 @@ export async function resolveChannelLaunchRoute(channelId: string): Promise<Rout
     cacheJarvisProfile(channelId, response);
     const settingsRuntime = (globalStore.get(getSettingsKeyAtom("harness:preferredruntime")) as string) ?? "";
     const settingsTier = (globalStore.get(getSettingsKeyAtom("harness:preferredtier")) as string) ?? "";
+    const settingsModel = (globalStore.get(getSettingsKeyAtom("harness:preferredmodel")) as string) ?? "";
     const pref = globalStore.get(harnessPreferenceAtom);
-    const settings = pref.route ?? (settingsRuntime ? { runtime: settingsRuntime, tier: settingsTier || "capable" } : null);
+    const settings =
+        pref.route ??
+        (settingsRuntime
+            ? { runtime: settingsRuntime, tier: settingsTier || "capable", ...(settingsModel ? { model: settingsModel } : {}) }
+            : null);
     const effective = resolveEffectiveRoute({
         settings,
         channel: response.override?.route ?? null,

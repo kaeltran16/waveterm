@@ -142,11 +142,17 @@ export function setDraftGate(draft: DagDraft, id: string, gate: boolean): DagDra
     return { ...draft, tasks };
 }
 
+function routeEquals(a: RoutePin | null, b: RoutePin | null): boolean {
+    if (a == null || b == null) {
+        return a === b;
+    }
+    return a.runtime === b.runtime && (a.model ?? "") === (b.model ?? "") && (a.tier ?? "") === (b.tier ?? "");
+}
+
 export function setDraftRoute(draft: DagDraft, id: string, route: RoutePin | null): DagDraft {
     const index = taskIndex(draft, id);
     if (index < 0) return draft;
-    const current = draft.tasks[index].route;
-    if (current?.runtime === route?.runtime && current?.tier === route?.tier) return draft;
+    if (routeEquals(draft.tasks[index].route, route)) return draft;
     const tasks = draft.tasks.map(copyTask);
     tasks[index] = { ...tasks[index], route: route == null ? null : { ...route } };
     return { ...draft, tasks };
@@ -206,7 +212,15 @@ export function toDagSubmitPayload(draft: DagDraft): { title: string; parallelis
             deps: [...task.deps],
             gate: task.gate,
             state: "",
-            ...(task.route == null ? {} : { runspec: { runtime: task.route.runtime, tier: task.route.tier } }),
+            ...(task.route == null
+                ? {}
+                : {
+                      runspec: {
+                          runtime: task.route.runtime,
+                          tier: task.route.tier ?? "",
+                          ...(task.route.model ? { model: task.route.model } : {}),
+                      },
+                  }),
         })),
     };
 }
