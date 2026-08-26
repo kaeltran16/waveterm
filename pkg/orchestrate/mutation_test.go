@@ -133,7 +133,7 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
 	t.Cleanup(func() { stopRunWorkers = oldStop })
 
-	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry")
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", "")
 	if err == nil || !strings.Contains(err.Error(), "stop failed") {
 		t.Fatalf("retry error = %v, want stop failure", err)
 	}
@@ -148,7 +148,7 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 
 func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
 	ctx, dag, _, child := seedRunningDag(t)
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip"); err == nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ""); err == nil {
 		t.Fatal("running task accepted skip")
 	}
 	got, err := wstore.GetDag(ctx, dag.OID)
@@ -176,7 +176,7 @@ func TestSkipStopsStalledChildBeforeClearingOwnership(t *testing.T) {
 	}
 	t.Cleanup(func() { stopRunWorkers = oldStop })
 
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip"); err != nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ""); err != nil {
 		t.Fatal(err)
 	}
 	gotDag, _ := wstore.GetDag(ctx, dag.OID)
@@ -211,7 +211,7 @@ func TestRetryKeepsOwnershipWhenCancelledChildCannotReload(t *testing.T) {
 		})
 	})
 
-	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry")
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", "")
 	if err == nil || !strings.Contains(err.Error(), "loading old run") {
 		t.Fatalf("retry error = %v, want child reload failure", err)
 	}
@@ -244,6 +244,141 @@ func seedRunningDag(t *testing.T) (context.Context, *waveobj.TaskGroup, *waveobj
 		t.Fatal(err)
 	}
 	return ctx, dag, owner, child
+}
+
+func seedEscalationDag(t *testing.T, runtime, tier, state string, escalations int) (context.Context, *waveobj.TaskGroup, waveobj.Run, string) {
+	t.Helper()
+	ctx, dag := seedPendingDag(t)
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
+		owner.Runtime = runtime
+		owner.Tier = tier
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	worker := waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String()
+	child := jarvis.NewRun("child", "ws-1", t.TempDir(), nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	child.Status = jarvis.RunStatus_Blocked
+	child.Phases[0].WorkerOrefs = []string{worker}
+	if err := wstore.AppendRun(ctx, dag.ChannelId, child); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+		g.Tasks[0].State = state
+		g.Tasks[0].RunID = child.ID
+		g.Tasks[0].Attempts = 2
+		g.Tasks[0].LastFailureKind = FailureKindTimeout
+		g.Tasks[0].Escalations = escalations
+		RecomputeDagStatus(g)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, dag, child, worker
+}
+
+func mustLoadDag(t *testing.T, ctx context.Context, dagID string) *waveobj.TaskGroup {
+	t.Helper()
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func allowEscalationSchedule(t *testing.T) {
+	t.Helper()
+	allowWorkerHarnessForTest(t)
+	oldStop := stopRunWorkers
+	stopRunWorkers = func(context.Context, *waveobj.Run) error { return nil }
+	t.Cleanup(func() { stopRunWorkers = oldStop })
+	oldStamp := stampSpawnedWorker
+	stampSpawnedWorker = func(context.Context, string, string, string) error { return nil }
+	t.Cleanup(func() { stampSpawnedWorker = oldStamp })
+	stubSpawnWorker(t, waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil)
+}
+
+func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, child waveobj.Run, worker string, requestedTier string) {
+	t.Helper()
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", requestedTier); err == nil {
+		t.Fatal("want escalation rejection")
+	}
+	got, err := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != jarvis.RunStatus_Blocked || len(got.Phases) == 0 || len(got.Phases[0].WorkerOrefs) != 1 || got.Phases[0].WorkerOrefs[0] != worker {
+		t.Fatalf("rejected escalation mutated child: %+v", got)
+	}
+}
+
+func TestEscalateDefaultsToNextTierAndPreservesInheritedRuntime(t *testing.T) {
+	ctx, dag, child, _ := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
+	allowEscalationSchedule(t)
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ""); err != nil {
+		t.Fatal(err)
+	}
+	got := mustLoadDag(t, ctx, dag.OID)
+	task := got.Tasks[0]
+	if task.RunSpec.Runtime != "pi" || task.RunSpec.Tier != "capable" || task.Escalations != 1 || task.Attempts != 0 || task.LastFailureKind != "" {
+		t.Fatalf("escalated task route/state = %+v", task)
+	}
+	oldChild, err := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldChild.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("old child status = %q, want cancelled", oldChild.Status)
+	}
+}
+
+func TestEscalateAcceptsExplicitHigherTier(t *testing.T) {
+	ctx, dag, _, _ := seedEscalationDag(t, "pi", "cheap", TaskState_Failed, 0)
+	allowEscalationSchedule(t)
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", "capable"); err != nil {
+		t.Fatal(err)
+	}
+	got := mustLoadDag(t, ctx, dag.OID)
+	if got.Tasks[0].RunSpec.Runtime != "pi" || got.Tasks[0].RunSpec.Tier != "capable" || got.Tasks[0].Escalations != 1 {
+		t.Fatalf("explicit escalation = %+v", got.Tasks[0])
+	}
+}
+
+func TestEscalateRejectsSameOrLowerTierWithoutCancellingRun(t *testing.T) {
+	for _, requested := range []string{"mid", "cheap"} {
+		t.Run(requested, func(t *testing.T) {
+			ctx, dag, child, worker := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 0)
+			assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, requested)
+		})
+	}
+}
+
+func TestEscalateRejectsSecondHopWithoutCancellingRun(t *testing.T) {
+	ctx, dag, child, worker := seedEscalationDag(t, "pi", "mid", TaskState_Failed, 1)
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, "capable")
+}
+
+func TestEscalateRejectsUnsupportedRouteWithoutCancellingRun(t *testing.T) {
+	ctx, dag, child, worker := seedEscalationDag(t, "codex", "cheap", TaskState_Failed, 0)
+	assertEscalationRejectedWithoutCancelling(t, ctx, dag, child, worker, "mid")
+}
+
+func TestEscalateRejectsPendingTask(t *testing.T) {
+	ctx, dag := seedPendingDag(t)
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
+		owner.Runtime = "pi"
+		owner.Tier = "mid"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", "capable"); err == nil {
+		t.Fatal("pending task accepted escalation")
+	}
+	got := mustLoadDag(t, ctx, dag.OID)
+	if got.Tasks[0].State != TaskState_Pending || got.Tasks[0].RunID != "" {
+		t.Fatalf("rejected pending escalation mutated task: %+v", got.Tasks[0])
+	}
 }
 
 func TestCancelPersistsBeforeStoppingWorkersAndIsIdempotent(t *testing.T) {
@@ -393,8 +528,8 @@ func TestCancelledDagRejectsFurtherMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, action := range []string{"approve", "sendback", "retry", "skip"} {
-		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action); err == nil {
+	for _, action := range []string{"approve", "sendback", "retry", "skip", "escalate"} {
+		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action, ""); err == nil {
 			t.Fatalf("cancelled DAG accepted %q", action)
 		}
 	}
@@ -430,7 +565,7 @@ func TestCancelHoldsDagAuthorityThroughWorkerCleanup(t *testing.T) {
 	go func() { cancelDone <- Cancel(ctx, dag.OID) }()
 	<-entered
 	actionDone := make(chan error, 1)
-	go func() { actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry") }()
+	go func() { actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", "") }()
 	select {
 	case err := <-actionDone:
 		t.Fatalf("action escaped cancellation authority before worker cleanup: %v", err)

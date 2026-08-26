@@ -18,6 +18,15 @@ func init() {
 	blockcontroller.AgentOutcomeHook = OnWorkerExit
 }
 
+func notifyChildOutcome(ctx context.Context, workerORef string, data OutcomeData) {
+	if ChildOutcomeHook == nil {
+		return
+	}
+	if err := ChildOutcomeHook(ctx, workerORef, data); err != nil {
+		log.Printf("jarvis child outcome for %s: %v", workerORef, err)
+	}
+}
+
 // OnWorkerExit posts a channel "outcome" message when a dispatched agent worker's process exits: it
 // reads the transcript path stamped on the block by the hook, derives status+summary from the
 // transcript (agentsessions), and posts to the dispatching channel (PostOutcome). No-op for a
@@ -56,17 +65,19 @@ func OnWorkerExit(blockId string, exitCode int) {
 		return
 	}
 	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
+	data := OutcomeData{
+		Status:     OutcomeStatus(sess.Status),
+		Summary:    outcomeSummary(sess),
+		DurationMs: sess.DurationMs,
+		ExitCode:   exitCode,
+	}
+	notifyChildOutcome(ctx, workerORef, data)
 	ch := resolveDispatchChannelForWorker(ctx, workerORef)
 	if ch == nil {
 		log.Printf("jarvis onexit: no dispatch channel for worker %s; outcome not posted", workerORef)
 		return
 	}
-	PostOutcome(ch, workerORef, runtime, OutcomeData{
-		Status:     OutcomeStatus(sess.Status),
-		Summary:    outcomeSummary(sess),
-		DurationMs: sess.DurationMs,
-		ExitCode:   exitCode,
-	})
+	PostOutcome(ch, workerORef, runtime, data)
 }
 
 // outcomeSummary picks a short "what came of it" line from a session: the last event's text (the

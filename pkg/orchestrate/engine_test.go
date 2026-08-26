@@ -560,6 +560,43 @@ func TestScheduleUsesDetachedContextForPersistenceCleanup(t *testing.T) {
 	}
 }
 
+func TestScheduleResetsFailureStateForEveryParallelSuccess(t *testing.T) {
+	h := newChildOutcomeHarness(t, 2)
+	g := h.loadDag(t)
+	for i := range g.Tasks {
+		g.Tasks[i].Attempts = i + 1
+		g.Tasks[i].LastFailureKind = FailureKindToolError
+		if err := wstore.UpdateRun(h.ctx, h.channel, g.Tasks[i].RunID, func(run *waveobj.Run) error {
+			run.Status = jarvis.RunStatus_Done
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wstore.UpdateDag(h.ctx, h.dagID, func(cur *waveobj.TaskGroup) error {
+		cur.Failures = 2
+		for i := range cur.Tasks {
+			cur.Tasks[i].Attempts = g.Tasks[i].Attempts
+			cur.Tasks[i].LastFailureKind = g.Tasks[i].LastFailureKind
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Schedule(h.ctx, h.dagID); err != nil {
+		t.Fatal(err)
+	}
+	got := h.loadDag(t)
+	for _, task := range got.Tasks {
+		if task.State != TaskState_Done || task.Attempts != 0 || task.LastFailureKind != "" {
+			t.Fatalf("successful task retained failure state: %+v", task)
+		}
+	}
+	if got.Failures != 0 {
+		t.Fatalf("failure streak = %d, want 0", got.Failures)
+	}
+}
+
 func stubSpawnWorker(t *testing.T, worker string, err error) {
 	t.Helper()
 	old := spawnWorker

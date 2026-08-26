@@ -12,9 +12,9 @@ import (
 
 // DagCommands is the deterministic orchestration engine surface (pkg/orchestrate).
 type DagCommands interface {
-	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error) // validate + persist a TaskGroup for an orchestrator run
+	DagSubmitCommand(ctx context.Context, data CommandDagSubmitData) (*waveobj.TaskGroup, error)   // validate + persist a TaskGroup for an orchestrator run
 	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*waveobj.TaskGroup, error)   // engine-owned status snapshot
-	DagActionCommand(ctx context.Context, data CommandDagActionData) error                         // approve | sendback | retry | skip | cancel
+	DagActionCommand(ctx context.Context, data CommandDagActionData) error                         // approve | sendback | retry | skip | escalate | cancel
 	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                           // squash-merge a finished child's worktree back
 	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error) // pending child asks (children block on one at a time)
 	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                         // deliver an answer to a child's pending ask
@@ -37,12 +37,13 @@ type CommandDagActionData struct {
 	ChannelId string `json:"channelid"`
 	RunId     string `json:"runid"`
 	TaskId    string `json:"taskid"`
-	Action    string `json:"action"` // approve | sendback | retry | skip | cancel
+	Action    string `json:"action"` // approve | sendback | retry | skip | escalate | cancel
+	Tier      string `json:"tier,omitempty"`
 }
 
 type CommandDagMergeData struct {
 	ChannelId string `json:"channelid"`
-	RunId     string `json:"runid"` // the dag's owning (lead) run
+	RunId     string `json:"runid"`  // the dag's owning (lead) run
 	TaskId    string `json:"taskid"` // selects the child whose worktree merges
 }
 

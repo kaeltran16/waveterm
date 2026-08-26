@@ -55,6 +55,9 @@ func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
 		{name: "run id", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", RunID: "run"}}},
 		{name: "released", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Released: true}}},
 		{name: "last activity", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastActivity: 1}}},
+		{name: "attempts", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Attempts: 1}}},
+		{name: "lastfailurekind", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastFailureKind: "timeout"}}},
+		{name: "escalations", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Escalations: 1}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,6 +104,9 @@ func TestSameDagProposalUsesOnlyAuthoringShape(t *testing.T) {
 	b.Tasks[0].RunID = "child"
 	b.Tasks[0].Released = true
 	b.Tasks[0].LastActivity = 100
+	b.Tasks[0].Attempts = 2
+	b.Tasks[0].LastFailureKind = FailureKindTimeout
+	b.Tasks[0].Escalations = 1
 	if !SameDagProposal(a, &b) {
 		t.Fatal("engine state changed proposal identity")
 	}

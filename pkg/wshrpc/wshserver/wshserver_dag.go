@@ -114,7 +114,7 @@ func (ws *WshServer) DagActionCommand(ctx context.Context, data wshrpc.CommandDa
 	if data.Action == "cancel" {
 		return orchestrate.Cancel(ctx, run.DagORef)
 	}
-	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action)
+	return orchestrate.ApplyAction(ctx, run.DagORef, data.TaskId, data.Action, data.Tier)
 }
 
 // taskBlockOrefs lists the worker block orefs of a run's phases (the blocks the ask registry keys

@@ -299,14 +299,20 @@ type TaskNode struct {
 	Label       string   `json:"label,omitempty"`
 	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
 	Deps        []string `json:"deps,omitempty"`
-	Gate     bool     `json:"gate,omitempty"`     // halt the DAG at completion for review
-	State    string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge
-	RunID    string   `json:"runid,omitempty"`    // child run once spawned
-	Released bool     `json:"released,omitempty"` // gate released by human approval
-	RunSpec  RunSpec  `json:"runspec,omitempty"`
+	Gate        bool     `json:"gate,omitempty"`     // halt the DAG at completion for review
+	State       string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge
+	RunID       string   `json:"runid,omitempty"`    // child run once spawned
+	Released    bool     `json:"released,omitempty"` // gate released by human approval
+	RunSpec     RunSpec  `json:"runspec,omitempty"`
 	// LastActivity is the newest observed child transcript write (UnixMilli). The watchdog flags a
 	// running task stalled when this goes quiet past the stall threshold; 0 = never observed.
 	LastActivity int64 `json:"lastactivity,omitempty"`
+	// Attempts is the consecutive count for LastFailureKind.
+	Attempts int `json:"attempts,omitempty"`
+	// LastFailureKind is the classifier output for the latest failed attempt.
+	LastFailureKind string `json:"lastfailurekind,omitempty"`
+	// Escalations is the judged-hop count; one is the terminal cap for this phase.
+	Escalations int `json:"escalations,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).

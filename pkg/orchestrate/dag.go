@@ -156,6 +156,15 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, tasks []waveo
 		if t.LastActivity != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q lastactivity must be zero", t.ID)
 		}
+		if t.Attempts != 0 {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q attempts must be zero", t.ID)
+		}
+		if t.LastFailureKind != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q lastfailurekind must be empty", t.ID)
+		}
+		if t.Escalations != 0 {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q escalations must be zero", t.ID)
+		}
 	}
 	tasksCopy := make([]waveobj.TaskNode, len(tasks))
 	for i, t := range tasks {

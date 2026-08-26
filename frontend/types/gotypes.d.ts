@@ -538,6 +538,7 @@ declare global {
         runid: string;
         taskid: string;
         action: string;
+        tier?: string;
     };
 
     // wshrpc.CommandDagAnswerData
@@ -3371,6 +3372,9 @@ declare global {
         released?: boolean;
         runspec?: RunSpec;
         lastactivity?: number;
+        attempts?: number;
+        lastfailurekind?: string;
+        escalations?: number;
     };
 
     // waveobj.TermSize

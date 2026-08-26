@@ -147,6 +147,35 @@ func dagAction(action string) *cobra.Command {
 	}
 }
 
+func dagEscalateData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
+	channelID, runID, err := dagIds(cmd)
+	if err != nil {
+		return wshrpc.CommandDagActionData{}, err
+	}
+	tier, _ := cmd.Flags().GetString("tier")
+	return wshrpc.CommandDagActionData{
+		ChannelId: channelID,
+		RunId:     runID,
+		TaskId:    args[0],
+		Action:    "escalate",
+		Tier:      tier,
+	}, nil
+}
+
+var dagEscalateCmd = &cobra.Command{
+	Use:     "escalate <task-id>",
+	Short:   "re-queue a failed or stalled task on a higher tier",
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := dagEscalateData(cmd, args)
+		if err != nil {
+			return err
+		}
+		return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 10_000})
+	},
+}
+
 var dagMergeCmd = &cobra.Command{
 	Use:     "merge <task-id>",
 	Short:   "squash-merge a finished task's worktree back into the project branch",
@@ -245,7 +274,7 @@ var dagInitCmd = &cobra.Command{
 
 func init() {
 	jarvisDagCmd.AddCommand(dagSubmitCmd, dagImportCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd)
-	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagAction("cancel"))
+	jarvisDagCmd.AddCommand(dagAction("approve"), dagAction("sendback"), dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"))
 	jarvisDagCmd.AddCommand(dagInitCmd)
 	for _, c := range jarvisDagCmd.Commands() {
 		c.Flags().String("runid", "", "run id")
@@ -253,5 +282,6 @@ func init() {
 	}
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
+	dagEscalateCmd.Flags().String("tier", "", "target tier: mid|capable (default: next tier)")
 	jarvisCmd.AddCommand(jarvisDagCmd)
 }

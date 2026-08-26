@@ -218,6 +218,9 @@ func TestDagSubmitRejectsEngineStateAndLimitsBeforePersistence(t *testing.T) {
 		{name: "runid", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", RunID: "child"}}},
 		{name: "released", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Released: true}}},
 		{name: "lastactivity", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastActivity: 1}}},
+		{name: "attempts", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Attempts: 1}}},
+		{name: "lastfailurekind", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", LastFailureKind: "timeout"}}},
+		{name: "escalations", title: "g", parallelism: 1, tasks: []waveobj.TaskNode{{ID: "t", Label: "a", Escalations: 1}}},
 		{name: "too-many-tasks", title: "g", parallelism: 1, tasks: nineTasks},
 		{name: "zero-parallelism", title: "g", parallelism: 0, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
 		{name: "excess-parallelism", title: "g", parallelism: 9, tasks: []waveobj.TaskNode{{ID: "t", Label: "a"}}},
@@ -387,6 +390,100 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	}
 	if g.OID == "" {
 		t.Fatal("valid submit must persist a dag")
+	}
+}
+
+func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveobj.Channel, waveobj.Run, waveobj.TaskGroup, waveobj.Run) {
+	t.Helper()
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "dag-escalation", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	owner.Status = jarvis.RunStatus_Executing
+	owner.Runtime = "pi"
+	owner.Tier = tier
+	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
+		t.Fatal(err)
+	}
+	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "escalate", 1, []waveobj.TaskNode{{ID: "t-0", Label: "task"}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.AppendDag(ctx, &g); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateRun(ctx, ch.OID, owner.ID, func(run *waveobj.Run) error {
+		run.DagORef = g.OID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	child.Status = jarvis.RunStatus_Blocked
+	if err := wstore.AppendRun(ctx, ch.OID, child); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].State = orchestrate.TaskState_Failed
+		cur.Tasks[0].RunID = child.ID
+		orchestrate.RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	restoreHarness := orchestrate.SetValidateWorkerHarnessForTest(func(string) error { return nil })
+	t.Cleanup(restoreHarness)
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(ctx context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
+		tabID := uuid.NewString()
+		if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabID, Meta: waveobj.MetaMapType{}}); err != nil {
+			return "", err
+		}
+		return waveobj.MakeORef(waveobj.OType_Tab, tabID).String(), nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	return ctx, ch, owner, g, child
+}
+
+func TestDagActionEscalatesInheritedRoute(t *testing.T) {
+	ctx, ch, owner, g, child := seedDagActionEscalation(t, "mid")
+	if err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
+		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tasks[0].RunSpec.Runtime != "pi" || got.Tasks[0].RunSpec.Tier != "capable" || got.Tasks[0].Escalations != 1 {
+		t.Fatalf("rpc escalation = %+v", got.Tasks[0])
+	}
+	oldChild, err := wstore.GetRun(ctx, ch.OID, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldChild.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("old child status = %q, want cancelled", oldChild.Status)
+	}
+}
+
+func TestDagActionRejectsSameTierWithoutCancellingRun(t *testing.T) {
+	ctx, ch, owner, _, child := seedDagActionEscalation(t, "mid")
+	err := (&WshServer{}).DagActionCommand(ctx, wshrpc.CommandDagActionData{
+		ChannelId: ch.OID, RunId: owner.ID, TaskId: "t-0", Action: "escalate", Tier: "mid",
+	})
+	if err == nil {
+		t.Fatal("same-tier RPC escalation was accepted")
+	}
+	got, getErr := wstore.GetRun(ctx, ch.OID, child.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Status != jarvis.RunStatus_Blocked {
+		t.Fatalf("rejected RPC escalation cancelled child: %q", got.Status)
 	}
 }
 

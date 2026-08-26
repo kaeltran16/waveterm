@@ -220,13 +220,17 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	// consecutive-failure accounting: a failure *streak* breaks only on a fresh success —
 	// a task that completed in an earlier tick must not keep resetting the counter, or the
 	// circuit-break at MaxConsecutiveFailures could never trip once any task had ever succeeded.
-	if g.Failures > 0 {
-		for i := range g.Tasks {
-			if prevStates[g.Tasks[i].ID] == TaskState_Running && g.Tasks[i].State == TaskState_Done {
-				g.Failures = 0
-				break
-			}
+	freshSuccess := false
+	for i := range g.Tasks {
+		if prevStates[g.Tasks[i].ID] != TaskState_Running || g.Tasks[i].State != TaskState_Done {
+			continue
 		}
+		freshSuccess = true
+		g.Tasks[i].Attempts = 0
+		g.Tasks[i].LastFailureKind = ""
+	}
+	if freshSuccess && g.Failures > 0 {
+		g.Failures = 0
 	}
 	for i := range g.Tasks {
 		if g.Tasks[i].State == TaskState_Failed && prevStates[g.Tasks[i].ID] == TaskState_Running {
@@ -305,9 +309,24 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		})
 	case DagStatus_Blocked:
 		failures := g.Failures
+		blockingKind := ""
+		for i := range g.Tasks {
+			kind := g.Tasks[i].LastFailureKind
+			if g.Tasks[i].State != TaskState_Failed || kind == "" {
+				continue
+			}
+			if blockingKind == "" {
+				blockingKind = kind
+				continue
+			}
+			if blockingKind != kind {
+				blockingKind = "mixed"
+				break
+			}
+		}
 		afterCommit = append(afterCommit, func() {
 			publishDagEvent(DagEventBlocked, g, "")
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures})
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindDagBlocked, nil, map[string]any{"failures": failures, "kind": blockingKind})
 			notifyLeadBestEffort(ctx, g, DagEventBlocked, fmt.Sprintf("%d failures", failures))
 		})
 	case DagStatus_Done:

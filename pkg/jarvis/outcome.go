@@ -23,6 +23,8 @@ type OutcomeData struct {
 	ExitCode   int    `json:"exitCode"`   // process exit code (recorded, not the status source)
 }
 
+var ChildOutcomeHook func(context.Context, string, OutcomeData) error
+
 // OutcomeStatus maps an agentsessions status to the persisted pill status. Unknown/empty -> "done"
 // (a session with no error/ask marker completed a turn cleanly).
 func OutcomeStatus(sessionStatus string) string {

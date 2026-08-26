@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -42,9 +43,9 @@ func childRunIDs(g *waveobj.TaskGroup) []string {
 	return out
 }
 
-func ApplyAction(ctx context.Context, dagID, taskID, action string) error {
+func ApplyAction(ctx context.Context, dagID, taskID, action, tier string) error {
 	err := withDagMutation(dagID, func() error {
-		return applyActionLocked(ctx, dagID, taskID, action)
+		return applyActionLocked(ctx, dagID, taskID, action, tier)
 	})
 	if err != nil {
 		return err
@@ -76,7 +77,36 @@ func cancelAndStopTaskRun(ctx context.Context, g *waveobj.TaskGroup, taskID stri
 	return nil
 }
 
-func applyActionLocked(ctx context.Context, dagID, taskID, action string) error {
+func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, requestedTier string) (waveobj.RoutePin, error) {
+	if task == nil {
+		return waveobj.RoutePin{}, fmt.Errorf("task is required")
+	}
+	if task.State != TaskState_Failed && task.State != TaskState_Stalled && task.State != TaskState_BlockedMerge {
+		return waveobj.RoutePin{}, fmt.Errorf("task %q cannot be escalated from state %q", task.ID, task.State)
+	}
+	if task.Escalations >= 1 {
+		return waveobj.RoutePin{}, fmt.Errorf("task %q is already escalated; it is blocked for the human", task.ID)
+	}
+	current := effectiveTaskRoute(task, owner)
+	targetTier := requestedTier
+	var err error
+	if targetTier == "" {
+		targetTier, err = nextTier(current.Tier)
+		if err != nil {
+			return waveobj.RoutePin{}, fmt.Errorf("escalating %q: %w", task.ID, err)
+		}
+	}
+	if !isHigherTier(current.Tier, targetTier) {
+		return waveobj.RoutePin{}, fmt.Errorf("task %q tier %q is not higher than %q", task.ID, targetTier, current.Tier)
+	}
+	target := waveobj.RoutePin{Runtime: current.Runtime, Tier: targetTier}
+	if _, err := runroute.Resolve(target); err != nil {
+		return waveobj.RoutePin{}, fmt.Errorf("escalating %q: %w", task.ID, err)
+	}
+	return target, nil
+}
+
+func applyActionLocked(ctx context.Context, dagID, taskID, action, tier string) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
 		return fmt.Errorf("loading dag: %w", err)
@@ -118,6 +148,30 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string) error 
 		if err := RetryTask(g, taskID); err != nil {
 			return err
 		}
+	case "escalate":
+		task := taskByID(g, taskID)
+		if task == nil {
+			return fmt.Errorf("no task %q", taskID)
+		}
+		owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
+		if err != nil {
+			return fmt.Errorf("loading owner run: %w", err)
+		}
+		target, err := escalationTarget(task, owner, tier)
+		if err != nil {
+			return err
+		}
+		if err := cancelAndStopTaskRun(ctx, g, taskID); err != nil {
+			return err
+		}
+		task.RunSpec.Runtime = target.Runtime
+		task.RunSpec.Tier = target.Tier
+		task.Attempts = 0
+		task.LastFailureKind = ""
+		task.Escalations++
+		task.State = TaskState_Pending
+		task.RunID = ""
+		RecomputeDagStatus(g)
 	default:
 		return fmt.Errorf("unknown dag action %q", action)
 	}

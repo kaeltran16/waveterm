@@ -4,10 +4,29 @@
 package jarvis
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
+
+func TestNotifyChildOutcomeCallsHookAndContainsError(t *testing.T) {
+	old := ChildOutcomeHook
+	t.Cleanup(func() { ChildOutcomeHook = old })
+	called := false
+	ChildOutcomeHook = func(_ context.Context, worker string, data OutcomeData) error {
+		called = true
+		if worker != "tab:worker" || data.Status != "failed" {
+			t.Fatalf("unexpected hook data: %q %+v", worker, data)
+		}
+		return errors.New("engine unavailable")
+	}
+	notifyChildOutcome(context.Background(), "tab:worker", OutcomeData{Status: "failed"})
+	if !called {
+		t.Fatal("child outcome hook was not called")
+	}
+}
 
 func TestOutcomeStatus(t *testing.T) {
 	cases := map[string]string{"done": "done", "failed": "failed", "waiting": "waiting", "": "done"}
