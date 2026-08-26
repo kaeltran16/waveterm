@@ -303,6 +303,7 @@ type TaskNode struct {
 	State       string   `json:"state"`              // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge
 	RunID       string   `json:"runid,omitempty"`    // child run once spawned
 	Released    bool     `json:"released,omitempty"` // gate released by human approval
+	Merged      bool     `json:"merged,omitempty"`   // successful squash-merge back into the project branch
 	RunSpec     RunSpec  `json:"runspec,omitempty"`
 	// LastActivity is the newest observed child transcript write (UnixMilli). The watchdog flags a
 	// running task stalled when this goes quiet past the stall threshold; 0 = never observed.

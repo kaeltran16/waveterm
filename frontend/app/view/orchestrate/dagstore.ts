@@ -41,7 +41,7 @@ export function buildViewData(group: TaskGroup, owner: Run, harnesses: HarnessIn
     const nodes: DagViewNode[] = group.tasks.map((t) => {
         let actions = ACTION_BY_STATE[t.state] ?? [];
         if (t.gate && t.state === "done") actions = GATE_DONE_ACTIONS;
-        if (t.state === "done" && !t.gate && !t.released) actions = ["merge"];
+        if (t.state === "done" && !t.gate && !t.merged) actions = ["merge"];
         const taskRoute = t.runspec?.runtime ? normalizeLegacyRoute(t.runspec.runtime, t.runspec.tier) : null;
         const effective = taskRoute ?? ownerRoute ?? { runtime: "", tier: "capable" };
         const capability = capabilityFor(effective, harnesses);

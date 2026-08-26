@@ -102,7 +102,9 @@ func ApproveGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, error
 	return g, fmt.Errorf("no task %q", taskID)
 }
 
-// SendBackGate reopens a completed gate: it must re-spawn (RunID cleared) from a fresh worktree.
+// SendBackGate reopens a completed gate: it must return to pending (RunID cleared) so the
+// scheduler re-spawns it from a fresh worktree. mirror RetryTask — "running" with no runid
+// would occupy a parallelism slot yet never spawn (deadlock).
 func SendBackGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, error) {
 	for i := range g.Tasks {
 		t := &g.Tasks[i]
@@ -110,7 +112,7 @@ func SendBackGate(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskGroup, erro
 			if !t.Gate || t.State != TaskState_Done {
 				return g, fmt.Errorf("task %q is not a done gate", taskID)
 			}
-			t.State = TaskState_Running
+			t.State = TaskState_Pending
 			t.Released = false
 			t.RunID = ""
 			RecomputeDagStatus(g)

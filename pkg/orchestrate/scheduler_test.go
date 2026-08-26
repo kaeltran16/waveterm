@@ -96,7 +96,7 @@ func TestGateActionsTargetTaskAndError(t *testing.T) {
 	if _, err := SendBackGate(g, "nope"); err == nil {
 		t.Fatal("unknown task id must error")
 	}
-	if g.Tasks[2].State != TaskState_Running {
+	if g.Tasks[2].State != TaskState_Pending {
 		t.Fatalf("sendback must reopen only its target, got %q", g.Tasks[2].State)
 	}
 }
@@ -112,8 +112,20 @@ func TestSendBackAndRetryReset(t *testing.T) {
 	if _, err := SendBackGate(g, "t-2"); err != nil { // reopens the gate for re-spawn
 		t.Fatal(err)
 	}
-	if g.Tasks[2].State != TaskState_Running || g.Tasks[2].RunID != "" {
-		t.Fatalf("sendback must reopen gate and clear runid: %+v", g.Tasks[2])
+	// a sent-back gate must return to pending so the scheduler re-spawns it — "running"
+	// with no runid would count against the parallelism budget yet never spawn (deadlock).
+	if g.Tasks[2].State != TaskState_Pending || g.Tasks[2].RunID != "" {
+		t.Fatalf("sendback must return the gate to pending and clear runid: %+v", g.Tasks[2])
+	}
+	ready := ReadyTasks(g)
+	found := false
+	for _, id := range ready {
+		if id == "t-2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("sent-back gate must be spawnable again, ReadyTasks=%v", ready)
 	}
 	g2 := groupWith(TaskState_Done, TaskState_Failed)
 	g2.Failures = 2

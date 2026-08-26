@@ -14,12 +14,11 @@ func toolFlakeOutcome() jarvis.OutcomeData {
 	return jarvis.OutcomeData{Status: "failed", Summary: "tool call errored: connection refused", ExitCode: 2}
 }
 
-// Pins the deliberate streak semantics: auto-retried flakes still count toward the
-// circuit-break, so MaxConsecutiveFailures concurrent one-shot flakes block the DAG even
-// though every task was respawned and none remains Failed. The retried tasks end Running
-// again (HandleChildOutcome's trailing scheduleLocked respawns them), which is the point:
-// the breaker trips on the failure streak alone, not on any lingering failed task.
-func TestConcurrentAutoRetriedFlakesStillTripCircuitBreaker(t *testing.T) {
+// Pins the streak semantics after the G2 policy change: same-tier auto-retried flakes are
+// recoverable, not failures, so they must NOT accumulate toward the circuit-break. concurrent
+// one-shot flakes on every task leave the DAG running with a zero streak — only genuinely-failed
+// (terminal) tasks push Failures toward MaxConsecutiveFailures.
+func TestConcurrentAutoRetriedFlakesDoNotTripCircuitBreaker(t *testing.T) {
 	h := newChildOutcomeHarness(t, MaxConsecutiveFailures)
 	for i := 0; i < MaxConsecutiveFailures; i++ {
 		if err := HandleChildOutcome(h.ctx, h.workers[i], toolFlakeOutcome()); err != nil {
@@ -27,12 +26,12 @@ func TestConcurrentAutoRetriedFlakesStillTripCircuitBreaker(t *testing.T) {
 		}
 	}
 	got := h.loadDag(t)
-	if got.Failures != MaxConsecutiveFailures || got.Status != DagStatus_Blocked {
-		t.Fatalf("failures=%d status=%q, want %d/blocked", got.Failures, got.Status, MaxConsecutiveFailures)
+	if got.Failures != 0 || got.Status != DagStatus_Running {
+		t.Fatalf("failures=%d status=%q, want 0/running (retried flakes must not trip the breaker)", got.Failures, got.Status)
 	}
 	for _, task := range got.Tasks {
 		if task.State == TaskState_Failed {
-			t.Fatalf("task %s stayed failed; breaker must trip on the streak alone", task.ID)
+			t.Fatalf("task %s stayed failed; every flake was retried", task.ID)
 		}
 	}
 }
@@ -45,7 +44,7 @@ func TestSingleAutoRetriedFlakeDoesNotBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := h.loadDag(t)
-	if got.Failures != 1 || got.Status != DagStatus_Running || got.Tasks[0].State != TaskState_Running {
+	if got.Failures != 0 || got.Status != DagStatus_Running || got.Tasks[0].State != TaskState_Running {
 		t.Fatalf("single flake failures=%d status=%q task=%q", got.Failures, got.Status, got.Tasks[0].State)
 	}
 	events, err := wstore.QueryRunEvents(h.ctx, h.channel, h.runID, 50)
@@ -88,7 +87,7 @@ func TestFreshSuccessResetsFailureStreakAndAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := h.loadDag(t)
-	if got.Failures != 1 || got.Status != DagStatus_Running {
-		t.Fatalf("post-success streak = %d/%q, want fresh count 1/running", got.Failures, got.Status)
+	if got.Failures != 0 || got.Status != DagStatus_Running {
+		t.Fatalf("post-success streak = %d/%q, want 0/running (retried flake must not reintroduce a streak)", got.Failures, got.Status)
 	}
 }

@@ -3370,6 +3370,7 @@ declare global {
         state: string;
         runid?: string;
         released?: boolean;
+        merged?: boolean;
         runspec?: RunSpec;
         lastactivity?: number;
         attempts?: number;

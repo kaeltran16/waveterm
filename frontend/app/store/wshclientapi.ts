@@ -294,6 +294,12 @@ export class RpcApiType {
         return client.wshRpcCall("dagmerge", data, opts);
     }
 
+    // command "dagmergecontinue" [call]
+    DagMergeContinueCommand(client: WshClient, data: CommandDagMergeData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagmergecontinue", data, opts);
+        return client.wshRpcCall("dagmergecontinue", data, opts);
+    }
+
     // command "dagstatus" [call]
     DagStatusCommand(client: WshClient, data: CommandDagStatusData, opts?: RpcOpts): Promise<TaskGroup> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "dagstatus", data, opts);

@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -85,7 +88,7 @@ var dagImportCmd = &cobra.Command{
 
 var dagStatusCmd = &cobra.Command{
 	Use:     "status",
-	Short:   "print the engine-owned DAG status snapshot",
+	Short:   "print a per-task status digest (state, stall/ask signal, next action)",
 	Args:    cobra.NoArgs,
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -97,10 +100,100 @@ var dagStatusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out, _ := json.MarshalIndent(g, "", "  ")
-		fmt.Println(string(out))
+		asks := pendingAsks(channelId, runId)
+		now := time.Now().UnixMilli()
+		done := 0
+		for _, t := range g.Tasks {
+			if t.State == orchestrate.TaskState_Done {
+				done++
+			}
+		}
+		fmt.Printf("dag %s  status=%s  tasks=%d/%d  failures=%d  parallelism=%d\n", g.ID, g.Status, done, len(g.Tasks), g.Failures, g.Parallelism)
+		if len(g.Tasks) == 0 {
+			return nil
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		for _, t := range g.Tasks {
+			actions := dagTaskActions(t)
+			signal := ""
+			if ask, ok := asks[t.ID]; ok {
+				actions = []string{"answer"}
+				signal = "ask: " + compactText(ask.Question, 60)
+			} else if t.LastActivity > 0 && (t.State == orchestrate.TaskState_Running || t.State == orchestrate.TaskState_Stalled) {
+				signal = "idle " + compactDur(now-t.LastActivity)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, signal, strings.Join(actions, ","), t.Label)
+		}
+		w.Flush()
 		return nil
 	},
+}
+
+// pendingAsks maps task id -> its pending child ask, best-effort: a failure to read the ask registry
+// degrades the digest to stall/state signals only, not a hard error.
+func pendingAsks(channelId, runId string) map[string]wshrpc.DagAskItem {
+	asks := map[string]wshrpc.DagAskItem{}
+	rtn, err := wshclient.DagAsksCommand(RpcClient, wshrpc.CommandDagStatusData{ChannelId: channelId, RunId: runId}, &wshrpc.RpcOpts{Timeout: 10_000})
+	if err != nil {
+		return asks
+	}
+	for _, a := range rtn.Asks {
+		asks[a.TaskId] = a
+	}
+	return asks
+}
+
+// dagTaskActions mirrors the frontend graph's next-action hint: the human action a task is waiting on.
+func dagTaskActions(t waveobj.TaskNode) []string {
+	switch t.State {
+	case orchestrate.TaskState_Done:
+		if t.Gate {
+			return []string{"approve", "sendback"}
+		}
+		if !t.Released {
+			return []string{"merge"}
+		}
+	case orchestrate.TaskState_Failed, orchestrate.TaskState_Stalled:
+		return []string{"retry", "skip"}
+	case orchestrate.TaskState_BlockedMerge:
+		return []string{"resolve"}
+	}
+	return nil
+}
+
+// compactDur renders a millisecond span as the shortest readable form ("45s", "2m3s", "1h2m").
+func compactDur(ms int64) string {
+	if ms <= 0 {
+		return ""
+	}
+	d := time.Duration(ms) * time.Millisecond
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d/time.Second))
+	case d < time.Hour:
+		m := int(d / time.Minute)
+		if s := int((d % time.Minute) / time.Second); s > 0 {
+			return fmt.Sprintf("%dm%ds", m, s)
+		}
+		return fmt.Sprintf("%dm", m)
+	case d < 24*time.Hour:
+		h := int(d / time.Hour)
+		if m := int((d % time.Hour) / time.Minute); m > 0 {
+			return fmt.Sprintf("%dh%dm", h, m)
+		}
+		return fmt.Sprintf("%dh", h)
+	default:
+		return fmt.Sprintf("%dd%dh", int(d/(24*time.Hour)), int((d%(24*time.Hour))/time.Hour))
+	}
+}
+
+// compactText truncates rune-wise with an ellipsis to n runes.
+func compactText(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // dagIds returns the --channel/--runid flags, falling back to the caller's own run context when the
@@ -177,8 +270,11 @@ var dagEscalateCmd = &cobra.Command{
 }
 
 var dagMergeCmd = &cobra.Command{
-	Use:     "merge <task-id>",
-	Short:   "squash-merge a finished task's worktree back into the project branch",
+	Use:   "merge <task-id>",
+	Short: "squash-merge a finished task's worktree back into the project branch",
+	Long: "Squash-merge a finished task's worktree back into the project branch. On a squash\n" +
+		"conflict the task enters blocked-merge: resolve the conflicts in the project tree, then\n" +
+		"re-run with --continue so the engine commits the resolved state.",
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -186,7 +282,15 @@ var dagMergeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return wshclient.DagMergeCommand(RpcClient, wshrpc.CommandDagMergeData{ChannelId: channelId, RunId: runId, TaskId: args[0]}, &wshrpc.RpcOpts{Timeout: 60_000})
+		cont, err := cmd.Flags().GetBool("continue")
+		if err != nil {
+			return err
+		}
+		data := wshrpc.CommandDagMergeData{ChannelId: channelId, RunId: runId, TaskId: args[0]}
+		if cont {
+			return wshclient.DagMergeContinueCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000})
+		}
+		return wshclient.DagMergeCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: 60_000})
 	},
 }
 
@@ -283,5 +387,6 @@ func init() {
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagEscalateCmd.Flags().String("tier", "", "target tier: mid|capable (default: next tier)")
+	dagMergeCmd.Flags().Bool("continue", false, "finish a blocked squash merge after manual conflict resolution")
 	jarvisCmd.AddCommand(jarvisDagCmd)
 }

@@ -104,7 +104,7 @@ func TestHandleChildOutcomeImmediatelyRespawnsFirstToolFailure(t *testing.T) {
 	if task.Attempts != 1 || task.LastFailureKind != FailureKindToolError {
 		t.Fatalf("failure state = attempts %d kind %q", task.Attempts, task.LastFailureKind)
 	}
-	if got.Status != DagStatus_Running || got.Failures != 1 {
+	if got.Status != DagStatus_Running || got.Failures != 0 {
 		t.Fatalf("dag status=%q failures=%d", got.Status, got.Failures)
 	}
 }

@@ -60,7 +60,12 @@ func HandleChildOutcome(ctx context.Context, workerORef string, data jarvis.Outc
 		task.Attempts++
 		attempt := task.Attempts
 		task.State = TaskState_Failed
-		g.Failures++
+		// a recoverable flake is retried, not a genuine failure: it must not push the streak
+		// toward the circuit-break, or n concurrent one-shot flakes (plus any manual failure)
+		// would block the DAG though every flake auto-recovers. only terminal failures count.
+		if !mayRetry {
+			g.Failures++
+		}
 		if mayRetry {
 			if err := RetryTask(g, task.ID); err != nil {
 				return err

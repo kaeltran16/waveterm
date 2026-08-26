@@ -280,5 +280,82 @@ func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDag
 	}); err != nil {
 		return err
 	}
+	if err := wstore.UpdateDag(ctx, owner.DagORef, func(cur *waveobj.TaskGroup) error {
+		for i := range cur.Tasks {
+			if cur.Tasks[i].ID == data.TaskId {
+				cur.Tasks[i].Merged = true
+				return nil
+			}
+		}
+		return fmt.Errorf("no task %q", data.TaskId)
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, owner.DagORef))
+	return jarvis.SealEvidence(ctx, child)
+}
+
+// DagMergeContinueCommand finishes a squash merge the caller resolved manually after MergeContinue's
+// conflict: it requires blocked-merge (resolved UU/AA/DD markers left behind) and commits the
+// resolved project state, mirroring DagMergeCommand's run/task stamping + evidence sealing.
+func (ws *WshServer) DagMergeContinueCommand(ctx context.Context, data wshrpc.CommandDagMergeData) error {
+	if data.ChannelId == "" || data.RunId == "" || data.TaskId == "" {
+		return fmt.Errorf("channelid, runid and taskid are required")
+	}
+	owner, err := wstore.GetRun(ctx, data.ChannelId, data.RunId)
+	if err != nil {
+		return fmt.Errorf("loading run: %w", err)
+	}
+	if owner.DagORef == "" {
+		return fmt.Errorf("run has no dag")
+	}
+	g, err := wstore.GetDag(ctx, owner.DagORef)
+	if err != nil {
+		return err
+	}
+	taskIdx := -1
+	for i := range g.Tasks {
+		if g.Tasks[i].ID == data.TaskId {
+			taskIdx = i
+			break
+		}
+	}
+	if taskIdx < 0 {
+		return fmt.Errorf("no task %q", data.TaskId)
+	}
+	task := &g.Tasks[taskIdx]
+	if task.State != orchestrate.TaskState_BlockedMerge {
+		return fmt.Errorf("task %s is %s, want blocked-merge", data.TaskId, task.State)
+	}
+	if task.RunID == "" {
+		return fmt.Errorf("task %s has no child run", data.TaskId)
+	}
+	child, err := wstore.GetRun(ctx, data.ChannelId, task.RunID)
+	if err != nil {
+		return fmt.Errorf("loading child run: %w", err)
+	}
+	key := orchestrate.TaskWorktreeKey(owner.ID, data.TaskId)
+	sha, err := orchestrate.MergeContinue(ctx, owner.ProjectPath, key, child.Goal)
+	if err != nil {
+		return err
+	}
+	if err := wstore.UpdateRun(ctx, data.ChannelId, child.ID, func(r *waveobj.Run) error {
+		r.EndCommit = sha
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := wstore.UpdateDag(ctx, owner.DagORef, func(cur *waveobj.TaskGroup) error {
+		for i := range cur.Tasks {
+			if cur.Tasks[i].ID == data.TaskId {
+				cur.Tasks[i].Merged = true
+				return nil
+			}
+		}
+		return fmt.Errorf("no task %q", data.TaskId)
+	}); err != nil {
+		return err
+	}
+	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, owner.DagORef))
 	return jarvis.SealEvidence(ctx, child)
 }

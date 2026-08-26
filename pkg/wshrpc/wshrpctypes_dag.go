@@ -16,6 +16,7 @@ type DagCommands interface {
 	DagStatusCommand(ctx context.Context, data CommandDagStatusData) (*waveobj.TaskGroup, error)   // engine-owned status snapshot
 	DagActionCommand(ctx context.Context, data CommandDagActionData) error                         // approve | sendback | retry | skip | escalate | cancel
 	DagMergeCommand(ctx context.Context, data CommandDagMergeData) error                           // squash-merge a finished child's worktree back
+	DagMergeContinueCommand(ctx context.Context, data CommandDagMergeData) error                   // finish a squash merge after manual conflict resolution
 	DagAsksCommand(ctx context.Context, data CommandDagStatusData) (*CommandDagAsksRtnData, error) // pending child asks (children block on one at a time)
 	DagAnswerCommand(ctx context.Context, data CommandDagAnswerData) error                         // deliver an answer to a child's pending ask
 }

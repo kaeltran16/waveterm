@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/pitasks"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -70,5 +71,66 @@ func TestDagInitScaffoldsParseableStore(t *testing.T) {
 	rootCmd.SetArgs([]string{"jarvis", "dag", "init", "--dir", dir})
 	if err := rootCmd.Execute(); err == nil {
 		t.Fatal("second init must fail (store exists)")
+	}
+}
+
+func TestDagTaskActions(t *testing.T) {
+	cases := []struct {
+		name string
+		node waveobj.TaskNode
+		want []string
+	}{
+		{"done gate", waveobj.TaskNode{State: "done", Gate: true}, []string{"approve", "sendback"}},
+		{"done ready to merge", waveobj.TaskNode{State: "done"}, []string{"merge"}},
+		{"done released", waveobj.TaskNode{State: "done", Released: true}, nil},
+		{"failed", waveobj.TaskNode{State: "failed"}, []string{"retry", "skip"}},
+		{"stalled", waveobj.TaskNode{State: "stalled"}, []string{"retry", "skip"}},
+		{"blocked-merge", waveobj.TaskNode{State: "blocked-merge"}, []string{"resolve"}},
+		{"running", waveobj.TaskNode{State: "running"}, nil},
+		{"pending", waveobj.TaskNode{State: "pending"}, nil},
+	}
+	for _, c := range cases {
+		if got := dagTaskActions(c.node); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: dagTaskActions = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestCompactDur(t *testing.T) {
+	cases := []struct {
+		ms   int64
+		want string
+	}{
+		{0, ""},
+		{-5, ""},
+		{45_000, "45s"},
+		{2*60_000 + 3_000, "2m3s"},
+		{2 * 60_000, "2m"},
+		{60*60_000 + 2*60_000, "1h2m"},
+		{60 * 60_000, "1h"},
+		{25*24*3600_000 + 2*3600_000, "25d2h"},
+	}
+	for _, c := range cases {
+		if got := compactDur(c.ms); got != c.want {
+			t.Errorf("compactDur(%d) = %q, want %q", c.ms, got, c.want)
+		}
+	}
+}
+
+func TestCompactText(t *testing.T) {
+	if got := compactText("short", 10); got != "short" {
+		t.Errorf("short string must pass through, got %q", got)
+	}
+	got := compactText("questions about the merge strategy for chunk C", 12)
+	r := []rune(got)
+	if len(r) != 12 || r[len(r)-1] != '…' {
+		t.Errorf("must truncate to 12 runes with trailing ellipsis, got %q", got)
+	}
+}
+
+func TestDagMergeExposesContinueFlag(t *testing.T) {
+	f := dagMergeCmd.Flags().Lookup("continue")
+	if f == nil {
+		t.Fatal("dag merge must expose --continue for finishing a blocked squash merge")
 	}
 }

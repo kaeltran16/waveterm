@@ -291,6 +291,12 @@ func DagMergeCommand(w *wshutil.WshRpc, data wshrpc.CommandDagMergeData, opts *w
 	return err
 }
 
+// command "dagmergecontinue", wshserver.DagMergeContinueCommand
+func DagMergeContinueCommand(w *wshutil.WshRpc, data wshrpc.CommandDagMergeData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "dagmergecontinue", data, opts)
+	return err
+}
+
 // command "dagstatus", wshserver.DagStatusCommand
 func DagStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandDagStatusData, opts *wshrpc.RpcOpts) (*waveobj.TaskGroup, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.TaskGroup](w, "dagstatus", data, opts)

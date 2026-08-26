@@ -582,8 +582,152 @@ func TestDagMergeTargetsChildWorktree(t *testing.T) {
 	if len(child.EndCommit) != 40 {
 		t.Fatalf("child EndCommit must record the merge sha, got %q", child.EndCommit)
 	}
+	mergedDag, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mergedDag.Tasks[0].Merged {
+		t.Fatal("merged task must be stamped merged so the FE stops offering merge")
+	}
 	// merging a task with no child run is rejected
 	if err := ws.DagMergeCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "nope"}); err == nil {
 		t.Fatal("unknown task must error")
+	}
+}
+
+// TestDagMergeContinueFinishesBlockedMerge: after a squash conflict leaves the task blocked-merge
+// (MarkBlockedMerge), the project tree carries the mid-merge state; continue must reject while
+// UU/AA/DD markers remain, then commit the resolved tree, stamp the task merged, and remove the
+// child worktree — regression for G4 where blocked-merge had no wired exit in the UI.
+func TestDagMergeContinueFinishesBlockedMerge(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	execGit := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", projectDir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	execGit("init", "-b", "main")
+	execGit("config", "user.email", "t@test")
+	execGit("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(projectDir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit("add", ".")
+	execGit("commit", "-m", "base")
+	baseSha := execGit("rev-parse", "HEAD")
+
+	ch, err := wstore.CreateChannel(ctx, "dag-merge-continue", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	run.Status = jarvis.RunStatus_Planning
+	run.BaseCommit = baseSha
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	oldSpawn := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+		tabId := uuid.NewString()
+		blockId := uuid.NewString()
+		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
+		_ = wstore.DBInsert(ctx, tab)
+		block := &waveobj.Block{OID: blockId, ParentORef: "tab:" + tabId}
+		_ = wstore.DBInsert(ctx, block)
+		return "tab:" + tabId, nil
+	}
+	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })
+	ws := &WshServer{}
+	g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: run.ID, Title: "t", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "feature work"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// child edits base.txt in its worktree; the project main diverges on the same file so the
+	// eventual squash merge conflicts
+	key := orchestrate.TaskWorktreeKey(run.ID, "t-0")
+	wtPath := filepath.Join(projectDir, ".waveterm", "worktrees", key)
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Fatalf("expected task worktree at %s: %v", wtPath, err)
+	}
+	execGit2 := func(dir string, args ...string) {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(wtPath, "base.txt"), []byte("child\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit2(wtPath, "add", ".")
+	execGit2(wtPath, "commit", "-m", "child edit")
+	if err := os.WriteFile(filepath.Join(projectDir, "base.txt"), []byte("project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit2(projectDir, "add", ".")
+	execGit2(projectDir, "commit", "-m", "project edit")
+
+	// simulate the DagMergeCommand conflict path: squash merge conflicts, task goes blocked-merge
+	if _, err := exec.Command("git", "-C", projectDir, "merge", "--squash", "wave/"+key).CombinedOutput(); err == nil {
+		t.Fatal("squash merge of divergent base.txt must conflict")
+	}
+	if err := orchestrate.MarkBlockedMerge(ctx, g.OID, g.Tasks[0].RunID); err != nil {
+		t.Fatal(err)
+	}
+
+	// unresolved markers must be rejected with context
+	if err := ws.DagMergeContinueCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err == nil || !strings.Contains(err.Error(), "unresolved conflict") {
+		t.Fatalf("continue with UU markers must error with context, got %v", err)
+	}
+
+	// resolve in the project tree, then continue completes the merge
+	if err := os.WriteFile(filepath.Join(projectDir, "base.txt"), []byte("resolved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execGit2(projectDir, "add", "base.txt")
+	if err := ws.DagMergeContinueCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err != nil {
+		t.Fatalf("continue after resolution: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(projectDir, "base.txt"))
+	if err != nil || string(b) != "resolved\n" {
+		t.Fatalf("resolved state must land in the project tree, got %q err %v", b, err)
+	}
+	if _, err := os.Stat(wtPath); !os.IsNotExist(err) {
+		t.Fatal("continued task's worktree must be removed")
+	}
+	mergedDag, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mergedDag.Tasks[0].Merged {
+		t.Fatal("continued task must be stamped merged")
+	}
+	child, err := wstore.GetRun(ctx, ch.OID, mergedDag.Tasks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(child.EndCommit) != 40 {
+		t.Fatalf("child EndCommit must record the merge sha, got %q", child.EndCommit)
+	}
+
+	// continue is gated on blocked-merge: an unknown task errors, a done task errors
+	if err := ws.DagMergeContinueCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "nope"}); err == nil {
+		t.Fatal("unknown task must error")
+	}
+	if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+		cur.Tasks[0].Merged = false
+		cur.Tasks[0].State = orchestrate.TaskState_Done
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.DagMergeContinueCommand(ctx, wshrpc.CommandDagMergeData{ChannelId: ch.OID, RunId: run.ID, TaskId: "t-0"}); err == nil || !strings.Contains(err.Error(), "want blocked-merge") {
+		t.Fatalf("continue on a done task must error, got %v", err)
 	}
 }

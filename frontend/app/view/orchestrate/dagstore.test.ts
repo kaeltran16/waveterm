@@ -31,6 +31,15 @@ describe("buildViewData", () => {
         // done, non-gate, unreleased -> merge action
         expect(nodes[0].actions).toEqual(["merge"]);
     });
+    it("drops the merge action once a task is merged", () => {
+        const mergedGroup = {
+            ...group,
+            tasks: [{ id: "t-0", label: "setup", state: "done", merged: true }],
+        } as any;
+        const { nodes } = buildViewData(mergedGroup, owner, harnesses);
+        expect(nodes[0].actions).toEqual([]);
+    });
+
     it("flags gate and failure states", () => {
         const { nodes } = buildViewData(group, owner, harnesses);
         const ship = nodes.find((n) => n.id === "t-2")!;

@@ -251,11 +251,17 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
 }
 
 // runAction dispatches the node's action to the dag commands; the resulting waveobj update
-// re-derives the graph. blocked-merge "resolve" surfaces via the merge command (v1: retry).
+// re-derives the graph. "resolve" finishes a blocked squash merge the human resolved in the
+// project tree; the remaining actions go through the engine's dag action RPC.
 function runAction(group: TaskGroup, view: DagViewNode, action: string) {
     const data = { channelid: group.channelid, runid: group.runid, taskid: view.id, action };
+    const mergeData = { channelid: group.channelid, runid: group.runid, taskid: view.id };
     if (action === "merge") {
-        void RpcApi.DagMergeCommand(TabRpcClient, { channelid: group.channelid, runid: group.runid, taskid: view.id });
+        void RpcApi.DagMergeCommand(TabRpcClient, mergeData);
+        return;
+    }
+    if (action === "resolve") {
+        void RpcApi.DagMergeContinueCommand(TabRpcClient, mergeData);
         return;
     }
     void RpcApi.DagActionCommand(TabRpcClient, data);

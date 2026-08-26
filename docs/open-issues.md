@@ -34,17 +34,20 @@ brief Theme A.
 The roadmap header still reads "draft, awaiting review" (2026-08-19), but the route chain has shipped:
 backend run-route capability authority, settings/channel persistence validation, enforcement at worker
 launch + DAG children, capability-driven route controls, draft-first DAG creation (stage-local modal), and
-structured fast approval (plans 2026-08-20/21). Remaining: Phase 2's same-tier retry wiring + typed
-`blocked` + `escalate` verb (confirmed not implemented anywhere in `pkg/` by the 2026-08-24 scan's
-"Also noted"), Phase 3 (route surfaced in DAG graph + run evidence), Phase 4 measurement gate
-(evidence-gated, may be skipped entirely).
+structured fast approval (plans 2026-08-20/21), and Phase 2 (same-tier retry wiring + typed `blocked` +
+`escalate` verb) shipped with the 2026-08-25 phase-2 engine — `RetryTask`, `TaskState_Blocked`, `dag
+escalate` all present in `pkg/` (the 2026-08-24 scan's "Also noted" line is stale). Remaining: Phase 3
+(route surfaced in DAG graph + run evidence), Phase 4 measurement gate (evidence-gated, may be skipped
+entirely).
 Doc: `docs/lead-authored-task-routing-roadmap.md`.
 
-### Orchestrator redesign plan — 27 unchecked steps
+### Orchestrator redesign — shipped (as of 2026-08-25)
 
-`docs/superpowers/plans/2026-08-16-orchestrator-redesign.md` — headless-child contract +
-child-ask forwarding. Not a hard prerequisite for task routing but improves the lead↔worker relationship
-it piggybacks on; sequence the two to avoid collisions.
+`docs/superpowers/plans/2026-08-16-orchestrator-redesign.md` (headless-child contract + child-ask
+forwarding) is shipped: `HeadlessContract`, child-ask forwarding (`dag asks`/`dag answer`,
+`AskAgentCommand`), and `dag init` are all present in `pkg/`, and the design-flaws tracker F1–F10 are
+all marked resolved. The plan doc's own checkboxes were never updated (still 27 unchecked) — a
+doc-hygiene gap only, the code is in. No longer a sequencing dependency.
 
 ### 2026-08-24 orchestrator improvement scan — remaining Jarvis findings
 
@@ -52,6 +55,25 @@ The engine findings O1–O8 shipped in `b9aad7fd`; Jarvis J1 shipped in `67b628a
 J3 (meta-doc corrected, `Backfill`/`Harden` unexported), J4 (per-line timeline truncation), J5 (onexit
 failure logging) landed in the same two commits — the scan is fully closed as of 2026-08-25. Historical
 evidence remains in `docs/superpowers/briefs/2026-08-24-jarvis-orchestrator-improvement-scan.md`.
+
+### 2026-08-26 orchestrator gaps scan — remaining findings (G1–G7)
+
+Read-only scan of the shipped phase-2 engine, child-ask lifecycle, lead CLI, and DAG graph FE
+(`docs/superpowers/briefs/2026-08-26-orchestrator-gaps-scan.md`). Sequencing deliberately not decided in
+the brief; each fix batch gets its own spec/plan. Severity in parens; G6 deferred as design work.
+
+- **G1** (S): `dag sendback` reopens a done gate to `Running` with no RunID; the scheduler never
+  respawns a `Running` task (deadlock, one parallelism slot leaked, status silently `running`).
+  Direction: `SendBackGate` should return to `Pending` like `RetryTask`. The unit test codifies the bad
+  state (`scheduler_test.go`).
+- **G2** (S, policy): auto-retried flakes still increment `g.Failures` toward `MaxConsecutiveFailures=3`
+  even after a clean success; decide whether a retry's success should clear the streak.
+- **G4** (M): `MergeContinue` has no callers — blocked-merge (`dag merge --continue`) is a dead end; the
+  FE's only action maps to `resolve`, rejected by the backend. Wire the verb + FE mapping.
+- **G5** (S): a successful merge stamps no merged marker, so the Merge button persists and re-runs a
+  failing merge. Stamp a `Merged` marker on the task and key the FE action off it.
+- **G6** (low, deferred as design): lead control notifications are fire-and-forget with no delivery ack.
+- **G7** (low): `dag status` dumps raw JSON with no per-task health/age/ask summary (the R4 intent).
 
 ---
 
