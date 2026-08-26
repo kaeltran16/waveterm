@@ -4798,12 +4798,63 @@ const routePickerFlat = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+        const pressKey = async (key, windowsVirtualKeyCode) => {
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code: key, windowsVirtualKeyCode });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode });
+        };
         await h.goto("settings");
         const pickerPresent = await h.ev(`(() => !!document.querySelector('[data-testid="route-picker"]'))()`);
+        await h.ev(`(() => { document.querySelector('[data-testid="route-picker"]')?.scrollIntoView({ block: "center" }); return true; })()`);
+        await settle(200);
         await h.ev(`(() => { const b = document.querySelector('[data-testid="route-picker"]'); if (b) b.click(); return true; })()`);
         await settle(400);
-        const rowCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)`);
+        const rowCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)()`);
         rec("route picker opens with flat model rows", pickerPresent === true && rowCount > 0, `picker=${pickerPresent} rows=${rowCount}`);
+        const layout = await h.ev(`(() => {
+            const group = document.querySelector('[aria-label="Available routes"]');
+            const panel = group?.parentElement;
+            const scroll = document.querySelector('[data-testid="route-picker-scroll"]');
+            if (!panel || !scroll) return null;
+            const rect = panel.getBoundingClientRect();
+            return {
+                top: rect.top,
+                bottom: rect.bottom,
+                height: rect.height,
+                viewportHeight: window.innerHeight,
+                overflowY: getComputedStyle(scroll).overflowY,
+                scrollHeight: scroll.scrollHeight,
+                clientHeight: scroll.clientHeight,
+            };
+        })()`);
+        rec(
+            "route picker stays within the viewport and scrolls model rows",
+            layout != null &&
+                layout.top >= 8 &&
+                layout.bottom <= layout.viewportHeight - 8 &&
+                layout.height <= 360 &&
+                layout.overflowY === "auto" &&
+                layout.scrollHeight > layout.clientHeight,
+            JSON.stringify(layout)
+        );
+        const openFocus = await h.ev(`document.activeElement?.getAttribute('aria-label') ?? ''`);
+        rec("opening the route picker focuses its filter", openFocus === "Filter models", `focus="${openFocus}"`);
+        await pressKey("ArrowDown", 40);
+        await settle(100);
+        const arrowFocus = await h.ev(`document.activeElement?.getAttribute('data-testid') ?? ''`);
+        rec("ArrowDown moves focus from the filter to a model row", arrowFocus.startsWith("route-option-"), `focus="${arrowFocus}"`);
+        await pressKey("Escape", 27);
+        await settle(100);
+        const escapeState = await h.ev(`(() => {
+            const picker = document.querySelector('[data-testid="route-picker"]');
+            return { expanded: picker?.getAttribute('aria-expanded'), focused: document.activeElement === picker };
+        })()`);
+        rec(
+            "Escape closes the route picker and restores trigger focus",
+            escapeState?.expanded === "false" && escapeState.focused === true,
+            JSON.stringify(escapeState)
+        );
+        await h.ev(`document.querySelector('[data-testid="route-picker"]')?.click()`);
+        await settle(400);
         await h.shot("cdp-shots/route-picker-flat.png");
         // filter shrinks the row set
         const filterTyped = await h.ev(`(() => {
@@ -4815,7 +4866,7 @@ const routePickerFlat = {
             return true;
         })()`);
         await settle(300);
-        const filteredCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)`);
+        const filteredCount = await h.ev(`(() => document.querySelectorAll('[data-testid^="route-option-"]').length)()`);
         rec("filter shrinks model rows", filterTyped === true && filteredCount > 0 && filteredCount < rowCount, `rows=${rowCount} filtered=${filteredCount}`);
         // choosing a row updates the face off "capable"
         await h.ev(`(() => {
