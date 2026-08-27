@@ -248,7 +248,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 	}
 	for _, taskID := range NextToSpawn(g) {
 		task := taskByID(g, taskID)
-		pin := effectiveTaskRoute(task, owner)
+		pin := effectiveTaskRoute(task, owner, g)
 		capability, routeErr := runroute.Resolve(pin)
 		if routeErr != nil {
 			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
@@ -428,7 +428,7 @@ func taskPrompt(task *waveobj.TaskNode, owner *waveobj.Run) string {
 	return b.String()
 }
 
-func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run) waveobj.RoutePin {
+func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj.TaskGroup) waveobj.RoutePin {
 	if task.RunSpec.Model != "" {
 		runtime := task.RunSpec.Runtime
 		if runtime == "" {
@@ -438,6 +438,14 @@ func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run) waveobj.Rout
 	}
 	if task.RunSpec.Runtime != "" || task.RunSpec.Tier != "" {
 		return runroute.NormalizeLegacy(task.RunSpec.Runtime, task.RunSpec.Tier)
+	}
+	if group != nil && group.WorkerRoute != nil {
+		if group.WorkerRoute.Model != "" {
+			return waveobj.RoutePin{Runtime: group.WorkerRoute.Runtime, Model: group.WorkerRoute.Model}
+		}
+		if group.WorkerRoute.Runtime != "" || group.WorkerRoute.Tier != "" {
+			return runroute.NormalizeLegacy(group.WorkerRoute.Runtime, group.WorkerRoute.Tier)
+		}
 	}
 	if owner.Model != "" {
 		return waveobj.RoutePin{Runtime: owner.Runtime, Model: owner.Model}

@@ -43,6 +43,8 @@ export function LaunchComposer({
     onRouteChange,
     harnessOpenRequest = 0,
     routeOpenRequest = 0,
+    workerRoute,
+    onWorkerRouteChange,
 }: {
     value: string;
     onChange: (next: string) => void;
@@ -57,6 +59,8 @@ export function LaunchComposer({
     onRouteChange: (route: RoutePin | null) => void;
     harnessOpenRequest?: number;
     routeOpenRequest?: number;
+    workerRoute?: RoutePin | null;
+    onWorkerRouteChange?: (route: RoutePin | null) => void;
 }) {
     const taRef = useRef<HTMLTextAreaElement>(null);
     const pendingCaret = useRef<number | null>(null);
@@ -152,6 +156,9 @@ export function LaunchComposer({
     const footer = mode === "ask" ? askFooter : behavior;
     const sendLabel = mode === "ask" ? "Ask" : "Run ⏎";
     const sendDisabled = blocked || (!value.trim() && attach.readyCount === 0) || attach.uploading || pref.saving;
+    const [workerPickerOpen, setWorkerPickerOpen] = useState(false);
+    const showWorkerLink = selectedShape === "orchestrator" && mode !== "ask" && !pending && onWorkerRouteChange != null;
+    const workerExpanded = showWorkerLink && (workerPickerOpen || workerRoute != null);
 
     return (
         <ComposerShell
@@ -208,41 +215,73 @@ export function LaunchComposer({
                 />
             }
             footerLeft={
-                <>
-                    {mode !== "ask" && !pending ? (
-                        <div className="flex items-center gap-1 rounded-[7px] border border-border bg-surface px-1 py-0.5">
-                            {(["pipeline", "orchestrator", "quick"] as RunShape[]).map((option) => (
+                <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {mode !== "ask" && !pending ? (
+                            <div className="flex items-center gap-1 rounded-[7px] border border-border bg-surface px-1 py-0.5">
+                                {(["pipeline", "orchestrator", "quick"] as RunShape[]).map((option) => (
+                                    <button
+                                        key={option}
+                                        type="button"
+                                        aria-pressed={selectedShape === option}
+                                        disabled={mode === "quick"}
+                                        onClick={() => onShapeChange(option)}
+                                        className={
+                                            "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
+                                            (selectedShape === option
+                                                ? "bg-accentbg text-accent-soft"
+                                                : "text-muted hover:text-secondary")
+                                        }
+                                    >
+                                        {option}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                        {mode !== "ask" && !pending ? (
+                            <RoutePicker
+                                value={route}
+                                onChange={onRouteChange}
+                                placement="top-start"
+                                openRequest={routeOpenRequest}
+                            />
+                        ) : null}
+                        {mode === "ask" ? (
+                            <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
+                        ) : null}
+                        {!workerExpanded ? <span className="font-mono text-[11px] text-ink-mid">{footer}</span> : null}
+                        {showWorkerLink && !workerExpanded ? (
+                            <span className="font-mono text-[11px] text-ink-mid">
+                                · workers inherit ·{" "}
                                 <button
-                                    key={option}
                                     type="button"
-                                    aria-pressed={selectedShape === option}
-                                    disabled={mode === "quick"}
-                                    onClick={() => onShapeChange(option)}
-                                    className={
-                                        "rounded-[5px] px-1.5 py-0.5 font-mono text-[10px] font-semibold capitalize " +
-                                        (selectedShape === option
-                                            ? "bg-accentbg text-accent-soft"
-                                            : "text-muted hover:text-secondary")
-                                    }
+                                    onClick={() => setWorkerPickerOpen(true)}
+                                    className="font-mono text-[11px] font-semibold text-accent-soft underline decoration-accent/40 underline-offset-2 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                                 >
-                                    {option}
+                                    Set workers model →
                                 </button>
-                            ))}
+                            </span>
+                        ) : null}
+                    </div>
+                    {workerExpanded ? (
+                        <div className="flex flex-wrap items-center gap-2 rounded-[7px] border border-edge-mid bg-surface px-2 py-1">
+                            <span className="font-mono text-[11px] font-semibold">Workers</span>
+                            <RoutePicker value={workerRoute ?? null} onChange={onWorkerRouteChange!} placement="top-start" />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onWorkerRouteChange?.(null);
+                                    setWorkerPickerOpen(false);
+                                }}
+                                className="ml-auto font-mono text-[11px] text-muted hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
+                            >
+                                ✕ inherit
+                            </button>
+                            <span className="font-mono text-[10px] text-muted">workers inherit lead when empty</span>
                         </div>
                     ) : null}
-                    {mode !== "ask" && !pending ? (
-                        <RoutePicker
-                            value={route}
-                            onChange={onRouteChange}
-                            placement="top-start"
-                            openRequest={routeOpenRequest}
-                        />
-                    ) : null}
-                    {mode === "ask" ? (
-                        <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
-                    ) : null}
-                    <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
-                </>
+                    {workerExpanded ? <span className="font-mono text-[11px] text-ink-mid">{footer}</span> : null}
+                </div>
             }
             footerRight={<AttachButton testId="composer-attachment" onFiles={attach.add} />}
         />

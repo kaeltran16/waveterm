@@ -287,6 +287,8 @@ type Run struct {
 	// DagORef links an orchestrator run to its TaskGroup ("dag:<id>"); set by DagSubmitCommand,
 	// copied onto child runs so the engine can resolve the group from any run in the DAG.
 	DagORef string      `json:"dagoref,omitempty"`
+	// WorkerRoute is the default worker route for orchestrator children (nil = inherit lead); B1b stores it here at CreateRun so `dag import-tasks` can submit the group with it.
+	WorkerRoute *RoutePin `json:"workerroute,omitempty"`
 	Meta    MetaMapType `json:"meta"`
 }
 
@@ -341,6 +343,7 @@ type TaskGroup struct {
 	Tasks         []TaskNode  `json:"tasks"`
 	Status        string      `json:"status"`   // running|awaiting-review|blocked|done|cancelled (derived)
 	Failures      int         `json:"failures"` // consecutive task failures; circuit-break at 3
+	WorkerRoute *RoutePin `json:"workerroute,omitempty"` // default worker route (nil = inherit owner); task RunSpec wins
 	MergeRequired bool        `json:"mergerequired,omitempty"`
 	CreatedTs     int64       `json:"createdts"`
 	UpdatedTs     int64       `json:"updatedts"`

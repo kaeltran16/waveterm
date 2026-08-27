@@ -139,7 +139,7 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
-	}, 1)
+	}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
-	}, 1)
+	}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestWatchdogTickAdvancesDag(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

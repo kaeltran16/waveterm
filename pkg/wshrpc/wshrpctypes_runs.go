@@ -26,6 +26,7 @@ type CommandCreateRunData struct {
 	Runtime     string                  `json:"runtime"` // the harness that runs every phase and child run; immutable after Start
 	Tier        string                  `json:"tier"`
 	Model       string                  `json:"model,omitempty"` // exact model id; empty = tier. wins over tier
+	WorkerRoute *waveobj.RoutePin       `json:"workerroute,omitempty"` // B1b default worker route (nil = inherit lead)
 	PlaybookId  string                  `json:"playbookid,omitempty"`
 	Mode        string                  `json:"mode,omitempty"`        // quick | pipeline | orchestrator (empty = resolved profile default)
 	PlanGate    *bool                   `json:"plangate,omitempty"`    // orchestrator plan gate; nil = resolved profile default

@@ -77,7 +77,7 @@ func cancelAndStopTaskRun(ctx context.Context, g *waveobj.TaskGroup, taskID stri
 	return nil
 }
 
-func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, target waveobj.RoutePin) (waveobj.RoutePin, error) {
+func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, group *waveobj.TaskGroup, target waveobj.RoutePin) (waveobj.RoutePin, error) {
 	if task == nil {
 		return waveobj.RoutePin{}, fmt.Errorf("task is required")
 	}
@@ -87,7 +87,7 @@ func escalationTarget(task *waveobj.TaskNode, owner *waveobj.Run, target waveobj
 	if task.Escalations >= 1 {
 		return waveobj.RoutePin{}, fmt.Errorf("task %q is already escalated; it is blocked for the human", task.ID)
 	}
-	current := effectiveTaskRoute(task, owner)
+	current := effectiveTaskRoute(task, owner, group)
 	if target.Runtime == "" {
 		target.Runtime = current.Runtime
 	}
@@ -161,7 +161,7 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if err != nil {
 			return fmt.Errorf("loading owner run: %w", err)
 		}
-		target, err := escalationTarget(task, owner, target)
+		target, err := escalationTarget(task, owner, g, target)
 		if err != nil {
 			return err
 		}

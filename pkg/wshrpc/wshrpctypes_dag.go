@@ -27,6 +27,7 @@ type CommandDagSubmitData struct {
 	Title       string             `json:"title,omitempty"`
 	Parallelism int                `json:"parallelism"`
 	Tasks       []waveobj.TaskNode `json:"tasks"`
+	WorkerRoute *waveobj.RoutePin  `json:"workerroute,omitempty"` // nil = inherit lead; B1b workers default
 }
 
 type CommandDagStatusData struct {

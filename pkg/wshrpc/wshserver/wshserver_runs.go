@@ -306,6 +306,14 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	if _, err := validateHarness(cap.Runtime, harness.OperationRunWorker); err != nil {
 		return nil, err
 	}
+	if data.WorkerRoute != nil {
+		if _, err := runroute.Resolve(*data.WorkerRoute); err != nil {
+			return nil, fmt.Errorf("workerRoute %w", err)
+		}
+		if _, err := validateHarness(data.WorkerRoute.Runtime, harness.OperationRunWorker); err != nil {
+			return nil, fmt.Errorf("workerRoute %w", err)
+		}
+	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, data.ChannelId)
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
@@ -320,6 +328,7 @@ func (ws *WshServer) CreateRunCommand(ctx context.Context, data wshrpc.CommandCr
 	run.Runtime = cap.Runtime // immutable after Start; every phase and child inherits this
 	run.Tier = cap.Tier
 	run.Model = cap.Model
+	run.WorkerRoute = data.WorkerRoute
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
 	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {

@@ -35,14 +35,14 @@ func TestControlMessageShape(t *testing.T) {
 		}
 	}
 	// NotifyLead without the control dir is a silent no-op, not an error
-	g, _ := NewTaskGroup("run-1", "g", "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
+	g, _ := NewTaskGroup("run-1", "g", "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
 	if err := NotifyLead(context.Background(), &g, DagEventGateOpen, "t-0"); err != nil {
 		t.Fatalf("NotifyLead without env must be a no-op: %v", err)
 	}
 }
 
 func TestNotifyLeadBestEffortLogsFailure(t *testing.T) {
-	g, _ := NewTaskGroup("run-42", "ch-1", "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
+	g, _ := NewTaskGroup("run-42", "ch-1", "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1, nil)
 	g.OID = "dag-123"
 	g.RunID = "run-42"
 	old := notifyLeadFn

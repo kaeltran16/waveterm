@@ -45,7 +45,7 @@ func newChildOutcomeHarness(t *testing.T, taskCount int) *childOutcomeHarness {
 	for i := range tasks {
 		tasks[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: fmt.Sprintf("task %d", i)}
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "outcomes", taskCount, false, tasks, 1)
+	g, err := NewTaskGroup(owner.ID, ch.OID, "outcomes", taskCount, false, tasks, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

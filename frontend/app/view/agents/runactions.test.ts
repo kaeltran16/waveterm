@@ -70,6 +70,16 @@ describe("profile cache", () => {
 });
 
 describe("createRun", () => {
+    it("sends workerRoute when B1b workers picker is set", async () => {
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
+        await createRun("channel-1", "ship", { runtime: "claude", tier: "", model: "opus" }, { mode: "orchestrator", workerRoute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } as RoutePin });
+        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workerroute: { runtime: "pi", model: "opencode/deepseek-v4-pro" } }));
+    });
+    it("omits workerRoute when workers inherit (collapsed)", async () => {
+        createRunCommand.mockResolvedValueOnce({ run: { id: "run-2" } });
+        await createRun("channel-1", "ship", { runtime: "claude", tier: "", model: "opus" }, { mode: "orchestrator" });
+        expect(createRunCommand).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({ workerroute: expect.anything() }));
+    });
     it("maps deferred orchestrator options to the RPC shape", async () => {
         createRunCommand.mockResolvedValueOnce({ run: { id: "run-1" } });
         await createRun("channel-1", "ship", { runtime: "pi", tier: "mid" }, { mode: "orchestrator", deferStart: true });

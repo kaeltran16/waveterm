@@ -98,7 +98,7 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 		{ID: "t-0", Label: "a"},
 		{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
 		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
-	}, 1)
+	}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
 		{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
-	}, 1)
+	}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{
 		ID: "t-0", Label: "pi task", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
-	}}, 1)
+	}}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{
 		ID: "t-0", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
-	}}, 1)
+	}}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
 		{ID: "legacy", Label: "legacy", RunSpec: waveobj.RunSpec{Runtime: "claude"}},
 		{ID: "inherited", Label: "inherited"},
-	}, 1)
+	}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

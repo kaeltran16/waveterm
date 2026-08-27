@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -126,7 +127,7 @@ func findCycle(tasks []waveobj.TaskNode) string {
 	return ""
 }
 
-func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired bool, tasks []waveobj.TaskNode, ts int64) (waveobj.TaskGroup, error) {
+func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired bool, tasks []waveobj.TaskNode, ts int64, workerRoute *waveobj.RoutePin) (waveobj.TaskGroup, error) {
 	if strings.TrimSpace(title) == "" {
 		return waveobj.TaskGroup{}, fmt.Errorf("title is required")
 	}
@@ -141,6 +142,11 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 	}
 	if err := ValidateTasks(tasks); err != nil {
 		return waveobj.TaskGroup{}, err
+	}
+	if workerRoute != nil {
+		if _, err := runroute.Resolve(*workerRoute); err != nil {
+			return waveobj.TaskGroup{}, fmt.Errorf("workerRoute %w", err)
+		}
 	}
 	// reject non-default engine fields
 	for _, t := range tasks {
@@ -186,6 +192,7 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		ChannelId:     channelId,
 		Title:         title,
 		Parallelism:   parallelism,
+		WorkerRoute:   workerRoute,
 		MergeRequired: mergeRequired,
 		Tasks:         tasksCopy,
 		Status:        DagStatus_Running,
@@ -204,6 +211,12 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired || len(a.Tasks) != len(b.Tasks) {
 		return false
 	}
+	if (a.WorkerRoute == nil) != (b.WorkerRoute == nil) {
+		return false
+	}
+	if a.WorkerRoute != nil && *a.WorkerRoute != *b.WorkerRoute {
+		return false
+	}
 	for i := range a.Tasks {
 		ta := a.Tasks[i]
 		tb := b.Tasks[i]
@@ -218,7 +231,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 				return false
 			}
 		}
-		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Tier != tb.RunSpec.Tier || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode {
+		if ta.RunSpec.Runtime != tb.RunSpec.Runtime || ta.RunSpec.Tier != tb.RunSpec.Tier || ta.RunSpec.Model != tb.RunSpec.Model || ta.RunSpec.Goal != tb.RunSpec.Goal || ta.RunSpec.Mode != tb.RunSpec.Mode {
 			return false
 		}
 	}

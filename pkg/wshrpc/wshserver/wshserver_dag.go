@@ -52,8 +52,20 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return nil, fmt.Errorf("task %q: %w", task.ID, err)
 		}
 	}
+	if data.WorkerRoute != nil {
+		if _, err := runroute.Resolve(*data.WorkerRoute); err != nil {
+			return nil, fmt.Errorf("workerRoute %w", err)
+		}
+		if _, err := validateHarness(data.WorkerRoute.Runtime, harness.OperationRunWorker); err != nil {
+			return nil, fmt.Errorf("workerRoute %w", err)
+		}
+	}
+	workerRoute := data.WorkerRoute
+	if workerRoute == nil {
+		workerRoute = run.WorkerRoute
+	}
 	mergeRequired := orchestrate.IsGitRepo(run.ProjectPath)
-	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, mergeRequired, data.Tasks, time.Now().UnixMilli())
+	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, mergeRequired, data.Tasks, time.Now().UnixMilli(), workerRoute)
 	if err != nil {
 		return nil, err
 	}

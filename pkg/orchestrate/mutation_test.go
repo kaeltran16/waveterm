@@ -31,7 +31,7 @@ func seedPendingDag(t *testing.T) (context.Context, *waveobj.TaskGroup) {
 	}
 	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
-	}, 1)
+	}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,7 +733,7 @@ func TestCancelSweepsTaskWorktrees(t *testing.T) {
 func TestEscalationTargetModel(t *testing.T) {
 	task := &waveobj.TaskNode{ID: "t-1", State: TaskState_Failed, RunSpec: waveobj.RunSpec{Runtime: "pi", Model: "opencode/deepseek-v4-flash"}}
 	owner := &waveobj.Run{Runtime: "pi"}
-	target, err := escalationTarget(task, owner, waveobj.RoutePin{Runtime: "claude", Model: "opus"})
+	target, err := escalationTarget(task, owner, nil, waveobj.RoutePin{Runtime: "claude", Model: "opus"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,10 +745,10 @@ func TestEscalationTargetModel(t *testing.T) {
 func TestEscalationTargetRequiresValidModel(t *testing.T) {
 	task := &waveobj.TaskNode{ID: "t-1", State: TaskState_Failed, RunSpec: waveobj.RunSpec{Runtime: "pi"}}
 	owner := &waveobj.Run{Runtime: "pi"}
-	if _, err := escalationTarget(task, owner, waveobj.RoutePin{Runtime: "claude", Model: "gpt-5.4"}); err == nil {
+	if _, err := escalationTarget(task, owner, nil, waveobj.RoutePin{Runtime: "claude", Model: "gpt-5.4"}); err == nil {
 		t.Fatal("cross-namespace model must be rejected")
 	}
-	if _, err := escalationTarget(task, owner, waveobj.RoutePin{}); err == nil {
+	if _, err := escalationTarget(task, owner, nil, waveobj.RoutePin{}); err == nil {
 		t.Fatal("empty target must be rejected")
 	}
 }
@@ -756,7 +756,7 @@ func TestEscalationTargetRequiresValidModel(t *testing.T) {
 func TestEscalationTargetCapHolds(t *testing.T) {
 	task := &waveobj.TaskNode{ID: "t-1", State: TaskState_Stalled, Escalations: 1, RunSpec: waveobj.RunSpec{Runtime: "pi"}}
 	owner := &waveobj.Run{Runtime: "pi"}
-	if _, err := escalationTarget(task, owner, waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}); err == nil {
+	if _, err := escalationTarget(task, owner, nil, waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}); err == nil {
 		t.Fatal("escalations cap must refuse a second hop")
 	}
 }
@@ -764,12 +764,12 @@ func TestEscalationTargetCapHolds(t *testing.T) {
 func TestEffectiveTaskRouteModel(t *testing.T) {
 	task := &waveobj.TaskNode{RunSpec: waveobj.RunSpec{Runtime: "", Model: "opencode/claude-opus-4-8"}}
 	owner := &waveobj.Run{Runtime: "pi"}
-	got := effectiveTaskRoute(task, owner)
+	got := effectiveTaskRoute(task, owner, nil)
 	if got.Model != "opencode/claude-opus-4-8" || got.Runtime != "pi" {
 		t.Fatalf("model RunSpec must inherit owner runtime: %+v", got)
 	}
 	ownerWithModel := &waveobj.Run{Runtime: "pi", Model: "opencode/deepseek-v4-pro"}
-	inherited := effectiveTaskRoute(&waveobj.TaskNode{}, ownerWithModel)
+	inherited := effectiveTaskRoute(&waveobj.TaskNode{}, ownerWithModel, nil)
 	if inherited.Model != "opencode/deepseek-v4-pro" || inherited.Runtime != "pi" {
 		t.Fatalf("owner model must flow to tasks without a route: %+v", inherited)
 	}

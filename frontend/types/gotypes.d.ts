@@ -502,6 +502,7 @@ declare global {
         runtime: string;
         tier: string;
         model?: string;
+        workerroute?: RoutePin;
         playbookid?: string;
         mode?: string;
         plangate?: boolean;
@@ -577,6 +578,7 @@ declare global {
         title?: string;
         parallelism: number;
         tasks: TaskNode[];
+        workerroute?: RoutePin;
     };
 
     // wshrpc.CommandDebugTermData
@@ -2855,6 +2857,7 @@ declare global {
         parentleadoref?: string;
         effortref?: RunEffortRef;
         dagoref?: string;
+        workerroute?: RoutePin;
     };
 
     // waveobj.RunEffortRef
@@ -3337,6 +3340,7 @@ declare global {
         tasks: TaskNode[];
         status: string;
         failures: number;
+        workerroute?: RoutePin;
         mergerequired?: boolean;
         createdts: number;
         updatedts: number;

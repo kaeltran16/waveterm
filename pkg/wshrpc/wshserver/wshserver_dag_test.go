@@ -443,7 +443,7 @@ func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveo
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "escalate", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "task"}}, 1)
+	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "escalate", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "task"}}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

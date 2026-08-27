@@ -250,6 +250,7 @@ export function StageComposer({
     const [launchError, setLaunchError] = useState("");
     const [shape, setShape] = useState<RunShape>(profile?.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
     const [runRoute, setRunRoute] = useState<RoutePin | null>(route ?? pref.route);
+    const [workerRoute, setWorkerRoute] = useState<RoutePin | null>(null);
     const shapeTouched = useRef(false);
     const routeTouched = useRef(false);
     const channelIdentity = channel?.oid ?? null;
@@ -259,6 +260,7 @@ export function StageComposer({
         routeTouched.current = false;
         setShape("pipeline");
         setRunRoute(null);
+        setWorkerRoute(null);
     }, [channelIdentity]);
 
     useEffect(() => {
@@ -418,6 +420,7 @@ export function StageComposer({
             try {
                 const created = await createRun(decision.channelId, decision.goal, decision.route, {
                     mode: decision.mode,
+                    ...(shape === "orchestrator" && workerRoute ? { workerRoute } : {}),
                 });
                 setActiveRunId(decision.channelId, created.id);
                 setDraft("");
@@ -567,6 +570,8 @@ export function StageComposer({
                                 }}
                                 harnessOpenRequest={harnessOpenRequest}
                                 routeOpenRequest={routeOpenRequest}
+                                workerRoute={workerRoute}
+                                onWorkerRouteChange={setWorkerRoute}
                             />
                         </>
                     )
