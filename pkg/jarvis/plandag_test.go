@@ -134,16 +134,15 @@ func TestParsePlanDagRejectsStructuralErrors(t *testing.T) {
 		nine[i] = fmt.Sprintf(`{"id":"%d","label":"task %d"}`, i, i)
 	}
 	cases := map[string]string{
-		"malformed":         `{`,
-		"surrounding prose": `plan: {"tasks":[{"id":"a","label":"A"}]}`,
-		"zero tasks":        `{"tasks":[]}`,
-		"nine tasks":        `{"tasks":[` + strings.Join(nine, ",") + `]}`,
-		"duplicate ids":     `{"tasks":[{"id":"a","label":"A"},{"id":"a","label":"B"}]}`,
-		"blank id":          `{"tasks":[{"id":" ","label":"A"}]}`,
-		"blank label":       `{"tasks":[{"id":"a","label":" "}]}`,
-		"unknown dep":       `{"tasks":[{"id":"a","label":"A","deps":["missing"]}]}`,
-		"self dep":          `{"tasks":[{"id":"a","label":"A","deps":["a"]}]}`,
-		"cycle":             `{"tasks":[{"id":"a","label":"A","deps":["b"]},{"id":"b","label":"B","deps":["a"]}]}`,
+		"malformed":     `{`,
+		"zero tasks":    `{"tasks":[]}`,
+		"nine tasks":    `{"tasks":[` + strings.Join(nine, ",") + `]}`,
+		"duplicate ids": `{"tasks":[{"id":"a","label":"A"},{"id":"a","label":"B"}]}`,
+		"blank id":      `{"tasks":[{"id":" ","label":"A"}]}`,
+		"blank label":   `{"tasks":[{"id":"a","label":" "}]}`,
+		"unknown dep":   `{"tasks":[{"id":"a","label":"A","deps":["missing"]}]}`,
+		"self dep":      `{"tasks":[{"id":"a","label":"A","deps":["a"]}]}`,
+		"cycle":         `{"tasks":[{"id":"a","label":"A","deps":["b"]},{"id":"b","label":"B","deps":["a"]}]}`,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -213,5 +212,93 @@ func TestFallbackDagPlanIsBounded(t *testing.T) {
 				t.Fatalf("warning leaked %q: %s", leaked, joined)
 			}
 		}
+	}
+}
+
+// An exact-model run route plans on that same model so the decomposition comes from the model
+// family the workers will use; a legacy tier route keeps the headless mid spec.
+func TestPlanDagPrefersRunRouteModel(t *testing.T) {
+	oldRun := runFn
+	t.Cleanup(func() { runFn = oldRun })
+	input := DagPlanInput{Goal: "ship", RunRoute: waveobj.RoutePin{Runtime: "pi", Model: "opencode-go/ox-alpha-free"}}
+	var gotSpec consult.RuntimeSpec
+	runFn = func(_ context.Context, spec consult.RuntimeSpec, _, _ string, _ func(string)) (string, error) {
+		gotSpec = spec
+		return `{"title":"ship","tasks":[{"id":"a","label":"build"}]}`, nil
+	}
+	if _, _, err := PlanDag(context.Background(), ".", input); err != nil {
+		t.Fatal(err)
+	}
+	if !containsModelArg(gotSpec.BaseArgs, "opencode-go/ox-alpha-free") {
+		t.Fatalf("planner spec missing run-route model: %+v", gotSpec)
+	}
+}
+
+func TestPlanDagFallsBackWhenRunRouteModelUnresolvable(t *testing.T) {
+	oldSpec, oldRun := planDagSpec, runFn
+	t.Cleanup(func() { planDagSpec, runFn = oldSpec, oldRun })
+	input := DagPlanInput{Goal: "ship", RunRoute: waveobj.RoutePin{Runtime: "bogus", Model: "m"}}
+	var gotTier consult.Tier
+	planDagSpec = func(tier consult.Tier) (consult.RuntimeSpec, bool) {
+		gotTier = tier
+		return consult.RuntimeSpec{}, true
+	}
+	runFn = func(context.Context, consult.RuntimeSpec, string, string, func(string)) (string, error) {
+		return `{"title":"ship","tasks":[{"id":"a","label":"build"}]}`, nil
+	}
+	if _, _, err := PlanDag(context.Background(), ".", input); err != nil || gotTier != consult.TierMid {
+		t.Fatalf("tier=%q err=%v", gotTier, err)
+	}
+}
+
+// A missing planner credential is named as a class, never via the raw cause (which can carry
+// configuration detail).
+func TestFallbackDagPlanNamesMissingCredentials(t *testing.T) {
+	cause := fmt.Errorf("running dag planner: %w", consult.ErrOpenRouterKeyMissing)
+	_, warnings := FallbackDagPlan("ship", cause)
+	joined := strings.Join(warnings, " ")
+	if !strings.Contains(strings.ToLower(joined), "credential") {
+		t.Fatalf("warning must name the credential class: %s", joined)
+	}
+	for _, leaked := range []string{"OPENROUTER_KEY", "dag planner", "SECRET"} {
+		if strings.Contains(joined, leaked) {
+			t.Fatalf("warning leaked %q: %s", leaked, joined)
+		}
+	}
+}
+
+func containsModelArg(args []string, model string) bool {
+	for i, a := range args {
+		if a == "--model" && i+1 < len(args) && args[i+1] == model {
+			return true
+		}
+	}
+	return false
+}
+
+// Models narrate: the reply may carry prose and stray fragments around the plan object, so
+// parsing extracts the outermost {...} span instead of requiring a bare JSON document.
+func TestParsePlanDagExtractsObjectFromProse(t *testing.T) {
+	input := DagPlanInput{Goal: "ship", RunRoute: waveobj.RoutePin{Runtime: "pi", Tier: "capable", Model: "m"}}
+	raw := "I'll create an execution plan. Let me check the structure first.[\n" +
+		`  {"id":"stray","label":"not a plan"}` + "\n]" +
+		`{"title":" Release ","tasks":[{"id":"plan","label":" Plan ","description":" Decide seams ","gate":true},` +
+		`{"id":"build","label":"Build"}]}` + "\nDone."
+	draft, warnings, err := ParsePlanDag(raw, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || draft.Title != "Release" || len(draft.Tasks) != 2 {
+		t.Fatalf("draft=%+v warnings=%v", draft, warnings)
+	}
+	if draft.Tasks[0].ID != "t-1" || !draft.Tasks[0].Gate || draft.Tasks[1].ID != "t-2" {
+		t.Fatalf("tasks=%+v", draft.Tasks)
+	}
+}
+
+// A reply with no object at all still fails as invalid.
+func TestParsePlanDagRejectsReplyWithoutObject(t *testing.T) {
+	if _, _, err := ParsePlanDag("no json here [1, 2]", DagPlanInput{Goal: "ship"}); !errors.Is(err, ErrInvalidDagPlan) {
+		t.Fatalf("err=%v", err)
 	}
 }

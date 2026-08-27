@@ -26,6 +26,7 @@ var (
 
 const (
 	dagPlanWarningModelUnavailable = "Planner model is unavailable. Review the fallback task before launching."
+	dagPlanWarningCredentials      = "Planner credentials are missing. Configure the headless runtime's API key, then retry planning."
 	dagPlanWarningTimeout          = "Planner timed out. Review the fallback task before launching."
 	dagPlanWarningInvalid          = "Planner returned an invalid plan. Review the fallback task before launching."
 	dagPlanWarningExecution        = "Planner failed. Review the fallback task before launching."
@@ -88,12 +89,9 @@ func BuildPlanDagPrompt(input DagPlanInput) string {
 }
 
 func ParsePlanDag(reply string, input DagPlanInput) (DagPlanDraft, []string, error) {
-	var raw rawDagPlan
-	if err := json.Unmarshal([]byte(strings.TrimSpace(reply)), &raw); err != nil {
-		return DagPlanDraft{}, nil, fmt.Errorf("%w: invalid JSON: %v", ErrInvalidDagPlan, err)
-	}
-	if len(raw.Tasks) < 1 || len(raw.Tasks) > 8 {
-		return DagPlanDraft{}, nil, fmt.Errorf("%w: task count must be between one and eight", ErrInvalidDagPlan)
+	raw, ok := selectPlanObject(strings.TrimSpace(reply))
+	if !ok {
+		return DagPlanDraft{}, nil, fmt.Errorf("%w: no usable JSON plan object in reply", ErrInvalidDagPlan)
 	}
 
 	byID := make(map[string]int, len(raw.Tasks))
@@ -208,6 +206,62 @@ func routeAllowed(route waveobj.RoutePin, allowed []waveobj.RoutePin) bool {
 	return false
 }
 
+// selectPlanObject scans balanced top-level {...} spans newest-first and returns the latest one
+// that parses with a legal task count. Models narrate — prose, stray fragments, and the real plan
+// can share one reply — and the answer comes last.
+func selectPlanObject(reply string) (rawDagPlan, bool) {
+	spans := jsonObjectSpans(reply)
+	for i := len(spans) - 1; i >= 0; i-- {
+		var raw rawDagPlan
+		if err := json.Unmarshal([]byte(reply[spans[i][0]:spans[i][1]]), &raw); err != nil {
+			continue
+		}
+		if len(raw.Tasks) >= 1 && len(raw.Tasks) <= maxDagTasks {
+			return raw, true
+		}
+	}
+	return rawDagPlan{}, false
+}
+
+const maxDagTasks = 8
+
+// jsonObjectSpans returns the byte spans of balanced top-level {...} objects, skipping braces
+// inside string literals so narration quoting cannot desync the scan.
+func jsonObjectSpans(s string) [][2]int {
+	var spans [][2]int
+	depth, start := 0, -1
+	inString, escaped := false, false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case inString:
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+		case c == '"':
+			inString = true
+		case c == '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case c == '}':
+			if depth > 0 {
+				depth--
+				if depth == 0 && start >= 0 {
+					spans = append(spans, [2]int{start, i + 1})
+					start = -1
+				}
+			}
+		}
+	}
+	return spans
+}
+
 func routePinLabel(pin waveobj.RoutePin) string {
 	if pin.Model != "" {
 		return pin.Runtime + "/" + pin.Model
@@ -216,7 +270,11 @@ func routePinLabel(pin waveobj.RoutePin) string {
 }
 
 func PlanDag(ctx context.Context, projectPath string, input DagPlanInput) (DagPlanDraft, []string, error) {
-	spec, ok := planDagSpec(consult.TierMid)
+	spec, ok := consult.SpecForExactModel(input.RunRoute.Runtime, input.RunRoute.Model)
+	if !ok {
+		// legacy tier route or a runtime without a model knob: keep the headless mid spec
+		spec, ok = planDagSpec(consult.TierMid)
+	}
 	if !ok {
 		return DagPlanDraft{}, nil, ErrDagPlanModelUnavailable
 	}
@@ -234,6 +292,8 @@ func FallbackDagPlan(goal string, cause error) (DagPlanDraft, []string) {
 	switch {
 	case errors.Is(cause, ErrDagPlanModelUnavailable):
 		warning = dagPlanWarningModelUnavailable
+	case errors.Is(cause, consult.ErrOpenRouterKeyMissing):
+		warning = dagPlanWarningCredentials
 	case errors.Is(cause, context.DeadlineExceeded):
 		warning = dagPlanWarningTimeout
 	case errors.Is(cause, ErrInvalidDagPlan):

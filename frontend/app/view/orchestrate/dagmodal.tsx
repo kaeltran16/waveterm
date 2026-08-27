@@ -26,7 +26,7 @@ import {
     requiresRetryConfirmation,
     type DagModalState,
 } from "./dagmodalstate";
-import { createDagPlanningCoordinator } from "./dagplanning";
+import { createDagPlanningCoordinator, requestDagPlan } from "./dagplanning";
 
 const DAG_MODAL_HEADING_ID = "dag-modal-heading";
 const FOCUSABLE_SELECTOR =
@@ -41,11 +41,7 @@ export function DagModal() {
 
     if (coordinatorRef.current == null) {
         coordinatorRef.current = createDagPlanningCoordinator((request) =>
-            RpcApi.JarvisPlanDagCommand(TabRpcClient, {
-                channelid: request.channelId,
-                goal: request.goal,
-                route: request.route,
-            }),
+            requestDagPlan(request, (data, opts) => RpcApi.JarvisPlanDagCommand(TabRpcClient, data, opts)),
         );
     }
 

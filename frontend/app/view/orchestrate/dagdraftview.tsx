@@ -1,4 +1,5 @@
 import { type JSX } from "react";
+import { modelFace } from "../agents/route";
 import { DagDraftGraph } from "./dagdraftgraph";
 import { DagDraftSummaryView } from "./dagdraftsummary";
 import { DagTaskDrawer } from "./dagtaskdrawer";
@@ -31,7 +32,7 @@ export function DagDraftView({
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex flex-none items-center gap-3 border-b border-border bg-surface px-4 py-3">
                 <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2"><span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-xxs uppercase tracking-wide text-accent-soft">{state.kind === "launching" ? "Launching" : state.fallback ? "Fallback draft" : "Draft plan"}</span><span className="font-mono text-xxs text-muted">{state.request.route.runtime} / {state.request.route.tier}</span></div>
+                    <div className="flex items-center gap-2"><span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-xxs uppercase tracking-wide text-accent-soft">{state.kind === "launching" ? "Launching" : state.fallback ? "Fallback draft" : "Draft plan"}</span><span className="font-mono text-xxs text-muted">{state.request.route.runtime} / {modelFace(state.request.route)}</span></div>
                     <h3 className="mt-1 truncate text-[16px] font-bold text-primary">{state.draft.title}</h3>
                 </div>
                 <div className="flex items-center gap-2">

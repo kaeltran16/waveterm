@@ -355,6 +355,29 @@ func resolveHeadlessRuntime(configured string) string {
 	return configured
 }
 
+// SpecForExactModel pins one exact model id on a runtime that can express it: CLI runtimes get a
+// --model arg, openrouter gets the API Model field. Runtimes without a model knob (codex/opencode)
+// and unknown runtimes refuse so the caller can fall back to the tiered spec.
+func SpecForExactModel(runtime, model string) (RuntimeSpec, bool) {
+	if model == "" {
+		return RuntimeSpec{}, false
+	}
+	spec, ok := SpecFor(runtime)
+	if !ok {
+		return RuntimeSpec{}, false
+	}
+	switch runtime {
+	case "openrouter":
+		spec.Model = model
+		return spec, true
+	case "pi", "claude":
+		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), "--model", model)
+		return spec, true
+	default:
+		return RuntimeSpec{}, false
+	}
+}
+
 // HeadlessSpecForTier resolves a spec for the configured headless runtime at the given tier. Every
 // background AI feature calls this instead of hardcoding a runtime, so the headless:runtime setting
 // is honored uniformly. Tier→model mapping is SpecForTier's job: openrouter sets Model from the

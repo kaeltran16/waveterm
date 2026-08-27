@@ -1,4 +1,5 @@
 import { useState, type JSX, type ReactNode } from "react";
+import { modelFace } from "../agents/route";
 import type { DagDraftState } from "./dagmodalstate";
 import type { DagDraftSummary } from "./draftsummary";
 
@@ -20,7 +21,7 @@ export function DagDraftSummaryView({
             <section className="rounded-md border border-border bg-surface p-3" aria-label="Execution shape">
                 <div className="flex items-center justify-between gap-3">
                     <h3 className="font-mono text-xxs font-semibold uppercase tracking-[.1em] text-ink-mid">Execution shape</h3>
-                    <span className="font-mono text-xxs text-muted">{summary.runRoute.runtime} / {summary.runRoute.tier}</span>
+                    <span className="font-mono text-xxs text-muted">{summary.runRoute.runtime} / {modelFace(summary.runRoute)}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                     <Metric label="tasks" value={summary.taskCount} />

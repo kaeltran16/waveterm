@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,10 @@ const (
 	openRouterTimeout      = 5 * time.Minute
 )
 
+// ErrOpenRouterKeyMissing is a sentinel so callers can classify the failure (user-facing planner
+// warnings) without echoing the raw error, which names the env var to set.
+var ErrOpenRouterKeyMissing = errors.New("OpenRouter API key not configured")
+
 type openrouterBackend struct{}
 
 func (b *openrouterBackend) Run(ctx context.Context, spec RuntimeSpec, prompt string, emit func(string)) (string, error) {
@@ -33,7 +38,7 @@ func (b *openrouterBackend) Run(ctx context.Context, spec RuntimeSpec, prompt st
 		return "", fmt.Errorf("reading OPENROUTER_KEY: %w", err)
 	}
 	if !exists || key == "" {
-		return "", fmt.Errorf("OpenRouter API key not configured (set OPENROUTER_KEY)")
+		return "", fmt.Errorf("%w (set OPENROUTER_KEY)", ErrOpenRouterKeyMissing)
 	}
 
 	model := spec.Model

@@ -2,6 +2,24 @@ import { draftFromPlan } from "./draftmodel";
 import type { DagDraftRequest } from "../agents/composercommand";
 import { dispatchDagModal, type DagModalAction } from "./dagmodalstate";
 
+const DAG_PLAN_RPC_TIMEOUT_MS = 180_000;
+
+type DagPlanRpc = (
+    data: CommandJarvisPlanDagData,
+    opts: RpcOpts,
+) => Promise<CommandJarvisPlanDagRtnData>;
+
+export function requestDagPlan(request: DagDraftRequest, invoke: DagPlanRpc): Promise<CommandJarvisPlanDagRtnData> {
+    return invoke(
+        {
+            channelid: request.channelId,
+            goal: request.goal,
+            route: request.route,
+        },
+        { timeout: DAG_PLAN_RPC_TIMEOUT_MS },
+    );
+}
+
 export function createDagPlanningCoordinator(
     invoke: (request: DagDraftRequest) => Promise<CommandJarvisPlanDagRtnData>,
     dispatch: (action: DagModalAction) => void = dispatchDagModal,

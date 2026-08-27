@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDagPlanningCoordinator } from "./dagplanning";
+import { createDagPlanningCoordinator, requestDagPlan } from "./dagplanning";
 import type { DagDraftRequest } from "../agents/composercommand";
 
 const request = { channelId: "channel-1", goal: "ship", route: { runtime: "pi", tier: "cheap" } } as DagDraftRequest;
@@ -8,6 +8,24 @@ const response = {
     fallback: true,
     warnings: ["fallback"],
 } as CommandJarvisPlanDagRtnData;
+
+describe("requestDagPlan", () => {
+    it("keeps the RPC alive beyond the backend planner budget", async () => {
+        const invoke = vi.fn().mockResolvedValue(response);
+
+        await requestDagPlan(request, invoke);
+
+        expect(invoke).toHaveBeenCalledWith(
+            {
+                channelid: "channel-1",
+                goal: "ship",
+                route: { runtime: "pi", tier: "cheap" },
+            },
+            expect.objectContaining({ timeout: expect.any(Number) }),
+        );
+        expect(invoke.mock.calls[0][1].timeout).toBeGreaterThan(120_000);
+    });
+});
 
 describe("createDagPlanningCoordinator", () => {
     it("deduplicates same-request calls and dispatches one converted result", async () => {
