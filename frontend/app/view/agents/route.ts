@@ -149,3 +149,8 @@ export function filterPickerSections(sections: PickerSection[], query: string): 
 export function modelFace(pin: RoutePin): string {
     return pin.model ?? pin.tier ?? "capable";
 }
+
+export function pickerTitleFor(customTitle?: string): string {
+    const t = customTitle?.trim();
+    return t ? t : "Run route";
+}

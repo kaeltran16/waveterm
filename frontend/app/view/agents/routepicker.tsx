@@ -8,7 +8,7 @@ import {
     flip,
     offset,
     shift,
-    size,
+    size as floatingSize,
     useClick,
     useDismiss,
     useFloating,
@@ -17,7 +17,7 @@ import {
 } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { buildPickerSections, filterPickerSections, modelFace } from "./route";
+import { buildPickerSections, filterPickerSections, modelFace, pickerTitleFor } from "./route";
 import { harnessesAtom, refreshHarnessCatalog } from "./harnessstore";
 
 const ROUTE_PICKER_MAX_HEIGHT = 360;
@@ -29,6 +29,8 @@ export function RoutePicker({
     inheritedLabel = "Inherit route",
     placement = "top-start",
     openRequest = 0,
+    title,
+    size = "default",
 }: {
     value: RoutePin | null;
     onChange: (route: RoutePin | null) => void;
@@ -36,6 +38,8 @@ export function RoutePicker({
     inheritedLabel?: string;
     placement?: Placement;
     openRequest?: number;
+    title?: string;
+    size?: "default" | "compact";
 }): JSX.Element {
     const harnesses = useAtomValue(harnessesAtom);
     const [open, setOpen] = useState(false);
@@ -78,7 +82,7 @@ export function RoutePicker({
             offset(6),
             flip({ padding: 8 }),
             shift({ padding: 8 }),
-            size({
+            floatingSize({
                 padding: 8,
                 apply({ availableHeight, elements }) {
                     const maxHeight = Math.max(0, Math.min(ROUTE_PICKER_MAX_HEIGHT, availableHeight));
@@ -121,9 +125,12 @@ export function RoutePicker({
                 type="button"
                 data-testid="route-picker"
                 aria-expanded={open}
-                aria-label="Run route"
+                aria-label={pickerTitleFor(title)}
                 className={cn(
-                    "flex max-w-[300px] cursor-pointer items-center gap-2 rounded-[7px] border bg-surface px-2.5 py-1 text-left text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    "flex cursor-pointer items-center gap-1.5 rounded-[6px] border bg-surface text-left font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    size === "compact"
+                        ? "max-w-[200px] px-2 py-[3px] text-[10.5px]"
+                        : "max-w-[300px] px-2.5 py-1 text-[11px]",
                     open ? "border-accent-700 text-primary" : "border-border text-secondary hover:text-primary"
                 )}
             >
@@ -138,7 +145,7 @@ export function RoutePicker({
                 >
                     <div role="group" aria-label="Available routes" className="flex min-h-0 flex-1 flex-col">
                         <div className="flex items-center justify-between px-[9px] pb-1.5 pt-1">
-                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">Run route</span>
+                            <span className="font-mono text-[9px] font-semibold uppercase tracking-[.09em] text-muted">{pickerTitleFor(title)}</span>
                             <button
                                 type="button"
                                 onClick={() => void refreshHarnessCatalog()}

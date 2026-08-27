@@ -22,6 +22,7 @@ import {
 } from "./composercommand";
 import { HarnessPicker, harnessRuntimeIds } from "./harnesspicker";
 import { harnessPreferenceAtom, harnessesAtom } from "./harnessstore";
+import { orchestratorPickerState } from "./orchestratorpicker";
 import { RoutePicker } from "./routepicker";
 import { runtimeMeta } from "./runtimemeta";
 
@@ -158,9 +159,12 @@ export function LaunchComposer({
     const footer = mode === "ask" ? askFooter : behavior;
     const sendLabel = mode === "ask" ? "Ask" : "Run ⏎";
     const sendDisabled = blocked || (!value.trim() && attach.readyCount === 0) || attach.uploading || pref.saving;
-    const [workerPickerOpen, setWorkerPickerOpen] = useState(false);
-    const showWorkerLink = selectedShape === "orchestrator" && mode !== "ask" && !pending && onWorkerRouteChange != null;
-    const workerExpanded = showWorkerLink && (workerPickerOpen || workerRoute != null);
+    const tight = orchestratorPickerState({
+        shape: selectedShape,
+        mode,
+        pending,
+        hasWorkerCallback: onWorkerRouteChange != null,
+    });
 
     return (
         <ComposerShell
@@ -240,49 +244,50 @@ export function LaunchComposer({
                                 ))}
                             </div>
                         ) : null}
-                        {mode !== "ask" && !pending ? (
-                            <RoutePicker
-                                value={route}
-                                onChange={onRouteChange}
-                                placement="top-start"
-                                openRequest={routeOpenRequest}
-                            />
-                        ) : null}
-                        {mode === "ask" ? (
-                            <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
-                        ) : null}
-                        {!workerExpanded ? <span className="font-mono text-[11px] text-ink-mid">{footer}</span> : null}
-                        {showWorkerLink && !workerExpanded ? (
-                            <span className="font-mono text-[11px] text-ink-mid">
-                                · workers use lead ·{" "}
-                                <button
-                                    type="button"
-                                    onClick={() => setWorkerPickerOpen(true)}
-                                    className="font-mono text-[11px] font-semibold text-accent-soft underline decoration-accent/40 underline-offset-2 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                                >
-                                    Set workers model →
-                                </button>
-                            </span>
-                        ) : null}
+                        {tight.showTightRow ? (
+                            <div className="flex items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface px-2 py-1">
+                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                    <span className="font-mono text-[7.5px] font-bold uppercase tracking-[.1em] text-muted">Lead</span>
+                                    <RoutePicker
+                                        value={route}
+                                        onChange={onRouteChange}
+                                        placement="top-start"
+                                        openRequest={routeOpenRequest}
+                                        title="Lead model"
+                                        size="compact"
+                                    />
+                                </div>
+                                <span className="pt-3 text-[11px] text-muted">→</span>
+                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                    <span className="font-mono text-[7.5px] font-bold uppercase tracking-[.1em] text-muted">Workers</span>
+                                    <RoutePicker
+                                        value={workerRoute ?? null}
+                                        onChange={onWorkerRouteChange!}
+                                        placement="top-start"
+                                        title="Workers model"
+                                        size="compact"
+                                        inheritedLabel="Same as lead"
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                {mode !== "ask" && !pending ? (
+                                    <RoutePicker
+                                        value={route}
+                                        onChange={onRouteChange}
+                                        placement="top-start"
+                                        openRequest={routeOpenRequest}
+                                        title="Run route"
+                                    />
+                                ) : null}
+                                {mode === "ask" ? (
+                                    <HarnessPicker operation="consult" placement="top-start" openRequest={harnessOpenRequest} />
+                                ) : null}
+                            </>
+                        )}
+                        <span className="font-mono text-[11px] text-ink-mid">{footer}</span>
                     </div>
-                    {workerExpanded ? (
-                        <div className="flex flex-wrap items-center gap-2 rounded-[7px] border border-edge-mid bg-surface px-2 py-1">
-                            <span className="font-mono text-[11px] font-semibold">Workers</span>
-                            <RoutePicker value={workerRoute ?? null} onChange={onWorkerRouteChange!} placement="top-start" />
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    onWorkerRouteChange?.(null);
-                                    setWorkerPickerOpen(false);
-                                }}
-                                title="Clear workers model and use lead's model"
-                                className="ml-auto font-mono text-[11px] font-semibold text-muted hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded border border-edge-mid bg-surface px-2 py-0.5"
-                            >
-                                Use lead
-                            </button>
-                        </div>
-                    ) : null}
-                    {workerExpanded ? <span className="font-mono text-[11px] text-ink-mid">{footer}</span> : null}
                 </div>
             }
             footerRight={<AttachButton testId="composer-attachment" onFiles={attach.add} />}
