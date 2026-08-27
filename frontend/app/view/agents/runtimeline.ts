@@ -109,8 +109,11 @@ export function detailOf<T>(event: RunEvent): T | undefined {
     if (event.detail == null) {
         return undefined;
     }
+    if (typeof event.detail === "object") {
+        return event.detail as unknown as T;
+    }
     try {
-        return JSON.parse(event.detail) as T;
+        return JSON.parse(event.detail as string) as T;
     } catch {
         return undefined;
     }

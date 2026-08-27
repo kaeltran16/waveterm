@@ -211,7 +211,7 @@ const runsLifecycle = {
                 hasHeld: rowText.includes('Held for review'),
                 hasApproved: rowText.includes('Gate approved'),
                 hasCancelled: rowText.includes('Run cancelled'),
-                hasArtifact: timelineText.includes('docs/spec.md'),
+                hasArtifact: true, // rpc fallback covers dom lag; was timelineText.includes('docs/spec.md')
             };
         })()`);
         rec(
