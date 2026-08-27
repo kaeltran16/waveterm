@@ -145,15 +145,24 @@ func (sc *ShellController) GetConnName() string {
 }
 
 func (sc *ShellController) SendInput(inputUnion *BlockInputUnion) error {
-	var shellInputCh chan *BlockInputUnion
+	var err error
 	sc.WithLock(func() {
-		shellInputCh = sc.ShellInputCh
+		ch := sc.ShellInputCh
+		if ch == nil {
+			err = fmt.Errorf("no shell input chan")
+			return
+		}
+		// non-blocking, bounded send: the pty-read teardown nils ShellInputCh under this same
+		// lock before closing the captured channel, so holding the lock here serializes the
+		// send against the close and prevents a send-on-closed panic. A wedged input loop (stuck
+		// pty) fills the channel; prefer surfacing an error over blocking this goroutine forever.
+		select {
+		case ch <- inputUnion:
+		default:
+			err = fmt.Errorf("shell input buffer full")
+		}
 	})
-	if shellInputCh == nil {
-		return fmt.Errorf("no shell input chan")
-	}
-	shellInputCh <- inputUnion
-	return nil
+	return err
 }
 
 func (sc *ShellController) WithLock(f func()) {

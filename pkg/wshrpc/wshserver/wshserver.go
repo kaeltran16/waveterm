@@ -112,7 +112,12 @@ func (ws *WshServer) UpdateWorkspaceTabIdsCommand(ctx context.Context, workspace
 }
 
 func (ws *WshServer) SetMetaCommand(ctx context.Context, data wshrpc.CommandSetMetaData) error {
-	log.Printf("SetMetaCommand: %s | %v\n", data.ORef, data.Meta)
+	metaKeys := make([]string, 0, len(data.Meta))
+	for k := range data.Meta {
+		metaKeys = append(metaKeys, k)
+	}
+	// log key names only; meta values can contain secrets (env, keys)
+	log.Printf("SetMetaCommand: %s | meta keys=%v\n", data.ORef, metaKeys)
 	oref := data.ORef
 	err := wstore.UpdateObjectMeta(ctx, oref, data.Meta, false)
 	if err != nil {

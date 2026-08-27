@@ -444,6 +444,9 @@ func CheckConnStatus(blockId string) error {
 	if strings.HasPrefix(connName, "wsl://") {
 		distroName := strings.TrimPrefix(connName, "wsl://")
 		conn := wslconn.GetWslConn(distroName)
+		if conn == nil {
+			return fmt.Errorf("wsl connection not found: %s", connName)
+		}
 		connStatus := conn.DeriveConnStatus()
 		if connStatus.Status != conncontroller.Status_Connected {
 			return fmt.Errorf("not connected: %s", connStatus.Status)

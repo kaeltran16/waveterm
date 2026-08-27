@@ -576,7 +576,13 @@ func ReadWaveHomeConfigFile(fileName string) (waveobj.MetaMapType, []ConfigError
 func WriteWaveHomeConfigFile(fileName string, m waveobj.MetaMapType) error {
 	configWriteLock.Lock()
 	defer configWriteLock.Unlock()
+	return writeWaveHomeConfigFileLocked(fileName, m)
+}
 
+// writeWaveHomeConfigFileLocked assumes configWriteLock is held. The Set/Delete functions hold the
+// lock across their whole read-modify-write so two concurrent updates of different keys can't
+// interleave reads and silently drop the first write.
+func writeWaveHomeConfigFileLocked(fileName string, m waveobj.MetaMapType) error {
 	configDirAbsPath := wavebase.GetWaveConfigDir()
 	fullFileName := filepath.Join(configDirAbsPath, fileName)
 	barr, err := jsonMarshalConfigInOrder(m)
@@ -846,6 +852,8 @@ func convertJsonNumber(num json.Number, ctype reflect.Type) (interface{}, error)
 }
 
 func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {
+	configWriteLock.Lock()
+	defer configWriteLock.Unlock()
 	m, cerrs := ReadWaveHomeConfigFile(SettingsFile)
 	if len(cerrs) > 0 {
 		return fmt.Errorf("error reading config file: %v", cerrs[0])
@@ -860,30 +868,35 @@ func SetBaseConfigValue(toMerge waveobj.MetaMapType) error {
 		}
 		if val == nil {
 			delete(m, configKey)
-		} else {
-			rtype := reflect.TypeOf(val)
-			if rtype == reflect.TypeOf(dummyNumber) {
-				convertedVal, err := convertJsonNumber(val.(json.Number), ctype)
-				if err != nil {
-					return fmt.Errorf("cannot convert %s: %v", configKey, err)
-				}
-				val = convertedVal
-				rtype = reflect.TypeOf(val)
-			}
-			if rtype != ctype {
-				if ctype == reflect.PointerTo(rtype) {
-					m[configKey] = &val
-				} else {
-					return fmt.Errorf("invalid value type for %s: %T", configKey, val)
-				}
-			}
-			m[configKey] = val
+			continue
 		}
+		rtype := reflect.TypeOf(val)
+		if rtype == reflect.TypeOf(dummyNumber) {
+			convertedVal, err := convertJsonNumber(val.(json.Number), ctype)
+			if err != nil {
+				return fmt.Errorf("cannot convert %s: %v", configKey, err)
+			}
+			val = convertedVal
+			rtype = reflect.TypeOf(val)
+		}
+		if rtype != ctype {
+			if ctype == reflect.PointerTo(rtype) {
+				// store a pointer to a per-iteration copy: the range variable is reused, so
+				// taking its address directly would alias all pointer entries to the last key
+				ptrVal := val
+				m[configKey] = &ptrVal
+				continue
+			}
+			return fmt.Errorf("invalid value type for %s: %T", configKey, val)
+		}
+		m[configKey] = val
 	}
-	return WriteWaveHomeConfigFile(SettingsFile, m)
+	return writeWaveHomeConfigFileLocked(SettingsFile, m)
 }
 
 func SetConnectionsConfigValue(connName string, toMerge waveobj.MetaMapType) error {
+	configWriteLock.Lock()
+	defer configWriteLock.Unlock()
 	m, cerrs := ReadWaveHomeConfigFile(ConnectionsFile)
 	if len(cerrs) > 0 {
 		return fmt.Errorf("error reading config file: %v", cerrs[0])
@@ -899,7 +912,7 @@ func SetConnectionsConfigValue(connName string, toMerge waveobj.MetaMapType) err
 		connData[configKey] = val
 	}
 	m[connName] = connData
-	return WriteWaveHomeConfigFile(ConnectionsFile, m)
+	return writeWaveHomeConfigFileLocked(ConnectionsFile, m)
 }
 
 // samePath compares two registered paths. A project stores its path verbatim and a caller passes whatever
@@ -938,6 +951,8 @@ func ProjectNameAtPath(path string) (string, bool) {
 }
 
 func SetProjectConfigValue(projName string, toMerge waveobj.MetaMapType) error {
+	configWriteLock.Lock()
+	defer configWriteLock.Unlock()
 	m, cerrs := ReadWaveHomeConfigFile(ProjectsFile)
 	if len(cerrs) > 0 {
 		return fmt.Errorf("error reading config file: %v", cerrs[0])
@@ -953,10 +968,12 @@ func SetProjectConfigValue(projName string, toMerge waveobj.MetaMapType) error {
 		projData[configKey] = val
 	}
 	m[projName] = projData
-	return WriteWaveHomeConfigFile(ProjectsFile, m)
+	return writeWaveHomeConfigFileLocked(ProjectsFile, m)
 }
 
 func DeleteProjectConfigValue(projName string) error {
+	configWriteLock.Lock()
+	defer configWriteLock.Unlock()
 	m, cerrs := ReadWaveHomeConfigFile(ProjectsFile)
 	if len(cerrs) > 0 {
 		return fmt.Errorf("error reading config file: %v", cerrs[0])
@@ -965,7 +982,7 @@ func DeleteProjectConfigValue(projName string) error {
 		return nil // nothing registered, deleting is a no-op
 	}
 	delete(m, projName)
-	return WriteWaveHomeConfigFile(ProjectsFile, m)
+	return writeWaveHomeConfigFileLocked(ProjectsFile, m)
 }
 
 func MigratePresetsBackgrounds() {

@@ -314,6 +314,18 @@ func jobPruningWorker() {
 	}
 }
 
+// unusedJobCandidates returns the OIDs of jobs eligible for pruning: done and no longer
+// attached to a block. Pure: no I/O.
+func unusedJobCandidates(jobs []*waveobj.Job) []string {
+	var candidates []string
+	for _, job := range jobs {
+		if job.JobManagerStatus == JobManagerStatus_Done && job.AttachedBlockId == "" {
+			candidates = append(candidates, job.OID)
+		}
+	}
+	return candidates
+}
+
 func pruneUnusedJobs(previousCandidates []string) []string {
 	ctx, cancelFn := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelFn()
@@ -325,11 +337,7 @@ func pruneUnusedJobs(previousCandidates []string) []string {
 	}
 
 	var currentCandidates []string
-	for _, job := range allJobs {
-		if job.JobManagerStatus == JobManagerStatus_Done && job.AttachedBlockId == "" {
-			currentCandidates = append(currentCandidates, job.OID)
-		}
-	}
+	currentCandidates = unusedJobCandidates(allJobs)
 
 	jobsToDelete := utilfn.StrSetIntersection(previousCandidates, currentCandidates)
 	if len(previousCandidates) > 0 || len(currentCandidates) > 0 {
@@ -686,6 +694,8 @@ func StartJob(ctx context.Context, params StartJobParams) (string, error) {
 	}
 	err = filestore.WFS.MakeFile(ctx, jobId, JobOutputFileName, wshrpc.FileMeta{}, fileOpts)
 	if err != nil {
+		reader.Close()
+		jobStreamIds.Delete(jobId)
 		return "", fmt.Errorf("failed to create WaveFS file: %w", err)
 	}
 
@@ -714,19 +724,23 @@ func StartJob(ctx context.Context, params StartJobParams) (string, error) {
 	writeSessionSeparatorToTerminal(params.BlockId, params.TermSize.Cols)
 
 	log.Printf("[job:%s] sending RemoteStartJobCommand to connection %s, cmd=%q, args=%v", jobId, params.ConnName, params.Cmd, params.Args)
-	log.Printf("[job:%s] env=%v", jobId, params.Env)
 	rtnData, err := wshclient.RemoteStartJobCommand(bareRpc, startJobData, rpcOpts)
 	if err != nil {
 		log.Printf("[job:%s] RemoteStartJobCommand failed: %v", jobId, err)
 		errMsg := fmt.Sprintf("failed to start job: %v", err)
 		var updatedJob *waveobj.Job
-		wstore.DBUpdateFn(ctx, jobId, func(job *waveobj.Job) {
+		if dbErr := wstore.DBUpdateFn(ctx, jobId, func(job *waveobj.Job) {
 			job.JobManagerStatus = JobManagerStatus_Done
 			job.JobManagerDoneReason = JobDoneReason_StartupError
 			job.JobManagerStartupError = errMsg
 			updatedJob = job
-		})
-		sendBlockJobStatusEventByJob(ctx, updatedJob)
+		}); dbErr != nil {
+			log.Printf("[job:%s] warning: failed to record startup error in db: %v", jobId, dbErr)
+		} else {
+			sendBlockJobStatusEventByJob(ctx, updatedJob)
+		}
+		reader.Close()
+		jobStreamIds.Delete(jobId)
 		telemetry.GoRecordTEventWrap(&telemetrydata.TEvent{
 			Event: "job:done",
 			Props: telemetrydata.TEventProps{
@@ -1201,6 +1215,21 @@ func ReconnectJobsForConn(ctx context.Context, connName string) error {
 	return nil
 }
 
+// computeStreamBaseSeq is the stream sequence a reconnect resumes from: persisted file content
+// size plus any recorded persistence gap. Pure: no I/O.
+func computeStreamBaseSeq(fileSize int64, totalGap int64) int64 {
+	return fileSize + totalGap
+}
+
+// accountStreamGap returns how many stream bytes are missing between the seq we resumed from and
+// the seq the server reports. Returns 0 when the server seq is not ahead (nothing missing). Pure: no I/O.
+func accountStreamGap(currentSeq int64, serverSeq int64) int64 {
+	if serverSeq <= currentSeq {
+		return 0
+	}
+	return serverSeq - currentSeq
+}
+
 func restartStreaming(ctx context.Context, jobId string, knownConnected bool, rtOpts *waveobj.RuntimeOpts) error {
 	job, err := wstore.DBMustGet[*waveobj.Job](ctx, jobId)
 	if err != nil {
@@ -1237,9 +1266,8 @@ func restartStreaming(ctx context.Context, jobId string, knownConnected bool, rt
 	var totalGap int64 = 0
 	waveFile, err := filestore.WFS.Stat(ctx, jobId, JobOutputFileName)
 	if err == nil {
-		currentSeq = waveFile.Size
 		totalGap = getMetaInt64(waveFile.Meta, MetaKey_TotalGap)
-		currentSeq += totalGap
+		currentSeq = computeStreamBaseSeq(waveFile.Size, totalGap)
 	}
 
 	bareRpc := wshclient.GetBareRpcClient()
@@ -1311,7 +1339,7 @@ func restartStreaming(ctx context.Context, jobId string, knownConnected bool, rt
 	}
 
 	if rtnData.Seq > currentSeq {
-		gap := rtnData.Seq - currentSeq
+		gap := accountStreamGap(currentSeq, rtnData.Seq)
 		totalGap += gap
 		log.Printf("[job:%s] detected gap: our seq=%d, server seq=%d, gap=%d, new totalGap=%d", jobId, currentSeq, rtnData.Seq, gap, totalGap)
 
@@ -1401,6 +1429,8 @@ func IsBlockIdTermDurable(blockId string) bool {
 func DeleteJob(ctx context.Context, jobId string) error {
 	SetJobConnStatus(jobId, JobConnStatus_Disconnected)
 	jobTerminationMessageWritten.Delete(jobId)
+	lastAutoReconnectAttempt.Delete(jobId)
+	jobStreamIds.Delete(jobId)
 	err := filestore.WFS.DeleteZone(ctx, jobId)
 	if err != nil {
 		log.Printf("[job:%s] warning: error deleting WaveFS zone: %v", jobId, err)
