@@ -139,7 +139,7 @@ export function LaunchComposer({
         selectedShape === "orchestrator"
             ? workerRoute
                 ? `→ lead ${route?.model || route?.tier || ""} · workers ${workerRoute.model || workerRoute.tier || ""}`
-                : "→ persistent lead · DAG when useful · workers inherit"
+                : "→ persistent lead · DAG when useful · workers use lead"
             : selectedShape === "quick"
               ? `→ direct quick launch in #${channelName}`
               : "→ direct pipeline launch";
@@ -254,7 +254,7 @@ export function LaunchComposer({
                         {!workerExpanded ? <span className="font-mono text-[11px] text-ink-mid">{footer}</span> : null}
                         {showWorkerLink && !workerExpanded ? (
                             <span className="font-mono text-[11px] text-ink-mid">
-                                · workers inherit ·{" "}
+                                · workers use lead ·{" "}
                                 <button
                                     type="button"
                                     onClick={() => setWorkerPickerOpen(true)}
@@ -275,9 +275,10 @@ export function LaunchComposer({
                                     onWorkerRouteChange?.(null);
                                     setWorkerPickerOpen(false);
                                 }}
-                                className="ml-auto font-mono text-[11px] text-muted hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
+                                title="Clear workers model and use lead's model"
+                                className="ml-auto font-mono text-[11px] font-semibold text-muted hover:text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded border border-edge-mid bg-surface px-2 py-0.5"
                             >
-                                ✕ inherit
+                                Use lead
                             </button>
                         </div>
                     ) : null}
