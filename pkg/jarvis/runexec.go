@@ -66,6 +66,28 @@ func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bo
 //
 // It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
 
+type RunWorkerOptions struct {
+    KeepOnExit bool
+}
+
+var persistWorkerBlockMeta = func(ctx context.Context, blockID string, meta waveobj.MetaMapType) error {
+    return wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockID), meta, false)
+}
+
+var startWorkerController = func(ctx context.Context, tabID, blockID string) error {
+    return blockcontroller.ResyncController(ctx, tabID, blockID, &waveobj.RuntimeOpts{}, true)
+}
+
+func configureAndStartWorker(ctx context.Context, tabID, blockID string, meta waveobj.MetaMapType) error {
+    if err := persistWorkerBlockMeta(ctx, blockID, meta); err != nil {
+        return fmt.Errorf("setting worker block meta: %w", err)
+    }
+    if err := startWorkerController(ctx, tabID, blockID); err != nil {
+        return fmt.Errorf("starting worker controller: %w", err)
+    }
+    return nil
+}
+
 // makeWorkerBlockMeta builds the block meta for a run worker. keepOnExit is true for
 // orchestrator leads, whose tab must outlive the lead process while DAG children run.
 func makeWorkerBlockMeta(spec RunWorkerSpec, cwd string, keepOnExit bool) waveobj.MetaMapType {
@@ -86,7 +108,7 @@ func makeWorkerBlockMeta(spec RunWorkerSpec, cwd string, keepOnExit bool) waveob
 	return m
 }
 
-var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, opts RunWorkerOptions) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
 	}
@@ -107,10 +129,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	}
 	blockId := tab.BlockIds[0]
 
-	blockMeta := makeWorkerBlockMeta(spec, cwd, false)
-	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), blockMeta, false); err != nil {
-		return "", fmt.Errorf("setting worker block meta: %w", err)
-	}
+	blockMeta := makeWorkerBlockMeta(spec, cwd, opts.KeepOnExit)
 	// Tab meta: put the worker in the agent roster (and route the external status reporter). These keys
 	// have no generated constants; the literals match the frontend (see launchAgent).
 	tabMeta := waveobj.MetaMapType{
@@ -120,8 +139,8 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
 		return "", fmt.Errorf("setting worker tab meta: %w", err)
 	}
-	if err := blockcontroller.ResyncController(ctx, tabId, blockId, &waveobj.RuntimeOpts{}, true); err != nil {
-		return "", fmt.Errorf("starting worker controller: %w", err)
+	if err := configureAndStartWorker(ctx, tabId, blockId, blockMeta); err != nil {
+		return "", err
 	}
 	// Make the worker visible in the roster immediately. The roster keys off agent:status, which
 	// otherwise arrives only from the external reporter hook — unreliable for a headless worker (the
@@ -173,24 +192,12 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 			continue
 		}
 		prompt := phasePrompt(run, i)
-		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, prompt)
+		opts := RunWorkerOptions{KeepOnExit: run.Mode == RunMode_Orchestrator}
+		oref, err := SpawnRunWorker(ctx, cap, run.WorkspaceId, projectName, run.ProjectPath, prompt, opts)
 		if err != nil {
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}
 		spawned[i] = oref
-		// orchestrator leads must not auto-close on exit while DAG children are running;
-		// stamp keep-on-exit so checkCloseOnExit becomes a no-op for them.
-		if run.Mode == RunMode_Orchestrator {
-			tabId := oref
-			if idx := len("tab:"); len(oref) > idx && oref[:idx] == "tab:" {
-				tabId = oref[idx:]
-			}
-			if tab, terr := wstore.DBMustGet[*waveobj.Tab](ctx, tabId); terr == nil && len(tab.BlockIds) > 0 {
-				_ = wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, tab.BlockIds[0]), waveobj.MetaMapType{
-					waveobj.MetaKey_CmdKeepOnExit: true,
-				}, false)
-			}
-		}
 	}
 	return spawned, nil
 }

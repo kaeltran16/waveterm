@@ -35,7 +35,7 @@ func dagAskFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, string) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 2, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
+	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func dagAskFixture(t *testing.T) (*waveobj.TaskGroup, *waveobj.Run, string) {
 	childORef := "block:" + blockId
 	// stub worker spawn to return the pre-created tab
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		return "tab:" + tabId, nil
 	}
 	t.Cleanup(func() { jarvis.SpawnRunWorker = oldSpawn })

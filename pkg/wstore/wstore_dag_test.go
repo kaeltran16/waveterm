@@ -86,6 +86,36 @@ func TestCreateDagForRunReturnsExisting(t *testing.T) {
 	}
 }
 
+func TestGetDagsWithPendingCleanup(t *testing.T) {
+	ctx := context.Background()
+	pendingID, clearID := uuid.NewString(), uuid.NewString()
+	pending := &waveobj.TaskGroup{
+		OID: pendingID, ID: pendingID, RunID: uuid.NewString(), ChannelId: uuid.NewString(),
+		Parallelism: 1, Status: "done", Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done", CleanupPending: true}},
+	}
+	clear := &waveobj.TaskGroup{
+		OID: clearID, ID: clearID, RunID: uuid.NewString(), ChannelId: uuid.NewString(),
+		Parallelism: 1, Status: "done", Tasks: []waveobj.TaskNode{{ID: "t-1", State: "done"}},
+	}
+	if err := AppendDag(ctx, pending); err != nil { t.Fatal(err) }
+	if err := AppendDag(ctx, clear); err != nil { t.Fatal(err) }
+	t.Cleanup(func() {
+		_ = DBDelete(context.Background(), waveobj.OType_Dag, pendingID)
+		_ = DBDelete(context.Background(), waveobj.OType_Dag, clearID)
+	})
+
+	got, err := GetDagsWithPendingCleanup(ctx)
+	if err != nil { t.Fatal(err) }
+	foundPending, foundClear := false, false
+	for _, dag := range got {
+		foundPending = foundPending || dag.OID == pendingID
+		foundClear = foundClear || dag.OID == clearID
+	}
+	if !foundPending || foundClear {
+		t.Fatalf("pending=%v clear=%v dags=%+v", foundPending, foundClear, got)
+	}
+}
+
 func TestCreateDagForRunRollsBackAllWrites(t *testing.T) {
 	ctx, ch, run, proposed := seedDagSubmission(t)
 	const trigger = "fail_dag_run_update"

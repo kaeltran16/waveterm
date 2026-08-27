@@ -14,7 +14,7 @@ func groupWith(states ...string) *waveobj.TaskGroup {
 		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
 		{ID: "t-3", Label: "d", Deps: []string{"t-1", "t-2"}},
 	}
-	g, err := NewTaskGroup("run-1", "ch-1", "g", 2, tasks, 1)
+	g, err := NewTaskGroup("run-1", "ch-1", "g", 2, false, tasks, 1)
 	if err != nil {
 		panic(err)
 	}

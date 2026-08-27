@@ -31,7 +31,7 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 		}
 		ok := true
 		for _, d := range t.Deps {
-			if !depTerminal(g, d) {
+			if !depSatisfied(g, d) {
 				ok = false
 				break
 			}
@@ -43,12 +43,22 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 	return out
 }
 
-func depTerminal(g *waveobj.TaskGroup, id string) bool {
+func depSatisfied(g *waveobj.TaskGroup, id string) bool {
 	for i := range g.Tasks {
-		if g.Tasks[i].ID == id {
-			s := g.Tasks[i].State
-			return s == TaskState_Done || s == TaskState_Skipped
+		t := &g.Tasks[i]
+		if t.ID != id {
+			continue
 		}
+		if t.State == TaskState_Skipped {
+			return true
+		}
+		if t.State != TaskState_Done {
+			return false
+		}
+		if !g.MergeRequired {
+			return true
+		}
+		return t.Merged && (!t.Gate || t.Released)
 	}
 	return false
 }

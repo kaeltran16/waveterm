@@ -32,6 +32,10 @@ func IsGitRepo(projectPath string) bool {
 	return err == nil
 }
 
+func ProjectHeadCommit(ctx context.Context, projectPath string) (string, error) {
+	return git(ctx, projectPath, "rev-parse", "HEAD")
+}
+
 // TaskWorktreeKey derives the per-task worktree key: <owner run ID>-<task ID>. Single source of
 // truth for the key — engine spawn, merge, and cancel sweeps must all derive it identically.
 func TaskWorktreeKey(ownerRunID, taskID string) string {

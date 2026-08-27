@@ -34,7 +34,7 @@ func TestSpawnRunWorkers_ConcurrentSpawnsOnce(t *testing.T) {
 	var calls int32
 	var spawnedWith runroute.Capability
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		spawnedWith = cap
 		atomic.AddInt32(&calls, 1)
 		time.Sleep(30 * time.Millisecond) // widen the read->spawn->attach window so a truly-concurrent second caller overlaps

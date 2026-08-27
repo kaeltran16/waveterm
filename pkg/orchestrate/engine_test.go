@@ -94,7 +94,7 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, []waveobj.TaskNode{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
 		{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
 		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
@@ -108,7 +108,7 @@ func TestScheduleOnceSpawnsUpToCap(t *testing.T) {
 
 	var spawned []string
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		spawned = append(spawned, prompt)
 		return "tab:worker", nil
 	}
@@ -172,7 +172,7 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, []waveobj.TaskNode{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
 		{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
 	}, 1)
@@ -184,7 +184,7 @@ func TestScheduleOncePublishesChildDone(t *testing.T) {
 	}
 
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		return "tab:worker", nil
 	}
 	defer func() { spawnWorker = old }()
@@ -242,7 +242,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{
 		ID: "t-0", Label: "pi task", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
 	}}, 1)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestScheduleOnceUsesTaskRouteForSpawnAndChild(t *testing.T) {
 	}
 	var gotCap runroute.Capability
 	old := spawnWorker
-	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		gotCap = cap
 		return "tab:worker", nil
 	}
@@ -286,7 +286,7 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{
 		ID: "t-0", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "cheap"},
 	}}, 1)
 	if err != nil {
@@ -300,7 +300,7 @@ func TestScheduleOnceRejectsUnavailableTaskRouteBeforeSpawn(t *testing.T) {
 	t.Cleanup(func() { validateWorkerHarness = oldValidate })
 	spawned := 0
 	oldSpawn := spawnWorker
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		spawned++
 		return "tab:worker", nil
 	}
@@ -327,7 +327,7 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, []waveobj.TaskNode{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 2, false, []waveobj.TaskNode{
 		{ID: "legacy", Label: "legacy", RunSpec: waveobj.RunSpec{Runtime: "claude"}},
 		{ID: "inherited", Label: "inherited"},
 	}, 1)
@@ -339,7 +339,7 @@ func TestScheduleOnceLegacyRuntimeOnlyAndInheritedRoutes(t *testing.T) {
 	}
 	caps := map[string]runroute.Capability{}
 	old := spawnWorker
-	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, _, prompt string) (string, error) {
+	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, _, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		if strings.Contains(prompt, "legacy") {
 			caps["legacy"] = cap
 		} else {
@@ -447,7 +447,7 @@ func TestScheduleCleansAllWorkersWhenLaterChildPersistFails(t *testing.T) {
 
 	oldSpawn, oldAppend, oldStop, oldStamp := spawnWorker, appendChildRun, stopSpawnedWorker, stampSpawnedWorker
 	var spawnCalls int
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		spawnCalls++
 		return fmt.Sprintf("tab:worker-%d", spawnCalls), nil
 	}
@@ -688,7 +688,7 @@ func TestMaybeCloseOrchestratorLead(t *testing.T) {
 func stubSpawnWorker(t *testing.T, worker string, err error) {
 	t.Helper()
 	old := spawnWorker
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		return worker, err
 	}
 	t.Cleanup(func() { spawnWorker = old })

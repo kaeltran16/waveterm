@@ -52,7 +52,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return nil, fmt.Errorf("task %q: %w", task.ID, err)
 		}
 	}
-	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, data.Tasks, time.Now().UnixMilli())
+	mergeRequired := orchestrate.IsGitRepo(run.ProjectPath)
+	proposed, err := orchestrate.NewTaskGroup(data.RunId, data.ChannelId, data.Title, data.Parallelism, mergeRequired, data.Tasks, time.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

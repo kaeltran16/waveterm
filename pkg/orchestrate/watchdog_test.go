@@ -137,7 +137,7 @@ func TestScheduleOnceFlagsStalledChild(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
 	}, 1)
 	if err != nil {
@@ -207,7 +207,7 @@ func TestScheduleOnceDoesNotStallActiveChild(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
 	}, 1)
 	if err != nil {
@@ -265,7 +265,7 @@ func TestWatchdogTickAdvancesDag(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "a"}}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestWatchdogTickAdvancesDag(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		return "tab:worker", nil
 	}
 	defer func() { spawnWorker = old }()

@@ -34,7 +34,7 @@ func TestCreateChildRunCommand_InheritsAndStampsParent(t *testing.T) {
 
 	var spawnedWith runroute.Capability
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		spawnedWith = cap
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
@@ -103,7 +103,7 @@ func TestCreateChildRunCommand_InheritsParentRuntime(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -146,7 +146,7 @@ func TestCreateChildRunCommand_LegacyParentPersistsClaude(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, cap runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "childtab").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -186,7 +186,7 @@ func TestChildDoneNotifiesParentLead(t *testing.T) {
 	}
 
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()
@@ -245,7 +245,7 @@ func TestCancelDagChildDoesNotCancelOwnerOrSpawnReplacement(t *testing.T) {
 	}
 	owner := jarvis.NewRun("owner", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
 	child := jarvis.NewRun("child", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
-	dag, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{{ID: "t", Label: "task"}}, 1)
+	dag, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{{ID: "t", Label: "task"}}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestCancelDagChildDoesNotCancelOwnerOrSpawnReplacement(t *testing.T) {
 	}
 	spawnCalls := 0
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		spawnCalls++
 		return "tab:unexpected", nil
 	}
@@ -301,7 +301,7 @@ func TestParentlessRunDoesNotNotify(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 	origSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, "x").String(), nil
 	}
 	defer func() { jarvis.SpawnRunWorker = origSpawn }()

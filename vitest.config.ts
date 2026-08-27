@@ -3,6 +3,14 @@ import svgr from "vite-plugin-svgr";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { configDefaults, defineConfig } from "vitest/config";
 
+export const TEST_EXCLUDES = [
+    ...configDefaults.exclude.filter((p) => !p.includes("vitest")),
+    "**/{karma,rollup,webpack,vite,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*",
+    "**/.claude/**",
+    "**/.worktrees/**",
+    "**/.waveterm/worktrees/**",
+];
+
 export default defineConfig({
     plugins: [
         tsconfigPaths(),
@@ -20,10 +28,10 @@ export default defineConfig({
         },
     },
     test: {
-        // git worktrees under .claude/ or .worktrees/ carry a full copy of the suite; vitest's
-        // default glob walks the repo root, so without this it runs every sibling session's tests
+        // git worktrees under .claude/, .worktrees/, or .waveterm/worktrees/ carry a full copy of the suite;
+        // vitest's default glob walks the repo root, so without this it runs every sibling session's tests
         // too (a stale copy of a just-edited file produces silently misleading green runs).
-        exclude: [...configDefaults.exclude, "**/.claude/**", "**/.worktrees/**"],
+        exclude: TEST_EXCLUDES,
         reporters: ["verbose", "junit"],
         outputFile: {
             junit: "test-results.xml",

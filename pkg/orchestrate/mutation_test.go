@@ -29,7 +29,7 @@ func seedPendingDag(t *testing.T) (context.Context, *waveobj.TaskGroup) {
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, []waveobj.TaskNode{
+	g, err := NewTaskGroup(owner.ID, ch.OID, "g", 1, false, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
 	}, 1)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestScheduleSerializesSameDag(t *testing.T) {
 	release := make(chan struct{})
 	var calls atomic.Int32
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		switch calls.Add(1) {
 		case 1:
 			close(entered)
@@ -513,7 +513,7 @@ func TestCancelledDagRejectsFurtherMutations(t *testing.T) {
 	oldStop, oldSpawn := stopRunWorkers, spawnWorker
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return nil }
 	spawnCalls := 0
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		spawnCalls++
 		return "tab:unexpected", nil
 	}
@@ -581,7 +581,7 @@ func TestCancelWaitsForSpawnAndStopsAttachedWorker(t *testing.T) {
 	release := make(chan struct{})
 	worker := waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String()
 	oldSpawn, oldStamp, oldStop := spawnWorker, stampSpawnedWorker, stopRunWorkers
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		close(entered)
 		<-release
 		return worker, nil
@@ -632,7 +632,7 @@ func TestScheduleDifferentDagsProceedConcurrently(t *testing.T) {
 	var callsDag1 atomic.Int32
 	var callsDag2 atomic.Int32
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		// We can't easily know which dag is calling; use a simple counter and block only first call.
 		// Instead we separate by using dag1's spawn path: block first spawn, let second dag proceed.
 		if callsDag1.Load() == 0 && callsDag2.Load() == 0 {
@@ -694,7 +694,7 @@ func TestCancelSweepsTaskWorktrees(t *testing.T) {
 	}
 
 	old := spawnWorker
-	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
 	}
 	defer func() { spawnWorker = old }()

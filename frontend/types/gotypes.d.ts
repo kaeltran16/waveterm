@@ -3337,6 +3337,7 @@ declare global {
         tasks: TaskNode[];
         status: string;
         failures: number;
+        mergerequired?: boolean;
         createdts: number;
         updatedts: number;
     };
@@ -3357,6 +3358,8 @@ declare global {
         attempts?: number;
         lastfailurekind?: string;
         escalations?: number;
+        cleanuppending?: boolean;
+        cleanuperror?: string;
     };
 
     // waveobj.TermSize

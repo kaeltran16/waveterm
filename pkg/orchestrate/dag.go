@@ -126,7 +126,7 @@ func findCycle(tasks []waveobj.TaskNode) string {
 	return ""
 }
 
-func NewTaskGroup(runID, channelId, title string, parallelism int, tasks []waveobj.TaskNode, ts int64) (waveobj.TaskGroup, error) {
+func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired bool, tasks []waveobj.TaskNode, ts int64) (waveobj.TaskGroup, error) {
 	if strings.TrimSpace(title) == "" {
 		return waveobj.TaskGroup{}, fmt.Errorf("title is required")
 	}
@@ -153,6 +153,12 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, tasks []waveo
 		if t.Released {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q released must be false", t.ID)
 		}
+		if t.Merged {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q merged must be false", t.ID)
+		}
+		if t.CleanupPending || t.CleanupError != "" {
+			return waveobj.TaskGroup{}, fmt.Errorf("task %q cleanup fields must be empty", t.ID)
+		}
 		if t.LastActivity != 0 {
 			return waveobj.TaskGroup{}, fmt.Errorf("task %q lastactivity must be zero", t.ID)
 		}
@@ -175,15 +181,16 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, tasks []waveo
 		tasksCopy[i].State = TaskState_Pending
 	}
 	g := waveobj.TaskGroup{
-		ID:          uuid.NewString(),
-		RunID:       runID,
-		ChannelId:   channelId,
-		Title:       title,
-		Parallelism: parallelism,
-		Tasks:       tasksCopy,
-		Status:      DagStatus_Running,
-		CreatedTs:   ts,
-		UpdatedTs:   ts,
+		ID:            uuid.NewString(),
+		RunID:         runID,
+		ChannelId:     channelId,
+		Title:         title,
+		Parallelism:   parallelism,
+		MergeRequired: mergeRequired,
+		Tasks:         tasksCopy,
+		Status:        DagStatus_Running,
+		CreatedTs:     ts,
+		UpdatedTs:     ts,
 	}
 	g.OID = g.ID
 	RecomputeDagStatus(&g)
@@ -194,7 +201,7 @@ func SameDagProposal(a, b *waveobj.TaskGroup) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.Title != b.Title || a.Parallelism != b.Parallelism || len(a.Tasks) != len(b.Tasks) {
+	if a.Title != b.Title || a.Parallelism != b.Parallelism || a.MergeRequired != b.MergeRequired || len(a.Tasks) != len(b.Tasks) {
 		return false
 	}
 	for i := range a.Tasks {
@@ -238,6 +245,12 @@ func RecomputeDagStatus(g *waveobj.TaskGroup) {
 		case TaskState_Done:
 			if t.Gate && !t.Released {
 				gateDone = true
+				allTerminal = false
+				continue
+			}
+			if g.MergeRequired && (!t.Merged || t.CleanupPending) {
+				allTerminal = false
+				continue
 			}
 		}
 		if t.State != TaskState_Done && t.State != TaskState_Skipped {

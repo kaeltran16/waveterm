@@ -17,7 +17,7 @@ func mkTasks() []waveobj.TaskNode {
 
 func mustGroup(t *testing.T, tasks []waveobj.TaskNode) *waveobj.TaskGroup {
 	t.Helper()
-	g, err := NewTaskGroup("run-1", "ch-1", "g", 2, tasks, 1)
+	g, err := NewTaskGroup("run-1", "ch-1", "g", 2, false, tasks, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func mustGroup(t *testing.T, tasks []waveobj.TaskNode) *waveobj.TaskGroup {
 }
 
 func TestNewTaskGroupSetsIdentity(t *testing.T) {
-	g, err := NewTaskGroup("run-1", "ch-1", "ship", 2, mkTasks(), 1000)
+	g, err := NewTaskGroup("run-1", "ch-1", "ship", 2, false, mkTasks(), 1000)
 	if err != nil {
 		t.Fatalf("NewTaskGroup: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := NewTaskGroup("run", "channel", tc.title, tc.parallelism, tc.tasks, 1); err == nil {
+			if _, err := NewTaskGroup("run", "channel", tc.title, tc.parallelism, false, tc.tasks, 1); err == nil {
 				t.Fatal("want validation error")
 			}
 		})
@@ -73,7 +73,7 @@ func TestNewTaskGroupSanitizesDeepCopy(t *testing.T) {
 		{ID: "a", Label: "a", RunSpec: waveobj.RunSpec{Runtime: "pi", Tier: "mid"}},
 		{ID: "b", Label: "b", Deps: []string{"a"}},
 	}
-	g, err := NewTaskGroup("run", "channel", "g", 1, tasks, 1)
+	g, err := NewTaskGroup("run", "channel", "g", 1, false, tasks, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +158,13 @@ func TestRecomputeStatusDerivation(t *testing.T) {
 	}
 	g.Tasks[3].State = TaskState_Done
 	RecomputeDagStatus(g)
+	if g.Status != DagStatus_AwaitingReview {
+		t.Fatalf("gate still unreleased: want awaiting-review, got %s", g.Status)
+	}
+	g.Tasks[2].Released = true
+	RecomputeDagStatus(g)
 	if g.Status != DagStatus_Done {
-		t.Fatalf("want done, got %s", g.Status)
+		t.Fatalf("released gate: want done, got %s", g.Status)
 	}
 	g2 := mustGroup(t, mkTasks())
 	g2.Tasks[1].State = TaskState_Failed
@@ -183,5 +188,25 @@ func TestDeriveTaskStatesFromRuns(t *testing.T) {
 	DeriveTaskStates(g, runs)
 	if g.Tasks[0].State != TaskState_Done {
 		t.Fatalf("want done, got %s", g.Tasks[0].State)
+	}
+}
+
+func TestNewTaskGroupRejectsLifecycleFields(t *testing.T) {
+	tasks := []waveobj.TaskNode{{
+		ID: "t-1", Label: "one", Merged: true,
+		CleanupPending: true, CleanupError: "locked",
+	}}
+	if _, err := NewTaskGroup("run", "channel", "title", 1, true, tasks, 1); err == nil {
+		t.Fatal("caller-supplied merge and cleanup fields must be rejected")
+	}
+}
+
+func TestNewTaskGroupPersistsMergeRequirement(t *testing.T) {
+	g, err := NewTaskGroup("run", "channel", "title", 1, true, []waveobj.TaskNode{{ID: "t-1", Label: "one"}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !g.MergeRequired {
+		t.Fatal("git-backed dag must require merged tasks")
 	}
 }

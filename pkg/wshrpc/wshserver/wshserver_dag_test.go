@@ -26,7 +26,7 @@ import (
 func TestDagSubmitAndAction(t *testing.T) {
 	ctx := context.Background()
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		tabId := uuid.NewString()
 		blockId := uuid.NewString()
 		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
@@ -344,7 +344,7 @@ func TestDagSubmitRejectsInvalidTaskRoutesBeforePersistence(t *testing.T) {
 			}
 			spawned := 0
 			oldSpawn := jarvis.SpawnRunWorker
-			jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+			jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 				spawned++
 				return "tab:worker", nil
 			}
@@ -399,7 +399,7 @@ func TestDagSubmitAcceptsPinnedAndInheritedRoutes(t *testing.T) {
 	}
 	t.Cleanup(func() { validateHarness = oldValidate })
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
+	jarvis.SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, _ jarvis.RunWorkerOptions) (string, error) {
 		tabId := uuid.NewString()
 		blockId := uuid.NewString()
 		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
@@ -443,7 +443,7 @@ func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveo
 	if err := wstore.AppendRun(ctx, ch.OID, owner); err != nil {
 		t.Fatal(err)
 	}
-	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "escalate", 1, []waveobj.TaskNode{{ID: "t-0", Label: "task"}}, 1)
+	g, err := orchestrate.NewTaskGroup(owner.ID, ch.OID, "escalate", 1, false, []waveobj.TaskNode{{ID: "t-0", Label: "task"}}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func seedDagActionEscalation(t *testing.T, tier string) (context.Context, *waveo
 	restoreHarness := orchestrate.SetValidateWorkerHarnessForTest(func(string) error { return nil })
 	t.Cleanup(restoreHarness)
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(ctx context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
+	jarvis.SpawnRunWorker = func(ctx context.Context, _ runroute.Capability, _, _, _, _ string, _ jarvis.RunWorkerOptions) (string, error) {
 		tabID := uuid.NewString()
 		if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabID, Meta: waveobj.MetaMapType{}}); err != nil {
 			return "", err
@@ -583,7 +583,7 @@ func TestDagMergeTargetsChildWorktree(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		tabId := uuid.NewString()
 		blockId := uuid.NewString()
 		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}
@@ -692,7 +692,7 @@ func TestDagMergeContinueFinishesBlockedMerge(t *testing.T) {
 		t.Fatalf("AppendRun: %v", err)
 	}
 	oldSpawn := jarvis.SpawnRunWorker
-	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		tabId := uuid.NewString()
 		blockId := uuid.NewString()
 		tab := &waveobj.Tab{OID: tabId, BlockIds: []string{blockId}}

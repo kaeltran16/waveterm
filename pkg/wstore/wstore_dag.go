@@ -44,6 +44,29 @@ func UpdateDag(ctx context.Context, dagId string, fn func(*waveobj.TaskGroup) er
 	return DBUpdateFnErr[*waveobj.TaskGroup](ctx, dagId, fn)
 }
 
+func GetDagsWithPendingCleanup(ctx context.Context) ([]*waveobj.TaskGroup, error) {
+	return WithReadTxRtn(ctx, func(tx *TxWrap) ([]*waveobj.TaskGroup, error) {
+		query := `SELECT oid, version, data FROM db_dag
+			WHERE EXISTS (
+				SELECT 1 FROM json_each(data, '$.tasks') AS task
+				WHERE json_extract(task.value, '$.cleanuppending') = 1
+			)
+			ORDER BY json_extract(data, '$.updatedts') ASC`
+		var rows []idDataType
+		tx.Select(&rows, query)
+		out := make([]*waveobj.TaskGroup, 0, len(rows))
+		for _, row := range rows {
+			obj, err := waveobj.FromJson(row.Data)
+			if err != nil {
+				return nil, err
+			}
+			waveobj.SetVersion(obj, row.Version)
+			out = append(out, obj.(*waveobj.TaskGroup))
+		}
+		return out, nil
+	})
+}
+
 func CreateDagForRun(ctx context.Context, channelID string, runID string, proposed *waveobj.TaskGroup, transition func(*waveobj.Run) error) (dag *waveobj.TaskGroup, created bool, err error) {
 	err = WithTx(ctx, func(tx *TxWrap) error {
 		txCtx := tx.Context()

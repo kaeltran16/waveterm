@@ -35,8 +35,8 @@ const (
 // spawnWorker is the child-run launch seam. Package var so engine tests can stub it;
 // defaults to jarvis.SpawnRunWorker, read at call time so external stubs (e.g. swapping
 // jarvis.SpawnRunWorker in handler tests) take effect too.
-var spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
-	return jarvis.SpawnRunWorker(ctx, cap, workspaceId, projectName, cwd, prompt)
+var spawnWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string, opts jarvis.RunWorkerOptions) (string, error) {
+	return jarvis.SpawnRunWorker(ctx, cap, workspaceId, projectName, cwd, prompt, opts)
 }
 
 var validateWorkerHarness = func(runtime string) error {
@@ -239,6 +239,13 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 	}
 	var spawned []spawnedWorkerInfo
+	spawnBase := owner.BaseCommit
+	if g.MergeRequired {
+		spawnBase, err = ProjectHeadCommit(spawnCtx, owner.ProjectPath)
+		if err != nil {
+			return fmt.Errorf("resolving project head for dag %s: %w", g.ID, err)
+		}
+	}
 	for _, taskID := range NextToSpawn(g) {
 		task := taskByID(g, taskID)
 		pin := effectiveTaskRoute(task, owner)
@@ -253,7 +260,7 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 		}
 		cwd := owner.ProjectPath
 		if IsGitRepo(owner.ProjectPath) {
-			wt, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), owner.BaseCommit)
+			wt, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, TaskWorktreeKey(owner.ID, taskID), spawnBase)
 			if werr != nil {
 				g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
 				continue
@@ -261,12 +268,12 @@ func scheduleLocked(ctx context.Context, dagID string) error {
 			cwd = wt
 		}
 		prompt := taskPrompt(task, owner) + "\n\n" + dagSessionMarker(g.OID, taskID)
-		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt)
+		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", cwd, prompt, jarvis.RunWorkerOptions{})
 		if err != nil {
 			g.Tasks[taskIdx(g, taskID)].State = TaskState_Failed
 			continue
 		}
-		childRun := childRunFromSpec(g, task, owner, pin, cwd, prompt)
+		childRun := childRunFromSpec(g, task, owner, pin, cwd, spawnBase, prompt)
 		// attach worker to child run before persisting
 		attached := false
 		for i := range childRun.Phases {
@@ -441,7 +448,7 @@ func effectiveTaskRoute(task *waveobj.TaskNode, owner *waveobj.Run) waveobj.Rout
 // childRunFromSpec builds the child run that owns the spawned worker. The child carries
 // DagORef so GroupForRun resolves the group from any run in the DAG, and its ProjectPath is
 // the worktree cwd so evidence/continuity machinery scopes to the isolated checkout.
-func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, route waveobj.RoutePin, cwd, goal string) waveobj.Run {
+func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveobj.Run, route waveobj.RoutePin, cwd, baseCommit, goal string) waveobj.Run {
 	mode := task.RunSpec.Mode
 	if mode == "" {
 		mode = jarvis.RunMode_Quick
@@ -451,7 +458,7 @@ func childRunFromSpec(g *waveobj.TaskGroup, task *waveobj.TaskNode, owner *waveo
 	run.Tier = route.Tier
 	run.Model = route.Model
 	run.DagORef = g.OID
-	run.BaseCommit = owner.BaseCommit
+	run.BaseCommit = baseCommit
 	return run
 }
 

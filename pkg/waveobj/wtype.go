@@ -316,6 +316,8 @@ type TaskNode struct {
 	LastFailureKind string `json:"lastfailurekind,omitempty"`
 	// Escalations is the judged-hop count; one is the terminal cap for this phase.
 	Escalations int `json:"escalations,omitempty"`
+	CleanupPending bool   `json:"cleanuppending,omitempty"`
+	CleanupError   string `json:"cleanuperror,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).
@@ -329,19 +331,20 @@ type RunSpec struct {
 
 // TaskGroup is the persisted DAG attached to an orchestrator run (oref dag:<id>).
 type TaskGroup struct {
-	OID         string      `json:"oid"`
-	Version     int         `json:"version"`
-	ID          string      `json:"id"`        // == OID; retained for embedded-blob consumers until phase 3 contract
-	RunID       string      `json:"runid"`     // owning orchestrator run
-	ChannelId   string      `json:"channelid"` // owning run's channel (run lookups are channel-scoped)
-	Title       string      `json:"title,omitempty"`
-	Parallelism int         `json:"parallelism"`
-	Tasks       []TaskNode  `json:"tasks"`
-	Status      string      `json:"status"`   // running|awaiting-review|blocked|done|cancelled (derived)
-	Failures    int         `json:"failures"` // consecutive task failures; circuit-break at 3
-	CreatedTs   int64       `json:"createdts"`
-	UpdatedTs   int64       `json:"updatedts"`
-	Meta        MetaMapType `json:"meta"`
+	OID           string      `json:"oid"`
+	Version       int         `json:"version"`
+	ID            string      `json:"id"`        // == OID; retained for embedded-blob consumers until phase 3 contract
+	RunID         string      `json:"runid"`     // owning orchestrator run
+	ChannelId     string      `json:"channelid"` // owning run's channel (run lookups are channel-scoped)
+	Title         string      `json:"title,omitempty"`
+	Parallelism   int         `json:"parallelism"`
+	Tasks         []TaskNode  `json:"tasks"`
+	Status        string      `json:"status"`   // running|awaiting-review|blocked|done|cancelled (derived)
+	Failures      int         `json:"failures"` // consecutive task failures; circuit-break at 3
+	MergeRequired bool        `json:"mergerequired,omitempty"`
+	CreatedTs     int64       `json:"createdts"`
+	UpdatedTs     int64       `json:"updatedts"`
+	Meta          MetaMapType `json:"meta"`
 }
 
 func (*TaskGroup) GetOType() string {

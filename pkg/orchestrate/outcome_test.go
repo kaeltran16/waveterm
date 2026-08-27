@@ -45,7 +45,7 @@ func newChildOutcomeHarness(t *testing.T, taskCount int) *childOutcomeHarness {
 	for i := range tasks {
 		tasks[i] = waveobj.TaskNode{ID: fmt.Sprintf("t-%d", i), Label: fmt.Sprintf("task %d", i)}
 	}
-	g, err := NewTaskGroup(owner.ID, ch.OID, "outcomes", taskCount, tasks, 1)
+	g, err := NewTaskGroup(owner.ID, ch.OID, "outcomes", taskCount, false, tasks, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func newChildOutcomeHarness(t *testing.T, taskCount int) *childOutcomeHarness {
 	}
 	h := &childOutcomeHarness{ctx: ctx, dagID: g.OID, channel: ch.OID, runID: owner.ID}
 	oldSpawn := spawnWorker
-	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string) (string, error) {
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
 		tabID := uuid.NewString()
 		blockID := uuid.NewString()
 		worker := waveobj.MakeORef(waveobj.OType_Tab, tabID).String()
