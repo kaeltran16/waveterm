@@ -253,6 +253,8 @@ tasks:
             - cmd: cp pi/extensions/waveterm-ask.ts cmd/wsh/cmd/pi-ask-extension.ts
             - cmd: cp pi/extensions/waveterm-ask-core.ts cmd/wsh/cmd/pi-ask-core-extension.ts
             - cmd: cp pi/extensions/waveterm-prose-core.ts cmd/wsh/cmd/pi-prose-core-extension.ts
+            - cmd: cp pi/extensions/waveterm-simplify-gate.ts cmd/wsh/cmd/pi-simplify-gate-extension.ts
+            - cmd: cp pi/extensions/waveterm-simplify-gate-core.ts cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
             # the skill installs to the user's Claude Code skills dir, not into the repo
             - cmd: mkdir -p "$HOME/.claude/skills/effort-tracking" && cp pi/skills/effort-tracking/SKILL.md "$HOME/.claude/skills/effort-tracking/SKILL.md"
         sources:
@@ -263,6 +265,8 @@ tasks:
             - pi/extensions/waveterm-ask.ts
             - pi/extensions/waveterm-ask-core.ts
             - pi/extensions/waveterm-prose-core.ts
+            - pi/extensions/waveterm-simplify-gate.ts
+            - pi/extensions/waveterm-simplify-gate-core.ts
             - pi/skills/effort-tracking/SKILL.md
         generates:
             - cmd/wsh/cmd/pi-status-extension.ts
@@ -272,6 +276,8 @@ tasks:
             - cmd/wsh/cmd/pi-ask-extension.ts
             - cmd/wsh/cmd/pi-ask-core-extension.ts
             - cmd/wsh/cmd/pi-prose-core-extension.ts
+            - cmd/wsh/cmd/pi-simplify-gate-extension.ts
+            - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
 
     build:server:internal:
         deps:

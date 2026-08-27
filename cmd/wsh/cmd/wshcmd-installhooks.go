@@ -299,6 +299,12 @@ var piAskCoreExtensionTemplate string
 //go:embed pi-prose-core-extension.ts
 var piProseCoreExtensionTemplate string
 
+//go:embed pi-simplify-gate-extension.ts
+var piSimplifyGateExtensionTemplate string
+
+//go:embed pi-simplify-gate-core-extension.ts
+var piSimplifyGateCoreExtensionTemplate string
+
 //go:embed pi-memory-extension.ts
 var piMemoryExtensionTemplate string
 
@@ -436,6 +442,39 @@ func installPiAskExtension(home string) error {
 		return fmt.Errorf("writing waveterm-prose-core.ts: %w", err)
 	}
 	return nil
+}
+
+// installPiSimplifyGateExtension writes the pi-simplify commit gate pair into pi's global extension
+// directory, where pi auto-loads every file. Unlike the status/tools/ask pairs these templates carry
+// no __WSH_PATH__ placeholder (the gate shells out to git itself), so the authored bytes embed
+// verbatim. Same contract as installPiMemoryExtension: skips when pi is absent, rewrites only the
+// files that changed so a no-op reinstall preserves mtime.
+func installPiSimplifyGateExtension(home string) error {
+	if _, err := piLookPath("pi"); err != nil {
+		return nil // pi not installed; nothing to hook
+	}
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating pi extensions dir: %w", err)
+	}
+	write := func(name, want string) error {
+		path := filepath.Join(dir, name)
+		if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
+			return nil
+		}
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, []byte(want), 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", tmp, err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			return fmt.Errorf("replacing %s: %w", path, err)
+		}
+		return nil
+	}
+	if err := write("waveterm-simplify-gate.ts", piSimplifyGateExtensionTemplate); err != nil {
+		return err
+	}
+	return write("waveterm-simplify-gate-core.ts", piSimplifyGateCoreExtensionTemplate)
 }
 
 // installPiMemoryExtension writes the Wave memory extension into pi's global extension directory
@@ -647,6 +686,9 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := installPiAskExtension(home); err != nil {
+		return err
+	}
+	if err := installPiSimplifyGateExtension(home); err != nil {
 		return err
 	}
 	if err := installPiMemoryExtension(home); err != nil {

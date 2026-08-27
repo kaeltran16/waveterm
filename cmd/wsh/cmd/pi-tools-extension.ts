@@ -10,6 +10,7 @@ import {
     captureTailArgs,
     controlFileName,
     dagEventMessage,
+    makeSerialChain,
     notifyArgs,
     openFileArgs,
     parseControlCommand,
@@ -247,12 +248,17 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
         };
         let watcher: ReturnType<typeof watch> | null = null;
         let poll: ReturnType<typeof setInterval> | null = null;
+        // fs.watch coalesces but does not serialize: two callbacks can fire before the first
+        // process() resolves, and all commands share one control file — concurrent runs could rm a
+        // file the other is about to read or dispatch a stale generation. One chain keeps the
+        // read-parse-dispatch-delete sequence atomic per command event.
+        const enqueue = makeSerialChain(process, (e) => log(`pi-control: processing failed: ${String(e)}`));
         try {
             watcher = watch(dir, (_eventType, filename) => {
-                if (filename === controlFileName(sessionId)) void process();
+                if (filename === controlFileName(sessionId)) enqueue();
             });
         } catch {
-            poll = setInterval(() => void process(), 1000);
+            poll = setInterval(enqueue, 1000);
         }
         return () => {
             watcher?.close();

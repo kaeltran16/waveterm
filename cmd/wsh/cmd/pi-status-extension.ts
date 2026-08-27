@@ -10,7 +10,39 @@ export function sessionTitle(sm: any): string {
     return sm?.getSessionName?.()?.trim() ?? "";
 }
 
+// basename strips the directory prefix from a tool file path (posix or windows separators).
+export function basename(p: string): string {
+    const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+    return i >= 0 ? p.slice(i + 1) : p;
+}
+
+// detailForTool mirrors the Claude Code hook's activity line (wshcmd-agenthook.go): a compact
+// "reading/editing/writing <basename>" from the tool call args, falling back to the bare tool name.
+export function detailForTool(toolName: string, args: any): string {
+    const name = String(toolName ?? "").toLowerCase();
+    const path =
+        typeof args?.path === "string" && args.path
+            ? args.path
+            : typeof args?.file_path === "string"
+              ? args.file_path
+              : "";
+    switch (name) {
+        case "read":
+            return path ? "reading " + basename(path) : name;
+        case "edit":
+            return path ? "editing " + basename(path) : name;
+        case "write":
+            return path ? "writing " + basename(path) : name;
+        case "bash":
+            return typeof args?.command === "string" && args.command ? "running " + args.command.slice(0, 60) : name;
+    }
+    return name || "tool";
+}
+
 export function registerWavetermStatus(pi: any, wshPath: string): void {
+    // outside a Wave block the agentstatus RPC is unreachable — registering the handlers would
+    // exec a failing wsh process on every lifecycle event, so stay inert instead
+    if (!process.env.WAVETERM_BLOCKID) return;
     let state: "working" | "idle" = "idle";
     const report = async (ctx: any, next: "working" | "idle", detail = "") => {
         state = next;
@@ -41,29 +73,6 @@ export function registerWavetermStatus(pi: any, wshPath: string): void {
         }
     };
 
-// detailForTool mirrors the Claude Code hook's activity line (wshcmd-agenthook.go): a compact
-// "reading/editing/writing <basename>" from the tool call args, falling back to the bare tool name.
-function basename(p: string): string {
-    const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-    return i >= 0 ? p.slice(i + 1) : p;
-}
-
-function detailForTool(toolName: string, args: any): string {
-    const name = String(toolName ?? "").toLowerCase();
-    const path = typeof args?.path === "string" && args.path ? args.path : typeof args?.file_path === "string" ? args.file_path : "";
-    switch (name) {
-        case "read":
-            return path ? "reading " + basename(path) : name;
-        case "edit":
-            return path ? "editing " + basename(path) : name;
-        case "write":
-            return path ? "writing " + basename(path) : name;
-        case "bash":
-            return typeof args?.command === "string" && args.command ? "running " + args.command.slice(0, 60) : name;
-    }
-    return name || "tool";
-}
-
     const reportUsage = async (ctx: any) => {
         const usage = ctx.getContextUsage?.();
         if (usage?.percent == null) return;
@@ -85,7 +94,9 @@ function detailForTool(toolName: string, args: any): string {
     pi.on("session_info_changed", (_event: any, ctx: any) => report(ctx, state));
     pi.on("model_select", (_event: any, ctx: any) => report(ctx, state));
     pi.on("agent_start", (_event: any, ctx: any) => report(ctx, "working"));
-    pi.on("tool_execution_start", (event: any, ctx: any) => report(ctx, "working", detailForTool(event.toolName, event.args)));
+    pi.on("tool_execution_start", (event: any, ctx: any) =>
+        report(ctx, "working", detailForTool(event.toolName, event.args))
+    );
     pi.on("message_end", async (_event: any, ctx: any) => {
         await report(ctx, state);
         await reportUsage(ctx);

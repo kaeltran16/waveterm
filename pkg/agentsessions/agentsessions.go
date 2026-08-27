@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -498,12 +497,18 @@ func stringContent(raw json.RawMessage) string {
 	return ""
 }
 
+// trimTo caps s at max runes — slicing the byte string could split a multi-byte rune into
+// replacement chars in the cockpit row; clipText is the sibling that got this right.
 func trimTo(s string, max int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= max {
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
-	return strings.TrimSpace(s[:max]) + "…"
+	if max <= 1 {
+		return "…"
+	}
+	return strings.TrimSpace(string(r[:max-1])) + "…"
 }
 
 // SessionEvent is one lifecycle event extracted from a transcript (ported from
@@ -671,11 +676,12 @@ func opencodeProvider(storageRoot string) provider {
 			return strings.HasPrefix(name, "ses_") && strings.HasSuffix(name, ".json")
 		},
 		fused: func(path, stem string, lines []string) (*SessionInfo, sessionEvents) {
-			s := extractOpencodeSession(path, stem, lines)
+			data := loadOpencodeSession(path)
+			s := extractOpencodeSession(stem, lines, data)
 			if s == nil {
 				return nil, sessionEvents{}
 			}
-			return s, extractOpencodeEvents(path, lines)
+			return s, extractOpencodeEvents(data)
 		},
 		resumeCmd: func(s *SessionInfo) string { return "opencode -s " + s.ID },
 	}
@@ -685,6 +691,39 @@ func opencodeProvider(storageRoot string) provider {
 // (<root>/session/<projectID>/<sessionID>.json).
 func storageRootOf(path string) string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(path)))
+}
+
+// opencodeSessionData bundles a session's message + part files, loaded once so the session and
+// event derivations share one walk of the message dir and cache part loads by message — they
+// previously re-read both dirs per candidate.
+type opencodeSessionData struct {
+	root      string
+	sessionID string
+	messages  []opencodeMsg
+	parts     map[string][]opencodePart
+}
+
+// loadOpencodeSession resolves a session-info path's message files; parts load lazily via partsFor
+// so subagent-only sessions (the dominant file class) never pay the part walk.
+func loadOpencodeSession(path string) *opencodeSessionData {
+	root := storageRootOf(path)
+	sessionID := strings.TrimSuffix(filepath.Base(path), ".json")
+	return &opencodeSessionData{
+		root:      root,
+		sessionID: sessionID,
+		messages:  opencodeMessages(filepath.Join(root, "message", sessionID)),
+		parts:     map[string][]opencodePart{},
+	}
+}
+
+// partsFor returns a message's parts, loaded on first use and cached for the shared derivation.
+func (d *opencodeSessionData) partsFor(id string) []opencodePart {
+	if ps, ok := d.parts[id]; ok {
+		return ps
+	}
+	ps := opencodeParts(d.root, id)
+	d.parts[id] = ps
+	return ps
 }
 
 type opencodeMsg struct {
@@ -789,9 +828,8 @@ func opencodeParts(root, messageID string) []opencodePart {
 // storage shape), so the model and usage sums come from assistant message metadata while parts remain
 // the source for user text and lifecycle events. Returns nil when the session has no human task (a
 // subagent-only session isn't resumable).
-func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo {
+func extractOpencodeSession(sessionID string, lines []string, data *opencodeSessionData) *SessionInfo {
 	s := &SessionInfo{ID: sessionID}
-	root := storageRootOf(path)
 	for _, line := range lines {
 		var info struct {
 			Directory string `json:"directory"`
@@ -805,7 +843,7 @@ func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo
 		}
 	}
 	hasTask := false
-	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
+	for _, m := range data.messages {
 		if m.Role == "assistant" && m.ProviderID != "" {
 			s.Model = m.ProviderID + "/" + m.ModelID // last assistant model wins
 		}
@@ -815,7 +853,7 @@ func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo
 			s.CostUsd += m.Cost
 		}
 		if !hasTask && m.Role == "user" {
-			if task := firstUserText(root, m.ID); task != "" {
+			if task := firstUserText(data.partsFor(m.ID)); task != "" {
 				s.Task = trimTo(task, maxTaskLen)
 				hasTask = true
 			}
@@ -828,8 +866,8 @@ func extractOpencodeSession(path, sessionID string, lines []string) *SessionInfo
 }
 
 // firstUserText returns the first non-empty, non-environment text part of a user message.
-func firstUserText(root, messageID string) string {
-	for _, p := range opencodeParts(root, messageID) {
+func firstUserText(parts []opencodePart) string {
+	for _, p := range parts {
 		if p.Type != "text" || strings.TrimSpace(p.Text) == "" || p.Synthetic {
 			continue
 		}
@@ -843,20 +881,18 @@ func firstUserText(root, messageID string) string {
 
 // extractOpencodeEvents derives lifecycle events from a session's stored parts: first user text ->
 // started, last assistant text -> finished, a failed bash tool -> errored, a git commit -> committed.
-func extractOpencodeEvents(path string, _ []string) sessionEvents {
-	root := storageRootOf(path)
-	sessionID := strings.TrimSuffix(filepath.Base(path), ".json")
+func extractOpencodeEvents(data *opencodeSessionData) sessionEvents {
 	var raw []SessionEvent
 	var firstTs, lastTs int64
 	var firstUser, lastAssistant string
-	for _, m := range opencodeMessages(filepath.Join(root, "message", sessionID)) {
+	for _, m := range data.messages {
 		if ts := m.Time.Created; ts > 0 {
 			if firstTs == 0 {
 				firstTs = ts
 			}
 			lastTs = ts
 		}
-		for _, p := range opencodeParts(root, m.ID) {
+		for _, p := range data.partsFor(m.ID) {
 			switch {
 			case m.Role == "user" && p.Type == "text" && firstUser == "" && !p.Synthetic &&
 				!strings.HasPrefix(p.Text, "<environment_context") && strings.TrimSpace(p.Text) != "":
@@ -885,39 +921,37 @@ func extractOpencodeEvents(path string, _ []string) sessionEvents {
 	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
 }
 
-// piProvider scans Pi's native session storage. root is …/pi/agent/sessions; scanProvider walks its
-// per-project encoded-cwd subdirs. The encoded directory name is lossy and must never be decoded — the
-// v3 session header's cwd is authoritative. The full native file path is the resume key, so ResumeArgs
-// (not ResumeCommand, whose quoted form is display-only) carries the exact argv.
 // piProvider scans Pi's native session storage. root is …/pi/agent/sessions; walkCandidates walks its
-// encoded-cwd subdirs. fused reads the v3 file itself (pisession), so the scanned lines are unused.
+// encoded-cwd subdirs (lossy, never decoded — the v3 session header's cwd is authoritative). fused
+// parses the v3 file once (pisession) and threads it through both derivations, so a pi candidate
+// costs one read+parse instead of three. The full native file path is the resume key, so the FE
+// resumes via ResumeArgs (exact argv; the path must never be re-tokenized out of ResumeCommand).
 func piProvider(root string) provider {
 	return provider{
 		runtime: "pi",
 		root:    root,
 		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
-		fused: func(path, _ string, lines []string) (*SessionInfo, sessionEvents) {
-			s := extractPiSession(path, "", lines)
+		fused: func(path, _ string, _ []string) (*SessionInfo, sessionEvents) {
+			file, err := pisession.Read(path)
+			if err != nil {
+				log.Printf("agentsessions: skipping malformed pi session %q: %v", path, err)
+				return nil, sessionEvents{}
+			}
+			s := extractPiSession(file, path)
 			if s == nil {
 				return nil, sessionEvents{}
 			}
-			return s, extractPiEvents(path, lines)
+			return s, extractPiEvents(file)
 		},
-		resumeCmd: func(s *SessionInfo) string { return "pi --session " + strconv.Quote(s.TranscriptPath) },
+		resumeCmd: func(s *SessionInfo) string { return "pi --session " + s.TranscriptPath },
 	}
 }
 
-// extractPiSession folds one Pi v3 session file into a SessionInfo. The header is authoritative for
+// extractPiSession folds one parsed Pi v3 session file into a SessionInfo. The header is authoritative for
 // id/cwd/timestamp. The task/model come from the active parent branch only — abandoned siblings never
 // win — with the latest active session_info.name taking priority over the first active user text.
-// TokensTotal sums every billed record (usage present), abandoned branches included. Malformed or
-// unsupported files are logged with path context and skipped (nil), leaving valid siblings intact.
-func extractPiSession(path, _ string, _ []string) *SessionInfo {
-	file, err := pisession.Read(path)
-	if err != nil {
-		log.Printf("agentsessions: skipping malformed pi session %q: %v", path, err)
-		return nil
-	}
+// TokensTotal sums every billed record (usage present), abandoned branches included.
+func extractPiSession(file *pisession.File, path string) *SessionInfo {
 	branch, err := file.ActiveBranch()
 	if err != nil {
 		log.Printf("agentsessions: skipping pi session %q: %v", path, err)
@@ -929,7 +963,7 @@ func extractPiSession(path, _ string, _ []string) *SessionInfo {
 		ProjectPath:    file.Header.Cwd,
 		ProjectName:    filepath.Base(file.Header.Cwd),
 		TranscriptPath: path,
-		ResumeCommand:  "pi --session " + strconv.Quote(path),
+		ResumeCommand:  "pi --session " + path,
 		ResumeArgs:     []string{"--session", path},
 	}
 	title, firstUser := piBranchMeta(branch)
@@ -1012,13 +1046,9 @@ func piUserText(raw json.RawMessage) string {
 	return ""
 }
 
-// extractPiEvents derives lifecycle events from a Pi session file. Pi v3 carries no lifecycle event
-// stream, so the surface gets a synthetic "started" anchored on the header timestamp.
-func extractPiEvents(path string, _ []string) sessionEvents {
-	file, err := pisession.Read(path)
-	if err != nil {
-		return sessionEvents{}
-	}
+// extractPiEvents derives lifecycle events from a parsed Pi session file. Pi v3 carries no lifecycle
+// event stream, so the surface gets a synthetic "started" anchored on the header timestamp.
+func extractPiEvents(file *pisession.File) sessionEvents {
 	branch, err := file.ActiveBranch()
 	if err != nil {
 		return sessionEvents{}

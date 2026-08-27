@@ -22,6 +22,29 @@ func TestClipText(t *testing.T) {
 	}
 }
 
+func TestTrimTo(t *testing.T) {
+	if got := trimTo("  short  ", 120); got != "short" {
+		t.Errorf("trimTo keep = %q", got)
+	}
+	long := ""
+	for i := 0; i < 130; i++ {
+		long += "日本語"
+	}
+	got := trimTo(long, 120)
+	if len([]rune(got)) != 120 { // 119 runes + the ellipsis
+		t.Errorf("trimTo rune len = %d, want 120", len([]rune(got)))
+	}
+	if got[len(got)-len("…"):] != "…" {
+		t.Errorf("trimTo should end with ellipsis, got %q", got)
+	}
+	// the old byte-slice cut mid-rune and emitted a replacement char; the rune form stays clean
+	for _, r := range []rune(got) {
+		if r == '\ufffd' {
+			t.Errorf("trimTo produced a replacement char: %q", got)
+		}
+	}
+}
+
 func TestParseTs(t *testing.T) {
 	if got := parseTs("2026-07-10T12:00:00.000Z"); got != 1783684800000 {
 		t.Errorf("parseTs = %d", got)

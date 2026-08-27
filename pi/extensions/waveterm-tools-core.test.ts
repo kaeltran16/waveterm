@@ -3,6 +3,7 @@ import {
     captureTailArgs,
     controlFileName,
     dagEventMessage,
+    makeSerialChain,
     notifyArgs,
     openFileArgs,
     parseControlCommand,
@@ -81,5 +82,52 @@ describe("waveterm-tools-core", () => {
             "did the ask bridge ship?",
             "--json",
         ]);
+    });
+
+    describe("makeSerialChain", () => {
+        const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+        it("runs burst enqueues one at a time", async () => {
+            const order: string[] = [];
+            let releaseFirst: (() => void) | null = null;
+            const run = () =>
+                new Promise<void>((resolve) => {
+                    order.push("begin");
+                    if (!releaseFirst) {
+                        releaseFirst = resolve; // the first run blocks until released
+                    } else {
+                        resolve(); // later runs finish immediately
+                    }
+                });
+            const enqueue = makeSerialChain(run, () => {});
+            enqueue();
+            enqueue();
+            await tick();
+            // the second call must wait for the first instead of interleaving
+            expect(order).toEqual(["begin"]);
+            releaseFirst!();
+            await tick();
+            expect(order).toEqual(["begin", "begin"]);
+        });
+
+        it("delivers failures to onError without blocking later runs", async () => {
+            const errors: unknown[] = [];
+            const order: string[] = [];
+            let failNext = true;
+            const run = async () => {
+                order.push("run");
+                if (failNext) {
+                    failNext = false;
+                    throw new Error("boom");
+                }
+            };
+            const enqueue = makeSerialChain(run, (e) => errors.push(e));
+            enqueue();
+            await tick();
+            enqueue();
+            await tick();
+            expect(errors.map((e) => (e as Error).message)).toEqual(["boom"]);
+            expect(order).toEqual(["run", "run"]);
+        });
     });
 });

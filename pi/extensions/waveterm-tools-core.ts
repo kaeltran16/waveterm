@@ -106,4 +106,15 @@ export function parseControlCommand(raw: string): PiControlCommand | null {
     };
 }
 
+// makeSerialChain coerces burst callers into one-at-a-time execution: each call waits for the
+// previous run to settle (fulfilled or rejected) before starting, so interleaved invocations cannot
+// race each other. Errors are delivered to onError and never poison the chain. Used by the control
+// watcher, where fs.watch callbacks sharing one command file would otherwise run concurrently.
+export function makeSerialChain(run: () => Promise<void>, onError: (err: unknown) => void): () => void {
+    let chain: Promise<void> = Promise.resolve();
+    return () => {
+        chain = chain.then(run).catch(onError);
+    };
+}
+
 export default function noop(): void {}

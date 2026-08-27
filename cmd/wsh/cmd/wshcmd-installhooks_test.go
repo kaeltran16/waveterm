@@ -476,6 +476,69 @@ func TestInstallPiMemoryExtension_rewritesChangedPath(t *testing.T) {
 	}
 }
 
+func TestInstallPiSimplifyGateExtension_writesBothFiles(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	if err := installPiSimplifyGateExtension(home); err != nil {
+		t.Fatalf("installPiSimplifyGateExtension error: %v", err)
+	}
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	for name, want := range map[string]string{
+		"waveterm-simplify-gate.ts":      piSimplifyGateExtensionTemplate,
+		"waveterm-simplify-gate-core.ts": piSimplifyGateCoreExtensionTemplate,
+	} {
+		path := filepath.Join(dir, name)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading installed %s: %v", name, err)
+		}
+		if string(body) != want {
+			t.Fatalf("%s content differs from the authored template", name)
+		}
+	}
+}
+
+func TestInstallPiSimplifyGateExtension_skipsWhenPiMissing(t *testing.T) {
+	orig := piLookPath
+	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	defer func() { piLookPath = orig }()
+
+	home := t.TempDir()
+	if err := installPiSimplifyGateExtension(home); err != nil {
+		t.Fatalf("missing pi must not error, got %v", err)
+	}
+	dir := filepath.Join(home, ".pi", "agent", "extensions")
+	if _, err := os.Stat(filepath.Join(dir, "waveterm-simplify-gate.ts")); !os.IsNotExist(err) {
+		t.Fatalf("extension should not be written when pi is absent")
+	}
+}
+
+func TestInstallPiSimplifyGateExtension_equalBytesPreserveMtime(t *testing.T) {
+	stubPiLookPath(t)
+
+	home := t.TempDir()
+	if err := installPiSimplifyGateExtension(home); err != nil {
+		t.Fatalf("installPiSimplifyGateExtension error: %v", err)
+	}
+	path := filepath.Join(home, ".pi", "agent", "extensions", "waveterm-simplify-gate.ts")
+	info1, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after first install: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if err := installPiSimplifyGateExtension(home); err != nil {
+		t.Fatalf("installPiSimplifyGateExtension error: %v", err)
+	}
+	info2, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after second install: %v", err)
+	}
+	if !info2.ModTime().Equal(info1.ModTime()) {
+		t.Fatalf("mtime changed on no-op reinstall: %v -> %v", info1.ModTime(), info2.ModTime())
+	}
+}
+
 func TestInstallPiTheme(t *testing.T) {
 	stubPiLookPath(t)
 

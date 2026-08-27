@@ -76,15 +76,14 @@ function projectProseCard(pi: any, wshPath: string): void {
 }
 
 export function registerAskMirror(pi: any, wshPath: string): void {
+    // outside a Wave block there is no panel to mirror to and the prose bridge would exec a
+    // failing wsh on every settle — register nothing, stay inert
+    if (!process.env.WAVETERM_BLOCKID) return;
     pi.on("tool_call", (event: any) => {
         if (event?.toolName !== ASK_USER_QUESTION_TOOL_NAME) {
             return undefined;
         }
         turnUsedAskTool = true;
-        // Bare pi outside a Wave block: no panel to mirror to.
-        if (!process.env.WAVETERM_BLOCKID) {
-            return undefined;
-        }
         const questions = event?.input?.questions;
         if (!Array.isArray(questions) || questions.length === 0) {
             return undefined;

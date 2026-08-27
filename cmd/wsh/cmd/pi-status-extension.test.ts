@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import wavetermStatus, { registerWavetermStatus, sessionTitle } from "./pi-status-extension";
 
 type Handler = (event: any, ctx: any) => void;
@@ -68,7 +68,22 @@ function assertStatusExec(pi: ReturnType<typeof fakePi>, wshPath: string, over: 
     expect(pi.exec).toHaveBeenCalledWith(wshPath, expect.arrayContaining(Object.entries(want).flat()));
 }
 
+// the extension registers its reporters only inside a Wave block (the agentstatus RPC is
+// unreachable elsewhere); every handler test below runs with a block env present
+beforeEach(() => {
+    process.env.WAVETERM_BLOCKID = "block:test";
+});
+afterEach(() => {
+    delete process.env.WAVETERM_BLOCKID;
+});
+
 describe("registerWavetermStatus", () => {
+    it("registers nothing outside a Wave block", () => {
+        delete process.env.WAVETERM_BLOCKID;
+        const pi = fakePi();
+        registerWavetermStatus(pi, "wsh");
+        expect(pi.handlers.size).toBe(0);
+    });
     it("registers every lifecycle event", () => {
         const pi = fakePi();
         registerWavetermStatus(pi, "wsh");

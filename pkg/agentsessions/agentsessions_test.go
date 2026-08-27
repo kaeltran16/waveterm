@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -311,7 +310,7 @@ func TestScanProvider_PiDiscoversSessionUnderEncodedDir(t *testing.T) {
 	if !reflect.DeepEqual(s.ResumeArgs, []string{"--session", path}) {
 		t.Errorf("resumeArgs = %v, want [--session %q]", s.ResumeArgs, path)
 	}
-	if wantCmd := "pi --session " + strconv.Quote(path); s.ResumeCommand != wantCmd {
+	if wantCmd := "pi --session " + path; s.ResumeCommand != wantCmd {
 		t.Errorf("resumeCommand = %q, want %q", s.ResumeCommand, wantCmd)
 	}
 	if s.Task != "Pi session title" {
