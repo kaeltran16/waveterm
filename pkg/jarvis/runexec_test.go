@@ -4,6 +4,7 @@
 package jarvis
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func TestRunWorkerSpecFor(t *testing.T) {
@@ -91,6 +93,82 @@ func TestPhasePrompt_ModeAware(t *testing.T) {
 	}
 	if strings.Contains(pp, "wsh jarvis hold") {
 		t.Fatalf("pipeline prompt must not hold-gate (gate is structural):\n%s", pp)
+	}
+}
+
+func TestMakeWorkerBlockMeta_OrchestratorKeepsOnExit(t *testing.T) {
+	// orchestrator leads must not auto-close on exit while DAG children are running
+	orchMeta := makeWorkerBlockMeta(RunWorkerSpec{Bin: "pi", Args: []string{"do"}}, "/proj", true)
+	if !orchMeta.GetBool(waveobj.MetaKey_CmdKeepOnExit, false) {
+		t.Fatalf("orchestrator block meta should have cmd:keeponexit=true, got %#v", orchMeta)
+	}
+	pipeMeta := makeWorkerBlockMeta(RunWorkerSpec{Bin: "pi", Args: []string{"do"}}, "/proj", false)
+	if pipeMeta.GetBool(waveobj.MetaKey_CmdKeepOnExit, false) {
+		t.Fatalf("pipeline block meta should not have cmd:keeponexit, got %#v", pipeMeta)
+	}
+}
+
+func TestEnsureWorkers_OrchestratorStampsKeepOnExit(t *testing.T) {
+	ctx := context.Background()
+	// create a fake tab/block that SpawnRunWorker will "return"
+	tabId := "test-tab-orch"
+	blockId := "test-block-orch"
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabId, Name: "worker", BlockIds: []string{blockId}}); err != nil {
+		t.Fatalf("insert tab: %v", err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockId, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("insert block: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = wstore.DBDelete(ctx, waveobj.OType_Tab, tabId)
+		_ = wstore.DBDelete(ctx, waveobj.OType_Block, blockId)
+	})
+	orig := SpawnRunWorker
+	SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
+		return "tab:" + tabId, nil
+	}
+	defer func() { SpawnRunWorker = orig }()
+	cap, _ := runroute.Resolve(waveobj.RoutePin{Runtime: "pi", Tier: string(consult.TierMid)})
+	// orchestrator run should stamp keeponexit
+	orchRun := NewRun("do orch", "ws", "/p", nil, RunMode_Orchestrator, DefaultOrchestratorPlaybook(false), 1)
+	if _, err := EnsureWorkers(ctx, &orchRun, cap, "proj"); err != nil {
+		t.Fatalf("EnsureWorkers orch: %v", err)
+	}
+	b, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		t.Fatalf("get block: %v", err)
+	}
+	if !b.Meta.GetBool(waveobj.MetaKey_CmdKeepOnExit, false) {
+		t.Fatalf("orchestrator lead should be stamped keeponexit, got %#v", b.Meta)
+	}
+	// reset
+	_ = wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), waveobj.MetaMapType{waveobj.MetaKey_CmdKeepOnExit: nil}, false)
+	// pipeline run must NOT stamp
+	tabId2 := "test-tab-pipe"
+	blockId2 := "test-block-pipe"
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabId2, Name: "worker", BlockIds: []string{blockId2}}); err != nil {
+		t.Fatalf("insert tab2: %v", err)
+	}
+	if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blockId2, Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("insert block2: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = wstore.DBDelete(ctx, waveobj.OType_Tab, tabId2)
+		_ = wstore.DBDelete(ctx, waveobj.OType_Block, blockId2)
+	})
+	SpawnRunWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string) (string, error) {
+		return "tab:" + tabId2, nil
+	}
+	pipeRun := NewRun("do pipe", "ws", "/p", nil, RunMode_Pipeline, DefaultPlaybook(), 1)
+	if _, err := EnsureWorkers(ctx, &pipeRun, cap, "proj"); err != nil {
+		t.Fatalf("EnsureWorkers pipe: %v", err)
+	}
+	b2, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId2)
+	if err != nil {
+		t.Fatalf("get block2: %v", err)
+	}
+	if b2.Meta.GetBool(waveobj.MetaKey_CmdKeepOnExit, false) {
+		t.Fatalf("pipeline worker should not be stamped keeponexit, got %#v", b2.Meta)
 	}
 }
 

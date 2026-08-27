@@ -597,6 +597,94 @@ func TestScheduleResetsFailureStateForEveryParallelSuccess(t *testing.T) {
 	}
 }
 
+func TestShouldCloseOrchestratorLead(t *testing.T) {
+	tests := []struct {
+		name string
+		run  waveobj.Run
+		dag  waveobj.TaskGroup
+		want bool
+	}{
+		{
+			name: "running dag keeps lead",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Executing, Phases: []waveobj.RunPhase{{State: jarvis.PhaseState_Running}}},
+			dag:  waveobj.TaskGroup{Status: "running", Tasks: []waveobj.TaskNode{{ID: "t-0", State: TaskState_Running}}},
+			want: false,
+		},
+		{
+			name: "orchestrator done + dag done closes",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Done, Phases: []waveobj.RunPhase{{State: jarvis.PhaseState_Done}}},
+			dag:  waveobj.TaskGroup{Status: "done", Tasks: []waveobj.TaskNode{{ID: "t-0", State: TaskState_Done}}},
+			want: true,
+		},
+		{
+			name: "orchestrator done but dag still running keeps",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Done},
+			dag:  waveobj.TaskGroup{Status: "running", Tasks: []waveobj.TaskNode{{ID: "t-0", State: TaskState_Running}}},
+			want: false,
+		},
+		{
+			name: "pipeline done never closes via orchestrator path",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Pipeline, Status: jarvis.RunStatus_Done},
+			dag:  waveobj.TaskGroup{Status: "done"},
+			want: false,
+		},
+		{
+			name: "cancelled orchestrator + dag cancelled closes",
+			run:  waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Cancelled},
+			dag:  waveobj.TaskGroup{Status: "cancelled", Tasks: []waveobj.TaskNode{{ID: "t-0", State: TaskState_Cancelled}}},
+			want: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShouldCloseOrchestratorLead(&tc.run, &tc.dag); got != tc.want {
+				t.Errorf("ShouldCloseOrchestratorLead = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMaybeCloseOrchestratorLead(t *testing.T) {
+	ctx := context.Background()
+	run := &waveobj.Run{
+		Mode:        jarvis.RunMode_Orchestrator,
+		Status:      jarvis.RunStatus_Done,
+		WorkspaceId: "ws-1",
+		Phases:      []waveobj.RunPhase{{WorkerOrefs: []string{"tab:lead-tab"}}},
+	}
+	dagDone := &waveobj.TaskGroup{Status: DagStatus_Done, Tasks: []waveobj.TaskNode{{ID: "t-0", State: TaskState_Done}}}
+	dagRunning := &waveobj.TaskGroup{Status: DagStatus_Running, Tasks: []waveobj.TaskNode{{ID: "t-0", State: TaskState_Running}}}
+
+	// should close when done
+	called := false
+	orig := deleteLeadTab
+	deleteLeadTab = func(_ context.Context, ws, tab string) error {
+		called = true
+		if ws != "ws-1" || tab != "lead-tab" {
+			t.Fatalf("delete args ws=%q tab=%q, want ws-1/lead-tab", ws, tab)
+		}
+		return nil
+	}
+	t.Cleanup(func() { deleteLeadTab = orig })
+	ok, err := MaybeCloseOrchestratorLead(ctx, run, dagDone)
+	if err != nil || !ok || !called {
+		t.Fatalf("should close done dag: ok=%v err=%v called=%v", ok, err, called)
+	}
+	// should NOT close while dag still running
+	called = false
+	ok, err = MaybeCloseOrchestratorLead(ctx, run, dagRunning)
+	if err != nil || ok || called {
+		t.Fatalf("should keep running dag: ok=%v err=%v called=%v", ok, err, called)
+	}
+	// pipeline never closes via this path
+	pipeRun := &waveobj.Run{Mode: jarvis.RunMode_Pipeline, Status: jarvis.RunStatus_Done, WorkspaceId: "ws-1", Phases: []waveobj.RunPhase{{WorkerOrefs: []string{"tab:lead-tab"}}}}
+	called = false
+	ok, err = MaybeCloseOrchestratorLead(ctx, pipeRun, dagDone)
+	if err != nil || ok || called {
+		t.Fatalf("pipeline should not close: ok=%v", ok)
+	}
+}
+
 func stubSpawnWorker(t *testing.T, worker string, err error) {
 	t.Helper()
 	old := spawnWorker

@@ -65,6 +65,27 @@ func RunWorkerSpecFor(cap runroute.Capability, prompt string) (RunWorkerSpec, bo
 // launches it headlessly).
 //
 // It is a var so tests can stub the process-spawning boundary without a live tab/PTY.
+
+// makeWorkerBlockMeta builds the block meta for a run worker. keepOnExit is true for
+// orchestrator leads, whose tab must outlive the lead process while DAG children run.
+func makeWorkerBlockMeta(spec RunWorkerSpec, cwd string, keepOnExit bool) waveobj.MetaMapType {
+	m := waveobj.MetaMapType{
+		waveobj.MetaKey_View:       "term",
+		waveobj.MetaKey_Controller: "cmd",
+		waveobj.MetaKey_Cmd:        spec.Bin,
+		waveobj.MetaKey_CmdArgs:    spec.Args,
+		waveobj.MetaKey_CmdShell:   false,
+		waveobj.MetaKey_CmdJwt:     true,
+	}
+	if cwd != "" {
+		m[waveobj.MetaKey_CmdCwd] = cwd
+	}
+	if keepOnExit {
+		m[waveobj.MetaKey_CmdKeepOnExit] = true
+	}
+	return m
+}
+
 var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspaceId, projectName, cwd, prompt string) (string, error) {
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
@@ -86,17 +107,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	}
 	blockId := tab.BlockIds[0]
 
-	blockMeta := waveobj.MetaMapType{
-		waveobj.MetaKey_View:       "term",
-		waveobj.MetaKey_Controller: "cmd",
-		waveobj.MetaKey_Cmd:        spec.Bin,
-		waveobj.MetaKey_CmdArgs:    spec.Args,
-		waveobj.MetaKey_CmdShell:   false,
-		waveobj.MetaKey_CmdJwt:     true,
-	}
-	if cwd != "" {
-		blockMeta[waveobj.MetaKey_CmdCwd] = cwd
-	}
+	blockMeta := makeWorkerBlockMeta(spec, cwd, false)
 	if err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId), blockMeta, false); err != nil {
 		return "", fmt.Errorf("setting worker block meta: %w", err)
 	}
@@ -167,6 +178,19 @@ func EnsureWorkers(ctx context.Context, run *waveobj.Run, cap runroute.Capabilit
 			return spawned, fmt.Errorf("spawning worker for phase %d: %w", i, err)
 		}
 		spawned[i] = oref
+		// orchestrator leads must not auto-close on exit while DAG children are running;
+		// stamp keep-on-exit so checkCloseOnExit becomes a no-op for them.
+		if run.Mode == RunMode_Orchestrator {
+			tabId := oref
+			if idx := len("tab:"); len(oref) > idx && oref[:idx] == "tab:" {
+				tabId = oref[idx:]
+			}
+			if tab, terr := wstore.DBMustGet[*waveobj.Tab](ctx, tabId); terr == nil && len(tab.BlockIds) > 0 {
+				_ = wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, tab.BlockIds[0]), waveobj.MetaMapType{
+					waveobj.MetaKey_CmdKeepOnExit: true,
+				}, false)
+			}
+		}
 	}
 	return spawned, nil
 }

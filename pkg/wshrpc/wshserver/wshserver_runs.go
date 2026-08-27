@@ -649,6 +649,12 @@ func (ws *WshServer) AdvanceRunCommand(ctx context.Context, data wshrpc.CommandA
 		steerRunLead(ctx, leadToSteer, "approved, proceed\r")
 	}
 	publishRunUpdate(data.ChannelId, data.RunId)
+	// auto-close orchestrator lead when both run and DAG are terminal
+	if freshRun, err := wstore.GetRun(ctx, data.ChannelId, data.RunId); err == nil && freshRun.DagORef != "" && (freshRun.Status == jarvis.RunStatus_Done || freshRun.Status == jarvis.RunStatus_Cancelled) {
+		if dag, err := wstore.GetDag(ctx, freshRun.DagORef); err == nil {
+			_, _ = orchestrate.MaybeCloseOrchestratorLead(ctx, freshRun, dag)
+		}
+	}
 	return nil
 }
 
@@ -697,6 +703,13 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 				}
 			}
 			publishRunUpdate(data.ChannelId, data.RunId)
+			if cerr == nil {
+				if dag, err := wstore.GetDag(ctx, linkedRun.DagORef); err == nil {
+					if freshRun, err := wstore.GetRun(ctx, data.ChannelId, data.RunId); err == nil {
+						_, _ = orchestrate.MaybeCloseOrchestratorLead(ctx, freshRun, dag)
+					}
+				}
+			}
 			if cerr != nil {
 				return fmt.Errorf("cancelling dag: %w", cerr)
 			}
@@ -731,6 +744,11 @@ func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCa
 		log.Printf("CancelRun: reload for worker stop failed: %v", gerr)
 	}
 	publishRunUpdate(data.ChannelId, data.RunId)
+	if run, err := wstore.GetRun(ctx, data.ChannelId, data.RunId); err == nil && run.DagORef != "" {
+		if dag, err := wstore.GetDag(ctx, run.DagORef); err == nil {
+			_, _ = orchestrate.MaybeCloseOrchestratorLead(ctx, run, dag)
+		}
+	}
 	return nil
 }
 
