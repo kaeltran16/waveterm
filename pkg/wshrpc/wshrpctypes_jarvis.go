@@ -29,7 +29,6 @@ type JarvisCommands interface {
 	AcceptDossierEdgeCommand(ctx context.Context, data CommandDossierEdgeData) error                                                       // human-confirm a dossier<->run attribution and harden it into canonical refs; also restores a detached edge and attaches an unattributed run
 	ListDetachedEdgesCommand(ctx context.Context, data CommandListDetachedEdgesData) (*CommandListDetachedEdgesRtnData, error)             // the human-suppressed edges for one dossier or one run, so a detach can be undone
 	JarvisDecomposeCommand(ctx context.Context, data CommandJarvisDecomposeData) (*CommandJarvisDecomposeRtnData, error)                   // decompose a goal into independent parallel subtasks (Delegator fan-out); fails safe to [goal]
-	JarvisPlanDagCommand(ctx context.Context, data CommandJarvisPlanDagData) (*CommandJarvisPlanDagRtnData, error)                         // plan a structured, editable DAG before Run creation
 	GetJarvisProfileCommand(ctx context.Context, data CommandGetJarvisProfileData) (*CommandGetJarvisProfileRtnData, error)                // read a channel's Jarvis profile (global + per-project override + resolved)
 	GetGlobalProfileCommand(ctx context.Context) (*waveobj.JarvisProfile, error)                                                           // read the global Jarvis profile (builtins if unset)
 	SetGlobalProfileCommand(ctx context.Context, data CommandSetGlobalProfileData) error                                                   // write the global Jarvis profile to jarvis-profile.json
@@ -118,32 +117,6 @@ type CommandJarvisDecomposeData struct {
 
 type CommandJarvisDecomposeRtnData struct {
 	Subtasks []string `json:"subtasks"`
-}
-
-type CommandJarvisPlanDagData struct {
-	ChannelId string           `json:"channelid"`
-	Goal      string           `json:"goal"`
-	Route     waveobj.RoutePin `json:"route"`
-}
-
-type DagPlanDraft struct {
-	Title string        `json:"title"`
-	Tasks []DagPlanTask `json:"tasks"`
-}
-
-type DagPlanTask struct {
-	ID          string            `json:"id"`
-	Label       string            `json:"label"`
-	Description string            `json:"description,omitempty"`
-	Deps        []string          `json:"deps,omitempty"`
-	Gate        bool              `json:"gate,omitempty"`
-	Route       *waveobj.RoutePin `json:"route,omitempty"`
-}
-
-type CommandJarvisPlanDagRtnData struct {
-	Draft    DagPlanDraft `json:"draft"`
-	Fallback bool         `json:"fallback,omitempty"`
-	Warnings []string     `json:"warnings,omitempty"`
 }
 
 type CommandGetJarvisProfileData struct {
@@ -240,8 +213,8 @@ type CommandArchiveJarvisConversationData struct {
 
 type RouteCapabilityInfo struct {
 	Runtime       string `json:"runtime"`
-	Tier          string `json:"tier,omitempty"`       // legacy tier pin only; "" for model capabilities
-	Model         string `json:"model,omitempty"`       // exact model id; set on catalog capabilities
+	Tier          string `json:"tier,omitempty"`  // legacy tier pin only; "" for model capabilities
+	Model         string `json:"model,omitempty"` // exact model id; set on catalog capabilities
 	ResolvedModel string `json:"resolvedmodel"`
 	Provider      string `json:"provider,omitempty"`
 	ContextHint   string `json:"contexthint,omitempty"`

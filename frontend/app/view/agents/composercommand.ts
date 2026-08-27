@@ -21,15 +21,14 @@ export interface ComposerCommand {
 
 export type RunShape = "pipeline" | "orchestrator" | "quick";
 
-export type DagDraftRequest = {
-    channelId: string;
-    goal: string;
-    route: RoutePin;
-};
-
 export type RunCreationDecision =
-    | { kind: "create-run"; channelId: string; goal: string; mode: "pipeline" | "quick"; route: RoutePin }
-    | { kind: "dag-draft"; request: DagDraftRequest }
+    | {
+          kind: "create-run";
+          channelId: string;
+          goal: string;
+          mode: RunShape;
+          route: RoutePin;
+      }
     | { kind: "blocked"; focusRoute: boolean; reason: string };
 
 export function resolveRunCreationDecision(input: {
@@ -40,12 +39,6 @@ export function resolveRunCreationDecision(input: {
 }): RunCreationDecision {
     if (input.route == null || input.route.capability == null) {
         return { kind: "blocked", focusRoute: true, reason: "Choose an available route" };
-    }
-    if (input.shape === "orchestrator") {
-        return {
-            kind: "dag-draft",
-            request: { channelId: input.channelId, goal: input.goal, route: input.route.pin },
-        };
     }
     return {
         kind: "create-run",
@@ -162,16 +155,16 @@ function resolvePreferredForOperation(
 }
 
 // One-line description of what an `@run` will do, given the channel's resolved Jarvis profile (set in ⚙).
-// The strategy (pipeline|orchestrator + plan gate) is the channel's setting, never chosen per-dispatch —
-// so an unresolved profile says so rather than naming a default the server may not agree with.
+// The strategy comes from the channel's setting, never chosen per-dispatch — so an unresolved profile says
+// so rather than naming a default the server may not agree with.
 export function runFooterFor(profile: JarvisProfile | undefined): string {
     if (profile == null) {
         return "→ resolving channel strategy…";
     }
     if (profile.defaultmode === "orchestrator") {
-        return "→ adaptive lead · splits the work · set in ⚙";
+        return "→ adaptive lead · DAG when useful · set in ⚙";
     }
-    const gate = profile.defaultplangate ?? true;
+    const gate = profile.playbook?.length ? profile.playbook.some((phase) => phase.gate) : true;
     return gate ? "→ pipeline run · stops at a review gate · set in ⚙" : "→ pipeline run · no gate · set in ⚙";
 }
 

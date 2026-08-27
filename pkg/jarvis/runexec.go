@@ -144,7 +144,7 @@ func phasePrompt(run *waveobj.Run, idx int) string {
 		return BuildQuickPrompt(run.Goal, run.Principles)
 	}
 	if run.Mode == RunMode_Orchestrator {
-		return BuildOrchestratePrompt(run.Goal, run.Principles, p.Gate, run.Runtime)
+		return BuildOrchestratePrompt(run.Goal, run.Principles, run.Runtime)
 	}
 	return BuildPhasePrompt(p, run.Goal, priorArtifacts(run, idx), run.Principles)
 }

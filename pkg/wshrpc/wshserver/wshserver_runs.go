@@ -246,7 +246,8 @@ func stopRunWorkers(ctx context.Context, run *waveobj.Run) {
 }
 
 // resolveRunPlan derives the effective mode + playbook for a new run from the resolved profile and the
-// request's optional overrides. Precedence: request > profile default > built-in (pipeline; gate on).
+// request's optional mode override. New orchestrator runs are always ungated; legacy gate fields remain
+// readable for RPC compatibility but do not affect creation.
 func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate *bool) (string, []waveobj.RunPhase) {
 	mode := reqMode
 	if mode == "" {
@@ -260,13 +261,7 @@ func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate 
 		return mode, jarvis.QuickPlaybook()
 	}
 	if mode == jarvis.RunMode_Orchestrator {
-		gate := true
-		if reqPlanGate != nil {
-			gate = *reqPlanGate
-		} else if resolved.DefaultPlanGate != nil {
-			gate = *resolved.DefaultPlanGate
-		}
-		return mode, jarvis.DefaultOrchestratorPlaybook(gate)
+		return mode, jarvis.DefaultOrchestratorPlaybook(false)
 	}
 	playbook := resolved.Playbook
 	if len(playbook) == 0 {
@@ -276,8 +271,8 @@ func resolveRunPlan(resolved waveobj.JarvisProfile, reqMode string, reqPlanGate 
 }
 
 // childRunPlan derives a hands-off playbook for a child run: resolve the plan for the requested (or inherited)
-// mode with the plan gate off, then strip any phase-level gates. A child never halts for human review — the
-// decomposition was already gated once at the parent lead's plan gate.
+// mode with the plan gate off, then strip any phase-level gates. A child never halts for human review; any
+// consequential pause must be an explicit task decision gate.
 func childRunPlan(resolved waveobj.JarvisProfile, reqMode string) (string, []waveobj.RunPhase) {
 	gateOff := false
 	mode, pb := resolveRunPlan(resolved, reqMode, &gateOff)

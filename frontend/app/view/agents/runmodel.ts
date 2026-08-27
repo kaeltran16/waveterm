@@ -105,14 +105,6 @@ export function isOrchestrator(run: Run): boolean {
     return run.mode === "orchestrator";
 }
 
-// One-line summary of what "Start run" will do, shown under the composer.
-export function composerSummary(mode: string, planGate: boolean): string {
-    if (mode === "orchestrator") {
-        return planGate ? "orchestrator · plan gate on" : "orchestrator · adaptive";
-    }
-    return "pipeline · Superpowers default";
-}
-
 // The phase the view focuses: the first running/blocked phase, else the gated phase awaiting review,
 // else the last non-skipped phase.
 export function currentPhaseIndex(run: Run): number {

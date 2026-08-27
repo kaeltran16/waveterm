@@ -133,7 +133,7 @@ export function LaunchComposer({
 
     const runBehavior =
         selectedShape === "orchestrator"
-            ? "→ review DAG before launch"
+            ? "→ persistent lead · DAG when useful"
             : selectedShape === "quick"
               ? `→ direct quick launch in #${channelName}`
               : "→ direct pipeline launch";

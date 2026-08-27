@@ -229,26 +229,26 @@ func TestApplyRunActionUnknown(t *testing.T) {
 	}
 }
 
-func TestResolveRunPlan(t *testing.T) {
-	pipe := jarvis.DefaultPlaybook()
-	resolved := waveobj.JarvisProfile{Playbook: pipe, DefaultMode: jarvis.RunMode_Pipeline}
-
-	// explicit orchestrator + gate on -> single gated orchestrate phase
-	mode, pb := resolveRunPlan(resolved, jarvis.RunMode_Orchestrator, bptr(true))
-	if mode != jarvis.RunMode_Orchestrator || len(pb) != 1 || pb[0].Kind != jarvis.PhaseKind_Orchestrate || !pb[0].Gate {
-		t.Fatalf("orchestrator: mode=%q pb=%+v", mode, pb)
+func TestResolveRunPlanOrchestratorIsAlwaysUngated(t *testing.T) {
+	enabled := true
+	disabled := false
+	cases := []struct {
+		name    string
+		profile waveobj.JarvisProfile
+		request *bool
+	}{
+		{name: "request enabled", request: &enabled},
+		{name: "profile enabled", profile: waveobj.JarvisProfile{DefaultPlanGate: &enabled}},
+		{name: "request disabled", request: &disabled},
+		{name: "unset"},
 	}
-
-	// empty request falls to the profile default (pipeline) with the profile playbook
-	mode, pb = resolveRunPlan(resolved, "", nil)
-	if mode != jarvis.RunMode_Pipeline || len(pb) != len(pipe) {
-		t.Fatalf("default: mode=%q len=%d", mode, len(pb))
-	}
-
-	// orchestrator with no explicit gate + no profile default -> gate ON (safe default)
-	_, pb = resolveRunPlan(waveobj.JarvisProfile{DefaultMode: jarvis.RunMode_Orchestrator}, "", nil)
-	if len(pb) != 1 || !pb[0].Gate {
-		t.Fatalf("gate default should be on: %+v", pb)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode, phases := resolveRunPlan(tc.profile, jarvis.RunMode_Orchestrator, tc.request)
+			if mode != jarvis.RunMode_Orchestrator || len(phases) != 1 || phases[0].Gate {
+				t.Fatalf("mode=%q phases=%+v", mode, phases)
+			}
+		})
 	}
 }
 

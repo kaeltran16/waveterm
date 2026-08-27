@@ -80,8 +80,8 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 
 func TestPhasePrompt_ModeAware(t *testing.T) {
 	orch := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Orchestrator, DefaultOrchestratorPlaybook(true), 1)
-	if p := phasePrompt(&orch, 0); !strings.Contains(p, "wsh jarvis hold") {
-		t.Fatalf("orchestrator prompt should hold-gate:\n%s", p)
+	if p := phasePrompt(&orch, 0); !strings.Contains(p, "wsh jarvis triage") || strings.Contains(p, "wsh jarvis hold") {
+		t.Fatalf("orchestrator prompt should be adaptive and ungated:\n%s", p)
 	}
 
 	pipe := NewRun("do X", "ws", "/p", waveobj.PrincipleList{{ID: "clean", Text: "be clean"}}, RunMode_Pipeline, DefaultPlaybook(), 1)

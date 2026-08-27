@@ -73,7 +73,7 @@ func DefaultPlaybook() []waveobj.RunPhase {
 }
 
 // DefaultOrchestratorPlaybook is a single adaptive "orchestrate" phase. The lead plans and dispatches
-// its own subagents; gate=true tells the lead (via BuildOrchestratePrompt) to hold for plan review.
+// its own subagents; new orchestrator runs pass false because decomposition is not a user approval step.
 func DefaultOrchestratorPlaybook(gate bool) []waveobj.RunPhase {
 	return []waveobj.RunPhase{
 		{Kind: PhaseKind_Orchestrate, Skill: "superpowers:subagent-driven-development", State: PhaseState_Pending, Gate: gate},
@@ -348,30 +348,22 @@ func BuildQuickPrompt(goal string, principles waveobj.PrincipleList) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run: plan, then execute
-// adaptively by dispatching subagents, carrying the principles down to each. A gated run tells the lead
-// to hold after planning; every run tells it to report completion. Self-report verbs are wsh commands.
-func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate bool, runtime string) string {
+// BuildOrchestratePrompt is the lead's initial prompt for an orchestrator run: adaptively choose direct
+// execution or typed DAG publication while carrying principles into every child description.
+func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, runtime string) string {
 	var b strings.Builder
 	if rendered := RenderPrinciples(principles); rendered != "" {
 		fmt.Fprintf(&b, "Work by these principles, and propagate them into every subagent you dispatch:\n%s\n\n", rendered)
 	}
 	if runtime == "pi" {
-		buildPiOrchestratePrompt(&b, goal, gate)
+		buildPiOrchestratePrompt(&b, goal)
 		return strings.TrimRight(b.String(), "\n")
 	}
 	b.WriteString("You are the lead orchestrator for this goal.\n")
-	if gate {
-		b.WriteString("Plan the work using the superpowers:writing-plans approach, then execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
-		b.WriteString("First write the plan to a file, then run `wsh jarvis hold <plan-file-path>` (pass the path so it can be reviewed) and wait — do not dispatch any subagents until you are told to proceed.\n")
-		b.WriteString("If this goal is actually a backlog of INDEPENDENT, individually substantial units (a list of issues, several unrelated features), do not execute them all in one context. Make your plan file a decomposition checklist: each unit, the `wsh jarvis run --mode <quick|pipeline|orchestrator>` you will use for it (map small->quick, medium->pipeline, large->orchestrator), and its dependency order; then `wsh jarvis hold <plan-file-path>` as above. After you are told to proceed, create ONE child run per ready unit with `wsh jarvis run \"<unit description + how to verify it>\"` — keep at most 2-3 in flight, and only start a unit whose dependencies have already reported done. You will be woken with a one-line `[jarvis] child <id> ... -> done|cancelled` status per unit; never open a child's transcript, diff, or evidence — that line is all you need. If a unit reports cancelled, use AskUserQuestion to ask whether to retry it or continue without it. When every unit has reported done (or you were told to skip it), run `wsh jarvis complete --commit $(git rev-parse HEAD)` (its evidence is the aggregate of the children merged into your tree). If instead this goal is a single cohesive task, ignore this paragraph and execute it yourself with in-process subagents.\n")
-	} else {
-		// adaptive: size up the goal first and announce the call (non-blocking) before doing the work.
-		b.WriteString("First size up the goal, then announce your call:\n")
-		b.WriteString("- If it is a small, well-understood change, run `wsh jarvis triage quick \"<one-line reason>\"` and just make the fix directly — no plan document, and dispatch subagents only if the work genuinely needs them.\n")
-		b.WriteString("- If it is larger or ambiguous, run `wsh jarvis triage plan \"<one-line reason>\"`, then plan it with the superpowers:writing-plans approach and execute adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
-		b.WriteString("Do not wait after triaging — proceed straight into the work you chose.\n")
-	}
+	b.WriteString("First size up the goal and announce your call:\n")
+	b.WriteString("- If it is a small, well-understood change, run `wsh jarvis triage quick \"<one-line reason>\"` and just make the fix directly — no plan document, and dispatch subagents only if the work genuinely needs them.\n")
+	b.WriteString("- If it is larger or ambiguous, run `wsh jarvis triage plan \"<one-line reason>\"`, then plan it with the superpowers:writing-plans approach and execute it adaptively by dispatching your own subagents (superpowers:subagent-driven-development / superpowers:dispatching-parallel-agents).\n")
+	b.WriteString("Do not wait after triaging — proceed straight into the work you chose.\n")
 	// The intended ask channel is AskUserQuestion (it renders as an answerable card in the cockpit and
 	// blocks); a question typed in prose does not render, so the run proceeds without an answer.
 	b.WriteString("If a genuinely consequential or ambiguous decision comes up mid-run — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders as an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose: a prose question does not render as a question, so the run just proceeds without an answer.\n")
@@ -382,14 +374,10 @@ func BuildOrchestratePrompt(goal string, principles waveobj.PrincipleList, gate 
 
 // buildPiOrchestratePrompt is the pi-runtime variant: the engine's DAG replaces the
 // dispatch-your-own-subagents loop, and control events replace the per-child notify lines.
-func buildPiOrchestratePrompt(b *strings.Builder, goal string, gate bool) {
+func buildPiOrchestratePrompt(b *strings.Builder, goal string) {
 	b.WriteString("You are the lead orchestrator for this goal, running under pi with the waveterm bridge.\n")
-	if gate {
-		b.WriteString("Plan the work with the superpowers:writing-plans approach, write the plan as pi-tasks records (blocks/blockedby set), then run `wsh jarvis dag import-tasks` to submit the DAG to the engine. The engine schedules children, enforces dependencies and the parallelism cap, and wakes you with control events (child_done, gate_open, dag_blocked, dag_complete) — respond to control events as they arrive; do not babysit children, never open their transcripts. At a gate, wait for the human to approve in the cockpit (or run `wsh jarvis dag approve <task>` yourself only for decisions the prompt marks as yours). Use `wsh jarvis dag status` for detail. Engine DAG = isolated parallel units; pi-subagents = in-context helpers only.\n")
-	} else {
-		b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise plan it (writing-plans), write the plan as pi-tasks records, and run `wsh jarvis dag import-tasks`; the engine schedules children and wakes you with control events — do not babysit. `wsh jarvis dag status` for detail.\n")
-	}
-	// same invariant as the claude branch: the goal must always reach the lead's prompt.
+	b.WriteString("Size up the goal: if it is a small well-understood change, run `wsh jarvis triage quick \"<reason>\"` and do it directly. Otherwise plan it with the writing-plans approach, create pi-tasks records, and run `wsh jarvis dag import-tasks`; the engine validates and schedules ready children automatically and wakes you with control events; respond to control events as they arrive — do not babysit. Each task description must include the task-specific goal, relevant evidence and constraints, expected verification, and pinned decisions so the child does not have to rediscover the broad goal. Use `wsh jarvis dag status` for detail.\n")
+	b.WriteString("If a genuinely consequential or ambiguous decision comes up — one where a wrong assumption would waste real work — use the AskUserQuestion tool to ask the human; it renders an answerable question in the cockpit and blocks until they reply. Never pose such a question in prose.\n")
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	b.WriteString("When the goal is fully accomplished, commit your work and run `wsh jarvis complete --commit $(git rev-parse HEAD)`.\n")
 }

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     cancelSurvivors,
-    composerSummary,
     currentPhaseIndex,
     defaultRunId,
     defaultView,
@@ -364,11 +363,6 @@ describe("orchestrator derivations", () => {
         expect(isOrchestrator({} as unknown as Run)).toBe(false);
     });
 
-    it("composerSummary describes mode + gate", () => {
-        expect(composerSummary("orchestrator", true)).toBe("orchestrator · plan gate on");
-        expect(composerSummary("orchestrator", false)).toBe("orchestrator · adaptive");
-        expect(composerSummary("pipeline", true)).toBe("pipeline · Superpowers default");
-    });
 });
 
 const runtimeHarnesses: HarnessInfo[] = [

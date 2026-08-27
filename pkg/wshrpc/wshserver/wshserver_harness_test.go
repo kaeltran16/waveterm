@@ -12,7 +12,6 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -47,26 +46,6 @@ func TestListHarnessesReturnsCatalogWithoutOpenRouter(t *testing.T) {
 		if info.Label == "" || !info.ConsultCapable || !info.RunWorkerCapable {
 			t.Errorf("info %+v missing label/capabilities", info)
 		}
-	}
-}
-
-func TestInstalledRunWorkerPinsUseOnlyInstalledWorkerCapabilities(t *testing.T) {
-	defer runroute.SetCatalogCommandForTest(func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-		return []byte("provider model context\nopencode deepseek-v4-pro 1M\n"), nil
-	})()
-	runroute.RefreshRouteCatalog()
-	defer runroute.RefreshRouteCatalog()
-
-	pins := installedRunWorkerPins(context.Background(), []harness.ProbeResult{
-		{Spec: harness.Spec{Runtime: "pi", RunWorkerCapable: true}, Installed: true},
-		{Spec: harness.Spec{Runtime: "claude", RunWorkerCapable: true}, Installed: false},
-		{Spec: harness.Spec{Runtime: "codex", RunWorkerCapable: false}, Installed: true},
-	})
-	want := []waveobj.RoutePin{
-		{Runtime: "pi", Model: "opencode/deepseek-v4-pro"},
-	}
-	if !reflect.DeepEqual(pins, want) {
-		t.Fatalf("pins=%+v want=%+v", pins, want)
 	}
 }
 

@@ -63,6 +63,7 @@ var dagImportCmd = &cobra.Command{
 		if dir == "" {
 			dir = "."
 		}
+		title, _ := cmd.Flags().GetString("title")
 		tasks, err := pitasks.Read(dir)
 		if err != nil {
 			return fmt.Errorf("reading pi-tasks: %w", err)
@@ -71,12 +72,15 @@ var dagImportCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if title == "" && len(nodes) > 0 {
+			title = nodes[0].Label
+		}
 		channelId, runId, err := dagIds(cmd)
 		if err != nil {
 			return err
 		}
 		g, err := wshclient.DagSubmitCommand(RpcClient, wshrpc.CommandDagSubmitData{
-			ChannelId: channelId, RunId: runId, Parallelism: 2, Tasks: nodes,
+			ChannelId: channelId, RunId: runId, Title: title, Parallelism: 2, Tasks: nodes,
 		}, &wshrpc.RpcOpts{Timeout: 20_000})
 		if err != nil {
 			return err
@@ -389,6 +393,7 @@ func init() {
 		c.Flags().String("channel", "", "channel id")
 	}
 	dagImportCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
+	dagImportCmd.Flags().String("title", "", "dag title (shown in the ui; default runs the first task's label)")
 	dagInitCmd.Flags().String("dir", "", "pi-tasks dir (default .)")
 	dagEscalateCmd.Flags().String("model", "", "exact model id to retry on (e.g. opencode/claude-opus-4-8)")
 	dagEscalateCmd.Flags().String("runtime", "", "runtime to retry on; empty keeps the task's current runtime")

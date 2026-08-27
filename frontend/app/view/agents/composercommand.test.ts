@@ -182,12 +182,20 @@ describe("resolveRunCreationDecision", () => {
         });
     });
 
-    it("returns only the orchestrator draft request", () => {
+    it("creates an orchestrator lead directly on the exact route", () => {
         expect(
-            resolveRunCreationDecision({ channelId: "channel-1", goal: "plan migration", shape: "orchestrator", route })
+            resolveRunCreationDecision({
+                channelId: "channel-1",
+                goal: "plan migration",
+                shape: "orchestrator",
+                route,
+            })
         ).toEqual({
-            kind: "dag-draft",
-            request: { channelId: "channel-1", goal: "plan migration", route: route.pin },
+            kind: "create-run",
+            channelId: "channel-1",
+            goal: "plan migration",
+            mode: "orchestrator",
+            route: route.pin,
         });
     });
 
@@ -206,18 +214,24 @@ describe("resolveRunCreationDecision", () => {
 describe("runFooterFor", () => {
     it("orchestrator", () => {
         expect(runFooterFor({ playbook: [], defaultmode: "orchestrator" })).toBe(
-            "→ adaptive lead · splits the work · set in ⚙"
+            "→ adaptive lead · DAG when useful · set in ⚙"
         );
     });
     it("pipeline with gate", () => {
-        expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: true })).toBe(
-            "→ pipeline run · stops at a review gate · set in ⚙"
-        );
+        expect(
+            runFooterFor({
+                playbook: [{ kind: "plan", state: "pending", gate: true }],
+                defaultmode: "pipeline",
+            })
+        ).toBe("→ pipeline run · stops at a review gate · set in ⚙");
     });
     it("pipeline no gate", () => {
-        expect(runFooterFor({ playbook: [], defaultmode: "pipeline", defaultplangate: false })).toBe(
-            "→ pipeline run · no gate · set in ⚙"
-        );
+        expect(
+            runFooterFor({
+                playbook: [{ kind: "execute", state: "pending", gate: false }],
+                defaultmode: "pipeline",
+            })
+        ).toBe("→ pipeline run · no gate · set in ⚙");
     });
     it("says the strategy is unresolved rather than asserting a default", () => {
         expect(runFooterFor(undefined)).toBe("→ resolving channel strategy…");

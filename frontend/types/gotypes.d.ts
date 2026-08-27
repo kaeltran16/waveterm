@@ -1120,20 +1120,6 @@ declare global {
         subtasks: string[];
     };
 
-    // wshrpc.CommandJarvisPlanDagData
-    type CommandJarvisPlanDagData = {
-        channelid: string;
-        goal: string;
-        route: RoutePin;
-    };
-
-    // wshrpc.CommandJarvisPlanDagRtnData
-    type CommandJarvisPlanDagRtnData = {
-        draft: DagPlanDraft;
-        fallback?: boolean;
-        warnings?: string[];
-    };
-
     // wshrpc.CommandJarvisRunEventsData
     type CommandJarvisRunEventsData = {
         channelid: string;
@@ -1852,22 +1838,6 @@ declare global {
     // wshrpc.DagAskOption
     type DagAskOption = {
         label: string;
-    };
-
-    // wshrpc.DagPlanDraft
-    type DagPlanDraft = {
-        title: string;
-        tasks: DagPlanTask[];
-    };
-
-    // wshrpc.DagPlanTask
-    type DagPlanTask = {
-        id: string;
-        label: string;
-        description?: string;
-        deps?: string[];
-        gate?: boolean;
-        route?: RoutePin;
     };
 
     // wshrpc.DecisionCard

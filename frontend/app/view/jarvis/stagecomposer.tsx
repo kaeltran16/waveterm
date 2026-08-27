@@ -25,7 +25,6 @@ import { harnessPreferenceAtom, harnessesAtom } from "@/app/view/agents/harnesss
 import { resolveEffectiveRoute, routeForRuntime } from "@/app/view/agents/route";
 import { createRun, pendingRunDraftAtom, resolveChannelLaunchRoute } from "@/app/view/agents/runactions";
 import { currentPhaseIndex } from "@/app/view/agents/runmodel";
-import { openDagDraft } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
@@ -248,6 +247,7 @@ export function StageComposer({
     const runtimeIds = harnessRuntimeIds(harnesses);
     const [harnessOpenRequest, setHarnessOpenRequest] = useState(0);
     const [routeOpenRequest, setRouteOpenRequest] = useState(0);
+    const [launchError, setLaunchError] = useState("");
     const [shape, setShape] = useState<RunShape>(profile?.defaultmode === "orchestrator" ? "orchestrator" : "pipeline");
     const [runRoute, setRunRoute] = useState<RoutePin | null>(route ?? pref.route);
     const shapeTouched = useRef(false);
@@ -313,8 +313,7 @@ export function StageComposer({
     const roster: RosterEntry[] = agents.map((a) => ({ id: a.id, name: a.name, blockId: a.blockId }));
     const phaseLabel = run ? run.phases?.[currentPhaseIndex(run)]?.kind : undefined;
 
-    // The run shape is a per-dispatch choice. Pipeline and quick create immediately; orchestrator hands
-    // the goal to the DAG draft flow without creating a Run.
+    // The run shape is a per-dispatch choice. Every executable shape creates a run immediately.
     const launchInto = (channelId: string, goal: string, route: RoutePin, mode?: string) =>
         fireAndForget(async () => {
             const created = await createRun(channelId, goal, route, { mode });
@@ -415,14 +414,17 @@ export function StageComposer({
                 }
                 return;
             }
-            setDraft("");
-            attach.clear();
-            // whatever this dispatches, the Launch face has done its job — release the face back to the run.
-            setComposingRun(channel.oid, false);
-            if (decision.kind === "dag-draft") {
-                openDagDraft(decision.request);
-            } else {
-                launchInto(channel.oid, decision.goal, decision.route, decision.mode);
+            setLaunchError("");
+            try {
+                const created = await createRun(decision.channelId, decision.goal, decision.route, {
+                    mode: decision.mode,
+                });
+                setActiveRunId(decision.channelId, created.id);
+                setDraft("");
+                attach.clear();
+                setComposingRun(decision.channelId, false);
+            } catch (error) {
+                setLaunchError(String(error));
             }
             return;
         }
@@ -540,6 +542,7 @@ export function StageComposer({
                                     </button>
                                 </div>
                             ) : null}
+                            {launchError ? <div className="mb-1 text-[11px] text-error">{launchError}</div> : null}
                             <LaunchComposer
                                 value={value}
                                 onChange={

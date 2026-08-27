@@ -196,7 +196,6 @@ function GlobalProfileEditor({
     const phases = profile.playbook ?? [];
     const setPhases = (next: RunPhase[]) => onChange({ ...profile, playbook: next });
     const mode = profile.defaultmode ?? "pipeline";
-    const gate = profile.defaultplangate ?? true;
     return (
         <div className="flex flex-col gap-5">
             <div>
@@ -238,16 +237,7 @@ function GlobalProfileEditor({
                         <option value="pipeline">pipeline</option>
                         <option value="orchestrator">orchestrator</option>
                     </select>
-                    {mode === "orchestrator" ? (
-                        <label className="flex cursor-pointer items-center gap-1 text-[11px] text-secondary">
-                            <input
-                                type="checkbox"
-                                checked={gate}
-                                onChange={(e) => onChange({ ...profile, defaultplangate: e.target.checked })}
-                            />
-                            plan gate on by default
-                        </label>
-                    ) : null}
+
                 </div>
             </div>
         </div>
@@ -372,8 +362,7 @@ function DefaultsSection({
     setDraft: React.Dispatch<React.SetStateAction<ProfileOverride>>;
 }) {
     const mode = draft.defaultmode ?? global.defaultmode ?? "pipeline";
-    const gate = draft.defaultplangate ?? global.defaultplangate ?? true;
-    const overridden = draft.defaultmode != null || draft.defaultplangate != null;
+    const overridden = draft.defaultmode != null;
     return (
         <div>
             <div className="mb-1.5 flex items-center gap-2">
@@ -383,7 +372,7 @@ function DefaultsSection({
                 {overridden ? (
                     <button
                         type="button"
-                        onClick={() => setDraft((d) => omit(omit(d, "defaultmode"), "defaultplangate"))}
+                        onClick={() => setDraft((d) => omit(d, "defaultmode"))}
                         className="text-[10px] text-muted hover:text-secondary"
                     >
                         reset to global
@@ -399,16 +388,7 @@ function DefaultsSection({
                     <option value="pipeline">pipeline</option>
                     <option value="orchestrator">orchestrator</option>
                 </select>
-                {mode === "orchestrator" ? (
-                    <label className="flex cursor-pointer items-center gap-1 text-[11px] text-secondary">
-                        <input
-                            type="checkbox"
-                            checked={gate}
-                            onChange={(e) => setDraft((d) => ({ ...d, defaultplangate: e.target.checked }))}
-                        />
-                        plan gate on by default
-                    </label>
-                ) : null}
+
             </div>
         </div>
     );

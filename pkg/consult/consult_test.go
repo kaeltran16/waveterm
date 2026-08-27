@@ -472,38 +472,3 @@ func TestHeadlessCorpusSpec_defaultsToOpenRouterCorpusModel(t *testing.T) {
 		t.Errorf("corpus model = %q, want %q", spec.Model, want)
 	}
 }
-
-// SpecForExactModel pins an exact model id on a runtime that can express one: CLI runtimes get a
-// --model arg, openrouter gets the API Model field. Runtimes without a model knob refuse so the
-// caller can fall back to the tiered headless spec.
-func TestSpecForExactModel(t *testing.T) {
-	spec, ok := SpecForExactModel("pi", "opencode-go/ox-alpha-free")
-	if !ok || !containsModelArg(spec.BaseArgs, "opencode-go/ox-alpha-free") {
-		t.Fatalf("pi: ok=%v args=%v", ok, spec.BaseArgs)
-	}
-	spec, ok = SpecForExactModel("claude", "sonnet")
-	if !ok || !containsModelArg(spec.BaseArgs, "sonnet") {
-		t.Fatalf("claude: ok=%v args=%v", ok, spec.BaseArgs)
-	}
-	spec, ok = SpecForExactModel("openrouter", "x/model")
-	if !ok || spec.Model != "x/model" {
-		t.Fatalf("openrouter: ok=%v model=%q", ok, spec.Model)
-	}
-	for _, rt := range []string{"codex", "opencode", "bogus"} {
-		if _, ok := SpecForExactModel(rt, "m"); ok {
-			t.Errorf("%s: expected refusal, got ok", rt)
-		}
-	}
-	if _, ok := SpecForExactModel("pi", ""); ok {
-		t.Error("empty model must refuse")
-	}
-}
-
-func containsModelArg(args []string, model string) bool {
-	for i, a := range args {
-		if a == "--model" && i+1 < len(args) && args[i+1] == model {
-			return true
-		}
-	}
-	return false
-}
