@@ -257,6 +257,9 @@ func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDag
 		return fmt.Errorf("no task %q", data.TaskId)
 	}
 	task := &g.Tasks[taskIdx]
+	if task.Merged {
+		return nil
+	}
 	if task.State != orchestrate.TaskState_Done && task.State != orchestrate.TaskState_BlockedMerge {
 		return fmt.Errorf("task %s is %s, want done", data.TaskId, task.State)
 	}
@@ -268,7 +271,13 @@ func (ws *WshServer) DagMergeCommand(ctx context.Context, data wshrpc.CommandDag
 		return fmt.Errorf("loading child run: %w", err)
 	}
 	key := orchestrate.TaskWorktreeKey(owner.ID, data.TaskId)
-	sha, err := orchestrate.MergeRunWorktree(ctx, owner.ProjectPath, key, child.Goal)
+	// commit message should be the task label, not the full child goal
+	// (which embeds plan description + headless contract).
+	mergeMsg := task.Label
+	if mergeMsg == "" {
+		mergeMsg = task.ID
+	}
+	sha, err := orchestrate.MergeRunWorktree(ctx, owner.ProjectPath, key, mergeMsg)
 	if err != nil {
 		if errors.Is(err, orchestrate.ErrMergeConflict) {
 			if derr := orchestrate.MarkBlockedMerge(ctx, owner.DagORef, child.ID); derr != nil {
@@ -328,6 +337,9 @@ func (ws *WshServer) DagMergeContinueCommand(ctx context.Context, data wshrpc.Co
 		return fmt.Errorf("no task %q", data.TaskId)
 	}
 	task := &g.Tasks[taskIdx]
+	if task.Merged {
+		return nil
+	}
 	if task.State != orchestrate.TaskState_BlockedMerge {
 		return fmt.Errorf("task %s is %s, want blocked-merge", data.TaskId, task.State)
 	}
@@ -339,7 +351,11 @@ func (ws *WshServer) DagMergeContinueCommand(ctx context.Context, data wshrpc.Co
 		return fmt.Errorf("loading child run: %w", err)
 	}
 	key := orchestrate.TaskWorktreeKey(owner.ID, data.TaskId)
-	sha, err := orchestrate.MergeContinue(ctx, owner.ProjectPath, key, child.Goal)
+	mergeMsg := task.Label
+	if mergeMsg == "" {
+		mergeMsg = task.ID
+	}
+	sha, err := orchestrate.MergeContinue(ctx, owner.ProjectPath, key, mergeMsg)
 	if err != nil {
 		return err
 	}

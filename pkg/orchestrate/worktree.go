@@ -62,10 +62,27 @@ func RemoveRunWorktree(ctx context.Context, projectPath, runID string) error {
 		return nil // nothing to remove
 	}
 	if _, err := git(ctx, projectPath, "worktree", "remove", "--force", wt); err != nil {
+		// On Windows the dir can remain locked by an idle child shell or by
+		// junctioned node_modules/src-tauri/target/dist/bin. If git no longer
+		// lists the worktree, the registration is gone and the lingering dir
+		// should be treated as already removed.
+		if !isWorktreeRegistered(ctx, projectPath, wt) {
+			git(ctx, projectPath, "branch", "-D", "wave/"+runID) // best-effort
+			return nil
+		}
 		return fmt.Errorf("removing worktree: %w", err)
 	}
 	git(ctx, projectPath, "branch", "-D", "wave/"+runID) // best-effort
 	return nil
+}
+
+func isWorktreeRegistered(ctx context.Context, projectPath, wt string) bool {
+	out, err := git(ctx, projectPath, "worktree", "list", "--porcelain")
+	if err != nil {
+		return true // can't tell — assume registered so caller surfaces the error
+	}
+	// porcelain lists "worktree <path>" per entry
+	return strings.Contains(out, wt)
 }
 
 // EnsureRunWorktree returns a usable linked worktree for runID at baseCommit. An existing tree is
