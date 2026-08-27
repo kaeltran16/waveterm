@@ -60,8 +60,11 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 		if run.Mode != jarvis.RunMode_Orchestrator {
 			return fmt.Errorf("dag requires an orchestrator-mode run")
 		}
-		if run.Status != jarvis.RunStatus_Planning {
-			return fmt.Errorf("dag run %s is %s, want planning", run.ID, run.Status)
+		// accept both a deferred planning run and a live lead run that publishes its dag mid-run
+		// (the adaptive orchestrator flow starts the orchestrate phase immediately). CreateDagForRun
+		// rejects a run that already links a dag, so allowing executing cannot double-publish.
+		if run.Status != jarvis.RunStatus_Planning && run.Status != jarvis.RunStatus_Executing {
+			return fmt.Errorf("dag run %s is %s, want planning or executing", run.ID, run.Status)
 		}
 		run.Status = jarvis.RunStatus_Executing
 		return nil

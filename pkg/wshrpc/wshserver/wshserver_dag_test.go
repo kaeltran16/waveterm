@@ -142,6 +142,42 @@ func TestDagSubmitAndAction(t *testing.T) {
 	}
 }
 
+func TestDagSubmitOnLiveLeadRun(t *testing.T) {
+	// the adaptive orchestrator flow starts the orchestrate phase immediately (run is executing
+	// with no dag); a mid-run dag publish must be accepted, not rejected with "want planning".
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "dag-live-lead", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	run := jarvis.NewRun("do the thing", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(false), 1)
+	if run.Status != jarvis.RunStatus_Executing {
+		t.Fatalf("new orchestrator run status = %q, want executing (adaptive lead started)", run.Status)
+	}
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	stubRunServer(t, "pi", nil)
+	ws := &WshServer{}
+	g, err := ws.DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{
+		ChannelId: ch.OID, RunId: run.ID, Title: "t", Parallelism: 1,
+		Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "one"}},
+	})
+	if err != nil {
+		t.Fatalf("submit on executing lead run must succeed: %v", err)
+	}
+	got, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if got.DagORef != g.OID {
+		t.Fatalf("dagoref not linked")
+	}
+	if got.Status != jarvis.RunStatus_Executing {
+		t.Fatalf("run status = %q, want executing", got.Status)
+	}
+}
+
 func TestDagSubmitDeferredRun(t *testing.T) {
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "dag-deferred", t.TempDir())
